@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   useAccounts,
@@ -14,13 +14,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Pencil, Check, X, CircleCheck, CircleX, ChevronLeft, ChevronRight, Trash2, AlertTriangle } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
-import type { AdminAccount } from "@/types/admin";
+import type { AdminAccount, RegisteredCluster } from "@/types/admin";
 
 type StatusFilter = "all" | "active" | "deleted";
 type IntegrationFilter = "all" | "openmeter" | "no-openmeter" | "langfuse" | "no-langfuse";
 
 const PAGE_SIZE = 25;
 const PRIMARY_CLUSTER_VALUE = "__primary__";
+const CLUSTER_MSG_TTL_MS = 8000;
+
+function clusterIdFromSelect(value: string): string {
+  return value === PRIMARY_CLUSTER_VALUE ? "" : value;
+}
+
+function clusterSelectValue(clusterId: string): string {
+  return clusterId === "" ? PRIMARY_CLUSTER_VALUE : clusterId;
+}
+
+function savedClusterId(account: AdminAccount): string {
+  return account.cluster_id ?? "";
+}
 
 function filterAccounts(
   accounts: AdminAccount[],
@@ -55,6 +68,9 @@ export function AccountsPage() {
   // Two-step confirm for the failsafe — first click arms, second click fires.
   const [bustAllArmed, setBustAllArmed] = useState(false);
   const [bustAllResult, setBustAllResult] = useState<string | null>(null);
+  const [clusterChangeMsgs, setClusterChangeMsgs] = useState<Record<string, string>>({});
+  const [pendingClusterIds, setPendingClusterIds] = useState<Record<string, string>>({});
+  const clusterMsgTimeouts = useRef<Record<string, number>>({});
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -72,6 +88,85 @@ export function AccountsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const pageAccounts = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  const clearAccountClusterMessage = useCallback((accountId: string) => {
+    const existing = clusterMsgTimeouts.current[accountId];
+    if (existing !== undefined) {
+      window.clearTimeout(existing);
+      delete clusterMsgTimeouts.current[accountId];
+    }
+    setClusterChangeMsgs((prev) => {
+      if (!(accountId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[accountId];
+      return next;
+    });
+  }, []);
+
+  const setAccountClusterMessage = useCallback(
+    (accountId: string, message: string) => {
+      clearAccountClusterMessage(accountId);
+      setClusterChangeMsgs((prev) => ({ ...prev, [accountId]: message }));
+      clusterMsgTimeouts.current[accountId] = window.setTimeout(() => {
+        clearAccountClusterMessage(accountId);
+      }, CLUSTER_MSG_TTL_MS);
+    },
+    [clearAccountClusterMessage],
+  );
+
+  const setPendingCluster = useCallback((accountId: string, clusterId: string) => {
+    clearAccountClusterMessage(accountId);
+    setPendingClusterIds((prev) => ({ ...prev, [accountId]: clusterId }));
+  }, [clearAccountClusterMessage]);
+
+  const clearPendingCluster = useCallback((accountId: string) => {
+    setPendingClusterIds((prev) => {
+      if (!(accountId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[accountId];
+      return next;
+    });
+  }, []);
+
+  const applyClusterMigration = useCallback(
+    (accountId: string, clusterId: string) => {
+      setClusterMut.mutate(
+        { id: accountId, clusterId },
+        {
+          onSuccess: (resp) => {
+            clearPendingCluster(accountId);
+            const count = resp.migrations_enqueued ?? 0;
+            if (count > 0) {
+              setAccountClusterMessage(
+                accountId,
+                `${count} deployment migration${count === 1 ? "" : "s"} queued. Track in Admin → Migrations.`,
+              );
+            } else {
+              setAccountClusterMessage(
+                accountId,
+                "Account cluster updated; no deployment migrations queued. If routing should have moved, check Admin → Migrations.",
+              );
+            }
+          },
+          onError: (e) => {
+            setAccountClusterMessage(accountId, `Cluster change failed: ${(e as Error).message}`);
+          },
+        },
+      );
+    },
+    [clearPendingCluster, setAccountClusterMessage, setClusterMut],
+  );
+
+  useEffect(() => {
+    const timeouts = clusterMsgTimeouts.current;
+    return () => {
+      Object.values(timeouts).forEach((id) => window.clearTimeout(id));
+    };
+  }, []);
 
   // Reset to page 0 when filters change
   const updateFilter = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) => (v: T) => {
@@ -225,28 +320,16 @@ export function AccountsPage() {
                             {a.cluster_id || "primary"}
                           </span>
                         ) : (
-                          <Select
-                            value={a.cluster_id || PRIMARY_CLUSTER_VALUE}
-                            onValueChange={(v) =>
-                              setClusterMut.mutate({
-                                id: a.id,
-                                clusterId: v === PRIMARY_CLUSTER_VALUE ? "" : v,
-                              })
-                            }
-                            disabled={setClusterMut.isPending}
-                          >
-                            <SelectTrigger className="h-7 w-44 text-xs">
-                              <SelectValue placeholder="Primary (default)" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={PRIMARY_CLUSTER_VALUE}>Primary (default)</SelectItem>
-                              {additionalClusters.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {c.id}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <AccountClusterCell
+                            account={a}
+                            additionalClusters={additionalClusters}
+                            pendingClusterId={pendingClusterIds[a.id]}
+                            message={clusterChangeMsgs[a.id]}
+                            isMigrating={setClusterMut.isPending && setClusterMut.variables?.id === a.id}
+                            onPendingChange={setPendingCluster}
+                            onClearPending={clearPendingCluster}
+                            onMigrate={applyClusterMigration}
+                          />
                         )}
                       </td>
                       <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{a.owner_user_id ? truncateUUID(a.owner_user_id) : "-"}</td>
@@ -352,6 +435,81 @@ function LoadingSkeleton() {
       {Array.from({ length: 5 }).map((_, i) => (
         <Skeleton key={i} className="h-10 w-full" />
       ))}
+    </div>
+  );
+}
+
+type AccountClusterCellProps = {
+  account: AdminAccount;
+  additionalClusters: RegisteredCluster[];
+  pendingClusterId: string | undefined;
+  message: string | undefined;
+  isMigrating: boolean;
+  onPendingChange: (accountId: string, clusterId: string) => void;
+  onClearPending: (accountId: string) => void;
+  onMigrate: (accountId: string, clusterId: string) => void;
+};
+
+function AccountClusterCell({
+  account,
+  additionalClusters,
+  pendingClusterId,
+  message,
+  isMigrating,
+  onPendingChange,
+  onClearPending,
+  onMigrate,
+}: AccountClusterCellProps) {
+  const savedId = savedClusterId(account);
+  const effectiveId = pendingClusterId ?? savedId;
+  const hasPendingChange = effectiveId !== savedId;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1">
+        <Select
+          value={clusterSelectValue(effectiveId)}
+          onValueChange={(v) => onPendingChange(account.id, clusterIdFromSelect(v))}
+          disabled={isMigrating}
+        >
+          <SelectTrigger className="h-7 w-44 text-xs">
+            <SelectValue placeholder="Primary (default)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={PRIMARY_CLUSTER_VALUE}>Primary (default)</SelectItem>
+            {additionalClusters.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {hasPendingChange && (
+          <>
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={isMigrating}
+              onClick={() => onMigrate(account.id, effectiveId)}
+            >
+              {isMigrating ? "Migrating…" : "Migrate"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={isMigrating}
+              onClick={() => onClearPending(account.id)}
+              title="Cancel cluster change"
+            >
+              <X className="size-3" />
+            </Button>
+          </>
+        )}
+      </div>
+      {message && (
+        <span className="max-w-56 text-[10px] leading-tight text-muted-foreground">{message}</span>
+      )}
     </div>
   );
 }

@@ -1,8 +1,11 @@
+import { Link, useSearchParams } from "react-router";
 import { useRiverUIStatus, useStartRiverUI, useStopRiverUI } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "lucide-react";
 
 export function RiverUIPage() {
+  const [searchParams] = useSearchParams();
+  const highlightJob = searchParams.get("job");
   const { data, isLoading } = useRiverUIStatus();
   const start = useStartRiverUI();
   const stop = useStopRiverUI();
@@ -16,6 +19,14 @@ export function RiverUIPage() {
         River UI provides a web dashboard for inspecting background job queues.
         It runs inside astro-server and is proxied through the admin gRPC boundary.
       </p>
+
+      {highlightJob && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+          Looking for job{" "}
+          <span className="font-mono font-medium">{highlightJob}</span>. In River UI, search or filter by that job
+          ID.
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
@@ -51,6 +62,12 @@ export function RiverUIPage() {
           >
             {start.isPending ? "Starting..." : "Start"}
           </Button>
+        )}
+
+        {highlightJob && (
+          <Link to="/admin/migrations" className="text-sm text-honey-dark hover:underline">
+            Back to migrations
+          </Link>
         )}
       </div>
 

@@ -27,6 +27,10 @@ type LineageValidator interface {
 // Handlers translate this into a 409 Conflict.
 var ErrDuplicateDisplayName = errors.New("display_name already in use by another active deployment")
 
+// ErrClusterMigrationStatusChanged means the deployment status changed between
+// the migrator's read and ApplyClusterMigration's transaction.
+var ErrClusterMigrationStatusChanged = errors.New("deployment status changed during cluster migration")
+
 // Store manages deployment record persistence in PostgreSQL.
 //
 // validator is optional. When non-nil, SaveDeploymentPending and
@@ -329,6 +333,36 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
 		}
 		deployments = append(deployments, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
+// GetDeploymentsByAccountInStatuses returns deployments for an account matching any of the given statuses.
+func (s *Store) GetDeploymentsByAccountInStatuses(accountID string, statuses ...string) ([]*Deployment, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE account_id = $1 AND status = ANY($2)
+		ORDER BY deployed_at DESC
+	`, accountID, pq.Array(statuses))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deployments by account and status: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var deployments []*Deployment
+	for rows.Next() {
+		d, err := scanDeployment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan deployment: %w", err)
+		}
+		deployments = append(deployments, d)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
@@ -758,6 +792,66 @@ func (s *Store) UpdateDeploymentClusterRouting(deploymentID, clusterID, specJSON
 		return fmt.Errorf("update deployment cluster routing: %w", err)
 	}
 	return nil
+}
+
+// ClusterMigrationParams are DB writes applied atomically after source-cluster teardown.
+type ClusterMigrationParams struct {
+	DeploymentID    string
+	TargetClusterID string
+	PatchedSpecJSON string
+	PriorStatus     string
+	EventMessage    string
+	Namespace       string // cleared from scaled_namespaces when PriorStatus is scaled_down
+}
+
+// ApplyClusterMigration updates routing, records the migration event, clears scaled-down
+// tracking when applicable, and sets status pending in one transaction.
+func (s *Store) ApplyClusterMigration(p ClusterMigrationParams) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	result, err := tx.Exec(`
+		UPDATE deployments
+		SET cluster_id = $2, deployment_spec_json = $3, status_changed_at = NOW()
+		WHERE id = $1 AND status = $4
+	`, p.DeploymentID, nilIfEmpty(p.TargetClusterID), p.PatchedSpecJSON, p.PriorStatus)
+	if err != nil {
+		return fmt.Errorf("update deployment cluster routing: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update deployment cluster routing rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: deployment %s expected status %q", ErrClusterMigrationStatusChanged, p.DeploymentID, p.PriorStatus)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO deployment_events (deployment_id, status, message)
+		VALUES ($1, $2, $3)
+	`, p.DeploymentID, p.PriorStatus, nilIfEmpty(p.EventMessage))
+	if err != nil {
+		return fmt.Errorf("record deployment event: %w", err)
+	}
+
+	if p.PriorStatus == StatusScaledDown && p.Namespace != "" {
+		_, err = tx.Exec(`DELETE FROM scaled_namespaces WHERE namespace = $1`, p.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to clear scaled namespace: %w", err)
+		}
+	}
+
+	if err := updateStatusTx(tx, p.DeploymentID, StatusUpdate{
+		Status:   StatusPending,
+		EventMsg: p.EventMessage,
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // RecordDeploymentEvent appends a timeline row without changing deployment status.

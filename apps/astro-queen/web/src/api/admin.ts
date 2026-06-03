@@ -24,7 +24,9 @@ import type {
   UpdateClusterRequest,
   UpdateClusterResponse,
   CheckClusterHealthResponse,
+  SetAccountClusterResponse,
   InvalidateCachesResponse,
+  ListClusterMigrationsResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -101,12 +103,26 @@ export function useSetAccountCluster() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, clusterId }: { id: string; clusterId: string }) =>
-      api.put(`/api/admin/accounts/${encodeURIComponent(id)}/cluster`, {
-        cluster_id: clusterId,
-      }),
+      api.put<SetAccountClusterResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/cluster`,
+        { cluster_id: clusterId },
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.migrations() });
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
+  });
+}
+
+export function useClusterMigrations(mismatchesOnly: boolean) {
+  return useQuery({
+    queryKey: adminKeys.migrations(mismatchesOnly),
+    queryFn: () =>
+      api.get<ListClusterMigrationsResponse>(
+        `/api/admin/migrations${mismatchesOnly ? "?mismatches_only=1" : ""}`,
+      ),
+    retry: false,
   });
 }
 

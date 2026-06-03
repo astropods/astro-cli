@@ -36,6 +36,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/backfill-resolved-keys", s.handleBackfillResolvedKeys)
 	mux.HandleFunc("POST /api/admin/openmeter-backfill", s.handleTriggerOpenMeterBackfill)
 	mux.HandleFunc("GET /api/admin/feedback", s.handleListFeedback)
+	mux.HandleFunc("GET /api/admin/migrations", s.handleListClusterMigrations)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +102,18 @@ func (s *Server) handleInvalidateAccountCaches(w http.ResponseWriter, r *http.Re
 
 func (s *Server) handleInvalidateAllCaches(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.InvalidateAllCaches(r.Context(), &adminv1.InvalidateAllCachesRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListClusterMigrations(w http.ResponseWriter, r *http.Request) {
+	mismatchesOnly := r.URL.Query().Get("mismatches_only") == "1"
+	resp, err := s.admin.ListClusterMigrations(r.Context(), &adminv1.ListClusterMigrationsRequest{
+		MismatchesOnly: mismatchesOnly,
+	})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

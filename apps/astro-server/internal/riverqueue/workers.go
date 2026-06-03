@@ -19,7 +19,7 @@ import (
 // addWorkers registers all River workers into the registry.
 // Returns the ReconcileWorker, AccountPurgeWorker and InsightsRefreshWorker
 // so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker) {
+func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
 	log := cfg.Logger
 
 	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
@@ -79,6 +79,9 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
+	migrateWorker := &MigrateDeploymentClusterWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache}
+	river.AddWorker(workers, migrateWorker)
+	log.Info("river: registered worker", "worker", "MigrateDeploymentClusterWorker")
 
 	var dynClient dynamic.Interface
 	if cfg.K8sRegistry != nil {
@@ -219,5 +222,5 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return rw, pw, insightsDiscovery
+	return rw, pw, insightsDiscovery, migrateWorker
 }

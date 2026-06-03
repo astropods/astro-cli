@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router";
 import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,13 +8,26 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
-import { formatDateTime, truncateUUID, formatClusterId, ecrRegionFromImage, specTargetClusterId } from "@/lib/utils";
+import {
+  cn,
+  formatDateTime,
+  truncateUUID,
+  formatClusterId,
+  ecrRegionFromImage,
+  specTargetClusterId,
+  livePodPlacements,
+} from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "drift";
+  const highlightJobParam = searchParams.get("job");
+  const highlightJobId =
+    highlightJobParam != null && highlightJobParam !== "" ? Number(highlightJobParam) : undefined;
   const { data, isLoading, error, refetch } = useDeployment(id ?? "", 5_000);
   const deleteMut = useDeleteDeployment();
   const wakeUpMut = useWakeUpDeployment();
@@ -315,7 +328,15 @@ export function DeploymentDetailPage() {
         </div>
       )}
 
-      <Tabs defaultValue="drift">
+      <Tabs
+        value={activeTab}
+        onValueChange={(tab) => {
+          const next = new URLSearchParams(searchParams);
+          if (tab === "drift") next.delete("tab");
+          else next.set("tab", tab);
+          setSearchParams(next, { replace: true });
+        }}
+      >
         <TabsList variant="line">
           <TabsTrigger value="drift">Drift Report</TabsTrigger>
           <TabsTrigger value="events">Events & Jobs</TabsTrigger>
@@ -329,6 +350,9 @@ export function DeploymentDetailPage() {
           <DriftReportSection
             report={data.drift_report}
             checkedAt={data.drift_checked_at}
+            resolvedClusterId={cs?.resolved_cluster_id}
+            pods={cs?.pods}
+            deploymentClusterId={dep.cluster_id}
             onRefresh={() => refreshDriftMut.mutate(id!, { onSuccess: () => refetch() })}
             isRefreshing={refreshDriftMut.isPending}
             error={refreshDriftMut.error}
@@ -359,8 +383,17 @@ export function DeploymentDetailPage() {
               </h3>
               {jobsQuery.isLoading && <Skeleton className="h-20 w-full" />}
               {jobsQuery.error && <p className="text-destructive text-sm">{jobsQuery.error.message}</p>}
+              {highlightJobId != null && !Number.isNaN(highlightJobId) && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Highlighting River job{" "}
+                  <span className="font-mono text-foreground">{highlightJobId}</span>
+                  {jobsQuery.data?.jobs?.every((j) => j.job_id !== highlightJobId) && jobsQuery.data?.jobs?.length
+                    ? " (not in the last 25 jobs for this deployment — check River UI)"
+                    : null}
+                </p>
+              )}
               {jobsQuery.data?.jobs?.length ? (
-                <JobsTable jobs={jobsQuery.data.jobs} />
+                <JobsTable jobs={jobsQuery.data.jobs} highlightJobId={highlightJobId} />
               ) : (
                 !jobsQuery.isLoading && <p className="text-xs text-muted-foreground">No jobs found for this deployment.</p>
               )}
@@ -588,7 +621,7 @@ function RevisionTable({
   );
 }
 
-function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
+function JobsTable({ jobs, highlightJobId }: { jobs: DeploymentJob[]; highlightJobId?: number }) {
   const stateColors: Record<string, string> = {
     completed: "text-green-600",
     running: "text-blue-600",
@@ -604,6 +637,7 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
         <thead className="sticky top-0 z-10 glass-subtle">
           <tr className="border-b border-glass-border-honey">
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Time</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Job</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Cluster</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">State</th>
@@ -632,10 +666,24 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
               }
             }
 
+            const highlighted = highlightJobId != null && j.job_id === highlightJobId;
+
             return (
-              <tr key={i} className="border-b border-comb-light">
+              <tr
+                key={j.job_id ?? i}
+                className={cn("border-b border-comb-light", highlighted && "bg-amber-500/10")}
+              >
                 <td className="px-3 py-1.5 text-muted-foreground" title={j.created_at}>
                   {formatDistanceToNow(new Date(j.created_at), { addSuffix: true })}
+                </td>
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  {j.job_id != null ? (
+                    <Link to={`/admin/river-ui?job=${j.job_id}`} className="text-honey-dark hover:underline">
+                      {j.job_id}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td className="px-3 py-1.5 font-medium">{j.kind}</td>
                 <td className="px-3 py-1.5 font-mono text-muted-foreground">{formatClusterId(j.cluster_id)}</td>
@@ -865,13 +913,31 @@ function PodRow({
 
 // --- Drift Report Section (renders pre-computed drift report from server) ---
 
-function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing, error }: {
+function DriftReportSection({
+  report,
+  checkedAt,
+  resolvedClusterId,
+  pods,
+  deploymentClusterId,
+  onRefresh,
+  isRefreshing,
+  error,
+}: {
   report?: DriftReport;
   checkedAt?: string;
+  resolvedClusterId?: string;
+  pods?: K8sPodInfo[];
+  deploymentClusterId?: string;
   onRefresh: () => void;
   isRefreshing: boolean;
   error?: Error | null;
 }) {
+  const livePods = livePodPlacements(pods);
+  const ecrRegion = report?.workloads?.[0]?.actual?.Image
+    ? ecrRegionFromImage(report.workloads[0].actual.Image)
+    : report?.workloads?.[0]?.expected?.Image
+      ? ecrRegionFromImage(report.workloads[0].expected.Image)
+      : null;
   if (!report) {
     return (
       <div className="space-y-2">
@@ -920,8 +986,19 @@ function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing, error 
         <p className="text-sm text-destructive">{error.message}</p>
       )}
 
+      <LiveComputePlacementCard
+        resolvedClusterId={resolvedClusterId}
+        deploymentClusterId={deploymentClusterId}
+        ecrRegion={ecrRegion}
+        livePods={livePods}
+      />
+
       {report.workloads?.length > 0 && (
-        <DriftTable title="Workloads" items={report.workloads} />
+        <DriftTable
+          title="Workloads"
+          items={report.workloads}
+          subtitle="Image host is the ECR registry region (often us-east-1). Compare Live compute placement above for where pods actually run."
+        />
       )}
       {report.services?.length > 0 && (
         <DriftTable title="Services" items={report.services} />
@@ -939,9 +1016,75 @@ function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing, error 
   );
 }
 
+function LiveComputePlacementCard({
+  resolvedClusterId,
+  deploymentClusterId,
+  ecrRegion,
+  livePods,
+}: {
+  resolvedClusterId?: string;
+  deploymentClusterId?: string;
+  ecrRegion: string | null;
+  livePods: ReturnType<typeof livePodPlacements>;
+}) {
+  if (!resolvedClusterId && livePods.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 dark:border-sky-500/40 dark:bg-sky-500/10 px-4 py-3 space-y-2">
+      <h3 className="text-sm font-medium">Live compute placement</h3>
+      <p className="text-xs text-muted-foreground">
+        Where pods are scheduled in Kubernetes (from live cluster status). This is separate from ECR image registry
+        region in the workload table below.
+      </p>
+      <dl className="grid gap-1 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="text-muted-foreground">Resolved cluster</dt>
+          <dd className="font-mono">{formatClusterId(resolvedClusterId)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Deployment routes to</dt>
+          <dd className="font-mono">{formatClusterId(deploymentClusterId)}</dd>
+        </div>
+        {ecrRegion && (
+          <div>
+            <dt className="text-muted-foreground">Agent image ECR region</dt>
+            <dd className="font-mono">{ecrRegion}</dd>
+          </div>
+        )}
+      </dl>
+      {livePods.length > 0 ? (
+        <ul className="space-y-1 text-xs font-mono">
+          {livePods.map((p) => (
+            <li key={p.podName} className="rounded bg-background/60 px-2 py-1">
+              <span className="text-foreground">{p.podName}</span>
+              <span className="text-muted-foreground"> · </span>
+              {p.phase}
+              <span className="text-muted-foreground"> · assigned to </span>
+              <span className="text-sky-700 dark:text-sky-300">{p.nodeName}</span>
+              {p.nodeRegion && (
+                <span className="text-muted-foreground"> ({p.nodeRegion})</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted-foreground">No pods with node assignment in live status.</p>
+      )}
+    </div>
+  );
+}
+
 type DriftStatus = "match" | "missing" | "extra" | "drift";
 
-function DriftTable({ title, items }: { title: string; items: DriftResourceItem[] }) {
+function DriftTable({
+  title,
+  items,
+  subtitle,
+}: {
+  title: string;
+  items: DriftResourceItem[];
+  subtitle?: string;
+}) {
   const missingCount = items.filter((i) => i.status === "missing").length;
   const extraCount = items.filter((i) => i.status === "extra").length;
   const driftCount = items.filter((i) => i.status === "drift").length;
@@ -977,6 +1120,9 @@ function DriftTable({ title, items }: { title: string; items: DriftResourceItem[
         {extraCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{extraCount} extra</span>}
         {driftCount > 0 && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{driftCount} drifted</span>}
       </CollapsibleTrigger>
+      {subtitle && (
+        <p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p>
+      )}
       <CollapsibleContent className="mt-2">
         <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-xs">

@@ -43,6 +43,15 @@ type CommandDispatcher interface {
 	SendCommand(ctx context.Context, deviceID string, cmd *connectv1.ShellCommand) (*connectv1.CommandResult, error)
 }
 
+// adminJobQueue enqueues River worker jobs from admin gRPC handlers.
+type adminJobQueue interface {
+	InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
+	InsertOpenMeterBackfillJob(ctx context.Context) error
+}
+
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
 
@@ -58,7 +67,7 @@ type Server struct {
 	httpHandler    http.Handler
 	workosClientID string
 	databaseURL    string
-	queue          *riverqueue.Queue
+	queue          adminJobQueue
 	cache          k8scache.Cache
 
 	auditStore   *auditlog.Store
@@ -1643,9 +1652,9 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 }
 
 // ReapplyDeployment re-applies the current revision by setting status to pending and enqueuing a deploy job.
-// When account placement differs from deployment routing, syncs cluster_id and spec target.cluster_id first.
+// When account placement differs from deployment routing, enqueues a cross-cluster migration job instead.
 // Works for active, failed, or scaled_down deployments.
-func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploymentRequest) (*adminv1.ReapplyDeploymentResponse, error) {
+func (s *Server) ReapplyDeployment(ctx context.Context, req *adminv1.ReapplyDeploymentRequest) (*adminv1.ReapplyDeploymentResponse, error) {
 	if req.DeploymentId == "" {
 		return nil, fmt.Errorf("deployment_id is required")
 	}
@@ -1668,23 +1677,20 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	}
 
 	routingClusterID := dep.EffectiveClusterID()
-	clusterPlacementUpdated := false
-	var placementMessage string
 
 	if placementMismatch(accountClusterID, routingClusterID) {
-		patchedSpec, err := patchDeploymentSpecClusterID(dep.DeploymentSpecJSON, accountClusterID)
-		if err != nil {
-			return nil, err
+		if s.queue == nil {
+			return nil, fmt.Errorf("queue not configured; cannot migrate cluster placement")
 		}
-		if err := s.deployStore.UpdateDeploymentClusterRouting(dep.ID, accountClusterID, patchedSpec); err != nil {
-			return nil, fmt.Errorf("update cluster routing: %w", err)
+		if err := s.queue.InsertMigrateDeploymentClusterJob(ctx, dep.ID, accountClusterID, routingClusterID); err != nil {
+			return nil, fmt.Errorf("enqueue cluster migration: %w", err)
 		}
-		placementMessage = placementUpdateMessage(routingClusterID, accountClusterID)
-		if err := s.deployStore.RecordDeploymentEvent(dep.ID, dep.Status, placementMessage); err != nil {
-			s.log.Warn("Failed to record placement update event", "deployment_id", dep.ID, "error", err)
-		}
-		clusterPlacementUpdated = true
-		routingClusterID = accountClusterID
+		msg := placementUpdateMessage(routingClusterID, accountClusterID)
+		return &adminv1.ReapplyDeploymentResponse{
+			Status:                  "reapplying",
+			ClusterPlacementUpdated: true,
+			Message:                 msg + ". Teardown on source cluster queued, then deploy to target.",
+		}, nil
 	}
 
 	// Clear scaled-down tracking if applicable
@@ -1703,19 +1709,14 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 	// Enqueue deploy job
 	if s.queue != nil {
-		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, routingClusterID); err != nil {
+		if err := s.queue.InsertDeployJob(ctx, dep.ID, routingClusterID); err != nil {
 			return nil, fmt.Errorf("enqueue deploy job: %w", err)
 		}
 	}
 
-	resp := &adminv1.ReapplyDeploymentResponse{
-		Status:                  "reapplying",
-		ClusterPlacementUpdated: clusterPlacementUpdated,
-	}
-	if clusterPlacementUpdated {
-		resp.Message = placementMessage + ". Routing updated for future applies; existing pods may remain on the previous cluster until the deploy worker finishes."
-	}
-	return resp, nil
+	return &adminv1.ReapplyDeploymentResponse{
+		Status: "reapplying",
+	}, nil
 }
 
 // RepairNormalizedSpec re-generates the deployment template from the original
@@ -1935,7 +1936,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 	// Query River job table for jobs related to this deployment.
 	// errors is jsonb[] (Postgres array) — cast to text for scanning.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors::text,
+		SELECT id, kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors::text,
 		       COALESCE(args->>'cluster_id', '')
 		FROM river.river_job
 		WHERE args->>'deployment_id' = $1
@@ -1955,7 +1956,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		var createdAt time.Time
 		var attemptedAt, finalizedAt sql.NullTime
 		var errorsStr sql.NullString
-		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr, &j.ClusterId); err != nil {
+		if err := rows.Scan(&j.JobId, &j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr, &j.ClusterId); err != nil {
 			s.log.Warn("Failed to scan river job row", "error", err)
 			continue
 		}

@@ -148,6 +148,9 @@ func (m *mockAdminClient) CheckClusterHealth(context.Context, *adminv1.CheckClus
 func (m *mockAdminClient) InvalidateAccountCaches(context.Context, *adminv1.InvalidateAccountCachesRequest, ...grpc.CallOption) (*adminv1.InvalidateCachesResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) ListClusterMigrations(context.Context, *adminv1.ListClusterMigrationsRequest, ...grpc.CallOption) (*adminv1.ListClusterMigrationsResponse, error) {
+	panic("not implemented")
+}
 func (m *mockAdminClient) InvalidateAllCaches(context.Context, *adminv1.InvalidateAllCachesRequest, ...grpc.CallOption) (*adminv1.InvalidateCachesResponse, error) {
 	panic("not implemented")
 }

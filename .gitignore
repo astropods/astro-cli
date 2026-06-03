@@ -150,6 +150,9 @@ storybook-static
 playwright-report/
 test-results/
 
+# Cursor config
+.cursor/
+
 # Claude Code
 .claude
 

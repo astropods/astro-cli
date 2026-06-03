@@ -57,6 +57,7 @@ type AdminServiceClient interface {
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
 	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
+	ListClusterMigrations(ctx context.Context, in *ListClusterMigrationsRequest, opts ...grpc.CallOption) (*ListClusterMigrationsResponse, error)
 }
 
 type adminServiceClient struct {
@@ -419,6 +420,14 @@ func (c *adminServiceClient) InvalidateAllCaches(ctx context.Context, in *Invali
 	return out, nil
 }
 
+func (c *adminServiceClient) ListClusterMigrations(ctx context.Context, in *ListClusterMigrationsRequest, opts ...grpc.CallOption) (*ListClusterMigrationsResponse, error) {
+	out := new(ListClusterMigrationsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListClusterMigrations", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -466,6 +475,7 @@ type AdminServiceServer interface {
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
 	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error)
+	ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -646,6 +656,10 @@ func (UnimplementedAdminServiceServer) InvalidateAccountCaches(context.Context, 
 
 func (UnimplementedAdminServiceServer) InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InvalidateAllCaches not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListClusterMigrations not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1320,6 +1334,21 @@ func _AdminService_InvalidateAllCaches_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListClusterMigrations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListClusterMigrationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListClusterMigrations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListClusterMigrations"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListClusterMigrations(ctx, req.(*ListClusterMigrationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1369,6 +1398,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
 		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},
 		{MethodName: "InvalidateAllCaches", Handler: _AdminService_InvalidateAllCaches_Handler},
+		{MethodName: "ListClusterMigrations", Handler: _AdminService_ListClusterMigrations_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

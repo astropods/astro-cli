@@ -626,11 +626,50 @@ type DeploymentJob struct {
 	FinalizedAt string `json:"finalized_at,omitempty"`
 	Errors      string `json:"errors,omitempty"`
 	ClusterId   string `json:"cluster_id,omitempty"`
+	JobId       int64  `json:"job_id,omitempty"`
 }
 
 type GetDeploymentJobsResponse struct {
 	Jobs            []*DeploymentJob `json:"jobs,omitempty"`
 	LastReconcileAt string           `json:"last_reconcile_at,omitempty"`
+}
+
+type ListClusterMigrationsRequest struct {
+	MismatchesOnly bool `json:"mismatches_only,omitempty"`
+}
+
+type ClusterMigrationEvent struct {
+	DeploymentId string `json:"deployment_id,omitempty"`
+	AccountName  string `json:"account_name,omitempty"`
+	AgentName    string `json:"agent_name,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Message      string `json:"message,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+}
+
+type ClusterMigrationJob struct {
+	JobId            int64  `json:"job_id,omitempty"`
+	Kind             string `json:"kind,omitempty"`
+	State            string `json:"state,omitempty"`
+	DeploymentId     string `json:"deployment_id,omitempty"`
+	ArgsJson         string `json:"args_json,omitempty"`
+	Errors           string `json:"errors,omitempty"`
+	CreatedAt        string `json:"created_at,omitempty"`
+	FinalizedAt      string `json:"finalized_at,omitempty"`
+	Attempt          int32  `json:"attempt,omitempty"`
+	MaxAttempt       int32  `json:"max_attempt,omitempty"`
+	DurationMs       int64  `json:"duration_ms,omitempty"`
+	AccountName      string `json:"account_name,omitempty"`
+	AgentName        string `json:"agent_name,omitempty"`
+	SourceClusterId  string `json:"source_cluster_id,omitempty"`
+	TargetClusterId  string `json:"target_cluster_id,omitempty"`
+	DeployClusterId  string `json:"deploy_cluster_id,omitempty"`
+}
+
+type ListClusterMigrationsResponse struct {
+	Events        []*ClusterMigrationEvent `json:"events,omitempty"`
+	Jobs          []*ClusterMigrationJob   `json:"jobs,omitempty"`
+	MismatchCount int32                    `json:"mismatch_count,omitempty"`
 }
 
 type RepairNormalizedSpecRequest struct {
@@ -781,8 +820,10 @@ type SetAccountClusterRequest struct {
 }
 
 type SetAccountClusterResponse struct {
-	Status    string `json:"status,omitempty"`
-	ClusterID string `json:"cluster_id,omitempty"`
+	Status             string   `json:"status,omitempty"`
+	ClusterID          string   `json:"cluster_id,omitempty"`
+	MigrationsEnqueued int32    `json:"migrations_enqueued,omitempty"`
+	DeploymentIds      []string `json:"deployment_ids,omitempty"`
 }
 
 type UpdateClusterRequest struct {

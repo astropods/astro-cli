@@ -128,6 +128,7 @@ export interface GetDeploymentEventsResponse {
 }
 
 export interface DeploymentJob {
+  job_id?: number;
   kind: string;
   state: string;
   attempt: number;
@@ -516,7 +517,48 @@ export interface CheckClusterHealthResponse {
   cluster: RegisteredCluster;
 }
 
+export interface SetAccountClusterResponse {
+  status?: string;
+  cluster_id?: string;
+  migrations_enqueued?: number;
+  deployment_ids?: string[];
+}
+
 export interface InvalidateCachesResponse {
   accounts_busted: number;
   deployments_busted: number;
+}
+
+export interface ClusterMigrationEvent {
+  deployment_id: string;
+  account_name: string;
+  agent_name: string;
+  status: string;
+  message: string;
+  created_at: string;
+}
+
+export interface ClusterMigrationJob {
+  job_id: number;
+  kind: string;
+  state: string;
+  deployment_id: string;
+  args_json: string;
+  errors?: string;
+  created_at: string;
+  finalized_at?: string;
+  attempt: number;
+  max_attempt: number;
+  duration_ms: number;
+  account_name?: string;
+  agent_name?: string;
+  source_cluster_id?: string;
+  target_cluster_id?: string;
+  deploy_cluster_id?: string;
+}
+
+export interface ListClusterMigrationsResponse {
+  events: ClusterMigrationEvent[];
+  jobs: ClusterMigrationJob[];
+  mismatch_count: number;
 }

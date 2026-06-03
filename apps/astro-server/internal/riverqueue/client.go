@@ -93,7 +93,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	reconcileWorker, purgeWorker, insightsDiscovery := addWorkers(workers, cfg)
+	reconcileWorker, purgeWorker, insightsDiscovery, migrateWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -139,6 +139,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			}
 			return q.InsertUndeployJob(ctx, deploymentID, cid)
 		}
+	}
+	if migrateWorker != nil {
+		migrateWorker.queue = q
 	}
 
 	return q, nil
@@ -202,6 +205,16 @@ func (q *Queue) InsertDeployJob(ctx context.Context, deploymentID, clusterID str
 // InsertUndeployJob enqueues an undeploy job.
 func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error {
 	_, err := q.Insert(ctx, UndeployArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
+	return err
+}
+
+// InsertMigrateDeploymentClusterJob enqueues a cross-cluster migration job.
+func (q *Queue) InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error {
+	_, err := q.Insert(ctx, MigrateDeploymentClusterArgs{
+		DeploymentID:    deploymentID,
+		TargetClusterID: targetClusterID,
+		SourceClusterID: sourceClusterID,
+	}, nil)
 	return err
 }
 

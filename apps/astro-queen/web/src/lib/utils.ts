@@ -45,6 +45,35 @@ export function ecrRegionFromImage(image: string): string | null {
   return match ? match[1] : null;
 }
 
+/** AWS region from a Kubernetes node name (e.g. ip-…​.eu-west-1.compute.internal). */
+export function k8sNodeRegionFromName(nodeName: string): string | null {
+  if (!nodeName) return null;
+  const match = nodeName.match(/\.([a-z]{2}-[a-z]+-\d+)\.compute\.internal$/i);
+  return match ? match[1] : null;
+}
+
+export type LivePodPlacement = {
+  podName: string;
+  nodeName: string;
+  nodeRegion: string | null;
+  phase: string;
+};
+
+/** Summarize running/scheduling pods for live compute placement display. */
+export function livePodPlacements(
+  pods: { name: string; node_name: string; phase: string }[] | undefined,
+): LivePodPlacement[] {
+  if (!pods?.length) return [];
+  return pods
+    .filter((p) => p.node_name)
+    .map((p) => ({
+      podName: p.name,
+      nodeName: p.node_name,
+      nodeRegion: k8sNodeRegionFromName(p.node_name),
+      phase: p.phase,
+    }));
+}
+
 /** URL/query value for filtering deployments routed to the primary cluster. */
 export const PRIMARY_CLUSTER_FILTER = "__primary__";
 

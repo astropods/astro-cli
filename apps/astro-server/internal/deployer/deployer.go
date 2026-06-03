@@ -56,16 +56,20 @@ type Deployer struct {
 }
 
 func (d *Deployer) clusterClient(ctx context.Context, dep *deploymentstore.Deployment) (k8s.ClusterClient, error) {
-	if d == nil || d.Registry == nil {
-		return nil, fmt.Errorf("deployer: k8s registry not configured")
-	}
 	if dep == nil {
 		return nil, fmt.Errorf("deployer: nil deployment")
 	}
-	if dep.EffectiveClusterID() == "" {
+	return d.clusterClientForKey(ctx, dep.EffectiveClusterID())
+}
+
+func (d *Deployer) clusterClientForKey(ctx context.Context, clusterID string) (k8s.ClusterClient, error) {
+	if d == nil || d.Registry == nil {
+		return nil, fmt.Errorf("deployer: k8s registry not configured")
+	}
+	if clusterID == "" {
 		return d.Registry.Default(), nil
 	}
-	return d.Registry.Get(ctx, dep.EffectiveClusterID())
+	return d.Registry.Get(ctx, clusterID)
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -418,10 +422,19 @@ func buildNamespaceLabels(dep *deploymentstore.Deployment, accountName string) m
 	return labels
 }
 
-// Teardown deletes the K8s namespace for a deployment, cascading to all resources.
+// Teardown deletes the K8s namespace for a deployment on its routing cluster.
 // Returns nil if the namespace is already gone (idempotent).
 func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment) error {
-	k8sForDep, err := d.clusterClient(ctx, dep)
+	return d.TeardownOnCluster(ctx, dep, dep.EffectiveClusterID())
+}
+
+// TeardownOnCluster deletes the K8s namespace on an explicit cluster, regardless
+// of deployments.cluster_id. Used for cross-cluster migration before routing updates.
+func (d *Deployer) TeardownOnCluster(ctx context.Context, dep *deploymentstore.Deployment, clusterID string) error {
+	if dep == nil {
+		return fmt.Errorf("deployer: nil deployment")
+	}
+	k8sForDep, err := d.clusterClientForKey(ctx, clusterID)
 	if err != nil {
 		if k8s.IsPermanentClientResolutionError(err) {
 			return fmt.Errorf("%w: resolve k8s client: %w", ErrClusterClientUnavailable, err)

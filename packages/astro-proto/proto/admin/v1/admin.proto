@@ -41,6 +41,7 @@ service AdminService {
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
+  rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
 }
 
 message ListDeploymentsRequest {
@@ -368,11 +369,50 @@ message DeploymentJob {
   string finalized_at = 7;
   string errors = 8;
   string cluster_id = 9; // river_job.args->>'cluster_id'; empty = primary
+  int64 job_id = 10;
 }
 
 message GetDeploymentJobsResponse {
   repeated DeploymentJob jobs = 1;
   string last_reconcile_at = 2;
+}
+
+message ListClusterMigrationsRequest {
+  bool mismatches_only = 1; // when true, events/jobs limited to placement-mismatch deployments
+}
+
+message ClusterMigrationEvent {
+  string deployment_id = 1;
+  string account_name = 2;
+  string agent_name = 3;
+  string status = 4;
+  string message = 5;
+  string created_at = 6;
+}
+
+message ClusterMigrationJob {
+  int64 job_id = 1;
+  string kind = 2;
+  string state = 3;
+  string deployment_id = 4;
+  string args_json = 5;
+  string errors = 6;
+  string created_at = 7;
+  string finalized_at = 8;
+  int32 attempt = 9;
+  int32 max_attempt = 10;
+  int64 duration_ms = 11; // finalized - created; 0 if not finalized
+  string account_name = 13;
+  string agent_name = 14;
+  string source_cluster_id = 15; // migrate job: prior routing
+  string target_cluster_id = 16; // migrate job: desired routing
+  string deploy_cluster_id = 17; // deploy job: cluster_id arg
+}
+
+message ListClusterMigrationsResponse {
+  repeated ClusterMigrationEvent events = 1;
+  repeated ClusterMigrationJob jobs = 2;
+  int32 mismatch_count = 3;
 }
 
 message ListFeedbackRequest {}
@@ -534,6 +574,8 @@ message SetAccountClusterRequest {
 message SetAccountClusterResponse {
   string status = 1;
   string cluster_id = 2;
+  int32 migrations_enqueued = 3;
+  repeated string deployment_ids = 4;
 }
 
 message UpdateClusterRequest {

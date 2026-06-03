@@ -20,6 +20,7 @@ import { RiverUIPage } from "@/pages/river-ui";
 import { QuotaRequestsPage } from "@/pages/quota-requests";
 import { FeedbackPage } from "@/pages/feedback";
 import { ClustersPage } from "@/pages/clusters";
+import { MigrationsPage } from "@/pages/migrations";
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { path: "admin/river-ui", element: <RiverUIPage /> },
       { path: "admin/quota-requests", element: <QuotaRequestsPage /> },
       { path: "admin/clusters", element: <ClustersPage /> },
+      { path: "admin/migrations", element: <MigrationsPage /> },
       { path: "admin/feedback", element: <FeedbackPage /> },
       { path: "openmeter/dashboard", element: <OpenMeterDashboardPage /> },
       { path: "openmeter/meters", element: <MetersPage /> },

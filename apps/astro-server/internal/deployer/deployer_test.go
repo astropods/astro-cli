@@ -166,6 +166,34 @@ func TestTeardown_TransientResolutionError_NotUnavailable(t *testing.T) {
 	}
 }
 
+func TestTeardownOnCluster_UsesExplicitClusterNotDeploymentRow(t *testing.T) {
+	client := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Success"}`))
+	}))
+
+	d := &Deployer{Registry: k8s.NewRegistryWithPrimary(client)}
+	clusterID := "eu-west-1-secondary"
+	dep := &deploymentstore.Deployment{
+		Namespace: "test-ns",
+		ClusterID: &clusterID,
+	}
+
+	err := d.TeardownOnCluster(context.Background(), dep, "")
+	if err != nil {
+		t.Errorf("TeardownOnCluster(primary) should use primary client, got: %v", err)
+	}
+
+	err = d.Teardown(context.Background(), dep)
+	if err == nil {
+		t.Fatal("Teardown should fail when deployment routes to unregistered additional cluster")
+	}
+	if !errors.Is(err, ErrClusterClientUnavailable) {
+		t.Fatalf("expected ErrClusterClientUnavailable, got %v", err)
+	}
+}
+
 func TestTeardown_ServerError(t *testing.T) {
 	// The test HTTP server returns 500, simulating an API server error.
 	client := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

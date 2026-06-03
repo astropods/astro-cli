@@ -62,4 +62,17 @@ export async function astroProxyFetch(
   return { status: res.status, headers: respHeaders, body: text };
 }
 
+export function formatApiError(err: unknown): {
+  status: number | null;
+  detail: string;
+} {
+  if (err instanceof APIError) {
+    return { status: err.status, detail: err.body };
+  }
+  if (err instanceof Error) {
+    return { status: null, detail: err.message };
+  }
+  return { status: null, detail: String(err) };
+}
+
 export { APIError };

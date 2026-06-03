@@ -24,6 +24,8 @@ export const adminKeys = {
   deploymentJobs: (id: string) => [...adminKeys.all, "deploymentJobs", id] as const,
   quotaRequests: (status?: string) => [...adminKeys.all, "quotaRequests", status ?? "all"] as const,
   feedback: () => [...adminKeys.all, "feedback"] as const,
+  migrations: (mismatchesOnly?: boolean) =>
+    [...adminKeys.all, "migrations", mismatchesOnly ?? false] as const,
 };
 
 export const openmeterKeys = {
