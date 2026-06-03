@@ -1658,6 +1658,19 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		)
 		result.MessagingAvailable = svcErr == nil
 
+		// Overlay the messaging Launch URL from the DB. enrichDeployment only
+		// reads K8s Ingress objects, which don't exist in local mode (NodePort)
+		// or for any ingress-less messaging exposure; the DB ingress row is
+		// the source of truth for the URL. Mirrors the list endpoint at the
+		// `GetMessagingURLs` site above.
+		if messagingURLs, merr := deployStore.GetMessagingURLs([]string{dbDep.ID}); merr != nil {
+			log.Warn("Failed to load messaging URL for deployment", "error", merr, "deployment_id", dbDep.ID)
+		} else if url, ok := messagingURLs[dbDep.ID]; ok {
+			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
+				Name: "messaging", Type: "messaging", URL: url, Ready: true,
+			})
+		}
+
 		if override := cfg.Deployment.MessagingURLOverride; override != "" {
 			result.MessagingAvailable = true
 			result.ExternalURLs = append(result.ExternalURLs, ServiceEndpointInfo{
