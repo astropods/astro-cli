@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
+import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
+import type { LogEntry } from '@/lib/log-utils';
 import type { AgentDeployment, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
 
@@ -131,29 +132,55 @@ const TIME_RANGE_MS: Record<string, number> = {
   '7d': 7 * 24 * 60 * 60 * 1000,
 };
 
+const LOG_PAGE_SIZE = 500;
+
 export function useDeploymentLogs(
   deploymentId: string,
   workloadName: string,
   container: string,
   timeRange = '1h',
   timezone = 'UTC',
-  options?: { enabled?: boolean; refetchInterval?: number | false },
+  options?: { enabled?: boolean },
 ) {
   const api = useApiClient();
   const baseEnabled = !!deploymentId && !!workloadName && !!container;
   const enabled = (options?.enabled ?? true) && baseEnabled;
-  return useQuery({
+
+  const query = useInfiniteQuery({
     queryKey: deploymentKeys.logs(deploymentId, workloadName, container, timeRange, timezone),
-    queryFn: () => {
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
       const ms = TIME_RANGE_MS[timeRange];
       const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
-      return api.getDeploymentLogs(deploymentId, workloadName, container, since, timezone);
+      return api.getDeploymentLogs(deploymentId, workloadName, container, since, timezone, {
+        tailLines: LOG_PAGE_SIZE,
+        direction: 'backward',
+        until: pageParam,
+      });
     },
+    // Cursor for the next (older) page is the oldest timestamp in the last fetched page.
+    getNextPageParam: (lastPage: LogEntry[]) =>
+      lastPage.length >= LOG_PAGE_SIZE ? (lastPage[0]?.timestamp ?? undefined) : undefined,
+    initialPageParam: undefined as string | undefined,
     enabled,
-    refetchInterval: options?.refetchInterval,
     staleTime: 0,
     gcTime: 1000 * 30,
   });
+
+  // Pages are ordered newest-first; reverse so the flat array is oldest→newest.
+  const logs = useMemo(
+    () => [...(query.data?.pages ?? [])].reverse().flat(),
+    [query.data?.pages],
+  );
+
+  return {
+    data: logs,
+    isLoading: query.isLoading,
+    isRefetching: query.isRefetching,
+    refetch: query.refetch,
+    loadMore: () => query.fetchNextPage(),
+    isLoadingMore: query.isFetchingNextPage,
+    hasMore: query.hasNextPage,
+  };
 }
 
 export function useLastErrorLog(

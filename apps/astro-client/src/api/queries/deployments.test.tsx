@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useDeployment, useDeploymentEvents, useUndeployAgent, useStopDeployment, useRestartDeployment } from './deployments';
+import { useDeployments, useDeployment, useDeploymentEvents, useDeploymentLogs, useUndeployAgent, useStopDeployment, useRestartDeployment } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments, mockDeploymentEvents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
 import type { DeploymentsListResponse } from '@/lib/api';
+import type { LogEntry } from '@/lib/log-utils';
 
 const testAccount = 'testuser';
 
@@ -289,5 +290,112 @@ describe('useUndeployAgent', () => {
     // Deployments cache should have been invalidated
     const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);
+  });
+});
+
+const mockLogs: LogEntry[] = Array.from({ length: 3 }, (_, i) => ({
+  timestamp: `2026-06-02T10:00:0${i}.000Z`,
+  level: 'info',
+  message: `log line ${i}`,
+}));
+
+describe('useDeploymentLogs', () => {
+  it('fetches logs with direction=backward and tailLines=500', async () => {
+    let gotDirection: string | null = null;
+    let gotTailLines: string | null = null;
+
+    server.use(
+      http.get('/api/v1/deployments/:id/logs', ({ request }) => {
+        const url = new URL(request.url);
+        gotDirection = url.searchParams.get('direction');
+        gotTailLines = url.searchParams.get('tailLines');
+        return HttpResponse.json(mockLogs);
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentLogs('dep-1', 'my-workload', 'agent'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(gotDirection).toBe('backward');
+    expect(gotTailLines).toBe('500');
+    expect(result.current.data).toHaveLength(3);
+    expect(result.current.data[0].message).toBe('log line 0');
+  });
+
+  it('returns hasMore=true when a full page is returned and false when partial', async () => {
+    const fullPage: LogEntry[] = Array.from({ length: 500 }, (_, i) => ({
+      timestamp: `2026-06-02T10:00:00.${String(i).padStart(3, '0')}Z`,
+      level: 'info',
+      message: `line ${i}`,
+    }));
+
+    server.use(
+      http.get('/api/v1/deployments/:id/logs', () => HttpResponse.json(fullPage)),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentLogs('dep-1', 'my-workload', 'agent'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.hasMore).toBe(true);
+
+    // Simulate a partial page (fewer than 500) for the next fetch
+    server.use(
+      http.get('/api/v1/deployments/:id/logs', () => HttpResponse.json(mockLogs)),
+    );
+
+    await act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.hasMore).toBe(false));
+  });
+
+  it('passes until cursor from oldest log when loading more', async () => {
+    let gotUntil: string | null = null;
+    let callCount = 0;
+
+    const firstPage: LogEntry[] = Array.from({ length: 500 }, (_, i) => ({
+      timestamp: `2026-06-02T10:00:00.${String(i).padStart(3, '0')}Z`,
+      level: 'info',
+      message: `line ${i}`,
+    }));
+
+    server.use(
+      http.get('/api/v1/deployments/:id/logs', ({ request }) => {
+        callCount++;
+        const url = new URL(request.url);
+        if (callCount > 1) gotUntil = url.searchParams.get('until');
+        return HttpResponse.json(callCount === 1 ? firstPage : mockLogs);
+      }),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentLogs('dep-1', 'my-workload', 'agent'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(() => result.current.loadMore());
+
+    // The until cursor should be the oldest (first) timestamp of the initial page.
+    expect(gotUntil).toBe(firstPage[0].timestamp);
+  });
+
+  it('does not fetch when disabled', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentLogs('dep-1', 'my-workload', 'agent', '1h', 'UTC', { enabled: false }),
+      { wrapper },
+    );
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data).toHaveLength(0);
   });
 });

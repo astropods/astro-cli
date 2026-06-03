@@ -258,6 +258,28 @@ func TestQueryLogs_CustomLimit(t *testing.T) {
 	}
 }
 
+func TestQueryLogs_BackwardDirection(t *testing.T) {
+	var gotDirection string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotDirection = r.URL.Query().Get("direction")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	_, err := c.QueryLogs(context.Background(), QueryParams{
+		Namespace: "astro-abc-0",
+		Direction: "backward",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDirection != "backward" {
+		t.Errorf("direction = %q, want backward", gotDirection)
+	}
+}
+
 func TestQueryLogs_TimeRange(t *testing.T) {
 	var gotStart, gotEnd string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

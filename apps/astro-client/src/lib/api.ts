@@ -1946,10 +1946,11 @@ class ApiClient {
     container: string,
     since?: string,
     timezone?: string,
-    options?: { level?: string; direction?: string; tailLines?: number },
+    options?: { level?: string; direction?: string; tailLines?: number; until?: string },
   ): Promise<LogEntry[]> {
     const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
+    if (options?.until) params.set('until', options.until);
     if (timezone && timezone !== 'UTC') params.set('timezone', timezone);
     if (options?.level) params.set('level', options.level);
     if (options?.direction) params.set('direction', options.direction);

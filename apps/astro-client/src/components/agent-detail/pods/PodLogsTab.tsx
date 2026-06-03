@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useDeferredValue } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useDeferredValue } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertCircle,
@@ -81,6 +81,9 @@ function PodLogsTabContent({ workload, deploymentId }: PodLogsTabProps) {
     isLoading,
     isRefetching,
     refetch,
+    loadMore,
+    isLoadingMore,
+    hasMore,
   } = useDeploymentLogs(deploymentId, workload.name, activeContainer, timeRange, timezone, {
     enabled: !isTailing,
   });
@@ -257,6 +260,9 @@ function PodLogsTabContent({ workload, deploymentId }: PodLogsTabProps) {
         isReconnecting={stream.status === "reconnecting"}
         error={stream.error}
         search={deferredSearch}
+        onLoadMore={isTailing ? undefined : loadMore}
+        isLoadingMore={isLoadingMore}
+        hasMore={hasMore}
       />
     </div>
   );
@@ -305,6 +311,9 @@ function LogOutput({
   isReconnecting,
   error,
   search,
+  onLoadMore,
+  isLoadingMore,
+  hasMore,
 }: {
   logs: LogEntry[];
   isLoading: boolean;
@@ -312,10 +321,19 @@ function LogOutput({
   isReconnecting: boolean;
   error?: string;
   search: string;
+  onLoadMore?: () => Promise<unknown>;
+  isLoadingMore?: boolean;
+  hasMore?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isUserScrolled = useRef(false);
   const [showJump, setShowJump] = useState(false);
+
+  // Track state needed for scroll restoration after prepend.
+  const firstVisibleOnLoadMore = useRef(-1);
+  const logsLengthOnLoadMore = useRef(0);
+  const wasLoadingMoreRef = useRef(false);
+  const loadMoreInFlight = useRef(false);
 
   // useVirtualizer returns non-memoizable functions; React Compiler will
   // automatically skip memoizing this component. Disable the rule explicitly
@@ -336,6 +354,20 @@ function LogOutput({
     setShowJump(false);
   }, [logs.length, virtualizer]);
 
+  // Restore scroll position after prepend so the user sees the same logs.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  useLayoutEffect(() => {
+    const justFinished = wasLoadingMoreRef.current && !isLoadingMore;
+    wasLoadingMoreRef.current = !!isLoadingMore;
+    if (justFinished && firstVisibleOnLoadMore.current >= 0) {
+      const delta = logs.length - logsLengthOnLoadMore.current;
+      if (delta > 0) {
+        virtualizer.scrollToIndex(firstVisibleOnLoadMore.current + delta, { align: "start" });
+      }
+      firstVisibleOnLoadMore.current = -1;
+    }
+  }, [logs.length, isLoadingMore, virtualizer]);
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -343,7 +375,16 @@ function LogOutput({
     const scrolledUp = dist > 60;
     isUserScrolled.current = scrolledUp;
     setShowJump(scrolledUp);
-  }, []);
+
+    if (el.scrollTop < 100 && hasMore && !loadMoreInFlight.current && onLoadMore) {
+      loadMoreInFlight.current = true;
+      firstVisibleOnLoadMore.current = virtualizer.range?.startIndex ?? 0;
+      logsLengthOnLoadMore.current = logs.length;
+      void onLoadMore().finally(() => {
+        loadMoreInFlight.current = false;
+      });
+    }
+  }, [hasMore, onLoadMore, virtualizer]);
 
   // Auto-scroll on new logs
   useEffect(() => {
@@ -391,6 +432,12 @@ function LogOutput({
 
   return (
     <div className="relative flex-1 min-h-0">
+      {isLoadingMore && (
+        <div className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface/90 px-3 py-1 text-mono-sm text-muted-foreground shadow backdrop-blur-sm dark:border-white/8 dark:bg-black/60 dark:text-white/50">
+          <Loader2 className="size-3 animate-spin" />
+          Loading older logs…
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
