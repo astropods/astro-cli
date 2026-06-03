@@ -702,9 +702,9 @@ func normalizeUserID(s string) string {
 //
 // Number accuracy is the bar here — when Bob's pre-link bare row merges
 // into his post-link "Bob Smith" row, the cost/requests/tokens must sum
-// exactly, last_seen must take the max, and agents_used must union without
-// duplicates (keyed on account/name so two different orgs publishing the
-// same agent name don't collapse).
+// exactly, last_seen must take the max, and agents_used must union
+// keyed on DeploymentID so two deployments of the same blueprint stay
+// as two refs through the merge.
 func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackidentity.DirectoryEntry) []UserSummaryEntry {
 	if len(entries) == 0 {
 		return rows
@@ -766,7 +766,10 @@ func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackident
 }
 
 // mergeInto sums src's metrics into target, takes the max last_seen, and
-// unions agents_used keyed on (account, name) so duplicates collapse.
+// unions agents_used keyed on DeploymentID so duplicates collapse. The
+// dedup key matches buildUsersSummary's per-deployment shape — two
+// deployments of the same blueprint (identical Account+Name, distinct
+// DeploymentID) stay as two refs through the merge.
 func mergeInto(target *UserSummaryEntry, src UserSummaryEntry) {
 	target.CostUSD += src.CostUSD
 	target.Requests += src.Requests
@@ -780,10 +783,10 @@ func mergeInto(target *UserSummaryEntry, src UserSummaryEntry) {
 	}
 	seen := make(map[string]struct{}, len(target.AgentsUsed))
 	for _, a := range target.AgentsUsed {
-		seen[a.Account+"/"+a.Name] = struct{}{}
+		seen[a.DeploymentID] = struct{}{}
 	}
 	for _, a := range src.AgentsUsed {
-		key := a.Account + "/" + a.Name
+		key := a.DeploymentID
 		if _, dup := seen[key]; dup {
 			continue
 		}
@@ -1738,7 +1741,7 @@ func ComputeUsersSummary(
 					avatarAccount = name
 				}
 			}
-			depToAgent[d.ID] = UserAgentRef{Name: d.AgentName, Account: avatarAccount}
+			depToAgent[d.ID] = UserAgentRef{DeploymentID: d.ID, Name: d.AgentName, Account: avatarAccount}
 		}
 	}
 
@@ -1908,14 +1911,18 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 		}
 	}
 
-	// Q_tags rollup: extract deployment tags per user, map to (agent_name, account).
-	// The Langfuse `tags` column is an array on the source trace. When grouped,
-	// Langfuse may return the value either as a single string (one row per tag)
-	// or as the full JSON array. Handle both shapes — earlier code assumed
-	// only string and silently dropped every row in the array case, leaving
-	// agents_used empty.
-	// Dedupe key is "account/name" so two different accounts publishing the
-	// same agent name don't collapse to one entry.
+	// Q_tags rollup: extract deployment tags per user, map to one ref per
+	// deployment. The Langfuse `tags` column is an array on the source
+	// trace; when grouped, Langfuse may return the value either as a
+	// single string (one row per tag) or as the full JSON array. Handle
+	// both — earlier code assumed only string and silently dropped every
+	// row in the array case, leaving agents_used empty.
+	//
+	// Dedupe key is depID so two deployments of the same blueprint each
+	// surface as their own chip in the People-tab "Agents Used" column.
+	// Mirrors the Agents-tab "one row per deployment" shape; the client
+	// uses the per-deployment route segment for click-through and looks
+	// up display_name/namespace via the deployments-summary response.
 	agentsByUser := make(map[string]map[string]UserAgentRef)
 	for _, row := range tagsRows {
 		userID, _ := row["userId"].(string)
@@ -1939,7 +1946,7 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 				set = make(map[string]UserAgentRef)
 				agentsByUser[userID] = set
 			}
-			set[ref.Account+"/"+ref.Name] = ref
+			set[depID] = ref
 		}
 	}
 
@@ -1953,7 +1960,10 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 			if agents[i].Name != agents[j].Name {
 				return agents[i].Name < agents[j].Name
 			}
-			return agents[i].Account < agents[j].Account
+			if agents[i].Account != agents[j].Account {
+				return agents[i].Account < agents[j].Account
+			}
+			return agents[i].DeploymentID < agents[j].DeploymentID
 		})
 		if len(agents) > maxAgentsPerUser {
 			agents = agents[:maxAgentsPerUser]

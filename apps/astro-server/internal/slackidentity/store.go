@@ -321,28 +321,41 @@ type DirectoryEntry struct {
 }
 
 // DirectoryEntriesForSlackUsers returns the directory entry for each
-// slack_user_id the directory knows about — both observed-only rows
-// (workos_user_id IS NULL) and linked rows (workos_user_id IS NOT NULL).
+// slack_user_id the directory knows about — observed-only rows
+// (workos_user_id IS NULL), linked rows (workos_user_id IS NOT NULL),
+// AND revoked rows (team_id only; workos_user_id forced empty).
 //
-// DISTINCT ON (slack_user_id) collapses to one row per Slack user, which
-// is safe in practice because Slack user IDs are globally unique within
-// Slack's system — the same `U07ABCDEF` across two different workspaces
-// is astronomically unlikely. If multi-workspace orgs ever need stricter
-// handling (e.g. an admin viewing Insights for an account connected to
-// two workspaces, both of which happen to issue the same id), this
-// query should also scope by the calling account's known team_ids.
-// When a slack_user_id does happen to exist in multiple workspaces,
-// the most recently created mapping wins.
+// Revoked rows return their team_id so Insights can still build the
+// `slack://user?team=…&id=…` deep link for users who linked + then
+// disconnected. workos_user_id is masked to empty for revoked rows so
+// the metrics-merge path in mergeLinkedSlackRows doesn't fold their
+// new (post-disconnect) spend back into the WorkOS account they
+// deliberately unlinked from. Without this, a previously-linked-then-
+// disconnected Slack user permanently loses their deep link, because
+// the unique constraint (team_id, slack_user_id) prevents live-ingest
+// from creating a fresh observed row alongside the revoked oauth one.
+//
+// DISTINCT ON (slack_user_id) collapses to one row per Slack user.
+// ORDER BY prefers non-revoked rows so an active observed/oauth row
+// wins over a revoked one when both exist (only possible across
+// multiple team_ids — within a team the unique constraint forbids it).
+// Within revoked-or-not, most recently created wins.
+//
+// Multi-workspace caveat unchanged: same `U07ABCDEF` across two
+// different Slack workspaces collapses to one entry, the most recent.
 func (s *Store) DirectoryEntriesForSlackUsers(slackUserIDs []string) (map[string]DirectoryEntry, error) {
 	out := make(map[string]DirectoryEntry)
 	if len(slackUserIDs) == 0 {
 		return out, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT DISTINCT ON (slack_user_id) slack_user_id, team_id, COALESCE(workos_user_id, '')
+		SELECT DISTINCT ON (slack_user_id)
+		       slack_user_id,
+		       team_id,
+		       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '')
 		FROM slack_identity_mappings
-		WHERE slack_user_id = ANY($1) AND revoked_at IS NULL
-		ORDER BY slack_user_id, created_at DESC
+		WHERE slack_user_id = ANY($1)
+		ORDER BY slack_user_id, (revoked_at IS NULL) DESC, created_at DESC
 	`, pq.Array(slackUserIDs))
 	if err != nil {
 		return nil, fmt.Errorf("slackidentity: directory entries: %w", err)

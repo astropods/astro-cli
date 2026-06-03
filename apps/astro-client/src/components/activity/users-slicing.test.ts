@@ -61,7 +61,7 @@ describe("sliceUsersByRange — users output", () => {
       ]},
     ]);
     const { users } = sliceUsersByRange(s, usersData([
-      { user_id: "u_alice", cost_usd: 0, requests: 0, tokens: 0, agents_used: [{ name: "agent-a", account: "acme" }] },
+      { user_id: "u_alice", cost_usd: 0, requests: 0, tokens: 0, agents_used: [{ deployment_id: "dep-a", name: "agent-a", account: "acme" }] },
       { user_id: "u_bob",   cost_usd: 0, requests: 0, tokens: 0, agents_used: [] },
     ]), "7d");
 

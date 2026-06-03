@@ -143,7 +143,7 @@ type UserRow = {
   requests: number;
   tokens: number;
   last_seen?: string;
-  agents_used: Array<{ name: string; account: string }>;
+  agents_used: Array<{ deployment_id: string; name: string; account: string }>;
   // Mirrors AccountUsersSummaryResponse.users — keep this field in the
   // local type so the deep-link assertions below would fail to compile
   // if the API ever dropped `slack_team_id`. The test exercises it via
@@ -208,8 +208,8 @@ describe("TopSpendersTable users mode", () => {
             user_id: "u_alice",
             cost_usd: 10,
             agents_used: [
-              { name: "alpha", account: ACCOUNT },
-              { name: "beta", account: ACCOUNT },
+              { deployment_id: "dep-alpha", name: "alpha", account: ACCOUNT },
+              { deployment_id: "dep-beta", name: "beta", account: ACCOUNT },
             ],
           }),
         ]}

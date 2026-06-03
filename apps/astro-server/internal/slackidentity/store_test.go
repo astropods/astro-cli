@@ -28,7 +28,7 @@ const (
 	listManyQuery       = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
 	revokeQuery         = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
 	revokeOneQuery      = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
-	directoryEntries    = "\n\t\tSELECT DISTINCT ON (slack_user_id) slack_user_id, team_id, COALESCE(workos_user_id, '')\n\t\tFROM slack_identity_mappings\n\t\tWHERE slack_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY slack_user_id, created_at DESC\n\t"
+	directoryEntries    = "\n\t\tSELECT DISTINCT ON (slack_user_id)\n\t\t       slack_user_id,\n\t\t       team_id,\n\t\t       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '')\n\t\tFROM slack_identity_mappings\n\t\tWHERE slack_user_id = ANY($1)\n\t\tORDER BY slack_user_id, (revoked_at IS NULL) DESC, created_at DESC\n\t"
 	listAccountTeams    = "\n\t\tSELECT DISTINCT am.account_id, sim.team_id\n\t\tFROM slack_identity_mappings sim\n\t\tJOIN account_members am ON sim.workos_user_id = am.user_id\n\t\tWHERE sim.workos_user_id IS NOT NULL\n\t\t  AND sim.revoked_at IS NULL\n\t\tORDER BY am.account_id, sim.team_id\n\t"
 	checkMarker         = "SELECT EXISTS(SELECT 1 FROM slack_directory_backfill_marker)"
 	writeMarker         = "\n\t\tINSERT INTO slack_directory_backfill_marker (id, completed_at)\n\t\tVALUES (1, now())\n\t\tON CONFLICT (id) DO NOTHING\n\t"
@@ -587,6 +587,34 @@ func TestDirectoryEntriesForSlackUsers_MixedRows(t *testing.T) {
 	}
 	if got := out["U07OBSERVED"]; got.TeamID != "T07XYZ" || got.WorkOSUserID != "" {
 		t.Errorf("observed entry should leave WorkOSUserID empty: got %+v", got)
+	}
+}
+
+// Revoked rows return team_id (so the Insights deep link still resolves)
+// but mask workos_user_id to empty (so post-disconnect spend isn't folded
+// back into the unlinked WorkOS account). Without this, previously-linked-
+// then-disconnected Slack users permanently lose their deep link because
+// the (team_id, slack_user_id) unique constraint prevents live-ingest from
+// creating a fresh observed row alongside the revoked oauth one.
+func TestDirectoryEntriesForSlackUsers_RevokedRowReturnsTeamIDOnly(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery(directoryEntries).
+		WithArgs(pq.Array([]string{"U07REVOKED"})).
+		WillReturnRows(sqlmock.NewRows([]string{"slack_user_id", "team_id", "workos_user_id"}).
+			AddRow("U07REVOKED", "T07XYZ", ""))
+
+	out, err := store.DirectoryEntriesForSlackUsers([]string{"U07REVOKED"})
+	if err != nil {
+		t.Fatalf("directory entries: %v", err)
+	}
+	got := out["U07REVOKED"]
+	if got.TeamID != "T07XYZ" {
+		t.Errorf("revoked entry should still return team_id: got %+v", got)
+	}
+	if got.WorkOSUserID != "" {
+		t.Errorf("revoked entry must mask workos_user_id: got %+v", got)
 	}
 }
 

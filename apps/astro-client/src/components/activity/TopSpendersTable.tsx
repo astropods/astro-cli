@@ -335,8 +335,9 @@ interface Aggregate {
 function aggregateUsers(rows: UserRow[]): Aggregate | null {
   if (rows.length === 0) return null;
   let lastSeen: string | undefined;
-  // Dedupe by `account/name` so two different publishers of the same agent
-  // name don't collapse to a single chip.
+  // Dedupe by deployment_id so two deployments of the same blueprint each
+  // render their own chip — mirrors the server-side dedup in buildUsersSummary
+  // and the "one row per deployment" shape on the Agents tab.
   const agents = new Map<string, AgentRef>();
   let cost = 0, reqs = 0, tokens = 0;
   for (const r of rows) {
@@ -344,7 +345,7 @@ function aggregateUsers(rows: UserRow[]): Aggregate | null {
     reqs += r.requests;
     tokens += r.tokens;
     if (r.last_seen && (!lastSeen || r.last_seen > lastSeen)) lastSeen = r.last_seen;
-    for (const a of r.agents_used) agents.set(`${a.account}/${a.name}`, a);
+    for (const a of r.agents_used) agents.set(a.deployment_id, a);
   }
   return {
     count: rows.length,

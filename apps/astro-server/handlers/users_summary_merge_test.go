@@ -18,12 +18,12 @@ func TestMergeLinkedSlackRows_LinkedUser_MergesIntoExistingWorkOSRow(t *testing.
 		{
 			UserID: "U07BOBBOB1", Requests: 10, CostUSD: 5.0, Tokens: 1000,
 			LastSeen:   "2026-04-01T00:00:00Z",
-			AgentsUsed: []UserAgentRef{{Name: "old-bot", Account: "postman"}},
+			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"}},
 		},
 		{
 			UserID: "user_01HXX_bob", Requests: 3, CostUSD: 2.5, Tokens: 300,
 			LastSeen:   "2026-06-01T12:00:00Z",
-			AgentsUsed: []UserAgentRef{{Name: "new-bot", Account: "postman"}},
+			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"}},
 		},
 	}
 	entries := map[string]slackidentity.DirectoryEntry{
@@ -65,12 +65,12 @@ func TestMergeLinkedSlackRows_LinkedUser_WorkOSRowAppearsBeforeBareSlack(t *test
 		{
 			UserID: "user_01HXX_bob", Requests: 3, CostUSD: 2.5, Tokens: 300,
 			LastSeen:   "2026-06-01T12:00:00Z",
-			AgentsUsed: []UserAgentRef{{Name: "new-bot", Account: "postman"}},
+			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"}},
 		},
 		{
 			UserID: "U07BOBBOB1", Requests: 10, CostUSD: 5.0, Tokens: 1000,
 			LastSeen:   "2026-04-01T00:00:00Z",
-			AgentsUsed: []UserAgentRef{{Name: "old-bot", Account: "postman"}},
+			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"}},
 		},
 	}
 	entries := map[string]slackidentity.DirectoryEntry{
@@ -176,30 +176,45 @@ func TestMergeLinkedSlackRows_DirectoryMiss_PassesThrough(t *testing.T) {
 	}
 }
 
-// agents_used union must dedupe on (account, name) — two orgs publishing
-// the same agent name must NOT collapse to one entry, but the same agent
-// from the same org appearing on both rows must.
-func TestMergeInto_AgentsUsedUnionDedupesOnAccountAndName(t *testing.T) {
+// agents_used union must dedupe on DeploymentID — the same deployment
+// appearing on both rows collapses, but two deployments of the same
+// blueprint (identical Account/Name, distinct DeploymentID) stay as
+// separate refs through the merge.
+func TestMergeInto_AgentsUsedUnionDedupesOnDeploymentID(t *testing.T) {
 	target := UserSummaryEntry{
 		UserID: "user_alice",
 		AgentsUsed: []UserAgentRef{
-			{Name: "shared", Account: "postman"},
-			{Name: "alice-only", Account: "postman"},
+			{DeploymentID: "dep-shared", Name: "shared", Account: "postman"},
+			{DeploymentID: "dep-alice-only", Name: "alice-only", Account: "postman"},
 		},
 	}
 	src := UserSummaryEntry{
 		UserID: "U07ABCDEF",
 		AgentsUsed: []UserAgentRef{
-			{Name: "shared", Account: "postman"},    // dup — should NOT add
-			{Name: "shared", Account: "other-org"},  // same name, diff org — should add
-			{Name: "bare-only", Account: "postman"}, // new — should add
+			// Same deployment_id as target's "shared" — should NOT add.
+			{DeploymentID: "dep-shared", Name: "shared", Account: "postman"},
+			// Same Account+Name as target's "shared" but a different
+			// deployment_id (second deployment of the same blueprint) —
+			// should add, because dedup is per-deployment now.
+			{DeploymentID: "dep-shared-2", Name: "shared", Account: "postman"},
+			// Different Account+Name entirely — should add.
+			{DeploymentID: "dep-bare-only", Name: "bare-only", Account: "postman"},
 		},
 	}
 
 	mergeInto(&target, src)
 
 	if len(target.AgentsUsed) != 4 {
-		t.Fatalf("expected 4 agents (dedupe by account/name), got %d: %+v",
+		t.Fatalf("expected 4 refs (dedupe by deployment_id), got %d: %+v",
 			len(target.AgentsUsed), target.AgentsUsed)
+	}
+	ids := map[string]bool{}
+	for _, a := range target.AgentsUsed {
+		ids[a.DeploymentID] = true
+	}
+	for _, want := range []string{"dep-shared", "dep-alice-only", "dep-shared-2", "dep-bare-only"} {
+		if !ids[want] {
+			t.Errorf("expected %s in merged refs, got %+v", want, target.AgentsUsed)
+		}
 	}
 }

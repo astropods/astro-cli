@@ -999,10 +999,15 @@ export interface AccountUsersSummaryResponse {
     /** RFC3339 timestamp of the user's most recent hour-bucket with activity.
      *  Omitted when the user had no activity in the period. */
     last_seen?: string;
-    /** Each entry carries the publishing account so the client can build
-     *  the correct avatar URL — public-blueprint deploys resolve under the
-     *  original publisher's account, not the deploying org. */
-    agents_used: Array<{ name: string; account: string }>;
+    /** One entry per deployment the user has touched — two deployments of
+     *  the same blueprint produce two refs (identical name/account, distinct
+     *  deployment_id). Each entry carries the publishing account so the
+     *  client can build the correct avatar URL — public-blueprint deploys
+     *  resolve under the original publisher's account, not the deploying org.
+     *  deployment_id drives per-deployment click-through and tooltip
+     *  enrichment (display_name + namespace via the deployments-summary
+     *  response). */
+    agents_used: Array<{ deployment_id: string; name: string; account: string }>;
     /** Workspace team_id for bare-form Slack `user_id`s, populated server-side
      *  via the slack_identity_mappings directory join. Empty when the
      *  directory doesn't know this Slack user (e.g. tombstoned user before

@@ -437,8 +437,8 @@ func TestBuildUsersSummary_AggregationAndAgents(t *testing.T) {
 	// (publisher) differs from the deploying account, exercising the new
 	// per-entry account field.
 	depToAgent := map[string]UserAgentRef{
-		"dep-1": {Name: "customer-support", Account: "acme"},
-		"dep-2": {Name: "code-reviewer", Account: "anthropic-public"},
+		"dep-1": {DeploymentID: "dep-1", Name: "customer-support", Account: "acme"},
+		"dep-2": {DeploymentID: "dep-2", Name: "code-reviewer", Account: "anthropic-public"},
 	}
 
 	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
@@ -490,8 +490,8 @@ func TestBuildUsersSummary_TagsReturnedAsArray(t *testing.T) {
 		{"userId": "u_alice", "tags": []any{"deployment:dep-1", "env:prod", "deployment:dep-2"}},
 	}
 	depToAgent := map[string]UserAgentRef{
-		"dep-1": {Name: "customer-support", Account: "acme"},
-		"dep-2": {Name: "code-reviewer", Account: "acme"},
+		"dep-1": {DeploymentID: "dep-1", Name: "customer-support", Account: "acme"},
+		"dep-2": {DeploymentID: "dep-2", Name: "code-reviewer", Account: "acme"},
 	}
 
 	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
@@ -506,6 +506,40 @@ func TestBuildUsersSummary_TagsReturnedAsArray(t *testing.T) {
 	}
 }
 
+// Two deployments of the same blueprint surface as two separate refs
+// — the People-tab "Agents Used" column mirrors the Agents-tab "one row
+// per deployment" shape rather than collapsing to one chip per blueprint.
+// Differentiation between identical-avatar chips happens on the client
+// (tooltip with display_name/namespace + per-deployment click target).
+func TestBuildUsersSummary_SameBlueprintDifferentDeployments(t *testing.T) {
+	mainRows := []map[string]any{
+		{"userId": "u_alice", "count_count": 3.0, "sum_totalCost": 1.5, "sum_totalTokens": 300.0, "time_dimension": "2026-04-01T12:00:00Z"},
+	}
+	tagsRows := []map[string]any{
+		{"userId": "u_alice", "tags": "deployment:dep-1"},
+		{"userId": "u_alice", "tags": "deployment:dep-2"},
+	}
+	depToAgent := map[string]UserAgentRef{
+		"dep-1": {DeploymentID: "dep-1", Name: "weather-poet", Account: "acme"},
+		"dep-2": {DeploymentID: "dep-2", Name: "weather-poet", Account: "acme"},
+	}
+
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+	if len(out) != 1 || len(out[0].AgentsUsed) != 2 {
+		t.Fatalf("expected 1 user with 2 deployment refs, got %+v", out)
+	}
+	ids := map[string]bool{}
+	for _, a := range out[0].AgentsUsed {
+		if a.Name != "weather-poet" || a.Account != "acme" {
+			t.Errorf("ref name/account mismatch: %+v", a)
+		}
+		ids[a.DeploymentID] = true
+	}
+	if !ids["dep-1"] || !ids["dep-2"] {
+		t.Errorf("expected both dep-1 and dep-2 in refs, got %+v", out[0].AgentsUsed)
+	}
+}
+
 func TestBuildUsersSummary_MaxAgentsPerUserCap(t *testing.T) {
 	mainRows := []map[string]any{
 		{"userId": "u_heavy", "count_count": 1.0, "sum_totalCost": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T00:00:00Z"},
@@ -515,7 +549,7 @@ func TestBuildUsersSummary_MaxAgentsPerUserCap(t *testing.T) {
 	tagsRows := make([]map[string]any, 0, 15)
 	for i := 0; i < 15; i++ {
 		depID := "dep-" + strconv.Itoa(i)
-		depToAgent[depID] = UserAgentRef{Name: "agent-" + strconv.Itoa(i), Account: "acme"}
+		depToAgent[depID] = UserAgentRef{DeploymentID: depID, Name: "agent-" + strconv.Itoa(i), Account: "acme"}
 		tagsRows = append(tagsRows, map[string]any{"userId": "u_heavy", "tags": "deployment:" + depID})
 	}
 

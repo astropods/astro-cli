@@ -374,14 +374,21 @@ type AccountObservabilitySummaryResponse struct {
 	MetricsUnavailable bool                             `json:"metrics_unavailable,omitempty"`
 }
 
-// UserAgentRef is one entry in UserSummaryEntry.AgentsUsed. The Account is the
-// avatar/route-segment account — the publishing account when the deployment
-// was sourced from a public blueprint (SourceAccountID set), otherwise the
-// deploying account. Carrying it per entry lets the client resolve avatars
-// for both same-account and cross-account (public) deployments.
+// UserAgentRef is one entry in UserSummaryEntry.AgentsUsed. One entry per
+// deployment the user has touched — two deployments of the same blueprint
+// produce two refs (with identical Name/Account but distinct DeploymentID)
+// so the People-tab chip column mirrors the Agents-tab "one row per
+// deployment" shape instead of collapsing to one chip per blueprint.
+//
+// Account is the avatar/route-segment account — the publishing account
+// when the deployment was sourced from a public blueprint (SourceAccountID
+// set), otherwise the deploying account. Carrying it per entry lets the
+// client resolve avatars for both same-account and cross-account (public)
+// deployments.
 type UserAgentRef struct {
-	Name    string `json:"name"`
-	Account string `json:"account"`
+	DeploymentID string `json:"deployment_id"`
+	Name         string `json:"name"`
+	Account      string `json:"account"`
 }
 
 // UserSummaryEntry holds per-user aggregated observability for the users summary.
