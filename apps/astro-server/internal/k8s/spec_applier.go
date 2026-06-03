@@ -687,23 +687,34 @@ func (a *Applier) ApplyDeploymentSpec(
 				Name: "http", Protocol: corev1.ProtocolTCP,
 				Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
 			}
-			if a.localMode {
-				httpPort.NodePort = LocalMessagingNodePort
-			}
+			// In local mode we let Kubernetes auto-allocate the NodePort from
+			// the default 30000–32767 range. Pinning it would cap concurrent
+			// local deployments at one (second apply gets a NodePort collision).
 			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, httpPort)
 		}
 		a.applyServiceAndRecord(ctx, msgSvc, result)
 
 		// Ingress — expose web adapter if configured.
 		// In local mode there's no ingress controller; instead the NodePort
-		// above surfaces the messaging UI on the host and we record that as
-		// the deployment's external URL so the Launch button just works.
+		// above surfaces the messaging UI on the host. We re-read the Service
+		// to learn which port kube-proxy assigned, then record it as the
+		// deployment's external URL so the Launch button works per-deployment.
 		if webEnabled && a.localMode {
-			result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
-				Name: "messaging", Type: "web",
-				URL:  fmt.Sprintf("http://%s", LocalMessagingHost()),
-				Port: LocalMessagingNodePort,
-			})
+			if host, port := a.resolveLocalMessagingHost(ctx, msgSvc.Name); host != "" {
+				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+					Name: "messaging", Type: "web",
+					URL:  "http://" + host,
+					Port: port,
+				})
+				if a.persistMessagingHost != nil {
+					if perr := a.persistMessagingHost(a.deploymentID, host); perr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: msgSvc.Name, Kind: "Service",
+							Error: fmt.Sprintf("persist messaging host: %v", perr),
+						})
+					}
+				}
+			}
 		}
 		if webEnabled && !a.localMode {
 			ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-messaging")
@@ -1384,6 +1395,25 @@ func (a *Applier) applyServiceAndRecord(ctx context.Context, svc *corev1.Service
 			Resource: svc.Name, Kind: "Service", Error: err.Error(),
 		})
 	}
+}
+
+// resolveLocalMessagingHost re-reads the messaging Service after apply to
+// learn which NodePort kube-proxy assigned (we let k8s auto-allocate so
+// multiple local deployments don't collide on a hardcoded port). Returns
+// the host:port the Launch URL should point at and the raw port. Returns
+// ("", 0) if the lookup fails or no NodePort was assigned — caller treats
+// that as "no Launch URL yet".
+func (a *Applier) resolveLocalMessagingHost(ctx context.Context, svcName string) (string, int32) {
+	svc, err := a.clientset.CoreV1().Services(a.namespace).Get(ctx, svcName, metav1.GetOptions{})
+	if err != nil {
+		return "", 0
+	}
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "http" && p.NodePort != 0 {
+			return fmt.Sprintf("localhost:%d", p.NodePort), p.NodePort
+		}
+	}
+	return "", 0
 }
 
 func protocolPtr(p corev1.Protocol) *corev1.Protocol   { return &p }

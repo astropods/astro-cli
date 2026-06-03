@@ -97,6 +97,11 @@ type ApplierConfig struct {
 	// Best-effort: returning an error logs a warning and the apply
 	// continues.
 	PersistResolutions func(deploymentID string, rows []deployment.Resolution) error
+	// PersistMessagingHost is invoked in local mode after the messaging
+	// Service has been created with an auto-allocated NodePort; the deployer
+	// writes the resolved host:port back to the deployment_ingresses row so
+	// GetMessagingURLs surfaces a working Launch URL. host is "localhost:<n>".
+	PersistMessagingHost func(deploymentID, host string) error
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -136,6 +141,7 @@ type Applier struct {
 	authzCallbackURL       string
 	authTestUserID         string
 	persistResolutions     func(deploymentID string, rows []deployment.Resolution) error
+	persistMessagingHost   func(deploymentID, host string) error
 }
 
 // NewApplier creates a new applier
@@ -174,6 +180,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		authzCallbackURL:       cfg.AuthzCallbackURL,
 		authTestUserID:         cfg.AuthTestUserID,
 		persistResolutions:     cfg.PersistResolutions,
+		persistMessagingHost:   cfg.PersistMessagingHost,
 	}
 }
 

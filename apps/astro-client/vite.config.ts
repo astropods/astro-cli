@@ -80,8 +80,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // When certs are present, bind to the local domain for same-site cookies
-      host: useLocalDomain ? LOCAL_DOMAIN : "localhost",
+      // When certs are present, bind to the local domain for same-site cookies.
+      // Otherwise bind on all interfaces — Node 18+ resolves "localhost" as
+      // IPv6 only, which makes the dev server unreachable from local-mode k8s
+      // pods that dial via host.docker.internal (an IPv4 address from the
+      // pod's POV).
+      host: useLocalDomain ? LOCAL_DOMAIN : true,
       https: httpsConfig,
       // Allow messaging pods running in local-mode k8s to reach the dev server
       // via Docker Desktop's host alias; Vite otherwise rejects the Host header.

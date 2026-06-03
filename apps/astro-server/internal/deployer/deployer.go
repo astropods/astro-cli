@@ -185,7 +185,10 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		// reach via their own loopback, so rewrite to host.docker.internal.
 		AuthzCallbackURL: podReachableURL(d.Cfg.Auth.FrontendURL, d.Cfg.Deployment.K8sClientMode == "local"),
 		AuthTestUserID:   authTestUserID,
-		NamespaceLabels:  buildNamespaceLabels(dep, acct.Name),
+		PersistMessagingHost: func(depID, host string) error {
+			return d.Store.UpdateMessagingIngressHost(depID, host)
+		},
+		NamespaceLabels: buildNamespaceLabels(dep, acct.Name),
 		NamespaceAnnotations: map[string]string{
 			"astro.dev/display-name": dep.DisplayName,
 		},

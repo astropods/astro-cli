@@ -640,7 +640,11 @@ func SaveNormalizedSpec(
 			if httpEp.Expose != nil && httpEp.Expose.Domain != "" {
 				host = httpEp.Expose.Domain
 			} else if nsCfg != nil && nsCfg.LocalMode {
-				host = k8s.LocalMessagingHost()
+				// Placeholder — the messaging Service's NodePort is auto-allocated
+				// by k8s, so we don't know the real host:port until apply. The
+				// applier overwrites this row via UpdateMessagingIngressHost
+				// once kube-proxy assigns a port.
+				host = "localhost"
 				tlsEnabled = false
 			} else if nsCfg != nil && nsCfg.IngressDomain != "" && nsCfg.Namespace != "" {
 				host = k8s.GenerateMessagingIngressHost(agentName, nsCfg.Namespace, nsCfg.IngressDomain)
@@ -1295,6 +1299,30 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 		result[depID] = scheme + "://" + hostname
 	}
 	return result, rows.Err()
+}
+
+// UpdateMessagingIngressHost rewrites the synthetic deployment_ingresses row
+// for a deployment's messaging sidecar to point at the given host (typically
+// "localhost:<assigned NodePort>" for local mode). The row is seeded at
+// normalization time with a placeholder hostname because kube-proxy doesn't
+// allocate the NodePort until the Service is created; the applier calls this
+// after Service creation to overwrite the placeholder. A no-op (zero rows
+// affected) is not an error — it just means no messaging row exists yet.
+func (s *Store) UpdateMessagingIngressHost(deploymentID, host string) error {
+	_, err := s.db.Exec(`
+		UPDATE deployment_ingresses
+		SET hostname = $2
+		FROM deployment_services ds
+		JOIN deployment_sidecars sc ON sc.id = ds.sidecar_id
+		WHERE deployment_ingresses.service_id = ds.id
+		  AND sc.deployment_id = $1
+		  AND sc.component_kind = 'messaging'
+		  AND ds.name = 'http'
+	`, deploymentID, host)
+	if err != nil {
+		return fmt.Errorf("update messaging ingress host: %w", err)
+	}
+	return nil
 }
 
 // GetIngresses returns all ingresses for a deployment.
