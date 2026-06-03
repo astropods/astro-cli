@@ -5,6 +5,9 @@ import type { LogEntry } from '@/lib/log-utils';
 import type { AgentDeployment, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
 
+// Powers the cross-account quick switcher on the agent detail page.
+// Refreshed by mutation invalidation, not polling — a mutation in another
+// tab won't surface here until this tab next mounts the query.
 export function useDeploymentsSummary() {
   const api = useApiClient();
   return useQuery({
@@ -264,6 +267,10 @@ export function useUndeployAgent(account: string) {
         },
       );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      // The summary key isn't a prefix of all(account), so it's not swept by
+      // the line above. Stale it explicitly so the agent-detail quick
+      // switcher refetches on its next mount.
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.summary });
     },
   });
 }
