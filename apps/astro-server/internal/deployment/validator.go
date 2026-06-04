@@ -2,7 +2,6 @@ package deployment
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -205,102 +204,25 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces []string) []CredentialInfo {
 	credMap := make(map[string]CredentialInfo)
 
-	// --- Cloud credentials: two-pass approach ---
-
-	type cloudEntry struct {
-		name     string
-		provider string
-		category string
-		suffixes []spec.CredentialSuffix
-	}
-
-	providerGroups := make(map[string][]cloudEntry)
-
-	// Pass 1: Collect cloud entries grouped by provider (skip managed providers).
-	for name, model := range astroSpec.Models {
-		if model.IsProviderMode() {
-			if spec.IsManagedProvider("models", model.Provider) {
-				continue // managed providers don't generate user-facing credentials
-			}
-			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
-				provider := strings.ToLower(model.Provider)
-				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
-					name: name, provider: provider, category: "model", suffixes: suffixes,
-				})
-			}
+	// Cloud credentials — names come from spec.CloudCredentialKeys, the single
+	// source of truth shared with astro-cli's composeBuilder and the deployer's
+	// spec_applier. Re-implementing §8.1 here would risk dev/prod divergence
+	// (see docs/changelog/feat/ai-gateway-astro-server-* for the prior bug).
+	//
+	// Managed providers emit credential names too (so the deployer can inject
+	// server-supplied values under the standard names), but they should NOT
+	// surface as "user must supply" — filter them out here.
+	for key, meta := range spec.CloudCredentialKeys(astroSpec) {
+		section := categoryToSection(meta.Category)
+		if section != "" && spec.IsManagedProvider(section, meta.Provider) {
+			continue
 		}
-	}
-	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.IsProviderMode() {
-			if spec.IsManagedProvider("knowledge", knowledge.Provider) {
-				continue
-			}
-			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
-				provider := strings.ToLower(knowledge.Provider)
-				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
-					name: name, provider: provider, category: "knowledge", suffixes: suffixes,
-				})
-			}
-		}
-	}
-	for name, tool := range astroSpec.Integrations {
-		if tool.IsProviderMode() {
-			if spec.IsManagedProvider("integrations", tool.Provider) {
-				continue
-			}
-			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {
-				provider := strings.ToLower(tool.Provider)
-				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
-					name: name, provider: provider, category: "integration", suffixes: suffixes,
-				})
-			}
-		}
-	}
-
-	// addCred is a shorthand to insert a credential into the map.
-	addCred := func(key string, entry cloudEntry, cs spec.CredentialSuffix) {
 		credMap[key] = CredentialInfo{
 			Key:         key,
-			Provider:    entry.provider,
-			Category:    entry.category,
-			Description: cs.Description,
-			Optional:    cs.Optional,
-		}
-	}
-
-	// Pass 2: Generate keys with duplicate handling
-	for _, entries := range providerGroups {
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].name < entries[j].name
-		})
-
-		isDuplicate := len(entries) > 1
-		basePrefix := spec.SanitizeEnvName(entries[0].provider)
-
-		// Find which entry owns the bare key.
-		bareOwnerIdx := 0
-		if isDuplicate {
-			for i, entry := range entries {
-				if strings.EqualFold(entry.name, entry.provider) {
-					bareOwnerIdx = i
-					break
-				}
-			}
-		}
-
-		for i, entry := range entries {
-			for _, cs := range entry.suffixes {
-				if !isDuplicate {
-					addCred(basePrefix+"_"+cs.Suffix, entry, cs)
-				} else {
-					if !strings.EqualFold(entry.name, entry.provider) {
-						addCred(basePrefix+"_"+strings.ToUpper(SanitizeName(entry.name))+"_"+cs.Suffix, entry, cs)
-					}
-					if i == bareOwnerIdx {
-						addCred(basePrefix+"_"+cs.Suffix, entry, cs)
-					}
-				}
-			}
+			Provider:    meta.Provider,
+			Category:    meta.Category,
+			Description: meta.Description,
+			Optional:    meta.Optional,
 		}
 	}
 
@@ -347,6 +269,22 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 
 	return creds
 }
+
+// categoryToSection maps the singular CredentialMeta.Category value
+// ("model"/"knowledge"/"integration") onto the plural section name
+// spec.IsManagedProvider expects ("models"/"knowledge"/"integrations").
+func categoryToSection(category string) string {
+	switch category {
+	case "model":
+		return "models"
+	case "knowledge":
+		return "knowledge"
+	case "integration":
+		return "integrations"
+	}
+	return ""
+}
+
 
 func scopeContains(scope []string, value string) bool {
 	for _, s := range scope {

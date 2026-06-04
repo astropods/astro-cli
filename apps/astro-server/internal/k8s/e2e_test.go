@@ -1438,8 +1438,8 @@ models:
 }
 
 func TestE2E_ProviderEnv_TwoCloudModelsSameProvider(t *testing.T) {
-	// Two models using the same cloud provider (anthropic). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two models with provider:anthropic and neither name matches the
+	// provider. Per §8.1: qualified keys only, NO bare ANTHROPIC_API_KEY.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1452,43 +1452,39 @@ models:
     provider: anthropic
 `, e2eOpts{
 		Credentials: map[string]string{
-			"ANTHROPIC_API_KEY":              "sk-bare",
-			"ANTHROPIC_CLAUDE-HAIKU_API_KEY": "sk-haiku",
-			"ANTHROPIC_CLAUDE-OPUS_API_KEY":  "sk-opus",
+			"ANTHROPIC_CLAUDE_HAIKU_API_KEY": "sk-haiku",
+			"ANTHROPIC_CLAUDE_OPUS_API_KEY":  "sk-opus",
 		},
 	})
 
 	requireNoErrors(t, r)
 
-	// No containers for cloud providers
 	if r.hasResource("Deployment", "my-agent-model-claude-haiku") || r.hasResource("Deployment", "my-agent-model-claude-opus") {
 		t.Error("did not expect Deployments for cloud providers")
 	}
 
-	// Provider-prefixed keys in the Secret
 	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["ANTHROPIC_API_KEY"]) != "sk-bare" {
-		t.Errorf("expected ANTHROPIC_API_KEY=sk-bare in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["ANTHROPIC_CLAUDE_HAIKU_API_KEY"]) != "sk-haiku" {
+		t.Errorf("expected ANTHROPIC_CLAUDE_HAIKU_API_KEY=sk-haiku in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["ANTHROPIC_CLAUDE-HAIKU_API_KEY"]) != "sk-haiku" {
-		t.Errorf("expected ANTHROPIC_CLAUDE-HAIKU_API_KEY=sk-haiku in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["ANTHROPIC_CLAUDE_OPUS_API_KEY"]) != "sk-opus" {
+		t.Errorf("expected ANTHROPIC_CLAUDE_OPUS_API_KEY=sk-opus in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["ANTHROPIC_CLAUDE-OPUS_API_KEY"]) != "sk-opus" {
-		t.Errorf("expected ANTHROPIC_CLAUDE-OPUS_API_KEY=sk-opus in secret, got keys: %v", keysOf(secret.Data))
+	if _, hasBare := secret.Data["ANTHROPIC_API_KEY"]; hasBare {
+		t.Error("bare ANTHROPIC_API_KEY must not appear when neither entry name matches the provider (§8.1)")
 	}
 
-	// Credentials should NOT be in ConfigMap
 	assertConfigMapAbsent(t, r, []string{
-		"ANTHROPIC_API_KEY", "ANTHROPIC_CLAUDE-HAIKU_API_KEY", "ANTHROPIC_CLAUDE-OPUS_API_KEY",
+		"ANTHROPIC_CLAUDE_HAIKU_API_KEY", "ANTHROPIC_CLAUDE_OPUS_API_KEY",
 	})
 }
 
 func TestE2E_ProviderEnv_TwoCloudIntegrationsSameProvider(t *testing.T) {
-	// Two tools using the same cloud provider (github). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two integrations with provider:github and neither name matches the
+	// provider. Per §8.1: qualified keys only, NO bare GITHUB_TOKEN.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1501,15 +1497,13 @@ integrations:
     provider: github
 `, e2eOpts{
 		Credentials: map[string]string{
-			"GITHUB_TOKEN":              "ghp_bare",
-			"GITHUB_GH-MAIN_TOKEN":      "ghp_main",
-			"GITHUB_GH-SECONDARY_TOKEN": "ghp_secondary",
+			"GITHUB_GH_MAIN_TOKEN":      "ghp_main",
+			"GITHUB_GH_SECONDARY_TOKEN": "ghp_secondary",
 		},
 	})
 
 	requireNoErrors(t, r)
 
-	// No containers
 	if r.hasResource("Deployment", "my-agent-integration-gh-main") || r.hasResource("Deployment", "my-agent-integration-gh-secondary") {
 		t.Error("did not expect Deployments for cloud integrations")
 	}
@@ -1518,14 +1512,14 @@ integrations:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["GITHUB_TOKEN"]) != "ghp_bare" {
-		t.Errorf("expected GITHUB_TOKEN=ghp_bare in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GITHUB_GH_MAIN_TOKEN"]) != "ghp_main" {
+		t.Errorf("expected GITHUB_GH_MAIN_TOKEN in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GITHUB_GH-MAIN_TOKEN"]) != "ghp_main" {
-		t.Errorf("expected GITHUB_GH-MAIN_TOKEN in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GITHUB_GH_SECONDARY_TOKEN"]) != "ghp_secondary" {
+		t.Errorf("expected GITHUB_GH_SECONDARY_TOKEN in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GITHUB_GH-SECONDARY_TOKEN"]) != "ghp_secondary" {
-		t.Errorf("expected GITHUB_GH-SECONDARY_TOKEN in secret, got keys: %v", keysOf(secret.Data))
+	if _, hasBare := secret.Data["GITHUB_TOKEN"]; hasBare {
+		t.Error("bare GITHUB_TOKEN must not appear when neither entry name matches the provider (§8.1)")
 	}
 }
 
@@ -1575,8 +1569,7 @@ models:
 }
 
 func TestE2E_ProviderEnv_TwoCloudModelsOpenAI(t *testing.T) {
-	// Two models using the same cloud provider (openai). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two models with provider:openai, neither name matches. Qualified only.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1589,9 +1582,8 @@ models:
     provider: openai
 `, e2eOpts{
 		Credentials: map[string]string{
-			"OPENAI_API_KEY":           "sk-bare",
-			"OPENAI_GPT-FAST_API_KEY":  "sk-fast",
-			"OPENAI_GPT-SMART_API_KEY": "sk-smart",
+			"OPENAI_GPT_FAST_API_KEY":  "sk-fast",
+			"OPENAI_GPT_SMART_API_KEY": "sk-smart",
 		},
 	})
 
@@ -1605,25 +1597,23 @@ models:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["OPENAI_API_KEY"]) != "sk-bare" {
-		t.Errorf("expected OPENAI_API_KEY=sk-bare in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["OPENAI_GPT_FAST_API_KEY"]) != "sk-fast" {
+		t.Errorf("expected OPENAI_GPT_FAST_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["OPENAI_GPT-FAST_API_KEY"]) != "sk-fast" {
-		t.Errorf("expected OPENAI_GPT-FAST_API_KEY in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["OPENAI_GPT_SMART_API_KEY"]) != "sk-smart" {
+		t.Errorf("expected OPENAI_GPT_SMART_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["OPENAI_GPT-SMART_API_KEY"]) != "sk-smart" {
-		t.Errorf("expected OPENAI_GPT-SMART_API_KEY in secret, got keys: %v", keysOf(secret.Data))
+	if _, hasBare := secret.Data["OPENAI_API_KEY"]; hasBare {
+		t.Error("bare OPENAI_API_KEY must not appear when neither entry name matches the provider (§8.1)")
 	}
 
-	// Credentials should NOT be in ConfigMap
 	assertConfigMapAbsent(t, r, []string{
-		"OPENAI_API_KEY", "OPENAI_GPT-FAST_API_KEY", "OPENAI_GPT-SMART_API_KEY",
+		"OPENAI_GPT_FAST_API_KEY", "OPENAI_GPT_SMART_API_KEY",
 	})
 }
 
 func TestE2E_ProviderEnv_TwoCloudModelsGoogle(t *testing.T) {
-	// Two models using the same cloud provider (google). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two models with provider:google, neither name matches. Qualified only.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1636,9 +1626,8 @@ models:
     provider: google
 `, e2eOpts{
 		Credentials: map[string]string{
-			"GOOGLE_API_KEY":              "goog-bare",
-			"GOOGLE_GEMINI-FLASH_API_KEY": "goog-flash",
-			"GOOGLE_GEMINI-PRO_API_KEY":   "goog-pro",
+			"GOOGLE_GEMINI_FLASH_API_KEY": "goog-flash",
+			"GOOGLE_GEMINI_PRO_API_KEY":   "goog-pro",
 		},
 	})
 
@@ -1652,25 +1641,23 @@ models:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["GOOGLE_API_KEY"]) != "goog-bare" {
-		t.Errorf("expected GOOGLE_API_KEY=goog-bare in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GOOGLE_GEMINI_FLASH_API_KEY"]) != "goog-flash" {
+		t.Errorf("expected GOOGLE_GEMINI_FLASH_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GOOGLE_GEMINI-FLASH_API_KEY"]) != "goog-flash" {
-		t.Errorf("expected GOOGLE_GEMINI-FLASH_API_KEY in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GOOGLE_GEMINI_PRO_API_KEY"]) != "goog-pro" {
+		t.Errorf("expected GOOGLE_GEMINI_PRO_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GOOGLE_GEMINI-PRO_API_KEY"]) != "goog-pro" {
-		t.Errorf("expected GOOGLE_GEMINI-PRO_API_KEY in secret, got keys: %v", keysOf(secret.Data))
+	if _, hasBare := secret.Data["GOOGLE_API_KEY"]; hasBare {
+		t.Error("bare GOOGLE_API_KEY must not appear when neither entry name matches the provider (§8.1)")
 	}
 
-	// Credentials should NOT be in ConfigMap
 	assertConfigMapAbsent(t, r, []string{
-		"GOOGLE_API_KEY", "GOOGLE_GEMINI-FLASH_API_KEY", "GOOGLE_GEMINI-PRO_API_KEY",
+		"GOOGLE_GEMINI_FLASH_API_KEY", "GOOGLE_GEMINI_PRO_API_KEY",
 	})
 }
 
 func TestE2E_ProviderEnv_TwoCloudModelsCohere(t *testing.T) {
-	// Two models using the same cloud provider (cohere). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two models with provider:cohere, neither name matches. Qualified only.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1683,7 +1670,6 @@ models:
     provider: cohere
 `, e2eOpts{
 		Credentials: map[string]string{
-			"COHERE_API_KEY":        "co-bare",
 			"COHERE_EMBED_API_KEY":  "co-embed",
 			"COHERE_RERANK_API_KEY": "co-rerank",
 		},
@@ -1699,25 +1685,24 @@ models:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["COHERE_API_KEY"]) != "co-bare" {
-		t.Errorf("expected COHERE_API_KEY=co-bare in secret, got keys: %v", keysOf(secret.Data))
-	}
 	if string(secret.Data["COHERE_EMBED_API_KEY"]) != "co-embed" {
 		t.Errorf("expected COHERE_EMBED_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 	if string(secret.Data["COHERE_RERANK_API_KEY"]) != "co-rerank" {
 		t.Errorf("expected COHERE_RERANK_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
+	if _, hasBare := secret.Data["COHERE_API_KEY"]; hasBare {
+		t.Error("bare COHERE_API_KEY must not appear when neither entry name matches the provider (§8.1)")
+	}
 
-	// Credentials should NOT be in ConfigMap
 	assertConfigMapAbsent(t, r, []string{
-		"COHERE_API_KEY", "COHERE_EMBED_API_KEY", "COHERE_RERANK_API_KEY",
+		"COHERE_EMBED_API_KEY", "COHERE_RERANK_API_KEY",
 	})
 }
 
 func TestE2E_ProviderEnv_TwoCloudKnowledgePinecone(t *testing.T) {
-	// Two knowledge stores using the same cloud provider (pinecone). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two knowledge stores with provider:pinecone, neither name matches.
+	// Qualified only — no bare PINECONE_API_KEY.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1730,7 +1715,6 @@ knowledge:
     provider: pinecone
 `, e2eOpts{
 		Credentials: map[string]string{
-			"PINECONE_API_KEY":            "pc-bare",
 			"PINECONE_EMBEDDINGS_API_KEY": "pc-embed",
 			"PINECONE_SEARCH_API_KEY":     "pc-search",
 		},
@@ -1738,7 +1722,6 @@ knowledge:
 
 	requireNoErrors(t, r)
 
-	// Cloud knowledge → no containers
 	if r.hasResource("Deployment", "my-agent-knowledge-embeddings") || r.hasResource("StatefulSet", "my-agent-knowledge-embeddings") {
 		t.Error("did not expect container resources for cloud knowledge")
 	}
@@ -1750,26 +1733,24 @@ knowledge:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["PINECONE_API_KEY"]) != "pc-bare" {
-		t.Errorf("expected PINECONE_API_KEY=pc-bare in secret, got keys: %v", keysOf(secret.Data))
-	}
 	if string(secret.Data["PINECONE_EMBEDDINGS_API_KEY"]) != "pc-embed" {
 		t.Errorf("expected PINECONE_EMBEDDINGS_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 	if string(secret.Data["PINECONE_SEARCH_API_KEY"]) != "pc-search" {
 		t.Errorf("expected PINECONE_SEARCH_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
+	if _, hasBare := secret.Data["PINECONE_API_KEY"]; hasBare {
+		t.Error("bare PINECONE_API_KEY must not appear when neither entry name matches the provider (§8.1)")
+	}
 
-	// Credentials should NOT be in ConfigMap; no container env vars either
 	assertConfigMapAbsent(t, r, []string{
-		"PINECONE_API_KEY", "PINECONE_EMBEDDINGS_API_KEY", "PINECONE_SEARCH_API_KEY",
+		"PINECONE_EMBEDDINGS_API_KEY", "PINECONE_SEARCH_API_KEY",
 		"PINECONE_HOST", "PINECONE_PORT",
 	})
 }
 
 func TestE2E_ProviderEnv_TwoCloudIntegrationsGitLab(t *testing.T) {
-	// Two tools using the same cloud provider (gitlab). Gets bare provider key
-	// for first alphabetically + name-qualified keys for all.
+	// Two integrations with provider:gitlab, neither name matches. Qualified only.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1782,15 +1763,13 @@ integrations:
     provider: gitlab
 `, e2eOpts{
 		Credentials: map[string]string{
-			"GITLAB_TOKEN":           "glpat-bare",
-			"GITLAB_GL-DEPLOY_TOKEN": "glpat-deploy",
-			"GITLAB_GL-MAIN_TOKEN":   "glpat-main",
+			"GITLAB_GL_DEPLOY_TOKEN": "glpat-deploy",
+			"GITLAB_GL_MAIN_TOKEN":   "glpat-main",
 		},
 	})
 
 	requireNoErrors(t, r)
 
-	// No containers
 	if r.hasResource("Deployment", "my-agent-integration-gl-main") || r.hasResource("Deployment", "my-agent-integration-gl-deploy") {
 		t.Error("did not expect Deployments for cloud integrations")
 	}
@@ -1799,19 +1778,18 @@ integrations:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
-	if string(secret.Data["GITLAB_TOKEN"]) != "glpat-bare" {
-		t.Errorf("expected GITLAB_TOKEN=glpat-bare in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GITLAB_GL_DEPLOY_TOKEN"]) != "glpat-deploy" {
+		t.Errorf("expected GITLAB_GL_DEPLOY_TOKEN in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GITLAB_GL-DEPLOY_TOKEN"]) != "glpat-deploy" {
-		t.Errorf("expected GITLAB_GL-DEPLOY_TOKEN in secret, got keys: %v", keysOf(secret.Data))
+	if string(secret.Data["GITLAB_GL_MAIN_TOKEN"]) != "glpat-main" {
+		t.Errorf("expected GITLAB_GL_MAIN_TOKEN in secret, got keys: %v", keysOf(secret.Data))
 	}
-	if string(secret.Data["GITLAB_GL-MAIN_TOKEN"]) != "glpat-main" {
-		t.Errorf("expected GITLAB_GL-MAIN_TOKEN in secret, got keys: %v", keysOf(secret.Data))
+	if _, hasBare := secret.Data["GITLAB_TOKEN"]; hasBare {
+		t.Error("bare GITLAB_TOKEN must not appear when neither entry name matches the provider (§8.1)")
 	}
 
-	// Credentials should NOT be in ConfigMap
 	assertConfigMapAbsent(t, r, []string{
-		"GITLAB_TOKEN", "GITLAB_GL-DEPLOY_TOKEN", "GITLAB_GL-MAIN_TOKEN",
+		"GITLAB_GL_DEPLOY_TOKEN", "GITLAB_GL_MAIN_TOKEN",
 	})
 }
 

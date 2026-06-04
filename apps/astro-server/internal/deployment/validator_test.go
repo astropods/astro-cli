@@ -564,6 +564,12 @@ func TestGetRequiredCredentials(t *testing.T) {
 	})
 
 	t.Run("different names same provider produce different keys", func(t *testing.T) {
+		// Two entries share provider:anthropic and neither name matches the
+		// provider. Per §8.1 (the resolver, which the deployer respects),
+		// only the qualified keys are emitted — no bare ANTHROPIC_API_KEY,
+		// since the deployer can't decide which entry owns it. Validator
+		// must mirror the resolver: never ask the user for a credential
+		// the deployer won't inject.
 		s := &spec.AstroSpec{
 			Name:  "my-agent",
 			Meta:  spec.Meta{},
@@ -579,11 +585,14 @@ func TestGetRequiredCredentials(t *testing.T) {
 		for _, c := range creds {
 			credKeys[c.Key] = true
 		}
-		if len(creds) != 3 {
-			t.Errorf("expected 3 credentials (bare + 2 name-qualified), got %d: %v", len(creds), credKeys)
+		if len(creds) != 2 {
+			t.Errorf("expected 2 credentials (qualified only, no bare), got %d: %v", len(creds), credKeys)
 		}
-		if !credKeys["ANTHROPIC_API_KEY"] || !credKeys["ANTHROPIC_FALLBACK_API_KEY"] || !credKeys["ANTHROPIC_PRIMARY_API_KEY"] {
-			t.Errorf("expected ANTHROPIC_API_KEY, ANTHROPIC_FALLBACK_API_KEY, ANTHROPIC_PRIMARY_API_KEY, got %v", credKeys)
+		if !credKeys["ANTHROPIC_PRIMARY_API_KEY"] || !credKeys["ANTHROPIC_FALLBACK_API_KEY"] {
+			t.Errorf("expected ANTHROPIC_PRIMARY_API_KEY and ANTHROPIC_FALLBACK_API_KEY, got %v", credKeys)
+		}
+		if credKeys["ANTHROPIC_API_KEY"] {
+			t.Error("bare ANTHROPIC_API_KEY must NOT be emitted when no entry name matches the provider (matches §8.1 resolver semantic)")
 		}
 	})
 
