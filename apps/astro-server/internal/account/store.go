@@ -720,6 +720,24 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 	return accounts, nil
 }
 
+// GetOpenMeterCustomerID returns the linked OpenMeter customer ID for an account, or "" if unset.
+func (s *AccountStore) GetOpenMeterCustomerID(accountID string) (string, error) {
+	var customerID sql.NullString
+	err := s.db.QueryRow(`
+		SELECT openmeter_customer_id FROM accounts WHERE id = $1
+	`, accountID).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get openmeter_customer_id: %w", err)
+	}
+	if !customerID.Valid {
+		return "", nil
+	}
+	return customerID.String, nil
+}
+
 // SetOpenMeterCustomerID stores the OpenMeter customer ID for an account.
 func (s *AccountStore) SetOpenMeterCustomerID(accountID, customerID string) error {
 	_, err := s.db.Exec(`

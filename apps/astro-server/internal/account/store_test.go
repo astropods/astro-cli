@@ -413,6 +413,23 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetOpenMeterCustomerID(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT openmeter_customer_id FROM accounts WHERE id").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"openmeter_customer_id"}).AddRow("om-cust-1"))
+
+	id, err := store.GetOpenMeterCustomerID("acct-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "om-cust-1" {
+		t.Errorf("expected om-cust-1, got %q", id)
+	}
+}
+
 func TestSetOpenMeterCustomerID(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)

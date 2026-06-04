@@ -72,6 +72,32 @@ func TestCreateCustomer_Success(t *testing.T) {
 	}
 }
 
+func TestUpdateCustomerName_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/customers/om-cust-456" {
+			t.Errorf("expected /api/v1/customers/om-cust-456, got %s", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]string
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		if payload["name"] != "eu-testing-org" {
+			t.Errorf("expected name eu-testing-org, got %q", payload["name"])
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if err := c.UpdateCustomerName(context.Background(), "om-cust-456", "eu-testing-org"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestCreateCustomer_ServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

@@ -517,7 +517,7 @@ type RenameAccountRequest struct {
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, omClient *openmeter.Client, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -555,6 +555,16 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 			agentNames, _ := agentIdx.AgentNames(acct.ID)
 			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, agentNames); err != nil {
 				log.Warn("Failed to move avatars during rename", "error", err, "account_id", acct.ID)
+			}
+		}
+
+		if omClient != nil && acct.Name != req.Name {
+			if omID, err := accountStore.GetOpenMeterCustomerID(acct.ID); err != nil {
+				log.Warn("Failed to load OpenMeter customer id for rename", "error", err, "account_id", acct.ID)
+			} else if omID != "" {
+				if err := omClient.UpdateCustomerName(c.Request.Context(), omID, req.Name); err != nil {
+					log.Warn("Failed to update OpenMeter customer name", "error", err, "account_id", acct.ID, "openmeter_customer_id", omID)
+				}
 			}
 		}
 

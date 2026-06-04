@@ -120,6 +120,35 @@ func (c *Client) DeleteCustomer(ctx context.Context, customerID string) error {
 	return nil
 }
 
+// UpdateCustomerName updates the display name of an OpenMeter customer.
+func (c *Client) UpdateCustomerName(ctx context.Context, customerID, name string) error {
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return fmt.Errorf("marshal customer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+"/api/v1/customers/"+customerID, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("update customer request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("update customer: not found")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update customer: status %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // CloudEvent is a CloudEvents v1.0 envelope for OpenMeter event ingestion.
 type CloudEvent struct {
 	ID          string `json:"id"`
