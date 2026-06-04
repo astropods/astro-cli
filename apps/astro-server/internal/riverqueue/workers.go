@@ -14,7 +14,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
-	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
 // addWorkers registers all River workers into the registry.
@@ -163,27 +162,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log:          log,
 	})
 	log.Info("river: registered worker", "worker", "OpenMeterBackfillWorker", "period", "24h")
-
-	// One-shot Slack directory backfill — runs at most once per
-	// environment, gated by slack_directory_backfill_marker. main.go
-	// enqueues it conditionally on startup; the worker also re-checks
-	// the marker on entry as a belt-and-suspenders guarantee.
-	river.AddWorker(workers, &SlackDirectoryBackfillWorker{
-		cfg:           cfg.ServerConfig,
-		slackStore:    slackidentity.NewStore(cfg.DB),
-		langfuseStore: langfuse.NewStore(cfg.DB),
-		log:           log,
-	})
-	log.Info("river: registered worker", "worker", "SlackDirectoryBackfillWorker", "schedule", "one-shot")
-
-	// One-shot Slack observed-users port — copies legacy observed rows
-	// from slack_identity_mappings into slack_observed_users. Same
-	// one-shot gating as the directory backfill (slack_observed_port_marker).
-	river.AddWorker(workers, &SlackObservedPortWorker{
-		slackStore: slackidentity.NewStore(cfg.DB),
-		log:        log,
-	})
-	log.Info("river: registered worker", "worker", "SlackObservedPortWorker", "schedule", "one-shot")
 
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{

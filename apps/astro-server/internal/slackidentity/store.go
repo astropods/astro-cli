@@ -27,20 +27,6 @@ import (
 	"github.com/lib/pq"
 )
 
-const (
-	// SourceOAuth marks a mapping created via the raw Slack OAuth link
-	// flow — the user authorized via Pipes and the row carries a
-	// workos_user_id.
-	SourceOAuth = "oauth"
-
-	// SourceObserved marks a directory-only row written by the live-ingest
-	// path on /authorize. The row records that we've seen this
-	// (team_id, slack_user_id) pair, but the user hasn't linked a WorkOS
-	// account — so workos_user_id stays NULL. Used by Insights to attach
-	// team_id to bare-form Langfuse userIds for the Slack deep link.
-	SourceObserved = "observed"
-)
-
 // observedSeenResetInterval bounds how long the in-memory dedupe set
 // holds entries before being wiped. Caps memory growth to one day's
 // worth of unique (team, user) pairs per pod; after the reset, the next
@@ -79,15 +65,16 @@ func NewStore(db *sql.DB) *Store {
 	}
 }
 
-// Mapping is one row in slack_identity_mappings. OrganizationID is
-// stored as SQL NULL when empty; display fields
-// (TeamName/TeamDomain/SlackUsername) are stored as ” when blank.
+// Mapping is one row in slack_identity_mappings — an oauth-linked
+// identity. OrganizationID is stored as SQL NULL when empty; display
+// fields (TeamName/TeamDomain/SlackUsername) are stored as "" when
+// blank. PR 3 dropped the observed-source variant; every row now
+// represents a WorkOS↔Slack link captured at oauth time.
 type Mapping struct {
 	TeamID         string
 	SlackUserID    string
 	WorkOSUserID   string
 	OrganizationID string // optional; empty means stored NULL
-	Source         string
 	// Display fields captured at link time from oauth.v2.access + team.info.
 	// Used by the settings UI to render "Connected as @alice in Acme"
 	// with the workspace icon, no fresh round-trip per render.
@@ -109,26 +96,21 @@ func (s *Store) Upsert(m Mapping) error {
 	if m.TeamID == "" || m.SlackUserID == "" || m.WorkOSUserID == "" {
 		return errors.New("slackidentity: team_id, slack_user_id, and workos_user_id are required")
 	}
-	source := m.Source
-	if source == "" {
-		source = SourceOAuth
-	}
 	_, err := s.db.Exec(`
 		INSERT INTO slack_identity_mappings
-			(team_id, slack_user_id, workos_user_id, organization_id, source,
+			(team_id, slack_user_id, workos_user_id, organization_id,
 			 team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, now(), NULL)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, now(), NULL)
 		ON CONFLICT (team_id, slack_user_id) DO UPDATE SET
 			workos_user_id   = EXCLUDED.workos_user_id,
 			organization_id  = EXCLUDED.organization_id,
-			source           = EXCLUDED.source,
 			team_name        = EXCLUDED.team_name,
 			team_domain      = EXCLUDED.team_domain,
 			team_icon_url    = EXCLUDED.team_icon_url,
 			slack_username   = EXCLUDED.slack_username,
 			updated_at       = now(),
 			revoked_at       = NULL
-	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID, source,
+	`, m.TeamID, m.SlackUserID, m.WorkOSUserID, m.OrganizationID,
 		m.TeamName, m.TeamDomain, m.TeamIconURL, m.SlackUsername)
 	if err != nil {
 		return fmt.Errorf("slackidentity: upsert: %w", err)
@@ -137,19 +119,19 @@ func (s *Store) Upsert(m Mapping) error {
 }
 
 // UpsertObserved records that the server has seen (team_id, slack_user_id)
-// via the /authorize live-ingest path. It writes a directory-only row
-// (source='observed', workos_user_id=NULL); if a row already exists for this
-// pair — observed OR oauth-linked — the call is a no-op. Idempotent.
+// via the /authorize live-ingest path. Writes the pair into
+// slack_observed_users — the post-PR-3 sole home of the observed
+// directory. ON CONFLICT bumps last_seen_at so the row stays fresh
+// without growing.
 //
-// Used by Insights to attach team_id to bare-form Langfuse userIds so the
-// Slack profile deep link works for every Slack row, not just the ones who
-// happen to have linked their identity.
+// Used by Insights to attach team_id to bare-form Langfuse userIds so
+// the Slack profile deep link works for every Slack row, not just
+// linked identities.
 //
-// Per-process in-memory dedupe (observedSeen) eliminates the steady-state
-// DB write on every authorize call: a chatty workspace only touches Postgres
-// once per (team, user) pair per pod lifetime. Across pods or restarts, the
-// SQL UPSERT is still ON CONFLICT safe so we never get errors — just one
-// extra write per restart per unique user.
+// Per-process in-memory dedupe (observedSeen) eliminates the steady-
+// state DB write on every authorize call: a chatty workspace only
+// touches Postgres once per (team, user) pair per pod lifetime.
+// Across pods or restarts, the SQL UPSERT is still ON CONFLICT safe.
 func (s *Store) UpsertObserved(ctx context.Context, teamID, slackUserID string) error {
 	if teamID == "" || slackUserID == "" {
 		return nil // tolerate empty inputs silently — authorize handler tolerates them too
@@ -173,18 +155,6 @@ func (s *Store) UpsertObserved(ctx context.Context, teamID, slackUserID string) 
 	s.observedSeen[key] = struct{}{}
 	s.observedMu.Unlock()
 
-	// ON CONFLICT: an active row (any source) is left alone; a revoked
-	// observed row is revived in-place; a revoked oauth row stays
-	// revoked. Revocation of an oauth row is a deliberate user action
-	// ("I disconnected my Slack from Astro") — silently reviving it on
-	// the next message would undo their choice and re-attribute their
-	// messages to their old account. The observed-source guard scopes
-	// the revival to the rollback path (ops UPDATE … SET revoked_at =
-	// now() WHERE source = 'observed') without touching oauth state.
-	// PR 2 cutover: slack_observed_users is now the sole write target.
-	// The legacy slack_identity_mappings dual-write is gone — observed
-	// rows live exclusively in the new table from here on. PR 3
-	// deletes the stale legacy rows.
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO slack_observed_users (team_id, slack_user_id)
 		VALUES ($1, $2)
@@ -208,14 +178,17 @@ type LookupResult struct {
 }
 
 // Lookup resolves an active (team_id, slack_user_id) to its WorkOS user.
-// Returns Found=false (with no error) when no active LINKED mapping exists;
-// that's the common "user hasn't linked yet" case and the caller falls back
-// to the existing owning-account candidate.
+// Returns Found=false (with no error) when no active mapping exists —
+// the common "user hasn't linked yet" case where the caller falls back
+// to the owning-account candidate. Revoked rows are excluded (their
+// disconnect was deliberate).
 //
-// Observed-only rows (source='observed', workos_user_id IS NULL) are
-// excluded — those exist for directory join purposes only, not for
-// identity resolution. Treating them as a Found=true with empty WorkOSUserID
-// would incorrectly flow through the "linked" branch in /authorize.
+// The `AND workos_user_id IS NOT NULL` filter is redundant after the
+// PR 3 cleanup worker runs + the follow-up schema migration restores
+// the NOT NULL constraint. It's kept here to guard the transition
+// window: between the binary deploy and the cleanup-worker completion,
+// orphaned observed rows (workos_user_id IS NULL) still exist, and
+// Scan into a non-nullable string would fail on a NULL match.
 func (s *Store) Lookup(teamID, slackUserID string) (LookupResult, error) {
 	var workosUserID string
 	err := s.db.QueryRow(`
@@ -233,130 +206,6 @@ func (s *Store) Lookup(teamID, slackUserID string) (LookupResult, error) {
 		return LookupResult{}, fmt.Errorf("slackidentity: lookup: %w", err)
 	}
 	return LookupResult{Found: true, WorkOSUserID: workosUserID}, nil
-}
-
-// AccountTeam pairs an Astro account with one of its connected Slack
-// workspaces, derived from any active linked (oauth) mapping for a member
-// of that account. Used by the one-shot directory backfill worker to
-// know which (team_id) to stamp on the account's bare-form Slack
-// userIds.
-type AccountTeam struct {
-	AccountID string
-	TeamID    string
-}
-
-// ListLinkedAccountTeams returns one row per (account_id, team_id) pair
-// observable in slack_identity_mappings — the workspaces that any
-// member of each account has linked via oauth. Used by the directory
-// backfill worker to seed observed-only rows for historical Slack users
-// in accounts that have at least one linked member to derive team_id
-// from. Accounts with zero linked Slack members don't appear and can't
-// be backfilled this way — they'd need a separate workspace-discovery
-// path.
-func (s *Store) ListLinkedAccountTeams() ([]AccountTeam, error) {
-	rows, err := s.db.Query(`
-		SELECT DISTINCT am.account_id, sim.team_id
-		FROM slack_identity_mappings sim
-		JOIN account_members am ON sim.workos_user_id = am.user_id
-		WHERE sim.workos_user_id IS NOT NULL
-		  AND sim.revoked_at IS NULL
-		ORDER BY am.account_id, sim.team_id
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("slackidentity: list linked account teams: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []AccountTeam
-	for rows.Next() {
-		var at AccountTeam
-		if err := rows.Scan(&at.AccountID, &at.TeamID); err != nil {
-			return nil, fmt.Errorf("slackidentity: scan account team: %w", err)
-		}
-		out = append(out, at)
-	}
-	return out, rows.Err()
-}
-
-// IsDirectoryBackfillComplete returns true if the one-shot backfill
-// marker row exists. The worker checks this on entry and exits
-// immediately if true, guaranteeing the work runs at most once per
-// environment regardless of how many times River enqueues the job.
-func (s *Store) IsDirectoryBackfillComplete(ctx context.Context) (bool, error) {
-	var exists bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM slack_directory_backfill_marker)`).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("slackidentity: check backfill marker: %w", err)
-	}
-	return exists, nil
-}
-
-// MarkDirectoryBackfillComplete writes the singleton marker row after a
-// successful backfill. ON CONFLICT DO NOTHING is paranoia — the CHECK
-// constraint (id = 1) plus PRIMARY KEY makes the table physically
-// single-row, so concurrent writes are bounded.
-func (s *Store) MarkDirectoryBackfillComplete(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO slack_directory_backfill_marker (id, completed_at)
-		VALUES (1, now())
-		ON CONFLICT (id) DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("slackidentity: mark backfill complete: %w", err)
-	}
-	return nil
-}
-
-// IsObservedPortComplete reports whether the one-shot port from
-// slack_identity_mappings (observed source) into slack_observed_users
-// has completed for this environment. Same gating pattern as the
-// directory backfill marker.
-func (s *Store) IsObservedPortComplete(ctx context.Context) (bool, error) {
-	var exists bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM slack_observed_port_marker)`).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("slackidentity: check observed port marker: %w", err)
-	}
-	return exists, nil
-}
-
-// MarkObservedPortComplete writes the singleton port marker row after a
-// successful one-shot copy. CHECK (id = 1) plus PRIMARY KEY enforces
-// single-row physically.
-func (s *Store) MarkObservedPortComplete(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO slack_observed_port_marker (id, completed_at)
-		VALUES (1, now())
-		ON CONFLICT (id) DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("slackidentity: mark observed port complete: %w", err)
-	}
-	return nil
-}
-
-// PortObservedRowsToNewTable copies every active observed row out of
-// slack_identity_mappings and into slack_observed_users. Idempotent:
-// ON CONFLICT DO NOTHING leaves existing rows alone (live-ingest dual-
-// writes may have already populated some pairs). Returns the number of
-// rows inserted. Intended to be called exactly once per environment from
-// the one-shot port worker.
-func (s *Store) PortObservedRowsToNewTable(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO slack_observed_users (team_id, slack_user_id, first_seen_at, last_seen_at)
-		SELECT team_id, slack_user_id, created_at, updated_at
-		FROM slack_identity_mappings
-		WHERE source = 'observed' AND revoked_at IS NULL
-		ON CONFLICT (team_id, slack_user_id) DO NOTHING
-	`)
-	if err != nil {
-		return 0, fmt.Errorf("slackidentity: port observed rows: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("slackidentity: port observed rows affected: %w", err)
-	}
-	return n, nil
 }
 
 // DirectoryEntry is one resolved directory hit per Slack user. TeamID is
@@ -453,7 +302,7 @@ func (s *Store) DirectoryEntriesForSlackUsers(slackUserIDs []string) (map[string
 func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 	rows, err := s.db.Query(`
 		SELECT team_id, slack_user_id, workos_user_id,
-		       COALESCE(organization_id, ''), source,
+		       COALESCE(organization_id, ''),
 		       team_name, team_domain, team_icon_url, slack_username,
 		       created_at, updated_at, revoked_at
 		FROM slack_identity_mappings
@@ -470,7 +319,7 @@ func (s *Store) ListByWorkOSUser(workosUserID string) ([]Mapping, error) {
 		var m Mapping
 		if err := rows.Scan(
 			&m.TeamID, &m.SlackUserID, &m.WorkOSUserID,
-			&m.OrganizationID, &m.Source,
+			&m.OrganizationID,
 			&m.TeamName, &m.TeamDomain, &m.TeamIconURL, &m.SlackUsername,
 			&m.CreatedAt, &m.UpdatedAt, &m.RevokedAt,
 		); err != nil {
@@ -493,7 +342,7 @@ func (s *Store) ListByWorkOSUsers(workosUserIDs []string) (map[string][]Mapping,
 	}
 	rows, err := s.db.Query(`
 		SELECT team_id, slack_user_id, workos_user_id,
-		       COALESCE(organization_id, ''), source,
+		       COALESCE(organization_id, ''),
 		       team_name, team_domain, team_icon_url, slack_username,
 		       created_at, updated_at, revoked_at
 		FROM slack_identity_mappings
@@ -509,7 +358,7 @@ func (s *Store) ListByWorkOSUsers(workosUserIDs []string) (map[string][]Mapping,
 		var m Mapping
 		if err := rows.Scan(
 			&m.TeamID, &m.SlackUserID, &m.WorkOSUserID,
-			&m.OrganizationID, &m.Source,
+			&m.OrganizationID,
 			&m.TeamName, &m.TeamDomain, &m.TeamIconURL, &m.SlackUsername,
 			&m.CreatedAt, &m.UpdatedAt, &m.RevokedAt,
 		); err != nil {

@@ -251,7 +251,6 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			SlackUserID:    resp.AuthedUser.ID,
 			WorkOSUserID:   session.UserID,
 			OrganizationID: session.OrganizationID,
-			Source:         slackidentity.SourceOAuth,
 			TeamName:       teamName,
 			TeamDomain:     teamDomain,
 			TeamIconURL:    iconURL,

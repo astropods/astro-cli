@@ -21,11 +21,11 @@ func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock, *sql.DB) {
 }
 
 const (
-	upsertQuery         = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id, source,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tsource           = EXCLUDED.source,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
+	upsertQuery         = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
 	upsertObservedQuery = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, source)\n\t\tVALUES ($1, $2, NULL, 'observed')\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET revoked_at = NULL,\n\t\t    updated_at = now()\n\t\tWHERE slack_identity_mappings.revoked_at IS NOT NULL\n\t\t  AND slack_identity_mappings.source     = 'observed'\n\t"
 	lookupQuery         = "\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t"
-	listQuery           = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
-	listManyQuery       = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''), source,\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	listQuery           = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	listManyQuery       = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
 	revokeQuery         = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
 	revokeOneQuery      = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
 	directoryEntries    = `
@@ -54,15 +54,8 @@ const (
 		) combined
 		ORDER BY slack_user_id, source_priority, active_flag DESC, created_at DESC
 	`
-	listAccountTeams = "\n\t\tSELECT DISTINCT am.account_id, sim.team_id\n\t\tFROM slack_identity_mappings sim\n\t\tJOIN account_members am ON sim.workos_user_id = am.user_id\n\t\tWHERE sim.workos_user_id IS NOT NULL\n\t\t  AND sim.revoked_at IS NULL\n\t\tORDER BY am.account_id, sim.team_id\n\t"
-	checkMarker      = "SELECT EXISTS(SELECT 1 FROM slack_directory_backfill_marker)"
-	writeMarker      = "\n\t\tINSERT INTO slack_directory_backfill_marker (id, completed_at)\n\t\tVALUES (1, now())\n\t\tON CONFLICT (id) DO NOTHING\n\t"
-	// PR 1 dual-write: every UpsertObserved follows the legacy
-	// slack_identity_mappings write with this slack_observed_users insert.
+	// Sole observed-write target after PR 2 cutover.
 	upsertObservedUserQuery = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id)\n\t\tVALUES ($1, $2)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET last_seen_at = now()\n\t"
-	checkObservedPortMarker = "SELECT EXISTS(SELECT 1 FROM slack_observed_port_marker)"
-	writeObservedPortMarker = "\n\t\tINSERT INTO slack_observed_port_marker (id, completed_at)\n\t\tVALUES (1, now())\n\t\tON CONFLICT (id) DO NOTHING\n\t"
-	portObservedRowsQuery   = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id, first_seen_at, last_seen_at)\n\t\tSELECT team_id, slack_user_id, created_at, updated_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE source = 'observed' AND revoked_at IS NULL\n\t\tON CONFLICT (team_id, slack_user_id) DO NOTHING\n\t"
 )
 
 // Upsert writes a row with all the expected fields and clears revoked_at on
@@ -72,33 +65,15 @@ func TestUpsert_WritesRow(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T123", "U456", "user_abc", "org_xyz", "oauth", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
+		WithArgs("T123", "U456", "user_abc", "org_xyz", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.Upsert(Mapping{
 		TeamID: "T123", SlackUserID: "U456", WorkOSUserID: "user_abc",
-		OrganizationID: "org_xyz", Source: "oauth",
-		TeamName: "Acme", TeamDomain: "acme", TeamIconURL: "https://avatars.slack-edge.com/icon.png",
+		OrganizationID: "org_xyz",
+		TeamName:       "Acme", TeamDomain: "acme", TeamIconURL: "https://avatars.slack-edge.com/icon.png",
 		SlackUsername: "alice",
 	})
-	if err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Source defaults to "oauth" when not supplied.
-func TestUpsert_DefaultsSourceToOAuth(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -130,7 +105,7 @@ func TestUpsert_PropagatesDBError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(upsertQuery).
-		WithArgs("T1", "U1", "user_1", "", "oauth", "", "", "", "").
+		WithArgs("T1", "U1", "user_1", "", "", "", "", "").
 		WillReturnError(errors.New("boom"))
 
 	err := store.Upsert(Mapping{TeamID: "T1", SlackUserID: "U1", WorkOSUserID: "user_1"})
@@ -202,12 +177,12 @@ func TestListByWorkOSUser_ReturnsActiveMappings(t *testing.T) {
 		WithArgs("user_abc").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source",
+			"organization_id",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}).
-			AddRow("T1", "U1", "user_abc", "org_xyz", "oauth", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
-			AddRow("T2", "U2", "user_abc", "", "oauth", "", "", "", "", now, now, nil))
+			AddRow("T1", "U1", "user_abc", "org_xyz", "Acme", "acme", "https://avatars.slack-edge.com/icon.png", "alice", now, now, nil).
+			AddRow("T2", "U2", "user_abc", "", "", "", "", "", now, now, nil))
 
 	out, err := store.ListByWorkOSUser("user_abc")
 	if err != nil {
@@ -241,7 +216,7 @@ func TestListByWorkOSUser_EmptyResult(t *testing.T) {
 		WithArgs("user_abc").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source",
+			"organization_id",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}))
@@ -266,13 +241,13 @@ func TestListByWorkOSUsers_GroupsByUser(t *testing.T) {
 		WithArgs(pq.Array([]string{"user_a", "user_b", "user_c"})).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source",
+			"organization_id",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}).
-			AddRow("T1", "U1", "user_a", "", "oauth", "Acme", "acme", "", "alice", now, now, nil).
-			AddRow("T2", "U2", "user_a", "", "oauth", "Foo", "foo", "", "alice", now, now, nil).
-			AddRow("T3", "U3", "user_b", "", "oauth", "Bar", "bar", "", "bob", now, now, nil))
+			AddRow("T1", "U1", "user_a", "", "Acme", "acme", "", "alice", now, now, nil).
+			AddRow("T2", "U2", "user_a", "", "Foo", "foo", "", "alice", now, now, nil).
+			AddRow("T3", "U3", "user_b", "", "Bar", "bar", "", "bob", now, now, nil))
 
 	out, err := store.ListByWorkOSUsers([]string{"user_a", "user_b", "user_c"})
 	if err != nil {
@@ -537,106 +512,6 @@ func TestUpsertObserved_DBErrorRollsBackDedupe(t *testing.T) {
 	}
 }
 
-// IsObservedPortComplete returns false when the marker row is absent —
-// boot enqueues the port worker.
-func TestIsObservedPortComplete_Absent(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectQuery(checkObservedPortMarker).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-
-	done, err := store.IsObservedPortComplete(t.Context())
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	if done {
-		t.Errorf("expected done=false, got true")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
-// IsObservedPortComplete returns true when the marker is present —
-// boot skips enqueue.
-func TestIsObservedPortComplete_Present(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectQuery(checkObservedPortMarker).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	done, err := store.IsObservedPortComplete(t.Context())
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	if !done {
-		t.Errorf("expected done=true, got false")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
-// MarkObservedPortComplete writes the singleton marker row. ON CONFLICT
-// DO NOTHING — concurrent writes are safe because the CHECK (id=1) plus
-// PRIMARY KEY make the table physically single-row.
-func TestMarkObservedPortComplete_WritesMarker(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectExec(writeObservedPortMarker).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	if err := store.MarkObservedPortComplete(t.Context()); err != nil {
-		t.Fatalf("mark: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
-// PortObservedRowsToNewTable issues the copy from slack_identity_mappings
-// observed-source rows into slack_observed_users and returns the inserted
-// row count. ON CONFLICT DO NOTHING means re-runs produce zero net
-// change — idempotent.
-func TestPortObservedRowsToNewTable_CopiesAndReturnsCount(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectExec(portObservedRowsQuery).
-		WillReturnResult(sqlmock.NewResult(0, 42))
-
-	n, err := store.PortObservedRowsToNewTable(t.Context())
-	if err != nil {
-		t.Fatalf("port: %v", err)
-	}
-	if n != 42 {
-		t.Errorf("expected 42 rows, got %d", n)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
-// DB error propagates with context so the worker can log it without
-// guessing which step failed.
-func TestPortObservedRowsToNewTable_PropagatesDBError(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectExec(portObservedRowsQuery).
-		WillReturnError(errors.New("connection refused"))
-
-	if _, err := store.PortObservedRowsToNewTable(t.Context()); err == nil {
-		t.Error("expected error")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
 // ── Lookup excludes observed-only rows ──────────────────────────────────────
 
 // Lookup is for identity resolution (linked users only). An observed-only
@@ -647,9 +522,12 @@ func TestLookup_ExcludesObservedOnlyRows(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
-	// Lookup query now filters on workos_user_id IS NOT NULL — an
-	// observed-only row (workos_user_id IS NULL) doesn't match, so the
-	// query returns no rows.
+	// The query's `AND workos_user_id IS NOT NULL` filter excludes any
+	// observed-only row that still has NULL workos_user_id during the
+	// PR 3 transition window. Without the filter, Scan into a non-
+	// nullable string would fail on a matched observed row. After the
+	// schema migration restores the NOT NULL column constraint, the
+	// filter is redundant but harmless.
 	mock.ExpectQuery(lookupQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnError(sql.ErrNoRows)
@@ -729,55 +607,5 @@ func TestDirectoryEntriesForSlackUsers_EmptyInput(t *testing.T) {
 	}
 	if len(out) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(out))
-	}
-}
-
-// ── One-shot backfill marker ───────────────────────────────────────────────
-
-// Marker absent → IsDirectoryBackfillComplete returns false; the worker
-// runs and does its work.
-func TestIsDirectoryBackfillComplete_Absent(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-	mock.ExpectQuery(checkMarker).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	done, err := store.IsDirectoryBackfillComplete(t.Context())
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	if done {
-		t.Error("expected done=false with no marker row")
-	}
-}
-
-// Marker present → IsDirectoryBackfillComplete returns true; the worker
-// must exit without touching anything (the "never runs again" guarantee).
-func TestIsDirectoryBackfillComplete_Present(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-	mock.ExpectQuery(checkMarker).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	done, err := store.IsDirectoryBackfillComplete(t.Context())
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	if !done {
-		t.Error("expected done=true with marker row")
-	}
-}
-
-// Writing the marker is idempotent — concurrent writes from two pods
-// during a rolling deploy must not error. ON CONFLICT DO NOTHING covers
-// the race; the PRIMARY KEY + singleton CHECK make the table physically
-// single-row.
-func TestMarkDirectoryBackfillComplete_IdempotentWrite(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-	mock.ExpectExec(writeMarker).WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := store.MarkDirectoryBackfillComplete(t.Context()); err != nil {
-		t.Fatalf("mark complete: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
 	}
 }

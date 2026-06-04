@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
-	"github.com/riverqueue/river"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -631,70 +630,10 @@ func runWorker(
 				_ = rq.Stop(stopCtx)
 			}()
 
-			// One-shot Slack directory backfill: enqueue exactly once per
-			// environment. The slack_directory_backfill_marker row is the
-			// authoritative "has it run" signal — checking it here avoids
-			// even enqueuing the job after the first successful run.
-			// UniqueOpts collapses concurrent enqueues across replicas
-			// into a single queued job. The worker re-checks the marker
-			// on entry as a belt-and-suspenders guarantee against the
-			// (marker-just-written) race.
-			enqueueSlackDirectoryBackfillIfNeeded(workerCtx, db, rq, log)
-
-			// One-shot port of legacy observed rows from
-			// slack_identity_mappings into slack_observed_users. Same
-			// pattern as the directory backfill: marker-gated, UniqueOpts
-			// for replica safety, worker re-checks on entry.
-			enqueueSlackObservedPortIfNeeded(workerCtx, db, rq, log)
 		}
 	}
 
 	return cancel
-}
-
-// enqueueSlackDirectoryBackfillIfNeeded enqueues the one-shot Slack
-// directory backfill iff the marker row is absent. Safe to call on every
-// pod start: after the marker exists this is a single fast SELECT.
-func enqueueSlackDirectoryBackfillIfNeeded(ctx context.Context, db *sql.DB, rq *riverqueue.Queue, log *logger.Logger) {
-	slackStore := slackidentity.NewStore(db)
-	done, err := slackStore.IsDirectoryBackfillComplete(ctx)
-	if err != nil {
-		log.Warn("slack directory backfill: marker check failed; not enqueuing", "error", err)
-		return
-	}
-	if done {
-		return
-	}
-	if _, err := rq.Insert(ctx, riverqueue.SlackDirectoryBackfillArgs{}, &river.InsertOpts{
-		UniqueOpts: river.UniqueOpts{ByArgs: true},
-	}); err != nil {
-		log.Warn("slack directory backfill: enqueue failed", "error", err)
-		return
-	}
-	log.Info("slack directory backfill: enqueued one-shot job")
-}
-
-// enqueueSlackObservedPortIfNeeded enqueues the one-shot port that copies
-// legacy observed rows from slack_identity_mappings into
-// slack_observed_users iff the port marker is absent. Same shape as the
-// directory-backfill enqueue.
-func enqueueSlackObservedPortIfNeeded(ctx context.Context, db *sql.DB, rq *riverqueue.Queue, log *logger.Logger) {
-	slackStore := slackidentity.NewStore(db)
-	done, err := slackStore.IsObservedPortComplete(ctx)
-	if err != nil {
-		log.Warn("slack observed port: marker check failed; not enqueuing", "error", err)
-		return
-	}
-	if done {
-		return
-	}
-	if _, err := rq.Insert(ctx, riverqueue.SlackObservedPortArgs{}, &river.InsertOpts{
-		UniqueOpts: river.UniqueOpts{ByArgs: true},
-	}); err != nil {
-		log.Warn("slack observed port: enqueue failed", "error", err)
-		return
-	}
-	log.Info("slack observed port: enqueued one-shot job")
 }
 
 func setupRoutes(router *gin.Engine, deps *Deps) {

@@ -169,12 +169,12 @@ func TestListMembers_PopulatesSlackWorkspaces(t *testing.T) {
 		WithArgs(pq.Array([]string{"user-1", "user-2"})).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"team_id", "slack_user_id", "workos_user_id",
-			"organization_id", "source",
+			"organization_id",
 			"team_name", "team_domain", "team_icon_url", "slack_username",
 			"created_at", "updated_at", "revoked_at",
 		}).
-			AddRow("T1", "U1", "user-1", "", "oauth", "Acme", "acme", "https://icon.png", "alice", now, now, nil).
-			AddRow("T2", "U2", "user-1", "", "oauth", "Foo", "foo", "", "alice", now, now, nil))
+			AddRow("T1", "U1", "user-1", "", "Acme", "acme", "https://icon.png", "alice", now, now, nil).
+			AddRow("T2", "U2", "user-1", "", "Foo", "foo", "", "alice", now, now, nil))
 
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "personal"}
 	user := &auth.User{ID: "user-1"}
