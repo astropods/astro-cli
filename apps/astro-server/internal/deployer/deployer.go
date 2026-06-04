@@ -277,10 +277,11 @@ func (d *Deployer) populateBuildEnv(
 	if err != nil {
 		return fmt.Errorf("encryptor: %w", err)
 	}
-	if enc == nil {
-		// No KMS configured — skip writing for now. (Local dev / tests.)
-		return nil
-	}
+	// enc may be nil here when KMS isn't configured (local dev / tests).
+	// SaveBuildEnv still proceeds — non-secret rows are written plaintext,
+	// secret rows fall back to plaintext too. This keeps the table populated
+	// so the runtime endpoint can surface env on local deployments instead
+	// of returning a blank list.
 
 	// account_var_ref provenance for user_var rows.
 	storedVars, err := d.Store.GetDeploymentVariables(dep.ID)
@@ -551,20 +552,12 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 			continue
 		}
 
-		var val string
-		if dec != nil && len(r.Nonce) > 0 {
-			plaintext, decErr := dec.Decrypt(r.ValueEncrypted, r.Nonce)
-			if decErr != nil {
-				d.Log.Warn("Failed to decrypt variable", "name", r.UserVarName, "deployment_id", dep.ID)
-				continue
-			}
-			val = string(plaintext)
-		} else {
-			// No KMS configured — plaintext stored in value_encrypted.
-			val = string(r.ValueEncrypted)
+		plaintext, decErr := dec.Decrypt(r.ValueEncrypted, r.Nonce)
+		if decErr != nil {
+			d.Log.Warn("Failed to decrypt variable", "name", r.UserVarName, "deployment_id", dep.ID)
+			continue
 		}
-
-		existing.Value = val
+		existing.Value = string(plaintext)
 		ds.Variables[r.UserVarName] = existing
 	}
 

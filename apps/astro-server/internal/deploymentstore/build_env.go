@@ -3,6 +3,8 @@ package deploymentstore
 import (
 	"database/sql"
 	"fmt"
+
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
 
 // BuildEnvRow is one row in deployment_build_env. Value is ciphertext;
@@ -23,11 +25,6 @@ type BuildEnvRow struct {
 	Optional      bool
 }
 
-// BuildEnvEncryptor is the subset of envelope.Encryptor used by this Store.
-type BuildEnvEncryptor interface {
-	Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error)
-}
-
 // BuildEnvWrite is the input shape for SaveBuildEnv: plaintext value,
 // the Store handles encryption.
 type BuildEnvWrite struct {
@@ -45,8 +42,15 @@ type BuildEnvWrite struct {
 // one transaction. Existing rows are deleted first; passing an empty
 // slice clears all rows for the deployment.
 //
-// Plaintext values in writes are encrypted using enc.
-func (s *Store) SaveBuildEnv(deploymentID string, writes []BuildEnvWrite, enc BuildEnvEncryptor) error {
+// Encryption follows the encryptResolution convention used by
+// SaveDeploymentNormalized: non-secret rows store plaintext (nil nonce),
+// secret rows encrypt when an encryptor is provided, and KMS-off
+// deployments (enc == nil) store plaintext for every row. Storing
+// non-secrets in plaintext lets the API surface them without KMS access;
+// the local-dev fallback lets the table stay populated even when KMS
+// isn't configured, which is required for the runtime endpoint to render
+// env on those deployments.
+func (s *Store) SaveBuildEnv(deploymentID string, writes []BuildEnvWrite, enc *envelope.Encryptor) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -61,9 +65,17 @@ func (s *Store) SaveBuildEnv(deploymentID string, writes []BuildEnvWrite, enc Bu
 	}
 
 	for _, w := range writes {
-		ct, nonce, err := enc.Encrypt([]byte(w.Value))
-		if err != nil {
-			return fmt.Errorf("encrypt %s/%s: %w", w.Role, w.EnvName, err)
+		// Non-secret rows skip encryption to keep them readable without
+		// KMS. Secret rows go through enc.Encrypt, which is nil-safe and
+		// passes plaintext through when KMS isn't configured (local dev).
+		var ct, nonce []byte
+		if w.IsSecret {
+			ct, nonce, err = enc.Encrypt([]byte(w.Value))
+			if err != nil {
+				return fmt.Errorf("encrypt %s/%s: %w", w.Role, w.EnvName, err)
+			}
+		} else {
+			ct = []byte(w.Value)
 		}
 		var userVarName, accountVarRef sql.NullString
 		var optional sql.NullBool

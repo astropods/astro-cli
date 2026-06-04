@@ -98,10 +98,6 @@ function makeContainer(overrides?: Partial<ContainerStatus>): ContainerStatus {
     state: "running",
     ready: true,
     restart_count: 0,
-    env: [
-      { name: "PORT", value: "8080" },
-      { name: "OPENAI_API_KEY", value: "sk-test-123", from: "secret:openai" },
-    ],
     ...overrides,
   };
 }
@@ -115,6 +111,15 @@ function makeWorkload(overrides?: Partial<WorkloadDetail>): WorkloadDetail {
     pod_name: "my-agent-7f8d9c-xk2lp",
     containers: [makeContainer()],
     urls: [{ name: "http", url: "https://agent.example.com", type: "http" }],
+    // Env now lives on the workload, keyed by role. Default agent workload
+    // gets the "agent" role's env; PodDetailPanel looks it up via
+    // roleFor(component, container.name).
+    env: {
+      agent: [
+        { name: "PORT", value: "8080" },
+        { name: "OPENAI_API_KEY", value: "••••••••", is_secret: true, source: "user_var" },
+      ],
+    },
     ...overrides,
   };
 }
@@ -364,7 +369,7 @@ describe("user inspects pod details", () => {
         workloads: [
           makeWorkload({
             urls: [],
-            containers: [makeContainer({ env: [] })],
+            env: {},
           }),
         ],
       }),

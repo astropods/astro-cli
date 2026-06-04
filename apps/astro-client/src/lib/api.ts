@@ -566,20 +566,19 @@ export interface ServiceEndpointInfo {
 
 export interface EnvVar {
   name: string;
+  // Plaintext for non-secrets; "••••••••" placeholder when is_secret is true.
   value?: string;
-  from?: string;
-  // Authoritative provenance from deployment_build_env when present:
-  // 'user_var' | 'platform_meta' | 'service_url' | 'knowledge_cred' |
-  // 'auth_token' | 'adapter_config' | 'derived'. Empty for legacy
-  // deployments without rows yet — clients fall back to inferring from
-  // `from`.
+  // Categorical provenance from deployment_build_env: 'user_var' |
+  // 'platform_meta' | 'service_url' | 'knowledge_cred' | 'auth_token' |
+  // 'adapter_config' | 'derived'.
   source?: string;
   // Authoritative secret flag from deployment_build_env. When true the
-  // value is redacted in the UI; replaces the client-side
-  // isSensitiveEnvVar name heuristic.
+  // value is redacted; clients should treat the entry as sensitive.
   is_secret?: boolean;
 }
 
+// ContainerStatus is the live K8s state for a single container — no env.
+// Env is apply-time intent and lives on WorkloadSpec.env, keyed by role.
 export interface ContainerStatus {
   name: string;
   state: string;
@@ -587,7 +586,6 @@ export interface ContainerStatus {
   restart_count: number;
   reason?: string;
   message?: string;
-  env?: EnvVar[];
 }
 
 // WorkloadDetail is the JOINED view of a workload — what the page builds by
@@ -607,6 +605,11 @@ export interface WorkloadDetail {
   replicas?: number;
   schedule?: string;
   urls?: ServiceEndpointInfo[];
+  // env is keyed by role; clients map a container's
+  // (component, container_name) → role via roleFor() in env-utils to look up
+  // its env list. The agent workload may carry both "agent" and "messaging"
+  // when a messaging sidecar is configured.
+  env?: Record<string, EnvVar[]>;
   // Live (WorkloadRuntime):
   age?: string;
   phase?: string;
@@ -633,6 +636,12 @@ export interface WorkloadSpec {
   replicas?: number;
   schedule?: string;
   urls?: ServiceEndpointInfo[];
+  // Env vars keyed by role (e.g. "agent", "messaging", "collector",
+  // "knowledge:<name>", "ingestion:<name>"). Most workloads have one role;
+  // the agent workload carries both "agent" and "messaging" when a messaging
+  // sidecar is configured. Use roleFor(component, containerName) to pick the
+  // right entry for a container.
+  env?: Record<string, EnvVar[]>;
 }
 
 // WorkloadRuntime is the K8s-sourced live state for a single workload,

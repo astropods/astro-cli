@@ -15,15 +15,12 @@ import (
 )
 
 // encryptResolution prepares a Resolution's value for storage in
-// deployment_build_env. Mirrors deployment_variables semantics:
-//   - secret rows: encrypted ciphertext + nonce.
-//   - non-secret rows: plaintext bytes, nil nonce.
-//
-// Storing non-secret values plaintext means the API + admingrpc can
-// read them without KMS access. Secret values still require KMS to
-// decrypt, just like before.
+// deployment_build_env. Non-secret rows are stored plaintext so the API
+// can read them without KMS access. Secret rows go through enc.Encrypt,
+// which is nil-safe and passes plaintext through when KMS isn't
+// configured (local dev) — no branching on KMS state here.
 func encryptResolution(enc *envelope.Encryptor, r deployment.Resolution) ([]byte, []byte, error) {
-	if !r.IsSecret || enc == nil {
+	if !r.IsSecret {
 		return []byte(r.Value), nil, nil
 	}
 	return enc.Encrypt([]byte(r.Value))

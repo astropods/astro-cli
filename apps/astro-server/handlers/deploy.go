@@ -50,7 +50,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 )
 
 // TemplateCache caches generated base templates (after generateTemplate + mergeDeploymentPrefill)
@@ -996,96 +995,97 @@ type ServiceEndpointInfo struct {
 	Message string `json:"message,omitempty"`
 }
 
-// annotateWorkloadsWithRows overlays Source and IsSecret on each
-// container env entry by looking up the matching deployment_build_env
-// row by (role, env_name). Values from K8s are preserved; this only
-// adds provenance metadata.
+// assignEnvToWorkloads fills WorkloadSpec.Env on each workload from the
+// deployment_build_env map keyed by role. Env is apply-time intent and
+// belongs on the record endpoint, alongside the workload spec.
 //
-// Role mapping: workload component label + container name → Role.
-//   - component "agent" + container "messaging" → RoleMessaging
-//   - component "agent" + container "*"         → RoleAgent
-//   - component "collector"                     → RoleCollector
-//   - component "knowledge-<name>"              → KnowledgeRole(<name>)
-//   - component "ingestion-<name>"              → IngestionRole(<name>)
-func annotateWorkloadsWithRows(workloads []WorkloadDetail, rows []deploymentstore.BuildEnvRow) {
-	idx := indexBuildEnvRows(rows)
+// A workload's component determines which roles apply to it:
+//   - "agent"               → ["agent", "messaging"]  (messaging only present when configured)
+//   - "collector"           → ["collector"]
+//   - "knowledge-<name>"    → ["knowledge:<name>"]
+//   - "ingestion-<name>"    → ["ingestion:<name>"]
+//
+// The agent workload picks up both roles because the messaging sidecar
+// shares its pod. Clients project this map down to per-container env using
+// their own (component, container_name) → role mapping.
+func assignEnvToWorkloads(workloads []WorkloadSpec, envByRole map[string][]deploymentstore.DecryptedEnvVar) {
+	if len(envByRole) == 0 {
+		return
+	}
 	for wi := range workloads {
 		wl := &workloads[wi]
-		for ci := range wl.Containers {
-			c := &wl.Containers[ci]
-			role := roleFor(wl.Component, c.Name)
-			if role == "" {
+		for _, role := range rolesForComponent(wl.Component) {
+			rows, ok := envByRole[role]
+			if !ok || len(rows) == 0 {
 				continue
 			}
-			for ei := range c.Env {
-				ev := &c.Env[ei]
-				key := role + "|" + ev.Name
-				if r, ok := idx[key]; ok {
-					ev.Source = r.Source
-					ev.IsSecret = r.IsSecret
+			if wl.Env == nil {
+				wl.Env = make(map[string][]EnvVar, 2)
+			}
+			out := make([]EnvVar, len(rows))
+			for i, r := range rows {
+				out[i] = EnvVar{
+					Name:     r.Name,
+					Value:    r.Value,
+					Source:   r.Source,
+					IsSecret: r.IsSecret,
 				}
 			}
+			wl.Env[role] = out
 		}
 	}
 }
 
-// indexBuildEnvRows returns a "<role>|<env_name>" lookup over rows.
-func indexBuildEnvRows(rows []deploymentstore.BuildEnvRow) map[string]deploymentstore.BuildEnvRow {
-	out := make(map[string]deploymentstore.BuildEnvRow, len(rows))
-	for _, r := range rows {
-		out[r.Role+"|"+r.EnvName] = r
-	}
-	return out
-}
-
-// roleFor maps a (workload component, container name) to the
-// deployment_build_env role string. Returns "" when the pair doesn't
-// correspond to a tracked role (e.g. integration containers, which
-// aren't represented in the unified env table today).
-func roleFor(component, containerName string) string {
+// rolesForComponent lists the deployment_build_env roles that apply to a
+// workload of the given component. Returns nil for unknown components
+// (e.g. ad-hoc integration sidecars not represented in the unified env
+// table).
+func rolesForComponent(component string) []string {
 	switch {
-	case component == "agent" && containerName == "messaging":
-		return string(deployment.RoleMessaging)
 	case component == "agent":
-		return string(deployment.RoleAgent)
+		// Agent pod hosts both the agent container and the messaging
+		// sidecar; surface both roles. The messaging entry is harmless
+		// when the deployment isn't configured for messaging (env_by_role
+		// just won't have a "messaging" key).
+		return []string{string(deployment.RoleAgent), string(deployment.RoleMessaging)}
 	case component == "collector":
-		return string(deployment.RoleCollector)
+		return []string{string(deployment.RoleCollector)}
 	case strings.HasPrefix(component, "knowledge-"):
-		return string(deployment.KnowledgeRole(strings.TrimPrefix(component, "knowledge-")))
+		return []string{string(deployment.KnowledgeRole(strings.TrimPrefix(component, "knowledge-")))}
 	case strings.HasPrefix(component, "ingestion-"):
-		return string(deployment.IngestionRole(strings.TrimPrefix(component, "ingestion-")))
+		return []string{string(deployment.IngestionRole(strings.TrimPrefix(component, "ingestion-")))}
 	}
-	return ""
+	return nil
 }
 
-// EnvVar represents a single environment variable in a container
+// EnvVar represents a single environment variable in a container. Sourced
+// from deployment_build_env (the apply-time intent), not from the live pod —
+// so the runtime endpoint reflects the deployed spec immediately and doesn't
+// hammer the K8s Secret/ConfigMap API on every poll.
 type EnvVar struct {
-	Name  string `json:"name"`
+	Name string `json:"name"`
+	// Value is plaintext for non-secret entries and RedactedSecretValue
+	// ("••••••••") for secrets.
 	Value string `json:"value,omitempty"`
-	From  string `json:"from,omitempty"` // e.g. "secret:my-secret/key" or "configmap:cm/key"
-	// Source is the categorical provenance from deployment_build_env when
-	// available (one of: 'user_var', 'platform_meta', 'service_url',
-	// 'knowledge_cred', 'auth_token', 'adapter_config', 'derived'). Empty
-	// when no row exists for this (role, env_name) — in that case clients
-	// fall back to inferring from From.
+	// Source is the categorical provenance from deployment_build_env:
+	// 'user_var', 'platform_meta', 'service_url', 'knowledge_cred',
+	// 'auth_token', 'adapter_config', or 'derived'.
 	Source string `json:"source,omitempty"`
-	// IsSecret is the authoritative secret flag from deployment_build_env
-	// when available. Replaces the client-side `isSensitiveEnvVar` name
-	// heuristic; clients should redact when this is true. Defaults to
-	// false; callers that need a value rely on the existing redaction
-	// behavior (•••••• already in Value for K8s-sourced secrets).
+	// IsSecret mirrors deployment_build_env.is_secret. When true, Value is
+	// redacted; clients should treat the entry as sensitive.
 	IsSecret bool `json:"is_secret,omitempty"`
 }
 
-// ContainerStatus represents the status of a single container in a pod
+// ContainerStatus represents the live status of a single container in a pod.
+// Env is NOT carried here — it's apply-time intent and lives on WorkloadSpec
+// (the record endpoint), keyed by role. See WorkloadSpec.Env.
 type ContainerStatus struct {
-	Name         string   `json:"name"`
-	State        string   `json:"state"`
-	Ready        bool     `json:"ready"`
-	RestartCount int32    `json:"restart_count"`
-	Reason       string   `json:"reason,omitempty"`
-	Message      string   `json:"message,omitempty"`
-	Env          []EnvVar `json:"env,omitempty"`
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	Ready        bool   `json:"ready"`
+	RestartCount int32  `json:"restart_count"`
+	Reason       string `json:"reason,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 // WorkloadDetail represents a k8s workload — Deployment, StatefulSet, Job
@@ -1284,6 +1284,13 @@ type WorkloadSpec struct {
 	Replicas  int32                 `json:"replicas"`           // desired
 	Schedule  string                `json:"schedule,omitempty"` // cron expression for scheduled ingestion
 	URLs      []ServiceEndpointInfo `json:"urls,omitempty"`     // per-workload ingress hostnames
+	// Env is the deployment_build_env intent for the role(s) this workload
+	// covers, keyed by role. Most workloads have a single role; the agent
+	// workload carries both "agent" and "messaging" when a messaging sidecar
+	// is configured. Roles: "agent" | "messaging" | "collector" |
+	// "knowledge:<name>" | "ingestion:<name>". Clients map a container's
+	// (component, container_name) → role to look up its env.
+	Env map[string][]EnvVar `json:"env,omitempty"`
 }
 
 // WorkloadRuntime is the K8s-sourced live state for a single workload,
@@ -1790,6 +1797,21 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		// the runtime endpoint.
 		record.Workloads, record.Components, record.Replicas, record.MessagingConfigured = loadRecordIntentFromDB(log, deployStore, dbDep.ID)
 
+		// Env vars are apply-time intent — read from deployment_build_env and
+		// attach to each WorkloadSpec by role. This is the only env surface;
+		// the runtime endpoint intentionally carries none. Reading from the
+		// DB avoids the per-poll K8s Secret/ConfigMap GET-storm and surfaces
+		// the deployed spec immediately, with no rolling-update lag.
+		kmsKeyARN := ""
+		if cfg != nil {
+			kmsKeyARN = cfg.Deployment.KMSKeyARN
+		}
+		envByRole, envErr := deployStore.LoadDecryptedBuildEnv(c.Request.Context(), dbDep, kmsKeyARN)
+		if envErr != nil {
+			log.Warn("LoadDecryptedBuildEnv failed", "error", envErr, "deployment_id", dbDep.ID)
+		}
+		assignEnvToWorkloads(record.Workloads, envByRole)
+
 		// Overlay the messaging Launch URL. Resolution order:
 		//   1. MessagingURLOverride (config) — wins when set, so a developer
 		//      pointing at a local messaging stub can override whatever the
@@ -1857,13 +1879,6 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 				picked = dep
 				break
 			}
-		}
-
-		if rows, rowErr := deployStore.GetBuildEnv(dbDep.ID); rowErr == nil && len(rows) > 0 {
-			annotateWorkloadsWithRows(picked.Workloads, rows)
-		} else if rowErr != nil {
-			log.Warn("GetBuildEnv failed for deployment annotation",
-				"error", rowErr, "deployment_id", dbDep.ID)
 		}
 
 		// Messaging Service liveness probe — distinct from the spec-level
@@ -2116,9 +2131,13 @@ func loadRecordIntentFromDB(log *logger.Logger, deployStore *deploymentstore.Sto
 			urls = append(urls, ServiceEndpointInfo{Name: "http", Type: "http", URL: u, Ready: true})
 		}
 		workloads = append(workloads, WorkloadSpec{
-			Name:      w.Name,
-			Kind:      workloadKindForType(w.WorkloadType),
-			Component: w.ComponentKind,
+			Name: w.Name,
+			Kind: workloadKindForType(w.WorkloadType),
+			// Component mirrors the K8s "app.kubernetes.io/component" label
+			// convention ("knowledge-<key>", "ingestion-<key>" when keyed)
+			// so it matches WorkloadRuntime.Component on the runtime endpoint
+			// and feeds correctly into rolesForComponent below.
+			Component: componentLabelFor(w.ComponentKind, w.ComponentKey),
 			Image:     w.Image,
 			Replicas:  int32(w.Replicas), //nolint:gosec
 			Schedule:  w.TriggerSchedule,
@@ -2132,6 +2151,20 @@ func loadRecordIntentFromDB(log *logger.Logger, deployStore *deploymentstore.Sto
 		}
 	}
 	return workloads, components, desiredReplicas, messagingConfigured
+}
+
+// componentLabelFor reconstructs the "app.kubernetes.io/component" label
+// value from a workload's stored (component_kind, component_key) pair. For
+// keyed components (knowledge, ingestion) the K8s convention is
+// "<kind>-<key>" (e.g. "knowledge-cache"); for unkeyed components (agent,
+// collector, messaging) it's just the kind. Keeping this aligned with the
+// K8s label avoids a record/runtime divergence on WorkloadSpec.Component
+// and lets rolesForComponent work uniformly across both endpoints.
+func componentLabelFor(kind, key string) string {
+	if key == "" {
+		return kind
+	}
+	return kind + "-" + key
 }
 
 // workloadKindForType maps the lowercase workload_type column ("deployment",
@@ -2569,7 +2602,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Age:        formatAge(cj.CreationTimestamp.Time),
 			Status:     cronJobStatus(&cj),
 			Schedule:   cj.Spec.Schedule,
-			Containers: containersFromSpecWithEnv(ctx, clientset, namespace, cj.Spec.JobTemplate.Spec.Template.Spec),
+			Containers: containersFromSpec(cj.Spec.JobTemplate.Spec.Template.Spec),
 		}
 		if cj.Status.LastScheduleTime != nil {
 			wl.StartTime = cj.Status.LastScheduleTime.Format(time.RFC3339)
@@ -2644,7 +2677,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Status:      runDetail.Status,
 			StartTime:   runDetail.StartTime,
 			Completions: runDetail.Completions,
-			Containers:  containersFromSpecWithEnv(ctx, clientset, namespace, job.Spec.Template.Spec),
+			Containers:  containersFromSpec(job.Spec.Template.Spec),
 		})
 	}
 
@@ -2683,7 +2716,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			if !ok {
 				continue
 			}
-			wl.Containers = enrichContainerStatuses(wl.Containers, buildContainerStatuses(ctx, clientset, pod))
+			wl.Containers = enrichContainerStatuses(wl.Containers, buildContainerStatuses(pod))
 			wl.PodName = pod.Name
 			wl.Phase = string(pod.Status.Phase)
 		}
@@ -2711,23 +2744,6 @@ func containersFromSpec(podSpec corev1.PodSpec) []ContainerStatus {
 	return out
 }
 
-// containersFromSpecWithEnv mirrors containersFromSpec but also resolves env vars
-// directly from the pod template, without requiring a live pod. Used for Jobs and
-// CronJobs where the pod may have been GC'd or never run yet — env wiring is
-// identical to what would land on a pod, so the workload's own template is the
-// authoritative source.
-func containersFromSpecWithEnv(ctx context.Context, clientset kubernetes.Interface, ns string, podSpec corev1.PodSpec) []ContainerStatus {
-	envByContainer := resolvePodSpecEnv(ctx, clientset, ns, podSpec)
-	out := make([]ContainerStatus, 0, len(podSpec.Containers)+len(podSpec.InitContainers))
-	for _, c := range podSpec.Containers {
-		out = append(out, ContainerStatus{Name: c.Name, Env: envByContainer[c.Name]})
-	}
-	for _, c := range podSpec.InitContainers {
-		out = append(out, ContainerStatus{Name: c.Name, Env: envByContainer[c.Name]})
-	}
-	return out
-}
-
 // enrichContainerStatuses merges runtime status from a pod into the spec-seeded container list.
 // For each container in base, if a matching runtime status exists it updates the runtime fields
 // (State, Ready, RestartCount, Reason, Message, Env) in-place. Containers present in base but
@@ -2749,130 +2765,18 @@ func enrichContainerStatuses(specContainers, podContainers []ContainerStatus) []
 	return result
 }
 
-// resolvePodSpecEnv resolves the full env list for each container in a PodSpec,
-// mirroring K8s runtime precedence: envFrom is resolved first, then direct env
-// entries overlay (a direct entry with the same name as an envFrom-resolved key
-// wins). Secret values are redacted; only keys are surfaced. Returns a map keyed
-// by container name covering both Containers and InitContainers.
-func resolvePodSpecEnv(ctx context.Context, clientset kubernetes.Interface, ns string, podSpec corev1.PodSpec) map[string][]EnvVar {
-	cmCache := map[string]map[string]string{}
-	secCache := map[string]map[string]string{}
-
-	resolveConfigMap := func(name string) map[string]string {
-		if data, ok := cmCache[name]; ok {
-			return data
-		}
-		cm, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			cmCache[name] = nil
-			return nil
-		}
-		cmCache[name] = cm.Data
-		return cm.Data
-	}
-
-	// Only resolve secret keys — never store or return secret values.
-	resolveSecretKeys := func(name string) []string {
-		if keys, ok := secCache[name]; ok {
-			if keys == nil {
-				return nil
-			}
-			result := make([]string, 0, len(keys))
-			for k := range keys {
-				result = append(result, k)
-			}
-			return result
-		}
-		sec, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			secCache[name] = nil
-			return nil
-		}
-		redacted := make(map[string]string, len(sec.Data))
-		for k := range sec.Data {
-			redacted[k] = ""
-		}
-		secCache[name] = redacted
-		result := make([]string, 0, len(redacted))
-		for k := range redacted {
-			result = append(result, k)
-		}
-		return result
-	}
-
-	out := map[string][]EnvVar{}
-	for _, sc := range append(podSpec.Containers, podSpec.InitContainers...) {
-		byName := map[string]EnvVar{}
-		order := []string{}
-		put := func(ev EnvVar) {
-			if _, exists := byName[ev.Name]; !exists {
-				order = append(order, ev.Name)
-			}
-			byName[ev.Name] = ev
-		}
-
-		for _, ef := range sc.EnvFrom {
-			if ef.ConfigMapRef != nil {
-				for k, v := range resolveConfigMap(ef.ConfigMapRef.Name) {
-					put(EnvVar{
-						Name:  ef.Prefix + k,
-						Value: v,
-						From:  "configmap:" + ef.ConfigMapRef.Name,
-					})
-				}
-			}
-			if ef.SecretRef != nil {
-				for _, k := range resolveSecretKeys(ef.SecretRef.Name) {
-					put(EnvVar{
-						Name:  ef.Prefix + k,
-						Value: "••••••••",
-						From:  "secret:" + ef.SecretRef.Name,
-					})
-				}
-			}
-		}
-
-		for _, e := range sc.Env {
-			ev := EnvVar{Name: e.Name}
-			if e.ValueFrom != nil {
-				switch {
-				case e.ValueFrom.SecretKeyRef != nil:
-					ev.Value = "••••••••"
-					ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
-				case e.ValueFrom.ConfigMapKeyRef != nil:
-					ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
-				case e.ValueFrom.FieldRef != nil:
-					ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
-				default:
-					ev.From = "ref"
-				}
-			} else {
-				ev.Value = e.Value
-			}
-			put(ev)
-		}
-
-		envVars := make([]EnvVar, 0, len(order))
-		for _, name := range order {
-			envVars = append(envVars, byName[name])
-		}
-		out[sc.Name] = envVars
-	}
-	return out
-}
-
-// buildContainerStatuses extracts container statuses and env vars from a k8s pod.
-// It resolves envFrom references (ConfigMaps and Secrets) into individual key-value pairs.
-func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface, pod corev1.Pod) []ContainerStatus {
-	envByContainer := resolvePodSpecEnv(ctx, clientset, pod.Namespace, pod.Spec)
-
+// buildContainerStatuses extracts container statuses (state, ready, restart
+// counts) from a K8s pod. Env vars are NOT carried in the runtime view —
+// they live on WorkloadSpec.Env (the record endpoint), keyed by role.
+// Reading env from the pod required a Secret/ConfigMap GET per envFrom every
+// poll and could lag the deployed spec during a rolling update.
+func buildContainerStatuses(pod corev1.Pod) []ContainerStatus {
 	var containers []ContainerStatus
 	for _, cs := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
 		container := ContainerStatus{
 			Name:         cs.Name,
 			Ready:        cs.Ready,
 			RestartCount: cs.RestartCount,
-			Env:          envByContainer[cs.Name],
 		}
 		switch {
 		case cs.State.Running != nil:

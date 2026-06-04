@@ -27,23 +27,19 @@ func InlineSecretNames(stored []Variable) []string {
 }
 
 // PlaintextValue decodes a variable Value from GetDeploymentVariables.
-// Secret payloads are base64-encoded ciphertext (or plaintext bytes when KMS is off).
+// Secret payloads are base64-encoded ciphertext (or plaintext bytes when
+// KMS is off). envelope.Decrypt is nil-safe and recognises empty-nonce
+// rows as plaintext, so no branching on dec is needed here.
 func PlaintextValue(dec *envelope.Decryptor, v Variable) (string, bool) {
 	raw, err := base64.StdEncoding.DecodeString(v.Value)
 	if err != nil {
 		return "", false
 	}
-	if len(v.Nonce) > 0 {
-		if dec == nil {
-			return "", false
-		}
-		plaintext, decErr := dec.Decrypt(raw, v.Nonce)
-		if decErr != nil {
-			return "", false
-		}
-		return string(plaintext), true
+	plaintext, decErr := dec.Decrypt(raw, v.Nonce)
+	if decErr != nil {
+		return "", false
 	}
-	return string(raw), true
+	return string(plaintext), true
 }
 
 // NewDeploymentDecryptor returns a decryptor for deployment user variables, or nil.

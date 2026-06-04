@@ -56,7 +56,17 @@ func NewEncryptor(ctx context.Context, client KMSClient, keyARN string) (*Encryp
 }
 
 // Encrypt encrypts a plaintext value, returning (ciphertext, nonce).
+//
+// Nil-safe: callers may invoke Encrypt on a nil receiver to express
+// "KMS is not configured / passthrough" without branching themselves.
+// In that case the returned ciphertext is the plaintext bytes and the
+// nonce is nil. Storing values that way is the local-dev convention
+// (also used by deployment_variables for non-secret rows); the
+// corresponding Decrypt call below restores them as-is.
 func (e *Encryptor) Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error) {
+	if e == nil || e.gcm == nil {
+		return plaintext, nil, nil
+	}
 	nonce = make([]byte, e.gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, nil, fmt.Errorf("generate nonce: %w", err)
@@ -93,7 +103,24 @@ func NewDecryptor(ctx context.Context, client KMSClient, encryptedDataKey []byte
 }
 
 // Decrypt decrypts a ciphertext value using its nonce.
+//
+// Empty-nonce values are returned as-is — that's the convention Encrypt
+// uses for plaintext storage (non-secret rows, KMS-off mode). This
+// removes the "is KMS configured?" check from every caller; they just
+// invoke Decrypt with whatever pair the store gave them.
+//
+// A nil receiver is only valid when every input row is plaintext
+// (nonce==0). Calling Decrypt(ct, non-empty-nonce) on a nil receiver
+// returns an error rather than leaking ciphertext bytes as a "plaintext"
+// value — that combination signals KMS misconfiguration on a row that
+// was actually encrypted.
 func (d *Decryptor) Decrypt(ciphertext, nonce []byte) ([]byte, error) {
+	if len(nonce) == 0 {
+		return ciphertext, nil
+	}
+	if d == nil || d.gcm == nil {
+		return nil, fmt.Errorf("decryptor unavailable for ciphertext with nonce")
+	}
 	plaintext, err := d.gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, fmt.Errorf("aes-gcm decrypt: %w", err)

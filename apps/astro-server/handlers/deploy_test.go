@@ -35,9 +35,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/lib/pq"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	fakeKube "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
 
@@ -1045,335 +1043,155 @@ func TestListAstroDeployments_IngestionWorkloads(t *testing.T) {
 	}
 }
 
-// TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom verifies that
-// when a container has both an envFrom-resolved key and a direct env entry
-// with the same name, the result has one entry per name with the direct
-// entry winning — mirroring K8s runtime precedence and preventing duplicate
-// React keys downstream.
-func TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom(t *testing.T) {
-	const ns = "astro-test-0"
-	cs := fakeKube.NewClientset(
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "agent-creds", Namespace: ns},
-			Data: map[string][]byte{
-				"POSTGRES_USER":     []byte("astro"),
-				"POSTGRES_PASSWORD": []byte("p1"),
-				"GITHUB_TOKEN":      []byte("ghs_xx"),
-			},
+// Env resolution from K8s pods has been removed — env now comes from
+// deployment_build_env via populateWorkloadEnv in GetDeploymentRuntime, not
+// from per-pod Secret/ConfigMap reads. Tests for the old K8s-side helpers
+// (TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom,
+// TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod,
+// TestListAstroDeployments_IngestionWorkloadsHaveEnvVars) and the
+// indexEnv helper they depended on were dropped with that refactor.
+
+// TestAssignEnvToWorkloads_ByRole verifies the role-set per component used to
+// attach DB env to each WorkloadSpec:
+//   - "agent"               → ["agent", "messaging"]
+//   - "collector"           → ["collector"]
+//   - "knowledge-<name>"    → ["knowledge:<name>"]
+//   - "ingestion-<name>"    → ["ingestion:<name>"]
+//   - untracked component   → no env (not an error)
+//
+// Also asserts that EnvVar projection carries Name, Value, IsSecret, and
+// Source unchanged.
+func TestAssignEnvToWorkloads_ByRole(t *testing.T) {
+	envByRole := map[string][]deploymentstore.DecryptedEnvVar{
+		"agent": {
+			{Name: "LOG_LEVEL", Value: "info", Source: "user_var"},
+			{Name: "API_KEY", Value: "••••••••", IsSecret: true, Source: "user_var"},
 		},
-	)
-	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "agent-pod", Namespace: ns},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "app",
-				EnvFrom: []corev1.EnvFromSource{{
-					SecretRef: &corev1.SecretEnvSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: "agent-creds"},
-					},
-				}},
-				Env: []corev1.EnvVar{{
-					Name: "POSTGRES_USER",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: "knowledge-postgres-creds"},
-							Key:                  "POSTGRES_USER",
-						},
-					},
-				}, {
-					Name: "POSTGRES_PASSWORD",
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: "knowledge-postgres-creds"},
-							Key:                  "POSTGRES_PASSWORD",
-						},
-					},
-				}},
-			}},
+		"messaging": {
+			{Name: "BROKER_URL", Value: "ws://broker:9000", Source: "service_url"},
 		},
-		Status: corev1.PodStatus{
-			ContainerStatuses: []corev1.ContainerStatus{{
-				Name: "app", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
-			}},
+		// KnowledgeRole("docs") → "knowledge:docs" (colon, not hyphen).
+		"knowledge:docs": {
+			{Name: "POSTGRES_USER", Value: "astro", Source: "knowledge_cred"},
 		},
 	}
 
-	got := buildContainerStatuses(context.Background(), cs, pod)
-	if len(got) != 1 || got[0].Name != "app" {
-		t.Fatalf("expected one container 'app', got %+v", got)
+	workloads := []WorkloadSpec{
+		{Name: "agent", Component: "agent"},
+		{Name: "knowledge-docs", Component: "knowledge-docs"},
+		{Name: "third-party", Component: "ad-hoc-sidecar"},
 	}
 
-	seen := map[string]int{}
-	bySource := map[string]string{}
-	for _, ev := range got[0].Env {
-		seen[ev.Name]++
-		bySource[ev.Name] = ev.From
+	assignEnvToWorkloads(workloads, envByRole)
+
+	// The agent workload picks up BOTH "agent" and "messaging" roles —
+	// confirming the original ask: clients can list env for both
+	// containers (app + messaging sidecar) off the agent workload.
+	agentEnv := workloads[0].Env
+	if len(agentEnv) != 2 {
+		t.Fatalf("agent workload: expected env for 2 roles, got %d (%v)", len(agentEnv), agentEnv)
+	}
+	if len(agentEnv["agent"]) != 2 {
+		t.Errorf("agent[agent] len = %d, want 2", len(agentEnv["agent"]))
+	}
+	if agentEnv["agent"][0].Name != "LOG_LEVEL" || agentEnv["agent"][0].Value != "info" || agentEnv["agent"][0].IsSecret {
+		t.Errorf("agent[agent][0] = %+v, want LOG_LEVEL=info non-secret", agentEnv["agent"][0])
+	}
+	if agentEnv["agent"][1].Name != "API_KEY" || !agentEnv["agent"][1].IsSecret || agentEnv["agent"][1].Source != "user_var" {
+		t.Errorf("agent[agent][1] = %+v, want redacted API_KEY user_var", agentEnv["agent"][1])
+	}
+	if len(agentEnv["messaging"]) != 1 || agentEnv["messaging"][0].Name != "BROKER_URL" {
+		t.Errorf("agent[messaging] = %+v, want single BROKER_URL", agentEnv["messaging"])
 	}
 
-	for _, k := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "GITHUB_TOKEN"} {
-		if seen[k] != 1 {
-			t.Errorf("env %q appears %d times, want 1", k, seen[k])
-		}
+	// knowledge-docs workload gets exactly one role: "knowledge:docs".
+	knowEnv := workloads[1].Env
+	if len(knowEnv) != 1 || len(knowEnv["knowledge:docs"]) != 1 {
+		t.Fatalf("knowledge-docs env = %+v, want single knowledge:docs role", knowEnv)
 	}
-	// Direct env (secretKeyRef → "secret:NAME/KEY", with slash) must win
-	// over envFrom ("secret:NAME", no slash) for keys present in both.
-	for _, k := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD"} {
-		if !strings.Contains(bySource[k], "/") {
-			t.Errorf("%s: expected direct secretKeyRef source (with '/'), got %q", k, bySource[k])
-		}
+	if knowEnv["knowledge:docs"][0].Name != "POSTGRES_USER" {
+		t.Errorf("knowledge-docs entry = %+v, want POSTGRES_USER", knowEnv["knowledge:docs"][0])
 	}
-	// Keys only in envFrom keep the envFrom source.
-	if bySource["GITHUB_TOKEN"] != "secret:agent-creds" {
-		t.Errorf("GITHUB_TOKEN: expected envFrom source, got %q", bySource["GITHUB_TOKEN"])
+
+	// Untracked component → nil Env map (not a panic, not an empty map).
+	if workloads[2].Env != nil {
+		t.Errorf("untracked component should have nil Env, got %+v", workloads[2].Env)
 	}
 }
 
-// TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod verifies that
-// Job/CronJob workloads can surface env vars by reading directly from the
-// pod template, so the General tab is populated even when no pod exists
-// (CronJob never fired, Job pod GC'd).
-func TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod(t *testing.T) {
-	const ns = "astro-test-0"
-	cs := fakeKube.NewClientset(
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "ingest-creds", Namespace: ns},
-			Data: map[string][]byte{
-				"S3_ACCESS_KEY": []byte("AKIA..."),
-				"S3_SECRET":     []byte("xxx"),
-			},
-		},
-		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "ingest-config", Namespace: ns},
-			Data: map[string]string{
-				"BUCKET":   "my-bucket",
-				"INTERVAL": "3600",
-			},
-		},
-	)
+// TestAssignEnvToWorkloads_MessagingOptional covers the agent workload when
+// no messaging role exists in the env map (messaging not configured). The
+// agent workload should still get its "agent" role env without a stray
+// "messaging" key.
+func TestAssignEnvToWorkloads_MessagingOptional(t *testing.T) {
+	envByRole := map[string][]deploymentstore.DecryptedEnvVar{
+		"agent": {{Name: "LOG_LEVEL", Value: "info"}},
+	}
+	workloads := []WorkloadSpec{{Name: "agent", Component: "agent"}}
+	assignEnvToWorkloads(workloads, envByRole)
 
-	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{{
-			Name: "ingest",
-			EnvFrom: []corev1.EnvFromSource{
-				{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-config"}}},
-				{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-creds"}}},
-			},
-			Env: []corev1.EnvVar{
-				{Name: "MODE", Value: "incremental"},
-				{Name: "S3_ACCESS_KEY", ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{Name: "ingest-creds"},
-						Key:                  "S3_ACCESS_KEY",
-					},
-				}},
-			},
-		}},
-		InitContainers: []corev1.Container{{
-			Name: "wait-for-db",
-			Env:  []corev1.EnvVar{{Name: "DB_HOST", Value: "postgres"}},
-		}},
+	if _, hasMsg := workloads[0].Env["messaging"]; hasMsg {
+		t.Errorf("agent workload should not carry messaging key when role absent, got %+v", workloads[0].Env)
 	}
-
-	got := containersFromSpecWithEnv(context.Background(), cs, ns, podSpec)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 containers (1 main + 1 init), got %d", len(got))
-	}
-
-	byName := map[string]ContainerStatus{}
-	for _, c := range got {
-		byName[c.Name] = c
-	}
-
-	ingest, ok := byName["ingest"]
-	if !ok {
-		t.Fatal("expected 'ingest' container")
-	}
-	envByName := map[string]EnvVar{}
-	for _, ev := range ingest.Env {
-		envByName[ev.Name] = ev
-	}
-
-	// envFrom configmap → values surfaced as-is.
-	if envByName["BUCKET"].Value != "my-bucket" {
-		t.Errorf("BUCKET value = %q, want %q", envByName["BUCKET"].Value, "my-bucket")
-	}
-	if envByName["BUCKET"].From != "configmap:ingest-config" {
-		t.Errorf("BUCKET source = %q, want configmap:ingest-config", envByName["BUCKET"].From)
-	}
-	// envFrom secret → key surfaced, value redacted.
-	if envByName["S3_SECRET"].Value != "••••••••" {
-		t.Errorf("S3_SECRET value = %q, want redacted", envByName["S3_SECRET"].Value)
-	}
-	if envByName["S3_SECRET"].From != "secret:ingest-creds" {
-		t.Errorf("S3_SECRET source = %q, want secret:ingest-creds", envByName["S3_SECRET"].From)
-	}
-	// Direct literal env.
-	if envByName["MODE"].Value != "incremental" {
-		t.Errorf("MODE value = %q, want incremental", envByName["MODE"].Value)
-	}
-	// Direct secretKeyRef wins over envFrom for the same key (slash in source).
-	s3Key := envByName["S3_ACCESS_KEY"]
-	if !strings.Contains(s3Key.From, "/") {
-		t.Errorf("S3_ACCESS_KEY source = %q, want direct secretKeyRef (with '/')", s3Key.From)
-	}
-	if s3Key.Value != "••••••••" {
-		t.Errorf("S3_ACCESS_KEY value = %q, want redacted", s3Key.Value)
-	}
-
-	// InitContainer env is also resolved.
-	wait, ok := byName["wait-for-db"]
-	if !ok {
-		t.Fatal("expected 'wait-for-db' init container")
-	}
-	if len(wait.Env) != 1 || wait.Env[0].Name != "DB_HOST" || wait.Env[0].Value != "postgres" {
-		t.Errorf("init env = %+v, want single DB_HOST=postgres", wait.Env)
+	if len(workloads[0].Env["agent"]) != 1 {
+		t.Errorf("agent workload should still have agent env, got %+v", workloads[0].Env)
 	}
 }
 
-// TestListAstroDeployments_IngestionWorkloadsHaveEnvVars verifies the
-// full listing path: a CronJob and standalone Job whose templates declare
-// env (envFrom secret + direct entries) surface those env vars on the
-// returned WorkloadDetail.Containers, even though no pods exist for them.
-func TestListAstroDeployments_IngestionWorkloadsHaveEnvVars(t *testing.T) {
-	namespace := "astro-env123-0"
-	agentKey := "myorg.envagent"
-	build := "build-1"
+// TestAssignEnvToWorkloads_EmptyMap is the pre-cutover case: a deployment
+// with no rows in deployment_build_env yet. assignEnvToWorkloads must leave
+// Env nil on every workload without panicking.
+func TestAssignEnvToWorkloads_EmptyMap(t *testing.T) {
+	workloads := []WorkloadSpec{{Name: "agent", Component: "agent"}}
+	assignEnvToWorkloads(workloads, nil)
+	if workloads[0].Env != nil {
+		t.Errorf("expected nil Env on empty map, got %+v", workloads[0].Env)
+	}
+}
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		path := r.URL.Path
-
-		switch {
-		case strings.Contains(path, "/deployments"):
-			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
-		case strings.Contains(path, "/statefulsets"):
-			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
-		case strings.Contains(path, "/ingresses"):
-			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
-		case strings.HasSuffix(path, "/pods"):
-			_, _ = w.Write([]byte(`{"kind":"PodList","apiVersion":"v1","items":[]}`))
-		case strings.Contains(path, "/secrets/ingest-creds"):
-			fmt.Fprintf(w, `{
-				"kind":"Secret","apiVersion":"v1",
-				"metadata":{"name":"ingest-creds","namespace":%q},
-				"data":{"API_KEY":"c2VjcmV0"}
-			}`, namespace)
-		case strings.Contains(path, "/cronjobs"):
-			fmt.Fprintf(w, `{
-				"kind":"CronJobList","apiVersion":"batch/v1","items":[{
-					"metadata":{
-						"name":"envagent-ingestion-hourly","namespace":%q,
-						"uid":"cron-uid-env-1",
-						"creationTimestamp":"2026-01-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"ingestion-hourly"
-						}
-					},
-					"spec":{
-						"schedule":"0 * * * *",
-						"jobTemplate":{"spec":{"template":{"spec":{"containers":[{
-							"name":"ingest",
-							"envFrom":[{"secretRef":{"name":"ingest-creds"}}],
-							"env":[
-								{"name":"MODE","value":"incremental"},
-								{"name":"REGION","value":"us-east-1"}
-							]
-						}]}}}}
-					},
-					"status":{}
-				}]
-			}`, namespace, agentKey, build)
-		case strings.HasSuffix(path, "/jobs"):
-			fmt.Fprintf(w, `{
-				"kind":"JobList","apiVersion":"batch/v1","items":[{
-					"metadata":{
-						"name":"envagent-ingestion-bootstrap","namespace":%q,
-						"creationTimestamp":"2026-04-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"ingestion-bootstrap"
-						}
-					},
-					"spec":{
-						"completions":1,
-						"template":{"spec":{"containers":[{
-							"name":"bootstrap",
-							"env":[
-								{"name":"INIT_TARGET","value":"all"}
-							]
-						}]}}
-					},
-					"status":{"succeeded":1,"conditions":[{"type":"Complete","status":"True"}]}
-				}]
-			}`, namespace, agentKey, build)
-		default:
-			w.WriteHeader(http.StatusNotFound)
+// TestComponentLabelFor mirrors the K8s "app.kubernetes.io/component" label
+// convention. Without this, knowledge/ingestion workloads on the record
+// endpoint carried just the kind ("knowledge") while the runtime endpoint
+// emitted the full label ("knowledge-cache"), and rolesForComponent failed
+// to match — so env vars for keyed components never reached the response.
+func TestComponentLabelFor(t *testing.T) {
+	for _, tc := range []struct {
+		kind, key, want string
+	}{
+		{"agent", "", "agent"},
+		{"collector", "", "collector"},
+		{"messaging", "", "messaging"},
+		{"knowledge", "cache", "knowledge-cache"},
+		{"ingestion", "hourly", "ingestion-hourly"},
+	} {
+		if got := componentLabelFor(tc.kind, tc.key); got != tc.want {
+			t.Errorf("componentLabelFor(%q,%q) = %q, want %q", tc.kind, tc.key, got, tc.want)
 		}
-	})
-
-	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 deployment, got %d", len(deps))
-	}
-
-	byName := map[string]WorkloadDetail{}
-	for _, wl := range deps[0].Workloads {
-		byName[wl.Name] = wl
-	}
-
-	cron, ok := byName["envagent-ingestion-hourly"]
-	if !ok {
-		t.Fatal("expected CronJob workload")
-	}
-	if len(cron.Containers) != 1 {
-		t.Fatalf("CronJob containers = %d, want 1", len(cron.Containers))
-	}
-	cronEnv := indexEnv(cron.Containers[0].Env)
-	if cronEnv["MODE"].Value != "incremental" {
-		t.Errorf("CronJob MODE = %q, want incremental", cronEnv["MODE"].Value)
-	}
-	if cronEnv["REGION"].Value != "us-east-1" {
-		t.Errorf("CronJob REGION = %q, want us-east-1", cronEnv["REGION"].Value)
-	}
-	// envFrom secret resolved: key present, value redacted, source attributed.
-	if _, ok := cronEnv["API_KEY"]; !ok {
-		t.Error("CronJob API_KEY should be resolved from envFrom secret")
-	}
-	if cronEnv["API_KEY"].Value != "••••••••" {
-		t.Errorf("CronJob API_KEY value = %q, want redacted", cronEnv["API_KEY"].Value)
-	}
-	if cronEnv["API_KEY"].From != "secret:ingest-creds" {
-		t.Errorf("CronJob API_KEY source = %q, want secret:ingest-creds", cronEnv["API_KEY"].From)
-	}
-
-	job, ok := byName["envagent-ingestion-bootstrap"]
-	if !ok {
-		t.Fatal("expected standalone Job workload")
-	}
-	if len(job.Containers) != 1 {
-		t.Fatalf("Job containers = %d, want 1", len(job.Containers))
-	}
-	jobEnv := indexEnv(job.Containers[0].Env)
-	if jobEnv["INIT_TARGET"].Value != "all" {
-		t.Errorf("Job INIT_TARGET = %q, want all", jobEnv["INIT_TARGET"].Value)
 	}
 }
 
-func indexEnv(env []EnvVar) map[string]EnvVar {
-	out := make(map[string]EnvVar, len(env))
-	for _, ev := range env {
-		out[ev.Name] = ev
+// TestAssignEnvToWorkloads_KeyedComponents pins down the keyed-component
+// path: a knowledge-cache workload must pick up its "knowledge:cache" env,
+// and an ingestion-hourly workload its "ingestion:hourly" env. The
+// component string passed in matches the K8s label format produced by
+// componentLabelFor.
+func TestAssignEnvToWorkloads_KeyedComponents(t *testing.T) {
+	envByRole := map[string][]deploymentstore.DecryptedEnvVar{
+		"knowledge:cache":  {{Name: "REDIS_URL", Value: "redis://x"}},
+		"ingestion:hourly": {{Name: "S3_BUCKET", Value: "my-bucket"}},
 	}
-	return out
+	workloads := []WorkloadSpec{
+		{Name: "sasbot-knowledge-cache", Component: "knowledge-cache"},
+		{Name: "sasbot-ingestion-hourly", Component: "ingestion-hourly"},
+	}
+	assignEnvToWorkloads(workloads, envByRole)
+
+	if v := workloads[0].Env["knowledge:cache"]; len(v) != 1 || v[0].Name != "REDIS_URL" {
+		t.Errorf("knowledge-cache env = %+v, want REDIS_URL", workloads[0].Env)
+	}
+	if v := workloads[1].Env["ingestion:hourly"]; len(v) != 1 || v[0].Name != "S3_BUCKET" {
+		t.Errorf("ingestion-hourly env = %+v, want S3_BUCKET", workloads[1].Env)
+	}
 }
 
 func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
-import { isSensitiveEnvVar } from "@/lib/env-utils";
+import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { formatTimeAgo } from "@/lib/time-format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -178,22 +178,28 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
     return Array.from(byUrl.values());
   }, [workload, externalUrls]);
 
-  // Group env vars per container, sorted alphabetically within each
+  // Group env vars per container, sorted alphabetically within each.
+  // Env lives on the record (workload.env, keyed by role) — runtime
+  // containers contribute only their name + live status. roleFor maps
+  // (component, container.name) → role to pick the right entry.
+  // env.is_secret comes from deployment_build_env and is authoritative;
+  // isSensitiveEnvVar is a defensive name-heuristic fallback.
   const envByContainer = useMemo(() => {
+    const envByRole = workload.env ?? {};
     return (workload.containers ?? []).map((container) => {
-      const vars = (container.env ?? []).map((env) => {
+      const role = roleFor(workload.component, container.name);
+      const entries = role ? envByRole[role] ?? [] : [];
+      const vars = entries.map((env) => {
         const value = env.value ?? "";
-        const source = env.from ?? "static";
         return {
           name: env.name,
           value,
-          source,
-          secret: isSensitiveEnvVar(env.name, value, source),
+          secret: env.is_secret ?? isSensitiveEnvVar(env.name, value, ""),
         };
       }).sort((a, b) => a.name.localeCompare(b.name));
       return { containerName: container.name, vars };
     });
-  }, [workload.containers]);
+  }, [workload.containers, workload.component, workload.env]);
 
   return (
     <div className="flex flex-col gap-6">

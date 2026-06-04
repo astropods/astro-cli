@@ -49,6 +49,14 @@ Use Moon as the default task runner from repo root.
 - `deployment:clean`, `deployment:collector`, `deployment:messaging`, `deployment:playground`
 - `messaging:proto-gen`, `messaging:publish-local`, `messaging:sdk-build`, `messaging:typecheck`
 
+# Kubernetes API Usage
+
+**K8s queries are for live status only, not for fetching data we already wrote.** When the server needs deployment/workload state (replica counts, pod phase, container readiness, restart counts, conditions), querying K8s is the only authoritative source — use it. But when the server already owns the data (env vars, spec, intent, URLs), read from the database instead.
+
+Why: K8s API reads are not free. A single deployment-detail render that walks per-workload Secrets and ConfigMaps multiplies into dozens of GETs per poll per viewer; at scale that becomes a sustained load problem on the cluster, and during rolling updates the K8s view also lags the deployed spec until pods cycle. The DB is the apply-time intent — it doesn't lag, doesn't rate-limit, and we wrote it on purpose. Defaulting to K8s "because it's there" is exactly the trap to avoid.
+
+Rule of thumb when adding a server-side read: if the question is *"what is the cluster doing right now?"* → K8s. If the question is *"what did we deploy?"* → DB. Don't conflate the two; the runtime endpoint and the record endpoint exist precisely to keep them separate (`apps/astro-server/handlers/deploy.go`).
+
 # Data Fetching (astro-client)
 
 All server data integration uses TanStack Query. See [docs/04-guides/tanstack-query.md](docs/04-guides/tanstack-query.md) for architecture, conventions, and best practices. Key rules:
