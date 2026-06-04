@@ -8,6 +8,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
+import { deriveDisplayDeploymentStatus } from "@/lib/display-deployment-status";
 import {
   cn,
   formatDateTime,
@@ -28,7 +29,7 @@ export function DeploymentDetailPage() {
   const highlightJobParam = searchParams.get("job");
   const highlightJobId =
     highlightJobParam != null && highlightJobParam !== "" ? Number(highlightJobParam) : undefined;
-  const { data, isLoading, error, refetch } = useDeployment(id ?? "", 5_000);
+  const { data, isLoading, error, refetch } = useDeployment(id ?? "");
   const deleteMut = useDeleteDeployment();
   const wakeUpMut = useWakeUpDeployment();
   const stopMut = useStopDeployment();
@@ -49,14 +50,17 @@ export function DeploymentDetailPage() {
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
-  // Auto-refresh when in transitional states
-  const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
-
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (error) return <p className="text-destructive">Error: {error.message}</p>;
   if (!data) return null;
 
   const { deployment: dep, cluster_status: cs, events, revisions } = data;
+  const displayStatus = deriveDisplayDeploymentStatus(dep, cs);
+  const isTransitional =
+    ["pending", "provisioning", "undeploying"].includes(dep.status) ||
+    displayStatus.value === "deploying" ||
+    displayStatus.value === "undeploying";
+  const isRuntimeDeploying = displayStatus.differsFromDB && displayStatus.value === "deploying";
 
   return (
     <div className="space-y-6">
@@ -89,7 +93,7 @@ export function DeploymentDetailPage() {
               Wake Up
             </Button>
           )}
-          {dep.status === "active" && (
+          {dep.status === "active" && displayStatus.value === "active" && (
             <Button
               variant="outline"
               size="sm"
@@ -209,17 +213,34 @@ export function DeploymentDetailPage() {
           </div>
         </div>
       )}
-      {isTransitional && (
-        <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+      {isRuntimeDeploying && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-950 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-medium">Deploying in cluster</p>
+            <p className="mt-0.5 text-amber-900/90 dark:text-amber-100/90">
+              DB status is <span className="font-mono">active</span> but the agent workload is not ready yet
+              {displayStatus.details ? ` — ${displayStatus.details}` : ""} (same as product UI).
+            </p>
+          </div>
+        </div>
+      )}
+      {isTransitional && !isRuntimeDeploying && (
+        <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
           <span className="relative flex size-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
             <span className="relative inline-flex size-2.5 rounded-full bg-blue-500" />
           </span>
-          <span className="capitalize">{dep.status}...</span>
+          <span className="capitalize">{displayStatus.value}…</span>
         </div>
       )}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-3 sm:gap-4">
-        <InfoCard label="Status" value={dep.status} />
+        <InfoCard
+          label="Status"
+          value={displayStatus.value}
+          mismatch={displayStatus.differsFromDB}
+          mismatchHint={displayStatus.differsFromDB ? `DB record: ${dep.status}` : undefined}
+        />
         <InfoCard
           label="Account"
           value={dep.account_name}

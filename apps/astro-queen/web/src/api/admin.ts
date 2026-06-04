@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { deriveDisplayDeploymentStatus } from "@/lib/display-deployment-status";
 import { adminKeys } from "./keys";
 import type {
   ListDeploymentsResponse,
@@ -45,7 +46,7 @@ export function useDeployments() {
   });
 }
 
-export function useDeployment(id: string, refetchInterval?: number) {
+export function useDeployment(id: string) {
   return useQuery({
     queryKey: adminKeys.deployment(id),
     queryFn: () =>
@@ -53,7 +54,20 @@ export function useDeployment(id: string, refetchInterval?: number) {
         `/api/admin/deployments/${encodeURIComponent(id)}`
       ),
     enabled: !!id,
-    refetchInterval,
+    refetchInterval: (query) => {
+      const dep = query.state.data?.deployment;
+      if (!dep) return 5_000;
+      const display = deriveDisplayDeploymentStatus(dep, query.state.data?.cluster_status);
+      if (
+        display.value === "deploying" ||
+        display.value === "undeploying" ||
+        dep.status === "pending" ||
+        dep.status === "provisioning"
+      ) {
+        return 3_000;
+      }
+      return 5_000;
+    },
   });
 }
 
