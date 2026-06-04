@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
 import { useAuth } from "../lib/auth";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { repoBase, repoSubPath } from "@/lib/github-utils";
@@ -107,7 +108,8 @@ function sourceReducer(state: SourceState, action: SourceAction): SourceState {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 function NewBlueprintContent() {
-  const { personalAccount, accounts } = useAuth();
+  const { personalAccount, accounts, organizationId, switchOrg } = useAuth();
+  const { activeAccount } = useActiveAccount();
   const userAccount = personalAccount?.name ?? "user";
   const sortedAccounts = useMemo(
     () => [...accounts].sort((a, b) => a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name)),
@@ -132,7 +134,7 @@ function NewBlueprintContent() {
 
   // Form state
   const [name, setName] = useState(() => oauthReturn?.savedWizard?.name ?? "");
-  const [selectedOrg, setSelectedOrg] = useState(() => oauthReturn?.savedWizard?.selectedOrg ?? userAccount);
+  const [selectedOrg, setSelectedOrg] = useState(() => oauthReturn?.savedWizard?.selectedOrg ?? (activeAccount || userAccount));
   const [visibility, setVisibility] = useState<"public" | "private">(() => oauthReturn?.savedWizard?.visibility ?? "private");
   const [avatarFile, setAvatarFile] = useState<Blob | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
@@ -205,7 +207,6 @@ function NewBlueprintContent() {
   const activeStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const reviewPanelRef = useRef<HTMLDivElement>(null);
 
-
   const handleContinueToSource = useCallback(() => {
     setCompletedSteps(prev => { const s = new Set(prev); s.add("setup"); return s; });
     setActiveStep("source");
@@ -249,6 +250,12 @@ function NewBlueprintContent() {
     setActiveStep("publishing");
 
     try {
+      // Scope the JWT to the selected org before writing, if not already scoped.
+      const acct = accounts.find(a => a.name === selectedOrg);
+      if (acct?.type === "organization" && acct.organization_id && acct.organization_id !== organizationId) {
+        await switchOrg(acct.organization_id);
+      }
+
       // 1. Create blueprint + upload avatar (with 2s minimum for UX).
       await Promise.all([
         (async () => {
@@ -295,7 +302,7 @@ function NewBlueprintContent() {
     } finally {
       setIsPublishing(false);
     }
-  }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild]);
+  }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild, accounts, organizationId, switchOrg]);
 
   const handleCreateOrConfirm = useCallback(() => {
     if (sourcePath === "import" && pickerValue.repoFullName) {

@@ -3,6 +3,14 @@ import { beforeAll, afterEach, afterAll } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { server } from './msw/server';
 
+// jsdom does not implement pointer capture or scrollIntoView — required by Radix UI components (Select, DropdownMenu, etc.)
+if (typeof window !== 'undefined') {
+  window.HTMLElement.prototype.hasPointerCapture ??= () => false;
+  window.HTMLElement.prototype.setPointerCapture ??= () => {};
+  window.HTMLElement.prototype.releasePointerCapture ??= () => {};
+  window.HTMLElement.prototype.scrollIntoView ??= () => {};
+}
+
 // jsdom does not implement ResizeObserver
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class ResizeObserver {

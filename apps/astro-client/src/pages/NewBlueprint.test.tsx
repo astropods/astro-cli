@@ -1,10 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { renderRoute } from '@/test/test-utils';
+import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import type { Blueprint } from '@/lib/api';
+import type { AuthContextType } from '@/lib/auth-context';
 import NewBlueprint from './NewBlueprint';
 
 afterEach(cleanup);
@@ -12,10 +13,10 @@ afterEach(cleanup);
 const ACCOUNT = 'testuser';
 const NAME = 'my-agent';
 
-function renderNewBlueprint() {
+function renderNewBlueprint(options?: { auth?: AuthContextType }) {
   return renderRoute(
     [{ path: '/new', Component: NewBlueprint as never }],
-    { initialEntries: ['/new'] },
+    { initialEntries: ['/new'], auth: options?.auth },
   );
 }
 
@@ -111,5 +112,88 @@ describe('NewBlueprint – Create button disabled state', () => {
     });
 
     expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
+  });
+});
+
+describe('NewBlueprint – org scoping', () => {
+  it('calls switchOrg with org organization_id when session is not yet scoped to the org', async () => {
+    const switchOrg = vi.fn(async () => {});
+    const auth: AuthContextType = {
+      ...mockAuthContext,
+      organizationId: null,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', type: 'personal' },
+        { id: 'acct-2', name: 'my-org', type: 'organization', organization_id: 'org-id-2' },
+      ],
+      switchOrg,
+    };
+
+    server.use(
+      http.post('/api/v1/agents/:account', ({ params }) => {
+        return HttpResponse.json({ account: params.account, name: 'test-agent' });
+      }),
+    );
+
+    renderNewBlueprint({ auth });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('combobox'));
+    await waitFor(() => screen.getByRole('option', { name: /my-org/i }));
+    await user.click(screen.getByRole('option', { name: /my-org/i }));
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up locally'));
+    await user.click(screen.getByRole('button', { name: /create blueprint/i }));
+
+    await waitFor(() => {
+      expect(switchOrg).toHaveBeenCalledWith('org-id-2');
+    });
+  });
+
+  it('does not call switchOrg when the session is already scoped to the selected org', async () => {
+    const switchOrg = vi.fn(async () => {});
+    const createCalled = vi.fn();
+    const auth: AuthContextType = {
+      ...mockAuthContext,
+      organizationId: 'org-id-2',
+      accounts: [
+        { id: 'acct-1', name: 'testuser', type: 'personal' },
+        { id: 'acct-2', name: 'my-org', type: 'organization', organization_id: 'org-id-2' },
+      ],
+      switchOrg,
+    };
+
+    server.use(
+      http.post('/api/v1/agents/:account', ({ params }) => {
+        createCalled();
+        return HttpResponse.json({ account: params.account, name: 'test-agent' });
+      }),
+    );
+
+    renderNewBlueprint({ auth });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('combobox'));
+    await waitFor(() => screen.getByRole('option', { name: /my-org/i }));
+    await user.click(screen.getByRole('option', { name: /my-org/i }));
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up locally'));
+    await user.click(screen.getByRole('button', { name: /create blueprint/i }));
+
+    await waitFor(() => expect(createCalled).toHaveBeenCalled());
+    expect(switchOrg).not.toHaveBeenCalled();
   });
 });
