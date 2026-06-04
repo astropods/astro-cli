@@ -127,6 +127,96 @@ func TestEnrichResourceAttributes_SpansUntouched(t *testing.T) {
 	}
 }
 
+func TestDropCollectorSelfSpans(t *testing.T) {
+	cfg := &Config{AgentName: "a", AgentVersion: "v1", DeploymentID: "d"}
+
+	cases := []struct {
+		name     string
+		attrKey  string
+		attrVal  string
+		wantKept bool
+	}{
+		{"http url.full traces", "url.full", "http://collector-sidecar:4318/v1/traces", false},
+		{"http url.path metrics", "url.path", "/v1/metrics", false},
+		{"http http.url logs", "http.url", "http://localhost:4318/v1/logs", false},
+		{"http http.target traces", "http.target", "/v1/traces", false},
+		{"grpc rpc.service trace", "rpc.service", "opentelemetry.proto.collector.trace.v1.TraceService", false},
+		{"grpc rpc.service metrics", "rpc.service", "opentelemetry.proto.collector.metrics.v1.MetricsService", false},
+		{"unrelated http call kept", "http.url", "https://api.openai.com/v1/chat/completions", true},
+		{"unrelated grpc kept", "rpc.service", "myapp.UserService", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := &captureTraces{}
+			p := newTestProcessor(cfg, capture)
+
+			td := ptrace.NewTraces()
+			rs := td.ResourceSpans().AppendEmpty()
+			ss := rs.ScopeSpans().AppendEmpty()
+			span := ss.Spans().AppendEmpty()
+			span.SetName("export")
+			span.SetTraceID(pcommon.TraceID([16]byte{1}))
+			span.SetSpanID(pcommon.SpanID([8]byte{1}))
+			span.Attributes().PutStr(tc.attrKey, tc.attrVal)
+
+			if err := p.ConsumeTraces(context.Background(), td); err != nil {
+				t.Fatalf("ConsumeTraces failed: %v", err)
+			}
+
+			gotSpans := 0
+			if capture.last != (ptrace.Traces{}) {
+				for i := 0; i < capture.last.ResourceSpans().Len(); i++ {
+					for j := 0; j < capture.last.ResourceSpans().At(i).ScopeSpans().Len(); j++ {
+						gotSpans += capture.last.ResourceSpans().At(i).ScopeSpans().At(j).Spans().Len()
+					}
+				}
+			}
+
+			if tc.wantKept && gotSpans != 1 {
+				t.Errorf("expected 1 span kept, got %d", gotSpans)
+			}
+			if !tc.wantKept && gotSpans != 0 {
+				t.Errorf("expected span dropped, got %d kept", gotSpans)
+			}
+		})
+	}
+}
+
+func TestDropCollectorSelfSpans_MixedBatch(t *testing.T) {
+	cfg := &Config{AgentName: "a", AgentVersion: "v1", DeploymentID: "d"}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+
+	exportSpan := ss.Spans().AppendEmpty()
+	exportSpan.SetName("OTLP export")
+	exportSpan.SetTraceID(pcommon.TraceID([16]byte{1}))
+	exportSpan.SetSpanID(pcommon.SpanID([8]byte{1}))
+	exportSpan.Attributes().PutStr("url.full", "http://collector-sidecar:4318/v1/traces")
+
+	llmSpan := ss.Spans().AppendEmpty()
+	llmSpan.SetName("llm-call")
+	llmSpan.SetTraceID(pcommon.TraceID([16]byte{2}))
+	llmSpan.SetSpanID(pcommon.SpanID([8]byte{2}))
+	llmSpan.Attributes().PutStr("http.url", "https://api.openai.com/v1/chat/completions")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	spans := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	if spans.Len() != 1 {
+		t.Fatalf("expected 1 span kept, got %d", spans.Len())
+	}
+	if spans.At(0).Name() != "llm-call" {
+		t.Errorf("expected llm-call kept, got %q", spans.At(0).Name())
+	}
+}
+
 func TestRedactPrompts(t *testing.T) {
 	cfg := &Config{
 		AgentName:     "agent",

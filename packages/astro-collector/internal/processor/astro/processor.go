@@ -93,6 +93,10 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 	if p.nextTraces == nil {
 		return nil
 	}
+	dropCollectorSelfSpans(td)
+	if td.ResourceSpans().Len() == 0 {
+		return nil
+	}
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		rs := td.ResourceSpans().At(i)
 		p.enrichResourceAttributes(rs.Resource().Attributes())
@@ -324,6 +328,69 @@ func (p *astroProcessor) redactSpanAttributes(attrs pcommon.Map) {
 		}
 		return true
 	})
+}
+
+// otlpHTTPPaths are the OTLP HTTP signal paths exposed by the collector. A
+// client span whose target URL contains one of these is the act of exporting
+// telemetry, not user traffic.
+var otlpHTTPPaths = []string{
+	"/v1/traces",
+	"/v1/metrics",
+	"/v1/logs",
+}
+
+// otlpGRPCServicePrefix matches the fully-qualified gRPC service names exposed
+// by the OTel Collector's OTLP gRPC receiver
+// (opentelemetry.proto.collector.{trace,metrics,logs}.v1.*).
+const otlpGRPCServicePrefix = "opentelemetry.proto.collector."
+
+// otlpURLAttrKeys are the attribute keys that may carry the request URL or
+// path on an HTTP client span. Different instrumentations and semconv versions
+// use different keys, so we check all of them.
+var otlpURLAttrKeys = []string{
+	"url.full",
+	"url.path",
+	"http.url",
+	"http.target",
+}
+
+// dropCollectorSelfSpans removes spans that describe outgoing OTLP exports
+// (the agent or platform sending telemetry to this collector). Without this,
+// every export creates a span which is then itself exported, inflating
+// user-visible request counts and creating a feedback loop.
+func dropCollectorSelfSpans(td ptrace.Traces) {
+	td.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
+		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
+			ss.Spans().RemoveIf(isCollectorSelfSpan)
+			return ss.Spans().Len() == 0
+		})
+		return rs.ScopeSpans().Len() == 0
+	})
+}
+
+// isCollectorSelfSpan reports whether a span describes a call to an OTLP
+// receiver endpoint (HTTP path /v1/{traces,metrics,logs} or gRPC service
+// opentelemetry.proto.collector.*).
+func isCollectorSelfSpan(span ptrace.Span) bool {
+	attrs := span.Attributes()
+	if v, ok := attrs.Get("rpc.service"); ok {
+		if strings.HasPrefix(v.Str(), otlpGRPCServicePrefix) {
+			return true
+		}
+	}
+	for _, key := range otlpURLAttrKeys {
+		v, ok := attrs.Get(key)
+		if !ok {
+			continue
+		}
+		s := v.Str()
+		for _, path := range otlpHTTPPaths {
+			if strings.Contains(s, path) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isSensitiveAttribute returns true if the attribute key matches known
