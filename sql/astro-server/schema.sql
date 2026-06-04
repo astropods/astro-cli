@@ -798,19 +798,6 @@ CREATE TABLE public.slack_identity_mappings (
 CREATE INDEX idx_slack_identity_mappings_workos_user ON public.slack_identity_mappings(workos_user_id) WHERE revoked_at IS NULL;
 CREATE INDEX idx_slack_identity_mappings_lookup ON public.slack_identity_mappings(team_id, slack_user_id) WHERE revoked_at IS NULL;
 
--- Singleton marker for the one-shot Slack directory backfill. SlackDirectoryBackfillWorker
--- checks this row on entry; if present, the work has already run and the worker
--- exits without touching anything. Written exactly once per environment after
--- the first successful backfill. To re-run the backfill (e.g. after onboarding
--- a new account with pre-existing Slack history), DELETE FROM
--- slack_directory_backfill_marker and the next pod restart picks it back up.
-CREATE TABLE public.slack_directory_backfill_marker (
-    id           integer     NOT NULL DEFAULT 1,
-    completed_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT slack_directory_backfill_marker_pkey PRIMARY KEY (id),
-    CONSTRAINT slack_directory_backfill_marker_singleton CHECK (id = 1)
-);
-
 -- slack_observed_users is the directory of Slack identities the server has
 -- observed via the /authorize live-ingest path and the historical Langfuse
 -- backfill. Pure derived cache: there is no identity here, only a
@@ -836,10 +823,10 @@ CREATE TABLE public.slack_observed_users (
     CONSTRAINT slack_observed_users_pkey PRIMARY KEY (team_id, slack_user_id)
 );
 
--- Singleton marker for the one-shot port that copies existing observed rows
--- from slack_identity_mappings into slack_observed_users. Same gating
--- pattern as slack_directory_backfill_marker: present row means the work
--- has run; absent means the next pod boot enqueues the port worker.
+-- Singleton marker for the one-shot port that copies existing observed
+-- rows from slack_identity_mappings into slack_observed_users. Present
+-- row means the work has run; absent means the next pod boot enqueues
+-- the port worker.
 CREATE TABLE public.slack_observed_port_marker (
     id           integer     NOT NULL DEFAULT 1,
     completed_at timestamptz NOT NULL DEFAULT now(),

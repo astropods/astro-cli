@@ -181,37 +181,21 @@ func (s *Store) UpsertObserved(ctx context.Context, teamID, slackUserID string) 
 	// messages to their old account. The observed-source guard scopes
 	// the revival to the rollback path (ops UPDATE … SET revoked_at =
 	// now() WHERE source = 'observed') without touching oauth state.
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO slack_identity_mappings
-			(team_id, slack_user_id, workos_user_id, source)
-		VALUES ($1, $2, NULL, 'observed')
-		ON CONFLICT (team_id, slack_user_id) DO UPDATE
-		SET revoked_at = NULL,
-		    updated_at = now()
-		WHERE slack_identity_mappings.revoked_at IS NOT NULL
-		  AND slack_identity_mappings.source     = 'observed'
-	`, teamID, slackUserID)
-	if err != nil {
-		// Roll back the dedupe entry so the next call retries the DB.
-		s.observedMu.Lock()
-		delete(s.observedSeen, key)
-		s.observedMu.Unlock()
-		return fmt.Errorf("slackidentity: upsert observed: %w", err)
-	}
-
-	// PR 1 dual-write: also populate slack_observed_users. The legacy
-	// write above is the read path for Insights today; this new table
-	// becomes the read path in PR 2. A failure here doesn't unwind the
-	// dedupe — the legacy write succeeded, so this pair won't retry on
-	// the next call. Gaps are picked up by the one-shot port worker
-	// before PR 2's read switch.
+	// PR 2 cutover: slack_observed_users is now the sole write target.
+	// The legacy slack_identity_mappings dual-write is gone — observed
+	// rows live exclusively in the new table from here on. PR 3
+	// deletes the stale legacy rows.
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO slack_observed_users (team_id, slack_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT (team_id, slack_user_id) DO UPDATE
 		SET last_seen_at = now()
 	`, teamID, slackUserID); err != nil {
-		return fmt.Errorf("slackidentity: upsert observed user (new table): %w", err)
+		// Roll back the dedupe entry so the next call retries the DB.
+		s.observedMu.Lock()
+		delete(s.observedSeen, key)
+		s.observedMu.Unlock()
+		return fmt.Errorf("slackidentity: upsert observed: %w", err)
 	}
 	return nil
 }
@@ -388,41 +372,64 @@ type DirectoryEntry struct {
 }
 
 // DirectoryEntriesForSlackUsers returns the directory entry for each
-// slack_user_id the directory knows about — observed-only rows
-// (workos_user_id IS NULL), linked rows (workos_user_id IS NOT NULL),
-// AND revoked rows (team_id only; workos_user_id forced empty).
+// slack_user_id the directory knows about. PR 2 cutover: the read now
+// unions across two tables.
 //
-// Revoked rows return their team_id so Insights can still build the
-// `slack://user?team=…&id=…` deep link for users who linked + then
-// disconnected. workos_user_id is masked to empty for revoked rows so
-// the metrics-merge path in mergeLinkedSlackRows doesn't fold their
-// new (post-disconnect) spend back into the WorkOS account they
-// deliberately unlinked from. Without this, a previously-linked-then-
-// disconnected Slack user permanently loses their deep link, because
-// the unique constraint (team_id, slack_user_id) prevents live-ingest
-// from creating a fresh observed row alongside the revoked oauth one.
+//   - slack_identity_mappings — source of truth for workos_user_id
+//     (oauth-linked users), AND for team_id on revoked oauth rows so
+//     the deep link survives disconnect.
+//   - slack_observed_users    — source of truth for team_id when no
+//     oauth row exists (the common case for unlinked Slack senders).
 //
-// DISTINCT ON (slack_user_id) collapses to one row per Slack user.
-// ORDER BY prefers non-revoked rows so an active observed/oauth row
-// wins over a revoked one when both exist (only possible across
-// multiple team_ids — within a team the unique constraint forbids it).
-// Within revoked-or-not, most recently created wins.
+// Precedence per slack_user_id: an active oauth row beats a revoked
+// oauth row; either beats a slack_observed_users entry. Within a tier,
+// most recently created wins (only relevant for the multi-workspace
+// case where the same U07ABCDEF appears under two team_ids).
+//
+// workos_user_id is masked to empty for revoked rows so the
+// metrics-merge path in mergeLinkedSlackRows doesn't fold a user's
+// post-disconnect spend back into the WorkOS account they deliberately
+// unlinked from.
 //
 // Multi-workspace caveat unchanged: same `U07ABCDEF` across two
-// different Slack workspaces collapses to one entry, the most recent.
+// different Slack workspaces collapses to one entry.
 func (s *Store) DirectoryEntriesForSlackUsers(slackUserIDs []string) (map[string]DirectoryEntry, error) {
 	out := make(map[string]DirectoryEntry)
 	if len(slackUserIDs) == 0 {
 		return out, nil
 	}
+	// UNION across the linked table (slack_identity_mappings) and the
+	// observed-directory table (slack_observed_users). source_priority
+	// (1 = slack_identity_mappings, 2 = slack_observed_users) prefers
+	// the linked source whenever both have an entry — that's how
+	// workos_user_id surfaces for oauth users. Within source_priority=1,
+	// active_flag DESC keeps a live oauth row ahead of a revoked one;
+	// created_at DESC is the multi-workspace tiebreaker.
 	rows, err := s.db.Query(`
 		SELECT DISTINCT ON (slack_user_id)
 		       slack_user_id,
 		       team_id,
-		       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '')
-		FROM slack_identity_mappings
-		WHERE slack_user_id = ANY($1)
-		ORDER BY slack_user_id, (revoked_at IS NULL) DESC, created_at DESC
+		       workos_user_id
+		FROM (
+			SELECT slack_user_id,
+			       team_id,
+			       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '') AS workos_user_id,
+			       (revoked_at IS NULL)                                              AS active_flag,
+			       created_at,
+			       1                                                                  AS source_priority
+			FROM slack_identity_mappings
+			WHERE slack_user_id = ANY($1)
+			UNION ALL
+			SELECT slack_user_id,
+			       team_id,
+			       ''                                                                 AS workos_user_id,
+			       TRUE                                                               AS active_flag,
+			       last_seen_at                                                       AS created_at,
+			       2                                                                  AS source_priority
+			FROM slack_observed_users
+			WHERE slack_user_id = ANY($1)
+		) combined
+		ORDER BY slack_user_id, source_priority, active_flag DESC, created_at DESC
 	`, pq.Array(slackUserIDs))
 	if err != nil {
 		return nil, fmt.Errorf("slackidentity: directory entries: %w", err)
