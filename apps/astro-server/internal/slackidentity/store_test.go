@@ -32,6 +32,12 @@ const (
 	listAccountTeams    = "\n\t\tSELECT DISTINCT am.account_id, sim.team_id\n\t\tFROM slack_identity_mappings sim\n\t\tJOIN account_members am ON sim.workos_user_id = am.user_id\n\t\tWHERE sim.workos_user_id IS NOT NULL\n\t\t  AND sim.revoked_at IS NULL\n\t\tORDER BY am.account_id, sim.team_id\n\t"
 	checkMarker         = "SELECT EXISTS(SELECT 1 FROM slack_directory_backfill_marker)"
 	writeMarker         = "\n\t\tINSERT INTO slack_directory_backfill_marker (id, completed_at)\n\t\tVALUES (1, now())\n\t\tON CONFLICT (id) DO NOTHING\n\t"
+	// PR 1 dual-write: every UpsertObserved follows the legacy
+	// slack_identity_mappings write with this slack_observed_users insert.
+	upsertObservedUserQuery = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id)\n\t\tVALUES ($1, $2)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET last_seen_at = now()\n\t"
+	checkObservedPortMarker = "SELECT EXISTS(SELECT 1 FROM slack_observed_port_marker)"
+	writeObservedPortMarker = "\n\t\tINSERT INTO slack_observed_port_marker (id, completed_at)\n\t\tVALUES (1, now())\n\t\tON CONFLICT (id) DO NOTHING\n\t"
+	portObservedRowsQuery   = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id, first_seen_at, last_seen_at)\n\t\tSELECT team_id, slack_user_id, created_at, updated_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE source = 'observed' AND revoked_at IS NULL\n\t\tON CONFLICT (team_id, slack_user_id) DO NOTHING\n\t"
 )
 
 // Upsert writes a row with all the expected fields and clears revoked_at on
@@ -370,11 +376,16 @@ func TestRevokeOne_NoMatch(t *testing.T) {
 // ── UpsertObserved ──────────────────────────────────────────────────────────
 
 // First call for an (team, user) pair writes the observed row.
+// Dual-write (PR 1): the new slack_observed_users insert follows the
+// legacy slack_identity_mappings write.
 func TestUpsertObserved_FirstCallWrites(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
 	mock.ExpectExec(upsertObservedQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertObservedUserQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -393,8 +404,11 @@ func TestUpsertObserved_PerProcessDedupe(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
 
-	// Only one DB call expected for two upserts.
+	// First call: both writes (legacy + new-table). Second call deduped.
 	mock.ExpectExec(upsertObservedQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertObservedUserQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -405,7 +419,7 @@ func TestUpsertObserved_PerProcessDedupe(t *testing.T) {
 		t.Fatalf("second upsert (should be a no-op): %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expected exactly 1 DB call: %v", err)
+		t.Errorf("expected exactly 2 DB calls (one per table) on first upsert only: %v", err)
 	}
 }
 
@@ -422,6 +436,9 @@ func TestUpsertObserved_RevivesRevokedObservedRow(t *testing.T) {
 	mock.ExpectExec(upsertObservedQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(0, 1)) // 1 row updated (revived)
+	mock.ExpectExec(upsertObservedUserQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.UpsertObserved(t.Context(), "T07XYZ", "U07ABCDEF"); err != nil {
 		t.Fatalf("upsert observed: %v", err)
@@ -455,6 +472,14 @@ func TestUpsertObserved_DoesNotReviveRevokedOAuthRow(t *testing.T) {
 	mock.ExpectExec(upsertObservedQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(0, 0)) // no rows affected — revocation respected
+	// Dual-write: even though the legacy DO UPDATE branch matched no
+	// rows (oauth-revoked guard), the new-table insert still runs. The
+	// new table has no oauth/observed split, so an oauth-revoked
+	// user_id can have an observed-directory entry alongside — that's
+	// fine, it's pure directory data without identity.
+	mock.ExpectExec(upsertObservedUserQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	if err := store.UpsertObserved(t.Context(), "T07XYZ", "U07ABCDEF"); err != nil {
 		t.Fatalf("upsert observed: %v", err)
@@ -476,15 +501,20 @@ func TestUpsertObserved_PeriodicResetClearsDedupe(t *testing.T) {
 	store.now = func() time.Time { return now }
 	store.observedLastReset = now
 
-	// Two DB calls expected: one before the reset, one after — the
-	// dedupe map is wiped in between so the second call doesn't hit
-	// the in-memory cache.
+	// Two upserts, each writing to both tables → 4 DB calls expected.
+	// The dedupe map is wiped between the two upserts.
 	mock.ExpectExec(upsertObservedQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertObservedUserQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(upsertObservedQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(upsertObservedUserQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.UpsertObserved(t.Context(), "T07XYZ", "U07ABCDEF"); err != nil {
 		t.Fatalf("first upsert: %v", err)
@@ -494,7 +524,7 @@ func TestUpsertObserved_PeriodicResetClearsDedupe(t *testing.T) {
 		t.Fatalf("upsert after reset: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expected 2 DB calls (dedupe wiped between them): %v", err)
+		t.Errorf("expected 4 DB calls (2 upserts × 2 tables): %v", err)
 	}
 }
 
@@ -513,8 +543,9 @@ func TestUpsertObserved_EmptyInputsAreNoOp(t *testing.T) {
 	// No mock expectations → no DB calls made.
 }
 
-// DB error rolls back the in-memory dedupe so the next call retries.
-// Otherwise a transient DB hiccup would suppress this user forever.
+// Legacy-table DB error rolls back the in-memory dedupe so the next
+// call retries. The new-table write doesn't run when the legacy write
+// fails. On retry, both writes run.
 func TestUpsertObserved_DBErrorRollsBackDedupe(t *testing.T) {
 	store, mock, db := newMockStore(t)
 	defer db.Close()
@@ -522,7 +553,11 @@ func TestUpsertObserved_DBErrorRollsBackDedupe(t *testing.T) {
 	mock.ExpectExec(upsertObservedQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnError(errors.New("temporary db hiccup"))
+	// Retry: legacy succeeds, then new-table write also runs.
 	mock.ExpectExec(upsertObservedQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertObservedUserQuery).
 		WithArgs("T07XYZ", "U07ABCDEF").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -533,7 +568,135 @@ func TestUpsertObserved_DBErrorRollsBackDedupe(t *testing.T) {
 		t.Errorf("retry after error must hit DB again, got: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expected 2 DB calls: %v", err)
+		t.Errorf("expected 3 DB calls (1 failed legacy + 1 retry legacy + 1 new-table): %v", err)
+	}
+}
+
+// New-table write failure surfaces the error to the caller but does NOT
+// roll back the dedupe — the legacy write succeeded, which is the read
+// path PR 1 still serves. The one-shot port worker (run before PR 2's
+// read switch) is the safety net for the missing new-table row.
+func TestUpsertObserved_NewTableErrorReturnedButDedupeRetained(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectExec(upsertObservedQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(upsertObservedUserQuery).
+		WithArgs("T07XYZ", "U07ABCDEF").
+		WillReturnError(errors.New("new table hiccup"))
+
+	if err := store.UpsertObserved(t.Context(), "T07XYZ", "U07ABCDEF"); err == nil {
+		t.Error("expected error from new-table write")
+	}
+	// Second call must be deduped — legacy write succeeded, so the
+	// dedupe entry stayed set. No additional DB activity expected.
+	if err := store.UpsertObserved(t.Context(), "T07XYZ", "U07ABCDEF"); err != nil {
+		t.Errorf("second call should be a dedupe no-op: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expected exactly 2 DB calls (legacy + new-table on first call only): %v", err)
+	}
+}
+
+// IsObservedPortComplete returns false when the marker row is absent —
+// boot enqueues the port worker.
+func TestIsObservedPortComplete_Absent(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery(checkObservedPortMarker).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	done, err := store.IsObservedPortComplete(t.Context())
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if done {
+		t.Errorf("expected done=false, got true")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
+	}
+}
+
+// IsObservedPortComplete returns true when the marker is present —
+// boot skips enqueue.
+func TestIsObservedPortComplete_Present(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectQuery(checkObservedPortMarker).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	done, err := store.IsObservedPortComplete(t.Context())
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if !done {
+		t.Errorf("expected done=true, got false")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
+	}
+}
+
+// MarkObservedPortComplete writes the singleton marker row. ON CONFLICT
+// DO NOTHING — concurrent writes are safe because the CHECK (id=1) plus
+// PRIMARY KEY make the table physically single-row.
+func TestMarkObservedPortComplete_WritesMarker(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectExec(writeObservedPortMarker).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.MarkObservedPortComplete(t.Context()); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
+	}
+}
+
+// PortObservedRowsToNewTable issues the copy from slack_identity_mappings
+// observed-source rows into slack_observed_users and returns the inserted
+// row count. ON CONFLICT DO NOTHING means re-runs produce zero net
+// change — idempotent.
+func TestPortObservedRowsToNewTable_CopiesAndReturnsCount(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectExec(portObservedRowsQuery).
+		WillReturnResult(sqlmock.NewResult(0, 42))
+
+	n, err := store.PortObservedRowsToNewTable(t.Context())
+	if err != nil {
+		t.Fatalf("port: %v", err)
+	}
+	if n != 42 {
+		t.Errorf("expected 42 rows, got %d", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
+	}
+}
+
+// DB error propagates with context so the worker can log it without
+// guessing which step failed.
+func TestPortObservedRowsToNewTable_PropagatesDBError(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectExec(portObservedRowsQuery).
+		WillReturnError(errors.New("connection refused"))
+
+	if _, err := store.PortObservedRowsToNewTable(t.Context()); err == nil {
+		t.Error("expected error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
 	}
 }
 

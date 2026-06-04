@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"time"
 
 	"github.com/riverqueue/river"
 
@@ -131,17 +132,26 @@ func (w *SlackDirectoryBackfillWorker) Work(ctx context.Context, _ *river.Job[Sl
 }
 
 // distinctBareSlackUserIDs queries Langfuse for every userId that has
-// trace activity (no date bounds — we want full history) and filters to
-// the bare-Slack shape. Mirrors the userId dimension query used by the
+// trace activity over the full lookback window and filters to the
+// bare-Slack shape. Mirrors the userId dimension query used by the
 // users-summary handler but without metric aggregation since we only
 // need the keys.
+//
+// FromTimestamp/ToTimestamp are required — /api/public/metrics returns
+// 400 on empty timestamps, which previously caused this worker to fail
+// silently per account and write zero observed rows. Five-year lookback
+// mirrors the handler's metricsTimeRange fallback for the "all-time"
+// path; long enough to be effectively unbounded for any real account.
 func distinctBareSlackUserIDs(ctx context.Context, client *langfuse.Client) ([]string, error) {
+	now := time.Now().UTC()
 	q := langfuse.MetricsQuery{
 		View: "traces",
 		Metrics: []langfuse.MetricsQueryField{
 			{Measure: "count", Aggregation: "count"},
 		},
-		Dimensions: []langfuse.MetricsDimension{{Field: "userId"}},
+		Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
+		FromTimestamp: now.AddDate(-5, 0, 0).Format(time.RFC3339),
+		ToTimestamp:   now.Format(time.RFC3339),
 	}
 	resp, err := client.GetMetrics(ctx, q)
 	if err != nil {

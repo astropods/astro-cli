@@ -640,6 +640,12 @@ func runWorker(
 			// on entry as a belt-and-suspenders guarantee against the
 			// (marker-just-written) race.
 			enqueueSlackDirectoryBackfillIfNeeded(workerCtx, db, rq, log)
+
+			// One-shot port of legacy observed rows from
+			// slack_identity_mappings into slack_observed_users. Same
+			// pattern as the directory backfill: marker-gated, UniqueOpts
+			// for replica safety, worker re-checks on entry.
+			enqueueSlackObservedPortIfNeeded(workerCtx, db, rq, log)
 		}
 	}
 
@@ -666,6 +672,29 @@ func enqueueSlackDirectoryBackfillIfNeeded(ctx context.Context, db *sql.DB, rq *
 		return
 	}
 	log.Info("slack directory backfill: enqueued one-shot job")
+}
+
+// enqueueSlackObservedPortIfNeeded enqueues the one-shot port that copies
+// legacy observed rows from slack_identity_mappings into
+// slack_observed_users iff the port marker is absent. Same shape as the
+// directory-backfill enqueue.
+func enqueueSlackObservedPortIfNeeded(ctx context.Context, db *sql.DB, rq *riverqueue.Queue, log *logger.Logger) {
+	slackStore := slackidentity.NewStore(db)
+	done, err := slackStore.IsObservedPortComplete(ctx)
+	if err != nil {
+		log.Warn("slack observed port: marker check failed; not enqueuing", "error", err)
+		return
+	}
+	if done {
+		return
+	}
+	if _, err := rq.Insert(ctx, riverqueue.SlackObservedPortArgs{}, &river.InsertOpts{
+		UniqueOpts: river.UniqueOpts{ByArgs: true},
+	}); err != nil {
+		log.Warn("slack observed port: enqueue failed", "error", err)
+		return
+	}
+	log.Info("slack observed port: enqueued one-shot job")
 }
 
 func setupRoutes(router *gin.Engine, deps *Deps) {

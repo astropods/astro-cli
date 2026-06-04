@@ -176,6 +176,15 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "SlackDirectoryBackfillWorker", "schedule", "one-shot")
 
+	// One-shot Slack observed-users port — copies legacy observed rows
+	// from slack_identity_mappings into slack_observed_users. Same
+	// one-shot gating as the directory backfill (slack_observed_port_marker).
+	river.AddWorker(workers, &SlackObservedPortWorker{
+		slackStore: slackidentity.NewStore(cfg.DB),
+		log:        log,
+	})
+	log.Info("river: registered worker", "worker", "SlackObservedPortWorker", "schedule", "one-shot")
+
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{
 		db:            cfg.DB,

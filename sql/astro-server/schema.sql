@@ -810,3 +810,39 @@ CREATE TABLE public.slack_directory_backfill_marker (
     CONSTRAINT slack_directory_backfill_marker_pkey PRIMARY KEY (id),
     CONSTRAINT slack_directory_backfill_marker_singleton CHECK (id = 1)
 );
+
+-- slack_observed_users is the directory of Slack identities the server has
+-- observed via the /authorize live-ingest path and the historical Langfuse
+-- backfill. Pure derived cache: there is no identity here, only a
+-- (team_id, slack_user_id) tuple that the Insights deep link consults to
+-- turn a bare-Slack userId into a `slack://user?team=…&id=…` URL.
+--
+-- Split out from slack_identity_mappings because that table was conflating
+-- two cardinalities (linked oauth identities + observed-anonymous users)
+-- behind a CHECK constraint and source discriminator, blocking safe
+-- truncation and forcing two-pass merge logic in the Insights reader. With
+-- this table, observed-row truncation is routine; live-ingest refills on
+-- every /authorize call.
+--
+-- PR 1 dual-writes from /authorize and the backfill worker to both this
+-- table and slack_identity_mappings (observed source). PR 2 switches reads.
+-- PR 3 drops the observed rows from slack_identity_mappings and the related
+-- constraints.
+CREATE TABLE public.slack_observed_users (
+    team_id        varchar     NOT NULL,
+    slack_user_id  varchar     NOT NULL,
+    first_seen_at  timestamptz NOT NULL DEFAULT now(),
+    last_seen_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT slack_observed_users_pkey PRIMARY KEY (team_id, slack_user_id)
+);
+
+-- Singleton marker for the one-shot port that copies existing observed rows
+-- from slack_identity_mappings into slack_observed_users. Same gating
+-- pattern as slack_directory_backfill_marker: present row means the work
+-- has run; absent means the next pod boot enqueues the port worker.
+CREATE TABLE public.slack_observed_port_marker (
+    id           integer     NOT NULL DEFAULT 1,
+    completed_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT slack_observed_port_marker_pkey PRIMARY KEY (id),
+    CONSTRAINT slack_observed_port_marker_singleton CHECK (id = 1)
+);

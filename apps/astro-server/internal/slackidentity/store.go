@@ -198,6 +198,21 @@ func (s *Store) UpsertObserved(ctx context.Context, teamID, slackUserID string) 
 		s.observedMu.Unlock()
 		return fmt.Errorf("slackidentity: upsert observed: %w", err)
 	}
+
+	// PR 1 dual-write: also populate slack_observed_users. The legacy
+	// write above is the read path for Insights today; this new table
+	// becomes the read path in PR 2. A failure here doesn't unwind the
+	// dedupe — the legacy write succeeded, so this pair won't retry on
+	// the next call. Gaps are picked up by the one-shot port worker
+	// before PR 2's read switch.
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO slack_observed_users (team_id, slack_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT (team_id, slack_user_id) DO UPDATE
+		SET last_seen_at = now()
+	`, teamID, slackUserID); err != nil {
+		return fmt.Errorf("slackidentity: upsert observed user (new table): %w", err)
+	}
 	return nil
 }
 
@@ -306,6 +321,58 @@ func (s *Store) MarkDirectoryBackfillComplete(ctx context.Context) error {
 		return fmt.Errorf("slackidentity: mark backfill complete: %w", err)
 	}
 	return nil
+}
+
+// IsObservedPortComplete reports whether the one-shot port from
+// slack_identity_mappings (observed source) into slack_observed_users
+// has completed for this environment. Same gating pattern as the
+// directory backfill marker.
+func (s *Store) IsObservedPortComplete(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM slack_observed_port_marker)`).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("slackidentity: check observed port marker: %w", err)
+	}
+	return exists, nil
+}
+
+// MarkObservedPortComplete writes the singleton port marker row after a
+// successful one-shot copy. CHECK (id = 1) plus PRIMARY KEY enforces
+// single-row physically.
+func (s *Store) MarkObservedPortComplete(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO slack_observed_port_marker (id, completed_at)
+		VALUES (1, now())
+		ON CONFLICT (id) DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("slackidentity: mark observed port complete: %w", err)
+	}
+	return nil
+}
+
+// PortObservedRowsToNewTable copies every active observed row out of
+// slack_identity_mappings and into slack_observed_users. Idempotent:
+// ON CONFLICT DO NOTHING leaves existing rows alone (live-ingest dual-
+// writes may have already populated some pairs). Returns the number of
+// rows inserted. Intended to be called exactly once per environment from
+// the one-shot port worker.
+func (s *Store) PortObservedRowsToNewTable(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO slack_observed_users (team_id, slack_user_id, first_seen_at, last_seen_at)
+		SELECT team_id, slack_user_id, created_at, updated_at
+		FROM slack_identity_mappings
+		WHERE source = 'observed' AND revoked_at IS NULL
+		ON CONFLICT (team_id, slack_user_id) DO NOTHING
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("slackidentity: port observed rows: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("slackidentity: port observed rows affected: %w", err)
+	}
+	return n, nil
 }
 
 // DirectoryEntry is one resolved directory hit per Slack user. TeamID is
