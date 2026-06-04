@@ -390,3 +390,58 @@ func TestGetAccountUsersSummary_LangfuseFails_DegradesWithFlag(t *testing.T) {
 		t.Errorf("MetricsUnavailable = false, want true on Langfuse failure: %s", rec.Body.String())
 	}
 }
+
+// Users-summary fans out to two Langfuse queries:
+//   - Q_main  — per-user metrics (cost/tokens/requests), has timeDimension
+//   - Q_tags  — per-user deployment tag attribution, no timeDimension
+//
+// Q_main is the only carrier of actual metrics. When it fails but Q_tags
+// succeeds, the legacy "all-failed" tally let the response through with
+// users discovered via Q_tags carrying $0 cost / 0 requests, and the
+// refresh worker happily cached those zeros for the next 6h. Guard pins
+// the inverted behavior: any Q_main failure must degrade to the
+// metrics_unavailable banner so the worker preserves the prior cache.
+func TestGetAccountUsersSummary_QMainFails_QTagsSucceeds_DegradesWithFlag(t *testing.T) {
+	accountStore, langfuseStore, _, _ := expectStandardAccountAndCreds(t)
+	depStore, _ := expectOneDeployment(t)
+
+	mixedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		// Q_main carries timeDimension; Q_tags doesn't. Fail only Q_main.
+		if strings.Contains(q, `"timeDimension"`) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"userId":"U07ABC","tags":"deployment:dep-1","count_count":3}]}`))
+	}))
+	defer mixedSrv.Close()
+	cfg := &config.Config{}
+	cfg.Deployment.LangfuseBaseURL = mixedSrv.URL
+
+	router := newCachingTestRouter(
+		GetAccountUsersSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil, nil),
+		"/api/v1/accounts/:account/observability/users-summary",
+	)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/accounts/myorg/observability/users-summary", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded): %s", rec.Code, rec.Body.String())
+	}
+	var resp AccountUsersSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.MetricsUnavailable {
+		t.Errorf("MetricsUnavailable = false, want true: Q_main failure must degrade so the worker doesn't cache zeros. body=%s",
+			rec.Body.String())
+	}
+	if len(resp.Users) != 0 {
+		t.Errorf("Users len = %d, want 0 on degraded response (any user list here would be all-zero metrics)",
+			len(resp.Users))
+	}
+}

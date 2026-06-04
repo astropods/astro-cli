@@ -29,17 +29,17 @@ import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { accountKeys, deploymentKeys, observabilityKeys } from "@/api/queries/keys";
 import type { Route } from "./+types/Insights";
 
-const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30 };
+const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
 
 function buildDateLabel(range: ActivityRange): string {
-  if (range === "all") return "All time";
   const { from, to } = buildPeriodParams(range);
-  if (!from || !to) return "";
   return `${formatDateShort(from)} – ${formatDateShort(to)}`;
 }
 
 function parseRange(raw: string | null): ActivityRange {
-  return raw === "7d" || raw === "14d" || raw === "30d" || raw === "all" ? raw : "30d";
+  // Stale "?range=all" deep-links from before the all-time range was retired
+  // fall through to the 30d default rather than 404ing the page.
+  return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -258,7 +258,7 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
         </div>
       )}
       <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
-        <StatCards data={displaySummary} showChange={range !== "all"} range={range} />
+        <StatCards data={displaySummary} showChange range={range} />
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
         <div className="mb-6 grid grid-cols-1 gap-4 @xl:grid-cols-2">
@@ -438,7 +438,7 @@ function InsightsView({
             days={days}
             colorMap={chartsData.colorMap}
             seriesLabels={chartsData.seriesLabels}
-            variant={range === "all" ? "line" : "bar"}
+            variant={days > 60 ? "line" : "bar"}
           />
         }
         chartRight={<ActiveUsersSpendChart data={activeSpendSeries.data} days={days} />}

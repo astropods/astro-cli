@@ -90,19 +90,6 @@ describe("sliceUsersByRange — users output", () => {
     expect(users[0].last_seen).toBe("2026-01-07T00:00:00Z");
   });
 
-  it("all-time range returns the original users array verbatim", () => {
-    const allTimeUsers = [
-      { user_id: "u_alice", cost_usd: 100, requests: 50, tokens: 1000, agents_used: [], last_seen: "2025-08-01T00:00:00Z" },
-    ];
-    const s = summary([
-      // Even with per-day rows present, all-time should bypass slicing.
-      { date: "2026-01-05", users: [{ user_id: "u_alice", cost_usd: 1, requests: 1, tokens: 1 }] },
-    ]);
-
-    const { users } = sliceUsersByRange(s, usersData(allTimeUsers), "all");
-    expect(users).toBe(allTimeUsers); // identity — no copy
-  });
-
   it("falls back to the original users array when cost_over_time_by_user is absent", () => {
     const allTimeUsers = [
       { user_id: "u_alice", cost_usd: 100, requests: 50, tokens: 1000, agents_used: [] },

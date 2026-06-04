@@ -59,29 +59,30 @@ describe("formatDateShort", () => {
 });
 
 describe("buildPeriodParams", () => {
-  it("returns empty object for 'all'", () => {
-    expect(buildPeriodParams("all")).toEqual({});
-  });
-
   it("returns from/to for '7d'", () => {
     const { from, to } = buildPeriodParams("7d");
-    expect(from).toBeDefined();
-    expect(to).toBeDefined();
-    const diff = new Date(to!).getTime() - new Date(from!).getTime();
+    const diff = new Date(to).getTime() - new Date(from).getTime();
     const days = diff / (1000 * 60 * 60 * 24);
     expect(days).toBeCloseTo(7, 0);
   });
 
   it("returns from/to for '30d'", () => {
     const { from, to } = buildPeriodParams("30d");
-    const diff = new Date(to!).getTime() - new Date(from!).getTime();
+    const diff = new Date(to).getTime() - new Date(from).getTime();
     const days = diff / (1000 * 60 * 60 * 24);
     expect(days).toBeCloseTo(30, 0);
   });
 
+  it("returns from/to for '90d'", () => {
+    const { from, to } = buildPeriodParams("90d");
+    const diff = new Date(to).getTime() - new Date(from).getTime();
+    const days = diff / (1000 * 60 * 60 * 24);
+    expect(days).toBeCloseTo(90, 0);
+  });
+
   it("from is UTC midnight", () => {
     const { from } = buildPeriodParams("7d");
-    const d = new Date(from!);
+    const d = new Date(from);
     expect(d.getUTCHours()).toBe(0);
     expect(d.getUTCMinutes()).toBe(0);
     expect(d.getUTCSeconds()).toBe(0);

@@ -673,9 +673,18 @@ func pctChange(current, prior float64) *float64 {
 // metricsTimeRange returns a (from, to) pair safe to pass to /api/public/metrics,
 // which 400s on empty timestamps. When the caller asked for all-time (both
 // inputs empty), backfill a 5-year lookback ending now — long enough to be
-// "all-time" for any account in practice and avoids divergent semantics between
-// the legacy /metrics/daily endpoint (which accepts empty timestamps natively)
-// and /metrics (which doesn't).
+// "all-time" for any account in practice and avoids divergent semantics
+// between the legacy /metrics/daily endpoint (which accepts empty
+// timestamps natively) and /metrics (which doesn't).
+//
+// The Insights People + Agents tables render server-aggregated per-user
+// and per-deployment totals over the FULL query window — they're
+// independent of the range toggle, which only resizes charts and KPIs.
+// So this fallback width directly determines how far back lifetime
+// totals reach. Bounding it tighter would clip the "$X over your time on
+// Astro" semantics those tables are supposed to convey. Q_main's load
+// problem is addressed via day-granularity bucketing in
+// ComputeUsersSummary, not by clipping the time window here.
 func metricsTimeRange(from, to string) (string, string) {
 	if from != "" && to != "" {
 		return from, to
@@ -1683,8 +1692,10 @@ func GetAccountUsersSummary(
 }
 
 // ComputeUsersSummary runs the per-user Langfuse fan-out and assembles the
-// users-summary response. Returns ErrAllLangfuseCallsFailed when every
-// Langfuse sub-query failed; partial successes render normally.
+// users-summary response. Returns ErrAllLangfuseCallsFailed when the
+// primary metrics query (Q_main) fails — even if the attribution query
+// (Q_tags) succeeds — so callers preserve the prior cache rather than
+// caching zero-metric results. Q_tags failure alone is non-fatal.
 func ComputeUsersSummary(
 	ctx context.Context,
 	log *logger.Logger,
@@ -1771,16 +1782,29 @@ func ComputeUsersSummary(
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Tally Langfuse outcomes; emit ErrAllLangfuseCallsFailed only when every
-	// sub-query failed. Partial success (one of two queries returns) falls
-	// through to buildUsersSummary, which handles missing rows gracefully.
-	var lfAttempts, lfFailures atomic.Int32
+	// Q_main carries the actual metrics (cost/tokens/requests/last_seen);
+	// Q_tags is attribution-only (which agents a user touched). If Q_main
+	// fails — even with Q_tags succeeding — the response degrades to a list
+	// of users with all-zero metrics, which is worse than no data: the
+	// refresh worker would happily cache those zeros for the next 6h. So
+	// treat any Q_main failure as ErrAllLangfuseCallsFailed and let the
+	// caller preserve the prior cache entry. Q_tags failure alone keeps
+	// real metrics and just leaves agents_used empty — acceptable to cache.
+	var mainQueryFailed atomic.Bool
 
 	g, gCtx := errgroup.WithContext(ctx)
 	qFrom, qTo := metricsTimeRange(from, to)
 	var mainRows, tagsRows []map[string]any
 
 	g.Go(func() error {
+		// Day granularity, not hour: the only thing we read out of the
+		// per-bucket timestamp is `last_seen` (max non-zero bucket), and
+		// day-resolution is plenty for that UX. Hourly was costing us
+		// 24× the bucket count for zero product gain and is the single
+		// biggest contributor to Q_main's ClickHouse cost over the 90d
+		// lookback. With day granularity, Q_main shape is at most
+		// ~90 buckets × N users × tag-filtered traces — easily under the
+		// 30s context timeout for any account we've seen.
 		q := langfuse.MetricsQuery{
 			View: "traces",
 			Metrics: []langfuse.MetricsQueryField{
@@ -1789,15 +1813,14 @@ func ComputeUsersSummary(
 				{Measure: "count", Aggregation: "count"},
 			},
 			Dimensions:    []langfuse.MetricsDimension{{Field: "userId"}},
-			TimeDimension: &langfuse.TimeDimension{Granularity: "hour"},
+			TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
 			Filters:       tagFilter,
 			FromTimestamp: qFrom,
 			ToTimestamp:   qTo,
 		}
 		resp, ferr := client.GetMetrics(gCtx, q)
-		lfAttempts.Add(1)
 		if ferr != nil {
-			lfFailures.Add(1)
+			mainQueryFailed.Store(true)
 			log.Warn("Users Q_main query failed", "error", ferr)
 			return nil
 		}
@@ -1817,10 +1840,8 @@ func ComputeUsersSummary(
 			ToTimestamp:   qTo,
 		}
 		resp, ferr := client.GetMetrics(gCtx, q)
-		lfAttempts.Add(1)
 		if ferr != nil {
-			lfFailures.Add(1)
-			log.Warn("Users Q_tags query failed", "error", ferr)
+			log.Warn("Users Q_tags query failed; agents_used will be empty", "error", ferr)
 			return nil
 		}
 		tagsRows = resp.Data
@@ -1828,8 +1849,7 @@ func ComputeUsersSummary(
 	})
 	_ = g.Wait()
 
-	attempts := lfAttempts.Load()
-	if attempts > 0 && attempts == lfFailures.Load() {
+	if mainQueryFailed.Load() {
 		return AccountUsersSummaryResponse{}, ErrAllLangfuseCallsFailed
 	}
 

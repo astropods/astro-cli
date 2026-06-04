@@ -13,7 +13,7 @@ const RANGE_LABELS: Record<ActivityRange, string> = {
   "7d": "last 7 days",
   "14d": "last 14 days",
   "30d": "last 30 days",
-  "all": "",
+  "90d": "last 90 days",
 };
 
 // `loading` prop intentionally dropped: MetricCard renders an animate-pulse
@@ -30,14 +30,11 @@ export function StatCards({ data, showChange, range }: StatCardsProps) {
   const tokens = data?.totals?.total_tokens
     ?? (data?.totals?.input_tokens ?? 0) + (data?.totals?.output_tokens ?? 0);
 
-  // All-time has no meaningful prior window — skip the change badge entirely
-  // (don't even reserve its slot) so the card sheds that whole region. The
-  // height-stable opacity-fade behavior only kicks in between bounded ranges.
+  // Every UI range has a usable prior window: the server returns all-time
+  // trailing data, so change-pct is derivable client-side for every
+  // selectable range (the prior window of even the longest range, 90d,
+  // sits comfortably inside the all-time payload).
   const changeLabel = showChange && RANGE_LABELS[range] ? `vs. ${RANGE_LABELS[range]}` : undefined;
-  // changePct stays passed even on the all-time view (where showChange is
-  // false) so MetricCard's `hasChangeApi` branch stays true → the label keeps
-  // its mb-2 spacing and the card height matches the bounded-range cards.
-  // The badge itself is inline + opacity-faded, so it doesn't reserve height.
   // showTrend={false} keeps the TrendIndicator fallback from rendering "— —".
   const shared = { changeLabel, showChange, showTrend: false };
 

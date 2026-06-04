@@ -69,18 +69,17 @@ export function sliceDeploymentByWindow(b: Deployment, fromDate: string, toDate:
 }
 
 // sliceDeploymentsResponseByRange returns a synthetic response derived from the
-// all-time response, with every deployment sliced to the URL window. Returns
-// the input unchanged for the all-time range.
+// all-time server response, with every deployment sliced to the URL window.
+// Used to drive the headliner KPIs and the cost-over-time chart, not the
+// Agents tab table itself (which renders the unsliced all-time data).
 export function sliceDeploymentsResponseByRange(
   response: AccountDeploymentsSummaryResponse | undefined,
   range: ActivityRange,
 ): AccountDeploymentsSummaryResponse | undefined {
   if (!response) return response;
-  if (range === "all") return response;
   const { from, to } = buildPeriodParams(range);
-  const fromDate = (from ?? "").slice(0, 10);
-  const toDate = (to ?? "").slice(0, 10);
-  if (!fromDate || !toDate) return response;
+  const fromDate = from.slice(0, 10);
+  const toDate = to.slice(0, 10);
   const days = Math.max(1, Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000) + 1);
   return {
     deployments: response.deployments
@@ -90,7 +89,7 @@ export function sliceDeploymentsResponseByRange(
       // this filter an archived deployment with no traces in the selected
       // window would render a zero-spend grayed-out row — noise.
       .filter((b) => !b.is_archived || b.requests > 0 || b.cost_usd > 0),
-    period: { start: from!, end: to!, days },
+    period: { start: from, end: to, days },
   };
 }
 
@@ -358,11 +357,11 @@ export function useInsightsData({
 
   // Prior-period totals (this-week vs last-week semantic). Computed from
   // the all-time deployments we already hold, so the StatCards change%
-  // badge stays a pure JS op.
+  // badge stays a pure JS op for every range — including 90d, whose
+  // prior window covers days 91–180.
   const priorTotals = useMemo<ChangeTotals | null>(() => {
-    if (!deploymentsAll || range === "all") return null;
+    if (!deploymentsAll) return null;
     const { fromDate, toDate } = rangeWindow(range);
-    if (!fromDate || !toDate) return null;
     const prior = shiftPriorWindow(fromDate, toDate);
     if (!prior) return null;
     return sumDeploymentsWindow(deploymentsAll.deployments, prior.priorFrom, prior.priorTo);
@@ -397,12 +396,10 @@ export function useInsightsData({
 
 type UserRow = AccountUsersSummaryResponse["users"][number];
 
-// rangeWindow computes the UTC day window the URL range maps to. Returns
-// empty strings for the all-time range (caller falls back to union of dates).
+// rangeWindow computes the UTC day window the URL range maps to.
 function rangeWindow(range: ActivityRange): { fromDate: string; toDate: string } {
-  if (range === "all") return { fromDate: "", toDate: "" };
   const { from, to } = buildPeriodParams(range);
-  return { fromDate: (from ?? "").slice(0, 10), toDate: (to ?? "").slice(0, 10) };
+  return { fromDate: from.slice(0, 10), toDate: to.slice(0, 10) };
 }
 
 // visibilityKey maps a trace user_id to the same string the Top Spenders
@@ -415,18 +412,20 @@ function visibilityKey(uid: string | null | undefined, memberIds: Set<string>): 
   return UNIDENTIFIED_USER_KEY;
 }
 
-// sliceUsersByRange walks the per-(day, user) data from the all-time summary
-// response ONCE and returns both shapes the users view needs:
-//   - users: per-user totals scoped to the URL range (drives the Top Spenders
-//     table). Falls back to the all-time array for the all-time range, when
-//     the per-day data is absent, or on any older-server response missing
-//     cost_over_time_by_user.
+// sliceUsersByRange walks the per-(day, user) data from the all-time
+// summary response ONCE and returns both shapes the users view needs:
+//   - users: per-user totals scoped to the URL range — NOT used to drive
+//     the Top Spenders People table (which renders the unsliced all-time
+//     payload directly), but available for any future per-range view.
+//     Falls back to the server's per-user array when per-day data is
+//     absent (older-server response missing cost_over_time_by_user).
 //   - sparklines: per-day flat totals aligned to the bounded window length,
 //     optionally filtered by visibleUserIds (drives the stat-card mini bars).
 //
-// agents_used is sourced from the all-time users response — it's not
-// sliceable from per-(day, user) data and the chip stack staying all-time
-// is a known small degradation.
+// agents_used is sourced from the server's per-user response — it's not
+// sliceable from per-(day, user) data and the chip stack reflecting the
+// full all-time window (rather than the selected sub-range) is a known
+// small degradation.
 export function sliceUsersByRange(
   summary: AccountObservabilitySummaryResponse | undefined,
   usersData: AccountUsersSummaryResponse | undefined,
@@ -439,15 +438,14 @@ export function sliceUsersByRange(
 } {
   const rows = summary?.cost_over_time_by_user ?? [];
   const agentsByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.agents_used]));
-  // Same shape as agentsByUser — source slack_team_id from the all-time
-  // response so the bounded-window rows carry the deep-link team_id
-  // without re-running the directory join. The server attached team_id
-  // there once via slack_identity_mappings; we just hand it through.
+  // Same shape as agentsByUser — source slack_team_id from the server's
+  // per-user response so the bounded-window rows carry the deep-link
+  // team_id without re-running the directory join. The server attached
+  // team_id there once via slack_identity_mappings; we just hand it through.
   const slackTeamByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.slack_team_id]));
   const { fromDate, toDate } = rangeWindow(range);
-  const bounded = !!fromDate && !!toDate;
 
-  // No per-day data → no sparklines, fall back to all-time users.
+  // No per-day data → no sparklines, fall back to the server's per-user array.
   if (rows.length === 0) {
     return { users: usersData?.users ?? [], sparklines: { cost: [], requests: [], tokens: [] } };
   }
@@ -457,23 +455,20 @@ export function sliceUsersByRange(
 
   for (const row of rows) {
     const date = row.date.slice(0, 10);
-    if (bounded && (date < fromDate || date > toDate)) continue;
+    if (date < fromDate || date > toDate) continue;
 
     for (const u of row.users) {
-      // Per-user aggregation (skipped for the all-time path; we pass the
-      // server's users array through verbatim there).
-      if (bounded) {
-        const existing = perUser.get(u.user_id) ?? { cost: 0, requests: 0, tokens: 0, lastSeen: "" };
-        existing.cost += u.cost_usd;
-        existing.requests += u.requests;
-        existing.tokens += u.tokens;
-        // last_seen tracks the most recent active day in the window. Day-level
-        // precision; hour-level is only available from the per-range server query.
-        if ((u.requests > 0 || u.cost_usd > 0) && date > existing.lastSeen) {
-          existing.lastSeen = date;
-        }
-        perUser.set(u.user_id, existing);
+      // Per-user aggregation for the selected range window.
+      const existing = perUser.get(u.user_id) ?? { cost: 0, requests: 0, tokens: 0, lastSeen: "" };
+      existing.cost += u.cost_usd;
+      existing.requests += u.requests;
+      existing.tokens += u.tokens;
+      // last_seen tracks the most recent active day in the window. Day-level
+      // precision; hour-level is only available from the per-range server query.
+      if ((u.requests > 0 || u.cost_usd > 0) && date > existing.lastSeen) {
+        existing.lastSeen = date;
       }
+      perUser.set(u.user_id, existing);
 
       // Per-day sparkline aggregation. Filter by visibleUserIds when one
       // is active so an applied user chip narrows the headline cards' bars.
@@ -491,19 +486,17 @@ export function sliceUsersByRange(
     }
   }
 
-  const users: UserRow[] = bounded
-    ? [...perUser.entries()].map(([user_id, agg]) => ({
-        user_id,
-        cost_usd: parseFloat(agg.cost.toFixed(4)),
-        requests: agg.requests,
-        tokens: agg.tokens,
-        last_seen: agg.lastSeen ? `${agg.lastSeen}T00:00:00Z` : undefined,
-        agents_used: agentsByUser.get(user_id) ?? [],
-        slack_team_id: slackTeamByUser.get(user_id),
-      }))
-    : (usersData?.users ?? []);
+  const users: UserRow[] = [...perUser.entries()].map(([user_id, agg]) => ({
+    user_id,
+    cost_usd: parseFloat(agg.cost.toFixed(4)),
+    requests: agg.requests,
+    tokens: agg.tokens,
+    last_seen: agg.lastSeen ? `${agg.lastSeen}T00:00:00Z` : undefined,
+    agents_used: agentsByUser.get(user_id) ?? [],
+    slack_team_id: slackTeamByUser.get(user_id),
+  }));
 
-  const dates = bounded ? enumerateDates(fromDate, toDate) : rows.map((r) => r.date.slice(0, 10));
+  const dates = enumerateDates(fromDate, toDate);
   const sparklines = {
     cost: dates.map((d) => parseFloat((dailyTotals.get(d)?.cost ?? 0).toFixed(4))),
     requests: dates.map((d) => dailyTotals.get(d)?.requests ?? 0),
@@ -541,14 +534,13 @@ export function useActiveSpendSeries(
   const data = useMemo<ActiveSpendPoint[]>(() => {
     const rows = summaryQ.data?.cost_over_time_by_user ?? [];
     const { from, to } = buildPeriodParams(range);
-    const fromDate = (from ?? "").slice(0, 10);
-    const toDate = (to ?? "").slice(0, 10);
-    const bounded = !!fromDate && !!toDate;
+    const fromDate = from.slice(0, 10);
+    const toDate = to.slice(0, 10);
 
     const points: ActiveSpendPoint[] = [];
     for (const row of rows) {
       const date = row.date.slice(0, 10);
-      if (bounded && (date < fromDate || date > toDate)) continue;
+      if (date < fromDate || date > toDate) continue;
       let cost = 0;
       const activeUsers = new Set<string>();
       for (const u of row.users) {

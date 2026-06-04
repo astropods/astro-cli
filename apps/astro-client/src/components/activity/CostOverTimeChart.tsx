@@ -128,7 +128,7 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
                   <YAxis {...Y_AXIS_PROPS} />
                   <Tooltip content={<CustomTooltip colorMap={colorMap} seriesLabels={seriesLabels} />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
                   {visibleModels.map((model) => (
-                    <Line key={model} type="monotone" dataKey={model} stroke={colorMap[model]} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: colorMap[model] }} activeDot={{ r: 4, strokeWidth: 0, fill: colorMap[model] }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                    <Line key={model} type="monotone" dataKey={model} stroke={colorMap[model]} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: colorMap[model] }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
                   ))}
                 </LineChart>
               ) : (

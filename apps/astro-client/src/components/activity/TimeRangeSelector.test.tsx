@@ -44,12 +44,12 @@ describe("TimeRangeSelector", () => {
     expect(handleChange).toHaveBeenCalledWith("7d");
   });
 
-  it("clicking 'All' range calls onChange with 'all'", () => {
+  it("clicking '90D' range calls onChange with '90d'", () => {
     const handleChange = vi.fn();
     render(<TimeRangeSelector value="7d" onChange={handleChange} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(handleChange).toHaveBeenCalledWith("all");
+    fireEvent.click(screen.getByRole("button", { name: "90D" }));
+    expect(handleChange).toHaveBeenCalledWith("90d");
   });
 
   it("accepts custom ranges prop and renders those labels", () => {

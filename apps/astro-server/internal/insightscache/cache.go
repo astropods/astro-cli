@@ -19,13 +19,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 )
 
-// ErrAllLangfuseCallsFailed signals that every Langfuse sub-query inside
-// a Compute* function failed. Lives here (vs in the handlers package)
-// because both the handler and the periodic refresh worker need to
-// distinguish it: handlers translate it into the metrics_unavailable
-// banner; the worker treats it as a "preserve cache, don't retry" signal
-// (an outage that River would retry against will keep failing — wait for
-// the next periodic tick instead).
+// ErrAllLangfuseCallsFailed signals that a Compute* function couldn't
+// produce a usable response from Langfuse. The exact firing condition is
+// per-Compute*: ComputeAccountSummary / ComputeDeploymentsSummary fire it
+// only when every sub-query failed (partial successes render normally),
+// while ComputeUsersSummary fires it on the primary metrics query
+// (Q_main) failing alone, regardless of Q_tags — because Q_tags carries
+// no metrics, so a Q_tags-only success would surface a zero-metric user
+// list. Lives here (vs in the handlers package) because both the handler
+// and the periodic refresh worker need to distinguish it: handlers
+// translate it into the metrics_unavailable banner; the worker treats it
+// as a "preserve cache, don't retry" signal (an outage that River would
+// retry against will keep failing — wait for the next periodic tick
+// instead).
 var ErrAllLangfuseCallsFailed = errors.New("all langfuse calls failed")
 
 // RefreshInterval is how often the worker recomputes the cached responses.

@@ -92,6 +92,10 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
   }
   const showUsers = !hidden.has("users");
   const showCost = !hidden.has("cost");
+  // Hide per-point dots once the X-axis exceeds 60 daily ticks (today: only
+  // the 90D range hits this). Mirrors CostOverTimeChart's threshold so the
+  // two side-by-side charts stay visually consistent across range toggles.
+  const dense = (days ?? 0) > 60;
 
   const chartData = useMemo(() => {
     const byDate = new Map(data.map((p) => [p.date, p]));
@@ -149,11 +153,15 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
                   allowDecimals={false}
                 />
                 <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
+                {/* Per-point dots are visual noise once the X-axis stacks 60+
+                    daily points (e.g. 90D). Drop the static dots past the
+                    threshold; activeDot keeps the hover hit-target so the
+                    tooltip still resolves to individual days. */}
                 {showUsers && (
-                  <Line yAxisId="users" type="monotone" dataKey="users" stroke={USERS_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: USERS_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: USERS_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                  <Line yAxisId="users" type="monotone" dataKey="users" stroke={USERS_COLOR} strokeWidth={2} dot={dense ? false : { r: 2.5, strokeWidth: 0, fill: USERS_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: USERS_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
                 )}
                 {showCost && (
-                  <Line yAxisId="cost"  type="monotone" dataKey="cost"  stroke={SPEND_COLOR} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: SPEND_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: SPEND_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                  <Line yAxisId="cost"  type="monotone" dataKey="cost"  stroke={SPEND_COLOR} strokeWidth={2} dot={dense ? false : { r: 2.5, strokeWidth: 0, fill: SPEND_COLOR }} activeDot={{ r: 4, strokeWidth: 0, fill: SPEND_COLOR }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
                 )}
               </LineChart>
             </ResponsiveContainer>
