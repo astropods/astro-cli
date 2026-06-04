@@ -87,7 +87,7 @@ Path filters in `.github/workflows/test.yml` only fan out when application paths
 | `Integration tests (astro-server + Postgres)` | `integration` | `moon run astro-server:test-integration` |
 | `K8s integration tests (vcluster + Postgres)` | `k8s` | `moon run astro-server:e2e` (full stack) |
 
-Unit and integration suites use `gotestsum`; lint uses `golangci-lint-action` with the shared config at repo root (10m timeout on CI for cold-cache runs).
+Unit and integration suites use `gotestsum`; lint uses `golangci-lint-action` with the shared config at repo root (10m timeout on CI for cold-cache runs). Integration and K8s e2e jobs enable `-race` on main pushes only (PRs skip it for speed).
 
 ## Endpoints
 

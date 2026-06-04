@@ -6,7 +6,7 @@
 // cleans up real resources — catching issues that the fake clientset misses
 // (immutable field conflicts, resource version handling, label selectors).
 //
-// Run: go test -tags k8s -race ./e2e/...
+// Run: go test -tags k8s -race ./e2e/...   (CI adds -race on main pushes only)
 // CI job: `K8s integration tests (vcluster + Postgres)` in .github/workflows/test.yml.
 // Postgres-only e2e tests use //go:build integration and run in a separate job.
 // Requires: KUBECONFIG pointing at an accessible cluster.

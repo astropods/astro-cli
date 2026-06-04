@@ -236,7 +236,12 @@ jobs:
 
       - name: Run integration tests
         working-directory: apps/astro-server
-        run: gotestsum --format pkgname -- -tags integration -race ./e2e/...
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            gotestsum --format pkgname -- -tags integration -race ./e2e/...
+          else
+            gotestsum --format pkgname -- -tags integration ./e2e/...
+          fi
 
   test-go-k8s:
     needs: changes
@@ -329,7 +334,12 @@ jobs:
 
       - name: Run K8s integration tests
         working-directory: apps/astro-server
-        run: gotestsum --format pkgname -- -tags k8s -race -timeout 5m ./e2e/...
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            gotestsum --format pkgname -- -tags k8s -race -timeout 5m ./e2e/...
+          else
+            gotestsum --format pkgname -- -tags k8s -timeout 5m ./e2e/...
+          fi
 
   test-client-e2e:
     needs: changes
