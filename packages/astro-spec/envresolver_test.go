@@ -1642,47 +1642,9 @@ func assertAutoEnvMeta(t *testing.T, meta map[string]AgentEnvMeta, key, wantSour
 
 // ─── Managed providers ──────────────────────────────────────────────────────
 
-func TestCloudCredentialKeys_ManagedProviderSkipped(t *testing.T) {
-	// anthropic-managed is a managed provider — it must NOT produce credential keys
-	// because the server injects the API key, not the user.
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"claude": {Provider: "anthropic-managed"},
-		},
-	}
-	keys := CloudCredentialKeys(s)
-	if len(keys) != 0 {
-		t.Errorf("managed provider should produce 0 credential keys, got %d: %v", len(keys), keys)
-	}
-}
-
-func TestCloudCredentialKeys_ManagedAndRegularCoexist(t *testing.T) {
-	// When both anthropic (user-provided) and anthropic-managed (platform-provided)
-	// are used, only the regular anthropic produces credential keys.
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"user-claude":    {Provider: "anthropic"},
-			"managed-claude": {Provider: "anthropic-managed"},
-		},
-	}
-	keys := CloudCredentialKeys(s)
-	assertCredKey(t, keys, "ANTHROPIC_API_KEY", "model", false)
-	if _, ok := keys["ANTHROPIC_MANAGED_API_KEY"]; ok {
-		t.Error("managed provider must not produce ANTHROPIC_MANAGED_API_KEY")
-	}
-	if len(keys) != 1 {
-		t.Errorf("expected 1 key (only from regular anthropic), got %d: %v", len(keys), keys)
-	}
-}
-
 func TestIsManagedProvider(t *testing.T) {
-	if !IsManagedProvider("models", "anthropic-managed") {
-		t.Error("anthropic-managed should be a managed provider")
-	}
+	// No managed providers ship today — astro-gateway uses the
+	// agent.ai_gateway boolean opt-in, not a Managed: true provider entry.
 	if IsManagedProvider("models", "anthropic") {
 		t.Error("anthropic should not be a managed provider")
 	}

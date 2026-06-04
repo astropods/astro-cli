@@ -611,7 +611,10 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
 // If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
+// aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
+// from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
+// using provider:astro-gateway in a gateway-less env fails at admission.
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -711,7 +714,9 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 					return
 				}
 
-				result := deployment.NewValidator().ValidateSpec(&astroSpec, nil, nil, nil)
+				result := deployment.NewValidatorWithOptions(deployment.ValidatorOptions{
+					AIGatewayEnabled: aiGatewayEnabled,
+				}).ValidateSpec(&astroSpec, nil, nil, nil)
 
 				// Structural errors (missing image/build, bad provider, invalid trigger
 				// type) are hard failures. Deploy-time values (credentials, schedule

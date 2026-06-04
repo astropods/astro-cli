@@ -210,9 +210,10 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 
 	for name, m := range s.Models {
 		if m.IsProviderMode() {
-			if IsManagedProvider("models", m.Provider) {
-				continue // managed providers don't generate user-facing credentials
-			}
+			// Note: managed providers (Managed: true) DO emit credential env-var
+			// names. `Managed: true` means "the platform supplies the value", not
+			// "no env var name exists". The validator and resolver-value paths
+			// skip the "user must supply" requirement separately.
 			// Skip custom-only providers (not builtin cloud). When a provider is
 			// both in s.Providers AND a builtin cloud provider, the cloud path wins.
 			if _, isCustom := s.Providers[m.Provider]; isCustom {

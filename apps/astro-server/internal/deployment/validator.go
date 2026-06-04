@@ -11,13 +11,31 @@ import (
 // Validator validates agent specs and credentials
 type Validator struct {
 	cronParser cron.Parser
+	// AIGatewayEnabled gates the agent.ai_gateway opt-in. When false, specs
+	// that set agent.ai_gateway: true are rejected at admission. Set from
+	// config.Deployment.AIGatewayURL != "" — empty URL means the gateway
+	// provisioner is nil and no virtual keys can be minted.
+	AIGatewayEnabled bool
 }
 
-// NewValidator creates a new validator
+// NewValidator creates a new validator with all toggles defaulted off. Use
+// NewValidatorWithOptions when astro-server config needs to flow in.
 func NewValidator() *Validator {
 	return &Validator{
 		cronParser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow),
 	}
+}
+
+// ValidatorOptions carries deploy-time toggles that depend on server config.
+type ValidatorOptions struct {
+	AIGatewayEnabled bool
+}
+
+// NewValidatorWithOptions constructs a validator wired to server-config toggles.
+func NewValidatorWithOptions(opts ValidatorOptions) *Validator {
+	v := NewValidator()
+	v.AIGatewayEnabled = opts.AIGatewayEnabled
+	return v
 }
 
 // ValidateSpec validates the agent spec and variables.
@@ -187,6 +205,17 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 			validateEntry("models", "models", name, model.Provider)
 		}
 	}
+
+	// AI Gateway: agent.ai_gateway: true is rejected at admission if the
+	// gateway isn't enabled in this env. Failing here surfaces a clear
+	// error vs. shipping an agent pod with empty ASTRO_GATEWAY_* env vars.
+	if astroSpec.Agent.AIGateway && !v.AIGatewayEnabled {
+		result.Valid = false
+		result.Errors = append(result.Errors, ValidationError{
+			Field:   "agent.ai_gateway",
+			Message: "agent.ai_gateway is true but the AI Gateway is not enabled in this environment",
+		})
+	}
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.IsProviderMode() && knowledge.Container == nil {
 			validateEntry("knowledge", "knowledge", name, knowledge.Provider)
@@ -284,7 +313,6 @@ func categoryToSection(category string) string {
 	}
 	return ""
 }
-
 
 func scopeContains(scope []string, value string) bool {
 	for _, s := range scope {

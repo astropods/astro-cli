@@ -127,6 +127,10 @@ type DeploymentAgent struct {
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Update      UpdateStrategy      `json:"update" yaml:"update"`
+	// AIGateway mirrors AstroSpec.Agent.AIGateway: when true the deployer
+	// mints an Astro AI Gateway virtual key and the applier injects
+	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY into the agent container.
+	AIGateway bool `json:"ai_gateway,omitempty" yaml:"ai_gateway,omitempty"`
 }
 
 // DeploymentModel describes a model sidecar container.

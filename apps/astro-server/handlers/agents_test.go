@@ -196,7 +196,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
@@ -248,7 +248,7 @@ func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO agents").
@@ -299,7 +299,7 @@ func TestRegisterAgent_WithReadme_NoHint(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO agents").
@@ -369,7 +369,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -397,7 +397,7 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -414,7 +414,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	body := `{
 		"name": "test-agent",
@@ -447,7 +447,7 @@ func TestRegisterAgent_RejectsSecretDefaults(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	// Spec with a secret input that still has a default value
 	specYAML := `name: test-agent
@@ -491,7 +491,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
@@ -538,7 +538,7 @@ func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router, _, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, nil, nil, "", nil, nil, nil, nil, nil))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, nil, nil, "", nil, nil, nil, nil, nil, false))
 
 			body := `{
 				"build_id": "a3f2b1c9",
@@ -573,7 +573,7 @@ func TestRegisterAgent_RejectsInvalidName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, "", nil, nil, nil, nil, nil, false))
 
 			body := `{"build_id":"b1","registry":"r.example.com","spec_content":"name: test\nversion: 1.0\n"}`
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+url.PathEscape(name)+"/register", strings.NewReader(body))
@@ -730,7 +730,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 			router, index, mock := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, tt.minVersion, nil, nil, nil, nil, nil))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, tt.minVersion, nil, nil, nil, nil, nil, false))
 
 			if !tt.expectRejected {
 				mock.ExpectBegin()

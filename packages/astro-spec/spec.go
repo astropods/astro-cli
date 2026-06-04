@@ -35,6 +35,13 @@ type Container struct {
 	Interfaces  *Interfaces  `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Agent capabilities: frontend and/or messaging"`
 	Healthcheck *Healthcheck `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Inputs      []Input      `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the agent container"`
+	// AIGateway opts the agent into the Astro AI Gateway. When true, the
+	// platform mints a per-account virtual key at deploy time and injects
+	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY into the container. The
+	// agent picks any model the gateway routes (claude-opus / claude-sonnet
+	// / claude-haiku / titan-embed) at call time — model is not declared
+	// in the spec.
+	AIGateway bool `json:"ai_gateway,omitempty" yaml:"ai_gateway,omitempty" jsonschema:"description=Enable Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"`
 }
 
 // Interfaces declares agent interface capabilities.

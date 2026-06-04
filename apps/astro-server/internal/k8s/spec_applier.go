@@ -87,10 +87,14 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
-	// Inject managed provider credentials (e.g. anthropic-managed).
-	// These are platform-provided and bypass user variables entirely.
-	if a.managedAnthropicAPIKey != "" {
-		resolved.SecretData["ANTHROPIC_API_KEY"] = a.managedAnthropicAPIKey
+	// AI Gateway: when the spec opts in (agent.ai_gateway: true) the deployer
+	// has minted a per-account virtual key and threaded it through
+	// ApplierConfig. Inject the singular env-var pair into the agent's Secret.
+	// The gateway routes to whichever model the agent picks at call time —
+	// no per-model fanout, no whitelist, no provider entries in the spec.
+	if ds.Agent.AIGateway && a.astroGatewayAPIKey != "" {
+		resolved.SecretData["ASTRO_GATEWAY_URL"] = a.astroGatewayBaseURL
+		resolved.SecretData["ASTRO_GATEWAY_API_KEY"] = a.astroGatewayAPIKey
 	}
 
 	// Filter out interface-only entries before building the agent's

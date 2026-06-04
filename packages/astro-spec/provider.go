@@ -87,10 +87,6 @@ var builtinProviders = []BuiltinProvider{
 		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
 	},
 	{
-		Name: "anthropic-managed", Section: "models", Cloud: true, Managed: true,
-		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Anthropic API key (provided by platform)"}},
-	},
-	{
 		Name: "openai", Section: "models", Cloud: true,
 		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
 	},
@@ -106,7 +102,6 @@ var builtinProviders = []BuiltinProvider{
 		Name: "cohere", Section: "models", Cloud: true,
 		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
 	},
-
 	// ── Knowledge: self-hosted ───────────────────────────────────────────────
 	{
 		Name: "qdrant", Section: "knowledge",

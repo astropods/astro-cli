@@ -1435,17 +1435,22 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 	})
 }
 
-func TestApplyDeploymentSpec_ManagedAnthropicKey(t *testing.T) {
+func TestApplyDeploymentSpec_AIGatewayInjection(t *testing.T) {
+	// agent.ai_gateway: true triggers the applier to inject the singular
+	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY pair. No model entries, no
+	// per-entry fanout — the gateway routes whatever model the agent picks.
 	fakeClient := fake.NewClientset()
 	a := &Applier{
-		clientset:              fakeClient,
-		namespace:              "test-ns",
-		registryURL:            "test-registry.example.com",
-		imageResolver:          NewImageResolver("", "test-registry.example.com", "test"),
-		imagePullPolicy:        corev1.PullNever,
-		managedAnthropicAPIKey: "sk-ant-managed-test",
+		clientset:           fakeClient,
+		namespace:           "test-ns",
+		registryURL:         "test-registry.example.com",
+		imageResolver:       NewImageResolver("", "test-registry.example.com", "test"),
+		imagePullPolicy:     corev1.PullNever,
+		astroGatewayAPIKey:  "sk-astro-test",
+		astroGatewayBaseURL: "https://aig.test",
 	}
 	ds := minimalDeploymentSpec()
+	ds.Agent.AIGateway = true
 	ctx := context.Background()
 
 	_, err := a.ApplyDeploymentSpec(ctx, ds)
@@ -1453,15 +1458,46 @@ func TestApplyDeploymentSpec_ManagedAnthropicKey(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// The managed key should appear in the K8s Secret
 	secretName := deployment.GenerateSecretName(ds.Source.Name, ds.Source.Build)
 	secret, err := fakeClient.CoreV1().Secrets("test-ns").Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to get secret %q: %v", secretName, err)
 	}
-	got := string(secret.Data["ANTHROPIC_API_KEY"])
-	if got != "sk-ant-managed-test" {
-		t.Errorf("ANTHROPIC_API_KEY in secret = %q, want %q", got, "sk-ant-managed-test")
+	if got := string(secret.Data["ASTRO_GATEWAY_API_KEY"]); got != "sk-astro-test" {
+		t.Errorf("ASTRO_GATEWAY_API_KEY in secret = %q, want %q", got, "sk-astro-test")
+	}
+	if got := string(secret.Data["ASTRO_GATEWAY_URL"]); got != "https://aig.test" {
+		t.Errorf("ASTRO_GATEWAY_URL in secret = %q, want %q", got, "https://aig.test")
+	}
+	if _, ok := secret.Data["ASTRO_GATEWAY_BASE_URL"]; ok {
+		t.Error("ASTRO_GATEWAY_BASE_URL must not be emitted; the singular pair uses ASTRO_GATEWAY_URL")
+	}
+}
+
+func TestApplyDeploymentSpec_AIGatewayMarkerOffSkipsInjection(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:           fakeClient,
+		namespace:           "test-ns",
+		registryURL:         "test-registry.example.com",
+		imageResolver:       NewImageResolver("", "test-registry.example.com", "test"),
+		imagePullPolicy:     corev1.PullNever,
+		astroGatewayAPIKey:  "sk-astro-test", // present, but...
+		astroGatewayBaseURL: "https://aig.test",
+	}
+	ds := minimalDeploymentSpec() // ...AIGateway: false
+	ctx := context.Background()
+
+	if _, err := a.ApplyDeploymentSpec(ctx, ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	secretName := deployment.GenerateSecretName(ds.Source.Name, ds.Source.Build)
+	secret, _ := fakeClient.CoreV1().Secrets("test-ns").Get(ctx, secretName, metav1.GetOptions{})
+	if secret != nil {
+		if _, ok := secret.Data["ASTRO_GATEWAY_API_KEY"]; ok {
+			t.Error("ASTRO_GATEWAY_API_KEY must not be injected when agent.ai_gateway is false")
+		}
 	}
 }
 

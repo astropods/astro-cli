@@ -85,7 +85,11 @@ func init() {
 
 	devStartCmd.Long = `Start the local development environment with Docker containers.
 
-By default, tails logs in the foreground and stops containers on Ctrl+C.
+By default, tails the agent service's logs in the foreground and stops
+containers on Ctrl+C. Sidecar logs (models, knowledge stores, integrations,
+messaging) are suppressed — use 'project logs <service>' to view them on
+demand, or --all-logs to tail every service.
+
 Use -b/--background to start in the background and exit immediately.`
 
 	// Flags on both devCmd and devStartCmd
@@ -94,6 +98,7 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
+		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
 		cmd.Flags().Bool("local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
 		cmd.Flags().Bool("local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s project start --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
 		_ = cmd.Flags().MarkHidden("local")
@@ -158,6 +163,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	local := flagBool(cmd, "local")
 	localReset := flagBool(cmd, "local-reset")
 	background := flagBool(cmd, "background")
+	allLogs := flagBool(cmd, "all-logs")
 
 	if err := checkDockerRunning(); err != nil {
 		return err
@@ -241,6 +247,25 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
 	} else if len(envVars) == 0 {
 		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
+	}
+
+	// AI Gateway: if the spec uses provider:astro-gateway, fetch a short-lived
+	// dev key from astro-server and inject the resolver-derived env vars into
+	// the local container env. The key auto-expires upstream — no cleanup
+	// needed on stop.
+	if specUsesAIGateway(astroSpec) {
+		at, atErr := getCurrentAccountToken(cmd.Context())
+		if atErr != nil {
+			return fmt.Errorf("provider:astro-gateway requires login — run '%s login': %w", buildinfo.BinaryName, atErr)
+		}
+		keyResp, keyErr := fetchAIGatewayDevKey(cmd.Context(), at, astroSpec, verbose)
+		if keyErr != nil {
+			return keyErr
+		}
+		if err := applyAIGatewayDevKey(astroSpec, keyResp, envVars); err != nil {
+			return err
+		}
+		fmt.Printf("%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
 	}
 	// Check for native Ollama — require host-installed Ollama for dev mode
 	buildOpts := composeBuilder.BuildOptions{}
@@ -353,7 +378,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// --local: run agent as local process and block
 	if local {
-		return runLocalAgent(cmd, astroSpec, projectName, workingDir, envVars, hasWebInterface)
+		return runLocalAgent(cmd, astroSpec, projectName, workingDir, envVars, hasWebInterface, allLogs)
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
@@ -364,11 +389,13 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if background {
 		return nil
 	}
-	return runForeground(projectName, astDir)
+	return runForeground(projectName, astDir, allLogs)
 }
 
-// runForeground tails all container logs and blocks until Ctrl+C, then stops.
-func runForeground(projectName, astDir string) error {
+// runForeground tails the agent's container logs and blocks until Ctrl+C,
+// then stops. Sidecar services run silently — fetch their logs on demand via
+// `project logs <service>`. Pass allLogs=true to tail every service.
+func runForeground(projectName, astDir string, allLogs bool) error {
 	logsSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
@@ -382,8 +409,11 @@ func runForeground(projectName, astDir string) error {
 		logsCancel()
 	}()
 
-	_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
-		api.LogOptions{Follow: true})
+	logOpts := api.LogOptions{Follow: true}
+	if !allLogs {
+		logOpts.Services = []string{"agent"}
+	}
+	_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr}, logOpts)
 	logsCancel()
 	signal.Stop(sigChan)
 
@@ -402,7 +432,10 @@ func runForeground(projectName, astDir string) error {
 // runLocalAgent runs the agent as a local bun process and blocks until Ctrl+C.
 // projectName is the compose project name computed by composeBuilder.ProjectName,
 // used for Logs/health/Down so they match the project name used by Up.
-func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName string, workingDir string, envVars map[string]string, hasWebInterface bool) error {
+// allLogs=false suppresses the background sidecar tail since the agent's own
+// stdout already streams to this terminal; pass true to surface sidecar
+// failures live alongside the agent.
+func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName string, workingDir string, envVars map[string]string, hasWebInterface bool, allLogs bool) error {
 	agentCtx, agentCancel := context.WithCancel(context.Background())
 	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
 
@@ -492,18 +525,24 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 
 	checkComposeHealth(projectName)
 
-	// Stream docker compose logs in the background so service failures are visible
+	// Stream docker compose logs only when --all-logs is set. In the default
+	// --local flow the agent runs as a host process and already streams its
+	// own stdout/stderr to this terminal; tailing sidecars on top of that
+	// drowns the agent's own output in noise. Sidecar logs remain available
+	// via `project logs <service>`.
 	logsCtx, logsCancel := context.WithCancel(context.Background())
-	logsSvc, err := newComposeService(false)
-	if err != nil {
-		logsCancel()
-		agentCancel()
-		return fmt.Errorf("failed to init compose service for logs: %w", err)
+	if allLogs {
+		logsSvc, err := newComposeService(false)
+		if err != nil {
+			logsCancel()
+			agentCancel()
+			return fmt.Errorf("failed to init compose service for logs: %w", err)
+		}
+		go func() { //nolint:errcheck
+			_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+				api.LogOptions{Follow: true})
+		}()
 	}
-	go func() { //nolint:errcheck
-		_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
-			api.LogOptions{Follow: true})
-	}()
 
 	if hasWebInterface {
 		go func() {
@@ -571,9 +610,11 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
+	allLogs := flagBool(cmd, "all")
 	service := "agent"
 	if len(args) > 0 {
 		service = args[0]
+		allLogs = false // explicit service arg overrides --all
 	}
 
 	projectName, err := readDevProjectName(statePath, cmd)
@@ -594,8 +635,11 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		logsCancel()
 	}()
 
-	err = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
-		api.LogOptions{Services: []string{service}, Follow: true})
+	logOpts := api.LogOptions{Follow: true}
+	if !allLogs {
+		logOpts.Services = []string{service}
+	}
+	err = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr}, logOpts)
 	logsCancel()
 	if logsCtx.Err() != nil {
 		return nil // cancelled by signal — not an error

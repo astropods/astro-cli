@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -47,6 +48,11 @@ type Deployer struct {
 	// Langfuse per-account project provisioning (optional)
 	LangfuseStore       *langfuse.Store
 	LangfuseProvisioner *langfuse.Provisioner
+	// AI Gateway per-account virtual key provisioning (optional). Nil when
+	// AI_GATEWAY_URL is unset — deploys that reference provider:astro-gateway
+	// are rejected by the validator before reaching the applier.
+	AIGatewayStore       *aigateway.Store
+	AIGatewayProvisioner *aigateway.Provisioner
 	// KnowledgeStore for resolving bound knowledge entries (optional)
 	KnowledgeStore *knowledgestore.Store
 	// ImagePreflighter, when set, is plumbed into the Applier so the worker
@@ -115,7 +121,23 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		}
 	}
 
-	// Langfuse: ensure per-account project exists and compute auth token
+	// Resolve cluster client + config up front — the cluster's Langfuse URL
+	// flows into both the collector env and the AI Gateway key metadata,
+	// so we need it before either provisioner call.
+	k8sForDep, err := d.clusterClient(ctx, dep)
+	if err != nil {
+		return nil, fmt.Errorf("resolve k8s client: %w", err)
+	}
+
+	clusterCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
+	if err != nil {
+		return nil, fmt.Errorf("resolve cluster config: %w", err)
+	}
+
+	// Langfuse: ensure per-account project exists and compute the collector
+	// auth token. Per-tenant pk/sk are not embedded into AI Gateway key
+	// metadata — gateway-side traces go through the collector path, not via
+	// LiteLLM's Langfuse callback.
 	var langfuseAuthToken string
 	if d.LangfuseProvisioner != nil && d.LangfuseStore != nil {
 		pk, sk, lfErr := d.LangfuseProvisioner.EnsureProject(
@@ -130,6 +152,32 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		}
 	}
 
+	// AI Gateway: mint a per-deployment virtual key if the spec opts in via
+	// agent.ai_gateway: true. Rotate-on-redeploy — each call to Apply mints
+	// a fresh key and demotes the previous to a short-lived prev slot.
+	// Fail-hard: an agent without its primary credential is a broken agent.
+	var aigwAPIKey, aigwBaseURL string
+	if ds.Agent.AIGateway {
+		if d.AIGatewayProvisioner == nil || d.AIGatewayStore == nil {
+			return nil, fmt.Errorf("agent.ai_gateway is true but AI Gateway is not enabled in this environment (AI_GATEWAY_URL unset)")
+		}
+		apiKey, baseURL, agErr := d.AIGatewayProvisioner.EnsureDeploymentKey(
+			ctx, d.AIGatewayStore,
+			d.Cfg.Deployment.KMSKeyARN, d.kmsClient(ctx),
+			aigateway.DeploymentKeyParams{
+				AccountID:    acct.ID,
+				DeploymentID: dep.ID,
+				ClusterID:    dep.EffectiveClusterID(),
+				AgentName:    ds.Source.Name,
+				AgentVersion: ds.Source.Build,
+			},
+		)
+		if agErr != nil {
+			return nil, fmt.Errorf("ensure ai-gateway key for deployment %s: %w", dep.ID, agErr)
+		}
+		aigwAPIKey, aigwBaseURL = apiKey, baseURL
+	}
+
 	oidcAuth := messagingOIDCAuthFromConfig(d.Cfg)
 	if oidcAuth == nil {
 		d.Log.Info("Messaging OIDC not configured — MESSAGING_OIDC_ISSUER not set, deployments with auth:oidc will have no auth")
@@ -138,16 +186,6 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		oidcAuth = nil
 	} else {
 		d.Log.Info("Messaging OIDC configured", "issuer", oidcAuth.Issuer)
-	}
-
-	k8sForDep, err := d.clusterClient(ctx, dep)
-	if err != nil {
-		return nil, fmt.Errorf("resolve k8s client: %w", err)
-	}
-
-	clusterCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
-	if err != nil {
-		return nil, fmt.Errorf("resolve cluster config: %w", err)
 	}
 
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
@@ -176,7 +214,8 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		PodSubnetCIDRs:         clusterCfg.PodSubnetCIDRs,
 		LangfuseVPCEIPs:        clusterCfg.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
-		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
+		AstroGatewayAPIKey:  aigwAPIKey,
+		AstroGatewayBaseURL: aigwBaseURL,
 		MessagingOIDCAuth:      oidcAuth,
 		BoundKnowledge:         boundKnowledge,
 		BoundCredentials:       boundCredentials,
@@ -424,7 +463,20 @@ func buildNamespaceLabels(dep *deploymentstore.Deployment, accountName string) m
 
 // Teardown deletes the K8s namespace for a deployment on its routing cluster.
 // Returns nil if the namespace is already gone (idempotent).
+//
+// Also revokes the deployment's AI Gateway virtual key upstream. The DB row
+// would otherwise be cleaned up by the ON DELETE CASCADE on the deployments
+// FK, but LiteLLM has no FK back to us — without the explicit revoke the
+// upstream key would orphan and keep accruing /key/list rows.
 func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment) error {
+	if dep != nil && d.AIGatewayProvisioner != nil && d.AIGatewayStore != nil {
+		if err := d.AIGatewayProvisioner.RevokeDeploymentKey(ctx, d.AIGatewayStore, dep.ID); err != nil {
+			// Best-effort: log and continue. A failed upstream revoke is
+			// not a reason to block namespace deletion — the row stays put
+			// and the next purge sweep retries.
+			d.Log.Warn("Failed to revoke AI Gateway key during teardown", "error", err, "deployment_id", dep.ID)
+		}
+	}
 	return d.TeardownOnCluster(ctx, dep, dep.EffectiveClusterID())
 }
 
@@ -610,3 +662,4 @@ func messagingOIDCAuthFromConfig(cfg *config.Config) *k8s.OIDCAuthConfig {
 		SessionTimeoutSeconds: d.MessagingOIDCSessionTimeout,
 	}
 }
+

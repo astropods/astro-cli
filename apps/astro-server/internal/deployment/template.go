@@ -379,6 +379,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Environment: agentEnv,
 		Healthcheck: astroSpec.Agent.Healthcheck,
 		Update:      spec.DefaultUpdateStrategy(),
+		AIGateway:   astroSpec.Agent.AIGateway,
 	}
 
 	// Interfaces block — only emitted when the agent supports messaging

@@ -33,6 +33,10 @@ type GitHubBuildConfig struct {
 	AgentIndex *agentindex.Index
 	RecordID   string // build record ID for status tracking
 	Log        *logger.Logger
+
+	// AIGatewayEnabled toggles the validator's astro-gateway provider gate.
+	// Pushed from cfg.Deployment.AIGatewayURL != "" at the worker wiring site.
+	AIGatewayEnabled bool
 }
 
 // GitHubBuildPipeline orchestrates the GitHub build flow as a chainable sequence.
@@ -102,7 +106,9 @@ func (p *GitHubBuildPipeline) updateStep(name string) {
 // schedule expressions are not known at build time and are skipped.
 func (p *GitHubBuildPipeline) ValidateSpec() *GitHubBuildPipeline {
 	return p.step("validating-spec", func() error {
-		result := deployment.NewValidator().ValidateSpec(p.astroSpec, nil, nil, nil)
+		result := deployment.NewValidatorWithOptions(deployment.ValidatorOptions{
+			AIGatewayEnabled: p.cfg.AIGatewayEnabled,
+		}).ValidateSpec(p.astroSpec, nil, nil, nil)
 		var msgs []string
 		for _, e := range result.Errors {
 			if strings.HasPrefix(e.Field, "variables.") || strings.HasSuffix(e.Field, ".trigger.schedule") {

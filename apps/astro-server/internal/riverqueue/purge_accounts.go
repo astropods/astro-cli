@@ -8,6 +8,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -29,6 +30,9 @@ type AccountPurgeWorker struct {
 	omClient        *openmeter.Client
 	lfProvisioner   *langfuse.Provisioner
 	lfStore         *langfuse.Store
+	aigwProvisioner *aigateway.Provisioner
+	aigwStore       *aigateway.Store
+	aigwDevStore    *aigateway.DevStore
 	retentionDays   int
 	log             *logger.Logger
 	enqueueUndeploy func(ctx context.Context, deploymentID string) error
@@ -128,6 +132,25 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 			if err := w.lfProvisioner.DeleteProject(ctx, al.LangfuseProjectID); err != nil {
 				return fmt.Errorf("delete langfuse project: %w", err)
 			}
+		}
+	}
+
+	// AI Gateway: revoke every per-deployment virtual key under the account
+	// upstream so they stop accruing usage, then drop the local rows. The
+	// account hard-delete cascades to deployment_ai_gateway via FK; we still
+	// need the upstream revokes since LiteLLM has no FK back to us.
+	if w.aigwProvisioner != nil && w.aigwStore != nil {
+		if err := w.aigwProvisioner.RevokeAccount(ctx, w.aigwStore, accountID); err != nil {
+			w.log.Warn("Failed to revoke AI Gateway keys, continuing purge", "error", err, "account_id", accountID)
+		}
+	}
+
+	// Dev keys: same shape as above — the FK cascade clears the rows but
+	// the upstream LiteLLM keys would linger until their 8h TTL without an
+	// explicit /key/delete.
+	if w.aigwProvisioner != nil && w.aigwDevStore != nil {
+		if err := w.aigwProvisioner.RevokeAccountDevKeys(ctx, w.aigwDevStore, accountID); err != nil {
+			w.log.Warn("Failed to revoke AI Gateway dev keys, continuing purge", "error", err, "account_id", accountID)
 		}
 	}
 

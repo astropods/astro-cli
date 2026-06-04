@@ -195,20 +195,21 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	builder := githubbuild.New(k8sForBuild, w.cfg, w.log)
 
 	pipeline := githubbuild.NewGitHubBuildPipeline(ctx, githubbuild.GitHubBuildConfig{
-		Token:       token.AccessToken,
-		RepoName:    conn.RepoFullName,
-		CommitSHA:   args.CommitSHA,
-		AgentName:   agentName,
-		BuildID:     args.BuildID,
-		AccountID:   conn.AccountID,
-		ProxyHost:   w.cfg.Deployment.ProxyRegistryHost,
-		RegistryURL: w.cfg.Deployment.RegistryURL,
-		Local:       local,
-		Builder:     builder,
-		GHStore:     w.ghStore,
-		AgentIndex:  w.agentIndex,
-		RecordID:    args.BuildRecordID,
-		Log:         w.log,
+		Token:            token.AccessToken,
+		RepoName:         conn.RepoFullName,
+		CommitSHA:        args.CommitSHA,
+		AgentName:        agentName,
+		BuildID:          args.BuildID,
+		AccountID:        conn.AccountID,
+		ProxyHost:        w.cfg.Deployment.ProxyRegistryHost,
+		RegistryURL:      w.cfg.Deployment.RegistryURL,
+		Local:            local,
+		Builder:          builder,
+		GHStore:          w.ghStore,
+		AgentIndex:       w.agentIndex,
+		RecordID:         args.BuildRecordID,
+		Log:              w.log,
+		AIGatewayEnabled: w.cfg.Deployment.AIGatewayURL != "",
 	})
 
 	if err := pipeline.

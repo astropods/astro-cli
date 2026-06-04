@@ -6,6 +6,7 @@ import (
 	"github.com/riverqueue/river"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
@@ -70,6 +71,19 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 			} else {
 				dep.LangfuseProvisioner = prov
 			}
+		}
+
+		// Initialize AI Gateway per-account virtual key provisioning if configured.
+		// Empty AI_GATEWAY_URL disables the feature entirely — the validator
+		// then rejects provider:astro-gateway at admission (see deployment/validator.go).
+		if cfg.ServerConfig.Deployment.AIGatewayURL != "" {
+			dep.AIGatewayStore = aigateway.NewStore(cfg.DB)
+			dep.AIGatewayProvisioner = aigateway.NewProvisioner(
+				aigateway.NewClient(
+					cfg.ServerConfig.Deployment.AIGatewayURL,
+					cfg.ServerConfig.Deployment.AIGatewayMasterKey,
+				),
+			)
 		}
 	}
 
@@ -173,6 +187,11 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	if dep != nil {
 		pw.lfProvisioner = dep.LangfuseProvisioner
 		pw.lfStore = dep.LangfuseStore
+		pw.aigwProvisioner = dep.AIGatewayProvisioner
+		pw.aigwStore = dep.AIGatewayStore
+	}
+	if cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.AIGatewayURL != "" {
+		pw.aigwDevStore = aigateway.NewDevStore(cfg.DB)
 	}
 	// enqueueUndeploy is set after client creation in New() via SetPurgeQueue
 	river.AddWorker(workers, pw)

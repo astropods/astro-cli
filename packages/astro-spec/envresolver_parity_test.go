@@ -17,10 +17,10 @@ import (
 //	... + "_" + cred.Suffix
 //
 // Anything outside packages/astro-spec/ that wants credential env-var names
-// MUST call CloudCredentialKeys or CustomProviderCredentialKeys. No exceptions
-// — that's how dev/prod parity is enforced.
+// MUST call CloudCredentialKeys or CustomProviderCredentialKeys. No
+// exceptions — that's how dev/prod parity is enforced.
 //
-// Test is skipped when the repo layout isn't visible (e.g. installed module
+// Test is skipped when the repo layout isn't visible (e.g. installed-module
 // builds). It runs in repo-checkout CI and that's where drift matters.
 func TestNoLocalCredentialNameDerivation_OutsideSpecPackage(t *testing.T) {
 	repoRoot, ok := findRepoRoot()

@@ -97,6 +97,7 @@ The `agent` object defines the agent's primary service: its container image or b
 | `interfaces`  | Interfaces  | OPTIONAL    | Agent capabilities: frontend, messaging, or both (Section 3.3). |
 | `healthcheck` | Healthcheck | OPTIONAL    | Health check configuration.                                            |
 | `inputs`      | Input[]     | OPTIONAL    | User-supplied inputs injected into the agent container.                |
+| `ai_gateway`  | boolean     | OPTIONAL    | Enable the Astro AI Gateway. Injects `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` into the agent container; the agent picks any supported model at call time. Default: `false`. |
 
 An agent entry MUST specify exactly one of `image` or `build`. Providing both or neither is invalid.
 

@@ -1,0 +1,151 @@
+---
+title: AI Gateway
+subtitle: Use Astro-provided LLM access without managing your own provider keys
+slug: ai-gateway
+---
+
+Set one line in your spec and your agent gets a managed API key for calling supported models — no provider account, no API keys to store, no key rotation to manage.
+
+## Quick start
+
+Add `ai_gateway: true` to your agent in `astropods.yml`:
+
+```yaml
+agent:
+  image: my-agent:latest
+  ai_gateway: true
+```
+
+On `ast deploy` (and `ast dev`), your agent container receives two environment variables:
+
+| Env var                 | Purpose                                  |
+| ----------------------- | ---------------------------------------- |
+| `ASTRO_GATEWAY_URL`     | Base URL to call.                        |
+| `ASTRO_GATEWAY_API_KEY` | Bearer credential. Treat as a secret.    |
+
+Wire them into the SDK or framework you're already using. The gateway is OpenAI-API-compatible — anything that accepts a custom base URL works:
+
+<CodeBlocks>
+
+```python title="OpenAI SDK (Python)"
+from openai import OpenAI
+import os
+
+client = OpenAI(
+    api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
+    base_url=os.environ["ASTRO_GATEWAY_URL"],
+)
+
+response = client.chat.completions.create(
+    model="claude-sonnet-4-6",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+```
+
+```typescript title="OpenAI SDK (TypeScript)"
+import OpenAI from "openai";
+
+const client = new OpenAI({
+    apiKey: process.env.ASTRO_GATEWAY_API_KEY!,
+    baseURL: process.env.ASTRO_GATEWAY_URL!,
+});
+
+const response = await client.chat.completions.create({
+    model: "claude-sonnet-4-6",
+    messages: [{ role: "user", content: "Hello" }],
+});
+```
+
+```typescript title="Mastra"
+import { createOpenAI } from "@ai-sdk/openai";
+import { Agent } from "@mastra/core/agent";
+
+const gateway = createOpenAI({
+    apiKey: process.env.ASTRO_GATEWAY_API_KEY,
+    baseURL: process.env.ASTRO_GATEWAY_URL,
+});
+
+export const agent = new Agent({
+    name: "my-agent",
+    instructions: "You are a helpful assistant.",
+    model: gateway("claude-sonnet-4-6"),
+});
+```
+
+```python title="LangChain (Python)"
+from langchain_openai import ChatOpenAI
+import os
+
+llm = ChatOpenAI(
+    api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
+    base_url=os.environ["ASTRO_GATEWAY_URL"],
+    model="claude-sonnet-4-6",
+)
+
+response = llm.invoke("Hello")
+```
+
+```typescript title="LangChain (TypeScript)"
+import { ChatOpenAI } from "@langchain/openai";
+
+const llm = new ChatOpenAI({
+    apiKey: process.env.ASTRO_GATEWAY_API_KEY,
+    model: "claude-sonnet-4-6",
+    configuration: {
+        baseURL: process.env.ASTRO_GATEWAY_URL,
+    },
+});
+
+const response = await llm.invoke("Hello");
+```
+
+</CodeBlocks>
+
+For Mastra: the AI-SDK provider returned by `createOpenAI` is what `Agent.model:` accepts, so the rest of your `Agent` / `Workflow` / `Tool` definitions stay the same.
+
+## Supported models
+
+Pass any of these strings as `model` on the SDK call:
+
+| Model                | Use case                                                |
+| -------------------- | ------------------------------------------------------- |
+| `claude-opus-4-8`    | Most capable; longer reasoning, agentic workflows.      |
+| `claude-sonnet-4-6`  | Workhorse; balanced cost / quality. Good default.       |
+| `claude-haiku-4-5`   | Fast and cheap; tool-use loops, classification.         |
+| `titan-embed-text-v2`| Text embeddings (RAG, vector search).                   |
+
+## Local development
+
+`ast dev` handles the gateway automatically. Run:
+
+```bash
+ast login
+ast dev project start
+```
+
+Your local agent container receives the same `ASTRO_GATEWAY_*` env vars it would have in production. Code written against those env vars works identically in dev and prod.
+
+<Callout intent="note">
+Run `ast login` first if you haven't — the gateway is account-scoped, so the CLI needs to know who you are.
+</Callout>
+
+## Mixing with your own keys
+
+`ai_gateway: true` is independent of any `models` you declare. You can use the gateway for some calls and your own provider key for others:
+
+```yaml
+agent:
+  image: my-agent:latest
+  ai_gateway: true        # gateway-managed models
+models:
+  custom-fine-tune:
+    provider: openai      # your own OpenAI key for a specific use case
+```
+
+Your agent code reads `ASTRO_GATEWAY_API_KEY` for gateway calls and `OPENAI_API_KEY` for the BYOK provider.
+
+## What it doesn't cover
+
+- **Anthropic-native SDK.** Use the OpenAI SDK (or one of the frameworks above) pointed at `ASTRO_GATEWAY_URL`. Calling Anthropic's native `messages` endpoint isn't supported.
+- **Vision / image generation.** The supported model list is text-only.
+- **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; reach out to support.

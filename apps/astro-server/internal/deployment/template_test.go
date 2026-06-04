@@ -910,45 +910,45 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	assertEnvRef(t, ds.Agent.Environment, "GITHUB_TOKEN", "${variables.GITHUB_TOKEN}")
 }
 
-func TestTemplate_ManagedProviderNoVariable(t *testing.T) {
+func TestTemplate_AIGatewayMarkerPropagates(t *testing.T) {
+	// agent.ai_gateway: true on the source spec flows through to the
+	// deployment spec's DeploymentAgent.AIGateway field. No variables
+	// surface — the deployer mints the key at apply time, not via
+	// user-supplied variables.
 	input := baseInput()
-	input.Spec.Models = map[string]spec.Model{
-		"claude": {Provider: "anthropic-managed"},
-	}
+	input.Spec.Agent = spec.Container{Image: "agent:latest", AIGateway: true}
 
 	ds := mustGenerate(t, input)
 
-	// Managed providers must NOT create any variables — the server injects at deploy time
-	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
-		t.Error("managed provider should not create ANTHROPIC_MANAGED_API_KEY variable")
+	if !ds.Agent.AIGateway {
+		t.Error("DeploymentAgent.AIGateway must be true when source spec sets agent.ai_gateway")
 	}
-	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; ok {
-		t.Error("managed provider should not create ANTHROPIC_API_KEY variable")
+	if _, ok := ds.Variables["ASTRO_GATEWAY_API_KEY"]; ok {
+		t.Error("ai_gateway opt-in must not surface as a user-facing variable")
 	}
-
-	// Agent env should NOT reference a managed credential variable
-	if ref, ok := ds.Agent.Environment["ANTHROPIC_MANAGED_API_KEY"]; ok {
-		t.Errorf("managed credential should not be wired to agent env, got %q", ref)
+	if _, ok := ds.Variables["ASTRO_GATEWAY_URL"]; ok {
+		t.Error("ai_gateway opt-in must not surface as a user-facing variable")
 	}
 }
 
-func TestTemplate_ManagedAndRegularProvidersTogether(t *testing.T) {
+func TestTemplate_AIGatewayAndRegularProvidersTogether(t *testing.T) {
+	// Mixing the gateway with a BYOK provider: only the BYOK provider
+	// produces a user-facing variable. The gateway's URL/API key are
+	// injected by the deployer at apply time.
 	input := baseInput()
+	input.Spec.Agent = spec.Container{Image: "agent:latest", AIGateway: true}
 	input.Spec.Models = map[string]spec.Model{
-		"managed-claude": {Provider: "anthropic-managed"},
-		"user-openai":    {Provider: "openai"},
+		"user-openai": {Provider: "openai"},
 	}
 
 	ds := mustGenerate(t, input)
 
-	// Only openai should produce a variable
+	if !ds.Agent.AIGateway {
+		t.Error("DeploymentAgent.AIGateway must be true")
+	}
 	if _, ok := ds.Variables["OPENAI_API_KEY"]; !ok {
 		t.Error("openai should produce OPENAI_API_KEY variable")
 	}
-	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
-		t.Error("managed provider should not create ANTHROPIC_MANAGED_API_KEY variable")
-	}
-
 	assertEnvRef(t, ds.Agent.Environment, "OPENAI_API_KEY", "${variables.OPENAI_API_KEY}")
 }
 
@@ -1359,7 +1359,6 @@ func TestTemplate_FullSpec(t *testing.T) {
 				"gpt":     {Provider: "openai"},
 				"gemini":  {Provider: "google"},
 				"command": {Provider: "cohere"},
-				"managed": {Provider: "anthropic-managed"},
 			},
 			Knowledge: map[string]spec.Knowledge{
 				"db":      {Provider: "postgres"},
@@ -1414,20 +1413,17 @@ func TestTemplate_FullSpec(t *testing.T) {
 	if _, ok := ds.Models["local"]; !ok {
 		t.Error("models.local: ollama container missing")
 	}
-	for _, cloud := range []string{"claude", "gpt", "gemini", "command", "managed"} {
+	for _, cloud := range []string{"claude", "gpt", "gemini", "command"} {
 		if _, ok := ds.Models[cloud]; ok {
 			t.Errorf("models.%s: cloud provider must not produce a container", cloud)
 		}
 	}
 
-	// Cloud credentials — all except managed.
+	// Cloud credentials for all four cloud providers.
 	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY"} {
 		if _, ok := ds.Variables[key]; !ok {
 			t.Errorf("variables: %s not found", key)
 		}
-	}
-	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
-		t.Error("variables: managed provider must not produce a credential variable")
 	}
 
 	// --- Knowledge ---

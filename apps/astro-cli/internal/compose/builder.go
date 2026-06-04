@@ -683,6 +683,18 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		}
 	}
 
+	// AI Gateway opt-in (agent.ai_gateway: true) — the CLI fetches a dev key
+	// before BuildProject runs and stuffs ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY
+	// into envVars; copy them through so the compose-managed agent container
+	// sees the same names the deployer injects in prod.
+	if s.Agent.AIGateway {
+		for _, k := range []string{"ASTRO_GATEWAY_URL", "ASTRO_GATEWAY_API_KEY"} {
+			if val, ok := envVars[k]; ok {
+				env[k] = &val
+			}
+		}
+	}
+
 	// Auto-inject connection strings for container-deploying components.
 	for name, model := range s.Models {
 		// Native Ollama: inject env vars pointing at host, skip container logic.

@@ -198,8 +198,13 @@ type DeploymentConfig struct {
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// KMS envelope encryption for deployment secrets
 	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
-	// Managed provider credentials — injected by the server for managed providers
-	ManagedAnthropicAPIKey string // MANAGED_ANTHROPIC_API_KEY — Anthropic API key for the anthropic-managed provider
+	// AI Gateway (LiteLLM) — per-tenant virtual key issuance and the base URL
+	// every caller (astro-server admin, deploy-time tenant pods, local dev
+	// containers) uses to reach the gateway. The gateway is publicly
+	// reachable over TLS; auth is the gate, not the network. Empty
+	// AIGatewayURL disables the feature.
+	AIGatewayURL       string // AI_GATEWAY_URL — LiteLLM public endpoint, used everywhere
+	AIGatewayMasterKey string // AI_GATEWAY_MASTER_KEY — LiteLLM master key (ESO-delivered)
 	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
 	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
@@ -270,7 +275,8 @@ func Load() (*Config, error) {
 			KnowledgeAllowManagedCreate:   getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
 			PodSubnetCIDRs:                getEnvSlice("POD_SUBNET_CIDRS", nil),
 			KMSKeyARN:                     getEnv("KMS_KEY_ARN", ""),
-			ManagedAnthropicAPIKey:        getEnv("MANAGED_ANTHROPIC_API_KEY", ""),
+			AIGatewayURL:                  getEnv("AI_GATEWAY_URL", ""),
+			AIGatewayMasterKey:            getEnv("AI_GATEWAY_MASTER_KEY", ""),
 			MessagingURLOverride:          getEnv("MESSAGING_URL_OVERRIDE", ""),
 			LangfuseDBURL:                 getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:                  getEnv("LANGFUSE_SALT", ""),

@@ -63,9 +63,14 @@ type ApplierConfig struct {
 	// containers (qdrant, neo4j, etc.) that expect to run as their image's
 	// default user. Only set true for local K8s (Docker Desktop / kind).
 	LocalMode bool
-	// ManagedAnthropicAPIKey is the platform-provided Anthropic API key
-	// injected into pods for the anthropic-managed provider.
-	ManagedAnthropicAPIKey string
+	// AstroGatewayAPIKey is the per-account LiteLLM virtual key minted at
+	// deploy time. Injected under every resolver-derived credential name for
+	// each models.* entry whose provider == "astro-gateway". Empty when no
+	// such entry exists or when the AI Gateway is disabled in this env.
+	AstroGatewayAPIKey string
+	// AstroGatewayBaseURL is the gateway endpoint paired with AstroGatewayAPIKey,
+	// surfaced through the resolver-derived *_BASE_URL env vars.
+	AstroGatewayBaseURL string
 	// MessagingOIDCAuth configures ALB OIDC authentication for messaging ingresses.
 	// When non-nil, a K8s secret is created in the agent namespace and auth
 	// annotations are added to the messaging ingress.
@@ -132,8 +137,9 @@ type Applier struct {
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs         []string
 	langfuseVPCEIPs        []string
-	localMode              bool
-	managedAnthropicAPIKey string
+	localMode           bool
+	astroGatewayAPIKey  string
+	astroGatewayBaseURL string
 	messagingOIDCAuth      *OIDCAuthConfig
 	boundKnowledge         map[string]deployment.BoundKnowledgeInfo
 	boundCredentials       map[string]string
@@ -171,8 +177,9 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
 		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
-		localMode:              cfg.LocalMode,
-		managedAnthropicAPIKey: cfg.ManagedAnthropicAPIKey,
+		localMode:           cfg.LocalMode,
+		astroGatewayAPIKey:  cfg.AstroGatewayAPIKey,
+		astroGatewayBaseURL: cfg.AstroGatewayBaseURL,
 		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
 		boundKnowledge:         cfg.BoundKnowledge,
 		boundCredentials:       cfg.BoundCredentials,

@@ -30,6 +30,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
@@ -705,6 +706,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	slackIdentityStore := deps.Stores.SlackID
 
 	billing := openmeter.NewBillingStateManager(omClient, db, log)
+
+	// AI Gateway wiring for handler-side use (dev-key issuance). Worker side
+	// constructs its own provisioner via the deployer; both read the same URL +
+	// master key from config. Nil when AI_GATEWAY_URL is unset — the dev-key
+	// handler returns 503 in that case.
+	var aiGatewayProvisioner *aigateway.Provisioner
+	var aiGatewayDevStore *aigateway.DevStore
+	if cfg.Deployment.AIGatewayURL != "" {
+		aiGatewayProvisioner = aigateway.NewProvisioner(
+			aigateway.NewClient(cfg.Deployment.AIGatewayURL, cfg.Deployment.AIGatewayMasterKey),
+		)
+		aiGatewayDevStore = aigateway.NewDevStore(db)
+	}
+
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -1029,6 +1044,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)
+
+				// AI Gateway dev key issuance — astro CLI calls this on `astro
+				// dev` startup. Each call mints a fresh short-lived key; the
+				// LiteLLM-side TTL is the only lifecycle mechanism, so the CLI
+				// has no cleanup responsibility.
+				api.POST(accountMember, "/ai-gateway-keys", "Issue an ephemeral AI Gateway key for local dev",
+					handlers.IssueAIGatewayDevKey(log, aiGatewayProvisioner, aiGatewayDevStore, cfg),
+					oapispec.Tags("AI Gateway"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.AIGatewayKeyResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
 				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log, omClient),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
@@ -1262,7 +1291,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache), "agents", "agent_builds"),
+					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != ""), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

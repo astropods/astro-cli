@@ -471,6 +471,54 @@ CREATE TABLE public.account_langfuse (
     CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
+-- Per-deployment LiteLLM virtual keys. One row per deployment that opts in
+-- via agent.ai_gateway: true. Replaces account_ai_gateway — bucketing by
+-- deployment lets gateway-side traces and budgets attribute to a specific
+-- deployment rather than the whole account. UserID/TeamID on the LiteLLM
+-- side remain the account_id so OpenMeter chargeback is invariant; the
+-- deployment_id is carried in metadata.tags.
+--
+-- Lifecycle: minted at first deploy, reused across redeploys (idempotent
+-- decrypt-and-return), revoked on undeploy. No rotation today — a future
+-- deployment-template API will trigger explicit rotation.
+CREATE TABLE public.deployment_ai_gateway (
+    deployment_id varchar(11) NOT NULL,
+    account_id uuid NOT NULL,
+    key_id text NOT NULL,
+    encrypted_api_key text NOT NULL,
+    encrypted_data_key bytea,
+    nonce bytea,
+    issued_at timestamp NOT NULL DEFAULT now(),
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_ai_gateway_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT deployment_ai_gateway_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_ai_gateway_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_ai_gateway_account ON public.deployment_ai_gateway(account_id);
+
+-- Dev keys minted by POST /accounts/:account/ai-gateway-keys for local
+-- `astro dev` sessions. Separate from account_ai_gateway (which holds the
+-- durable deploy-time key + rotation overlap state) so the dev-key
+-- lifecycle stays isolated. Per-(account, user) — each developer gets
+-- their own key + audit trail. Reused across `ast dev` invocations
+-- while non-expired; replaced when expired with a best-effort upstream
+-- revoke of the predecessor.
+CREATE TABLE public.account_ai_gateway_dev_keys (
+    account_id uuid NOT NULL,
+    user_id text NOT NULL,
+    key_id text NOT NULL,
+    encrypted_api_key text NOT NULL,
+    encrypted_data_key bytea,
+    nonce bytea,
+    expires_at timestamp NOT NULL,
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT account_ai_gateway_dev_keys_pkey PRIMARY KEY (account_id, user_id),
+    CONSTRAINT account_ai_gateway_dev_keys_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.audit_logs (
     id bigserial NOT NULL,
     account_id uuid NOT NULL,
