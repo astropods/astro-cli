@@ -6,15 +6,38 @@ import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
 
 type StatusColor = { bg: string; border: string; badgeBg: string; badgeText: string };
 
-const STATUS_COLORS: Record<DeploymentStatusValue, StatusColor> = {
-  active:      { bg: "color-mix(in oklch, var(--color-green-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-green-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-green-600) 20%, transparent)",  badgeText: "var(--color-green-600)" },
-  deploying:   { bg: "color-mix(in oklch, var(--color-yellow-400) 15%, transparent)", border: "color-mix(in oklch, var(--color-yellow-400) 25%, transparent)", badgeBg: "color-mix(in oklch, var(--color-yellow-400) 30%, transparent)", badgeText: "var(--color-yellow-300)" },
-  error:       { bg: "color-mix(in oklch, var(--color-coral-600) 15%, transparent)",  border: "color-mix(in oklch, var(--color-coral-600) 25%, transparent)",  badgeBg: "color-mix(in oklch, var(--color-coral-600) 20%, transparent)",  badgeText: "var(--color-coral-600)" },
-  undeploying: { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
-  inactive:    { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" },
+const SUCCESS_COLORS: StatusColor = {
+  bg: "color-mix(in oklch, var(--success) 12%, transparent)",
+  border: "color-mix(in oklch, var(--success) 25%, transparent)",
+  badgeBg: "color-mix(in oklch, var(--success) 20%, transparent)",
+  badgeText: "var(--success)",
+};
+const WARNING_COLORS: StatusColor = {
+  bg: "color-mix(in oklch, var(--warning) 12%, transparent)",
+  border: "color-mix(in oklch, var(--warning) 25%, transparent)",
+  badgeBg: "color-mix(in oklch, var(--warning) 22%, transparent)",
+  badgeText: "var(--warning)",
+};
+const ERROR_COLORS: StatusColor = {
+  bg: "color-mix(in oklch, var(--error) 12%, transparent)",
+  border: "color-mix(in oklch, var(--error) 25%, transparent)",
+  badgeBg: "color-mix(in oklch, var(--error) 20%, transparent)",
+  badgeText: "var(--error)",
+};
+const NEUTRAL_COLORS: StatusColor = {
+  bg: "var(--color-muted)",
+  border: "var(--color-border)",
+  badgeBg: "var(--color-muted)",
+  badgeText: "var(--color-muted-foreground)",
 };
 
-const NEUTRAL_COLORS: StatusColor = { bg: "var(--color-muted)", border: "var(--color-border)", badgeBg: "var(--color-muted)", badgeText: "var(--color-muted-foreground)" };
+const STATUS_COLORS: Record<DeploymentStatusValue, StatusColor> = {
+  active:      SUCCESS_COLORS,
+  deploying:   WARNING_COLORS,
+  error:       ERROR_COLORS,
+  undeploying: NEUTRAL_COLORS,
+  inactive:    NEUTRAL_COLORS,
+};
 
 const STATUS_LABELS: Record<DeploymentStatusValue, string> = {
   active: "Active",

@@ -52,19 +52,20 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
   }
 
   const label = transitioning
-    ? (checked ? "Resuming" : "Pausing")
+    ? (checked ? "Deploying" : "Pausing")
     : checked ? "Active" : "Paused";
+
+  const accentClass = transitioning && checked
+    ? "text-yellow-700 dark:text-yellow-400"
+    : checked
+      ? "text-green-700 dark:text-green-400"
+      : "text-stone-600 dark:text-stone-400";
 
   return (
     <div data-testid="agent-status-toggle" className="flex items-center gap-2.5">
       <span className="inline-flex items-center gap-2">
         {transitioning ? (
-          <Loader2
-            className={cn(
-              "size-3 shrink-0 animate-spin",
-              checked ? "text-green-700 dark:text-green-400" : "text-stone-600 dark:text-stone-400",
-            )}
-          />
+          <Loader2 className={cn("size-3 shrink-0 animate-spin", accentClass)} />
         ) : (
           <span
             className={cn(
@@ -75,12 +76,7 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
             )}
           />
         )}
-        <span
-          className={cn(
-            "text-body font-medium tracking-wide",
-            checked ? "text-green-700 dark:text-green-400" : "text-stone-600 dark:text-stone-400",
-          )}
-        >
+        <span className={cn("text-body font-medium tracking-wide", accentClass)}>
           {label}
         </span>
       </span>
@@ -97,8 +93,8 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
           </TooltipTrigger>
           <TooltipContent side="bottom">
             {transitioning
-              ? (checked ? "Resuming agent…" : "Pausing agent…")
-              : statusDetails ?? (checked ? "Pause this agent" : "Resume this agent")}
+              ? (checked ? "Deploying agent…" : "Pausing agent…")
+              : statusDetails || (checked ? "Pause this agent" : "Redeploy this agent")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
