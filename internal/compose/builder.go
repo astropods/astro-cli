@@ -670,8 +670,20 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 	}
 	env := make(types.MappingWithEquals)
 
-	// Auto-inject connection strings for container-deploying components;
-	// inject credentials for cloud providers.
+	// Cloud-provider credentials (models / knowledge / integrations). The
+	// resolver is the single source of truth for env-var names across both
+	// local dev and prod deploy paths — historically composeBuilder used a
+	// different `<NAME>_<SUFFIX>` convention which diverged from what the
+	// deployer injects in prod (`<PROVIDER>_[<NAME>_]<SUFFIX>` per §8.1).
+	// Calling CloudCredentialKeys here keeps dev/prod names identical, so
+	// agent code that works locally also works after a deploy.
+	for credKey := range spec.CloudCredentialKeys(s) {
+		if val, ok := envVars[credKey]; ok {
+			env[credKey] = &val
+		}
+	}
+
+	// Auto-inject connection strings for container-deploying components.
 	for name, model := range s.Models {
 		// Native Ollama: inject env vars pointing at host, skip container logic.
 		if opt.NativeOllama && model.Provider == "ollama" {
@@ -694,15 +706,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		}
 
 		if !model.DeploysContainer(s.Providers) {
-			// Cloud provider — inject credentials from .env
-			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
-				for _, cs := range suffixes {
-					key := strings.ToUpper(name) + "_" + cs.Suffix
-					if val, ok := envVars[key]; ok {
-						env[key] = &val
-					}
-				}
-			}
+			// Cloud provider credentials are injected via CloudCredentialKeys above.
 			continue
 		}
 
@@ -740,14 +744,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 
 	for name, knowledge := range s.Knowledge {
 		if !knowledge.DeploysContainer(s.Providers) {
-			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
-				for _, cs := range suffixes {
-					key := strings.ToUpper(name) + "_" + cs.Suffix
-					if val, ok := envVars[key]; ok {
-						env[key] = &val
-					}
-				}
-			}
+			// Cloud provider credentials are injected via CloudCredentialKeys above.
 			continue
 		}
 
@@ -769,57 +766,14 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		}
 	}
 
-	// Inject cloud integration provider credentials from .env
-	for name, tool := range s.Integrations {
-		if !tool.DeploysContainer(s.Providers) {
-			if suffixes, ok := spec.GetCloudIntegrationCredentials(tool.Provider); ok {
-				for _, cs := range suffixes {
-					key := strings.ToUpper(name) + "_" + cs.Suffix
-					if val, ok := envVars[key]; ok {
-						env[key] = &val
-					}
-				}
-			}
-		}
-	}
+	// Cloud-integration credentials are injected via CloudCredentialKeys above.
 
-	// Inject custom provider variables from .env / config store.
-	// Keys are stored as {PROVIDER}_{VARNAME} (matching configure and CustomProviderCredentialKeys).
-	// We also inject the bare variable name so the agent can use either form.
-	injectedProviders := make(map[string]bool)
-	for _, model := range s.Models {
-		if model.IsProviderMode() {
-			injectedProviders[model.Provider] = true
-		}
-	}
-	for _, knowledge := range s.Knowledge {
-		if knowledge.IsProviderMode() {
-			injectedProviders[knowledge.Provider] = true
-		}
-	}
-	for _, tool := range s.Integrations {
-		if tool.IsProviderMode() {
-			injectedProviders[tool.Provider] = true
-		}
-	}
-	for provName := range injectedProviders {
-		cp, ok := s.Providers[provName]
-		if !ok {
-			continue
-		}
-		prefix := spec.SanitizeEnvName(provName)
-		for _, v := range cp.Variables {
-			prefixedKey := prefix + "_" + v.Name
-			// Try prefixed key first (CLOUDFLARE_AI_API_KEY), then bare (AI_API_KEY)
-			val, exists := envVars[prefixedKey]
-			if !exists {
-				val, exists = envVars[v.Name]
-			}
-			if exists {
-				val := val
-				env[prefixedKey] = &val
-				env[v.Name] = &val
-			}
+	// Custom-provider variables — names come from spec.CustomProviderCredentialKeys,
+	// the same source of truth the deployer uses in prod. Resolver-correct names
+	// only: agent code (and .env entries) must use the prefixed name.
+	for credKey := range spec.CustomProviderCredentialKeys(s) {
+		if val, ok := envVars[credKey]; ok {
+			env[credKey] = &val
 		}
 	}
 

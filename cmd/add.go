@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -82,7 +83,7 @@ func runAddDomain(cmd *cobra.Command, domain, provider string) error {
 
 	fmt.Printf("Added %s '%s' to %s\n", domain, result.Name, specPath)
 
-	if creds := builtinCredentials(domain, provider); len(creds) > 0 {
+	if creds := builtinCredentials(specPath, domain, provider); len(creds) > 0 {
 		collectCredentials(specPath, provider, creds)
 	} else if vars := customProviderCredentials(specPath, provider); len(vars) > 0 {
 		collectCredentials(specPath, provider, vars)
@@ -204,21 +205,40 @@ func customProviderCredentials(specPath, providerName string) []add.ProviderVar 
 	return vars
 }
 
-// builtinCredentials returns the credentials required by a builtin cloud
-// provider, expressed as ProviderVars with the full env var name (e.g. GITHUB_TOKEN).
-// Returns nil for self-hosted providers and ingestion.
-func builtinCredentials(domain, provider string) []add.ProviderVar {
+// builtinCredentials returns the credentials required for the given provider
+// in the post-add spec. Re-parses the spec from disk (the entry was just
+// written via specwriter.AddEntry) and asks spec.CloudCredentialKeys for the
+// resolver-correct env-var names — same source of truth astro-server's
+// deployer and composeBuilder use. Returns nil for self-hosted providers,
+// managed providers (server supplies credentials), and ingestion.
+func builtinCredentials(specPath, domain, provider string) []add.ProviderVar {
 	section := domainToSection(domain)
+	if section == "" {
+		return nil
+	}
+	if spec.IsManagedProvider(section, provider) {
+		return nil
+	}
 	p, ok := spec.LookupBuiltin(section, provider)
 	if !ok || !p.Cloud {
 		return nil
 	}
-	vars := make([]add.ProviderVar, len(p.Credentials))
-	prefix := strings.ToUpper(provider)
-	for i, c := range p.Credentials {
-		vars[i] = add.ProviderVar{Name: prefix + "_" + c.Suffix, Secret: true}
+	parsed, err := spec.ParseSpec(specPath)
+	if err != nil {
+		return nil
 	}
-	return vars
+	names := make([]string, 0)
+	for key, meta := range spec.CloudCredentialKeys(parsed) {
+		if strings.EqualFold(meta.Provider, provider) {
+			names = append(names, key)
+		}
+	}
+	sort.Strings(names)
+	out := make([]add.ProviderVar, 0, len(names))
+	for _, name := range names {
+		out = append(out, add.ProviderVar{Name: name, Secret: true})
+	}
+	return out
 }
 
 // collectCredentials launches the credentials TUI for the given vars and

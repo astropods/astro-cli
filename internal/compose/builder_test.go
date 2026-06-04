@@ -305,8 +305,8 @@ func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 			"my-service": {
 				Scope: []string{"integrations"},
 				Variables: []spec.Input{
-					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
-					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},
+					{Name: "API_KEY", Datatype: "string", Secret: true},
+					{Name: "SECRET", Datatype: "string", Secret: true},
 				},
 			},
 		},
@@ -315,6 +315,7 @@ func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 		},
 	}
 
+	// Resolver emits <PROVIDER>_<VARNAME>: MY_SERVICE_API_KEY / MY_SERVICE_SECRET.
 	envVars := map[string]string{
 		"MY_SERVICE_API_KEY": "key1",
 		"MY_SERVICE_SECRET":  "s3cret",
@@ -343,8 +344,8 @@ func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 			"my-service": {
 				Scope: []string{"integrations"},
 				Variables: []spec.Input{
-					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
-					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},
+					{Name: "API_KEY", Datatype: "string", Secret: true},
+					{Name: "SECRET", Datatype: "string", Secret: true},
 				},
 			},
 		},
@@ -353,7 +354,7 @@ func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 		},
 	}
 
-	// Only provide one of two variables
+	// Only provide one of two variables (using the resolver-correct prefixed name).
 	envVars := map[string]string{
 		"MY_SERVICE_API_KEY": "key1",
 	}
@@ -969,56 +970,20 @@ func TestBuildProject_CustomProviderPrefixedKeys(t *testing.T) {
 
 	agent := project.Services["agent"]
 
-	// Prefixed keys should be injected
+	// Resolver-correct prefixed names only — matches what the deployer injects
+	// in prod. Bare names are deliberately not emitted (used to be, caused
+	// dev/prod divergence — see ai-gateway-astro-server changelog).
 	if envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY") != "cf-key-123" {
 		t.Errorf("CLOUDFLARE_AI_API_KEY = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY"), "cf-key-123")
 	}
 	if envVal(agent.Environment, "CLOUDFLARE_ACCOUNT_ID") != "acc-456" {
 		t.Errorf("CLOUDFLARE_ACCOUNT_ID = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_ACCOUNT_ID"), "acc-456")
 	}
-
-	// Bare keys should also be injected for convenience
-	if envVal(agent.Environment, "AI_API_KEY") != "cf-key-123" {
-		t.Errorf("AI_API_KEY = %q, want %q", envVal(agent.Environment, "AI_API_KEY"), "cf-key-123")
+	if _, ok := agent.Environment["AI_API_KEY"]; ok {
+		t.Error("bare AI_API_KEY must not be emitted; only the resolver-correct CLOUDFLARE_AI_API_KEY")
 	}
-	if envVal(agent.Environment, "ACCOUNT_ID") != "acc-456" {
-		t.Errorf("ACCOUNT_ID = %q, want %q", envVal(agent.Environment, "ACCOUNT_ID"), "acc-456")
-	}
-}
-
-func TestBuildProject_CustomProviderBareKeys(t *testing.T) {
-	// When env vars use bare names (from .env file), they should still be injected.
-	s := &spec.AstroSpec{
-		Name:  "my-agent",
-		Agent: spec.Container{Image: "agent:latest"},
-		Providers: map[string]spec.CustomProvider{
-			"cloudflare": {
-				Scope: []string{"integrations"},
-				Variables: []spec.Input{
-					{Name: "AI_API_KEY", Datatype: "string", Secret: true},
-				},
-			},
-		},
-		Integrations: map[string]spec.Integration{
-			"cloudflare": {Provider: "cloudflare"},
-		},
-	}
-
-	envVars := map[string]string{
-		"AI_API_KEY": "bare-key",
-	}
-
-	project, err := BuildProject(s, "/work", envVars)
-	if err != nil {
-		t.Fatalf("BuildProject() error = %v", err)
-	}
-
-	agent := project.Services["agent"]
-	if envVal(agent.Environment, "AI_API_KEY") != "bare-key" {
-		t.Errorf("AI_API_KEY = %q, want %q", envVal(agent.Environment, "AI_API_KEY"), "bare-key")
-	}
-	if envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY") != "bare-key" {
-		t.Errorf("CLOUDFLARE_AI_API_KEY = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY"), "bare-key")
+	if _, ok := agent.Environment["ACCOUNT_ID"]; ok {
+		t.Error("bare ACCOUNT_ID must not be emitted; only the resolver-correct CLOUDFLARE_ACCOUNT_ID")
 	}
 }
 
@@ -1070,7 +1035,10 @@ func TestBuildProject_CustomLabels(t *testing.T) {
 	}
 }
 
-func TestBuildProject_NameDerivedCredentials(t *testing.T) {
+func TestBuildProject_ResolverCredentialNames(t *testing.T) {
+	// Single-entry cloud provider → bare ANTHROPIC_API_KEY (§8.1). Matches
+	// what the deployer injects in prod — dev and prod use the same
+	// env-var names so agent code is portable.
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
 		Meta:  spec.Meta{},
@@ -1081,7 +1049,7 @@ func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	}
 
 	envVars := map[string]string{
-		"FALLBACK_API_KEY": "sk-fallback",
+		"ANTHROPIC_API_KEY": "sk-anthropic",
 	}
 
 	project, err := BuildProject(s, "/work", envVars)
@@ -1090,11 +1058,13 @@ func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	}
 
 	agent := project.Services["agent"]
-	if envVal(agent.Environment, "FALLBACK_API_KEY") != "sk-fallback" {
-		t.Errorf("FALLBACK_API_KEY = %q, want %q", envVal(agent.Environment, "FALLBACK_API_KEY"), "sk-fallback")
+	if envVal(agent.Environment, "ANTHROPIC_API_KEY") != "sk-anthropic" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want %q", envVal(agent.Environment, "ANTHROPIC_API_KEY"), "sk-anthropic")
 	}
-	// Should NOT have ANTHROPIC_API_KEY — the name "fallback" drives the key
-	if _, ok := agent.Environment["ANTHROPIC_API_KEY"]; ok {
-		t.Error("should not have ANTHROPIC_API_KEY when model name is 'fallback'")
+	// Old <NAME>_<SUFFIX> convention should NOT appear — the resolver names by
+	// provider, with entry-name qualification only when multiple entries share
+	// a provider.
+	if _, ok := agent.Environment["FALLBACK_API_KEY"]; ok {
+		t.Error("FALLBACK_API_KEY (old per-entry convention) must not appear; resolver names by provider")
 	}
 }
