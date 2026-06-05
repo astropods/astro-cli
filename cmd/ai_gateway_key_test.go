@@ -31,7 +31,7 @@ func TestSpecUsesAIGateway(t *testing.T) {
 }
 
 func TestApplyAIGatewayDevKey_InjectsSingularPair(t *testing.T) {
-	// agent.ai_gateway: true → exactly ASTRO_GATEWAY_URL and
+	// agent.astro_ai_gateway: true → exactly ASTRO_GATEWAY_URL and
 	// ASTRO_GATEWAY_API_KEY in the env map. Same names the deployer would
 	// inject in prod.
 	s := &spec.AstroSpec{
@@ -59,7 +59,7 @@ func TestApplyAIGatewayDevKey_NoOpWhenMarkerOff(t *testing.T) {
 	resp := &aiGatewayDevKeyResponse{APIKey: "sk", BaseURL: "u"}
 	envVars := map[string]string{}
 	require.NoError(t, applyAIGatewayDevKey(s, resp, envVars))
-	assert.Empty(t, envVars, "no env vars when agent.ai_gateway is false")
+	assert.Empty(t, envVars, "no env vars when agent.astro_ai_gateway is false")
 }
 
 func TestFetchAIGatewayDevKey_NoOpWhenMarkerOff(t *testing.T) {

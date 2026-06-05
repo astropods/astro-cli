@@ -683,7 +683,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		}
 	}
 
-	// AI Gateway opt-in (agent.ai_gateway: true) — the CLI fetches a dev key
+	// AI Gateway opt-in (agent.astro_ai_gateway: true) — the CLI fetches a dev key
 	// before BuildProject runs and stuffs ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY
 	// into envVars; copy them through so the compose-managed agent container
 	// sees the same names the deployer injects in prod.

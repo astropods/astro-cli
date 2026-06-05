@@ -31,7 +31,7 @@ type aiGatewayDevKeyResponse struct {
 
 // fetchAIGatewayDevKey calls POST /api/v1/accounts/:account/ai-gateway-keys
 // and returns the minted key + base URL. Returns nil when the spec does not
-// opt into the gateway (agent.ai_gateway is false) — no key needed.
+// opt into the gateway (agent.astro_ai_gateway is false) — no key needed.
 //
 // The CLI does not revoke keys on session end; the server-side TTL is the
 // single lifecycle mechanism, so every `astro dev` invocation fetches a
@@ -44,7 +44,7 @@ func fetchAIGatewayDevKey(ctx context.Context, at AccountToken, s *spec.AstroSpe
 	var resp aiGatewayDevKeyResponse
 	status, err := apiCall(ctx, http.MethodPost, url, nil, at.Token, verbose, &resp)
 	if status == http.StatusServiceUnavailable {
-		return nil, fmt.Errorf("AI Gateway is not enabled in this environment; agents with agent.ai_gateway: true can't run locally here")
+		return nil, fmt.Errorf("AI Gateway is not enabled in this environment; agents with agent.astro_ai_gateway: true can't run locally here")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("fetch AI Gateway dev key: %w", err)
@@ -80,7 +80,7 @@ func applyAIGatewayDevKey(s *spec.AstroSpec, resp *aiGatewayDevKeyResponse, envV
 }
 
 // specUsesAIGateway reports whether the spec opts into the AI Gateway via
-// agent.ai_gateway: true.
+// agent.astro_ai_gateway: true.
 func specUsesAIGateway(s *spec.AstroSpec) bool {
 	return s != nil && s.Agent.AIGateway
 }
