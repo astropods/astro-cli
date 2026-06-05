@@ -153,13 +153,13 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	}
 
 	// AI Gateway: mint a per-deployment virtual key if the spec opts in via
-	// agent.ai_gateway: true. Rotate-on-redeploy — each call to Apply mints
+	// agent.astro_ai_gateway: true. Rotate-on-redeploy — each call to Apply mints
 	// a fresh key and demotes the previous to a short-lived prev slot.
 	// Fail-hard: an agent without its primary credential is a broken agent.
 	var aigwAPIKey, aigwBaseURL string
 	if ds.Agent.AIGateway {
 		if d.AIGatewayProvisioner == nil || d.AIGatewayStore == nil {
-			return nil, fmt.Errorf("agent.ai_gateway is true but AI Gateway is not enabled in this environment (AI_GATEWAY_URL unset)")
+			return nil, fmt.Errorf("agent.astro_ai_gateway is true but AI Gateway is not enabled in this environment (AI_GATEWAY_URL unset)")
 		}
 		apiKey, baseURL, agErr := d.AIGatewayProvisioner.EnsureDeploymentKey(
 			ctx, d.AIGatewayStore,

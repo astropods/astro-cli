@@ -87,7 +87,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
-	// AI Gateway: when the spec opts in (agent.ai_gateway: true) the deployer
+	// AI Gateway: when the spec opts in (agent.astro_ai_gateway: true) the deployer
 	// has minted a per-account virtual key and threaded it through
 	// ApplierConfig. Inject the singular env-var pair into the agent's Secret.
 	// The gateway routes to whichever model the agent picks at call time —

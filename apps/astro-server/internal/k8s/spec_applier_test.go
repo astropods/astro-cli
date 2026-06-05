@@ -1436,7 +1436,7 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 }
 
 func TestApplyDeploymentSpec_AIGatewayInjection(t *testing.T) {
-	// agent.ai_gateway: true triggers the applier to inject the singular
+	// agent.astro_ai_gateway: true triggers the applier to inject the singular
 	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY pair. No model entries, no
 	// per-entry fanout — the gateway routes whatever model the agent picks.
 	fakeClient := fake.NewClientset()
@@ -1496,7 +1496,7 @@ func TestApplyDeploymentSpec_AIGatewayMarkerOffSkipsInjection(t *testing.T) {
 	secret, _ := fakeClient.CoreV1().Secrets("test-ns").Get(ctx, secretName, metav1.GetOptions{})
 	if secret != nil {
 		if _, ok := secret.Data["ASTRO_GATEWAY_API_KEY"]; ok {
-			t.Error("ASTRO_GATEWAY_API_KEY must not be injected when agent.ai_gateway is false")
+			t.Error("ASTRO_GATEWAY_API_KEY must not be injected when agent.astro_ai_gateway is false")
 		}
 	}
 }

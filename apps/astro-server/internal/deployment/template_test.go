@@ -911,7 +911,7 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 }
 
 func TestTemplate_AIGatewayMarkerPropagates(t *testing.T) {
-	// agent.ai_gateway: true on the source spec flows through to the
+	// agent.astro_ai_gateway: true on the source spec flows through to the
 	// deployment spec's DeploymentAgent.AIGateway field. No variables
 	// surface — the deployer mints the key at apply time, not via
 	// user-supplied variables.
@@ -921,13 +921,13 @@ func TestTemplate_AIGatewayMarkerPropagates(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	if !ds.Agent.AIGateway {
-		t.Error("DeploymentAgent.AIGateway must be true when source spec sets agent.ai_gateway")
+		t.Error("DeploymentAgent.AIGateway must be true when source spec sets agent.astro_ai_gateway")
 	}
 	if _, ok := ds.Variables["ASTRO_GATEWAY_API_KEY"]; ok {
-		t.Error("ai_gateway opt-in must not surface as a user-facing variable")
+		t.Error("astro_ai_gateway opt-in must not surface as a user-facing variable")
 	}
 	if _, ok := ds.Variables["ASTRO_GATEWAY_URL"]; ok {
-		t.Error("ai_gateway opt-in must not surface as a user-facing variable")
+		t.Error("astro_ai_gateway opt-in must not surface as a user-facing variable")
 	}
 }
 

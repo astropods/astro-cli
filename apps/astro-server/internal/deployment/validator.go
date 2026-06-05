@@ -11,8 +11,8 @@ import (
 // Validator validates agent specs and credentials
 type Validator struct {
 	cronParser cron.Parser
-	// AIGatewayEnabled gates the agent.ai_gateway opt-in. When false, specs
-	// that set agent.ai_gateway: true are rejected at admission. Set from
+	// AIGatewayEnabled gates the agent.astro_ai_gateway opt-in. When false, specs
+	// that set agent.astro_ai_gateway: true are rejected at admission. Set from
 	// config.Deployment.AIGatewayURL != "" — empty URL means the gateway
 	// provisioner is nil and no virtual keys can be minted.
 	AIGatewayEnabled bool
@@ -206,14 +206,14 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 		}
 	}
 
-	// AI Gateway: agent.ai_gateway: true is rejected at admission if the
+	// AI Gateway: agent.astro_ai_gateway: true is rejected at admission if the
 	// gateway isn't enabled in this env. Failing here surfaces a clear
 	// error vs. shipping an agent pod with empty ASTRO_GATEWAY_* env vars.
 	if astroSpec.Agent.AIGateway && !v.AIGatewayEnabled {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
-			Field:   "agent.ai_gateway",
-			Message: "agent.ai_gateway is true but the AI Gateway is not enabled in this environment",
+			Field:   "agent.astro_ai_gateway",
+			Message: "agent.astro_ai_gateway is true but the AI Gateway is not enabled in this environment",
 		})
 	}
 	for name, knowledge := range astroSpec.Knowledge {

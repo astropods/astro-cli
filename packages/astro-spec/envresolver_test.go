@@ -1644,7 +1644,7 @@ func assertAutoEnvMeta(t *testing.T, meta map[string]AgentEnvMeta, key, wantSour
 
 func TestIsManagedProvider(t *testing.T) {
 	// No managed providers ship today — astro-gateway uses the
-	// agent.ai_gateway boolean opt-in, not a Managed: true provider entry.
+	// agent.astro_ai_gateway boolean opt-in, not a Managed: true provider entry.
 	if IsManagedProvider("models", "anthropic") {
 		t.Error("anthropic should not be a managed provider")
 	}

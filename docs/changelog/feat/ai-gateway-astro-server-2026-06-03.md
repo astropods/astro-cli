@@ -3,7 +3,7 @@
 ## Summary
 
 Astro now mints, stores, and injects per-deployment LiteLLM virtual keys
-against the AI Gateway. A spec opts in via `agent.ai_gateway: true` and
+against the AI Gateway. A spec opts in via `agent.astro_ai_gateway: true` and
 gets a `ASTRO_GATEWAY_URL` + `ASTRO_GATEWAY_API_KEY` pair in the agent
 container — no upstream provider credential ever touches the spec, the
 user, or the build pipeline. The gateway routes to whichever model the
@@ -26,7 +26,7 @@ The local-dev key flow is documented separately in
 ```yaml
 agent:
   image: my-agent:latest
-  ai_gateway: true
+  astro_ai_gateway: true
 ```
 
 That's the whole spec change. No `provider:` entries, no model whitelist
@@ -82,7 +82,7 @@ project using KMS-encrypted credentials in `account_langfuse`.
 
 | Event | Action |
 |---|---|
-| First deploy with `agent.ai_gateway: true` | `EnsureDeploymentKey` mints, KMS-encrypts, persists |
+| First deploy with `agent.astro_ai_gateway: true` | `EnsureDeploymentKey` mints, KMS-encrypts, persists |
 | Redeploy of same deployment | `EnsureDeploymentKey` decrypts existing row and returns the same key — Secret content is stable across rollouts |
 | Undeploy (`Deployer.Teardown`) | Revokes upstream + deletes row (best-effort; row stays if upstream is unreachable, account-purge retries) |
 | Account purge | `RevokeAccount` iterates every deployment under the account, revokes each upstream, deletes rows |
@@ -105,7 +105,7 @@ previous revision keeps running, so live traffic is unaffected.
 ### Validator gate
 
 `deployment.NewValidatorWithOptions(ValidatorOptions{AIGatewayEnabled: …})`
-rejects `agent.ai_gateway: true` at admission when the gateway isn't
+rejects `agent.astro_ai_gateway: true` at admission when the gateway isn't
 configured in the env. Both validator call sites
 (`handlers/agents.go` for CLI pushes, `internal/githubbuild/pipeline.go`
 for GitHub builds) thread `cfg.Deployment.AIGatewayURL != ""` through.
@@ -135,7 +135,7 @@ mechanism.
 
 ### `anthropic-managed` removal
 
-Deleted in the same PR. The new `agent.ai_gateway` opt-in supersedes
+Deleted in the same PR. The new `agent.astro_ai_gateway` opt-in supersedes
 `provider: anthropic-managed` along every axis — per-tenant attribution,
 multi-provider routing, gateway-level guardrails. No live deployment
 specs referenced `anthropic-managed`, so the removal is a clean delete
@@ -156,7 +156,7 @@ injection, and local-dev container calls.
 
 ## Migration
 
-**Agent authors.** Set `agent.ai_gateway: true` in `astropods.yml` and
+**Agent authors.** Set `agent.astro_ai_gateway: true` in `astropods.yml` and
 read `ASTRO_GATEWAY_URL` / `ASTRO_GATEWAY_API_KEY` in agent code. No
 other spec changes; existing `models:` / `knowledge:` / `integrations:`
 entries are unaffected.

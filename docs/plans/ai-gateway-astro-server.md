@@ -9,7 +9,7 @@
 > gateway as a builtin `provider: astro-gateway` in `models.*` with per-entry
 > credential fanout (`ASTRO_GATEWAY_WORKHORSE_API_KEY` etc.). After
 > implementing it we simplified: the gateway is a *capability*, not a
-> model provider. The spec is now `agent.ai_gateway: true` (boolean), and
+> model provider. The spec is now `agent.astro_ai_gateway: true` (boolean), and
 > the runtime injects a singular pair `ASTRO_GATEWAY_URL` + `ASTRO_GATEWAY_API_KEY`.
 > Model selection happens at call time in agent code; no model whitelist,
 > no per-entry naming. The internal/aigateway lifecycle plumbing
@@ -18,7 +18,7 @@
 
 ## Why
 
-The preview gateway (`aig.astropod.ai`) is live. Phase 1 infra is applied; the LiteLLM workload is reachable on the public hostname with the master key. What's missing is the bit that makes a *tenant* able to use it: when an agent declares `agent.ai_gateway: true` in its `astropods.yml`, the agent pod needs `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` set to the gateway endpoint and a **per-tenant** virtual key, with no upstream credential ever touching the spec, the user, or the build pipeline.
+The preview gateway (`aig.astropod.ai`) is live. Phase 1 infra is applied; the LiteLLM workload is reachable on the public hostname with the master key. What's missing is the bit that makes a *tenant* able to use it: when an agent declares `agent.astro_ai_gateway: true` in its `astropods.yml`, the agent pod needs `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` set to the gateway endpoint and a **per-tenant** virtual key, with no upstream credential ever touching the spec, the user, or the build pipeline.
 
 This plan covers the astro-server work for that path — declaring the provider, minting and storing per-account virtual keys, injecting them into the agent's K8s Secret at deploy time, and rotating them. It is scoped to **preview-only** for the first cut; prod is a copy once preview holds for two weeks.
 

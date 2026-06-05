@@ -41,7 +41,7 @@ type Container struct {
 	// agent picks any model the gateway routes (claude-opus / claude-sonnet
 	// / claude-haiku / titan-embed) at call time — model is not declared
 	// in the spec.
-	AIGateway bool `json:"ai_gateway,omitempty" yaml:"ai_gateway,omitempty" jsonschema:"description=Enable Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"`
+	AIGateway bool `json:"astro_ai_gateway,omitempty" yaml:"astro_ai_gateway,omitempty" jsonschema:"description=Enable Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"`
 }
 
 // Interfaces declares agent interface capabilities.

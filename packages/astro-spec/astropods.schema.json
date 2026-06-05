@@ -174,7 +174,7 @@
           "type": "array",
           "description": "User-supplied inputs injected into the agent container"
         },
-        "ai_gateway": {
+        "astro_ai_gateway": {
           "type": "boolean",
           "description": "Enable Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"
         }

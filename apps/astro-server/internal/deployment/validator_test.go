@@ -358,7 +358,7 @@ func TestValidateSpec(t *testing.T) {
 	}
 }
 
-// TestValidateSpec_AIGatewayMarker verifies the agent.ai_gateway: true opt-in
+// TestValidateSpec_AIGatewayMarker verifies the agent.astro_ai_gateway: true opt-in
 // flow: accepted when the env has the gateway enabled, rejected when it
 // doesn't.
 func TestValidateSpec_AIGatewayMarker(t *testing.T) {
@@ -373,16 +373,16 @@ func TestValidateSpec_AIGatewayMarker(t *testing.T) {
 		}
 		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
 		if result.Valid {
-			t.Error("expected invalid (agent.ai_gateway: true but gateway disabled)")
+			t.Error("expected invalid (agent.astro_ai_gateway: true but gateway disabled)")
 		}
 		var found bool
 		for _, e := range result.Errors {
-			if e.Field == "agent.ai_gateway" {
+			if e.Field == "agent.astro_ai_gateway" {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("expected error on agent.ai_gateway, got errors: %v", result.Errors)
+			t.Errorf("expected error on agent.astro_ai_gateway, got errors: %v", result.Errors)
 		}
 	})
 
