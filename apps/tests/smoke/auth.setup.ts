@@ -30,12 +30,27 @@ setup("authenticate", async ({ page }) => {
   // Anchored to avoid matching "Sign in with a passkey" on the preview login page
   await page.getByRole("button", { name: /^(continue|sign in)$/i }).click();
 
-  await Promise.race([
-    page.waitForURL((url) => envConfig.loginUrlExclude(url.toString()), { timeout: 60000 }),
-    page.getByText(/invalid email or password/i).waitFor({ state: "visible", timeout: 5000 }).then(() => {
+  // Race success vs invalid-credentials. The error branch must not reject on timeout —
+  // Promise.race fails on the first rejection, so a slow OAuth redirect (>5s) would
+  // flake even when login succeeds.
+  const loginSucceeded = page.waitForURL(
+    (url) => envConfig.loginUrlExclude(url.toString()),
+    { timeout: 60000 },
+  );
+  const loginFailed = (async () => {
+    try {
+      await page.getByText(/invalid email or password/i).waitFor({ state: "visible", timeout: 5000 });
       throw new Error("Login failed: invalid credentials — check ASTRO_TEST_EMAIL / ASTRO_TEST_PASSWORD secrets");
-    }),
-  ]);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("Login failed")) {
+        throw err;
+      }
+      // No error text yet — keep this branch pending so loginSucceeded can win the race.
+      await new Promise(() => {});
+    }
+  })();
+
+  await Promise.race([loginSucceeded, loginFailed]);
 
   await page.context().storageState({ path: authFile });
 });
