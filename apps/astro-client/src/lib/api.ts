@@ -851,6 +851,15 @@ export interface DeploymentEventsResponse {
   events: K8sEvent[];
 }
 
+// --- Dataset ---
+
+export interface EvalDatasetResponse {
+  dataset_name: string;
+  last_trace_at: string | null;
+  last_synced_at: string | null;
+  item_count: number;
+}
+
 // --- Pod metrics (CPU / memory time series) ---
 
 export type PodMetricsRange = "1h" | "6h" | "24h" | "7d";
@@ -1978,6 +1987,19 @@ class ApiClient {
   async getDeploymentEvents(deploymentId: string): Promise<DeploymentEventsResponse> {
     return this.request<DeploymentEventsResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/events`
+    );
+  }
+
+  async getEvalDataset(deploymentId: string): Promise<EvalDatasetResponse> {
+    return this.request<EvalDatasetResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset`
+    );
+  }
+
+  async triggerEvalDatasetSync(deploymentId: string): Promise<void> {
+    await this.request<void>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/sync`,
+      { method: "POST" }
     );
   }
 

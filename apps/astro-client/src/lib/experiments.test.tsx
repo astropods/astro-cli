@@ -3,8 +3,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { renderHook, act } from "@testing-library/react";
 import { useExperiments, hasExperiments, setExperiment } from "./experiments";
 
-// Cast to bypass the empty Experiments type — lets us exercise the store
-// plumbing (subscribe/notify/persist) without modifying production types.
+// Cast to exercise the store plumbing (subscribe/notify/persist) with an
+// arbitrary key without modifying production types.
 const setTestExperiment = setExperiment as unknown as (key: string, value: boolean) => void;
 
 function resetStore() {
@@ -18,13 +18,13 @@ afterEach(() => {
 });
 
 describe("useExperiments", () => {
-  it("returns an empty experiments object by default", () => {
+  it("returns default experiment values", () => {
     const { result } = renderHook(() => useExperiments());
-    expect(result.current.experiments).toEqual({});
+    expect(result.current.experiments).toEqual({ evals: false });
   });
 
-  it("hasExperiments is false when no experiments are defined", () => {
-    expect(hasExperiments).toBe(false);
+  it("hasExperiments is true when experiments are defined", () => {
+    expect(hasExperiments).toBe(true);
   });
 });
 
@@ -32,7 +32,7 @@ describe("store reactive infrastructure", () => {
   it("setExperiment notifies all active consumers in the same tree without remount", () => {
     function Probe({ id }: { id: string }) {
       const { experiments } = useExperiments();
-      return <span data-testid={id}>{String((experiments as Record<string, unknown>).__test__ ?? false)}</span>;
+      return <span data-testid={id}>{String((experiments as unknown as Record<string, unknown>).__test__ ?? false)}</span>;
     }
 
     render(<><Probe id="a" /><Probe id="b" /></>);
@@ -49,7 +49,7 @@ describe("store reactive infrastructure", () => {
   it("persists state across unmount and remount via localStorage", () => {
     function Probe() {
       const { experiments } = useExperiments();
-      return <span data-testid="val">{String((experiments as Record<string, unknown>).__test__ ?? false)}</span>;
+      return <span data-testid="val">{String((experiments as unknown as Record<string, unknown>).__test__ ?? false)}</span>;
     }
 
     const first = render(<Probe />);

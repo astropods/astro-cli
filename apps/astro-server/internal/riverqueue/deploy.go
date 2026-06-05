@@ -8,10 +8,12 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
@@ -47,11 +49,14 @@ func (DeployArgs) InsertOpts() river.InsertOpts {
 // DeployWorker provisions K8s resources for a pending deployment.
 type DeployWorker struct {
 	river.WorkerDefaults[DeployArgs]
-	deployer *deployer.Deployer
-	store    *deploymentstore.Store
-	log      *logger.Logger
-	cache    k8scache.Cache
-	billing  *openmeter.BillingStateManager
+	deployer        *deployer.Deployer
+	store           *deploymentstore.Store
+	datasetStore    *datasetstore.Store
+	langfuseStore   *langfuse.Store
+	langfuseBaseURL string
+	log             *logger.Logger
+	cache           k8scache.Cache
+	billing         *openmeter.BillingStateManager
 }
 
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
@@ -136,7 +141,22 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		}
 	}
 
+	if w.langfuseStore != nil && w.datasetStore != nil {
+		go w.provisionDataset(dep) //nolint:gosec
+	}
+
 	return nil
+}
+
+func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
+	creds, err := w.langfuseStore.Get(dep.AccountID)
+	if err != nil || creds == nil {
+		return
+	}
+	client := langfuse.NewClient(w.langfuseBaseURL, creds.PublicKey, creds.SecretKey)
+	if _, err := ensureDataset(context.Background(), dep, w.datasetStore, client); err != nil {
+		w.log.Warn("Deploy: provision dataset failed", "deployment_id", dep.ID, "error", err)
+	}
 }
 
 func statusOrNil(dep *deploymentstore.Deployment) string {

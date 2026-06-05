@@ -7,6 +7,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
@@ -17,9 +18,9 @@ import (
 )
 
 // addWorkers registers all River workers into the registry.
-// Returns the ReconcileWorker, AccountPurgeWorker and InsightsRefreshWorker
-// so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
+// Returns the ReconcileWorker, AccountPurgeWorker, InsightsRefreshWorker, DatasetSyncSchedulerWorker,
+// and MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
+func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *DatasetSyncSchedulerWorker, *MigrateDeploymentClusterWorker) {
 	log := cfg.Logger
 
 	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
@@ -44,6 +45,11 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "15s")
 
 	store := deploymentstore.NewStore(cfg.DB)
+
+	var langfuseBaseURL string
+	if cfg.ServerConfig != nil {
+		langfuseBaseURL = cfg.ServerConfig.Deployment.LangfuseBaseURL
+	}
 
 	var dep *deployer.Deployer
 	if cfg.K8sRegistry != nil && cfg.ServerConfig != nil {
@@ -86,9 +92,25 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		}
 	}
 
-	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
+	river.AddWorker(workers, &DeployWorker{
+		deployer:        dep,
+		store:           store,
+		datasetStore:    datasetstore.NewStore(cfg.DB),
+		langfuseStore:   cfg.LangfuseStore,
+		langfuseBaseURL: langfuseBaseURL,
+		log:             log,
+		cache:           cfg.K8sCache,
+		billing:         billing,
+	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
-	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, ksStore: knowledgestore.NewStore(cfg.DB), log: log, cache: cfg.K8sCache, billing: billing})
+	river.AddWorker(workers, &UndeployWorker{
+		deployer: dep,
+		store:    store,
+		ksStore:  knowledgestore.NewStore(cfg.DB),
+		log:      log,
+		cache:    cfg.K8sCache,
+		billing:  billing,
+	})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
@@ -228,5 +250,24 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return rw, pw, insightsDiscovery, migrateWorker
+	// Dataset sync workers (enabled when LangfuseStore is configured).
+	dsStore := datasetstore.NewStore(cfg.DB)
+	dScheduler := &DatasetSyncSchedulerWorker{
+		deploymentStore: store,
+		log:             log,
+		// queue is set after client creation in New()
+	}
+	river.AddWorker(workers, dScheduler)
+	log.Info("river: registered worker", "worker", "DatasetSyncSchedulerWorker", "period", "24h")
+
+	river.AddWorker(workers, &DatasetSyncWorker{
+		deploymentStore: store,
+		datasetStore:    dsStore,
+		langfuseStore:   cfg.LangfuseStore,
+		langfuseBaseURL: langfuseBaseURL,
+		log:             log,
+	})
+	log.Info("river: registered worker", "worker", "DatasetSyncWorker")
+
+	return rw, pw, insightsDiscovery, dScheduler, migrateWorker
 }

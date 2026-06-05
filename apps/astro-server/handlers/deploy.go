@@ -1203,8 +1203,8 @@ type DeploymentRecord struct {
 	UpdatedAt           string                `json:"updated_at,omitempty"`
 	UpdatedBy           string                `json:"updated_by,omitempty"`
 	ExternalURLs        []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Replicas            int32                 `json:"replicas"`            // desired (sum of primary workload specs)
-	Components          []string              `json:"components"`          // distinct component_kind across workloads + sidecars
+	Replicas            int32                 `json:"replicas"`             // desired (sum of primary workload specs)
+	Components          []string              `json:"components"`           // distinct component_kind across workloads + sidecars
 	MessagingConfigured bool                  `json:"messaging_configured"` // a messaging sidecar is part of the spec
 	Workloads           []WorkloadSpec        `json:"workloads,omitempty"`  // intent — name, kind, image, replicas, etc.
 	// ManualIngestions is sourced from a namespace annotation today (live K8s)
@@ -1223,11 +1223,12 @@ type DeploymentRecord struct {
 // Returned directly (no envelope) — the response body IS this object.
 //
 // `value` enumerates:
-//   "active"      — DB active AND observed ready >= desired
-//   "deploying"   — DB pending/provisioning, OR DB active but ready<desired
-//   "inactive"    — DB stopped/scaled_down (paused)
-//   "undeploying" — DB undeploying
-//   "error"       — DB failed/crashloopbackoff
+//
+//	"active"      — DB active AND observed ready >= desired
+//	"deploying"   — DB pending/provisioning, OR DB active but ready<desired
+//	"inactive"    — DB stopped/scaled_down (paused)
+//	"undeploying" — DB undeploying
+//	"error"       — DB failed/crashloopbackoff
 //
 // `reason` is a stable machine-readable label for *why* the value was
 // chosen — useful for client branching (e.g. show a tooltip when ready_lag)
@@ -1262,9 +1263,9 @@ const (
 // May return empty/zero fields if the cluster is briefly unreachable;
 // renderers must tolerate that without breaking the record-driven UI.
 type DeploymentRuntime struct {
-	Ready              int32             `json:"ready"`    // observed ready replicas across the deployment
-	Replicas           int32             `json:"replicas"` // observed total replicas (may differ from desired during scale events)
-	MessagingReachable bool              `json:"messaging_reachable"`
+	Ready              int32 `json:"ready"`    // observed ready replicas across the deployment
+	Replicas           int32 `json:"replicas"` // observed total replicas (may differ from desired during scale events)
+	MessagingReachable bool  `json:"messaging_reachable"`
 	// ManualIngestions is currently sourced from a namespace annotation.
 	// See DeploymentRecord note — this field should move to the record once
 	// the spec-side list is persisted in the DB.
@@ -1277,9 +1278,9 @@ type DeploymentRuntime struct {
 // apply time. URLs come from deployment_ingresses (DB), not from live K8s
 // Ingress objects.
 type WorkloadSpec struct {
-	Name      string                `json:"name"`               // K8s resource name
-	Kind      string                `json:"kind"`               // "Deployment", "StatefulSet", "Job", "CronJob"
-	Component string                `json:"component"`          // component_kind from deployment_workloads / deployment_sidecars
+	Name      string                `json:"name"`      // K8s resource name
+	Kind      string                `json:"kind"`      // "Deployment", "StatefulSet", "Job", "CronJob"
+	Component string                `json:"component"` // component_kind from deployment_workloads / deployment_sidecars
 	Image     string                `json:"image"`
 	Replicas  int32                 `json:"replicas"`           // desired
 	Schedule  string                `json:"schedule,omitempty"` // cron expression for scheduled ingestion

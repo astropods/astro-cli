@@ -214,8 +214,8 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		PodSubnetCIDRs:         clusterCfg.PodSubnetCIDRs,
 		LangfuseVPCEIPs:        clusterCfg.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
-		AstroGatewayAPIKey:  aigwAPIKey,
-		AstroGatewayBaseURL: aigwBaseURL,
+		AstroGatewayAPIKey:     aigwAPIKey,
+		AstroGatewayBaseURL:    aigwBaseURL,
 		MessagingOIDCAuth:      oidcAuth,
 		BoundKnowledge:         boundKnowledge,
 		BoundCredentials:       boundCredentials,
@@ -655,4 +655,3 @@ func messagingOIDCAuthFromConfig(cfg *config.Config) *k8s.OIDCAuthConfig {
 		SessionTimeoutSeconds: d.MessagingOIDCSessionTimeout,
 	}
 }
-

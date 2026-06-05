@@ -36,6 +36,6 @@ describe('SettingsLayout', () => {
     expect(screen.getAllByText('Variables & Secrets').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Connectors').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Organizations').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Experiments')).toBeNull();
+    expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0);
   });
 });

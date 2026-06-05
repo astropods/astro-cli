@@ -648,22 +648,22 @@ type ClusterMigrationEvent struct {
 }
 
 type ClusterMigrationJob struct {
-	JobId            int64  `json:"job_id,omitempty"`
-	Kind             string `json:"kind,omitempty"`
-	State            string `json:"state,omitempty"`
-	DeploymentId     string `json:"deployment_id,omitempty"`
-	ArgsJson         string `json:"args_json,omitempty"`
-	Errors           string `json:"errors,omitempty"`
-	CreatedAt        string `json:"created_at,omitempty"`
-	FinalizedAt      string `json:"finalized_at,omitempty"`
-	Attempt          int32  `json:"attempt,omitempty"`
-	MaxAttempt       int32  `json:"max_attempt,omitempty"`
-	DurationMs       int64  `json:"duration_ms,omitempty"`
-	AccountName      string `json:"account_name,omitempty"`
-	AgentName        string `json:"agent_name,omitempty"`
-	SourceClusterId  string `json:"source_cluster_id,omitempty"`
-	TargetClusterId  string `json:"target_cluster_id,omitempty"`
-	DeployClusterId  string `json:"deploy_cluster_id,omitempty"`
+	JobId           int64  `json:"job_id,omitempty"`
+	Kind            string `json:"kind,omitempty"`
+	State           string `json:"state,omitempty"`
+	DeploymentId    string `json:"deployment_id,omitempty"`
+	ArgsJson        string `json:"args_json,omitempty"`
+	Errors          string `json:"errors,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	FinalizedAt     string `json:"finalized_at,omitempty"`
+	Attempt         int32  `json:"attempt,omitempty"`
+	MaxAttempt      int32  `json:"max_attempt,omitempty"`
+	DurationMs      int64  `json:"duration_ms,omitempty"`
+	AccountName     string `json:"account_name,omitempty"`
+	AgentName       string `json:"agent_name,omitempty"`
+	SourceClusterId string `json:"source_cluster_id,omitempty"`
+	TargetClusterId string `json:"target_cluster_id,omitempty"`
+	DeployClusterId string `json:"deploy_cluster_id,omitempty"`
 }
 
 type ListClusterMigrationsResponse struct {

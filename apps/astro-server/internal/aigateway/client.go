@@ -57,8 +57,8 @@ type KeyRequest struct {
 
 // KeyResponse is LiteLLM's reply from /key/generate.
 type KeyResponse struct {
-	Key   string `json:"key"`    // plaintext sk-…; only returned once
-	KeyID string `json:"token"`  // stable LiteLLM identifier; used for /key/delete and /key/info
+	Key   string `json:"key"`   // plaintext sk-…; only returned once
+	KeyID string `json:"token"` // stable LiteLLM identifier; used for /key/delete and /key/info
 	Note  string `json:"key_alias,omitempty"`
 }
 

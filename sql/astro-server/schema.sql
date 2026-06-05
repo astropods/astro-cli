@@ -728,6 +728,20 @@ CREATE TABLE public.deployment_billing_state (
 
 CREATE INDEX idx_deployment_billing_state_active ON public.deployment_billing_state(billing_active) WHERE billing_active = true;
 
+CREATE TABLE public.eval_datasets (
+    deployment_id        varchar(11) NOT NULL,
+    account_id           uuid        NOT NULL,
+    langfuse_dataset_name varchar    NOT NULL,
+    item_count           integer     NOT NULL DEFAULT 0,
+    last_trace_at        timestamptz,
+    last_synced_at       timestamptz,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_datasets_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT eval_datasets_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT eval_datasets_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 -- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
 -- can emit the final period after deletion without losing data.
 CREATE TABLE public.knowledge_billing_state (

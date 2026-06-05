@@ -12,6 +12,7 @@ export function accountProfilePath(account: string) {
 export const DeploymentTab = {
   Monitor: "monitor",
   Deployment: "deployments",
+  Dataset: "dataset",
   Configure: "configure",
 } as const;
 export type DeploymentTab = (typeof DeploymentTab)[keyof typeof DeploymentTab];

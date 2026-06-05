@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { LogEntry } from '@/lib/log-utils';
-import type { AgentDeployment, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
+import type { AgentDeployment, EvalDatasetResponse, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
 
 // Powers the cross-account quick switcher on the agent detail page.
@@ -425,6 +425,27 @@ export function useDeleteDeploymentAvatar(account: string) {
     mutationFn: (id: string) => api.deleteDeploymentAvatar(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
+export function useEvalDataset(deploymentId: string) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.dataset(deploymentId),
+    queryFn: (): Promise<EvalDatasetResponse> => api.getEvalDataset(deploymentId),
+    enabled: !!deploymentId,
+    staleTime: 60_000,
+  });
+}
+
+export function useTriggerEvalDatasetSync(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.triggerEvalDatasetSync(deploymentId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.dataset(deploymentId) });
     },
   });
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
+	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
@@ -611,6 +612,7 @@ func runWorker(
 		OrgClient:               orgClient,
 		PromClient:              promClient,
 		Logger:                  log,
+		LangfuseStore:           workerLangfuseStore,
 		PipesClient:             pipesClient,
 		GitHubStore:             ghStore,
 		ImagePreflighter:        imagePreflighter,
@@ -1546,6 +1548,28 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("observationId", "Observation ID"),
 				oapispec.Response(200, &handlers.Observation{}),
+			)
+			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
+			datasetStore := datasetstore.NewStore(db)
+			api.GET(protected, "/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("page", "Page number (default 1)", false),
+				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+				oapispec.Response(200, nil),
+			)
+			api.GET(protected, "/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, nil),
+			)
+			api.POST(protected, "/deployments/:id/dataset/sync", "Trigger an immediate dataset sync", handlers.TriggerEvalDatasetSync(log, accountStore, deploymentStore, queue),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
 			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),

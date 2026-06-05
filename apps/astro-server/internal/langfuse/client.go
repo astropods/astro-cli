@@ -1,6 +1,7 @@
 package langfuse
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -258,6 +259,23 @@ func (c *Client) GetTraceCore(ctx context.Context, traceID string) (*TraceDetail
 	return &result, nil
 }
 
+// GetRootObservationID returns the ID of the root observation (no parent) for a
+// trace using a lightweight observation-tree-only fetch. Returns "" if none found.
+func (c *Client) GetRootObservationID(ctx context.Context, traceID string) (string, error) {
+	params := url.Values{}
+	params.Set("fields", "core,observations")
+	var result TraceDetail
+	if err := c.doGet(ctx, "/api/public/traces/"+url.PathEscape(traceID), params, &result); err != nil {
+		return "", err
+	}
+	for _, obs := range result.Observations {
+		if obs.ParentObservationID == "" {
+			return obs.ID, nil
+		}
+	}
+	return "", nil
+}
+
 // GetObservation returns a single observation by ID with full input/output/metadata.
 func (c *Client) GetObservation(ctx context.Context, observationID string) (*Observation, error) {
 	var result Observation
@@ -356,6 +374,99 @@ func (c *Client) GetMetrics(ctx context.Context, q MetricsQuery) (*MetricsRespon
 		return nil, err
 	}
 	return &result, nil
+}
+
+// DatasetItemInput is the payload for upserting a single dataset item.
+type DatasetItemInput struct {
+	DatasetName         string `json:"datasetName"`
+	Input               any    `json:"input"`
+	ExpectedOutput      any    `json:"expectedOutput"`
+	Metadata            any    `json:"metadata,omitempty"`
+	SourceTraceID       string `json:"sourceTraceId,omitempty"`
+	SourceObservationID string `json:"sourceObservationId,omitempty"`
+}
+
+// DatasetItem is a single entry in a Langfuse dataset.
+type DatasetItem struct {
+	ID                  string `json:"id"`
+	DatasetName         string `json:"datasetName"`
+	Input               any    `json:"input"`
+	ExpectedOutput      any    `json:"expectedOutput"`
+	Metadata            any    `json:"metadata"`
+	SourceTraceID       string `json:"sourceTraceId"`
+	SourceObservationID string `json:"sourceObservationId"`
+	CreatedAt           string `json:"createdAt"`
+	UpdatedAt           string `json:"updatedAt"`
+}
+
+// DatasetItemsResponse is the response from GET /api/public/dataset-items.
+type DatasetItemsResponse struct {
+	Data []DatasetItem `json:"data"`
+	Meta struct {
+		Page       int `json:"page"`
+		Limit      int `json:"limit"`
+		TotalItems int `json:"totalItems"`
+		TotalPages int `json:"totalPages"`
+	} `json:"meta"`
+}
+
+// CreateDataset creates a new dataset in Langfuse.
+func (c *Client) CreateDataset(ctx context.Context, name, description string) error {
+	return c.doPost(ctx, "/api/public/v2/datasets", map[string]string{
+		"name":        name,
+		"description": description,
+	})
+}
+
+// UpsertDatasetItem inserts or updates a single dataset item.
+func (c *Client) UpsertDatasetItem(ctx context.Context, item DatasetItemInput) error {
+	return c.doPost(ctx, "/api/public/dataset-items", item)
+}
+
+// GetDatasetItems returns a page of items from a Langfuse dataset.
+func (c *Client) GetDatasetItems(ctx context.Context, datasetName string, page, limit int) (*DatasetItemsResponse, error) {
+	params := url.Values{}
+	params.Set("datasetName", datasetName)
+	if page > 0 {
+		params.Set("page", fmt.Sprintf("%d", page))
+	}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	var result DatasetItemsResponse
+	if err := c.doGet(ctx, "/api/public/dataset-items", params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) doPost(ctx context.Context, path string, body any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("langfuse: marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("langfuse: create request: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(c.publicKey + ":" + c.secretKey))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("langfuse: request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("langfuse: unexpected status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
 }
 
 func (c *Client) doGet(ctx context.Context, path string, params url.Values, out any) error {

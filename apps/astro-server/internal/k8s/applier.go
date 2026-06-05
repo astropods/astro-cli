@@ -135,19 +135,19 @@ type Applier struct {
 	// Per-namespace annotations
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
-	podSubnetCIDRs         []string
-	langfuseVPCEIPs        []string
-	localMode           bool
-	astroGatewayAPIKey  string
-	astroGatewayBaseURL string
-	messagingOIDCAuth      *OIDCAuthConfig
-	boundKnowledge         map[string]deployment.BoundKnowledgeInfo
-	boundCredentials       map[string]string
-	deployTokenSecret      string
-	authzCallbackURL       string
-	authTestUserID         string
-	persistResolutions     func(deploymentID string, rows []deployment.Resolution) error
-	persistMessagingHost   func(deploymentID, host string) error
+	podSubnetCIDRs       []string
+	langfuseVPCEIPs      []string
+	localMode            bool
+	astroGatewayAPIKey   string
+	astroGatewayBaseURL  string
+	messagingOIDCAuth    *OIDCAuthConfig
+	boundKnowledge       map[string]deployment.BoundKnowledgeInfo
+	boundCredentials     map[string]string
+	deployTokenSecret    string
+	authzCallbackURL     string
+	authTestUserID       string
+	persistResolutions   func(deploymentID string, rows []deployment.Resolution) error
+	persistMessagingHost func(deploymentID, host string) error
 }
 
 // NewApplier creates a new applier
@@ -177,9 +177,9 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
 		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
-		localMode:           cfg.LocalMode,
-		astroGatewayAPIKey:  cfg.AstroGatewayAPIKey,
-		astroGatewayBaseURL: cfg.AstroGatewayBaseURL,
+		localMode:              cfg.LocalMode,
+		astroGatewayAPIKey:     cfg.AstroGatewayAPIKey,
+		astroGatewayBaseURL:    cfg.AstroGatewayBaseURL,
 		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
 		boundKnowledge:         cfg.BoundKnowledge,
 		boundCredentials:       cfg.BoundCredentials,

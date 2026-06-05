@@ -1,12 +1,14 @@
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { motion } from "motion/react";
-import { Activity, ChevronDown, Layers, Settings, type LucideIcon } from "lucide-react";
+import { Activity, ChevronDown, FlaskConical, Layers, Settings, type LucideIcon } from "lucide-react";
 import { DeploymentTab } from "@/lib/routes";
+import { useExperiments, type Experiments } from "@/lib/experiments";
 
-const TABS: { label: string; path: DeploymentTab; icon: LucideIcon }[] = [
+const BASE_TABS: { label: string; path: DeploymentTab; icon: LucideIcon; experiment?: keyof Experiments }[] = [
   { label: "Monitor", path: DeploymentTab.Monitor, icon: Activity },
   { label: "Deployments", path: DeploymentTab.Deployment, icon: Layers },
   { label: "Configure", path: DeploymentTab.Configure, icon: Settings },
+  { label: "Eval", path: DeploymentTab.Dataset, icon: FlaskConical, experiment: "evals" },
 ];
 
 export function AgentTabBar() {
@@ -14,6 +16,8 @@ export function AgentTabBar() {
   const basePath = `/${account}/agents/${deploymentId}`;
   const location = useLocation();
   const navigate = useNavigate();
+  const { experiments } = useExperiments();
+  const TABS = BASE_TABS.filter((t) => !t.experiment || experiments[t.experiment]);
   const activeTab = TABS.find((t) => location.pathname.endsWith(`/${t.path}`));
 
   const ActiveIcon = activeTab?.icon ?? Activity;

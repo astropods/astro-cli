@@ -81,8 +81,8 @@ type migrateQueueCall struct {
 }
 
 func (m *mockAdminJobQueue) InsertUndeployJob(context.Context, string, string) error { return nil }
-func (m *mockAdminJobQueue) InsertWakeUpJob(context.Context, string, string) error  { return nil }
-func (m *mockAdminJobQueue) InsertDeployJob(context.Context, string, string) error  { return nil }
+func (m *mockAdminJobQueue) InsertWakeUpJob(context.Context, string, string) error   { return nil }
+func (m *mockAdminJobQueue) InsertDeployJob(context.Context, string, string) error   { return nil }
 func (m *mockAdminJobQueue) InsertOpenMeterBackfillJob(context.Context) error        { return nil }
 
 func (m *mockAdminJobQueue) InsertMigrateDeploymentClusterJob(_ context.Context, deploymentID, targetClusterID, sourceClusterID string) error {

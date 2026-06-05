@@ -415,15 +415,15 @@ type VariableInput struct {
 
 // TemplateResponse is the response from the interactive POST deployment-template endpoint.
 type TemplateResponse struct {
-	Spec         string               `json:"spec"`                   // "deployment-template/v1"
-	Template     AstroDeploymentSpec  `json:"template"`               // deployment/v1 — directly postable to /deploy
-	Variables    map[string]Variable  `json:"variables,omitempty"`    // promoted variable schema for the UI
-	Interfaces   TemplateInterfaces   `json:"interfaces"`             // user-editable interface config (adapters + auth + grants)
-	Schedules    map[string]string    `json:"schedules"`              // ingestion name → cron expression
-	Bindings     *ResolvedBindings    `json:"bindings,omitempty"`     // resolved binding metadata for the UI
-	Provisioning TemplateProvisioning `json:"provisioning,omitzero"`  // resolved compute/volume values (echo of input + defaults)
-	Validation   TemplateValidation   `json:"validation"`             // validity + field-level errors
-	Signature    string               `json:"signature,omitempty"`    // HMAC-SHA256 of the template spec; deploy endpoint verifies this
+	Spec         string               `json:"spec"`                  // "deployment-template/v1"
+	Template     AstroDeploymentSpec  `json:"template"`              // deployment/v1 — directly postable to /deploy
+	Variables    map[string]Variable  `json:"variables,omitempty"`   // promoted variable schema for the UI
+	Interfaces   TemplateInterfaces   `json:"interfaces"`            // user-editable interface config (adapters + auth + grants)
+	Schedules    map[string]string    `json:"schedules"`             // ingestion name → cron expression
+	Bindings     *ResolvedBindings    `json:"bindings,omitempty"`    // resolved binding metadata for the UI
+	Provisioning TemplateProvisioning `json:"provisioning,omitzero"` // resolved compute/volume values (echo of input + defaults)
+	Validation   TemplateValidation   `json:"validation"`            // validity + field-level errors
+	Signature    string               `json:"signature,omitempty"`   // HMAC-SHA256 of the template spec; deploy endpoint verifies this
 }
 
 // TemplateInterfaces carries the user-editable subset of DeploymentInterfaces
