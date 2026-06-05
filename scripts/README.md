@@ -55,7 +55,7 @@ Requires `ASTRO_TEST_EMAIL` and `ASTRO_TEST_PASSWORD`. In dev mode, `ASTRO_TEST_
 
 ## update-submodules.sh
 
-Checks out `main` and pulls the latest changes for every git submodule, then prints instructions for committing the updated pointers to the parent repo.
+Syncs submodule URLs, checks out the SHAs recorded in the superproject, and falls back to each submodule's remote `HEAD` only when a recorded SHA is missing from its remote (e.g. an unpushed or cross-repo pointer). Prints instructions when working trees diverge from recorded pointers.
 
 ```bash
 bash scripts/update-submodules.sh

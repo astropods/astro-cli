@@ -2,34 +2,56 @@
 
 set -e
 
-echo "🔄 Updating all git submodules to latest main/head..."
+echo "🔄 Syncing and updating git submodules..."
 echo
 
-# Use --remote so each submodule lands on the tip of its remote-tracking
-# branch (typically origin/main), NOT on the SHA recorded in the superproject.
-# This is robust against pointers that reference SHAs which were never pushed
-# — someone commits a submodule bump locally without pushing the underlying
-# commit, and every subsequent `update --init` fails with
-# "upload-pack: not our ref". --remote sidesteps that entirely.
-echo "📥 Initializing submodules and moving to latest remote head..."
-git submodule update --init --remote --recursive
+git submodule sync --recursive
+
+echo "📥 Checking out superproject-recorded commits..."
+set +e
+update_output=$(git submodule update --init --recursive 2>&1)
+update_status=$?
+set -e
+
+if [ "$update_status" -ne 0 ]; then
+  echo "$update_output"
+  echo
+  echo "⚠️  Some submodule pointers are stale or invalid; using remote HEAD for those paths only..."
+  echo
+
+  while IFS= read -r path; do
+    recorded=$(git ls-tree HEAD "$path" | awk '{print $3}')
+    if [ -z "$recorded" ]; then
+      continue
+    fi
+
+    git submodule update --init "$path" >/dev/null 2>&1 || true
+
+    if git -C "$path" cat-file -e "$recorded^{commit}" 2>/dev/null; then
+      git -C "$path" checkout --quiet "$recorded"
+      continue
+    fi
+
+    echo "  → $path (recorded $recorded missing from remote; checking out origin/HEAD)"
+    git submodule update --init --remote "$path"
+  done < <(git config -f .gitmodules --get-regexp '^submodule\..+\.path$' | awk '{print $2}')
+fi
 
 echo
 echo "✅ Final submodule status:"
 git submodule status
 
-# When --remote moves a submodule past the superproject's recorded pointer,
+# When a fallback moved a submodule past the superproject's recorded pointer,
 # `git submodule status` flags it with a leading + (or - if behind).
-# Surface that so the user commits the bump. When nothing diverged, stay
-# silent — no point telling the user to commit when there's nothing to commit.
 echo
 divergent=$(git submodule status | grep -E '^[+-]' || true)
 if [ -n "$divergent" ]; then
   echo "⚠️  Superproject pointers differ from submodule working trees:"
   echo "$divergent" | sed 's/^/   /'
   echo
-  echo "   To commit these bumps in the superproject:"
-  echo '     git add modules && git commit -m "chore: update all submodules to latest main"'
+  echo "   These paths had invalid or unpushed SHAs recorded in the superproject."
+  echo "   To record the working-tree fixes:"
+  echo '     git add modules && git commit -m "chore: fix stale submodule pointers"'
   echo
 fi
 
