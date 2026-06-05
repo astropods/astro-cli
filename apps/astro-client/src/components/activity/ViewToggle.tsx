@@ -1,6 +1,5 @@
 import { Users, Bot } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { PillToggle, type PillOption } from "./PillToggle";
 
 export type ActivityView = "agents" | "users";
 
@@ -14,35 +13,20 @@ interface ViewToggleProps {
   className?: string;
 }
 
-// Uses the shared `variant="word"` chrome (sliding indicator) but with a
-// hollowed-out container — transparent background so the toggle blends
-// into the table header bar instead of standing out as a filled chip.
-// The sliding active indicator still renders, giving the active label a
-// subtle outline-pill highlight.
 export function ViewToggle({ value, onChange, usersCount, agentsCount, className }: ViewToggleProps) {
+  const options: PillOption<ActivityView>[] = [
+    { key: "users", label: "People", icon: <Users className="size-3.5" aria-hidden />, count: usersCount },
+    { key: "agents", label: "Agents", icon: <Bot className="size-3.5" aria-hidden />, count: agentsCount },
+  ];
   return (
-    <ToggleGroup
-      type="single"
-      variant="word"
+    <PillToggle
       value={value}
-      onValueChange={(v) => { if (v === "agents" || v === "users") onChange(v); }}
-      className={cn("bg-transparent", className)}
-    >
-      <ToggleGroupItem value="users" aria-label="People" className="gap-2 text-body-sm">
-        <Users className="size-3.5" aria-hidden />
-        People
-        {usersCount !== undefined && (
-          <span className="text-faint-foreground tabular-nums">{usersCount}</span>
-        )}
-      </ToggleGroupItem>
-      <ToggleGroupItem value="agents" aria-label="Agents" className="gap-2 text-body-sm">
-        <Bot className="size-3.5" aria-hidden />
-        Agents
-        {agentsCount !== undefined && (
-          <span className="text-faint-foreground tabular-nums">{agentsCount}</span>
-        )}
-      </ToggleGroupItem>
-    </ToggleGroup>
+      options={options}
+      onChange={onChange}
+      layoutId="insights-view-pill"
+      size="md"
+      className={className}
+    />
   );
 }
 

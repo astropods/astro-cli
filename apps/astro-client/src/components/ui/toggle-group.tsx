@@ -74,7 +74,7 @@ function ToggleGroup({
         {indicator.ready && (
           <div
             className={cn(
-              "absolute transition-all duration-200 ease-out",
+              "absolute transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
               variant === "icon"
                 ? "rounded-sm bg-background dark:bg-background shadow-sm"
                 : "rounded-[6px] bg-surface border border-border/70"

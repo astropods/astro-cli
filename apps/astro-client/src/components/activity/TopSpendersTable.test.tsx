@@ -1,4 +1,4 @@
-import { screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TopSpendersTable } from "./TopSpendersTable";
 import { renderWithProviders } from "@/test/test-utils";
@@ -66,10 +66,10 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     expect(screen.getByText("gamma")).toBeInTheDocument();
   });
 
-  it("clicking 'Total Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
+  it("clicking 'Spend' header sorts by cost_usd descending by default; clicking again reverses to ascending", () => {
     renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
 
-    const spendHeader = screen.getByText("Total Spend");
+    const spendHeader = screen.getByText("Spend");
 
     // First click: sort by cost_usd descending (default when switching to a new key)
     // The table already defaults to cost_usd desc, so click once to go asc
@@ -110,13 +110,13 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     expect(screen.getByRole("columnheader", { name: /^Model$/ })).toBeInTheDocument();
   });
 
-  it("renders a People column; empty users_used renders the em-dash", () => {
+  it("renders a Used by column; empty users_used renders the em-dash", () => {
     const deployments: Deployment[] = [
       makeDeployment({ agent_name: "alpha", cost_usd: 30, users_used: ["u_alice", "u_bob", "u_carol"] }),
       makeDeployment({ agent_name: "beta",  cost_usd: 10, users_used: [] }),
     ];
     renderWithProviders(<TopSpendersTable mode="agents" deployments={deployments} loading={false} />);
-    expect(screen.getByRole("columnheader", { name: /^People$/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /^Used by$/ })).toBeInTheDocument();
     const rows = screen.getAllByRole("row").slice(1); // skip header
     const betaRow = rows.find((r) => within(r).queryByText("beta"))!;
     // Empty users_used renders as em-dash, not "0".
@@ -132,6 +132,41 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     // Both display names visible → both rows rendered (no agent_name rollup).
     expect(screen.getByText("Swipefile East")).toBeInTheDocument();
     expect(screen.getByText("Swipefile West")).toBeInTheDocument();
+  });
+
+  // Mirrors the users-mode "collapses long lists" test — verifies the shared
+  // <TableShowMore> wiring works in agents mode too.
+  it("collapses long deployment lists with a Show-more toggle that expands and re-collapses", async () => {
+    const deployments: Deployment[] = Array.from({ length: 7 }, (_, i) =>
+      makeDeployment({
+        deployment_id: `dep-${String(i).padStart(2, "0")}`,
+        agent_name: `agent-${String(i).padStart(2, "0")}`,
+        display_name: `Agent ${String(i).padStart(2, "0")}`,
+        cost_usd: 100 - i,
+      }),
+    );
+    renderWithProviders(<TopSpendersTable mode="agents" deployments={deployments} loading={false} />);
+
+    // Initial render: top 5 by cost desc visible, last 2 hidden.
+    expect(screen.getByText("Agent 00")).toBeInTheDocument();
+    expect(screen.getByText("Agent 04")).toBeInTheDocument();
+    expect(screen.queryByText("Agent 05")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent 06")).not.toBeInTheDocument();
+
+    const showMore = screen.getByRole("button", { name: /^Show 2 more$/ });
+    fireEvent.click(showMore);
+
+    // Expanded: all 7 visible, button toggles to "Show less".
+    expect(screen.getByText("Agent 05")).toBeInTheDocument();
+    expect(screen.getByText("Agent 06")).toBeInTheDocument();
+    const showLess = screen.getByRole("button", { name: /^Show less$/ });
+    fireEvent.click(showLess);
+
+    // AnimatePresence keeps exiting rows mounted until exit completes.
+    await waitFor(() =>
+      expect(screen.queryByText("Agent 06")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /^Show 2 more$/ })).toBeInTheDocument();
   });
 });
 
@@ -255,7 +290,7 @@ describe("TopSpendersTable users mode", () => {
     expect(midIdx).toBeLessThan(lowIdx);
   });
 
-  it("aggregates non-member rows into an Unidentified bucket pinned to the bottom", async () => {
+  it("renders an individual subtle row for each non-member", async () => {
     const { queryClient } = renderWithProviders(
       <TopSpendersTable
         mode="users"
@@ -272,14 +307,128 @@ describe("TopSpendersTable users mode", () => {
       { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
     ]);
 
-    const unidentified = await screen.findByText(/Unidentified · 2 people/);
-    expect(unidentified).toBeInTheDocument();
+    await screen.findByText("Alice Chen");
+    expect(screen.getByText("u_ext_1")).toBeInTheDocument();
+    expect(screen.getByText("u_ext_2")).toBeInTheDocument();
+    expect(screen.queryByText(/Unidentified ·/)).not.toBeInTheDocument();
 
-    // The Unidentified row should sit at the bottom (after Alice).
+    // Unidentified rows sit after the named member, sorted by spend desc.
     const allRows = screen.getAllByRole("row");
     const aliceRow = allRows.find((r) => within(r).queryByText("Alice Chen"))!;
-    const bucketRow = allRows.find((r) => within(r).queryByText(/Unidentified/))!;
-    expect(allRows.indexOf(aliceRow)).toBeLessThan(allRows.indexOf(bucketRow));
+    const ext1Row = allRows.find((r) => within(r).queryByText("u_ext_1"))!;
+    const ext2Row = allRows.find((r) => within(r).queryByText("u_ext_2"))!;
+    expect(allRows.indexOf(aliceRow)).toBeLessThan(allRows.indexOf(ext1Row));
+    expect(allRows.indexOf(ext1Row)).toBeLessThan(allRows.indexOf(ext2Row));
+  });
+
+  // Long real-row lists (named members + linked Slack users) collapse to 5
+  // rows with a "Show N more" toggle so the Insights page fits without an
+  // outer scrollbar. Unidentified rows and System spend are pinned below and
+  // not subject to the slice.
+  it("collapses long real-row lists with a Show-more toggle that expands and re-collapses", async () => {
+    // Slack-format IDs land in the "real" bucket alongside named members.
+    // SlackUserIdentity renders as "Slack user - U…" so the assertions match
+    // substring rather than exact text.
+    const users = Array.from({ length: 12 }, (_, i) =>
+      makeUserRow({ user_id: `U07ABC${String(i).padStart(2, "0")}A`, cost_usd: 12 - i }),
+    );
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    // Initial render: top 5 by spend visible, remaining 7 hidden.
+    await screen.findByText(/U07ABC00A/);
+    expect(screen.getByText(/U07ABC04A/)).toBeInTheDocument();
+    expect(screen.queryByText(/U07ABC05A/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/U07ABC11A/)).not.toBeInTheDocument();
+
+    const showMore = screen.getByRole("button", { name: /^Show 7 more$/ });
+    fireEvent.click(showMore);
+
+    // Expanded: all 12 visible, button toggles to "Show less".
+    expect(screen.getByText(/U07ABC05A/)).toBeInTheDocument();
+    expect(screen.getByText(/U07ABC11A/)).toBeInTheDocument();
+    const showLess = screen.getByRole("button", { name: /^Show less$/ });
+    fireEvent.click(showLess);
+
+    // Collapsed again — AnimatePresence keeps exiting rows in the DOM until
+    // their exit animation completes, so wait for them to leave.
+    await waitFor(() =>
+      expect(screen.queryByText(/U07ABC05A/)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /^Show 7 more$/ })).toBeInTheDocument();
+  });
+
+  it("does not render the Show-more toggle when the real-row list fits in the default window", async () => {
+    const users = Array.from({ length: 3 }, (_, i) =>
+      makeUserRow({ user_id: `U07ABC0${i}A`, cost_usd: 3 - i }),
+    );
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07ABC00A/);
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show less/ })).not.toBeInTheDocument();
+  });
+
+  // User rows (real + unidentified) compete on the same sort — cost wins
+  // regardless of identification. System spend is the only kind pinned last.
+  it("ranks unidentified rows alongside real by cost; pins System spend last", async () => {
+    const users = [
+      makeUserRow({ user_id: "U07ABC01A", cost_usd: 100 }),
+      makeUserRow({ user_id: "U07ABC02A", cost_usd: 80 }),
+      makeUserRow({ user_id: "U07ABC03A", cost_usd: 60 }),
+      // unidentified out-spends every real row → ranks #1 by cost desc.
+      makeUserRow({ user_id: "anon-top", cost_usd: 500 }),
+      makeUserRow({ user_id: "anon-low", cost_usd: 50 }),
+      // System spend out-spends everything but stays pinned at the bottom.
+      makeUserRow({ user_id: "", cost_usd: 999 }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07ABC01A/);
+    // Top 5 by cost: anon-top(500), U01(100), U02(80), U03(60), anon-low(50).
+    // System spend (999) at #6, hidden behind Show-more.
+    const visibleRows = screen
+      .getAllByRole("row")
+      .filter((r) => within(r).queryAllByRole("cell").length > 0);
+    expect(visibleRows).toHaveLength(5);
+    expect(within(visibleRows[0]).getByText("anon-top")).toBeInTheDocument();
+    expect(within(visibleRows[1]).getByText(/U07ABC01A/)).toBeInTheDocument();
+    expect(within(visibleRows[4]).getByText("anon-low")).toBeInTheDocument();
+    expect(screen.queryByText("System spend")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show 1 more$/ })).toBeInTheDocument();
+  });
+
+  it("hides everything past row 5 behind Show-more when real overflows", async () => {
+    const users = [
+      // 6 real rows so real itself overflows the top-5 cut.
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeUserRow({ user_id: `U07ABC0${i}A`, cost_usd: 100 - i }),
+      ),
+      // Unidentified + system tucked away until expansion.
+      makeUserRow({ user_id: "weird-id-1", cost_usd: 9 }),
+      makeUserRow({ user_id: "", cost_usd: 200 }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07ABC00A/);
+    // 6th real row hidden behind Show-more.
+    expect(screen.queryByText(/U07ABC05A/)).not.toBeInTheDocument();
+    // Unidentified + system also hidden — only revealed by Show-more.
+    expect(screen.queryByText("weird-id-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("System spend")).not.toBeInTheDocument();
+    // Show-more count = 1 hidden real + 1 unidentified + 1 system = 3.
+    expect(screen.getByRole("button", { name: /^Show 3 more$/ })).toBeInTheDocument();
   });
 
   it("aggregates empty user_id rows into the Unattributed bucket", async () => {
@@ -397,5 +546,99 @@ describe("TopSpendersTable users mode", () => {
     expect(screen.getByText("Slack user - U01LEGACY")).toBeInTheDocument();
     // The aggregated Unidentified bucket must NOT appear for slack ids.
     expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
+  });
+
+  // Rank column reflects position in the visible list. The expected first
+  // cell of each user row is the rank number; we filter to rows that actually
+  // contain a user id so we skip the header.
+  function rankOf(row: HTMLElement): string {
+    return within(row).getAllByRole("cell")[0]?.textContent?.trim() ?? "";
+  }
+  function userRows(): HTMLElement[] {
+    return screen.getAllByRole("row").filter((r) => /U07/.test(r.textContent ?? ""));
+  }
+
+  it("numbers the top 5 rows 1..5 in display order", async () => {
+    const users = Array.from({ length: 7 }, (_, i) =>
+      makeUserRow({ user_id: `U07RANK0${i}A`, cost_usd: 100 - i }),
+    );
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07RANK00A/);
+    const rows = userRows();
+    expect(rows).toHaveLength(5);
+    expect(rows.map(rankOf)).toEqual(["1", "2", "3", "4", "5"]);
+  });
+
+  it("continues rank numbering past 5 after Show-more expands", async () => {
+    const users = Array.from({ length: 7 }, (_, i) =>
+      makeUserRow({ user_id: `U07RANK0${i}A`, cost_usd: 100 - i }),
+    );
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07RANK00A/);
+    fireEvent.click(screen.getByRole("button", { name: /^Show 2 more$/ }));
+
+    const rows = userRows();
+    expect(rows).toHaveLength(7);
+    expect(rows.map(rankOf)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
+  });
+
+  it("re-ranks rows when the sort key changes", async () => {
+    // Cost order and requests order differ so the rank re-shuffles on toggle.
+    const users = [
+      makeUserRow({ user_id: "U07RANKAA", cost_usd: 100, requests: 1 }),
+      makeUserRow({ user_id: "U07RANKBA", cost_usd: 50, requests: 99 }),
+      makeUserRow({ user_id: "U07RANKCA", cost_usd: 75, requests: 50 }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07RANKAA/);
+    // Default sort = cost desc → AA(100) #1, CA(75) #2, BA(50) #3.
+    const beforeRows = userRows();
+    expect(within(beforeRows[0]).getByText(/U07RANKAA/)).toBeInTheDocument();
+    expect(within(beforeRows[2]).getByText(/U07RANKBA/)).toBeInTheDocument();
+    expect(beforeRows.map(rankOf)).toEqual(["1", "2", "3"]);
+
+    // Switch sort to Requests → desc → BA(99) #1, CA(50) #2, AA(1) #3.
+    fireEvent.click(screen.getByText("Requests"));
+    const afterRows = userRows();
+    expect(within(afterRows[0]).getByText(/U07RANKBA/)).toBeInTheDocument();
+    expect(within(afterRows[2]).getByText(/U07RANKAA/)).toBeInTheDocument();
+    expect(afterRows.map(rankOf)).toEqual(["1", "2", "3"]);
+  });
+
+  it("re-ranks rows when sort direction toggles", async () => {
+    const users = [
+      makeUserRow({ user_id: "U07RANKAA", cost_usd: 100 }),
+      makeUserRow({ user_id: "U07RANKBA", cost_usd: 50 }),
+      makeUserRow({ user_id: "U07RANKCA", cost_usd: 25 }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
+    );
+    seedMembers(queryClient, []);
+
+    await screen.findByText(/U07RANKAA/);
+    // Default desc → AA #1, BA #2, CA #3.
+    const descRows = userRows();
+    expect(within(descRows[0]).getByText(/U07RANKAA/)).toBeInTheDocument();
+    expect(within(descRows[2]).getByText(/U07RANKCA/)).toBeInTheDocument();
+
+    // Click Spend header → toggles to asc → CA #1, BA #2, AA #3.
+    fireEvent.click(screen.getByText("Spend"));
+    const ascRows = userRows();
+    expect(within(ascRows[0]).getByText(/U07RANKCA/)).toBeInTheDocument();
+    expect(within(ascRows[2]).getByText(/U07RANKAA/)).toBeInTheDocument();
+    expect(ascRows.map(rankOf)).toEqual(["1", "2", "3"]);
   });
 });

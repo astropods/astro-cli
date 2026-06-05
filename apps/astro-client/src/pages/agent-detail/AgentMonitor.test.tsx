@@ -354,7 +354,11 @@ describe("user expands trace list", () => {
     expect(screen.getByText(/show less/i)).toBeInTheDocument();
 
     await user.click(screen.getByText(/show less/i));
-    expect(screen.queryByText("trace-014")).not.toBeInTheDocument();
+    // AnimatePresence keeps exiting rows in the DOM until their exit
+    // animation completes — wait for them to leave.
+    await waitFor(() =>
+      expect(screen.queryByText("trace-014")).not.toBeInTheDocument(),
+    );
   });
 });
 

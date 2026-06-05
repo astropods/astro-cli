@@ -113,8 +113,8 @@ export function AgentsUsedChips({
             <BlueprintIdentity
               account={account}
               name={name}
-              size={20}
-              className={cn("size-5 rounded-full", isDeleted && "opacity-60")}
+              size={24}
+              className={cn("size-6 rounded-[3px]", isDeleted && "opacity-60")}
             />
           );
           const linkTo = dep
@@ -163,8 +163,8 @@ export function AgentsUsedChips({
                     <BlueprintIdentity
                       account={account}
                       name={name}
-                      size={16}
-                      className={cn("size-4 shrink-0 rounded-full", isDeleted && "opacity-60")}
+                      size={24}
+                      className={cn("size-6 shrink-0 rounded-[3px]", isDeleted && "opacity-60")}
                     />
                     <span className="min-w-0 flex-1 truncate">
                       {primary}

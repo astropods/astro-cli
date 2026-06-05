@@ -33,7 +33,7 @@ export function UserBadge({ userId, account, avatarOnly, linkToProfile, classNam
     const label = isLoading ? "…" : "Unknown user";
     return (
       <span
-        className={cn("truncate text-body-sm text-muted-foreground italic", className)}
+        className={cn("truncate text-muted-foreground italic", className)}
         title={userId}
       >
         {label}
@@ -61,7 +61,7 @@ export function UserBadge({ userId, account, avatarOnly, linkToProfile, classNam
   const body = (
     <>
       <UserAvatar handle={member.username} name={displayName} className="size-5" />
-      <span className="truncate text-body-sm text-foreground" title={displayName}>
+      <span className="truncate text-foreground" title={displayName}>
         {displayName}
       </span>
     </>

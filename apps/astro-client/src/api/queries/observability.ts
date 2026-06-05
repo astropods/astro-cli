@@ -35,16 +35,14 @@ export function useAccountActivitySummary(
   account: string,
   from?: string,
   to?: string,
-  opts?: { groupBy?: 'user'; enabled?: boolean; includeArchived?: boolean },
+  opts?: { groupBy?: 'user'; enabled?: boolean },
 ) {
   const groupBy = opts?.groupBy;
-  const includeArchived = opts?.includeArchived ?? false;
   return useQuery({
-    queryKey: observabilityKeys.activitySummary(account, from, to, groupBy, includeArchived),
+    queryKey: observabilityKeys.activitySummary(account, from, to, groupBy),
     queryFn: () => {
       const p = buildDateParams(from, to);
       if (groupBy) p.group_by = groupBy;
-      if (includeArchived) p.include_archived = "true";
       return api.getAccountObservabilitySummary(account, p);
     },
     enabled: (opts?.enabled ?? true) && !!account,
@@ -56,16 +54,11 @@ export function useDeploymentsSummary(
   account: string,
   from?: string,
   to?: string,
-  opts?: { enabled?: boolean; includeArchived?: boolean },
+  opts?: { enabled?: boolean },
 ) {
-  const includeArchived = opts?.includeArchived ?? false;
   return useQuery({
-    queryKey: observabilityKeys.deploymentsSummary(account, from, to, includeArchived),
-    queryFn: () => {
-      const params = buildDateParams(from, to);
-      if (includeArchived) params.include_archived = "true";
-      return api.getAccountDeploymentsSummary(account, params);
-    },
+    queryKey: observabilityKeys.deploymentsSummary(account, from, to),
+    queryFn: () => api.getAccountDeploymentsSummary(account, buildDateParams(from, to)),
     enabled: (opts?.enabled ?? true) && !!account,
     ...ACTIVITY_QUERY_OPTS,
   });

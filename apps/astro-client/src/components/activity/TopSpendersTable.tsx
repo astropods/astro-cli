@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import { AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { formatTimeAgo } from "@/lib/time-format";
 import { type AgentDeploymentRef } from "./AgentNameLink";
@@ -11,6 +11,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableShowMore,
+  AnimatedRow,
 } from "@/components/ui/table";
 import { formatCost, formatCompact, formatLatency } from "@/lib/format-utils";
 import type {
@@ -22,22 +24,22 @@ import { UsersUsedAvatars } from "./UsersUsedAvatars";
 import { UserBadge } from "@/components/UserBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, CircleUserRound, Server, TriangleAlert, Slack } from "lucide-react";
+import { Info, Server, Slack, TriangleAlert, User } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { isSlackUserId } from "./user-classification";
-
-// motion.create wraps TableRow so the agents-mode rows keep the shared
-// row chrome (data-slot, border, interactive hover state) while
-// AnimatePresence drives the opacity transition. Defined at module
-// scope per Motion's guidance — wrapping inside the component body
-// would create a new motion component on every render.
-const MotionTableRow = motion.create(TableRow);
 
 type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
 
 type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
 type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
+
+// Collapse long lists so the Insights page fits without an outer scrollbar,
+// with a "Show N more" toggle to expand. Agents and People views share the
+// same cap so the affordance reads consistently. Tighter than the Monitor
+// traces table (which uses 10) — that page is just the trace list; this one
+// stacks stat cards, charts, and the table above the fold.
+const DEFAULT_VISIBLE_ROWS = 5;
 
 function useSort<K extends string>(initial: K) {
   const [sortKey, setSortKey] = useState<K>(initial);
@@ -56,6 +58,14 @@ function sortDirFor<K extends string>(active: K, asc: boolean, col: K) {
 function formatShare(cost: number, total: number): string {
   if (total <= 0) return "—";
   return `${((cost / total) * 100).toFixed(1)}%`;
+}
+
+function RankCell({ rank }: { rank: number | null }) {
+  return (
+    <TableCell className="w-14 pr-2 text-right text-mono-sm tabular-nums text-faint-foreground">
+      {rank ?? ""}
+    </TableCell>
+  );
 }
 
 function GhostRow({ columns }: { columns: number }) {
@@ -115,6 +125,76 @@ export function TopSpendersTable(props: TopSpendersTableProps) {
 
 // ── Agents mode ──────────────────────────────────────────────────────────────
 
+function renderAgentRowContent(
+  b: DeploymentRow,
+  rank: number,
+  ctx: { denom: number; account?: string },
+) {
+  // Zero requests in the period means no traces ever landed for this
+  // deployment — usually the agent isn't sending observability data. Flag
+  // with a small warning icon so the all-zero row reads as "not instrumented"
+  // rather than "deployment did nothing".
+  const notInstrumented = b.requests === 0;
+  const label = b.display_name || b.agent_name;
+  const identityRow = (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      {ctx.account && (
+        <BlueprintIdentity
+          account={ctx.account}
+          name={b.agent_name}
+          size={20}
+          className="size-5 shrink-0 rounded-full"
+        />
+      )}
+      <span className="min-w-0 truncate text-foreground">{label}</span>
+    </span>
+  );
+  return (
+    <>
+      <RankCell rank={rank} />
+      <TableCell className="pr-4">
+        <span className="inline-flex items-center gap-1.5">
+          {ctx.account ? (
+            <Link
+              to={`/${ctx.account}/agents/${b.deployment_id}/monitor`}
+              className="inline-flex items-center hover:underline"
+            >
+              {identityRow}
+            </Link>
+          ) : (
+            identityRow
+          )}
+          {notInstrumented && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-faint-foreground" aria-label="Not instrumented">
+                    <TriangleAlert className="size-3.5" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
+                  Instrumentation not available — no requests, spend, or token data available.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </span>
+      </TableCell>
+      <TableCell>
+        <UsersUsedAvatars userIds={b.users_used ?? []} account={ctx.account ?? ""} />
+      </TableCell>
+      <TableCell className="text-right text-foreground">{formatCompact(b.requests)}</TableCell>
+      <TableCell className="text-right text-foreground">{formatCost(b.cost_usd)}</TableCell>
+      <TableCell className="text-right text-foreground">{formatShare(b.cost_usd, ctx.denom)}</TableCell>
+      <TableCell className="text-right text-foreground">{formatCost(b.cost_per_request)}</TableCell>
+      <TableCell className="text-right text-foreground">{formatCompact(b.tok_per_request)}</TableCell>
+      <TableCell className="text-right text-foreground">
+        {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
+      </TableCell>
+    </>
+  );
+}
+
 function DeploymentsTopSpenders({
   deployments,
   loading,
@@ -140,14 +220,37 @@ function DeploymentsTopSpenders({
 
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
 
+  const [expanded, setExpanded] = useState(false);
+  const stableSorted = sorted.slice(0, DEFAULT_VISIBLE_ROWS);
+  const expandableSorted = sorted.slice(DEFAULT_VISIBLE_ROWS);
+  const hiddenCount = expandableSorted.length;
+  // Filtering down to a list that fits in the top-N invalidates an
+  // outstanding expanded state — reset so the next overflow starts collapsed.
+  useEffect(() => {
+    if (hiddenCount <= 0 && expanded) setExpanded(false);
+  }, [hiddenCount, expanded]);
+
   return (
-    <Table header={panelHeader}>
+    <Table
+      header={panelHeader}
+      containerClassName="bg-card dark:bg-surface"
+      footer={
+        hiddenCount > 0 ? (
+          <TableShowMore
+            hiddenCount={hiddenCount}
+            expanded={expanded}
+            onToggle={() => setExpanded((e) => !e)}
+          />
+        ) : undefined
+      }
+    >
       <TableHeader>
         <TableRow>
+          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
           <TableHead>{groupLabel}</TableHead>
-          <TableHead>People</TableHead>
+          <TableHead>Used by</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
-          <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Total Spend</TableHead>
+          <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
           <TableHead sortable sortDirection={dir("cost_per_request")} onSort={() => handleSort("cost_per_request")} className="text-right">Spend/Req</TableHead>
           <TableHead sortable sortDirection={dir("tok_per_request")} onSort={() => handleSort("tok_per_request")} className="text-right">Tok/Req</TableHead>
@@ -156,145 +259,27 @@ function DeploymentsTopSpenders({
       </TableHeader>
       <TableBody>
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={9} />)
         ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={9} className="py-10 text-center text-body-sm text-faint-foreground">
               No deployment activity in this period
             </TableCell>
           </TableRow>
         ) : (
-          // AnimatePresence handles the "Show deleted" toggle smoothly:
-          // rows fade in/out instead of snapping. initial={false} prevents
-          // the first mount of the table from animating (only subsequent
-          // membership changes do). Live rows keep their identity across
-          // toggles since the key (deployment_id) is stable, so only the
-          // archived rows actually animate.
-          <AnimatePresence initial={false}>
-          {sorted.map((b) => {
-            // Zero requests in the period means no traces ever landed for
-            // this deployment — usually the agent isn't sending observability
-            // data. Flag with a small warning icon so the all-zero row reads
-            // as "not instrumented" rather than "deployment did nothing".
-            const notInstrumented = b.requests === 0;
-            // Archived deployments still surface in the table when the user
-            // toggles "Show archived". The backend's `is_archived` flag is
-            // the source of truth — `undeployed_at` can be nil even on
-            // archived rows (e.g. status='undeploying' mid-tear-down), so
-            // checking the date alone misses tombstones.
-            const isDeleted = !!b.is_archived;
-            const label = b.display_name || b.agent_name;
-            // The muted avatar + grayed text is enough to read as a
-            // tombstone row — no status dot needed. Hovering the identity
-            // unit still surfaces the deletion date via the tooltip
-            // wrapper below. Date includes the year because deletions can
-            // be years old and an unqualified "Apr 10" reads ambiguously.
-            const deletedTooltipLabel = b.undeployed_at
-              ? `Deleted ${new Date(b.undeployed_at).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  timeZone: "UTC",
-                })}`
-              : "Deleted";
-            const identityRow = (
-              <span className="inline-flex min-w-0 items-center gap-2">
-                {account && (
-                  <BlueprintIdentity
-                    account={account}
-                    name={b.agent_name}
-                    size={20}
-                    className={cn("size-5 shrink-0 rounded-full", isDeleted && "opacity-60")}
-                  />
-                )}
-                <span
-                  className={cn(
-                    "min-w-0 truncate font-medium",
-                    isDeleted ? "text-muted-foreground" : "text-foreground",
-                  )}
-                >
-                  {label}
-                </span>
-              </span>
-            );
-            const nameNode = isDeleted ? (
-              <TooltipProvider delayDuration={150}>
-                <Tooltip>
-                  <TooltipTrigger asChild>{identityRow}</TooltipTrigger>
-                  <TooltipContent side="top">{deletedTooltipLabel}</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              identityRow
-            );
-            // Live rows deep-link to their deployment's Monitor tab — rows
-            // are per-deployment, so the Monitor view is the most direct
-            // landing target. Deleted rows render a non-interactive span
-            // (the deployment is gone; a click would 404).
-            return (
-              <MotionTableRow
-                key={b.deployment_id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                <TableCell className="pr-4">
-                  <span className="inline-flex items-center gap-1.5">
-                    {account && !isDeleted ? (
-                      <Link
-                        to={`/${account}/agents/${b.deployment_id}/monitor`}
-                        className="inline-flex items-center hover:underline"
-                      >
-                        {nameNode}
-                      </Link>
-                    ) : (
-                      nameNode
-                    )}
-                    {notInstrumented && !isDeleted && (
-                      <TooltipProvider delayDuration={200}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className="text-faint-foreground"
-                              aria-label="Not instrumented"
-                            >
-                              <TriangleAlert className="size-3.5" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
-                            Instrumentation not available — no requests, spend, or token data available.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </span>
-                </TableCell>
-                <TableCell className={cn(isDeleted && "opacity-60")}>
-                  <UsersUsedAvatars userIds={b.users_used ?? []} account={account ?? ""} />
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {formatCompact(b.requests)}
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {formatCost(b.cost_usd)}
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {formatShare(b.cost_usd, denom)}
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {formatCost(b.cost_per_request)}
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {formatCompact(b.tok_per_request)}
-                </TableCell>
-                <TableCell className={cn("text-right", isDeleted ? "text-muted-foreground" : "text-foreground")}>
-                  {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
-                </TableCell>
-              </MotionTableRow>
-            );
-          })}
-          </AnimatePresence>
+          <>
+            {stableSorted.map((b, i) => (
+              <TableRow key={b.deployment_id}>{renderAgentRowContent(b, i + 1, { denom, account })}</TableRow>
+            ))}
+            <AnimatePresence initial={false}>
+              {expanded &&
+                expandableSorted.map((b, i) => (
+                  <AnimatedRow key={b.deployment_id} index={i}>
+                    {renderAgentRowContent(b, DEFAULT_VISIBLE_ROWS + i + 1, { denom, account })}
+                  </AnimatedRow>
+                ))}
+            </AnimatePresence>
+          </>
         )}
       </TableBody>
     </Table>
@@ -382,6 +367,64 @@ function MetricsCells({
   );
 }
 
+type UserDisplayItem =
+  | { kind: "real"; row: UserRow }
+  | { kind: "unidentified"; row: UserRow }
+  | { kind: "system"; agg: Aggregate };
+
+function userItemKey(d: UserDisplayItem): string {
+  if (d.kind === "system") return "__system_spend__";
+  // Composite key — guards against a theoretical collision where the same
+  // user_id ends up in both buckets (e.g. classification change mid-render).
+  return `${d.kind}:${d.row.user_id}`;
+}
+
+function renderUserRowContent(
+  d: UserDisplayItem,
+  rank: number,
+  ctx: {
+    denom: number;
+    memberIds: Set<string>;
+    account: string;
+    deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
+  },
+) {
+  if (d.kind === "unidentified") {
+    return (
+      <UnidentifiedUserCells
+        rank={rank}
+        user={d.row}
+        totalCost={ctx.denom}
+        deploymentsByAgent={ctx.deploymentsByAgent}
+      />
+    );
+  }
+  if (d.kind === "system") {
+    return (
+      <SystemSpendCells
+        rank={rank}
+        agg={d.agg}
+        totalCost={ctx.denom}
+        deploymentsByAgent={ctx.deploymentsByAgent}
+      />
+    );
+  }
+  const u = d.row;
+  return (
+    <>
+      <RankCell rank={rank} />
+      <TableCell className="pr-4">
+        {ctx.memberIds.has(u.user_id) ? (
+          <UserBadge userId={u.user_id} account={ctx.account} linkToProfile />
+        ) : (
+          <SlackUserIdentity uid={u.user_id} teamId={u.slack_team_id} />
+        )}
+      </TableCell>
+      <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
+    </>
+  );
+}
+
 function UsersTopSpenders({
   users,
   account,
@@ -410,8 +453,12 @@ function UsersTopSpenders({
   //     member sorts above them — the row label differentiates them
   //     visually (UserBadge vs SlackUserIdentity).
   //   - unidentified: everything else that isn't empty (rare; arbitrary
-  //     trace user_ids agents may emit). Stays aggregated.
+  //     trace user_ids agents may emit). Rendered per-row with a soft
+  //     circle + mono user_id.
   //   - unattributed: empty user_id. Stays aggregated (system spend).
+  // Bucketize only — the displayItems memo below merges real + unidentified
+  // and applies the active sort key. Doing the sort there avoids duplicating
+  // it per bucket here.
   const { rows, unidentified, unattributed } = useMemo(() => {
     const realRows: UserRow[] = [];
     const unidentifiedRows: UserRow[] = [];
@@ -421,36 +468,75 @@ function UsersTopSpenders({
       else if (memberIds.has(u.user_id) || isSlackUserId(u.user_id)) realRows.push(u);
       else unidentifiedRows.push(u);
     }
-    realRows.sort((a, b) => {
-      const diff = userSortValue(a, sortKey) - userSortValue(b, sortKey);
-      return asc ? diff : -diff;
-    });
     return {
       rows: realRows,
-      unidentified: aggregateUsers(unidentifiedRows),
+      unidentified: unidentifiedRows,
       unattributed: aggregateUsers(unattributedRows),
     };
-  }, [users, memberIds, sortKey, asc]);
+  }, [users, memberIds]);
 
   const dir = (col: UserSortKey) => sortDirFor(sortKey, asc, col);
-  const totalRows = rows.length + (unidentified ? 1 : 0) + (unattributed ? 1 : 0);
+  const totalRows = rows.length + unidentified.length + (unattributed ? 1 : 0);
   // Fall back to a self-computed sum when the caller hasn't wired a stable
   // denominator. The fallback derives from the filtered rows + buckets, so
   // search interactions will re-base the percentages — same caveat as the
   // agents-mode branch.
   const denom = totalCost ?? (
     rows.reduce((s, u) => s + u.cost_usd, 0) +
-    (unidentified?.metrics.cost_usd ?? 0) +
+    unidentified.reduce((s, u) => s + u.cost_usd, 0) +
     (unattributed?.metrics.cost_usd ?? 0)
   );
 
+  // All user rows compete on the same sort — cost (or whichever key is
+  // active) wins regardless of identification, so a high-spend unidentified
+  // user_id can rank above named members. System spend is the only kind
+  // pinned last; it's an aggregate, not a user, so it sits outside the
+  // ranking competition. Slice top 5 across the merged list, Show-more
+  // reveals the rest.
+  const [expanded, setExpanded] = useState(false);
+  const displayItems: UserDisplayItem[] = useMemo(() => {
+    type UserItem = { kind: "real" | "unidentified"; row: UserRow };
+    const userItems: UserItem[] = [
+      ...rows.map((row) => ({ kind: "real" as const, row })),
+      ...unidentified.map((row) => ({ kind: "unidentified" as const, row })),
+    ];
+    userItems.sort((a, b) => {
+      const diff = userSortValue(a.row, sortKey) - userSortValue(b.row, sortKey);
+      return asc ? diff : -diff;
+    });
+    return unattributed
+      ? [...userItems, { kind: "system" as const, agg: unattributed }]
+      : userItems;
+  }, [rows, unidentified, unattributed, sortKey, asc]);
+  const stableDisplay = displayItems.slice(0, DEFAULT_VISIBLE_ROWS);
+  const hiddenItems = displayItems.slice(DEFAULT_VISIBLE_ROWS);
+  const hiddenCount = hiddenItems.length;
+  // Filtering down to a list that fits in the top-N invalidates an
+  // outstanding expanded state — reset so the next overflow starts collapsed.
+  useEffect(() => {
+    if (hiddenCount <= 0 && expanded) setExpanded(false);
+  }, [hiddenCount, expanded]);
+
   return (
-    <Table header={panelHeader}>
+    <Table
+      header={panelHeader}
+      containerClassName="bg-card dark:bg-surface"
+      footer={
+        hiddenCount > 0 ? (
+          <TableShowMore
+            hiddenCount={hiddenCount}
+            expanded={expanded}
+            onToggle={() => setExpanded((e) => !e)}
+          />
+        ) : undefined
+      }
+    >
       <TableHeader>
         <TableRow>
+          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
           <TableHead>Name</TableHead>
           <TableHead>Agents Used</TableHead>
-          <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Total Spend</TableHead>
+          <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("tokens")} onSort={() => handleSort("tokens")} className="text-right">Tokens</TableHead>
@@ -459,29 +545,38 @@ function UsersTopSpenders({
       </TableHeader>
       <TableBody>
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
         ) : totalRows === 0 ? (
           <TableRow>
-            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
               No activity from people in this period
             </TableCell>
           </TableRow>
         ) : (
           <>
-            {rows.map((u) => (
-              <TableRow key={u.user_id}>
-                <TableCell className="pr-4">
-                  {memberIds.has(u.user_id) ? (
-                    <UserBadge userId={u.user_id} account={account} linkToProfile />
-                  ) : (
-                    <SlackUserIdentity uid={u.user_id} teamId={u.slack_team_id} />
-                  )}
-                </TableCell>
-                <MetricsCells row={u} totalCost={denom} deploymentsByAgent={deploymentsByAgent} />
+            {stableDisplay.map((d, i) => (
+              <TableRow key={userItemKey(d)}>
+                {renderUserRowContent(d, i + 1, {
+                  denom,
+                  memberIds,
+                  account,
+                  deploymentsByAgent,
+                })}
               </TableRow>
             ))}
-            {unidentified && <BucketRow variant="unidentified" agg={unidentified} totalCost={denom} deploymentsByAgent={deploymentsByAgent} />}
-            {unattributed && <BucketRow variant="unattributed" agg={unattributed} totalCost={denom} deploymentsByAgent={deploymentsByAgent} />}
+            <AnimatePresence initial={false}>
+              {expanded &&
+                hiddenItems.map((d, i) => (
+                  <AnimatedRow key={userItemKey(d)} index={i}>
+                    {renderUserRowContent(d, stableDisplay.length + i + 1, {
+                      denom,
+                      memberIds,
+                      account,
+                      deploymentsByAgent,
+                    })}
+                  </AnimatedRow>
+                ))}
+            </AnimatePresence>
           </>
         )}
       </TableBody>
@@ -489,11 +584,74 @@ function UsersTopSpenders({
   );
 }
 
-interface BucketRowProps {
-  variant: "unidentified" | "unattributed";
+function UnidentifiedUserCells({
+  rank,
+  user,
+  totalCost,
+  deploymentsByAgent,
+}: {
+  rank: number;
+  user: UserRow;
+  totalCost: number;
+  deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
+}) {
+  return (
+    <>
+      <RankCell rank={rank} />
+      <TableCell className="pr-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            aria-hidden
+          >
+            <User className="size-3" strokeWidth={1.75} />
+          </span>
+          <span
+            className="truncate text-mono-sm text-foreground"
+            title={user.user_id}
+          >
+            {user.user_id}
+          </span>
+        </div>
+      </TableCell>
+      <MetricsCells row={user} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
+    </>
+  );
+}
+
+function SystemSpendCells({
+  rank,
+  agg,
+  totalCost,
+  deploymentsByAgent,
+}: {
+  rank: number;
   agg: Aggregate;
   totalCost: number;
   deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
+}) {
+  return (
+    <>
+      <RankCell rank={rank} />
+      <TableCell className="pr-4">
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+                <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                System spend
+                <Info className="size-3 text-muted-foreground" aria-hidden />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
+              Traces not associated with any user — typically background jobs, system tasks, or SDK calls that didn't forward a user identifier.
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </TableCell>
+      <MetricsCells row={agg.metrics} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
+    </>
+  );
 }
 
 // SlackUserIdentity renders the per-row label for an unlinked Slack user.
@@ -510,12 +668,10 @@ function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
   const deepLink = teamId ? `slack://user?team=${teamId}&id=${uid}` : undefined;
 
   const body = (
-    <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+    <>
       <Slack className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      <span className={cn("truncate", deepLink && "hover:underline")}>
-        Slack user - {display}
-      </span>
-    </span>
+      <span className="truncate">Slack user - {display}</span>
+    </>
   );
 
   return (
@@ -523,11 +679,17 @@ function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
       <Tooltip>
         <TooltipTrigger asChild>
           {deepLink ? (
-            <a href={deepLink} rel="noreferrer" className="inline-flex">
+            <a
+              href={deepLink}
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-body-sm text-foreground hover:underline"
+            >
               {body}
             </a>
           ) : (
-            body
+            <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+              {body}
+            </span>
           )}
         </TooltipTrigger>
         <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
@@ -537,38 +699,5 @@ function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
-  );
-}
-
-function BucketRow({ variant, agg, totalCost, deploymentsByAgent }: BucketRowProps) {
-  const isUnidentified = variant === "unidentified";
-  const label = isUnidentified
-    ? `Unidentified · ${agg.count} ${agg.count === 1 ? "person" : "people"}`
-    : "System spend";
-  const tooltipText = isUnidentified
-    ? "Traces with user identifiers we don't recognize — typically custom agent integrations or direct SDK calls that emit non-WorkOS, non-Slack ids."
-    : "Traces not associated with any user — typically background jobs, system tasks, or SDK calls that didn't forward a user identifier.";
-  return (
-    <TableRow>
-      <TableCell className="pr-4">
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
-                {isUnidentified ? (
-                  <CircleUserRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                ) : (
-                  <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                )}
-                {label}
-                <Info className="size-3 text-muted-foreground" aria-hidden />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">{tooltipText}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </TableCell>
-      <MetricsCells row={agg.metrics} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
-    </TableRow>
   );
 }

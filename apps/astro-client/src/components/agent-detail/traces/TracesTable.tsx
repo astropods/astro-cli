@@ -1,9 +1,11 @@
-import { useState, useMemo } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UserBadge } from "@/components/UserBadge";
+import { AnimatePresence } from "motion/react";
+import { TableShowMore, AnimatedRow } from "@/components/ui/table";
 import {
   MultiSelect,
   MultiSelectTrigger,
@@ -29,6 +31,47 @@ const STATUS_OPTIONS = ALL_STATUSES.map((s) => ({
   label: STATUS_CONFIG[s].label,
 }));
 const DEFAULT_VISIBLE = 10;
+
+const TRACE_ROW_CLASS = "group cursor-pointer border-b border-border/30 transition-colors";
+const TRACE_ROW_SELECTED = "bg-black/3 dark:bg-white/4";
+const TRACE_ROW_HOVER = "hover:bg-black/2 dark:hover:bg-white/3";
+
+function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string }) {
+  const status = normalizeStatus(trace.status);
+  const cfg = STATUS_CONFIG[status];
+  return (
+    <>
+      <td className="whitespace-nowrap px-4 py-2.5 text-body-sm text-foreground">
+        {formatTimestamp(trace.timestamp)}
+      </td>
+      <td className="px-4 py-2.5">
+        <StatusBadge color={STATUS_BADGE_COLOR[status]}>{cfg.label}</StatusBadge>
+      </td>
+      <td className="max-w-[180px] px-4 py-2.5">
+        <UserBadge userId={trace.user_id} account={account} />
+      </td>
+      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-foreground">
+        {formatLatency(trace.latency_ms)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-muted-foreground">
+        {formatCost(trace.total_cost)}
+      </td>
+      <td className="px-4 py-2.5">
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-body-sm text-muted-foreground">
+            {trace.trace_id}
+          </span>
+          <CopyButton
+            copyText={trace.trace_id}
+            title="Copy trace ID"
+            className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            iconClassName="size-3"
+          />
+        </span>
+      </td>
+    </>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Table
@@ -60,8 +103,14 @@ export function TracesTable({
     [traces, selectedStatuses],
   );
 
-  const visible = expanded ? filtered : filtered.slice(0, DEFAULT_VISIBLE);
-  const hiddenCount = filtered.length - DEFAULT_VISIBLE;
+  const stableTraces = filtered.slice(0, DEFAULT_VISIBLE);
+  const expandableTraces = filtered.slice(DEFAULT_VISIBLE);
+  const hiddenCount = expandableTraces.length;
+  // Filtering down to a list that fits in the visible window invalidates an
+  // outstanding expanded state — reset so the next overflow starts collapsed.
+  useEffect(() => {
+    if (hiddenCount <= 0 && expanded) setExpanded(false);
+  }, [hiddenCount, expanded]);
 
   return (
     <div
@@ -113,73 +162,44 @@ export function TracesTable({
                 </tr>
               </thead>
               <tbody>
-                {visible.map((trace) => {
-                  const status = normalizeStatus(trace.status);
-                  const cfg = STATUS_CONFIG[status];
+                {stableTraces.map((trace) => {
                   const isSelected = trace.trace_id === selectedTraceId;
                   return (
                     <tr
                       key={trace.trace_id}
                       onClick={() => onSelectTrace?.(trace)}
-                      className={cn(
-                        "group cursor-pointer border-b border-border/30 transition-colors",
-                        isSelected
-                          ? "bg-black/3 dark:bg-white/4"
-                          : "hover:bg-black/2 dark:hover:bg-white/3",
-                      )}
+                      className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
                     >
-                      <td className="whitespace-nowrap px-4 py-2.5 text-body-sm text-foreground">
-                        {formatTimestamp(trace.timestamp)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <StatusBadge color={STATUS_BADGE_COLOR[status]}>
-                          {cfg.label}
-                        </StatusBadge>
-                      </td>
-                      <td className="max-w-[180px] px-4 py-2.5">
-                        <UserBadge userId={trace.user_id} account={account} />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-foreground">
-                        {formatLatency(trace.latency_ms)}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-muted-foreground">
-                        {formatCost(trace.total_cost)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="flex items-center gap-2">
-                          <span className="font-mono text-body-sm text-muted-foreground">
-                            {trace.trace_id}
-                          </span>
-                          <CopyButton
-                            copyText={trace.trace_id}
-                            title="Copy trace ID"
-                            className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                            iconClassName="size-3"
-                          />
-                        </span>
-                      </td>
+                      <TraceRowCells trace={trace} account={account} />
                     </tr>
                   );
                 })}
+                <AnimatePresence initial={false}>
+                  {expanded &&
+                    expandableTraces.map((trace, i) => {
+                      const isSelected = trace.trace_id === selectedTraceId;
+                      return (
+                        <AnimatedRow
+                          key={trace.trace_id}
+                          index={i}
+                          onClick={() => onSelectTrace?.(trace)}
+                          className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
+                        >
+                          <TraceRowCells trace={trace} account={account} />
+                        </AnimatedRow>
+                      );
+                    })}
+                </AnimatePresence>
               </tbody>
             </table>
           </div>
 
-          {/* Expand / collapse */}
-          {hiddenCount > 0 && (
-            <button
-              onClick={() => setExpanded((e) => !e)}
-              className="flex w-full items-center justify-center gap-1.5 py-3 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ChevronDown
-                className={cn(
-                  "size-3.5 transition-transform",
-                  expanded && "rotate-180",
-                )}
-              />
-              {expanded ? "Show less" : `Show ${hiddenCount} more`}
-            </button>
-          )}
+          <TableShowMore
+            hiddenCount={hiddenCount}
+            expanded={expanded}
+            onToggle={() => setExpanded((e) => !e)}
+          />
+
         </>
       )}
     </div>

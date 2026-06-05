@@ -1,4 +1,6 @@
 import * as React from "react"
+import { ChevronDown } from "lucide-react"
+import { motion } from "motion/react"
 
 import { cn } from "@/lib/utils"
 
@@ -7,6 +9,7 @@ function Table({
   containerClassName,
   children,
   header,
+  footer,
   bare,
   ...props
 }: React.ComponentProps<"table"> & {
@@ -16,6 +19,9 @@ function Table({
    *  Separated from the table by a thin border so the chrome reads as one
    *  unified card without nesting a second border. */
   header?: React.ReactNode;
+  /** Optional content rendered inside the bordered container, below the
+   *  table — used for pagination affordances like <TableShowMore />. */
+  footer?: React.ReactNode;
   /** Drop the rounded-card chrome (outer border + rounded corners +
    *  overflow clip) so the table flows in the page surface. The header
    *  row + per-row border-b still render. */
@@ -43,15 +49,79 @@ function Table({
           {children}
         </table>
       </div>
+      {footer && (
+        <div
+          data-slot="table-footer-bar"
+          className={cn(!bare && "border-t border-border")}
+        >
+          {footer}
+        </div>
+      )}
     </div>
   )
+}
+
+// Reveal animation for rows uncovered by <TableShowMore /> — fades + slides
+// in with a small stagger so the eye can follow the order, then exits
+// quickly on collapse. Wrap a group of `<AnimatedRow>` children in
+// `<AnimatePresence initial={false}>` so the first render doesn't animate
+// (we only want motion for the user-triggered expand/collapse).
+function AnimatedRow({
+  index,
+  className,
+  children,
+  ...rest
+}: { index: number } & React.ComponentProps<typeof motion.tr>) {
+  return (
+    <motion.tr
+      data-slot="table-row"
+      className={cn("border-b border-border last:border-b-0", className)}
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.18, delay: index * 0.02, ease: "easeOut" }}
+      {...rest}
+    >
+      {children}
+    </motion.tr>
+  );
+}
+
+function TableShowMore({
+  hiddenCount,
+  expanded,
+  onToggle,
+  className,
+}: {
+  hiddenCount: number;
+  expanded: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  if (hiddenCount <= 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(
+        "flex w-full items-center justify-center gap-1.5 py-3 text-mono-sm text-muted-foreground transition-colors hover:text-foreground",
+        className,
+      )}
+    >
+      <ChevronDown
+        aria-hidden
+        className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+      />
+      {expanded ? "Show less" : `Show ${hiddenCount} more`}
+    </button>
+  );
 }
 
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("bg-muted border-b border-border", className)}
+      className={cn("bg-muted/40 dark:bg-muted border-b border-border", className)}
       {...props}
     />
   )
@@ -123,7 +193,7 @@ function TableHead({
     <th
       data-slot="table-head"
       className={cn(
-        "px-4 py-2 text-left text-body-sm font-medium text-muted-foreground",
+        "px-4 py-2 align-bottom text-left text-body-sm font-medium text-muted-foreground md:align-middle",
         sortable && "cursor-pointer select-none transition-colors hover:text-foreground",
         className,
       )}
@@ -181,4 +251,6 @@ export {
   TableHead,
   TableCell,
   TableCaption,
+  TableShowMore,
+  AnimatedRow,
 }

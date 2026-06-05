@@ -1,6 +1,6 @@
 import { useId, useMemo } from "react";
 import { Link } from "react-router";
-import { CircleUserRound, Server, Slack } from "lucide-react";
+import { Server, Slack, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
 import type { AccountMember } from "@/lib/api";
@@ -81,16 +81,21 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
         {visible.map((c) => {
           const avatarNode =
             c.kind === "slack" ? (
-              <Slack className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <Slack className="size-6 shrink-0 text-muted-foreground" aria-hidden />
             ) : c.kind === "unidentified" ? (
-              <CircleUserRound className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <span
+                className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                aria-hidden
+              >
+                <User className="size-3.5" strokeWidth={1.75} />
+              </span>
             ) : c.kind === "unattributed" ? (
-              <Server className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+              <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
             ) : (
               <UserAvatar
                 handle={c.member?.username ?? c.uid}
                 name={c.primary}
-                className="size-5"
+                className="size-6"
               />
             );
           return (
@@ -120,19 +125,31 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
               const rowBody = (
                 <>
                   {c.kind === "slack" ? (
-                    <Slack className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <Slack className="size-6 shrink-0 text-muted-foreground" aria-hidden />
                   ) : c.kind === "unidentified" ? (
-                    <CircleUserRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                      aria-hidden
+                    >
+                      <User className="size-3.5" strokeWidth={1.75} />
+                    </span>
                   ) : c.kind === "unattributed" ? (
-                    <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
                   ) : (
                     <UserAvatar
                       handle={c.member?.username ?? c.uid}
                       name={c.primary}
-                      className="size-4 shrink-0"
+                      className="size-6 shrink-0"
                     />
                   )}
-                  <span className="min-w-0 truncate">{c.primary}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      c.kind === "unidentified" && "font-mono text-mono-sm",
+                    )}
+                  >
+                    {c.primary}
+                  </span>
                 </>
               );
               return (

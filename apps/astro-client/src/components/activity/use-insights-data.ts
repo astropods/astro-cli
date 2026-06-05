@@ -263,25 +263,19 @@ interface UseInsightsDataOpts {
   account: string;
   range: ActivityRange;
   enabled?: boolean;
-  /** When true, the deployments-summary fetch includes soft-deleted
-   *  deployments that had Langfuse traces in the window. Drives the
-   *  "Show archived agents" toggle — flipping it triggers a new fetch
-   *  via the cache key. */
-  includeArchived?: boolean;
 }
 
 export function useInsightsData({
   account,
   range,
   enabled = true,
-  includeArchived = false,
 }: UseInsightsDataOpts) {
   // Always fetch all-time deployments; everything below derives from that
   // single source via client-side slicing. The account summary endpoint
   // used to be a fallback for displaySummary — dropped because the
   // deployments data carries everything we need and the fallback path is
   // now a static zero-state.
-  const deploymentsQ = useDeploymentsSummary(account, undefined, undefined, { enabled, includeArchived });
+  const deploymentsQ = useDeploymentsSummary(account, undefined, undefined, { enabled });
 
   const deploymentsAll = deploymentsQ.data;
   const deploymentsLoading = deploymentsQ.isLoading;
@@ -522,13 +516,12 @@ export interface ActiveSpendPoint {
 export function useActiveSpendSeries(
   account: string,
   range: ActivityRange,
-  opts?: { enabled?: boolean; includeArchived?: boolean },
+  opts?: { enabled?: boolean },
 ): { data: ActiveSpendPoint[]; isLoading: boolean; metricsUnavailable: boolean } {
   // All-time fetch — no from/to.
   const summaryQ = useAccountActivitySummary(account, undefined, undefined, {
     groupBy: "user",
     enabled: opts?.enabled ?? true,
-    includeArchived: opts?.includeArchived ?? false,
   });
 
   const data = useMemo<ActiveSpendPoint[]>(() => {
