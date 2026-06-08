@@ -8,12 +8,12 @@ Set one line in your spec and your agent gets a managed API key for calling supp
 
 ## Quick start
 
-Add `ai_gateway: true` to your agent in `astropods.yml`:
+Add `astro_ai_gateway: true` to your agent in `astropods.yml`:
 
 ```yaml
 agent:
   image: my-agent:latest
-  ai_gateway: true
+  astro_ai_gateway: true
 ```
 
 On `ast deploy` (and `ast dev`), your agent container receives two environment variables:
@@ -131,12 +131,12 @@ Run `ast login` first if you haven't — the gateway is account-scoped, so the C
 
 ## Mixing with your own keys
 
-`ai_gateway: true` is independent of any `models` you declare. You can use the gateway for some calls and your own provider key for others:
+`astro_ai_gateway: true` is independent of any `models` you declare. You can use the gateway for some calls and your own provider key for others:
 
 ```yaml
 agent:
   image: my-agent:latest
-  ai_gateway: true        # gateway-managed models
+  astro_ai_gateway: true        # gateway-managed models
 models:
   custom-fine-tune:
     provider: openai      # your own OpenAI key for a specific use case
