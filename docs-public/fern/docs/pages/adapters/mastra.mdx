@@ -1,0 +1,145 @@
+---
+title: Mastra adapter
+subtitle: Connect a Mastra Agent to the Astro runtime with one line
+slug: adapters/mastra
+---
+
+[`@astropods/adapter-mastra`](https://www.npmjs.com/package/@astropods/adapter-mastra) wraps a [Mastra](https://mastra.ai) `Agent` and connects it to the Astro messaging sidecar. It translates Mastra's `fullStream` chunks into the shared `StreamHooks` lifecycle, wires STT/TTS through Mastra's `voice` provider, and auto-configures OTEL tracing when an exporter endpoint is set.
+
+## Install
+
+```bash
+bun add @astropods/adapter-mastra
+# or: npm install @astropods/adapter-mastra
+```
+
+Requires `@mastra/core >= 1.14.0` as a peer dependency.
+
+## Quick start
+
+```typescript
+import { Agent } from '@mastra/core/agent';
+import { serve } from '@astropods/adapter-mastra';
+
+const agent = new Agent({
+  name: 'My Agent',
+  instructions: 'You are a helpful assistant.',
+  model: 'openai/gpt-4o',
+});
+
+serve(agent);
+```
+
+`serve(agent)` connects to the messaging sidecar at `localhost:9090` (or `GRPC_SERVER_ADDR`) and runs until the process exits. Under `ast dev` and in production the address is injected for you.
+
+## API
+
+### `serve(agent, options?)`
+
+Connects a Mastra `Agent` to the messaging service and starts listening.
+
+| Parameter | Type                          | Required | Notes                                                                    |
+| --------- | ----------------------------- | -------- | ------------------------------------------------------------------------ |
+| `agent`   | `Agent` (from `@mastra/core`) | yes      | A Mastra Agent. Must have at least `name`, `model`, and `instructions`.  |
+| `options` | `ServeOptions`                | no       | Overrides for the underlying `MessagingBridge`.                          |
+
+**`ServeOptions`**
+
+| Field           | Type   | Default                                            | Notes                              |
+| --------------- | ------ | -------------------------------------------------- | ---------------------------------- |
+| `serverAddress` | string | `process.env.GRPC_SERVER_ADDR \|\| 'localhost:9090'` | Override the messaging gRPC address. |
+
+### `MastraAdapter`
+
+The class behind `serve()`. Use it directly if you need custom lifecycle control:
+
+```typescript
+import { MastraAdapter } from '@astropods/adapter-mastra';
+import { serve } from '@astropods/adapter-core';
+
+serve(new MastraAdapter(agent));
+```
+
+## How Mastra chunks map to hooks
+
+| Mastra `fullStream` chunk             | Hook call                                                              |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| `text-delta`                          | `onChunk(payload.text)`                                                |
+| `reasoning-start`                     | `onStatusUpdate({ status: 'THINKING' })`                               |
+| `reasoning-end`                       | `onStatusUpdate({ status: 'GENERATING' })`                             |
+| `tool-call-input-streaming-start`     | `onStatusUpdate({ status: 'PROCESSING', customMessage: 'Running <tool>' })` |
+| `tool-call-input-streaming-end`       | `onStatusUpdate({ status: 'ANALYZING', customMessage: 'Finished <tool>' })` |
+| `finish`                              | `onFinish()`                                                           |
+| `error`                               | `onError(err)`                                                         |
+
+Other chunk types are ignored. Add new mappings by subclassing `MastraAdapter` and overriding `stream()` if you need custom behavior.
+
+## Memory
+
+The adapter passes per-request context into Mastra's memory and tracing, so conversation memory and per-user traces work out of the box. The Mastra memory `thread` is set to the conversation ID and `resource` is set to the user ID — no extra wiring needed.
+
+## Voice (STT + TTS)
+
+If the wrapped `Agent` has a `voice` provider configured, the adapter handles audio messages automatically:
+
+| Step | Action                                                                |
+| ---- | --------------------------------------------------------------------- |
+| 1    | Receive `audio_config` + `audio_chunk`s from the messaging sidecar.   |
+| 2    | Call `voice.listen(audioStream, { filetype })` for STT.               |
+| 3    | Send the transcript back so the platform updates the placeholder.    |
+| 4    | Run `agent.stream(transcript, ...)` to generate the reply.            |
+| 5    | If `voice.speak` exists, synthesize TTS and stream audio chunks back. |
+
+`filetype` is derived from the incoming `AudioStreamConfig.encoding` (see [Messaging SDK — Audio](../messaging-sdk/node#audio)).
+
+To enable voice, configure a Mastra `voice` provider when constructing the agent (see Mastra's voice docs). If `voice` is absent, audio messages are rejected with a friendly error.
+
+## Tracing
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically wires Mastra observability so every LLM call and tool invocation produces a trace span. No code changes needed — Astro sets the env var on deployed agents.
+
+## Example: an agent with tools
+
+```typescript
+import { Agent } from '@mastra/core/agent';
+import { createTool } from '@mastra/core/tools';
+import { serve } from '@astropods/adapter-mastra';
+import { z } from 'zod';
+
+const lookup = createTool({
+  id: 'customer_lookup',
+  description: 'Look up a customer by ID',
+  inputSchema: z.object({ id: z.string() }),
+  execute: async ({ context }) => {
+    return await fetch(`https://api.example.com/customers/${context.id}`).then(r => r.json());
+  },
+});
+
+const agent = new Agent({
+  name: 'Support Agent',
+  instructions: 'Help the user troubleshoot. Use customer_lookup when you need account details.',
+  model: 'anthropic/claude-sonnet-4-6',
+  tools: { lookup },
+});
+
+serve(agent);
+```
+
+Tool names and descriptions show up in the playground via `getConfig()`. When a tool runs, the user sees `Running customer_lookup` → `Finished customer_lookup` as a status indicator.
+
+## Local development
+
+```bash
+ast dev project start
+```
+
+`ast dev` runs the messaging sidecar on `localhost:9090`, sets `GRPC_SERVER_ADDR`, and opens the bundled playground at `http://localhost:8080`. The same `serve(agent)` code works locally and in production with no changes.
+
+## Troubleshooting
+
+| Symptom                                                  | Likely cause                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `Waiting for messaging service (attempt N/10, ...)`      | Sidecar isn't up yet. Connection retries with exponential backoff.        |
+| `Agent has no voice provider configured`                 | An audio message arrived but `agent.voice` is not configured.             |
+| Status indicator shows `Running undefined`               | A tool was defined without an `id`. Set `id` on every `createTool` call.  |
+| Traces missing                                           | Check `OTEL_EXPORTER_OTLP_ENDPOINT` is set.                               |

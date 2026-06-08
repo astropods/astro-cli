@@ -1,0 +1,765 @@
+---
+title: Messaging SDK (Node)
+subtitle: Connect your Node agent to Slack, web chat, and other platforms over gRPC
+slug: messaging-sdk/node
+---
+
+The messaging SDK is how your agent container talks to the messaging sidecar that ships next to it. When you declare `agent.interfaces.messaging: true` in `astropods.yml`, the platform deploys a messaging container alongside your agent. That sidecar runs platform adapters (Slack, web chat, etc.), normalises every incoming event into a single protobuf shape, and routes it to your agent over a bidirectional gRPC stream.
+
+This page covers the TypeScript SDK, [`@astropods/messaging`](https://www.npmjs.com/package/@astropods/messaging). For Python, see [Messaging SDK (Python)](./python).
+
+<Callout intent="note">
+If you're building on a supported framework, prefer a higher-level adapter (e.g. `@astropods/adapter-mastra`). Those wrap the SDK and handle the streaming loop for you. Reach for the SDK directly when you need full control or when there is no adapter for your framework yet.
+</Callout>
+
+Field names below are camelCase — that's how `@grpc/proto-loader` exposes proto fields to TypeScript. The corresponding proto names are snake_case.
+
+## Install
+
+```bash
+bun add @astropods/messaging
+# or: npm install @astropods/messaging
+```
+
+## Connect to the sidecar
+
+The sidecar listens on gRPC port `9090`. Inside the same pod the address is always `localhost:9090`; locally with `ast dev` it's the same.
+
+```typescript
+import { MessagingClient } from '@astropods/messaging';
+
+const client = new MessagingClient('localhost:9090');
+await client.connect();
+// or with retry/backoff:
+await client.connectWithRetry({ maxRetries: 10 });
+```
+
+The sidecar talks plaintext gRPC on the loopback interface — no TLS, no auth. The trust boundary is the pod itself.
+
+**`ReconnectOptions`** (used by `connectWithRetry()` and `createConversationStream()`)
+
+| Field                  | Type      | Default                                   | Notes                                              |
+| ---------------------- | --------- | ----------------------------------------- | -------------------------------------------------- |
+| `maxRetries`           | number    | `Infinity`                                | Cap on retry attempts.                             |
+| `initialDelayMs`       | number    | `500`                                     | Initial backoff delay.                             |
+| `maxDelayMs`           | number    | `30_000`                                  | Cap on backoff delay.                              |
+| `jitter`               | boolean   | `true`                                    | Full-jitter on the backoff delay.                  |
+| `maxBufferSize`        | number    | `1000`                                    | Writes buffered while reconnecting.                |
+| `retryableStatusCodes` | number[]  | `[4, 8, 13, 14]`                          | DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, INTERNAL, UNAVAILABLE. |
+
+## The conversation stream
+
+The primary RPC is `ProcessConversation` — a bidirectional stream. The sidecar pushes incoming user messages, feedback, and audio. Your agent pushes back status updates, content chunks, errors, and other responses on the same stream.
+
+```typescript
+import { MessagingClient, AgentResponse } from '@astropods/messaging';
+
+const client = new MessagingClient('localhost:9090');
+await client.connect();
+const conversation = client.createConversationStream();
+
+conversation.on('response', (resp: AgentResponse) => {
+  if (resp.incomingMessage) {
+    const m = resp.incomingMessage;
+    conversation.sendContentChunk(m.conversationId, {
+      type: 'END',
+      content: `you said: ${m.content}`,
+    });
+  }
+});
+
+conversation.on('error', (err) => console.error('stream error', err));
+conversation.on('reconnecting', (info) => console.warn('reconnecting', info));
+```
+
+**`ConversationStream` events**
+
+| Event          | Payload                                         | Notes                                                              |
+| -------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| `response`     | `AgentResponse`                                 | Inbound event from the sidecar.                                    |
+| `audioConfig`  | `AudioStreamConfig`                             | Convenience: emitted in addition to `response` when audio config arrives. |
+| `audioChunk`   | `AudioChunk`                                    | Convenience: emitted in addition to `response` when an audio chunk arrives. |
+| `reconnecting` | `{ attempt, reason, delayMs }`                  | Before each retry delay.                                           |
+| `reconnected`  | `{ attempt }`                                   | After a successful stream recreation.                              |
+| `error`        | `Error`                                         | Non-retryable error OR max retries exceeded.                       |
+| `end`          | —                                               | Only on intentional `close()`, not on unexpected drop.             |
+
+**`ConversationStream` send methods**
+
+| Method                                                 | What it sends                            |
+| ------------------------------------------------------ | ---------------------------------------- |
+| `sendMessage(message)`                                 | A `Message`.                             |
+| `sendFeedback(feedback)`                               | A `PlatformFeedback`.                    |
+| `sendAgentConfig(config)`                              | An `AgentConfig`.                        |
+| `sendAgentResponse(response)`                          | An `AgentResponse` (typed, any variant). |
+| `sendContentChunk(conversationId, chunk)`              | Convenience: wraps `ContentChunk` in `AgentResponse`. |
+| `sendStatusUpdate(conversationId, status)`             | Convenience: wraps `StatusUpdate`.       |
+| `sendTranscript(conversationId, text, msgId?, lang?)`  | Convenience: wraps `Transcript`.         |
+| `sendAudioConfig(config)`                              | `AudioStreamConfig` upstream.            |
+| `sendAudioChunk(chunk)`                                | `AudioChunk` upstream.                   |
+| `endAudio()`                                           | Sends `{ done: true }` to mark segment end. |
+| `end()`                                                | Closes the stream intentionally.         |
+
+## Inbound message anatomy
+
+An incoming message is a `Message`. The same shape applies whether it came from Slack, the web chat, or any other adapter.
+
+**`Message`**
+
+| Field             | Type              | Required | Notes                                                                              |
+| ----------------- | ----------------- | -------- | ---------------------------------------------------------------------------------- |
+| `id`              | string            | yes      | UUID assigned by the sidecar.                                                      |
+| `timestamp`       | `Timestamp`       | yes      | When the platform received the message.                                            |
+| `platform`        | string            | yes      | `"slack"`, `"web"`, `"discord"`, etc.                                              |
+| `platformContext` | `PlatformContext` | yes      | Platform-native IDs and event metadata.                                            |
+| `user`            | `User`            | yes      | Sender identity.                                                                   |
+| `content`         | string            | yes      | Cleaned text. Adapters strip the bot's @-mention before forwarding.                |
+| `attachments`     | `Attachment[]`    | no       | Files, images, video, audio, link previews.                                        |
+| `conversationId`  | string            | yes      | Stable correlation ID across the message lifecycle. Always echo back on responses. |
+
+**`Timestamp`** (google.protobuf.Timestamp)
+
+| Field     | Type   | Notes                                                                |
+| --------- | ------ | -------------------------------------------------------------------- |
+| `seconds` | string | Seconds since UNIX epoch. Encoded as a string (can exceed JS safe int). |
+| `nanos`   | number | Nanoseconds within the second.                                       |
+
+**`User`**
+
+| Field       | Type                       | Required | Notes                                                |
+| ----------- | -------------------------- | -------- | ---------------------------------------------------- |
+| `id`        | string                     | yes      | Platform-specific user ID.                           |
+| `username`  | string                     | no       | Display name or handle.                              |
+| `avatarUrl` | string                     | no       | Avatar URL.                                          |
+| `email`     | string                     | no       | Email if available.                                  |
+| `userData`  | `{ [key: string]: string }` | no       | Platform-specific extras (workspace, role, etc.).    |
+
+**`Attachment`**
+
+| Field       | Type   | Required | Notes                                  |
+| ----------- | ------ | -------- | -------------------------------------- |
+| `type`      | string | yes      | One of the enum values below.          |
+| `url`       | string | yes      | Authenticated direct-download URL.     |
+| `filename`  | string | no       | Original filename.                     |
+| `sizeBytes` | number | no       | File size in bytes.                    |
+| `mimeType`  | string | no       | MIME type.                             |
+| `title`     | string | no       | Display title (rich attachments).      |
+| `description` | string | no     | Display description.                   |
+| `width`     | number | no       | For images/videos.                     |
+| `height`    | number | no       | For images/videos.                     |
+
+`Attachment.type` values: `TYPE_UNSPECIFIED`, `IMAGE`, `FILE`, `VIDEO`, `AUDIO`, `LINK`.
+
+**`PlatformContext`**
+
+| Field           | Type                       | Required | Notes                                                                                              |
+| --------------- | -------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `messageId`     | string                     | yes      | Original platform message ID.                                                                      |
+| `channelId`     | string                     | yes      | Channel/room/chat ID.                                                                              |
+| `threadId`      | string                     | no       | Agent's reply target. Also set on top-level messages whose response should open a new thread.      |
+| `threadRootId`  | string                     | no       | Parent thread root timestamp. Set only when this message is a reply inside an existing thread.     |
+| `channelName`   | string                     | no       | Display channel name.                                                                              |
+| `workspaceId`   | string                     | no       | Slack workspace, Discord guild, etc.                                                               |
+| `botUserId`     | string                     | no       | The bot's own user ID in the source platform.                                                      |
+| `userId`        | string                     | no       | Raw platform-native sender ID before any cross-platform identity resolution.                       |
+| `eventKind`     | string                     | yes      | See `PlatformContextEventKind` below.                                                              |
+| `platformData`  | `{ [key: string]: string }` | no      | Platform-specific extras (Slack `ts`, Discord snowflake, Teams activity ID).                       |
+
+**`PlatformContextEventKind`**
+
+| Value                                | When the adapter emits it                                       |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `EVENT_KIND_UNSPECIFIED`             | Fallback. Should not appear in production traffic.              |
+| `EVENT_KIND_DM`                      | 1:1 / private chat (Slack DM, web chat session).                |
+| `EVENT_KIND_APP_MENTION`             | Bot was @-mentioned in a channel or thread.                     |
+| `EVENT_KIND_THREAD_REPLY`            | Reply inside an existing thread, no @-mention.                  |
+| `EVENT_KIND_OBSERVED`                | Observe-channel forward (listen-only).                          |
+| `EVENT_KIND_REACTION`                | Reaction added/removed.                                         |
+| `EVENT_KIND_BUTTON_CLICK`            | Interactive button click on a `CardAttachment`.                 |
+| `EVENT_KIND_SLASH_COMMAND`           | Slash command (Slack/Discord).                                  |
+| `EVENT_KIND_ASSISTANT_THREAD_STARTED`| Slack assistant thread opened.                                  |
+
+## Sending a response
+
+**`AgentResponse`**
+
+| Field             | Type   | Required | Notes                                                            |
+| ----------------- | ------ | -------- | ---------------------------------------------------------------- |
+| `conversationId`  | string | yes      | Must match the inbound `Message.conversationId`.                 |
+| `responseId`      | string | no       | Stable ID for this response. Used by feedback events.            |
+| *one variant*     |        | yes      | One of the fields below; @grpc/proto-loader flattens the oneof.  |
+
+**`AgentResponse` payload variants**
+
+| Variant            | Type                   | Notes                                                       |
+| ------------------ | ---------------------- | ----------------------------------------------------------- |
+| `incomingMessage`  | `Message`              | Server → agent only. The inbound message itself.            |
+| `status`           | `StatusUpdate`         | Pre-content typing indicator.                               |
+| `content`          | `ContentChunk`         | Actual message text, streamed.                              |
+| `prompts`          | `SuggestedPrompts`     | Quick-reply suggestions.                                    |
+| `threadMetadata`   | `ThreadMetadata`       | Open a thread or update its title.                          |
+| `transcript`       | `Transcript`           | STT result back to the platform (audio flow).               |
+| `error`            | `ErrorResponse`        | Surface an error to the user.                               |
+| `contextRequest`   | `ThreadHistoryRequest` | Ask the sidecar to hydrate thread history.                  |
+| `audioConfig`      | `AudioStreamConfig`    | Server → agent only. Audio session start.                   |
+| `audioChunk`       | `AudioChunk`           | Server → agent only. Audio bytes.                           |
+| `feedback`         | `PlatformFeedback`     | Server → agent only. User feedback event.                   |
+
+### Streaming text content
+
+**`ContentChunk`**
+
+| Field               | Type                   | Required | Notes                                                                       |
+| ------------------- | ---------------------- | -------- | --------------------------------------------------------------------------- |
+| `type`              | string                 | yes      | `START` \| `DELTA` \| `END` \| `REPLACE` (see lifecycle).                   |
+| `content`           | string                 | no       | Semantics depend on `type`.                                                 |
+| `attachments`       | `ResponseAttachment[]` | no       | Ship with `END` chunks (or standalone).                                     |
+| `platformMessageId` | string                 | no       | Returned by the adapter after `START`; pass on later chunks to update it.   |
+| `options`           | `MessageOptions`       | no       | Creation flags.                                                             |
+
+**`ContentChunk.type` lifecycle**
+
+| Value     | Use                                                                                           |
+| --------- | --------------------------------------------------------------------------------------------- |
+| `START`   | Create the platform message. May be empty (immediate presence) or include initial content.    |
+| `DELTA`   | Append the next token(s). Stream as many as you want.                                         |
+| `END`     | Finalize. Last content (optional) and any `attachments` ship here.                            |
+| `REPLACE` | Overwrite the full message content — for post-stream edits.                                   |
+
+**`MessageOptions`**
+
+| Field                | Type   | Required | Notes                                          |
+| -------------------- | ------ | -------- | ---------------------------------------------- |
+| `ephemeral`          | boolean| no       | Only visible to the recipient user.            |
+| `createThread`       | boolean| no       | Start a new thread under the user's message.   |
+| `replyToMessageId`   | string | no       | Reply to a specific message.                   |
+| `silent`             | boolean| no       | Suppress notification.                         |
+
+**`ResponseAttachment`** (set exactly one variant)
+
+| Variant | Type              | Fields                                                              |
+| ------- | ----------------- | ------------------------------------------------------------------- |
+| `image` | `ImageAttachment` | `url`, `altText?`, `title?`, `width?`, `height?`                    |
+| `file`  | `FileAttachment`  | `url`, `filename`, `mimeType?`, `sizeBytes?`                        |
+| `card`  | `CardAttachment`  | `platformCardJson` — Slack Block Kit, Discord Embeds, Teams cards.  |
+| `link`  | `LinkPreview`     | `url`, `title?`, `description?`, `imageUrl?`                        |
+
+Example:
+
+```typescript
+conversation.sendContentChunk(cid, { type: 'START', content: '' });
+for await (const token of llm.stream(prompt)) {
+  conversation.sendContentChunk(cid, { type: 'DELTA', content: token });
+}
+conversation.sendContentChunk(cid, { type: 'END', content: '' });
+```
+
+### Status updates
+
+**`StatusUpdate`**
+
+| Field           | Type   | Required | Notes                                                                |
+| --------------- | ------ | -------- | -------------------------------------------------------------------- |
+| `status`        | string | yes      | One of the enum values below.                                        |
+| `customMessage` | string | no       | Required with `CUSTOM`; otherwise overrides the default phrasing.    |
+| `emoji`         | string | no       | Platform emoji, e.g. `:mag:`.                                        |
+
+**`StatusUpdate.status` values**: `THINKING`, `SEARCHING`, `GENERATING`, `PROCESSING`, `ANALYZING`, `CUSTOM`.
+
+```typescript
+conversation.sendStatusUpdate(cid, { status: 'SEARCHING' });
+conversation.sendStatusUpdate(cid, {
+  status: 'CUSTOM',
+  customMessage: 'Querying the knowledge base…',
+  emoji: ':mag:',
+});
+```
+
+### Suggested prompts
+
+**`SuggestedPrompts`**
+
+| Field     | Type                | Required | Notes                            |
+| --------- | ------------------- | -------- | -------------------------------- |
+| `prompts` | `Prompt[]`          | yes      | Max 4–6 depending on platform.   |
+
+**`Prompt`**
+
+| Field         | Type   | Required | Notes                                                  |
+| ------------- | ------ | -------- | ------------------------------------------------------ |
+| `id`          | string | yes      | Unique ID. Echoed back in `PlatformFeedback.promptSelection`. |
+| `title`       | string | yes      | Button/chip label.                                     |
+| `message`     | string | yes      | Full message sent on click.                            |
+| `description` | string | no       | Tooltip/help text.                                     |
+
+### Errors
+
+**`ErrorResponse`**
+
+| Field       | Type    | Required | Notes                                                |
+| ----------- | ------- | -------- | ---------------------------------------------------- |
+| `code`      | string  | yes      | One of the enum values below.                        |
+| `message`   | string  | yes      | User-facing error message.                           |
+| `details`   | string  | no       | Technical details. Logged, not shown to the user.    |
+| `retryable` | boolean | no       | Whether the platform should offer a retry affordance.|
+
+**`ErrorResponse.code` values**: `RATE_LIMIT`, `CONTEXT_TOO_LONG`, `INVALID_REQUEST`, `AGENT_ERROR`, `TOOL_ERROR`, `PLATFORM_ERROR`.
+
+### Thread metadata
+
+**`ThreadMetadata`**
+
+| Field       | Type    | Required | Notes                                            |
+| ----------- | ------- | -------- | ------------------------------------------------ |
+| `threadId`  | string  | no       | Platform thread ID. Set to update an existing thread. |
+| `title`     | string  | no       | Thread title/subject.                            |
+| `createNew` | boolean | no       | Create a new thread.                             |
+
+### Transcript
+
+Sent after STT to replace the "[audio]" placeholder on the platform.
+
+**`Transcript`**
+
+| Field       | Type   | Required | Notes                                          |
+| ----------- | ------ | -------- | ---------------------------------------------- |
+| `text`      | string | yes      | Transcribed text.                              |
+| `messageId` | string | no       | Placeholder message ID to update.              |
+| `language`  | string | no       | BCP-47 detected language (e.g. `en-US`).       |
+
+## Receiving platform feedback
+
+The sidecar sends `PlatformFeedback` on the same stream when the user interacts with a previous response.
+
+**`PlatformFeedback`**
+
+| Field             | Type        | Required | Notes                                                                       |
+| ----------------- | ----------- | -------- | --------------------------------------------------------------------------- |
+| `conversationId`  | string      | yes      | Conversation this feedback belongs to.                                      |
+| `responseId`      | string      | no       | Which agent response this feedback relates to.                              |
+| `timestamp`       | `Timestamp` | yes      | When the feedback occurred.                                                 |
+| `user`            | `User`      | no       | Platform user who submitted the feedback. Empty for anonymous/system events.|
+| *one variant*     |             | yes      | One of the fields below.                                                    |
+
+**`PlatformFeedback` variants**
+
+| Variant            | Type              | Notes                                                       |
+| ------------------ | ----------------- | ----------------------------------------------------------- |
+| `reaction`         | `MessageReaction` | Thumbs up/down or custom emoji.                             |
+| `promptSelection`  | `PromptSelection` | User clicked a `SuggestedPrompts` entry.                    |
+| `buttonClick`      | `ButtonClick`     | User clicked a button on a `CardAttachment`.                |
+| `streamControl`    | `StreamControl`   | User asked to stop, pause, resume, or regenerate.           |
+| `messageEdit`      | `MessageEdit`     | User edited their own previous message.                     |
+| `messageDelete`    | `MessageDelete`   | User deleted their own previous message.                    |
+| `text`             | `TextFeedback`    | Free-form text from a platform-native modal.                |
+
+**`MessageReaction`**
+
+| Field   | Type    | Required | Notes                                                                |
+| ------- | ------- | -------- | -------------------------------------------------------------------- |
+| `type`  | number  | yes      | `0`=UNSPECIFIED, `1`=THUMBS_UP, `2`=THUMBS_DOWN, `3`=CUSTOM_EMOJI.   |
+| `emoji` | string  | no       | Populated when `type === 3`.                                         |
+| `added` | boolean | yes      | `true` = added, `false` = removed.                                   |
+
+**`PromptSelection`**
+
+| Field           | Type   | Notes                                  |
+| --------------- | ------ | -------------------------------------- |
+| `promptId`      | string | Matches `Prompt.id` from a sent suggestion. |
+| `promptMessage` | string | Full message being sent.               |
+
+**`ButtonClick`**
+
+| Field      | Type   | Notes                                |
+| ---------- | ------ | ------------------------------------ |
+| `buttonId` | string | Button identifier from card.         |
+| `value`    | string | Button value/payload.                |
+| `action`   | string | Action identifier.                   |
+
+**`StreamControl`**
+
+| Field    | Type   | Notes                                                              |
+| -------- | ------ | ------------------------------------------------------------------ |
+| `action` | number | `0`=UNSPECIFIED, `1`=STOP, `2`=PAUSE, `3`=RESUME, `4`=REGENERATE.  |
+| `reason` | string | Why (user click, error, etc.).                                     |
+
+**`MessageEdit`**
+
+| Field             | Type        | Notes                                  |
+| ----------------- | ----------- | -------------------------------------- |
+| `messageId`       | string      | Platform message ID that was edited.   |
+| `newContent`      | string      | New content after edit.                |
+| `originalContent` | string      | Original content (if available).       |
+| `editedAt`        | `Timestamp` | When the edit happened.                |
+
+**`MessageDelete`**
+
+| Field       | Type        | Notes                                |
+| ----------- | ----------- | ------------------------------------ |
+| `messageId` | string      | Platform message ID that was deleted.|
+| `deletedAt` | `Timestamp` | When the delete happened.            |
+
+**`TextFeedback`**
+
+| Field    | Type   | Notes                                      |
+| -------- | ------ | ------------------------------------------ |
+| `text`   | string | Free-form text the user typed.             |
+| `prompt` | string | Label/title shown above the textbox.       |
+
+```typescript
+conversation.on('response', (resp) => {
+  if (resp.feedback?.reaction) {
+    const { type, added } = resp.feedback.reaction;
+    log({ kind: 'reaction', responseId: resp.feedback.responseId, type, added });
+  }
+  if (resp.feedback?.streamControl) {
+    // Cancel in-flight generation for this conversation
+  }
+});
+```
+
+## Audio
+
+Audio flows agent-side as raw bytes — the messaging system does no STT, transcoding, or VAD.
+
+| Step | Direction        | Message                          | Notes                                            |
+| ---- | ---------------- | -------------------------------- | ------------------------------------------------ |
+| 1    | Sidecar → agent  | `AgentResponse.audioConfig`      | Format (encoding, sample rate, channels).        |
+| 2    | Sidecar → agent  | `AgentResponse.audioChunk`       | Raw bytes. `done: true` marks end-of-utterance.  |
+| 3    | Agent → sidecar  | `AgentResponse.transcript`       | STT result; platform replaces the placeholder.   |
+
+**`AudioStreamConfig`**
+
+| Field            | Type     | Required | Notes                                                                |
+| ---------------- | -------- | -------- | -------------------------------------------------------------------- |
+| `encoding`       | string   | yes      | One of the `AudioEncoding` values below.                             |
+| `sampleRate`     | number   | yes      | Hz: 8000 (telephony), 16000 (speech), 48000 (browser).               |
+| `channels`       | number   | yes      | 1 = mono (speech default), 2 = stereo.                               |
+| `language`       | string   | no       | BCP-47 hint for STT (e.g. `en-US`).                                  |
+| `conversationId` | string   | yes      | Links audio to a conversation.                                       |
+| `source`         | string   | no       | Origin: `browser`, `twilio`, `vonage`, `mobile`, `upload`.           |
+| `userId`         | string   | no       | Speaking user's identity.                                            |
+
+**`AudioChunk`**
+
+| Field      | Type                  | Required | Notes                                       |
+| ---------- | --------------------- | -------- | ------------------------------------------- |
+| `data`     | `Buffer \| Uint8Array`| yes      | Raw audio bytes. Empty when `done: true`.   |
+| `sequence` | number                | no       | Monotonic ordering counter.                 |
+| `done`     | boolean               | no       | `true` = end of segment, run STT now.       |
+
+**`AudioEncoding`**
+
+| Value       | Use                                                            |
+| ----------- | -------------------------------------------------------------- |
+| `LINEAR16`  | PCM signed 16-bit LE. Universal baseline.                      |
+| `MULAW`     | G.711 mu-law. Twilio / telephony (8 kHz).                      |
+| `OPUS`      | Raw Opus frames. Low-latency codec.                            |
+| `MP3`       | MP3. Batch uploads, pre-recorded.                              |
+| `WEBM_OPUS` | WebM/Opus. Browser MediaRecorder default.                      |
+| `OGG_OPUS`  | OGG/Opus. Firefox MediaRecorder.                               |
+| `FLAC`      | FLAC lossless. High-quality uploads.                           |
+| `AAC`       | AAC. iOS native recording.                                     |
+
+Use `audioAsReadable()` to feed Mastra's `voice.listen()`:
+
+```typescript
+import { audioEncodingToFiletype } from '@astropods/messaging';
+
+conversation.on('audioConfig', async (config) => {
+  const audioStream = conversation.audioAsReadable();
+  const filetype = audioEncodingToFiletype(config.encoding);  // 'webm' for WEBM_OPUS
+  const transcript = await agent.voice.listen(audioStream, { filetype });
+  conversation.sendTranscript(config.conversationId, transcript);
+});
+```
+
+## Auxiliary RPCs
+
+| RPC                          | When to use                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ProcessMessage`             | Server-streaming for one-shot request/response. Same `AgentResponse` shape, no inbound feedback.  |
+| `GetThreadHistory`           | Pull current thread state (handles edits/deletions).                                              |
+| `GetConversationMetadata`    | Look up a conversation by ID or by `(platform, channel, thread)` without fetching history.        |
+| `ProcessAudioStream`         | Dedicated audio-only stream. First message must be `AudioStreamConfig`, rest are `AudioChunk`s.   |
+| `HealthCheck`                | Returns `HEALTHY` / `DEGRADED` / `UNHEALTHY` plus the sidecar version.                            |
+
+**`ThreadHistoryRequest`**
+
+| Field             | Type    | Required | Default | Notes                                            |
+| ----------------- | ------- | -------- | ------- | ------------------------------------------------ |
+| `conversationId`  | string  | yes      | —       | Conversation to query.                           |
+| `maxMessages`     | number  | no       | 50      | How many recent messages to return.              |
+| `includeEdited`   | boolean | no       | true    | Include edit history.                            |
+| `includeDeleted`  | boolean | no       | false   | Include deleted markers.                         |
+
+**`ThreadHistoryResponse`**
+
+| Field             | Type              | Notes                                  |
+| ----------------- | ----------------- | -------------------------------------- |
+| `conversationId`  | string            | Echoes the request.                    |
+| `messages`        | `ThreadMessage[]` | Recent messages.                       |
+| `isComplete`      | boolean           | `false` if truncated by `maxMessages`. |
+| `fetchedAt`       | `Timestamp`       | When the snapshot was taken.           |
+
+**`ThreadMessage`**
+
+| Field             | Type                       | Notes                                              |
+| ----------------- | -------------------------- | -------------------------------------------------- |
+| `messageId`       | string                     | Platform message ID.                               |
+| `user`            | `User`                     | Author.                                            |
+| `content`         | string                     | Current content (after edits).                     |
+| `attachments`     | `Attachment[]`             | Attachments on the message.                        |
+| `timestamp`       | `Timestamp`                | When it was sent.                                  |
+| `wasEdited`       | boolean                    | True if the message has been edited.               |
+| `originalContent` | string                     | Content before edits.                              |
+| `editedAt`        | `Timestamp`                | Last edit time.                                    |
+| `isDeleted`       | boolean                    | True if the message has been deleted.              |
+| `deletedAt`       | `Timestamp`                | Deletion time.                                     |
+| `platformData`    | `{ [key: string]: string }` | Platform-specific extras.                         |
+
+```typescript
+const history = await client.getThreadHistory(conversationId, 50);
+for (const m of history.messages) {
+  // m.content, m.wasEdited, m.isDeleted, m.originalContent, ...
+}
+```
+
+## Reconnection
+
+The Node SDK has a built-in reconnect loop on both `connectWithRetry()` and `createConversationStream()`. It retries with full-jitter exponential backoff and buffers writes until the stream is back.
+
+```typescript
+const conversation = client.createConversationStream({
+  maxRetries: 20,
+  initialDelayMs: 500,
+  maxDelayMs: 30_000,
+  jitter: true,
+  maxBufferSize: 1000,
+});
+
+conversation.on('reconnecting', ({ attempt, delayMs }) => { /* … */ });
+conversation.on('reconnected',  ({ attempt }) => { /* … */ });
+```
+
+## Local development
+
+`ast dev` runs the messaging sidecar locally so the SDK flow is identical to production. Enable platform adapters per project under `dev.interfaces.messaging.adapters` in `astropods.yml`:
+
+```yaml
+dev:
+  interfaces:
+    messaging:
+      adapters: [web]  # or [slack, web]
+```
+
+Open the bundled playground at `http://localhost:8080` to drive your agent end-to-end without touching Slack. See the [package spec](./astropods-package-spec) for the full `dev.interfaces.messaging` schema.
+
+## Worked examples
+
+### Slack
+
+The Slack adapter forwards five flavours of event:
+
+| `eventKind`                            | Source                                                  |
+| -------------------------------------- | ------------------------------------------------------- |
+| `EVENT_KIND_DM`                        | Direct message to the bot.                              |
+| `EVENT_KIND_APP_MENTION`               | `@bot` in a channel or thread.                          |
+| `EVENT_KIND_THREAD_REPLY`              | Reply inside a thread the bot is already in.            |
+| `EVENT_KIND_OBSERVED`                  | Channel the bot is observing without being mentioned (listen-only). |
+| `EVENT_KIND_REACTION` / `_BUTTON_CLICK` / `_SLASH_COMMAND` / `_ASSISTANT_THREAD_STARTED` | Interactive events. |
+
+Status updates translate to Slack's `assistant.threads.setStatus`. Suggested prompts translate to `assistant.threads.setSuggestedPrompts`. `CardAttachment` ships Block Kit JSON straight through.
+
+```typescript
+import { MessagingClient, AgentResponse, Message } from '@astropods/messaging';
+
+const client = new MessagingClient('localhost:9090');
+await client.connectWithRetry();
+const conversation = client.createConversationStream();
+
+async function handleSlackMessage(m: Message) {
+  const cid = m.conversationId;
+  const kind = m.platformContext?.eventKind;
+
+  if (kind === 'EVENT_KIND_OBSERVED') return; // listen-only
+
+  conversation.sendStatusUpdate(cid, { status: 'THINKING' });
+
+  const openThread = kind === 'EVENT_KIND_APP_MENTION';
+  conversation.sendContentChunk(cid, {
+    type: 'START',
+    content: '',
+    options: openThread ? { createThread: true } : undefined,
+  });
+
+  for await (const token of streamLLM(m.content)) {
+    conversation.sendContentChunk(cid, { type: 'DELTA', content: token });
+  }
+  conversation.sendContentChunk(cid, { type: 'END', content: '' });
+
+  conversation.sendAgentResponse({
+    conversationId: cid,
+    prompts: {
+      prompts: [
+        { id: 'p1', title: 'Show example', message: 'Show me an example' },
+        { id: 'p2', title: 'Go deeper',    message: 'Can you explain more?' },
+      ],
+    },
+  });
+}
+
+conversation.on('response', (resp: AgentResponse) => {
+  if (resp.incomingMessage?.platform === 'slack') {
+    handleSlackMessage(resp.incomingMessage);
+  }
+
+  if (resp.feedback?.reaction) {
+    const { type, added } = resp.feedback.reaction;
+    recordFeedback({
+      responseId: resp.feedback.responseId,
+      kind: type === 1 ? 'up' : type === 2 ? 'down' : 'emoji',
+      added,
+      userId: resp.feedback.user?.id,
+    });
+  }
+
+  if (resp.feedback?.promptSelection) {
+    const text = (resp.feedback.promptSelection as any).promptMessage;
+    handleSlackMessage({
+      platform: 'slack',
+      content: text,
+      conversationId: resp.feedback.conversationId,
+      user: resp.feedback.user!,
+    } as Message);
+  }
+});
+```
+
+A Block Kit card with an action button:
+
+```typescript
+conversation.sendAgentResponse({
+  conversationId: cid,
+  content: {
+    type: 'END',
+    content: 'Deploy status:',
+    attachments: [{
+      card: {
+        platformCardJson: JSON.stringify({
+          blocks: [
+            { type: 'header', text: { type: 'plain_text', text: 'Deploy #4837' } },
+            { type: 'section', fields: [
+              { type: 'mrkdwn', text: '*Status:*\n:white_check_mark: Green' },
+              { type: 'mrkdwn', text: '*Region:*\nus-east-1' },
+            ]},
+            { type: 'actions', elements: [
+              { type: 'button', text: { type: 'plain_text', text: 'View logs' },
+                action_id: 'view_logs', value: 'deploy-4837' },
+            ]},
+          ],
+        }),
+      },
+    }],
+  },
+});
+```
+
+When the user clicks **View logs**, you'll get a `PlatformFeedback.buttonClick` event with `buttonId: "view_logs"` and `value: "deploy-4837"`.
+
+### Web (playground / browser chat)
+
+Every message arrives with `platform: "web"` and `eventKind: 'EVENT_KIND_DM'`. The two web-specific concerns are **audio input** and **session-scoped conversations** (one `conversationId` per browser tab).
+
+```typescript
+import {
+  MessagingClient, AgentResponse, Message,
+  AudioStreamConfig, audioEncodingToFiletype,
+} from '@astropods/messaging';
+
+const client = new MessagingClient('localhost:9090');
+await client.connectWithRetry();
+const conversation = client.createConversationStream();
+
+async function handleWebMessage(m: Message) {
+  const cid = m.conversationId;
+  conversation.sendStatusUpdate(cid, { status: 'GENERATING' });
+  conversation.sendContentChunk(cid, { type: 'START', content: '' });
+
+  for await (const token of streamLLM(m.content)) {
+    conversation.sendContentChunk(cid, { type: 'DELTA', content: token });
+  }
+  conversation.sendContentChunk(cid, { type: 'END', content: '' });
+}
+
+conversation.on('audioConfig', async (config: AudioStreamConfig) => {
+  const audioStream = conversation.audioAsReadable();
+  const filetype = audioEncodingToFiletype(config.encoding);
+  const transcript = await agent.voice.listen(audioStream, { filetype });
+
+  conversation.sendTranscript(config.conversationId, transcript);
+
+  handleWebMessage({
+    platform: 'web',
+    content: transcript,
+    conversationId: config.conversationId,
+    user: { id: config.userId ?? 'unknown' },
+  } as Message);
+});
+
+conversation.on('response', (resp: AgentResponse) => {
+  if (resp.incomingMessage?.platform === 'web') {
+    handleWebMessage(resp.incomingMessage);
+  }
+
+  if (resp.feedback?.streamControl) {
+    const action = (resp.feedback.streamControl as any).action;
+    if (action === 1 /* STOP */) cancelGeneration(resp.feedback.conversationId);
+  }
+});
+```
+
+The bundled playground emits `WEBM_OPUS` at 48 kHz from `MediaRecorder`. Firefox emits `OGG_OPUS`. `audioEncodingToFiletype(config.encoding)` picks the right STT filetype.
+
+### Cross-platform agent
+
+In practice a single agent serves both. The only platform-specific code is whether you open a Slack thread:
+
+```typescript
+conversation.on('response', (resp) => {
+  const m = resp.incomingMessage;
+  if (!m) return;
+
+  const openThread =
+    m.platform === 'slack' &&
+    m.platformContext?.eventKind === 'EVENT_KIND_APP_MENTION';
+
+  conversation.sendContentChunk(m.conversationId, {
+    type: 'START',
+    content: '',
+    options: openThread ? { createThread: true } : undefined,
+  });
+  // …rest of the loop is identical for Slack and web
+});
+```
+
+## Exported symbols
+
+```typescript
+// Client
+MessagingClient
+ConversationStream
+MessageStream
+Helpers                  // createMessage, createStatusResponse, createContentResponse, ...
+
+// Types
+Message, User, Attachment, PlatformContext, PlatformContextEventKind, Timestamp
+AgentResponse, ContentChunk, StatusUpdate, SuggestedPrompts, ThreadMetadata
+ErrorResponse, Transcript, ThreadHistoryRequest, ThreadHistoryResponse, ThreadMessage
+AgentConfig, AgentToolConfig, AgentToolGraph
+PlatformFeedback, MessageReaction, TextFeedback
+AudioStreamConfig, AudioChunk, AudioEncoding, audioEncodingToFiletype
+ConversationRequest, ReconnectOptions
+```
+
+The full proto source lives in [`modules/messaging/proto/astro/messaging/v1/`](https://github.com/astropods/messaging/tree/main/proto/astro/messaging/v1) — `service.proto`, `message.proto`, `response.proto`, `feedback.proto`, `audio.proto`, `config.proto`.

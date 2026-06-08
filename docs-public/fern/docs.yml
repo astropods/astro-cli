@@ -73,6 +73,33 @@ navigation:
           - page: Connect to a private database
             path: docs/pages/private-database.mdx
             icon: fa-duotone fa-database
+          - section: Messaging SDK
+            icon: fa-duotone fa-messages
+            contents:
+              - page: Node
+                path: docs/pages/messaging-sdk/node.mdx
+                icon: fa-brands fa-node-js
+              - page: Python
+                path: docs/pages/messaging-sdk/python.mdx
+                icon: fa-brands fa-python
+          - section: Adapters
+            icon: fa-duotone fa-plug
+            contents:
+              - page: Overview
+                path: docs/pages/adapters/overview.mdx
+                icon: fa-duotone fa-circle-info
+              - page: Mastra
+                path: docs/pages/adapters/mastra.mdx
+                icon: fa-brands fa-node-js
+              - page: LangChain
+                path: docs/pages/adapters/langchain.mdx
+                icon: fa-brands fa-python
+              - page: Custom adapter (Node)
+                path: docs/pages/adapters/custom-node.mdx
+                icon: fa-brands fa-node-js
+              - page: Custom adapter (Python)
+                path: docs/pages/adapters/custom-python.mdx
+                icon: fa-brands fa-python
       - section: Reference
         contents:
           - page: Astropods Spec
