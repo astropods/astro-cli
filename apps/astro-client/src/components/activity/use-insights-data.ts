@@ -434,8 +434,7 @@ export function sliceUsersByRange(
   const agentsByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.agents_used]));
   // Same shape as agentsByUser — source slack_team_id from the server's
   // per-user response so the bounded-window rows carry the deep-link
-  // team_id without re-running the directory join. The server attached
-  // team_id there once via slack_identity_mappings; we just hand it through.
+  // team_id without re-running the directory join or single-team fallback.
   const slackTeamByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.slack_team_id]));
   const { fromDate, toDate } = rangeWindow(range);
 

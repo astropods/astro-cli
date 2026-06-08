@@ -176,6 +176,67 @@ func TestMergeLinkedSlackRows_DirectoryMiss_PassesThrough(t *testing.T) {
 	}
 }
 
+func TestSingleSlackTeamFallback_StampsDirectoryMissesWhenTeamIsUnambiguous(t *testing.T) {
+	rows := []UserSummaryEntry{
+		{UserID: "U07KNOWN1", CostUSD: 1.0},
+		{UserID: "U07MISSNG", CostUSD: 2.0},
+		{UserID: "custom-user", CostUSD: 3.0},
+	}
+	entries := map[string]slackidentity.DirectoryEntry{
+		"U07KNOWN1": {TeamID: "T07POSTMAN", WorkOSUserID: ""},
+	}
+
+	fallbackTeamID := singleSlackTeamID(entries)
+	out := mergeLinkedSlackRows(rows, entries)
+	out = applySingleTeamSlackFallback(out, fallbackTeamID)
+
+	byID := map[string]UserSummaryEntry{}
+	for _, row := range out {
+		byID[row.UserID] = row
+	}
+	if byID["U07KNOWN1"].SlackTeamID != "T07POSTMAN" {
+		t.Errorf("known Slack row should keep exact team id: %+v", byID["U07KNOWN1"])
+	}
+	if byID["U07MISSNG"].SlackTeamID != "T07POSTMAN" {
+		t.Errorf("missing bare Slack row should inherit unambiguous team id: %+v", byID["U07MISSNG"])
+	}
+	if byID["custom-user"].SlackTeamID != "" {
+		t.Errorf("non-Slack user ids must not inherit fallback team id: %+v", byID["custom-user"])
+	}
+}
+
+func TestSingleSlackTeamFallback_DoesNotStampWhenTeamsConflict(t *testing.T) {
+	rows := []UserSummaryEntry{
+		{UserID: "U07MISSNG", CostUSD: 2.0},
+	}
+	entries := map[string]slackidentity.DirectoryEntry{
+		"U07KNOWN1": {TeamID: "T07POSTMAN", WorkOSUserID: ""},
+		"U07KNOWN2": {TeamID: "T08ACMECO", WorkOSUserID: ""},
+	}
+
+	fallbackTeamID := singleSlackTeamID(entries)
+	if fallbackTeamID != "" {
+		t.Fatalf("conflicting team ids must not produce a fallback, got %q", fallbackTeamID)
+	}
+	out := applySingleTeamSlackFallback(rows, fallbackTeamID)
+
+	if out[0].SlackTeamID != "" {
+		t.Errorf("ambiguous team context must leave missing Slack row unlinked: %+v", out[0])
+	}
+}
+
+func TestSingleSlackTeamFallback_DoesNotOverrideExactDirectoryHit(t *testing.T) {
+	rows := []UserSummaryEntry{
+		{UserID: "U07EXACT1", SlackTeamID: "T08EXACT", CostUSD: 2.0},
+	}
+
+	out := applySingleTeamSlackFallback(rows, "T07FALLBK")
+
+	if out[0].SlackTeamID != "T08EXACT" {
+		t.Errorf("fallback must not override exact directory team id, got %+v", out[0])
+	}
+}
+
 // agents_used union must dedupe on DeploymentID — the same deployment
 // appearing on both rows collapses, but two deployments of the same
 // blueprint (identical Account/Name, distinct DeploymentID) stay as

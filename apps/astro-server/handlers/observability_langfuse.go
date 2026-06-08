@@ -707,7 +707,9 @@ func normalizeUserID(s string) string {
 //   - rolls the row's metrics into the linked WorkOS user's row (creating
 //     it if absent), dropping the bare row entirely; or
 //   - stamps slack_team_id on the bare row for the deep link (observed-only
-//     directory hit).
+//     directory hit); or
+//   - leaves an unknown bare-Slack row unchanged so a later, conservative
+//     single-team fallback can decide whether to stamp slack_team_id.
 //
 // Number accuracy is the bar here — when Bob's pre-link bare row merges
 // into his post-link "Bob Smith" row, the cost/requests/tokens must sum
@@ -772,6 +774,49 @@ func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackident
 		out = append(out, merged)
 	}
 	return out
+}
+
+// singleSlackTeamID returns the only team_id present in directory entries, or
+// "" when there is no team signal or more than one possible team. It is the
+// conservative guard for stamping deep links on bare Slack rows that predate
+// the observed-user directory: if the scoped Insights result already proves
+// exactly one Slack workspace, unknown bare Slack IDs can inherit that team_id.
+func singleSlackTeamID(entries map[string]slackidentity.DirectoryEntry) string {
+	var teamID string
+	for _, entry := range entries {
+		if entry.TeamID == "" {
+			continue
+		}
+		if teamID == "" {
+			teamID = entry.TeamID
+			continue
+		}
+		if entry.TeamID != teamID {
+			return ""
+		}
+	}
+	return teamID
+}
+
+// applySingleTeamSlackFallback stamps fallbackTeamID on bare Slack rows that
+// still lack a slack_team_id after the exact directory merge. Exact directory
+// hits always win, and linked Slack rows have already been converted to their
+// WorkOS user_id by mergeLinkedSlackRows, so this only affects unknown bare
+// Slack rows in a one-workspace result set.
+func applySingleTeamSlackFallback(rows []UserSummaryEntry, fallbackTeamID string) []UserSummaryEntry {
+	if fallbackTeamID == "" {
+		return rows
+	}
+	for i := range rows {
+		if rows[i].SlackTeamID != "" {
+			continue
+		}
+		if !slackidentity.IsBareSlackUserID(rows[i].UserID) {
+			continue
+		}
+		rows[i].SlackTeamID = fallbackTeamID
+	}
+	return rows
 }
 
 // mergeInto sums src's metrics into target, takes the max last_seen, and
@@ -1877,7 +1922,9 @@ func ComputeUsersSummary(
 			if derr != nil {
 				log.Warn("users-summary: slack directory lookup failed; deep links unavailable", "error", derr)
 			} else {
+				fallbackTeamID := singleSlackTeamID(entries)
 				users = mergeLinkedSlackRows(users, entries)
+				users = applySingleTeamSlackFallback(users, fallbackTeamID)
 			}
 		}
 	}
