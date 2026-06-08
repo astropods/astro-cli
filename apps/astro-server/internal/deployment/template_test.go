@@ -3699,6 +3699,37 @@ agent:
 	}
 }
 
+// Frontend agents must bind to :80; the platform injects PORT so frameworks
+// reading process.env.PORT (Express, FastAPI) don't fall back to their default
+// port and crash-loop behind the ingress.
+func TestYAML_Interfaces_FrontendInjectsPORT(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+  interfaces:
+    frontend: true
+`)
+
+	if got := ds.Agent.Environment["PORT"]; got != "80" {
+		t.Errorf("agent.environment.PORT = %q, want 80", got)
+	}
+}
+
+// Non-frontend agents must NOT have PORT injected — they listen on the
+// messaging gRPC port via GRPC_SERVER_ADDR, not HTTP :80.
+func TestYAML_Interfaces_NoFrontendNoPORT(t *testing.T) {
+	ds := mustGenerateFromYAML(t, `
+name: my-agent
+agent:
+  image: registry.example.com/acme/my-agent:build1
+`)
+
+	if _, ok := ds.Agent.Environment["PORT"]; ok {
+		t.Error("agent.environment.PORT: should not be set for non-frontend agent")
+	}
+}
+
 // A5: interfaces.frontend: true + messaging: true → agent on port 80 with expose
 // AND messaging block present.
 func TestYAML_Interfaces_A5_FrontendAndMessaging(t *testing.T) {

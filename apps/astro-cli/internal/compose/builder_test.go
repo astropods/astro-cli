@@ -889,6 +889,52 @@ func TestBuildProject_FrontendInterface(t *testing.T) {
 	}
 }
 
+func TestBuildEnvironment_FrontendInjectsPORT(t *testing.T) {
+	t.Run("default port 80", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name: "my-agent",
+			Agent: spec.Container{
+				Image:      "agent:latest",
+				Interfaces: &spec.Interfaces{Frontend: true},
+			},
+		}
+		env := BuildEnvironment(s, nil)
+		if got := envVal(env, "PORT"); got != "80" {
+			t.Errorf("PORT = %q, want 80", got)
+		}
+	})
+
+	t.Run("dev.interfaces.frontend.port override", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name: "my-agent",
+			Agent: spec.Container{
+				Image:      "agent:latest",
+				Interfaces: &spec.Interfaces{Frontend: true},
+			},
+			Dev: &spec.Dev{
+				Interfaces: &spec.DevInterfaces{
+					Frontend: &spec.DevFrontend{Port: 3000},
+				},
+			},
+		}
+		env := BuildEnvironment(s, nil)
+		if got := envVal(env, "PORT"); got != "3000" {
+			t.Errorf("PORT = %q, want 3000", got)
+		}
+	})
+
+	t.Run("no frontend → no PORT", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest"},
+		}
+		env := BuildEnvironment(s, nil)
+		if _, ok := env["PORT"]; ok {
+			t.Error("PORT should not be set when frontend is disabled")
+		}
+	})
+}
+
 func TestBuildProject_FrontendInterfaceCustomPort(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name: "my-agent",

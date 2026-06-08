@@ -356,6 +356,13 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	agentEnv["ASTRO_AGENT_NAME"] = "${source.name}"
 	agentEnv["ASTRO_AGENT_BUILD"] = "${source.build}"
 
+	// Frontend agents must serve on :80 (spec §validation rule 15). Inject PORT
+	// so frameworks that read it (Express, FastAPI, etc.) bind to the correct
+	// port instead of their default (3000 / 8000) and crash-looping behind ingress.
+	if astroSpec.Agent.HasFrontend() {
+		agentEnv["PORT"] = "80"
+	}
+
 	// Build agent block
 	agentImage := resolveBuiltImage(spec.ComponentAgent, "", astroSpec.Agent.Image, astroSpec.Agent.Build, input)
 	if agentImage == "" {

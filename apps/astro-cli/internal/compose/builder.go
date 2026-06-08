@@ -822,6 +822,17 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
 
+	// Frontend agents: inject PORT so frameworks that read process.env.PORT
+	// (Express, FastAPI, etc.) bind to the port the compose builder publishes
+	// — the dev override when set, otherwise 80 (matching the prod contract).
+	if s.Agent.HasFrontend() {
+		port := "80"
+		if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil && s.Dev.Interfaces.Frontend.Port != 0 {
+			port = fmt.Sprintf("%d", s.Dev.Interfaces.Frontend.Port)
+		}
+		env["PORT"] = &port
+	}
+
 	return env
 }
 
