@@ -287,6 +287,39 @@ func (q *Queue) InsertDatasetSyncJob(ctx context.Context, deploymentID string) e
 	return err
 }
 
+// CancelJob cancels a single River job by ID.
+func (q *Queue) CancelJob(ctx context.Context, id int64) error {
+	_, err := q.client.JobCancel(ctx, id)
+	return err
+}
+
+// RetryJob resets a failed/cancelled/completed job back to available state.
+// It returns false when the job does not exist or is not in a retryable state.
+func (q *Queue) RetryJob(ctx context.Context, id int64) (bool, error) {
+	tag, err := q.pool.Exec(ctx, `
+		UPDATE river.river_job
+		SET state = 'available',
+		    finalized_at = NULL,
+		    scheduled_at = now()
+		WHERE id = $1
+		  AND state IN ('discarded', 'cancelled', 'completed')
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// PauseQueue pauses processing of a River queue by name.
+func (q *Queue) PauseQueue(ctx context.Context, name string) error {
+	return q.client.QueuePause(ctx, name, nil)
+}
+
+// ResumeQueue resumes processing of a paused River queue by name.
+func (q *Queue) ResumeQueue(ctx context.Context, name string) error {
+	return q.client.QueueResume(ctx, name, nil)
+}
+
 // NewInsertOnly creates a Queue that can only insert jobs (no workers, no periodic jobs).
 // Used by the API process to enqueue deploy/undeploy/wakeup jobs without running workers.
 func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) (*Queue, error) {

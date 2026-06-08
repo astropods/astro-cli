@@ -38,6 +38,10 @@ type GitHubBuildArgs struct {
 
 func (GitHubBuildArgs) Kind() string { return "github_build" }
 
+func init() {
+	registerJobKind[GitHubBuildArgs]()
+}
+
 func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueGitHubBuild,

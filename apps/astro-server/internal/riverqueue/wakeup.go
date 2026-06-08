@@ -21,6 +21,10 @@ type WakeUpArgs struct {
 
 func (WakeUpArgs) Kind() string { return "wakeup" }
 
+func init() {
+	registerJobKind[WakeUpArgs]()
+}
+
 func (WakeUpArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueDeploy,

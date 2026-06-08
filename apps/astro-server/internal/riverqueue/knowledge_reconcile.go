@@ -22,6 +22,10 @@ type KnowledgeReconcileArgs struct{}
 
 func (KnowledgeReconcileArgs) Kind() string { return "knowledge_reconcile" }
 
+func init() {
+	registerJobKind[KnowledgeReconcileArgs]()
+}
+
 // KnowledgeReconcileWorker reconciles knowledge store state.
 //
 // It runs periodically and does three things:

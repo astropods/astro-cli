@@ -2,6 +2,9 @@ package riverqueue
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
 
 	"github.com/riverqueue/river"
 	"k8s.io/client-go/dynamic"
@@ -13,19 +16,114 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
-// addWorkers registers all River workers into the registry.
+type kindEntry struct {
+	argsSchema json.RawMessage
+	trigger    func(ctx context.Context, q *Queue, argsJSON json.RawMessage) (int64, error)
+}
+
+var kindRegistry = map[string]kindEntry{}
+var duplicateJobKinds = map[string]int{}
+
+// JobKindInfo holds a registered kind and its zero-value args schema.
+type JobKindInfo struct {
+	Kind       string
+	ArgsSchema json.RawMessage
+}
+
+// RegisteredJobKinds returns all registered kinds with their args schemas.
+func RegisteredJobKinds() []JobKindInfo {
+	out := make([]JobKindInfo, 0, len(kindRegistry))
+	for kind, e := range kindRegistry {
+		out = append(out, JobKindInfo{Kind: kind, ArgsSchema: e.argsSchema})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Kind < out[j].Kind
+	})
+	return out
+}
+
+// TriggerJob enqueues a job of the given kind with the provided args JSON.
+func (q *Queue) TriggerJob(ctx context.Context, kind string, argsJSON json.RawMessage) (int64, error) {
+	entry, ok := kindRegistry[kind]
+	if !ok {
+		return 0, fmt.Errorf("unknown job kind: %q", kind)
+	}
+	return entry.trigger(ctx, q, argsJSON)
+}
+
+// registerJobKind records a job args type for admin listing and manual trigger.
+// It runs from init functions beside each args type so API-only processes have
+// the catalog without constructing worker dependencies.
+func registerJobKind[T river.JobArgs]() {
+	var zero T
+	kind := zero.Kind()
+	if _, ok := kindRegistry[kind]; ok {
+		duplicateJobKinds[kind]++
+		return
+	}
+	schema, err := json.Marshal(zero)
+	if err != nil {
+		schema = []byte("{}")
+	}
+	kindRegistry[kind] = kindEntry{
+		argsSchema: schema,
+		trigger: func(ctx context.Context, q *Queue, argsJSON json.RawMessage) (int64, error) {
+			var args T
+			if err := json.Unmarshal(argsJSON, &args); err != nil {
+				return 0, err
+			}
+			result, err := q.Insert(ctx, args, nil)
+			if err != nil {
+				return 0, err
+			}
+			return result.Job.ID, nil
+		},
+	}
+}
+
+// registeredJobKind reports whether worker args are visible to API-only
+// processes for admin listing and manual trigger.
+func registeredJobKind[T river.JobArgs]() (string, bool) {
+	var zero T
+	kind := zero.Kind()
+	_, ok := kindRegistry[kind]
+	return kind, ok
+}
+
+func logDuplicateJobKinds(log *logger.Logger) {
+	if log == nil {
+		return
+	}
+	for kind, count := range duplicateJobKinds {
+		log.Error("river: duplicate job kind registration ignored", "kind", kind, "duplicates", count)
+	}
+}
+
+// addWorkerWithCatalogCheck adds a worker and logs if its args type is missing
+// from the API-visible trigger registry. Tests enforce this invariant; runtime
+// should not stop job processing for admin catalog drift.
+func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *river.Workers, worker river.Worker[T]) {
+	if kind, ok := registeredJobKind[T](); !ok && log != nil {
+		log.Error("river: worker args missing job kind registration", "kind", kind)
+	}
+	river.AddWorker(workers, worker)
+}
+
+// addWorkers registers all River workers.
 // Returns the ReconcileWorker, AccountPurgeWorker, InsightsRefreshWorker, DatasetSyncSchedulerWorker,
 // and MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
 func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *DatasetSyncSchedulerWorker, *MigrateDeploymentClusterWorker) {
 	log := cfg.Logger
+	logDuplicateJobKinds(log)
 
 	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
 
-	river.AddWorker(workers, &OpenmeterWorker{
+	addWorkerWithCatalogCheck(log, workers, &OpenmeterWorker{
 		omClient: cfg.OMClient,
 		db:       cfg.DB,
 		log:      log,
@@ -33,7 +131,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "OpenmeterWorker", "period", "5m")
 
-	river.AddWorker(workers, &WorkOSEventsWorker{
+	addWorkerWithCatalogCheck(log, workers, &WorkOSEventsWorker{
 		workOSAPIKey: cfg.WorkOSAPIKey,
 		orgClient:    cfg.OrgClient,
 		accountStore: cfg.AccountStore,
@@ -92,7 +190,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		}
 	}
 
-	river.AddWorker(workers, &DeployWorker{
+	addWorkerWithCatalogCheck(log, workers, &DeployWorker{
 		deployer:        dep,
 		store:           store,
 		datasetStore:    datasetstore.NewStore(cfg.DB),
@@ -103,7 +201,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		billing:         billing,
 	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
-	river.AddWorker(workers, &UndeployWorker{
+	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{
 		deployer: dep,
 		store:    store,
 		ksStore:  knowledgestore.NewStore(cfg.DB),
@@ -112,10 +210,10 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		billing:  billing,
 	})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
-	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
+	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
 	migrateWorker := &MigrateDeploymentClusterWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache}
-	river.AddWorker(workers, migrateWorker)
+	addWorkerWithCatalogCheck(log, workers, migrateWorker)
 	log.Info("river: registered worker", "worker", "MigrateDeploymentClusterWorker")
 
 	var dynClient dynamic.Interface
@@ -123,7 +221,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		dynClient, _ = dynamic.NewForConfig(cfg.K8sRegistry.Default().Config())
 	}
 
-	river.AddWorker(workers, &MessageCountSyncWorker{
+	addWorkerWithCatalogCheck(log, workers, &MessageCountSyncWorker{
 		promClient:   cfg.PromClient,
 		accountStore: cfg.AccountStore,
 		db:           cfg.DB,
@@ -131,7 +229,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "MessageCountSyncWorker", "period", "5m")
 
-	river.AddWorker(workers, &ObsSummaryRefreshWorker{
+	addWorkerWithCatalogCheck(log, workers, &ObsSummaryRefreshWorker{
 		cfg:             cfg.ServerConfig,
 		db:              cfg.DB,
 		cache:           cfg.K8sCache,
@@ -148,24 +246,24 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		langfuseStore: langfuse.NewStore(cfg.DB),
 		log:           log,
 	}
-	river.AddWorker(workers, insightsDiscovery)
+	addWorkerWithCatalogCheck(log, workers, insightsDiscovery)
 	log.Info("river: registered worker", "worker", "InsightsRefreshWorker", "period", insightscache.RefreshInterval.String())
 
-	river.AddWorker(workers, &InsightsRefreshAccountWorker{
+	addWorkerWithCatalogCheck(log, workers, &InsightsRefreshAccountWorker{
 		cache:    cfg.K8sCache,
 		computer: cfg.InsightsSummaryComputer,
 		log:      log,
 	})
 	log.Info("river: registered worker", "worker", "InsightsRefreshAccountWorker")
 
-	river.AddWorker(workers, &AvatarBackfillWorker{
+	addWorkerWithCatalogCheck(log, workers, &AvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
 		db:          cfg.DB,
 		log:         log,
 	})
 	log.Info("river: registered worker", "worker", "AvatarBackfillWorker", "period", "24h")
 
-	river.AddWorker(workers, &BlueprintAvatarBackfillWorker{
+	addWorkerWithCatalogCheck(log, workers, &BlueprintAvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
 		db:          cfg.DB,
 		log:         log,
@@ -176,7 +274,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	if cfg.ServerConfig != nil {
 		omDefaultPlan = cfg.ServerConfig.OpenMeterDefaultPlan
 	}
-	river.AddWorker(workers, &OpenMeterBackfillWorker{
+	addWorkerWithCatalogCheck(log, workers, &OpenMeterBackfillWorker{
 		omClient:     cfg.OMClient,
 		accountStore: cfg.AccountStore,
 		workosClient: cfg.WorkOSClient,
@@ -203,7 +301,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		pw.aigwDevStore = aigateway.NewDevStore(cfg.DB)
 	}
 	// enqueueUndeploy is set after client creation in New() via SetPurgeQueue
-	river.AddWorker(workers, pw)
+	addWorkerWithCatalogCheck(log, workers, pw)
 	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
 
 	rw := &ReconcileWorker{
@@ -216,11 +314,11 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		cache:     cfg.K8sCache,
 		// queue is set after client creation in New()
 	}
-	river.AddWorker(workers, rw)
+	addWorkerWithCatalogCheck(log, workers, rw)
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
-	river.AddWorker(workers, &KnowledgeReconcileWorker{
+	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
 		ksStore:  ksStoreForWorkers,
 		registry: cfg.K8sRegistry,
 		log:      cfg.Logger,
@@ -228,14 +326,14 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 
-	river.AddWorker(workers, &PrivateLinkProvisionWorker{
+	addWorkerWithCatalogCheck(log, workers, &PrivateLinkProvisionWorker{
 		ksStore: ksStoreForWorkers,
 		cfg:     cfg.ServerConfig,
 		log:     cfg.Logger,
 	})
 	log.Info("river: registered worker", "worker", "PrivateLinkProvisionWorker")
 
-	river.AddWorker(workers, &PrivateLinkDeleteWorker{
+	addWorkerWithCatalogCheck(log, workers, &PrivateLinkDeleteWorker{
 		ksStore: ksStoreForWorkers,
 		log:     cfg.Logger,
 	})
@@ -246,7 +344,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}
-		river.AddWorker(workers, ghBuildWorker)
+		addWorkerWithCatalogCheck(log, workers, ghBuildWorker)
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
@@ -257,10 +355,10 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log:             log,
 		// queue is set after client creation in New()
 	}
-	river.AddWorker(workers, dScheduler)
+	addWorkerWithCatalogCheck(log, workers, dScheduler)
 	log.Info("river: registered worker", "worker", "DatasetSyncSchedulerWorker", "period", "24h")
 
-	river.AddWorker(workers, &DatasetSyncWorker{
+	addWorkerWithCatalogCheck(log, workers, &DatasetSyncWorker{
 		deploymentStore: store,
 		datasetStore:    dsStore,
 		langfuseStore:   cfg.LangfuseStore,

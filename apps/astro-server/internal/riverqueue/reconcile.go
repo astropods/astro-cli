@@ -38,6 +38,10 @@ type ReconcileArgs struct{}
 
 func (ReconcileArgs) Kind() string { return "reconcile" }
 
+func init() {
+	registerJobKind[ReconcileArgs]()
+}
+
 // ReconcileWorker replaces both DriftCheckWorker and NsScanWorker. It runs
 // periodically to detect KEDA scale-downs, drift, stale provisioning, and
 // orphaned namespaces.

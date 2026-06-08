@@ -25,6 +25,10 @@ type ObsSummaryRefreshArgs struct{}
 
 func (ObsSummaryRefreshArgs) Kind() string { return "obs.summary_refresh" }
 
+func init() {
+	registerJobKind[ObsSummaryRefreshArgs]()
+}
+
 // langfuseSummaryClient is the subset of *langfuse.Client this worker needs.
 // Defined as an interface so tests can substitute a fake.
 type langfuseSummaryClient interface {

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/lib/pq"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -50,6 +53,11 @@ type adminJobQueue interface {
 	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
 	InsertOpenMeterBackfillJob(ctx context.Context) error
+	TriggerJob(ctx context.Context, kind string, argsJSON json.RawMessage) (int64, error)
+	CancelJob(ctx context.Context, id int64) error
+	RetryJob(ctx context.Context, id int64) (bool, error)
+	PauseQueue(ctx context.Context, name string) error
+	ResumeQueue(ctx context.Context, name string) error
 }
 
 type Server struct {
@@ -187,6 +195,332 @@ func (s *Server) GetRiverUIStatus(_ context.Context, _ *adminv1.GetRiverUIStatus
 	s.riverMu.Lock()
 	defer s.riverMu.Unlock()
 	return &adminv1.GetRiverUIStatusResponse{Running: s.riverUIHandler != nil}, nil
+}
+
+func (s *Server) ListJobKinds(_ context.Context, _ *adminv1.ListJobKindsRequest) (*adminv1.ListJobKindsResponse, error) {
+	infos := riverqueue.RegisteredJobKinds()
+	kinds := make([]adminv1.JobKindInfo, len(infos))
+	for i, info := range infos {
+		kinds[i] = adminv1.JobKindInfo{Kind: info.Kind, ArgsSchema: info.ArgsSchema}
+	}
+	return &adminv1.ListJobKindsResponse{Kinds: kinds}, nil
+}
+
+func (s *Server) TriggerJob(ctx context.Context, req *adminv1.TriggerJobRequest) (*adminv1.TriggerJobResponse, error) {
+	id, err := s.queue.TriggerJob(ctx, req.Kind, req.ArgsJSON)
+	if err != nil {
+		return nil, err
+	}
+	return &adminv1.TriggerJobResponse{JobID: id}, nil
+}
+
+func (s *Server) GetJobStates(ctx context.Context, _ *adminv1.GetJobStatesRequest) (*adminv1.GetJobStatesResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT state, COUNT(*) FROM river.river_job GROUP BY state
+	`)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get job states: %v", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	resp := &adminv1.GetJobStatesResponse{}
+	for rows.Next() {
+		var state string
+		var count int64
+		if err := rows.Scan(&state, &count); err != nil {
+			continue
+		}
+		switch state {
+		case "available":
+			resp.Available = count
+		case "cancelled":
+			resp.Cancelled = count
+		case "completed":
+			resp.Completed = count
+		case "discarded":
+			resp.Discarded = count
+		case "pending":
+			resp.Pending = count
+		case "retryable":
+			resp.Retryable = count
+		case "running":
+			resp.Running = count
+		case "scheduled":
+			resp.Scheduled = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "get job states: %v", err)
+	}
+	return resp, nil
+}
+
+func (s *Server) ListAdminQueues(ctx context.Context, _ *adminv1.ListAdminQueuesRequest) (*adminv1.ListAdminQueuesResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT q.name, q.paused_at, q.updated_at,
+		       COALESCE(j.available, 0), COALESCE(j.running, 0)
+		FROM river.river_queue q
+		LEFT JOIN (
+		    SELECT queue,
+		           COUNT(*) FILTER (WHERE state = 'available') AS available,
+		           COUNT(*) FILTER (WHERE state = 'running')   AS running
+		    FROM river.river_job
+		    WHERE state IN ('available', 'running')
+		    GROUP BY queue
+		) j ON j.queue = q.name
+		ORDER BY q.name
+	`)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list admin queues: %v", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var queues []*adminv1.AdminQueue
+	for rows.Next() {
+		var q adminv1.AdminQueue
+		var pausedAt sql.NullTime
+		var updatedAt time.Time
+		if err := rows.Scan(&q.Name, &pausedAt, &updatedAt, &q.CountAvailable, &q.CountRunning); err != nil {
+			continue
+		}
+		q.UpdatedAt = updatedAt.Format(time.RFC3339)
+		if pausedAt.Valid {
+			q.PausedAt = pausedAt.Time.Format(time.RFC3339)
+		}
+		queues = append(queues, &q)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "list admin queues: %v", err)
+	}
+	return &adminv1.ListAdminQueuesResponse{Queues: queues}, nil
+}
+
+func (s *Server) ListJobs(ctx context.Context, req *adminv1.ListJobsRequest) (*adminv1.ListJobsResponse, error) {
+	limit := req.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+
+	if req.AnchorID > 0 {
+		return s.listJobsAroundAnchor(ctx, req, limit)
+	}
+	return s.listJobsBefore(ctx, req, limit)
+}
+
+func listJobsFilters(req *adminv1.ListJobsRequest) ([]string, []interface{}) {
+	where := []string{}
+	args := []interface{}{}
+	if req.State != "" {
+		where = append(where, fmt.Sprintf("state = $%d", len(args)+1))
+		args = append(args, req.State)
+	}
+	if len(req.Kinds) > 0 {
+		where = append(where, fmt.Sprintf("kind = ANY($%d)", len(args)+1))
+		args = append(args, pq.Array(req.Kinds))
+	}
+	if req.Queue != "" {
+		where = append(where, fmt.Sprintf("queue = $%d", len(args)+1))
+		args = append(args, req.Queue)
+	}
+	return where, args
+}
+
+func listJobsSelect(where []string, limitArg int, orderBy string) string {
+	q := `SELECT id, kind, queue, state, attempt, max_attempts,
+	             created_at, attempted_at, finalized_at, scheduled_at,
+	             args, errors::text, priority
+	      FROM river.river_job`
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += fmt.Sprintf(" ORDER BY %s LIMIT $%d", orderBy, limitArg) //nolint:gosec
+	return q
+}
+
+func (s *Server) listJobsBefore(ctx context.Context, req *adminv1.ListJobsRequest, limit int) (*adminv1.ListJobsResponse, error) {
+	where, args := listJobsFilters(req)
+	if req.BeforeID > 0 {
+		where = append(where, fmt.Sprintf("id < $%d", len(args)+1))
+		args = append(args, req.BeforeID)
+	}
+	args = append(args, limit+1)
+	jobs, err := s.queryRiverJobs(ctx, listJobsSelect(where, len(args), "id DESC"), args...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list jobs: %v", err)
+	}
+	return pageJobs(jobs, limit), nil
+}
+
+func (s *Server) listJobsAroundAnchor(ctx context.Context, req *adminv1.ListJobsRequest, limit int) (*adminv1.ListJobsResponse, error) {
+	where, args := listJobsFilters(req)
+	anchorWhere := append(append([]string{}, where...), fmt.Sprintf("id = $%d", len(args)+1))
+	anchorArgs := append(append([]interface{}{}, args...), req.AnchorID)
+	anchorRow := s.db.QueryRowContext(ctx, listJobsSelect(anchorWhere, len(anchorArgs)+1, "id DESC"), append(anchorArgs, 1)...)
+	anchor, err := scanRiverJobRow(anchorRow)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &adminv1.ListJobsResponse{Jobs: []*adminv1.AdminRiverJob{}}, nil
+		}
+		return nil, status.Errorf(codes.Internal, "list jobs: %v", err)
+	}
+
+	newerLimit := (limit - 1) / 2
+	olderLimit := limit - 1 - newerLimit
+
+	var newer []*adminv1.AdminRiverJob
+	if newerLimit > 0 {
+		newerWhere := append(append([]string{}, where...), fmt.Sprintf("id > $%d", len(args)+1))
+		newerArgs := append(append([]interface{}{}, args...), req.AnchorID, newerLimit)
+		newer, err = s.queryRiverJobs(ctx, listJobsSelect(newerWhere, len(newerArgs), "id ASC"), newerArgs...)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "list jobs: %v", err)
+		}
+		olderLimit += newerLimit - len(newer)
+	}
+
+	olderWhere := append(append([]string{}, where...), fmt.Sprintf("id < $%d", len(args)+1))
+	olderArgs := append(append([]interface{}{}, args...), req.AnchorID, olderLimit+1)
+	older, err := s.queryRiverJobs(ctx, listJobsSelect(olderWhere, len(olderArgs), "id DESC"), olderArgs...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list jobs: %v", err)
+	}
+
+	jobs := append(reverseJobs(newer), anchor)
+	jobs = append(jobs, older...)
+	return pageJobs(jobs, limit), nil
+}
+
+func (s *Server) queryRiverJobs(ctx context.Context, q string, args ...interface{}) ([]*adminv1.AdminRiverJob, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var jobs []*adminv1.AdminRiverJob
+	for rows.Next() {
+		j, err := scanRiverJob(rows)
+		if err != nil {
+			s.log.Warn("ListJobs scan failed", "error", err)
+			continue
+		}
+		jobs = append(jobs, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func pageJobs(jobs []*adminv1.AdminRiverJob, limit int) *adminv1.ListJobsResponse {
+	resp := &adminv1.ListJobsResponse{Jobs: jobs}
+	if len(jobs) > limit {
+		resp.HasMore = true
+		resp.Jobs = jobs[:limit]
+	}
+	if resp.HasMore && len(resp.Jobs) > 0 {
+		resp.NextBeforeID = resp.Jobs[len(resp.Jobs)-1].ID
+	}
+	return resp
+}
+
+func reverseJobs(jobs []*adminv1.AdminRiverJob) []*adminv1.AdminRiverJob {
+	for i, j := 0, len(jobs)-1; i < j; i, j = i+1, j-1 {
+		jobs[i], jobs[j] = jobs[j], jobs[i]
+	}
+	return jobs
+}
+
+func (s *Server) GetJob(ctx context.Context, req *adminv1.GetJobRequest) (*adminv1.GetJobResponse, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, kind, queue, state, attempt, max_attempts,
+		       created_at, attempted_at, finalized_at, scheduled_at,
+		       args, errors::text, priority
+		FROM river.river_job WHERE id = $1
+	`, req.ID)
+	j, err := scanRiverJobRow(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Errorf(codes.NotFound, "job %d not found", req.ID)
+		}
+		return nil, status.Errorf(codes.Internal, "get job: %v", err)
+	}
+	return &adminv1.GetJobResponse{Job: j}, nil
+}
+
+func (s *Server) CancelJobs(ctx context.Context, req *adminv1.CancelJobsRequest) (*adminv1.CancelJobsResponse, error) {
+	cancelled := 0
+	for _, id := range req.IDs {
+		if err := s.queue.CancelJob(ctx, id); err != nil {
+			s.log.Warn("CancelJob failed", "job_id", id, "error", err)
+			continue
+		}
+		cancelled++
+	}
+	return &adminv1.CancelJobsResponse{Cancelled: cancelled}, nil
+}
+
+func (s *Server) RetryJobs(ctx context.Context, req *adminv1.RetryJobsRequest) (*adminv1.RetryJobsResponse, error) {
+	retried := 0
+	for _, id := range req.IDs {
+		ok, err := s.queue.RetryJob(ctx, id)
+		if err != nil {
+			s.log.Warn("RetryJob failed", "job_id", id, "error", err)
+			continue
+		}
+		if ok {
+			retried++
+		}
+	}
+	return &adminv1.RetryJobsResponse{Retried: retried}, nil
+}
+
+func (s *Server) PauseQueue(ctx context.Context, req *adminv1.PauseQueueRequest) (*adminv1.PauseQueueResponse, error) {
+	if err := s.queue.PauseQueue(ctx, req.Name); err != nil {
+		return nil, fmt.Errorf("pause queue %q: %w", req.Name, err)
+	}
+	return &adminv1.PauseQueueResponse{}, nil
+}
+
+func (s *Server) ResumeQueue(ctx context.Context, req *adminv1.ResumeQueueRequest) (*adminv1.ResumeQueueResponse, error) {
+	if err := s.queue.ResumeQueue(ctx, req.Name); err != nil {
+		return nil, fmt.Errorf("resume queue %q: %w", req.Name, err)
+	}
+	return &adminv1.ResumeQueueResponse{}, nil
+}
+
+type riverJobScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanRiverJob(row riverJobScanner) (*adminv1.AdminRiverJob, error) {
+	var j adminv1.AdminRiverJob
+	var createdAt, scheduledAt time.Time
+	var attemptedAt, finalizedAt sql.NullTime
+	var argsBytes []byte
+	var errorsStr sql.NullString
+	if err := row.Scan(&j.ID, &j.Kind, &j.Queue, &j.State, &j.Attempt, &j.MaxAttempts,
+		&createdAt, &attemptedAt, &finalizedAt, &scheduledAt,
+		&argsBytes, &errorsStr, &j.Priority); err != nil {
+		return nil, err
+	}
+	j.CreatedAt = createdAt.Format(time.RFC3339)
+	j.ScheduledAt = scheduledAt.Format(time.RFC3339)
+	if attemptedAt.Valid {
+		j.AttemptedAt = attemptedAt.Time.Format(time.RFC3339)
+	}
+	if finalizedAt.Valid {
+		j.FinalizedAt = finalizedAt.Time.Format(time.RFC3339)
+	}
+	if argsBytes != nil {
+		j.Args = json.RawMessage(argsBytes)
+	}
+	if errorsStr.Valid && errorsStr.String != "" && errorsStr.String != "null" {
+		_ = json.Unmarshal([]byte(errorsStr.String), &j.Errors)
+	}
+	return &j, nil
+}
+
+func scanRiverJobRow(row *sql.Row) (*adminv1.AdminRiverJob, error) {
+	return scanRiverJob(row)
 }
 
 // ShutdownRiverUI cleans up River UI resources during server shutdown.

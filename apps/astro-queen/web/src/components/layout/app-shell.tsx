@@ -41,7 +41,7 @@ const sections = [
       { to: "/admin/devices", label: "Devices", icon: Wifi },
       { to: "/admin/api-client", label: "API Client", icon: Send },
       { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
-      { to: "/admin/river-ui", label: "River UI", icon: Waves },
+      { to: "/admin/jobs", label: "Jobs", icon: Waves },
     ],
   },
   {

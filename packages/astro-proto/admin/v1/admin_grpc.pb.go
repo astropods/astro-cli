@@ -58,6 +58,16 @@ type AdminServiceClient interface {
 	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(ctx context.Context, in *ListClusterMigrationsRequest, opts ...grpc.CallOption) (*ListClusterMigrationsResponse, error)
+	ListJobKinds(ctx context.Context, in *ListJobKindsRequest, opts ...grpc.CallOption) (*ListJobKindsResponse, error)
+	TriggerJob(ctx context.Context, in *TriggerJobRequest, opts ...grpc.CallOption) (*TriggerJobResponse, error)
+	GetJobStates(ctx context.Context, in *GetJobStatesRequest, opts ...grpc.CallOption) (*GetJobStatesResponse, error)
+	ListAdminQueues(ctx context.Context, in *ListAdminQueuesRequest, opts ...grpc.CallOption) (*ListAdminQueuesResponse, error)
+	ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error)
+	GetJob(ctx context.Context, in *GetJobRequest, opts ...grpc.CallOption) (*GetJobResponse, error)
+	CancelJobs(ctx context.Context, in *CancelJobsRequest, opts ...grpc.CallOption) (*CancelJobsResponse, error)
+	RetryJobs(ctx context.Context, in *RetryJobsRequest, opts ...grpc.CallOption) (*RetryJobsResponse, error)
+	PauseQueue(ctx context.Context, in *PauseQueueRequest, opts ...grpc.CallOption) (*PauseQueueResponse, error)
+	ResumeQueue(ctx context.Context, in *ResumeQueueRequest, opts ...grpc.CallOption) (*ResumeQueueResponse, error)
 }
 
 type adminServiceClient struct {
@@ -428,6 +438,86 @@ func (c *adminServiceClient) ListClusterMigrations(ctx context.Context, in *List
 	return out, nil
 }
 
+func (c *adminServiceClient) ListJobKinds(ctx context.Context, in *ListJobKindsRequest, opts ...grpc.CallOption) (*ListJobKindsResponse, error) {
+	out := new(ListJobKindsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListJobKinds", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) TriggerJob(ctx context.Context, in *TriggerJobRequest, opts ...grpc.CallOption) (*TriggerJobResponse, error) {
+	out := new(TriggerJobResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/TriggerJob", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetJobStates(ctx context.Context, in *GetJobStatesRequest, opts ...grpc.CallOption) (*GetJobStatesResponse, error) {
+	out := new(GetJobStatesResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetJobStates", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListAdminQueues(ctx context.Context, in *ListAdminQueuesRequest, opts ...grpc.CallOption) (*ListAdminQueuesResponse, error) {
+	out := new(ListAdminQueuesResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAdminQueues", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListJobs(ctx context.Context, in *ListJobsRequest, opts ...grpc.CallOption) (*ListJobsResponse, error) {
+	out := new(ListJobsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListJobs", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetJob(ctx context.Context, in *GetJobRequest, opts ...grpc.CallOption) (*GetJobResponse, error) {
+	out := new(GetJobResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetJob", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) CancelJobs(ctx context.Context, in *CancelJobsRequest, opts ...grpc.CallOption) (*CancelJobsResponse, error) {
+	out := new(CancelJobsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/CancelJobs", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RetryJobs(ctx context.Context, in *RetryJobsRequest, opts ...grpc.CallOption) (*RetryJobsResponse, error) {
+	out := new(RetryJobsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RetryJobs", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) PauseQueue(ctx context.Context, in *PauseQueueRequest, opts ...grpc.CallOption) (*PauseQueueResponse, error) {
+	out := new(PauseQueueResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/PauseQueue", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ResumeQueue(ctx context.Context, in *ResumeQueueRequest, opts ...grpc.CallOption) (*ResumeQueueResponse, error) {
+	out := new(ResumeQueueResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ResumeQueue", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -476,6 +566,16 @@ type AdminServiceServer interface {
 	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error)
+	ListJobKinds(context.Context, *ListJobKindsRequest) (*ListJobKindsResponse, error)
+	TriggerJob(context.Context, *TriggerJobRequest) (*TriggerJobResponse, error)
+	GetJobStates(context.Context, *GetJobStatesRequest) (*GetJobStatesResponse, error)
+	ListAdminQueues(context.Context, *ListAdminQueuesRequest) (*ListAdminQueuesResponse, error)
+	ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error)
+	GetJob(context.Context, *GetJobRequest) (*GetJobResponse, error)
+	CancelJobs(context.Context, *CancelJobsRequest) (*CancelJobsResponse, error)
+	RetryJobs(context.Context, *RetryJobsRequest) (*RetryJobsResponse, error)
+	PauseQueue(context.Context, *PauseQueueRequest) (*PauseQueueResponse, error)
+	ResumeQueue(context.Context, *ResumeQueueRequest) (*ResumeQueueResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -660,6 +760,46 @@ func (UnimplementedAdminServiceServer) InvalidateAllCaches(context.Context, *Inv
 
 func (UnimplementedAdminServiceServer) ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListClusterMigrations not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListJobKinds(context.Context, *ListJobKindsRequest) (*ListJobKindsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListJobKinds not implemented")
+}
+
+func (UnimplementedAdminServiceServer) TriggerJob(context.Context, *TriggerJobRequest) (*TriggerJobResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerJob not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetJobStates(context.Context, *GetJobStatesRequest) (*GetJobStatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetJobStates not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListAdminQueues(context.Context, *ListAdminQueuesRequest) (*ListAdminQueuesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAdminQueues not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListJobs(context.Context, *ListJobsRequest) (*ListJobsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListJobs not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetJob(context.Context, *GetJobRequest) (*GetJobResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetJob not implemented")
+}
+
+func (UnimplementedAdminServiceServer) CancelJobs(context.Context, *CancelJobsRequest) (*CancelJobsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelJobs not implemented")
+}
+
+func (UnimplementedAdminServiceServer) RetryJobs(context.Context, *RetryJobsRequest) (*RetryJobsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryJobs not implemented")
+}
+
+func (UnimplementedAdminServiceServer) PauseQueue(context.Context, *PauseQueueRequest) (*PauseQueueResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PauseQueue not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ResumeQueue(context.Context, *ResumeQueueRequest) (*ResumeQueueResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResumeQueue not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1349,6 +1489,156 @@ func _AdminService_ListClusterMigrations_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListJobKinds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListJobKindsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListJobKinds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListJobKinds"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListJobKinds(ctx, req.(*ListJobKindsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_TriggerJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).TriggerJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/TriggerJob"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).TriggerJob(ctx, req.(*TriggerJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetJobStates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetJobStatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetJobStates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetJobStates"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetJobStates(ctx, req.(*GetJobStatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListAdminQueues_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAdminQueuesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAdminQueues(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAdminQueues"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAdminQueues(ctx, req.(*ListAdminQueuesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListJobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListJobs"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListJobs(ctx, req.(*ListJobsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetJob_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetJobRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetJob(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetJob"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetJob(ctx, req.(*GetJobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_CancelJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelJobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CancelJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/CancelJobs"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CancelJobs(ctx, req.(*CancelJobsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RetryJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryJobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RetryJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RetryJobs"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RetryJobs(ctx, req.(*RetryJobsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_PauseQueue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PauseQueueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).PauseQueue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/PauseQueue"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).PauseQueue(ctx, req.(*PauseQueueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ResumeQueue_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResumeQueueRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ResumeQueue(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ResumeQueue"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ResumeQueue(ctx, req.(*ResumeQueueRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1399,6 +1689,16 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},
 		{MethodName: "InvalidateAllCaches", Handler: _AdminService_InvalidateAllCaches_Handler},
 		{MethodName: "ListClusterMigrations", Handler: _AdminService_ListClusterMigrations_Handler},
+		{MethodName: "ListJobKinds", Handler: _AdminService_ListJobKinds_Handler},
+		{MethodName: "TriggerJob", Handler: _AdminService_TriggerJob_Handler},
+		{MethodName: "GetJobStates", Handler: _AdminService_GetJobStates_Handler},
+		{MethodName: "ListAdminQueues", Handler: _AdminService_ListAdminQueues_Handler},
+		{MethodName: "ListJobs", Handler: _AdminService_ListJobs_Handler},
+		{MethodName: "GetJob", Handler: _AdminService_GetJob_Handler},
+		{MethodName: "CancelJobs", Handler: _AdminService_CancelJobs_Handler},
+		{MethodName: "RetryJobs", Handler: _AdminService_RetryJobs_Handler},
+		{MethodName: "PauseQueue", Handler: _AdminService_PauseQueue_Handler},
+		{MethodName: "ResumeQueue", Handler: _AdminService_ResumeQueue_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

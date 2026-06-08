@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -40,5 +43,14 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func writeGRPCErr(w http.ResponseWriter, err error) {
-	writeErr(w, http.StatusBadGateway, err.Error())
+	st, ok := status.FromError(err)
+	if !ok {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	httpStatus := http.StatusBadGateway
+	if st.Code() == codes.NotFound {
+		httpStatus = http.StatusNotFound
+	}
+	writeErr(w, httpStatus, st.Message())
 }

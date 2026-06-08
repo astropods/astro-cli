@@ -21,6 +21,10 @@ type PrivateLinkProvisionArgs struct {
 
 func (PrivateLinkProvisionArgs) Kind() string { return "privatelink_provision" }
 
+func init() {
+	registerJobKind[PrivateLinkProvisionArgs]()
+}
+
 // PrivateLinkProvisionWorker creates AWS VPC endpoints for external knowledge stores.
 type PrivateLinkProvisionWorker struct {
 	river.WorkerDefaults[PrivateLinkProvisionArgs]

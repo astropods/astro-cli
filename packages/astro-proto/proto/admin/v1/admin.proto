@@ -19,6 +19,16 @@ service AdminService {
   rpc StartRiverUI(StartRiverUIRequest) returns (StartRiverUIResponse);
   rpc StopRiverUI(StopRiverUIRequest) returns (StopRiverUIResponse);
   rpc GetRiverUIStatus(GetRiverUIStatusRequest) returns (GetRiverUIStatusResponse);
+  rpc ListJobKinds(ListJobKindsRequest) returns (ListJobKindsResponse);
+  rpc TriggerJob(TriggerJobRequest) returns (TriggerJobResponse);
+  rpc GetJobStates(GetJobStatesRequest) returns (GetJobStatesResponse);
+  rpc ListAdminQueues(ListAdminQueuesRequest) returns (ListAdminQueuesResponse);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+  rpc CancelJobs(CancelJobsRequest) returns (CancelJobsResponse);
+  rpc RetryJobs(RetryJobsRequest) returns (RetryJobsResponse);
+  rpc PauseQueue(PauseQueueRequest) returns (PauseQueueResponse);
+  rpc ResumeQueue(ResumeQueueRequest) returns (ResumeQueueResponse);
   rpc ListQuotaIncreaseRequests(ListQuotaIncreaseRequestsRequest) returns (ListQuotaIncreaseRequestsResponse);
   rpc ApproveQuotaIncrease(ApproveQuotaIncreaseRequest) returns (ApproveQuotaIncreaseResponse);
   rpc DenyQuotaIncrease(DenyQuotaIncreaseRequest) returns (DenyQuotaIncreaseResponse);
@@ -272,6 +282,129 @@ message GetRiverUIStatusRequest {}
 
 message GetRiverUIStatusResponse {
   bool running = 1;
+}
+
+message ListJobKindsRequest {}
+
+message JobKindInfo {
+  string kind = 1;
+  bytes args_schema = 2; // raw JSON object describing the zero-value args shape
+}
+
+message ListJobKindsResponse {
+  repeated JobKindInfo kinds = 1;
+}
+
+message TriggerJobRequest {
+  string kind = 1;
+  bytes args_json = 2; // raw JSON object passed to the River job args type
+}
+
+message TriggerJobResponse {
+  int64 job_id = 1;
+}
+
+message GetJobStatesRequest {}
+
+message GetJobStatesResponse {
+  int64 available = 1;
+  int64 cancelled = 2;
+  int64 completed = 3;
+  int64 discarded = 4;
+  int64 pending = 5;
+  int64 retryable = 6;
+  int64 running = 7;
+  int64 scheduled = 8;
+}
+
+message AdminJobError {
+  string at = 1;
+  int32 attempt = 2;
+  string error = 3;
+  string trace = 4;
+}
+
+message AdminRiverJob {
+  int64 id = 1;
+  bytes args = 2; // raw River job args JSON
+  int32 attempt = 3;
+  string attempted_at = 4;
+  string created_at = 5;
+  repeated AdminJobError errors = 6;
+  string finalized_at = 7;
+  string kind = 8;
+  int32 max_attempts = 9;
+  int32 priority = 10;
+  string queue = 11;
+  string scheduled_at = 12;
+  string state = 13;
+  repeated string tags = 14;
+}
+
+message ListJobsRequest {
+  string state = 1;
+  repeated string kinds = 2;
+  string queue = 3;
+  int32 limit = 4;
+  int64 before_id = 5;
+  int64 anchor_id = 6;
+}
+
+message ListJobsResponse {
+  repeated AdminRiverJob jobs = 1;
+  int64 next_before_id = 2;
+  bool has_more = 3;
+}
+
+message GetJobRequest {
+  int64 id = 1;
+}
+
+message GetJobResponse {
+  AdminRiverJob job = 1;
+}
+
+message CancelJobsRequest {
+  repeated int64 ids = 1;
+}
+
+message CancelJobsResponse {
+  int32 cancelled = 1;
+}
+
+message RetryJobsRequest {
+  repeated int64 ids = 1;
+}
+
+message RetryJobsResponse {
+  int32 retried = 1;
+}
+
+message AdminQueue {
+  string name = 1;
+  int64 count_available = 2;
+  int64 count_running = 3;
+  string paused_at = 4;
+  string updated_at = 5;
+}
+
+message ListAdminQueuesRequest {}
+
+message ListAdminQueuesResponse {
+  repeated AdminQueue queues = 1;
+}
+
+message PauseQueueRequest {
+  string name = 1;
+}
+
+message PauseQueueResponse {}
+
+message ResumeQueueRequest {
+  string name = 1;
+}
+
+message ResumeQueueResponse {}
 }
 
 message QuotaIncreaseRequestProto {

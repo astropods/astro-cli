@@ -18,6 +18,10 @@ type MessageCountSyncArgs struct{}
 
 func (MessageCountSyncArgs) Kind() string { return "metrics.message_count_sync" }
 
+func init() {
+	registerJobKind[MessageCountSyncArgs]()
+}
+
 // MessageCountSyncWorker periodically queries Prometheus for agent message counters
 // and accumulates lifetime totals in Postgres, surviving counter resets.
 type MessageCountSyncWorker struct {

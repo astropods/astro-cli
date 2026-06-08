@@ -1,6 +1,13 @@
 package riverqueue
 
 import (
+	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/riverqueue/river/rivertype"
@@ -26,6 +33,164 @@ func TestStatusOrNil_NonNilDeployment(t *testing.T) {
 	if got != "active" {
 		t.Errorf("statusOrNil(dep) = %q, want %q", got, "active")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Job kind registry
+// ---------------------------------------------------------------------------
+
+type duplicateJobArgsA struct{}
+
+func (duplicateJobArgsA) Kind() string { return "__test.duplicate" }
+
+type duplicateJobArgsB struct{}
+
+func (duplicateJobArgsB) Kind() string { return "__test.duplicate" }
+
+func TestRegisteredJobKinds_AvailableWithoutWorkers(t *testing.T) {
+	infos := RegisteredJobKinds()
+	if len(infos) == 0 {
+		t.Fatal("RegisteredJobKinds returned no jobs")
+	}
+
+	seen := make(map[string]JobKindInfo, len(infos))
+	for i, info := range infos {
+		if i > 0 && info.Kind < infos[i-1].Kind {
+			t.Fatalf("RegisteredJobKinds not sorted: %q before %q", info.Kind, infos[i-1].Kind)
+		}
+		if !json.Valid(info.ArgsSchema) {
+			t.Fatalf("args schema for %q is not valid JSON: %s", info.Kind, info.ArgsSchema)
+		}
+		seen[info.Kind] = info
+	}
+
+	for _, kind := range []string{
+		"dataset.sync",
+		"deploy",
+		"github_build",
+		"openmeter.heartbeat",
+		"wakeup",
+	} {
+		if _, ok := seen[kind]; !ok {
+			t.Errorf("RegisteredJobKinds missing %q", kind)
+		}
+	}
+}
+
+func TestRegisterJobKind_DuplicateDoesNotPanic(t *testing.T) {
+	originalRegistry := kindRegistry
+	originalDuplicates := duplicateJobKinds
+	t.Cleanup(func() {
+		kindRegistry = originalRegistry
+		duplicateJobKinds = originalDuplicates
+	})
+	kindRegistry = map[string]kindEntry{}
+	duplicateJobKinds = map[string]int{}
+
+	registerJobKind[duplicateJobArgsA]()
+	registerJobKind[duplicateJobArgsB]()
+
+	if len(kindRegistry) != 1 {
+		t.Fatalf("registered kinds = %d, want 1", len(kindRegistry))
+	}
+	if duplicateJobKinds["__test.duplicate"] != 1 {
+		t.Fatalf("duplicate count = %d, want 1", duplicateJobKinds["__test.duplicate"])
+	}
+}
+
+func TestJobArgsKindTypesAreRegistered(t *testing.T) {
+	kindTypes, registeredTypes := parseJobKindRegistrations(t)
+
+	for typeName := range kindTypes {
+		if !registeredTypes[typeName] {
+			t.Errorf("%s has Kind() but is missing registerJobKind[%s]()", typeName, typeName)
+		}
+	}
+	for typeName := range registeredTypes {
+		if !kindTypes[typeName] {
+			t.Errorf("registerJobKind[%s]() has no matching Kind() method", typeName)
+		}
+	}
+}
+
+func parseJobKindRegistrations(t *testing.T) (map[string]bool, map[string]bool) {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kindTypes := map[string]bool{}
+	registeredTypes := map[string]bool{}
+	fset := token.NewFileSet()
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		file, err := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "Kind" || fn.Recv == nil || len(fn.Recv.List) == 0 {
+				continue
+			}
+			if typeName := receiverTypeName(fn.Recv.List[0].Type); strings.HasSuffix(typeName, "Args") {
+				kindTypes[typeName] = true
+			}
+		}
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if typeName, ok := registerJobKindTypeName(call.Fun); ok {
+				registeredTypes[typeName] = true
+			}
+			return true
+		})
+	}
+
+	return kindTypes, registeredTypes
+}
+
+func receiverTypeName(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.StarExpr:
+		return receiverTypeName(e.X)
+	default:
+		return ""
+	}
+}
+
+func registerJobKindTypeName(expr ast.Expr) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.IndexExpr:
+		if ident, ok := e.X.(*ast.Ident); ok && ident.Name == "registerJobKind" {
+			return exprTypeName(e.Index), true
+		}
+	case *ast.IndexListExpr:
+		if ident, ok := e.X.(*ast.Ident); ok && ident.Name == "registerJobKind" && len(e.Indices) == 1 {
+			return exprTypeName(e.Indices[0]), true
+		}
+	}
+	return "", false
+}
+
+func exprTypeName(expr ast.Expr) string {
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------

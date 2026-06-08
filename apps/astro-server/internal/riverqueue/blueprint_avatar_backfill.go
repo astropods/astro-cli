@@ -19,6 +19,10 @@ type BlueprintAvatarBackfillArgs struct{}
 
 func (BlueprintAvatarBackfillArgs) Kind() string { return "blueprint_avatar.backfill" }
 
+func init() {
+	registerJobKind[BlueprintAvatarBackfillArgs]()
+}
+
 // BlueprintAvatarBackfillWorker ensures every blueprint has a placeholder
 // avatar in storage and every deployment inherits its blueprint's avatar.
 //

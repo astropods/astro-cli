@@ -3,6 +3,7 @@ package admingrpc
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -84,6 +85,13 @@ func (m *mockAdminJobQueue) InsertUndeployJob(context.Context, string, string) e
 func (m *mockAdminJobQueue) InsertWakeUpJob(context.Context, string, string) error   { return nil }
 func (m *mockAdminJobQueue) InsertDeployJob(context.Context, string, string) error   { return nil }
 func (m *mockAdminJobQueue) InsertOpenMeterBackfillJob(context.Context) error        { return nil }
+func (m *mockAdminJobQueue) TriggerJob(context.Context, string, json.RawMessage) (int64, error) {
+	return 0, nil
+}
+func (m *mockAdminJobQueue) CancelJob(context.Context, int64) error        { return nil }
+func (m *mockAdminJobQueue) RetryJob(context.Context, int64) (bool, error) { return true, nil }
+func (m *mockAdminJobQueue) PauseQueue(context.Context, string) error      { return nil }
+func (m *mockAdminJobQueue) ResumeQueue(context.Context, string) error     { return nil }
 
 func (m *mockAdminJobQueue) InsertMigrateDeploymentClusterJob(_ context.Context, deploymentID, targetClusterID, sourceClusterID string) error {
 	m.migrateCalls = append(m.migrateCalls, migrateQueueCall{deploymentID, targetClusterID, sourceClusterID})

@@ -20,6 +20,10 @@ type AccountPurgeArgs struct{}
 
 func (AccountPurgeArgs) Kind() string { return "account_purge" }
 
+func init() {
+	registerJobKind[AccountPurgeArgs]()
+}
+
 // AccountPurgeWorker finds soft-deleted accounts past the retention period and
 // hard-deletes them after cleaning up external resources (OpenMeter, Langfuse)
 // and retrying any failed deployment teardowns.

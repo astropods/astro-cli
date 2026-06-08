@@ -22,6 +22,10 @@ type OpenMeterBackfillArgs struct{}
 // heartbeat worker ("openmeter.heartbeat") in logs and the River UI.
 func (OpenMeterBackfillArgs) Kind() string { return "openmeter.backfill" }
 
+func init() {
+	registerJobKind[OpenMeterBackfillArgs]()
+}
+
 // OpenMeterBackfillWorker creates OpenMeter customers for Astro accounts that
 // are missing one. This handles two scenarios:
 //

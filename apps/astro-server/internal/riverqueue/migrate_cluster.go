@@ -23,6 +23,10 @@ type MigrateDeploymentClusterArgs struct {
 
 func (MigrateDeploymentClusterArgs) Kind() string { return "migrate_deployment_cluster" }
 
+func init() {
+	registerJobKind[MigrateDeploymentClusterArgs]()
+}
+
 func (MigrateDeploymentClusterArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueDeploy,

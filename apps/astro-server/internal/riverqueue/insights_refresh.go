@@ -22,6 +22,11 @@ type InsightsRefreshArgs struct{}
 
 func (InsightsRefreshArgs) Kind() string { return "insights.refresh" }
 
+func init() {
+	registerJobKind[InsightsRefreshArgs]()
+	registerJobKind[InsightsRefreshAccountArgs]()
+}
+
 // InsightsRefreshAccountArgs is the per-account fan-out job. River
 // schedules these in parallel and applies its own retry/backoff on
 // transient errors. ErrAllLangfuseCallsFailed is treated as "preserve

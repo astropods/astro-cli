@@ -531,6 +531,128 @@ type GetRiverUIStatusResponse struct {
 	Running bool `json:"running"`
 }
 
+type ListJobKindsRequest struct{}
+
+type JobKindInfo struct {
+	Kind       string          `json:"kind"`
+	ArgsSchema json.RawMessage `json:"args_schema"`
+}
+
+type ListJobKindsResponse struct {
+	Kinds []JobKindInfo `json:"kinds"`
+}
+
+type TriggerJobRequest struct {
+	Kind     string          `json:"kind"`
+	ArgsJSON json.RawMessage `json:"args_json"`
+}
+
+type TriggerJobResponse struct {
+	JobID int64 `json:"job_id"`
+}
+
+type GetJobStatesRequest struct{}
+
+type GetJobStatesResponse struct {
+	Available int64 `json:"available"`
+	Cancelled int64 `json:"cancelled"`
+	Completed int64 `json:"completed"`
+	Discarded int64 `json:"discarded"`
+	Pending   int64 `json:"pending"`
+	Retryable int64 `json:"retryable"`
+	Running   int64 `json:"running"`
+	Scheduled int64 `json:"scheduled"`
+}
+
+type AdminJobError struct {
+	At      string `json:"at"`
+	Attempt int    `json:"attempt"`
+	Error   string `json:"error"`
+	Trace   string `json:"trace"`
+}
+
+type AdminRiverJob struct {
+	ID          int64           `json:"id"`
+	Args        json.RawMessage `json:"args"`
+	Attempt     int             `json:"attempt"`
+	AttemptedAt string          `json:"attempted_at,omitempty"`
+	CreatedAt   string          `json:"created_at"`
+	Errors      []AdminJobError `json:"errors,omitempty"`
+	FinalizedAt string          `json:"finalized_at,omitempty"`
+	Kind        string          `json:"kind"`
+	MaxAttempts int             `json:"max_attempts"`
+	Priority    int             `json:"priority"`
+	Queue       string          `json:"queue"`
+	ScheduledAt string          `json:"scheduled_at"`
+	State       string          `json:"state"`
+	Tags        []string        `json:"tags,omitempty"`
+}
+
+type ListJobsRequest struct {
+	State    string   `json:"state,omitempty"`
+	Kinds    []string `json:"kinds,omitempty"`
+	Queue    string   `json:"queue,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
+	BeforeID int64    `json:"before_id,omitempty"`
+	AnchorID int64    `json:"anchor_id,omitempty"`
+}
+
+type ListJobsResponse struct {
+	Jobs         []*AdminRiverJob `json:"jobs"`
+	NextBeforeID int64            `json:"next_before_id,omitempty"`
+	HasMore      bool             `json:"has_more"`
+}
+
+type GetJobRequest struct {
+	ID int64 `json:"id"`
+}
+
+type GetJobResponse struct {
+	Job *AdminRiverJob `json:"job"`
+}
+
+type CancelJobsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type CancelJobsResponse struct {
+	Cancelled int `json:"cancelled"`
+}
+
+type RetryJobsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type RetryJobsResponse struct {
+	Retried int `json:"retried"`
+}
+
+type AdminQueue struct {
+	Name           string `json:"name"`
+	CountAvailable int64  `json:"count_available"`
+	CountRunning   int64  `json:"count_running"`
+	PausedAt       string `json:"paused_at,omitempty"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type ListAdminQueuesRequest struct{}
+
+type ListAdminQueuesResponse struct {
+	Queues []*AdminQueue `json:"queues"`
+}
+
+type PauseQueueRequest struct {
+	Name string `json:"name"`
+}
+
+type PauseQueueResponse struct{}
+
+type ResumeQueueRequest struct {
+	Name string `json:"name"`
+}
+
+type ResumeQueueResponse struct{}
+
 type QuotaIncreaseRequestProto struct {
 	ID              string  `json:"id,omitempty"`
 	AccountID       string  `json:"account_id,omitempty"`

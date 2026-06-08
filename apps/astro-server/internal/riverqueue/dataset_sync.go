@@ -19,6 +19,11 @@ type DatasetSyncSchedulerArgs struct{}
 
 func (DatasetSyncSchedulerArgs) Kind() string { return "dataset.sync_scheduler" }
 
+func init() {
+	registerJobKind[DatasetSyncSchedulerArgs]()
+	registerJobKind[DatasetSyncArgs]()
+}
+
 func (DatasetSyncSchedulerArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{MaxAttempts: 2}
 }

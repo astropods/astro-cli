@@ -155,6 +155,46 @@ func (m *mockAdminClient) InvalidateAllCaches(context.Context, *adminv1.Invalida
 	panic("not implemented")
 }
 
+func (m *mockAdminClient) ListJobKinds(context.Context, *adminv1.ListJobKindsRequest, ...grpc.CallOption) (*adminv1.ListJobKindsResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) TriggerJob(context.Context, *adminv1.TriggerJobRequest, ...grpc.CallOption) (*adminv1.TriggerJobResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) GetJobStates(context.Context, *adminv1.GetJobStatesRequest, ...grpc.CallOption) (*adminv1.GetJobStatesResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) ListAdminQueues(context.Context, *adminv1.ListAdminQueuesRequest, ...grpc.CallOption) (*adminv1.ListAdminQueuesResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) ListJobs(context.Context, *adminv1.ListJobsRequest, ...grpc.CallOption) (*adminv1.ListJobsResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) GetJob(context.Context, *adminv1.GetJobRequest, ...grpc.CallOption) (*adminv1.GetJobResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) CancelJobs(context.Context, *adminv1.CancelJobsRequest, ...grpc.CallOption) (*adminv1.CancelJobsResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) RetryJobs(context.Context, *adminv1.RetryJobsRequest, ...grpc.CallOption) (*adminv1.RetryJobsResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) PauseQueue(context.Context, *adminv1.PauseQueueRequest, ...grpc.CallOption) (*adminv1.PauseQueueResponse, error) {
+	panic("not implemented")
+}
+
+func (m *mockAdminClient) ResumeQueue(context.Context, *adminv1.ResumeQueueRequest, ...grpc.CallOption) (*adminv1.ResumeQueueResponse, error) {
+	panic("not implemented")
+}
+
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {
 		name       string

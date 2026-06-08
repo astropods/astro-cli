@@ -699,7 +699,7 @@ function JobsTable({ jobs, highlightJobId }: { jobs: DeploymentJob[]; highlightJ
                 </td>
                 <td className="px-3 py-1.5 font-mono text-muted-foreground">
                   {j.job_id != null ? (
-                    <Link to={`/admin/river-ui?job=${j.job_id}`} className="text-honey-dark hover:underline">
+                    <Link to={`/admin/jobs?job=${j.job_id}`} className="text-honey-dark hover:underline">
                       {j.job_id}
                     </Link>
                   ) : (

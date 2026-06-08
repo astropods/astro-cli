@@ -267,31 +267,160 @@ export function useAstroOpenAPISpec() {
   });
 }
 
-export function useRiverUIStatus() {
+export interface JobKindInfo {
+  kind: string;
+  args_schema: Record<string, unknown>;
+}
+
+export function useJobKinds() {
   return useQuery({
-    queryKey: adminKeys.riverUIStatus(),
-    queryFn: () =>
-      api.get<{ running: boolean }>("/api/admin/riverui/status"),
-    refetchInterval: 5_000,
+    queryKey: adminKeys.jobKinds(),
+    queryFn: () => api.get<{ kinds: JobKindInfo[] }>("/api/admin/jobs/kinds").then((r) => r.kinds),
+    staleTime: Infinity,
   });
 }
 
-export function useStartRiverUI() {
+export function useTriggerJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<{ status: string }>("/api/admin/riverui/start"),
+    mutationFn: ({ kind, args }: { kind: string; args: Record<string, unknown> }) =>
+      api.post<{ job_id: number }>("/api/admin/jobs/trigger", { kind, args_json: args }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.riverUIStatus() });
+      qc.invalidateQueries({ queryKey: adminKeys.jobStates() });
+      qc.invalidateQueries({ queryKey: adminKeys.jobsAll() });
     },
   });
 }
 
-export function useStopRiverUI() {
+export interface JobStates {
+  available: number;
+  cancelled: number;
+  completed: number;
+  discarded: number;
+  pending: number;
+  retryable: number;
+  running: number;
+  scheduled: number;
+}
+
+export interface AdminQueue {
+  count_available: number;
+  count_running: number;
+  name: string;
+  paused_at: string | null;
+  updated_at: string;
+}
+
+export interface AdminJob {
+  id: number;
+  args: Record<string, unknown>;
+  attempt: number;
+  attempted_at: string | null;
+  created_at: string;
+  errors: Array<{ at: string; attempt: number; error: string; trace: string }> | null;
+  finalized_at: string | null;
+  kind: string;
+  max_attempts: number;
+  priority: number;
+  queue: string;
+  scheduled_at: string;
+  state: string;
+}
+
+export interface AdminJobsResponse {
+  jobs: AdminJob[];
+  next_before_id?: number;
+  has_more: boolean;
+}
+
+export function useJobStates() {
+  return useQuery({
+    queryKey: adminKeys.jobStates(),
+    queryFn: () => api.get<JobStates>("/api/admin/jobs/states"),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useAdminJob(id: number | null) {
+  return useQuery({
+    queryKey: adminKeys.job(id ?? 0),
+    queryFn: () => api.get<{ job: AdminJob }>(`/api/admin/jobs/${id}`).then((r) => r.job),
+    enabled: id !== null,
+    staleTime: 30_000,
+  });
+}
+
+export function useAdminQueues() {
+  return useQuery({
+    queryKey: adminKeys.adminQueues(),
+    queryFn: () => api.get<{ queues: AdminQueue[] }>("/api/admin/jobs/queues").then((r) => r.queues ?? []),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useAdminJobs(params: { state?: string; kinds?: string[]; queue?: string; limit?: number; beforeId?: number; anchorId?: number }) {
+  const paramKey = {
+    state: params.state,
+    queue: params.queue,
+    kinds: params.kinds?.join(","),
+    limit: String(params.limit ?? ""),
+    beforeId: params.beforeId != null ? String(params.beforeId) : undefined,
+    anchorId: params.anchorId != null ? String(params.anchorId) : undefined,
+  };
+  return useQuery({
+    queryKey: adminKeys.jobs(paramKey),
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (params.state) qs.set("state", params.state);
+      if (params.queue) qs.set("queue", params.queue);
+      if (params.kinds?.length) params.kinds.forEach((k) => qs.append("kinds", k));
+      if (params.limit) qs.set("limit", String(params.limit));
+      if (params.beforeId != null) qs.set("before_id", String(params.beforeId));
+      if (params.anchorId != null) qs.set("anchor_id", String(params.anchorId));
+      return api.get<AdminJobsResponse>(`/api/admin/jobs?${qs}`).then((r) => ({
+        jobs: r.jobs ?? [],
+        next_before_id: r.next_before_id,
+        has_more: r.has_more ?? false,
+      }));
+    },
+    refetchInterval: params.state === "running" ? 5_000 : undefined,
+  });
+}
+
+export function usePauseQueue() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<{ status: string }>("/api/admin/riverui/stop"),
+    mutationFn: (name: string) => api.post(`/api/admin/queues/${encodeURIComponent(name)}/pause`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.adminQueues() }),
+  });
+}
+
+export function useResumeQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post(`/api/admin/queues/${encodeURIComponent(name)}/resume`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.adminQueues() }),
+  });
+}
+
+export function useCancelJobs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.post<{ cancelled: number }>("/api/admin/jobs/cancel", { ids }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.riverUIStatus() });
+      qc.invalidateQueries({ queryKey: adminKeys.jobStates() });
+      qc.invalidateQueries({ queryKey: adminKeys.jobsAll() });
+    },
+  });
+}
+
+export function useRetryJobs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.post<{ retried: number }>("/api/admin/jobs/retry", { ids }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.jobStates() });
+      qc.invalidateQueries({ queryKey: adminKeys.jobsAll() });
     },
   });
 }

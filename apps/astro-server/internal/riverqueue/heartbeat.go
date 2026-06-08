@@ -15,6 +15,10 @@ type OpenmeterArgs struct{}
 
 func (OpenmeterArgs) Kind() string { return "openmeter.heartbeat" }
 
+func init() {
+	registerJobKind[OpenmeterArgs]()
+}
+
 // OpenmeterWorker emits periodic metering events via OpenMeter.
 type OpenmeterWorker struct {
 	river.WorkerDefaults[OpenmeterArgs]

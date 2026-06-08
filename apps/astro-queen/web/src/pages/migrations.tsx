@@ -252,16 +252,16 @@ function JobsTable({ jobs }: { jobs: ClusterMigrationJob[] }) {
                       Jobs
                     </Link>
                     <Link
-                      to={`/admin/river-ui?job=${j.job_id}`}
+                      to={`/admin/jobs?job=${j.job_id}`}
                       className="inline-flex items-center gap-0.5 text-honey-dark hover:underline"
                     >
-                      River
+                      Job
                       <ExternalLink className="size-3" />
                     </Link>
                   </div>
                 ) : (
                   <Link
-                    to={`/admin/river-ui?job=${j.job_id}`}
+                    to={`/admin/jobs?job=${j.job_id}`}
                     className="inline-flex items-center gap-0.5 text-honey-dark hover:underline"
                   >
                     River

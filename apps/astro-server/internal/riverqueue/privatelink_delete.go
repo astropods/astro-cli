@@ -20,6 +20,10 @@ type PrivateLinkDeleteArgs struct {
 
 func (PrivateLinkDeleteArgs) Kind() string { return "privatelink_delete" }
 
+func init() {
+	registerJobKind[PrivateLinkDeleteArgs]()
+}
+
 // PrivateLinkDeleteWorker deletes AWS VPC endpoints for external knowledge stores
 // and cleans up associated NetworkPolicies.
 type PrivateLinkDeleteWorker struct {

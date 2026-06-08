@@ -44,12 +44,12 @@ type connectServiceConnectClient struct {
 }
 
 func (x *connectServiceConnectClient) Send(m *ClientMessage) error {
-	return x.ClientStream.SendMsg(m)
+	return x.ClientStream.SendMsg(m) //nolint:staticcheck
 }
 
 func (x *connectServiceConnectClient) Recv() (*ServerMessage, error) {
 	m := new(ServerMessage)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
+	if err := x.ClientStream.RecvMsg(m); err != nil { //nolint:staticcheck
 		return nil, err
 	}
 	return m, nil
@@ -87,12 +87,12 @@ type connectServiceConnectServer struct {
 }
 
 func (x *connectServiceConnectServer) Send(m *ServerMessage) error {
-	return x.ServerStream.SendMsg(m)
+	return x.ServerStream.SendMsg(m) //nolint:staticcheck
 }
 
 func (x *connectServiceConnectServer) Recv() (*ClientMessage, error) {
 	m := new(ClientMessage)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+	if err := x.ServerStream.RecvMsg(m); err != nil { //nolint:staticcheck
 		return nil, err
 	}
 	return m, nil

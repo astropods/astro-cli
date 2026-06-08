@@ -25,6 +25,10 @@ type UndeployArgs struct {
 
 func (UndeployArgs) Kind() string { return "undeploy" }
 
+func init() {
+	registerJobKind[UndeployArgs]()
+}
+
 func (UndeployArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueDeploy,

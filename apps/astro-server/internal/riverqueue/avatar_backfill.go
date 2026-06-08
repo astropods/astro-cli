@@ -15,6 +15,10 @@ type AvatarBackfillArgs struct{}
 
 func (AvatarBackfillArgs) Kind() string { return "avatar.backfill" }
 
+func init() {
+	registerJobKind[AvatarBackfillArgs]()
+}
+
 // AvatarBackfillWorker assigns preset avatars to accounts that don't have one yet.
 // Runs once on startup via periodic job scheduling; skips accounts whose avatar
 // already exists in the storage backend.

@@ -26,6 +26,10 @@ type DeployArgs struct {
 
 func (DeployArgs) Kind() string { return "deploy" }
 
+func init() {
+	registerJobKind[DeployArgs]()
+}
+
 func (DeployArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueDeploy,

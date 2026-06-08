@@ -19,6 +19,11 @@ const queueWorkOS = "workos"
 type WorkOSEventsArgs struct{}
 
 func (WorkOSEventsArgs) Kind() string { return "workos.events" }
+
+func init() {
+	registerJobKind[WorkOSEventsArgs]()
+}
+
 func (WorkOSEventsArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: queueWorkOS}
 }
