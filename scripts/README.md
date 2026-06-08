@@ -4,6 +4,7 @@
 - [e2e.sh](#e2esh)
 - [smoke-test.sh](#smoke-testsh)
 - [update-submodules.sh](#update-submodulessh)
+- [validate-submodules.sh](#validate-submodulessh)
 - [release.ts](#releasets)
 - [agent-k8sfwd.sh](#agent-k8sfwdsh)
 - [merge-svg-pixels.ts](#merge-svg-pixelsts)
@@ -59,6 +60,15 @@ Syncs submodule URLs, checks out the SHAs recorded in the superproject, and fall
 
 ```bash
 bash scripts/update-submodules.sh
+```
+
+## validate-submodules.sh
+
+Offline check that every `.gitmodules` path has a gitlink at the given ref and that no two submodule paths share the same SHA (catches cross-repo mix-ups like committing a `modules/blog` SHA as `modules/website`). Does not fetch submodule remotes — use `update-submodules.sh` locally to verify SHAs exist. Runs in CI on submodule pointer changes.
+
+```bash
+bash scripts/validate-submodules.sh        # validate HEAD
+bash scripts/validate-submodules.sh main   # validate a specific ref
 ```
 
 ## release.ts

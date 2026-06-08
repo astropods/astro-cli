@@ -1,0 +1,32 @@
+name: Validate Submodules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.gitmodules'
+      - 'modules/**'
+      - 'scripts/validate-submodules.sh'
+      - '.github/workflows/validate-submodules.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.gitmodules'
+      - 'modules/**'
+      - 'scripts/validate-submodules.sh'
+      - '.github/workflows/validate-submodules.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate submodule pointers
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate submodule pointers
+        run: bash scripts/validate-submodules.sh
