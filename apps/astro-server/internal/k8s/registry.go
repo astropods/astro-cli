@@ -61,6 +61,7 @@ type ClusterEntry struct {
 	Region                 string
 	EKSClusterName         string
 	EKSClusterEndpoint     string
+	EKSClusterCA           []byte // PEM CA bytes, empty for primary
 	Enabled                bool
 	AgentIngressDomain     string
 	AgentACMCertARN        string
@@ -202,6 +203,7 @@ func (r *Registry) Get(ctx context.Context, id string) (ClusterClient, error) {
 		ClusterName:     row.EKSClusterName,
 		ClusterEndpoint: row.EKSClusterEndpoint,
 		Region:          row.Region,
+		ClusterCA:       row.EKSClusterCA,
 		Logger:          r.log,
 	})
 	if err != nil {
@@ -256,6 +258,7 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		Region:                 row.Region,
 		EKSClusterName:         row.EKSClusterName,
 		EKSClusterEndpoint:     row.EKSClusterEndpoint,
+		EKSClusterCA:           row.EKSClusterCA,
 		Enabled:                row.Enabled,
 		AgentIngressDomain:     row.AgentIngressDomain,
 		AgentACMCertARN:        row.AgentACMCertARN,
@@ -315,6 +318,7 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 			Region:                 row.Region,
 			EKSClusterName:         row.EKSClusterName,
 			EKSClusterEndpoint:     row.EKSClusterEndpoint,
+			EKSClusterCA:           row.EKSClusterCA,
 			Enabled:                row.Enabled,
 			AgentIngressDomain:     row.AgentIngressDomain,
 			AgentACMCertARN:        row.AgentACMCertARN,

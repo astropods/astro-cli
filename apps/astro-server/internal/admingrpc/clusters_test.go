@@ -31,7 +31,7 @@ func (s *stubClusterClient) DiagnoseConnection() map[string]string { return nil 
 
 // clusterColumns is the full clusters table projection used by clusterstore.baseSelect.
 var clusterColumns = []string{
-	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 	"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 	"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 	"knowledge_domain",
@@ -39,11 +39,16 @@ var clusterColumns = []string{
 	"created_at", "updated_at",
 }
 
+// fakeCA returns a deterministic PEM blob for cluster fixtures.
+func fakeCA() []byte {
+	return []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+}
+
 // clusterRow fills clusterColumns for tests that don't care about the ingress
 // values — they get populated so the row is valid.
 func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.Time) []driver.Value {
 	return []driver.Value{
-		id, region, eksName, eksEndpoint, enabled,
+		id, region, eksName, eksEndpoint, fakeCA(), enabled,
 		"agents.example.com", "arn:acm:x", "astro",
 		"ingestion.example.com", "arn:acm:y", "astro-ingest",
 		"knowledge.example.com",
@@ -60,6 +65,7 @@ func fullRegisterRequest(id string) *adminv1.RegisterClusterRequest {
 		Region:                     "eu-west-1",
 		EKSClusterName:             "eks-eu",
 		EKSClusterEndpoint:         "https://eu.example",
+		EKSClusterCA:               fakeCA(),
 		AgentIngressDomain:         "agents.example.com",
 		AgentACMCertificateARN:     "arn:acm:x",
 		AgentALBGroupName:          "astro",
@@ -80,6 +86,7 @@ func fullUpdateRequest(id string) *adminv1.UpdateClusterRequest {
 		Region:                     "eu-central-1",
 		EKSClusterName:             "eks-eu-new",
 		EKSClusterEndpoint:         "https://eu-new.example",
+		EKSClusterCA:               fakeCA(),
 		AgentIngressDomain:         "agents.example.com",
 		AgentACMCertificateARN:     "arn:acm:x",
 		AgentALBGroupName:          "astro",

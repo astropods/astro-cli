@@ -21,6 +21,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
+// fakeClusterCA is the minimum PEM blob clusterstore accepts for registration.
+var fakeClusterCA = []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+
 type noopPrimaryClusterClient struct {
 	cs *kubernetes.Clientset
 }
@@ -54,6 +57,7 @@ func registerTestCluster(t *testing.T, db *sql.DB, store *clusterstore.Store, id
 		Region:                 "us-east-1",
 		EKSClusterName:         "e2e-unreachable-eks",
 		EKSClusterEndpoint:     "https://e2e-unreachable.example",
+		EKSClusterCA:           fakeClusterCA,
 		Enabled:                enabled,
 		AgentIngressDomain:     "agents.e2e.example.com",
 		AgentACMCertARN:        "arn:aws:acm:us-east-1:000000000000:certificate/e2e-agent",

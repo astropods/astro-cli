@@ -31,7 +31,12 @@ type EKSClientConfig struct {
 	ClusterName     string
 	ClusterEndpoint string
 	Region          string
-	Logger          *logger.Logger
+	// ClusterCA is the EKS API server's CA in PEM. When non-empty,
+	// NewEKSClient uses these bytes directly and skips the DescribeCluster
+	// call. Required for additional/BYOC clusters (no cross-account
+	// DescribeCluster perm); empty for the primary cluster.
+	ClusterCA []byte
+	Logger    *logger.Logger
 }
 
 // EKSClient wraps the Kubernetes clientset with EKS-specific auth
@@ -78,23 +83,38 @@ func NewEKSClient(ctx context.Context, cfg EKSClientConfig) (*EKSClient, error) 
 		)
 	}
 
-	// Fetch cluster CA from EKS API
-	eksClient := eks.NewFromConfig(awsCfg)
-	describeOutput, err := eksClient.DescribeCluster(ctx, &eks.DescribeClusterInput{
-		Name: aws.String(cfg.ClusterName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe EKS cluster %q: %w", cfg.ClusterName, err)
-	}
-	if describeOutput.Cluster == nil {
-		return nil, fmt.Errorf("EKS cluster %q not found", cfg.ClusterName)
-	}
-
-	caData, err := base64.StdEncoding.DecodeString(
-		aws.ToString(describeOutput.Cluster.CertificateAuthority.Data),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode cluster CA: %w", err)
+	// Source the cluster CA. Two paths:
+	//   1. Caller supplied bytes (additional/BYOC clusters — clusterstore row
+	//      carries the CA captured at registration). No EKS API call needed,
+	//      which is the whole point: we don't have cross-account DescribeCluster.
+	//   2. Caller didn't supply (primary cluster) — fall back to in-account
+	//      DescribeCluster to fetch the CA fresh on every boot.
+	var caData []byte
+	if len(cfg.ClusterCA) > 0 {
+		caData = cfg.ClusterCA
+		if log != nil {
+			log.Debug("Using caller-supplied EKS cluster CA",
+				"cluster", cfg.ClusterName,
+				"bytes", len(caData),
+			)
+		}
+	} else {
+		eksClient := eks.NewFromConfig(awsCfg)
+		describeOutput, err := eksClient.DescribeCluster(ctx, &eks.DescribeClusterInput{
+			Name: aws.String(cfg.ClusterName),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to describe EKS cluster %q: %w", cfg.ClusterName, err)
+		}
+		if describeOutput.Cluster == nil {
+			return nil, fmt.Errorf("EKS cluster %q not found", cfg.ClusterName)
+		}
+		caData, err = base64.StdEncoding.DecodeString(
+			aws.ToString(describeOutput.Cluster.CertificateAuthority.Data),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode cluster CA: %w", err)
+		}
 	}
 
 	// Create token provider (handles token generation and caching)

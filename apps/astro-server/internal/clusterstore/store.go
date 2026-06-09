@@ -56,6 +56,7 @@ type Cluster struct {
 	Region                 string
 	EKSClusterName         string
 	EKSClusterEndpoint     string
+	EKSClusterCA           []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
 	Enabled                bool
 	AgentIngressDomain     string
 	AgentACMCertARN        string
@@ -106,6 +107,9 @@ func validateRequiredFields(c *Cluster) error {
 		Deploy:             deployConfigFromCluster(c),
 	}); err != nil {
 		return err
+	}
+	if len(c.EKSClusterCA) == 0 {
+		return fmt.Errorf("eks_cluster_ca is required (PEM bytes captured at registration via `aws eks describe-cluster`)")
 	}
 	if err := validateLangfuseBaseURL(c.LangfuseBaseURLExt); err != nil {
 		return err
@@ -194,13 +198,13 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO clusters (
-			id, region, eks_cluster_name, eks_cluster_endpoint, enabled,
+			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 			agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
 			ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
 			knowledge_domain,
 			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.Enabled,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
 		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 		c.KnowledgeDomain,
@@ -270,19 +274,20 @@ func (s *Store) Update(ctx context.Context, c *Cluster) error {
 			region = $1,
 			eks_cluster_name = $2,
 			eks_cluster_endpoint = $3,
-			agent_ingress_domain = $4,
-			agent_acm_certificate_arn = $5,
-			agent_alb_group_name = $6,
-			ingestion_ingress_domain = $7,
-			ingestion_acm_certificate_arn = $8,
-			ingestion_alb_group_name = $9,
-			knowledge_domain = $10,
-			langfuse_base_url_ext = $11,
-			langfuse_vpce_ips = $12,
-			pod_subnet_cidrs = $13,
+			eks_cluster_ca = $4,
+			agent_ingress_domain = $5,
+			agent_acm_certificate_arn = $6,
+			agent_alb_group_name = $7,
+			ingestion_ingress_domain = $8,
+			ingestion_acm_certificate_arn = $9,
+			ingestion_alb_group_name = $10,
+			knowledge_domain = $11,
+			langfuse_base_url_ext = $12,
+			langfuse_vpce_ips = $13,
+			pod_subnet_cidrs = $14,
 			updated_at = now()
-		WHERE id = $14`,
-		c.Region, c.EKSClusterName, c.EKSClusterEndpoint,
+		WHERE id = $15`,
+		c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
 		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 		c.KnowledgeDomain,
@@ -346,7 +351,7 @@ func (s *Store) Deregister(ctx context.Context, id string) error {
 
 // baseSelect is the column projection shared by Get and List.
 const baseSelect = `
-	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, enabled,
+	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 	       agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
 	       ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
 	       knowledge_domain,
@@ -362,7 +367,7 @@ type rowScanner interface {
 func scanCluster(r rowScanner) (*Cluster, error) {
 	var c Cluster
 	if err := r.Scan(
-		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.Enabled,
+		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
 		&c.AgentIngressDomain, &c.AgentACMCertARN, &c.AgentALBGroupName,
 		&c.IngestionIngressDomain, &c.IngestionACMCertARN, &c.IngestionALBGroupName,
 		&c.KnowledgeDomain,

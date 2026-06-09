@@ -35,6 +35,12 @@ type ClusterClientConfig struct {
 	ClusterName     string
 	ClusterEndpoint string
 	Region          string
+	// ClusterCA is the EKS API server's CA in PEM. When non-empty, the EKS
+	// client skips DescribeCluster at boot and uses these bytes directly —
+	// required for additional clusters (the registry has no IAM perm to
+	// describe-cluster cross-account). Empty for the primary cluster, which
+	// is in-account and falls back to DescribeCluster.
+	ClusterCA []byte
 
 	// Local-specific
 	KubeconfigPath string
@@ -53,6 +59,7 @@ func NewClusterClient(ctx context.Context, cfg ClusterClientConfig) (ClusterClie
 			ClusterName:     cfg.ClusterName,
 			ClusterEndpoint: cfg.ClusterEndpoint,
 			Region:          cfg.Region,
+			ClusterCA:       cfg.ClusterCA,
 			Logger:          cfg.Logger,
 		})
 	default:

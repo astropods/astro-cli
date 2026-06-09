@@ -12,6 +12,7 @@ import {
 import type { RegisteredCluster } from "@/types/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -130,6 +131,7 @@ export function ClustersPage() {
   const [region, setRegion] = useState("");
   const [eksName, setEksName] = useState("");
   const [eksEndpoint, setEksEndpoint] = useState("");
+  const [eksClusterCA, setEksClusterCA] = useState("");
   const [ingress, setIngress] = useState<ClusterDeployFields>(emptyClusterDeploy);
 
   const clusters = data?.clusters ?? [];
@@ -142,6 +144,7 @@ export function ClustersPage() {
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
+        eks_cluster_ca: eksClusterCA.trim(),
         enabled: true,
         ...trimClusterDeploy(ingress),
       },
@@ -151,6 +154,7 @@ export function ClustersPage() {
           setRegion("");
           setEksName("");
           setEksEndpoint("");
+          setEksClusterCA("");
           setIngress(emptyClusterDeploy);
           setRegisterOpen(false);
         },
@@ -205,6 +209,7 @@ export function ClustersPage() {
               placeholder="https://..."
             />
           </div>
+          <EksClusterCAField value={eksClusterCA} onChange={setEksClusterCA} />
           <ClusterDeployFieldset value={ingress} onChange={setIngress} />
           {registerMut.isError && (
             <p className="text-destructive text-xs">{mutationErrorMessage(registerMut.error)}</p>
@@ -218,6 +223,7 @@ export function ClustersPage() {
               !region.trim() ||
               !eksName.trim() ||
               !eksEndpoint.trim() ||
+              !eksClusterCA.trim() ||
               !clusterDeployComplete(ingress)
             }
           >
@@ -391,6 +397,30 @@ function Field({
   );
 }
 
+function EksClusterCAField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs text-muted-foreground">EKS cluster CA (base64 PEM)</span>
+      <Textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="From `aws eks describe-cluster --query cluster.certificateAuthority.data` or byoc-output.sh"
+        className="min-h-16 font-mono text-[10px]"
+      />
+      <p className="text-[10px] text-muted-foreground">
+        Required for BYOC clusters. Capture once at registration; astro-server uses it instead of
+        cross-account DescribeCluster.
+      </p>
+    </label>
+  );
+}
+
 function ClusterRow({
   cluster,
   deploymentCount,
@@ -408,6 +438,7 @@ function ClusterRow({
   const [region, setRegion] = useState(cluster.region);
   const [eksName, setEksName] = useState(cluster.eks_cluster_name);
   const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
+  const [eksClusterCA, setEksClusterCA] = useState(cluster.eks_cluster_ca ?? "");
   const [ingress, setIngress] = useState<ClusterDeployFields>(() => clusterDeployFromCluster(cluster));
 
   const busy =
@@ -432,6 +463,7 @@ function ClusterRow({
     setRegion(cluster.region);
     setEksName(cluster.eks_cluster_name);
     setEksEndpoint(cluster.eks_cluster_endpoint);
+    setEksClusterCA(cluster.eks_cluster_ca ?? "");
     setIngress(clusterDeployFromCluster(cluster));
   };
 
@@ -449,6 +481,7 @@ function ClusterRow({
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
+        eks_cluster_ca: eksClusterCA.trim(),
         ...trimClusterDeploy(ingress),
       },
       {
@@ -461,6 +494,7 @@ function ClusterRow({
     region.trim() !== "" &&
     eksName.trim() !== "" &&
     eksEndpoint.trim() !== "" &&
+    eksClusterCA.trim() !== "" &&
     clusterDeployComplete(ingress);
 
   const deployFields = clusterDeployFromCluster(cluster);
@@ -576,6 +610,7 @@ function ClusterRow({
                     placeholder="https://..."
                   />
                 </div>
+                <EksClusterCAField value={eksClusterCA} onChange={setEksClusterCA} />
                 <ClusterDeployFieldset value={ingress} onChange={setIngress} />
                 {updateMut.isError && (
                   <p className="text-destructive text-xs">{mutationErrorMessage(updateMut.error)}</p>

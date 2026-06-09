@@ -4309,13 +4309,13 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 	clusterMock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
-		}).AddRow(clusterID, "eu-west-1", "eks-name", "https://endpoint", false,
+		}).AddRow(clusterID, "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
@@ -5904,13 +5904,13 @@ func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
 	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
 		WithArgs("staging").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
-		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", false,
+		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
@@ -5949,13 +5949,13 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 			"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 			"knowledge_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
-		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", true,
+		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
 			"knowledge.example.com",
@@ -5996,13 +5996,13 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 		clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
 			WithArgs("eu-west-1-managed").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 				"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 				"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 				"knowledge_domain",
 				"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 				"created_at", "updated_at",
-			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", true,
+			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 				"agents.example.com", "arn:acm:x", "astro",
 				"ingestion.example.com", "arn:acm:y", "astro-ingest",
 				"knowledge.example.com",

@@ -615,6 +615,12 @@ message RegisteredCluster {
   string langfuse_base_url_ext = 18;
   string langfuse_vpce_ips = 19; // comma-separated ENI IPs
   string pod_subnet_cidrs = 20;  // comma-separated CIDRs
+  // EKS API server's CA certificate (PEM bytes). Captured by the operator at
+  // registration time via `aws eks describe-cluster` so astro-server's per-
+  // cluster client builder doesn't need cross-account DescribeCluster perms.
+  // Empty for is_primary=true entries (primary fetches CA from its in-account
+  // DescribeCluster call at boot).
+  bytes eks_cluster_ca = 21;
 }
 
 message RegisterClusterRequest {
@@ -633,6 +639,7 @@ message RegisterClusterRequest {
   string langfuse_base_url_ext = 13;
   string langfuse_vpce_ips = 14;
   string pod_subnet_cidrs = 15;
+  bytes eks_cluster_ca = 16; // PEM CA bytes; required (clusterstore rejects empty)
 }
 
 message RegisterClusterResponse {
@@ -726,6 +733,7 @@ message UpdateClusterRequest {
   string langfuse_base_url_ext = 12;
   string langfuse_vpce_ips = 13;
   string pod_subnet_cidrs = 14;
+  bytes eks_cluster_ca = 15; // PEM CA bytes; required for additional clusters
 }
 
 message UpdateClusterResponse {

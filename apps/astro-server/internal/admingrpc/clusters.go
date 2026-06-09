@@ -76,6 +76,7 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 		Region:                     entry.Region,
 		EKSClusterName:             entry.EKSClusterName,
 		EKSClusterEndpoint:         entry.EKSClusterEndpoint,
+		EKSClusterCA:               entry.EKSClusterCA,
 		Enabled:                    entry.Enabled,
 		IsPrimary:                  entry.IsPrimary,
 		Healthy:                    healthy,
@@ -105,6 +106,7 @@ func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
 		Region:                 row.Region,
 		EKSClusterName:         row.EKSClusterName,
 		EKSClusterEndpoint:     row.EKSClusterEndpoint,
+		EKSClusterCA:           row.EKSClusterCA,
 		Enabled:                row.Enabled,
 		AgentIngressDomain:     row.AgentIngressDomain,
 		AgentACMCertARN:        row.AgentACMCertARN,
@@ -151,6 +153,7 @@ func (s *Server) RegisterCluster(ctx context.Context, req *adminv1.RegisterClust
 		Region:                 req.Region,
 		EKSClusterName:         req.EKSClusterName,
 		EKSClusterEndpoint:     req.EKSClusterEndpoint,
+		EKSClusterCA:           req.EKSClusterCA,
 		Enabled:                enabled,
 		AgentIngressDomain:     req.AgentIngressDomain,
 		AgentACMCertARN:        req.AgentACMCertificateARN,
@@ -276,12 +279,16 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 	if req.Region == "" || req.EKSClusterName == "" || req.EKSClusterEndpoint == "" {
 		return nil, status.Error(codes.InvalidArgument, "region, eks_cluster_name, and eks_cluster_endpoint are required")
 	}
+	if len(req.EKSClusterCA) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "eks_cluster_ca is required (PEM bytes captured via `aws eks describe-cluster`)")
+	}
 
 	if err := s.clusterStore.Update(ctx, &clusterstore.Cluster{
 		ID:                     req.ID,
 		Region:                 req.Region,
 		EKSClusterName:         req.EKSClusterName,
 		EKSClusterEndpoint:     req.EKSClusterEndpoint,
+		EKSClusterCA:           req.EKSClusterCA,
 		AgentIngressDomain:     req.AgentIngressDomain,
 		AgentACMCertARN:        req.AgentACMCertificateARN,
 		AgentALBGroupName:      req.AgentALBGroupName,

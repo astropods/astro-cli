@@ -50,6 +50,7 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		Region             string `json:"region"`
 		EKSClusterName     string `json:"eks_cluster_name"`
 		EKSClusterEndpoint string `json:"eks_cluster_endpoint"`
+		EKSClusterCA       []byte `json:"eks_cluster_ca"` // base64-encoded PEM CA; required
 		Enabled            *bool  `json:"enabled"`
 		clusterDeployBody
 	}
@@ -63,6 +64,7 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		Region:                     body.Region,
 		EKSClusterName:             body.EKSClusterName,
 		EKSClusterEndpoint:         body.EKSClusterEndpoint,
+		EKSClusterCA:               body.EKSClusterCA,
 		AgentIngressDomain:         body.AgentIngressDomain,
 		AgentACMCertificateARN:     body.AgentACMCertificateARN,
 		AgentALBGroupName:          body.AgentALBGroupName,
@@ -92,6 +94,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		Region             string `json:"region"`
 		EKSClusterName     string `json:"eks_cluster_name"`
 		EKSClusterEndpoint string `json:"eks_cluster_endpoint"`
+		EKSClusterCA       []byte `json:"eks_cluster_ca"` // base64-encoded PEM CA; required
 		clusterDeployBody
 	}
 	if err := readJSON(r, &body); err != nil {
@@ -104,6 +107,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		Region:                     body.Region,
 		EKSClusterName:             body.EKSClusterName,
 		EKSClusterEndpoint:         body.EKSClusterEndpoint,
+		EKSClusterCA:               body.EKSClusterCA,
 		AgentIngressDomain:         body.AgentIngressDomain,
 		AgentACMCertificateARN:     body.AgentACMCertificateARN,
 		AgentALBGroupName:          body.AgentALBGroupName,

@@ -12,6 +12,15 @@ CREATE TABLE public.clusters (
     region             varchar(64)  NOT NULL,
     eks_cluster_name   varchar(128) NOT NULL,
     eks_cluster_endpoint varchar    NOT NULL,
+    -- EKS API server CA, captured at registration via `aws eks describe-cluster`.
+    -- Stored on the row so astro-server's per-cluster client builder doesn't
+    -- need cross-account DescribeCluster — astro-server signs an EKS bearer
+    -- token with its own IRSA creds and the cluster accepts that principal
+    -- via an explicit access entry (see managed-cluster-infra
+    -- aws_eks_access_entry.astro_server). NOT NULL with empty default so the
+    -- column-add applies safely; clusterstore.validateRequiredFields rejects
+    -- empty for new/updated rows.
+    eks_cluster_ca     bytea        NOT NULL DEFAULT ''::bytea,
     enabled            boolean      NOT NULL DEFAULT true,
     -- Per-cluster ingress / ALB / cert config. Required for every registered
     -- cluster — clusterstore.Register / Update reject empty values, and the

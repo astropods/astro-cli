@@ -43,6 +43,7 @@ func fullCluster() *Cluster {
 		Region:                 "us-east-1",
 		EKSClusterName:         "prod-managed-eks",
 		EKSClusterEndpoint:     "https://eks.example",
+		EKSClusterCA:           []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
 		Enabled:                true,
 		AgentIngressDomain:     "agents.example.com",
 		AgentACMCertARN:        "arn:acm:x",
@@ -57,6 +58,12 @@ func fullCluster() *Cluster {
 	}
 }
 
+// fakeCA returns the same PEM blob fullCluster uses, for tests that compare or
+// pass CA explicitly outside the helper.
+func fakeCA() []byte {
+	return []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+}
+
 func TestRegister_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
@@ -64,7 +71,7 @@ func TestRegister_Success(t *testing.T) {
 	mock.ExpectExec("INSERT INTO clusters").
 		WithArgs(
 			"us-east-1-managed", "us-east-1",
-			"prod-managed-eks", "https://eks.example",
+			"prod-managed-eks", "https://eks.example", fakeCA(),
 			true,
 			"agents.example.com", "arn:acm:x", "astro",
 			"ingestion.example.com", "arn:acm:y", "astro-ingest",
@@ -112,6 +119,7 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 		"missing region":                    func(c *Cluster) { c.Region = "" },
 		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
 		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing eks_cluster_ca":            func(c *Cluster) { c.EKSClusterCA = nil },
 		"missing agent_ingress_domain":      func(c *Cluster) { c.AgentIngressDomain = "" },
 		"missing agent_acm_certificate_arn": func(c *Cluster) { c.AgentACMCertARN = "" },
 		"missing agent_alb_group_name":      func(c *Cluster) { c.AgentALBGroupName = "" },
@@ -313,7 +321,7 @@ func TestUpdate_Success(t *testing.T) {
 	c := fullCluster()
 	mock.ExpectExec("UPDATE clusters SET").
 		WithArgs(
-			c.Region, c.EKSClusterName, c.EKSClusterEndpoint,
+			c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
 			c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
 			c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
 			c.KnowledgeDomain,
@@ -349,6 +357,7 @@ func TestUpdate_RejectsMissingRequiredFields(t *testing.T) {
 		"missing region":                    func(c *Cluster) { c.Region = "" },
 		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
 		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing eks_cluster_ca":            func(c *Cluster) { c.EKSClusterCA = nil },
 		"missing agent_ingress_domain":      func(c *Cluster) { c.AgentIngressDomain = "" },
 		"missing agent_acm_certificate_arn": func(c *Cluster) { c.AgentACMCertARN = "" },
 		"missing agent_alb_group_name":      func(c *Cluster) { c.AgentALBGroupName = "" },
@@ -412,7 +421,7 @@ func TestDeregister_InUse(t *testing.T) {
 // baseSelect. Test rows can be appended via .AddRow.
 func clusterRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled",
+		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 		"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
 		"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
 		"knowledge_domain",
@@ -426,7 +435,7 @@ func clusterRows() *sqlmock.Rows {
 // irrelevant to the assertion.
 func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string, enabled bool, now time.Time) *sqlmock.Rows {
 	return rows.AddRow(
-		id, region, eksName, eksEndpoint, enabled,
+		id, region, eksName, eksEndpoint, fakeCA(), enabled,
 		"agents.example.com", "arn:acm:x", "astro",
 		"ingestion.example.com", "arn:acm:y", "astro-ingest",
 		"knowledge.example.com",

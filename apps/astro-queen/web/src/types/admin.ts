@@ -457,6 +457,8 @@ export interface RegisteredCluster {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  /** Base64-encoded PEM from `aws eks describe-cluster`. Omitted for primary. */
+  eks_cluster_ca?: string;
 }
 
 export interface ListClustersResponse {
@@ -468,6 +470,8 @@ export interface RegisterClusterRequest {
   region: string;
   eks_cluster_name: string;
   eks_cluster_endpoint: string;
+  /** Base64-encoded PEM from `aws eks describe-cluster`. */
+  eks_cluster_ca: string;
   enabled?: boolean;
   agent_ingress_domain: string;
   agent_acm_certificate_arn: string;
@@ -497,6 +501,8 @@ export interface UpdateClusterRequest {
   region: string;
   eks_cluster_name: string;
   eks_cluster_endpoint: string;
+  /** Base64-encoded PEM from `aws eks describe-cluster`. */
+  eks_cluster_ca: string;
   agent_ingress_domain: string;
   agent_acm_certificate_arn: string;
   agent_alb_group_name: string;
