@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ClipboardEvent } from "react";
 import {
   useClusters,
   useDeployments,
@@ -41,6 +41,16 @@ import { cn, formatDateTime, countDeploymentsByRoutedCluster } from "@/lib/utils
 function mutationErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return "Request failed";
+}
+
+/** Accept AWS base64 or PEM; return base64 for JSON transport (Go []byte unmarshaling). */
+function normalizeEksClusterCA(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("-----BEGIN")) {
+    return btoa(trimmed);
+  }
+  return trimmed.replace(/\s+/g, "");
 }
 
 // ClusterDeployFields is the per-cluster deploy config astro-server requires
@@ -144,7 +154,7 @@ export function ClustersPage() {
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
-        eks_cluster_ca: eksClusterCA.trim(),
+        eks_cluster_ca: normalizeEksClusterCA(eksClusterCA),
         enabled: true,
         ...trimClusterDeploy(ingress),
       },
@@ -404,18 +414,28 @@ function EksClusterCAField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    e.preventDefault();
+    onChange(normalizeEksClusterCA(text));
+  };
+
   return (
     <label className="block space-y-1">
       <span className="text-xs text-muted-foreground">EKS cluster CA (base64 PEM)</span>
       <Textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onPaste={handlePaste}
+        rows={3}
         placeholder="From `aws eks describe-cluster --query cluster.certificateAuthority.data` or byoc-output.sh"
-        className="min-h-16 font-mono text-[10px]"
+        className="field-sizing-fixed max-h-32 min-h-16 resize-y overflow-y-auto break-all font-mono text-[10px]"
       />
       <p className="text-[10px] text-muted-foreground">
-        Required for BYOC clusters. Capture once at registration; astro-server uses it instead of
-        cross-account DescribeCluster.
+        Required for BYOC clusters. Paste the base64 value from byoc-output.sh or the PEM cert —
+        both work. Capture once at registration; astro-server uses it instead of cross-account
+        DescribeCluster.
       </p>
     </label>
   );
@@ -481,7 +501,7 @@ function ClusterRow({
         region: region.trim(),
         eks_cluster_name: eksName.trim(),
         eks_cluster_endpoint: eksEndpoint.trim(),
-        eks_cluster_ca: eksClusterCA.trim(),
+        eks_cluster_ca: normalizeEksClusterCA(eksClusterCA),
         ...trimClusterDeploy(ingress),
       },
       {
@@ -587,7 +607,7 @@ function ClusterRow({
                   Edit
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Edit cluster {cluster.id}</DialogTitle>
                   <DialogDescription>
