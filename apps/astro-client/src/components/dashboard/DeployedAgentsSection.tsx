@@ -45,7 +45,7 @@ export function DeployedAgentsSection({
   const isEmpty = !isLoading && deployments.length === 0;
 
   if (isEmpty) {
-    return <DashboardAgentsEmptyState />;
+    return <DashboardAgentsEmptyState account={account} />;
   }
 
   return (
