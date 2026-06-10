@@ -60,6 +60,8 @@ func Run(ctx context.Context, cfg Config) error {
 			return dialQUIC(ctx, addr, verbose)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// connectv1 messages are JSON-encoded; opt into the "json" codec.
+		grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")),
 	)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
