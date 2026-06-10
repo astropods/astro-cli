@@ -67,6 +67,11 @@ func GetEvalDataset(
 			s := ds.LastTraceAt.UTC().Format(time.RFC3339)
 			lastTraceAt = &s
 		}
+		var lastSyncAttemptedAt *string
+		if ds.LastSyncAttemptedAt != nil {
+			s := ds.LastSyncAttemptedAt.UTC().Format(time.RFC3339)
+			lastSyncAttemptedAt = &s
+		}
 		var lastSyncedAt *string
 		if ds.LastSyncedAt != nil {
 			s := ds.LastSyncedAt.UTC().Format(time.RFC3339)
@@ -74,10 +79,11 @@ func GetEvalDataset(
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"dataset_name":   ds.LangfuseDatasetName,
-			"last_trace_at":  lastTraceAt,
-			"last_synced_at": lastSyncedAt,
-			"item_count":     ds.ItemCount,
+			"dataset_name":           ds.LangfuseDatasetName,
+			"last_trace_at":          lastTraceAt,
+			"last_sync_attempted_at": lastSyncAttemptedAt,
+			"last_synced_at":         lastSyncedAt,
+			"item_count":             ds.ItemCount,
 		})
 	}
 }

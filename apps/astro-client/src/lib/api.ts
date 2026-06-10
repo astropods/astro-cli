@@ -919,6 +919,7 @@ export interface DeploymentEventsResponse {
 export interface EvalDatasetResponse {
   dataset_name: string;
   last_trace_at: string | null;
+  last_sync_attempted_at: string | null;
   last_synced_at: string | null;
   item_count: number;
 }

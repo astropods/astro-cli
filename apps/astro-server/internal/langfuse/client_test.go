@@ -197,6 +197,37 @@ func TestDoGet_Non200Status(t *testing.T) {
 	if !strings.Contains(err.Error(), "403") {
 		t.Errorf("error %q does not contain 403", err)
 	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error %q is not APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestUpsertDatasetItem_Non2xxStatusIsAPIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"message":"Dataset item validation failed"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	err := c.UpsertDatasetItem(context.Background(), DatasetItemInput{
+		DatasetName: "dataset",
+		Input:       map[string]any{"prompt": "hello"},
+	})
+	if err == nil {
+		t.Fatal("expected error for 400, got nil")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error %q is not APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+	}
 }
 
 func TestDoGet_MalformedJSON(t *testing.T) {

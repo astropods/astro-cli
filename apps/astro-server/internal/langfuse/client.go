@@ -28,6 +28,16 @@ type Client struct {
 	http      *http.Client
 }
 
+// APIError is returned when Langfuse responds with a non-success HTTP status.
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("langfuse: unexpected status %d: %s", e.StatusCode, e.Body)
+}
+
 // NewClient creates a Langfuse REST API client.
 func NewClient(baseURL, publicKey, secretKey string) *Client {
 	return &Client{
@@ -378,6 +388,7 @@ func (c *Client) GetMetrics(ctx context.Context, q MetricsQuery) (*MetricsRespon
 
 // DatasetItemInput is the payload for upserting a single dataset item.
 type DatasetItemInput struct {
+	ID                  string `json:"id,omitempty"`
 	DatasetName         string `json:"datasetName"`
 	Input               any    `json:"input"`
 	ExpectedOutput      any    `json:"expectedOutput"`
@@ -464,7 +475,7 @@ func (c *Client) doPost(ctx context.Context, path string, body any) error {
 
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("langfuse: unexpected status %d: %s", resp.StatusCode, string(b))
+		return &APIError{StatusCode: resp.StatusCode, Body: string(b)}
 	}
 	return nil
 }
@@ -496,7 +507,7 @@ func (c *Client) doGet(ctx context.Context, path string, params url.Values, out 
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("langfuse: unexpected status %d: %s", resp.StatusCode, string(body))
+		return &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

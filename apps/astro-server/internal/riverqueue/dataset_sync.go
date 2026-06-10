@@ -2,7 +2,11 @@ package riverqueue
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -89,9 +93,18 @@ type DatasetSyncWorker struct {
 	log             *logger.Logger
 }
 
-func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSyncArgs]) error {
+func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSyncArgs]) (workErr error) {
+	log := w.log.WithFields(map[string]interface{}{
+		"deployment_id": job.Args.DeploymentID,
+		"job_id":        job.ID,
+		"attempt":       job.Attempt,
+		"max_attempts":  job.MaxAttempts,
+	})
+	log.Info("Dataset sync: starting")
+
 	if w.langfuseStore == nil {
-		w.log.Warn("Dataset sync: langfuse not configured, skipping", "deployment_id", job.Args.DeploymentID)
+		log.Warn("Dataset sync: langfuse not configured, skipping")
+		log.Info("Dataset sync: finished")
 		return nil
 	}
 	dep, err := w.deploymentStore.GetDeploymentByID(job.Args.DeploymentID)
@@ -99,7 +112,8 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 		return fmt.Errorf("get deployment: %w", err)
 	}
 	if dep == nil {
-		w.log.Warn("Dataset sync: deployment not found", "deployment_id", job.Args.DeploymentID)
+		log.Warn("Dataset sync: deployment not found")
+		log.Info("Dataset sync: finished")
 		return nil
 	}
 
@@ -108,6 +122,8 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 		return fmt.Errorf("get langfuse creds: %w", err)
 	}
 	if creds == nil {
+		log.Info("Dataset sync: langfuse credentials missing, skipping")
+		log.Info("Dataset sync: finished")
 		return nil
 	}
 
@@ -115,6 +131,7 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 
 	dataset, err := ensureDataset(ctx, dep, w.datasetStore, client)
 	if err != nil {
+		log.Warn("Dataset sync: ensure dataset failed", "error", err)
 		return fmt.Errorf("ensure dataset: %w", err)
 	}
 
@@ -127,11 +144,63 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 	const pageSize = 50
 	const maxPages = 200
 	var maxTraceAt time.Time
-	var newItems int
+	var tracesProcessed int
+	var itemsWriteAttempted int
+	var itemsUpserted int
+	var tracesSkipped int
+	itemCount := dataset.ItemCount
+	lastTraceAt := ""
+
+	defer func() {
+		finalizeCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		datasetSummaryMissing := dataset.ItemCount == 0 || dataset.LastSyncAttemptedAt == nil
+		shouldRefreshCount := itemsWriteAttempted > 0 || datasetSummaryMissing
+		var itemCountToPersist *int
+		if shouldRefreshCount {
+			countResp, countErr := client.GetDatasetItems(finalizeCtx, dataset.LangfuseDatasetName, 1, 1)
+			if countErr != nil {
+				log.Warn("Dataset sync: get total item count failed", "error", countErr)
+			} else {
+				itemCount = countResp.Meta.TotalItems
+				itemCountToPersist = &itemCount
+			}
+		}
+
+		var lastTraceAtToPersist *time.Time
+		if !maxTraceAt.IsZero() {
+			traceAt := maxTraceAt.UTC()
+			lastTraceAt = traceAt.Format(time.RFC3339)
+			lastTraceAtToPersist = &traceAt
+		}
+		if err := w.datasetStore.FinalizeSync(dep.ID, itemCountToPersist, lastTraceAtToPersist, workErr == nil); err != nil {
+			log.Warn("Dataset sync: finalize sync failed", "error", err)
+		}
+
+		logArgs := []interface{}{
+			"traces_processed", tracesProcessed,
+			"items_upserted", itemsUpserted,
+			"traces_skipped", tracesSkipped,
+			"item_count", itemCount,
+			"last_trace_at", lastTraceAt,
+		}
+		if workErr != nil {
+			logArgs = append(logArgs, "error", workErr)
+		}
+		log.Info("Dataset sync: finished", logArgs...)
+	}()
 
 	for page := 1; page <= maxPages; page++ {
 		resp, err := client.GetTraces(ctx, dep.ID, fromTimestamp, toTimestamp, pageSize, (page-1)*pageSize)
 		if err != nil {
+			log.Warn("Dataset sync: get traces page failed",
+				"page", page,
+				"page_size", pageSize,
+				"from_timestamp", fromTimestamp,
+				"to_timestamp", toTimestamp,
+				"error", err,
+			)
 			return fmt.Errorf("get traces page %d: %w", page, err)
 		}
 		if len(resp.Data) == 0 {
@@ -139,12 +208,25 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 		}
 
 		for _, trace := range resp.Data {
+			tracesProcessed++
+			traceAt, traceTimeErr := time.Parse(time.RFC3339, trace.CreatedAt)
+			if traceTimeErr != nil {
+				log.Warn("Dataset sync: parse trace timestamp failed", "trace_id", trace.ID, "created_at", trace.CreatedAt)
+			}
+
+			if shouldSkipDatasetTrace(trace) {
+				tracesSkipped++
+				advanceMaxTraceAt(&maxTraceAt, traceAt, traceTimeErr)
+				continue
+			}
+
 			rootObsID, obsErr := client.GetRootObservationID(ctx, trace.ID)
 			if obsErr != nil {
-				w.log.Warn("Dataset sync: get root observation failed", "trace_id", trace.ID, "error", obsErr)
+				log.Warn("Dataset sync: get root observation failed", "trace_id", trace.ID, "error", obsErr)
 			}
 
 			item := langfuse.DatasetItemInput{
+				ID:                  deterministicDatasetItemID(dataset.LangfuseDatasetName, trace.ID),
 				DatasetName:         dataset.LangfuseDatasetName,
 				Input:               trace.Input,
 				ExpectedOutput:      trace.Output,
@@ -152,37 +234,51 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 				SourceTraceID:       trace.ID,
 				SourceObservationID: rootObsID,
 			}
+			itemsWriteAttempted++
 			if err := client.UpsertDatasetItem(ctx, item); err != nil {
-				w.log.Warn("Dataset sync: upsert item failed", "trace_id", trace.ID, "error", err)
+				log.Warn("Dataset sync: upsert item failed", "trace_id", trace.ID, "error", err)
+				if isPermanentDatasetItemError(err) {
+					advanceMaxTraceAt(&maxTraceAt, traceAt, traceTimeErr)
+				}
 				continue
 			}
-			newItems++
-
-			if t, err := time.Parse(time.RFC3339, trace.CreatedAt); err == nil && t.After(maxTraceAt) {
-				maxTraceAt = t
-			}
+			itemsUpserted++
+			advanceMaxTraceAt(&maxTraceAt, traceAt, traceTimeErr)
 		}
 
 		if page >= resp.Meta.TotalPages || resp.Meta.TotalPages == 0 {
 			break
 		}
 	}
-
-	if newItems > 0 && !maxTraceAt.IsZero() {
-		// Fetch the authoritative total from Langfuse so item_count reflects
-		// reality even when re-syncing traces that were already upserted.
-		countResp, countErr := client.GetDatasetItems(ctx, dataset.LangfuseDatasetName, 1, 1)
-		if countErr != nil {
-			w.log.Warn("Dataset sync: get total item count failed", "deployment_id", dep.ID, "error", countErr)
-		} else if err := w.datasetStore.UpdateLastTraceAt(dep.ID, maxTraceAt, countResp.Meta.TotalItems); err != nil {
-			w.log.Warn("Dataset sync: update last_trace_at failed", "deployment_id", dep.ID, "error", err)
-		}
-	}
-	if err := w.datasetStore.MarkSynced(dep.ID); err != nil {
-		w.log.Warn("Dataset sync: mark synced failed", "deployment_id", dep.ID, "error", err)
-	}
-
 	return nil
+}
+
+func shouldSkipDatasetTrace(trace langfuse.Trace) bool {
+	return trace.Input == nil
+}
+
+func isPermanentDatasetItemError(err error) bool {
+	var apiErr *langfuse.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.StatusCode {
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
+}
+
+func advanceMaxTraceAt(maxTraceAt *time.Time, traceAt time.Time, traceTimeErr error) {
+	if traceTimeErr == nil && traceAt.After(*maxTraceAt) {
+		*maxTraceAt = traceAt
+	}
+}
+
+func deterministicDatasetItemID(datasetName, sourceTraceID string) string {
+	sum := sha256.Sum256([]byte(datasetName + "\x00" + sourceTraceID))
+	return "astro-" + hex.EncodeToString(sum[:])
 }
 
 // ensureDataset returns the existing eval_datasets row, creating it in

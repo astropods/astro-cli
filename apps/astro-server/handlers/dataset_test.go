@@ -39,8 +39,8 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 
 func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int, lastTraceAt *time.Time) {
 	rows := sqlmock.NewRows([]string{
-		"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_synced_at", "created_at", "updated_at",
-	}).AddRow(deploymentID, "acct-1", datasetName, itemCount, lastTraceAt, lastTraceAt, time.Now(), time.Now())
+		"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
+	}).AddRow(deploymentID, "acct-1", datasetName, itemCount, lastTraceAt, lastTraceAt, lastTraceAt, time.Now(), time.Now())
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(rows)
@@ -50,7 +50,7 @@ func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_synced_at", "created_at", "updated_at",
+			"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
 		}))
 }
 
@@ -150,6 +150,7 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	var resp struct {
 		DatasetName  string  `json:"dataset_name"`
 		LastTraceAt  *string `json:"last_trace_at"`
+		LastAttempt  *string `json:"last_sync_attempted_at"`
 		LastSyncedAt *string `json:"last_synced_at"`
 		ItemCount    int     `json:"item_count"`
 	}
@@ -161,6 +162,9 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	}
 	if resp.LastTraceAt == nil {
 		t.Error("last_trace_at should not be nil")
+	}
+	if resp.LastAttempt == nil {
+		t.Error("last_sync_attempted_at should not be nil")
 	}
 	if resp.LastSyncedAt == nil {
 		t.Error("last_synced_at should not be nil")

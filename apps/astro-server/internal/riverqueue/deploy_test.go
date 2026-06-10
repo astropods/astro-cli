@@ -18,7 +18,7 @@ import (
 // datasetColumns is the column list expected by datasetstore.Store.Get.
 var datasetColumns = []string{
 	"deployment_id", "account_id", "langfuse_dataset_name", "item_count",
-	"last_trace_at", "last_synced_at", "created_at", "updated_at",
+	"last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
 }
 
 func langfuseOKServer(t *testing.T) (*httptest.Server, *bool) {
@@ -84,7 +84,7 @@ func expectDatasetExists(mock *sqlmock.Sqlmock, depID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(depID).
 		WillReturnRows(sqlmock.NewRows(datasetColumns).AddRow(
-			depID, "acct-1", "dep-"+depID, 0, nil, nil, time.Now(), time.Now(),
+			depID, "acct-1", "dep-"+depID, 0, nil, nil, nil, time.Now(), time.Now(),
 		))
 }
 

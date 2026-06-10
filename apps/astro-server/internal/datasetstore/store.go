@@ -13,6 +13,7 @@ type EvalDataset struct {
 	LangfuseDatasetName string
 	ItemCount           int
 	LastTraceAt         *time.Time
+	LastSyncAttemptedAt *time.Time
 	LastSyncedAt        *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
@@ -32,12 +33,12 @@ func NewStore(db *sql.DB) *Store {
 func (s *Store) Get(deploymentID string) (*EvalDataset, error) {
 	var d EvalDataset
 	err := s.db.QueryRow(`
-		SELECT deployment_id, account_id, langfuse_dataset_name, item_count, last_trace_at, last_synced_at, created_at, updated_at
+		SELECT deployment_id, account_id, langfuse_dataset_name, item_count, last_trace_at, last_sync_attempted_at, last_synced_at, created_at, updated_at
 		FROM eval_datasets
 		WHERE deployment_id = $1
 	`, deploymentID).Scan(
 		&d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName, &d.ItemCount,
-		&d.LastTraceAt, &d.LastSyncedAt, &d.CreatedAt, &d.UpdatedAt,
+		&d.LastTraceAt, &d.LastSyncAttemptedAt, &d.LastSyncedAt, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -61,29 +62,30 @@ func (s *Store) Create(d *EvalDataset) error {
 	return nil
 }
 
-// UpdateLastTraceAt sets last_trace_at and overwrites item_count with the
-// authoritative total fetched from Langfuse, avoiding drift from re-syncs.
-func (s *Store) UpdateLastTraceAt(deploymentID string, t time.Time, totalItems int) error {
-	_, err := s.db.Exec(`
-		UPDATE eval_datasets
-		SET last_trace_at = $1, item_count = $2, updated_at = NOW()
-		WHERE deployment_id = $3
-	`, t, totalItems, deploymentID)
-	if err != nil {
-		return fmt.Errorf("dataset store update last_trace_at: %w", err)
+// FinalizeSync marks the sync attempt and updates any summary values that were
+// refreshed during the run. Nil values leave the existing column unchanged.
+func (s *Store) FinalizeSync(deploymentID string, itemCount *int, lastTraceAt *time.Time, syncSucceeded bool) error {
+	var itemCountValue any
+	if itemCount != nil {
+		itemCountValue = *itemCount
 	}
-	return nil
-}
 
-// MarkSynced sets last_synced_at to now, recording when the sync job last completed.
-func (s *Store) MarkSynced(deploymentID string) error {
+	var lastTraceAtValue any
+	if lastTraceAt != nil {
+		lastTraceAtValue = *lastTraceAt
+	}
+
 	_, err := s.db.Exec(`
 		UPDATE eval_datasets
-		SET last_synced_at = NOW(), updated_at = NOW()
-		WHERE deployment_id = $1
-	`, deploymentID)
+		SET item_count = COALESCE($1, item_count),
+			last_trace_at = COALESCE($2, last_trace_at),
+			last_sync_attempted_at = NOW(),
+			last_synced_at = CASE WHEN $3 THEN NOW() ELSE last_synced_at END,
+			updated_at = NOW()
+		WHERE deployment_id = $4
+	`, itemCountValue, lastTraceAtValue, syncSucceeded, deploymentID)
 	if err != nil {
-		return fmt.Errorf("dataset store mark synced: %w", err)
+		return fmt.Errorf("dataset store finalize sync: %w", err)
 	}
 	return nil
 }

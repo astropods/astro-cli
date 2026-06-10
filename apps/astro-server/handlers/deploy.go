@@ -1313,18 +1313,18 @@ type WorkloadRuntime struct {
 // page, omitting K8s-derived replica counts, workloads, and other detail-only
 // fields that are served by GetDeployment instead.
 type AgentDeploymentSummary struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	DisplayName   string                `json:"display_name,omitempty"`
-	AvatarColors  json.RawMessage       `json:"avatar_colors,omitempty"`
-	BuildID       string                `json:"build_id"`
-	LatestBuildID string                `json:"latest_build_id,omitempty"`
-	Status        string                `json:"status,omitempty"`
-	Namespace     string                `json:"namespace,omitempty"`
-	ExternalURLs            []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	MessagingWebConfigured  bool                  `json:"messaging_web_configured"`
-	CreatedAt               string                `json:"created_at"`
-	UpdatedAt               string                `json:"updated_at,omitempty"`
+	ID                     string                `json:"id"`
+	Name                   string                `json:"name"`
+	DisplayName            string                `json:"display_name,omitempty"`
+	AvatarColors           json.RawMessage       `json:"avatar_colors,omitempty"`
+	BuildID                string                `json:"build_id"`
+	LatestBuildID          string                `json:"latest_build_id,omitempty"`
+	Status                 string                `json:"status,omitempty"`
+	Namespace              string                `json:"namespace,omitempty"`
+	ExternalURLs           []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	MessagingWebConfigured bool                  `json:"messaging_web_configured"`
+	CreatedAt              string                `json:"created_at"`
+	UpdatedAt              string                `json:"updated_at,omitempty"`
 }
 
 // CountDeployments returns a handler that returns the number of visible deployments for an account.

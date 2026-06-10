@@ -21,7 +21,8 @@ One new table: **`deployment_datasets`** — one row per deployment, keyed by `d
 | `langfuse_dataset_name` | `varchar` | `dep-{deployment_id}` |
 | `item_count` | `int` | running total of synced items |
 | `last_trace_at` | `timestamptz` | `createdAt` of newest trace synced; null = never synced |
-| `last_synced_at` | `timestamptz` | timestamp of last completed sync job; null = never synced |
+| `last_sync_attempted_at` | `timestamptz` | timestamp of last finalized sync attempt; null = never attempted |
+| `last_synced_at` | `timestamptz` | timestamp of last fully successful sync job; null = never synced |
 | `created_at` | `timestamptz` | |
 | `updated_at` | `timestamptz` | |
 
@@ -37,9 +38,9 @@ New methods on `*Client` using the same Basic auth as existing trace calls:
 | `UpsertDatasetItem(ctx, item DatasetItemInput) error` | `POST /api/public/dataset-items` |
 | `GetDatasetItems(ctx, datasetName string, page, limit int) (*DatasetItemsResponse, error)` | `GET /api/public/dataset-items?datasetName={name}` |
 
-`DatasetItemInput` fields: `DatasetName`, `Input`, `ExpectedOutput`, `Metadata`, `SourceTraceID`, `SourceObservationID`.
+`DatasetItemInput` fields: `ID`, `DatasetName`, `Input`, `ExpectedOutput`, `Metadata`, `SourceTraceID`, `SourceObservationID`.
 
-There is no public bulk insert endpoint for dataset items — `POST /api/public/dataset-items` is single-item only and the SDKs offer no batch alternative. Items are upserted individually per trace.
+There is no public bulk insert endpoint for dataset items — `POST /api/public/dataset-items` is single-item only and the SDKs offer no batch alternative. Items are upserted individually per trace. The server supplies a deterministic dataset item `id` derived from dataset name and source trace ID, so a stale local checkpoint or manual rerun updates the same Langfuse dataset item instead of creating a duplicate.
 
 ---
 
@@ -68,21 +69,25 @@ resolve Langfuse credentials
 ensureDataset (create if not exists)
         ↓
 GetTraces [last_trace_at → now]
-  └── no new traces → continue to MarkSynced
+  └── no new traces → continue to finalization
         ↓
-UpsertDatasetItem per trace (HTTP API)
+Upsert dataset item per trace (HTTP API)
   └── resolve root observation ID per trace
         ↓
-update last_trace_at = MAX(trace.createdAt)
+update last_trace_at = MAX(processed trace.createdAt)
         ↓
-MarkSynced (always — records last_synced_at)
+finalize sync attempt
+  └── records last_sync_attempted_at always
+  └── records last_synced_at only when the job completes successfully
 ```
 
 **`DatasetSyncSchedulerArgs{}`** is registered in `periodic.go` at a `24h` interval with `RunOnStart: false`, guarded by `cfg.LangfuseStore != nil`. It queries all active deployments and inserts one `DatasetSyncArgs{DeploymentID: ...}` per deployment.
 
 **`DatasetSyncArgs{DeploymentID string}`** runs one sync per deployment. Uses `UniqueOpts{ByArgs: true, ByState: [available, pending, retryable, running, scheduled]}` — terminal states (`completed`, `discarded`, `cancelled`) are excluded so a new job can be inserted after the previous one finishes.
 
-Each dataset item carries `input = trace.Input`, `expectedOutput = trace.Output` (historical actual — regression baseline), `sourceTraceID = trace.ID`, `sourceObservationID` (root observation for the trace), and `metadata = trace.Metadata`.
+Traces with null input are treated as processed and skipped before any root-observation lookup or dataset item write. Each dataset item carries deterministic `id = hash(datasetName, trace.ID)`, `input = trace.Input`, `expectedOutput = trace.Output` (historical actual — regression baseline), `sourceTraceID = trace.ID`, `sourceObservationID` (root observation for the trace, best-effort), and `metadata = trace.Metadata`.
+
+The local dataset row is a checkpoint and summary for the Astro API. Once the dataset row exists, sync finalization is attempted even if a later trace-page read fails: the worker refreshes the Langfuse item count when useful, updates the local checkpoint when it has a processed trace timestamp, and marks the sync attempt. Checkpoint update failures are logged but do not change Langfuse idempotency: a later sync with the same trace writes the same deterministic Langfuse dataset item ID and repairs the summary without creating duplicate dataset items. Dataset item writes are best-effort: transient failures are logged for retry, while permanent validation failures advance the processed marker so one invalid trace cannot block future syncs.
 
 ---
 
@@ -96,6 +101,7 @@ Returns dataset summary metadata from the local DB. Returns 404 if the dataset r
 {
   "dataset_name": "dep-dep_abc123",
   "last_trace_at": "2026-05-26T23:59:59Z",
+  "last_sync_attempted_at": "2026-05-27T00:01:00Z",
   "last_synced_at": "2026-05-27T00:01:00Z",
   "item_count": 42
 }
