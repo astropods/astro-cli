@@ -38,7 +38,7 @@ New methods on `*Client` using the same Basic auth as existing trace calls:
 | `UpsertDatasetItem(ctx, item DatasetItemInput) error` | `POST /api/public/dataset-items` |
 | `GetDatasetItems(ctx, datasetName string, page, limit int) (*DatasetItemsResponse, error)` | `GET /api/public/dataset-items?datasetName={name}` |
 
-`DatasetItemInput` fields: `ID`, `DatasetName`, `Input`, `ExpectedOutput`, `Metadata`, `SourceTraceID`, `SourceObservationID`.
+`DatasetItemInput` fields written by sync: `ID`, `DatasetName`, `Input`, `ExpectedOutput`, `Metadata`, `SourceTraceID`.
 
 There is no public bulk insert endpoint for dataset items — `POST /api/public/dataset-items` is single-item only and the SDKs offer no batch alternative. Items are upserted individually per trace. The server supplies a deterministic dataset item `id` derived from dataset name and source trace ID, so a stale local checkpoint or manual rerun updates the same Langfuse dataset item instead of creating a duplicate.
 
@@ -72,7 +72,6 @@ GetTraces [last_trace_at → now]
   └── no new traces → continue to finalization
         ↓
 Upsert dataset item per trace (HTTP API)
-  └── resolve root observation ID per trace
         ↓
 update last_trace_at = MAX(processed trace.createdAt)
         ↓
@@ -85,7 +84,7 @@ finalize sync attempt
 
 **`DatasetSyncArgs{DeploymentID string}`** runs one sync per deployment. Uses `UniqueOpts{ByArgs: true, ByState: [available, pending, retryable, running, scheduled]}` — terminal states (`completed`, `discarded`, `cancelled`) are excluded so a new job can be inserted after the previous one finishes.
 
-Traces with null input are treated as processed and skipped before any root-observation lookup or dataset item write. Each dataset item carries deterministic `id = hash(datasetName, trace.ID)`, `input = trace.Input`, `expectedOutput = trace.Output` (historical actual — regression baseline), `sourceTraceID = trace.ID`, `sourceObservationID` (root observation for the trace, best-effort), and `metadata = trace.Metadata`.
+Dataset sync fetches trace pages with `fields=core,io` and `orderBy=timestamp.asc` so Langfuse does not hydrate scores, metrics, or observation trees, and so offset-based pagination across the frozen `[fromTimestamp, toTimestamp]` window stays stable across requests. Traces with null input are treated as processed and skipped before any dataset item write. Each dataset item carries deterministic `id = hash(datasetName, trace.ID)`, `input = trace.Input`, `expectedOutput = trace.Output` (historical actual — regression baseline), `sourceTraceID = trace.ID`, and `metadata = trace.Metadata`.
 
 The local dataset row is a checkpoint and summary for the Astro API. Once the dataset row exists, sync finalization is attempted even if a later trace-page read fails: the worker refreshes the Langfuse item count when useful, updates the local checkpoint when it has a processed trace timestamp, and marks the sync attempt. Checkpoint update failures are logged but do not change Langfuse idempotency: a later sync with the same trace writes the same deterministic Langfuse dataset item ID and repairs the summary without creating duplicate dataset items. Dataset item writes are best-effort: transient failures are logged for retry, while permanent validation failures advance the processed marker so one invalid trace cannot block future syncs.
 

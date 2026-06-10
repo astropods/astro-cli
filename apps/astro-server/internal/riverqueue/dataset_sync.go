@@ -192,7 +192,7 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 	}()
 
 	for page := 1; page <= maxPages; page++ {
-		resp, err := client.GetTraces(ctx, dep.ID, fromTimestamp, toTimestamp, pageSize, (page-1)*pageSize)
+		resp, err := client.GetDatasetTraces(ctx, dep.ID, fromTimestamp, toTimestamp, pageSize, (page-1)*pageSize)
 		if err != nil {
 			log.Warn("Dataset sync: get traces page failed",
 				"page", page,
@@ -220,19 +220,13 @@ func (w *DatasetSyncWorker) Work(ctx context.Context, job *river.Job[DatasetSync
 				continue
 			}
 
-			rootObsID, obsErr := client.GetRootObservationID(ctx, trace.ID)
-			if obsErr != nil {
-				log.Warn("Dataset sync: get root observation failed", "trace_id", trace.ID, "error", obsErr)
-			}
-
 			item := langfuse.DatasetItemInput{
-				ID:                  deterministicDatasetItemID(dataset.LangfuseDatasetName, trace.ID),
-				DatasetName:         dataset.LangfuseDatasetName,
-				Input:               trace.Input,
-				ExpectedOutput:      trace.Output,
-				Metadata:            trace.Metadata,
-				SourceTraceID:       trace.ID,
-				SourceObservationID: rootObsID,
+				ID:             deterministicDatasetItemID(dataset.LangfuseDatasetName, trace.ID),
+				DatasetName:    dataset.LangfuseDatasetName,
+				Input:          trace.Input,
+				ExpectedOutput: trace.Output,
+				Metadata:       trace.Metadata,
+				SourceTraceID:  trace.ID,
 			}
 			itemsWriteAttempted++
 			if err := client.UpsertDatasetItem(ctx, item); err != nil {

@@ -179,6 +179,17 @@ type DailyMetricsResponse struct {
 
 // GetTraces returns traces filtered by deployment ID tag.
 func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
+	return c.getTraces(ctx, deploymentID, startTime, endTime, limit, offset, "", "")
+}
+
+// GetDatasetTraces returns the trace fields needed to build dataset items.
+// Orders ascending by timestamp so offset paging over a frozen
+// [fromTimestamp, toTimestamp] window is stable across requests.
+func (c *Client) GetDatasetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
+	return c.getTraces(ctx, deploymentID, startTime, endTime, limit, offset, "core,io", "timestamp.asc")
+}
+
+func (c *Client) getTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int, fields, orderBy string) (*TracesResponse, error) {
 	params := url.Values{}
 	params.Set("tags", "deployment:"+deploymentID)
 	if startTime != "" {
@@ -192,6 +203,12 @@ func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime
 	}
 	if offset > 0 {
 		params.Set("page", fmt.Sprintf("%d", offset/max(limit, 1)+1))
+	}
+	if fields != "" {
+		params.Set("fields", fields)
+	}
+	if orderBy != "" {
+		params.Set("orderBy", orderBy)
 	}
 
 	var result TracesResponse
@@ -267,23 +284,6 @@ func (c *Client) GetTraceCore(ctx context.Context, traceID string) (*TraceDetail
 		return nil, err
 	}
 	return &result, nil
-}
-
-// GetRootObservationID returns the ID of the root observation (no parent) for a
-// trace using a lightweight observation-tree-only fetch. Returns "" if none found.
-func (c *Client) GetRootObservationID(ctx context.Context, traceID string) (string, error) {
-	params := url.Values{}
-	params.Set("fields", "core,observations")
-	var result TraceDetail
-	if err := c.doGet(ctx, "/api/public/traces/"+url.PathEscape(traceID), params, &result); err != nil {
-		return "", err
-	}
-	for _, obs := range result.Observations {
-		if obs.ParentObservationID == "" {
-			return obs.ID, nil
-		}
-	}
-	return "", nil
 }
 
 // GetObservation returns a single observation by ID with full input/output/metadata.

@@ -119,14 +119,6 @@ func TestDatasetSyncWorker_FinalizesAfterTracePageError(t *testing.T) {
 					"totalPages": 2,
 				},
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/public/traces/trace-1":
-			writeJSON(t, w, map[string]any{
-				"id": "trace-1",
-				"observations": []map[string]any{{
-					"id":                  "obs-root",
-					"parentObservationId": "",
-				}},
-			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/public/dataset-items":
 			datasetItemWrites++
 			var body map[string]any
@@ -220,11 +212,6 @@ func TestDatasetSyncWorker_DoesNotAdvanceLastTraceAtAfterFailedWrite(t *testing.
 					"totalPages": 1,
 				},
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/public/traces/trace-fail":
-			writeJSON(t, w, map[string]any{
-				"id":           "trace-fail",
-				"observations": []map[string]any{},
-			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/public/dataset-items":
 			datasetItemWrites++
 			http.Error(w, "upsert failed", http.StatusGatewayTimeout)
@@ -307,11 +294,6 @@ func TestDatasetSyncWorker_AdvancesLastTraceAtAfterPermanentWriteFailure(t *test
 					"totalItems": 1,
 					"totalPages": 1,
 				},
-			})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/public/traces/trace-bad-request":
-			writeJSON(t, w, map[string]any{
-				"id":           "trace-bad-request",
-				"observations": []map[string]any{},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/public/dataset-items":
 			datasetItemWrites++
