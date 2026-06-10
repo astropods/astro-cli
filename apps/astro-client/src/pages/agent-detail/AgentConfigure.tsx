@@ -15,8 +15,6 @@ const FORM_ID = "agent-configure-form";
 
 export default function AgentConfigure() {
   const { deployment, runtime, account, deploymentId } = useAgentDetailContext();
-  // manual_ingestions is K8s-namespace-annotation sourced today (see
-  // DeploymentRuntime); the record doesn't carry it yet.
   const manualIngestions = runtime?.manual_ingestions ?? [];
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -30,13 +28,8 @@ export default function AgentConfigure() {
 
   const formOpts = useMemo(() => ({
     deploymentId: deployment.id,
-    // Redeploy is locked to the deployment's own account — the account picker
-    // is hidden on this page, and the server's in-place update path keys off
-    // deployment_id (account_id is not mutated). Pin allowedTargetAccounts so
-    // useDeployForm cannot fall back to personalAccount.name when the URL
-    // account differs from the viewer's personal account, which would turn a
-    // same-account redeploy into a cross-account submission and trip
-    // canDeploySourceAgent for any private blueprint.
+    // Pin to the deployment's account; without this, personalAccount fallback
+    // breaks private-blueprint redeploys from a different account.
     allowedTargetAccounts: account ? [account] : undefined,
     ...(rollbackRevision ? { revision: Number(rollbackRevision) } : {}),
     ...(rollbackBuild ? { build: rollbackBuild } : {}),
@@ -92,7 +85,8 @@ export default function AgentConfigure() {
     }
   }, [form, isBusy, hasOverride, clearOverrideParams]);
 
-  if (form.templateLoading || !form.template) {
+  // Wait for initialValues — Radix Select wipes its value on the "" → seeded transition.
+  if (form.templateLoading || !form.template || !form.initialValues) {
     return (
       <div className="relative z-10 flex flex-1 items-center justify-center">
         {form.templateErrorMessage ? (

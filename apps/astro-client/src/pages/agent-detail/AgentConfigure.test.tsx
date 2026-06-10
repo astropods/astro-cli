@@ -152,6 +152,49 @@ describe("page loads and shows the configuration form", () => {
   });
 });
 
+describe("select dropdown value preservation", () => {
+  // Regression: Radix Select wiped the seeded value on the "" → real-value
+  // transition. The trigger fell back to the placeholder while the hidden
+  // form-bubble <option> still matched — so naive `findByText` would pass.
+  // This test scopes to the visible trigger to catch the actual symptom.
+  it("dropdown trigger shows the selected value", async () => {
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        const tmpl = {
+          ...mockTemplate,
+          variables: {
+            ...mockTemplate.variables,
+            CLAUDE_MODEL: {
+              value: "claude-opus-4-6",
+              default: "claude-opus-4-6",
+              targets: ["agent"],
+              datatype: "string",
+              "display-as": "select",
+              options: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+              description: "Claude model used for PR analysis.",
+            },
+          },
+        };
+        return HttpResponse.json(
+          wrapTemplateResponse(tmpl, body as Parameters<typeof wrapTemplateResponse>[1]),
+        );
+      }),
+    );
+
+    renderConfigure();
+    await waitForForm();
+
+    const triggers = screen.getAllByRole("combobox");
+    const claudeModelTrigger = triggers.find((t) => t.getAttribute("id") === "CLAUDE_MODEL");
+    expect(claudeModelTrigger).toBeDefined();
+    await waitFor(() => {
+      expect(claudeModelTrigger).toHaveTextContent("claude-opus-4-6");
+      expect(claudeModelTrigger).not.toHaveTextContent("Select an option");
+    });
+  });
+});
+
 describe("user edits the agent name", () => {
   it("changing the name shows the footer with Save button", async () => {
     const { user } = renderConfigure();
