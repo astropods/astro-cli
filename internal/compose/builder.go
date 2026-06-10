@@ -127,6 +127,30 @@ func ProjectName(s *spec.AstroSpec) string {
 	return ProjectNameFromSpecName(s.Name)
 }
 
+// postgresDevCredentials resolves the POSTGRES_USER/PASSWORD/DB triple for the
+// dev compose project. Defaults mirror prod (generateKnowledgeCredentials in
+// apps/astro-server/internal/k8s/spec_applier.go) so agent code that reads
+// these env vars works identically locally and after deploy. envVars (.env /
+// ast configure) wins so users can pin a known value when needed.
+//
+// The password default is intentionally stable — random-per-run would force a
+// volume wipe on every restart.
+func postgresDevCredentials(s *spec.AstroSpec, envVars map[string]string) (user, password, db string) {
+	user = "astro"
+	if v, ok := envVars["POSTGRES_USER"]; ok && v != "" {
+		user = v
+	}
+	password = "localdev"
+	if v, ok := envVars["POSTGRES_PASSWORD"]; ok && v != "" {
+		password = v
+	}
+	db = spec.SanitizeDBName(s.Name)
+	if v, ok := envVars["POSTGRES_DB"]; ok && v != "" {
+		db = v
+	}
+	return
+}
+
 // ProjectNameFromSpecName returns the compose project name for a raw spec name.
 // Exposed separately so callers that only have the raw string (e.g. a legacy
 // `.running` state file) can normalize it without constructing a full spec.
@@ -407,13 +431,18 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
-		// For postgres, inject the auto-derived database name into the knowledge container
-		// so the entrypoint creates the database on first init.
+		// For postgres, inject USER/PASSWORD/DB so the sidecar boots with the
+		// same credentials the agent will connect with. Mirrors prod, where
+		// the deployer generates these and injects them as secrets into both
+		// the postgres pod and the agent (spec_applier.go:generateKnowledgeCredentials).
+		// envVars (.env / ast configure) wins so users can pin a known password.
 		if knowledge.Provider == "postgres" {
 			if service.Environment == nil {
 				service.Environment = make(types.MappingWithEquals)
 			}
-			dbName := spec.SanitizeDBName(s.Name)
+			user, password, dbName := postgresDevCredentials(s, envVars)
+			service.Environment["POSTGRES_USER"] = &user
+			service.Environment["POSTGRES_PASSWORD"] = &password
 			service.Environment["POSTGRES_DB"] = &dbName
 		}
 
@@ -770,9 +799,14 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 			port := fmt.Sprintf("%d", prov.DefaultPort)
 			env[portKey] = &port
 
-			// For postgres, auto-derive the database name from the agent name
+			// For postgres, mirror prod and inject the full USER/PASSWORD/DB
+			// triple so the agent can connect without the user having to
+			// declare them as inputs. Sidecar gets the same values via
+			// BuildProject's postgres block — keep these in sync.
 			if knowledge.Provider == "postgres" {
-				dbName := spec.SanitizeDBName(s.Name)
+				user, password, dbName := postgresDevCredentials(s, envVars)
+				env["POSTGRES_USER"] = &user
+				env["POSTGRES_PASSWORD"] = &password
 				env["POSTGRES_DB"] = &dbName
 			}
 		}
