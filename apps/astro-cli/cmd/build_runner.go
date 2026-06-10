@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"bufio"
 
@@ -271,41 +273,88 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 		BuildArgs:  buildArgsPtr,
 	}
 
-	// BuildKit is needed for cross-platform builds or secrets
-	needBuildKit := platform != "" || len(secrets) > 0
-	if needBuildKit {
+	// Platforms is honored by both classic and BuildKit code paths on the
+	// daemon side, so set it whenever the caller specified one — independent
+	// of whether we end up opting into BuildKit below.
+	if platform != "" {
+		p, err := platforms.Parse(platform)
+		if err != nil {
+			return fmt.Errorf("invalid platform %q: %w", platform, err)
+		}
+		opts.Platforms = []ocispec.Platform{p}
+	}
+
+	// Only opt into BuildKit when we need a feature only it supports — today
+	// that's build secrets. Multi-arch alone does NOT require BuildKit; the
+	// classic builder honors opts.Platforms.
+	//
+	// We avoid this code path unless secrets force us into it because it has
+	// known reliability issues on Engine 29.x: when the engine's /build shim
+	// is asked to handle a BuildKit build with a session attached, the
+	// daemon-side session manager runs a 5s-interval health check
+	// (buildkit/session/grpc.go:71-133, monitorHealth) that closes the
+	// session on the second consecutive failure (~10s). When that fires
+	// mid-build, the build surfaces non-deterministically as one of:
+	// "archive/tar: invalid tar header", "unexpected EOF", or an indefinite
+	// hang at "load remote build context". We were not able to make those
+	// health checks succeed from the client side — registering filesync,
+	// synchronizing the session dial with the build POST, and bumping
+	// docker/moby module versions all failed to prevent the +10s timeout.
+	// See tools/bkprobe for a standalone reproduction harness that uses
+	// bkclient.Solve against a docker-container driver builder; that path
+	// works, but requires a separately-provisioned buildkitd container and
+	// is not currently used by the CLI.
+	if len(secrets) > 0 {
+		opts.Version = build.BuilderBuildKit
+
 		sess, err := session.NewSession(ctx, filepath.Base(contextPath))
 		if err != nil {
 			return fmt.Errorf("failed to create build session: %w", err)
 		}
+		defer sess.Close() //nolint:errcheck
 
-		// Add secrets provider if secrets are defined
-		if len(secrets) > 0 {
-			secretMap := make(map[string][]byte)
-			for _, s := range secrets {
-				if val, ok := envVars[s.Env]; ok {
-					secretMap[s.ID] = []byte(val)
-				}
+		secretMap := make(map[string][]byte)
+		for _, s := range secrets {
+			if val, ok := envVars[s.Env]; ok {
+				secretMap[s.ID] = []byte(val)
 			}
-			sess.Allow(secretsprovider.FromMap(secretMap))
 		}
+		sess.Allow(secretsprovider.FromMap(secretMap))
 
+		// Defense-in-depth: enforce that /session has been dialed before we
+		// POST /build, so the daemon sees the session registered under
+		// sess.ID() by the time it processes the build request. The race
+		// this protects against is plausible from the code shape (sess.Run
+		// runs in a goroutine; cli.ImageBuild runs on the main thread) but
+		// we never empirically observed it firing — the failures we saw on
+		// this path were caused by the daemon-side monitorHealth timeout
+		// described above, which this barrier does NOT address. Keeping the
+		// ordering guarantee because it's cheap and correct, not because
+		// it was the load-bearing fix.
+		sessionReady := make(chan struct{})
+		var sessionReadyOnce sync.Once
 		dialSession := func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
-			return cli.DialHijack(ctx, "/session", proto, meta)
-		}
-
-		go sess.Run(ctx, dialSession) //nolint:errcheck
-		defer sess.Close()            //nolint:errcheck
-
-		opts.Version = build.BuilderBuildKit
-		opts.SessionID = sess.ID()
-
-		if platform != "" {
-			p, err := platforms.Parse(platform)
+			conn, err := cli.DialHijack(ctx, "/session", proto, meta)
 			if err == nil {
-				opts.Platforms = []ocispec.Platform{p}
+				sessionReadyOnce.Do(func() { close(sessionReady) })
 			}
+			return conn, err
 		}
+
+		sessionRunErr := make(chan error, 1)
+		go func() { sessionRunErr <- sess.Run(ctx, dialSession) }()
+
+		select {
+		case <-sessionReady:
+		case err := <-sessionRunErr:
+			return fmt.Errorf("build session failed before connect: %w", err)
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("build session did not connect within 10s")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		opts.SessionID = sess.ID()
 	}
 
 	// Build the image
