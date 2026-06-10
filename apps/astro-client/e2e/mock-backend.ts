@@ -699,6 +699,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 Bun.serve({
+  hostname: "127.0.0.1",
   port: 48787,
   async fetch(request) {
     const url = new URL(request.url);
@@ -1560,4 +1561,4 @@ Bun.serve({
   },
 });
 
-console.log("mock-backend listening on :48787");
+console.log("mock-backend listening on 127.0.0.1:48787");

@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { MOCK_BACKEND, resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
-const MOCK_BACKEND = "http://localhost:48787";
 
 // The ingestion-scheduled blueprint has OPENAI_API_KEY as its only variable.
 // The mock starts with an empty vault; this suite seeds its own entries in beforeEach.
@@ -17,7 +17,7 @@ async function seedVault(request: APIRequestContext, variables: VaultVar[]) {
 
 test.describe("vault autosuggest", () => {
   test.beforeEach(async ({ request }) => {
-    await request.post(`${MOCK_BACKEND}/test/reset`);
+    await resetMockBackend(request);
     // Seed the vault entries used by autosuggest tests. The mock starts with an
     // empty vault so other test suites are unaffected by these entries.
     await seedVault(request, [

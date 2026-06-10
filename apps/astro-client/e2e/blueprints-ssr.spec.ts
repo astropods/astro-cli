@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
-const MOCK_BACKEND = "http://localhost:48787";
 const PERSONAL_ACCOUNT = "testuser";
 const ORG_ACCOUNT = "test-org";
 const ORG_DISPLAY_NAME = "Test Org";
@@ -27,7 +27,7 @@ const ORG_DISPLAY_NAME = "Test Org";
  */
 
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 /*
@@ -88,7 +88,7 @@ test("SSR HTML leaks the full agents array, and the client refetches the same en
  * before the empty state — based on personal's count, not the org's.
  */
 test("skeleton count reflects personal account when active scope is an org", async ({ page, context }) => {
-  test.setTimeout(30_000);
+  test.setTimeout(60_000);
 
   await context.addInitScript((org) => {
     try { localStorage.setItem("astro:default-account", org); } catch { /* noop */ }

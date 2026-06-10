@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
 import { generateAstropodsYml } from "@/lib/astropods-yml";
 import { Link } from "react-router";
-import { FileText, BookOpen, ArrowUpRight, Slack } from "lucide-react";
+import { FileText, BookOpen, ArrowUpRight } from "lucide-react";
+import { Slack } from "@/components/ui/svgs/slack";
 import { CommandLineIcon } from "@heroicons/react/24/outline";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { BlueprintDetailHeader } from "./BlueprintDetailHeader";

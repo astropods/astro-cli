@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Github, Loader2, SquareTerminal } from "lucide-react";
+import { Loader2, SquareTerminal } from "lucide-react";
+import { Github } from "@/components/icons/github-icon";
 import { formatRelativeTime } from "@/lib/deployment-utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";

@@ -59,8 +59,11 @@ type GetChatConversationResponse struct {
 	Title          string                `json:"title"`
 	UpdatedAt      time.Time             `json:"updated_at"`
 	Messages       []ChatMessageResponse `json:"messages"`
-	HasMore        bool                  `json:"has_more,omitempty"`
-	OldestSeq      int                   `json:"oldest_seq,omitempty"`
+	// AssistantStreaming is true while the messaging proxy is persisting an
+	// assistant reply — the server-authoritative "turn in flight" signal.
+	AssistantStreaming bool `json:"assistant_streaming"`
+	HasMore            bool `json:"has_more,omitempty"`
+	OldestSeq          int  `json:"oldest_seq,omitempty"`
 }
 
 type UpsertChatConversationInput struct {
@@ -179,8 +182,8 @@ func ListDeploymentChatConversations(
 		for _, row := range rows {
 			out = append(out, ChatConversationSummaryResponse{
 				ConversationID: row.ID,
-				Title:            row.Title,
-				UpdatedAt:        row.UpdatedAt,
+				Title:          row.Title,
+				UpdatedAt:      row.UpdatedAt,
 			})
 		}
 		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: out})
@@ -239,10 +242,11 @@ func GetDeploymentChatConversation(
 			messages = append(messages, ChatMessageResponse{ID: m.ID, Role: m.Role, Content: m.Content})
 		}
 		resp := GetChatConversationResponse{
-			ConversationID: conv.ID,
-			Title:          conv.Title,
-			UpdatedAt:      conv.UpdatedAt,
-			Messages:       messages,
+			ConversationID:     conv.ID,
+			Title:              conv.Title,
+			UpdatedAt:          conv.UpdatedAt,
+			Messages:           messages,
+			AssistantStreaming: conv.AssistantStreaming,
 		}
 		if page.Limit > 0 {
 			resp.HasMore = conv.HasMore
@@ -292,7 +296,7 @@ func UpsertDeploymentChatConversation(
 			return
 		}
 
-		if err := chatStore.UpsertConversation(c.Request.Context(), dep.AccountID, dep.ID, user.ID, convID, title); err != nil {
+		if err := chatStore.UpsertConversation(c.Request.Context(), dep.AccountID, dep.ID, user.ID, convID, title, dep.AgentName); err != nil {
 			if chatConversationIDConflict(err) {
 				c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrConversationIDConflict.Error()})
 				return

@@ -1,15 +1,19 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
-const MOCK_BACKEND = "http://localhost:48787";
 
 interface DeployPayload {
   variables?: Record<string, { value?: string }>;
   ingestion?: Record<string, { trigger?: { type?: string; schedule?: string } }>;
 }
+
+test.beforeEach(async () => {
+  await resetMockBackend();
+});
 
 test.describe("deploy page", () => {
   test("schedule picker is visible and blocks deploy when empty", async ({ page }) => {
@@ -57,7 +61,7 @@ test.describe("deploy page", () => {
     expect(payload.ingestion?.scheduled).toBeDefined();
     expect(payload.ingestion?.scheduled?.trigger?.schedule).toBe("0 0 * * *");
 
-    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
   });
 
   test("deploy with custom schedule includes assembled cron in payload", async ({ page }) => {
@@ -95,15 +99,11 @@ test.describe("deploy page", () => {
 
     expect(payload.ingestion?.scheduled?.trigger?.schedule).toBe("30 9 * * *");
 
-    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
   });
 });
 
 test.describe("configure page", () => {
-  test.beforeEach(async () => {
-    await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
-  });
-
   test("prefilled schedule is editable on configure page", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto(
@@ -136,8 +136,6 @@ test.describe("configure page", () => {
     const payload = (await deployRequest).postDataJSON() as DeployPayload;
 
     expect(payload.ingestion?.scheduled?.trigger?.schedule).toBe("0 * * * *");
-
-    await page.waitForLoadState("networkidle");
   });
 
   test("manual triggers hidden when deployment has no manual_ingestions", async ({ page }) => {
@@ -185,9 +183,10 @@ test.describe("configure page", () => {
       { waitUntil: "domcontentloaded" },
     );
 
-    await page.reload({ waitUntil: "networkidle" });
-    // The triggered job should appear as a pod tile in the deployments tab
     const manualContainer = page.locator("text=/manual/i");
-    await expect(manualContainer.first()).toBeVisible({ timeout: 20_000 });
+    await expect(async () => {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(manualContainer.first()).toBeVisible();
+    }).toPass({ timeout: 30_000 });
   });
 });

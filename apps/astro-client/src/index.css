@@ -9,6 +9,7 @@
 @import "@astropods/theme/colors.css";
 @import "@astropods/theme/semantic.css";
 @import "@astropods/theme/typography.css";
+@import "tw-shimmer";
 
 @theme {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
@@ -23,6 +24,24 @@
 body {
   margin: 0;
   padding: 0;
+}
+
+/* Streamdown streaming reveal. We don't import streamdown/styles.css (its
+   typography would override our prose), so define only the animation contract:
+   the rehype transformer emits [data-sd-animate] spans with --sd-* custom
+   props, and this rule turns them into a per-word fade as tokens arrive. */
+[data-sd-animate] {
+  animation: var(--sd-animation, sd-fadeIn) var(--sd-duration, 120ms)
+    var(--sd-easing, ease) var(--sd-delay, 0ms) both;
+}
+
+@keyframes sd-fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Animation */
@@ -98,6 +117,36 @@ body {
 
 .dp-float {
   animation: dp-float 2.6s ease-in-out infinite;
+}
+
+@keyframes astro-logo-loader-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes astro-logo-loader-body-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+.astro-logo-loader {
+  animation: astro-logo-loader-float 2.4s ease-in-out infinite;
+  transform-origin: 45% 55%;
+}
+
+.astro-logo-loader-body {
+  animation: astro-logo-loader-body-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
 }
 
 @keyframes dp-eye-blink {
@@ -200,6 +249,33 @@ body {
   background: var(--border);
 }
 
+/* Deployment chat thread — thin overlay scrollbars without reserved gutter. */
+.chat-thread-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.chat-thread-scroll:hover {
+  scrollbar-color: color-mix(in oklch, var(--border) 85%, transparent) transparent;
+}
+
+.chat-thread-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-thread-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-thread-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.chat-thread-scroll:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--border) 85%, transparent);
+}
+
 .dp-blueprint-bg {
   background:
     radial-gradient(ellipse at 50% 0%, hsla(40, 50%, 90%, 0.8) 0%, hsla(40, 30%, 96%, 0.4) 60%),
@@ -230,7 +306,6 @@ body {
 .dp-scan-corner {
   border-color: white;
 }
-
 
 @theme inline {
   --radius-sm: calc(var(--radius) / 2);

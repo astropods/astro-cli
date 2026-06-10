@@ -96,6 +96,13 @@ export const slackKeys = {
   accountStatus: (account: string) => ['slack', account, 'status'] as const,
 };
 
+export const chatKeys = {
+  conversations: (deploymentId: string) =>
+    ['chat', 'conversations', deploymentId] as const,
+  conversation: (deploymentId: string, conversationId: string) =>
+    ['chat', 'conversation', deploymentId, conversationId] as const,
+};
+
 export const deploymentKeys = {
   summary: ['deployments', 'summary'] as const,
   all: (account: string) => ['deployments', account] as const,

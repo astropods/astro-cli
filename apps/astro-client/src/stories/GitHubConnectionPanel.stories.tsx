@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ConnectedRepoView, type ConnectedRepoViewProps } from "@/components/blueprint-detail/GitHubConnectionPanel";
 import { SidebarSection } from "@/components/blueprint-detail/SidebarSection";
 import { Button } from "@/components/ui/button";
-import { Github, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { Github } from "@/components/icons/github-icon";
 import { Spinner } from "@/components/ui/spinner";
 import type { GitHubBuild } from "@/lib/api";
 

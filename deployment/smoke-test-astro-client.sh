@@ -31,7 +31,21 @@ cd "$(dirname "$0")/.."
 
 if [ "$SKIP_BUILD" = false ]; then
   echo "==> Building $IMAGE..."
-  docker build -t "$IMAGE" -f deployment/Dockerfile.astro-client .
+  build_ok=false
+  for attempt in 1 2 3; do
+    if docker build -t "$IMAGE" -f deployment/Dockerfile.astro-client .; then
+      build_ok=true
+      break
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      echo "WARN: docker build failed (attempt $attempt/3); retrying in ${attempt}0s..."
+      sleep "${attempt}0"
+    fi
+  done
+  if [ "$build_ok" = false ]; then
+    echo "ERROR: docker build failed after 3 attempts"
+    exit 1
+  fi
 fi
 
 echo "==> Starting container (host port $PORT)..."

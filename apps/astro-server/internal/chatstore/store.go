@@ -73,6 +73,10 @@ type Conversation struct {
 	Title     string
 	UpdatedAt time.Time
 	Messages  []Message
+	// AssistantStreaming reports whether the messaging proxy is currently
+	// persisting an assistant turn for this conversation. Clients derive their
+	// "turn in flight" state from this instead of guessing from content growth.
+	AssistantStreaming bool
 }
 
 // ConversationPage optional bounds for GetConversation message history.
@@ -123,18 +127,20 @@ func (s *Store) GetConversation(
 	page ConversationPage,
 ) (*ConversationResult, error) {
 	var c Conversation
+	var streamActiveAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, title, updated_at
+		SELECT id, title, updated_at, assistant_stream_active_at
 		FROM deployment_chat_conversations
 		WHERE id = $1 AND deployment_id = $2 AND user_id = $3`,
 		conversationID, deploymentID, userID,
-	).Scan(&c.ID, &c.Title, &c.UpdatedAt)
+	).Scan(&c.ID, &c.Title, &c.UpdatedAt, &streamActiveAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	c.AssistantStreaming = streamWriteBlocked(streamActiveAt)
 
 	messages, hasMore, err := s.loadConversationMessages(ctx, conversationID, page)
 	if err != nil {
@@ -302,17 +308,31 @@ func conversationIDInUse(ctx context.Context, tx *sql.Tx, conversationID string)
 	return err == nil, err
 }
 
+func conversationOwnedByDeployment(ownerDeployment sql.NullString, deploymentID string) bool {
+	if !ownerDeployment.Valid {
+		return false
+	}
+	return ownerDeployment.String == deploymentID
+}
+
 // UpsertConversation creates or updates conversation metadata (any API client may call).
-func (s *Store) UpsertConversation(ctx context.Context, accountID, deploymentID, userID, conversationID, title string) error {
+func (s *Store) UpsertConversation(
+	ctx context.Context,
+	accountID, deploymentID, userID, conversationID, title, agentName string,
+) error {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO deployment_chat_conversations (id, deployment_id, account_id, user_id, title, updated_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO deployment_chat_conversations (id, deployment_id, account_id, user_id, agent_name, title, updated_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			title = EXCLUDED.title,
+			agent_name = CASE
+				WHEN EXCLUDED.agent_name <> '' THEN EXCLUDED.agent_name
+				ELSE deployment_chat_conversations.agent_name
+			END,
 			updated_at = NOW()
 		WHERE deployment_chat_conversations.deployment_id = $2
 		  AND deployment_chat_conversations.user_id = $4`,
-		conversationID, deploymentID, accountID, userID, title,
+		conversationID, deploymentID, accountID, userID, agentName, title,
 	)
 	if err != nil {
 		return err
@@ -339,7 +359,7 @@ func (s *Store) AppendMessage(ctx context.Context, deploymentID, userID, convers
 		return err
 	}
 
-	var ownerDeployment string
+	var ownerDeployment sql.NullString
 	var streamActiveAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
 		SELECT deployment_id, assistant_stream_active_at
@@ -353,7 +373,7 @@ func (s *Store) AppendMessage(ctx context.Context, deploymentID, userID, convers
 	if err != nil {
 		return err
 	}
-	if ownerDeployment != deploymentID {
+	if !conversationOwnedByDeployment(ownerDeployment, deploymentID) {
 		return ErrConversationNotFound
 	}
 	if streamWriteBlocked(streamActiveAt) {
@@ -396,7 +416,7 @@ func (s *Store) AppendMessage(ctx context.Context, deploymentID, userID, convers
 // message in one locked transaction (avoids loading full thread history on send).
 func (s *Store) AppendUserMessage(
 	ctx context.Context,
-	accountID, deploymentID, userID, conversationID, title string,
+	accountID, deploymentID, userID, conversationID, title, agentName string,
 	msg Message,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -409,7 +429,7 @@ func (s *Store) AppendUserMessage(
 		return err
 	}
 
-	var ownerDeployment string
+	var ownerDeployment sql.NullString
 	var streamActiveAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
 		SELECT deployment_id, assistant_stream_active_at
@@ -426,9 +446,9 @@ func (s *Store) AppendUserMessage(
 			return ErrConversationIDConflict
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO deployment_chat_conversations (id, deployment_id, account_id, user_id, title, updated_at, created_at)
-			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-			conversationID, deploymentID, accountID, userID, title,
+			INSERT INTO deployment_chat_conversations (id, deployment_id, account_id, user_id, agent_name, title, updated_at, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+			conversationID, deploymentID, accountID, userID, agentName, title,
 		)
 		if err != nil {
 			return err
@@ -436,7 +456,7 @@ func (s *Store) AppendUserMessage(
 	} else if err != nil {
 		return err
 	} else {
-		if ownerDeployment != deploymentID {
+		if !conversationOwnedByDeployment(ownerDeployment, deploymentID) {
 			return ErrConversationNotFound
 		}
 		if streamWriteBlocked(streamActiveAt) {
@@ -490,7 +510,7 @@ func (s *Store) UpsertAssistantProgress(ctx context.Context, deploymentID, userI
 		return "", err
 	}
 
-	var ownerDeployment string
+	var ownerDeployment sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT deployment_id FROM deployment_chat_conversations
 		WHERE id = $1 AND user_id = $2`,
@@ -502,7 +522,7 @@ func (s *Store) UpsertAssistantProgress(ctx context.Context, deploymentID, userI
 	if err != nil {
 		return "", err
 	}
-	if ownerDeployment != deploymentID {
+	if !conversationOwnedByDeployment(ownerDeployment, deploymentID) {
 		return "", ErrConversationNotFound
 	}
 
@@ -601,7 +621,7 @@ func (s *Store) ReplaceMessages(ctx context.Context, deploymentID, userID, conve
 		return err
 	}
 
-	var ownerDeployment string
+	var ownerDeployment sql.NullString
 	var streamActiveAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
 		SELECT deployment_id, assistant_stream_active_at
@@ -615,7 +635,7 @@ func (s *Store) ReplaceMessages(ctx context.Context, deploymentID, userID, conve
 	if err != nil {
 		return err
 	}
-	if ownerDeployment != deploymentID {
+	if !conversationOwnedByDeployment(ownerDeployment, deploymentID) {
 		return ErrConversationNotFound
 	}
 	if streamActiveAt.Valid && time.Since(streamActiveAt.Time) < ActiveAssistantStreamWindow {

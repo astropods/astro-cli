@@ -42,7 +42,8 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { insightsPath, dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
+import { useExperiments } from "@/lib/experiments";
+import { chatPath, insightsPath, dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -115,6 +116,7 @@ function ThemeSwitcher() {
 
 export function AppHeader() {
   const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
+  const { experiments } = useExperiments();
   const location = useLocation();
   const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -129,9 +131,14 @@ export function AppHeader() {
   // Include authenticated nav items during loading too — WaitlistGuard ensures
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
-  const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [...publicNav, { label: "Agents", to: dashboardPath }, { label: "Insights", to: insightsPath }, { label: "Knowledge", to: knowledgePath }]
-    : [...publicNav];
+  const authenticatedNav: NavItem[] = [
+    ...publicNav,
+    { label: "Agents", to: dashboardPath },
+    ...(experiments.chat ? [{ label: "Chat", to: chatPath }] : []),
+    { label: "Insights", to: insightsPath },
+    { label: "Knowledge", to: knowledgePath },
+  ];
+  const navItems: NavItem[] = isAuthenticated || isLoading ? authenticatedNav : [...publicNav];
 
   if (isMobile) {
     return (

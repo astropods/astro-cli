@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const AGENT_SLACK_FULL = "slack-config-full";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
-const MOCK_BACKEND = "http://localhost:48787";
 
 test.describe("adapter toggle UX", () => {
   test("toggling Slack on shows required token fields, toggling off hides them", async ({ page }) => {
@@ -66,7 +66,7 @@ test.describe("adapter toggle UX", () => {
 
   test("configure page pre-selects Slack adapter from existing deployment", async ({ page }) => {
     test.setTimeout(60_000);
-    await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+    await resetMockBackend();
 
     await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure`, {
       waitUntil: "domcontentloaded",

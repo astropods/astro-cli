@@ -773,8 +773,71 @@ export interface AgentDeploymentSummary {
   status?: DeploymentSummaryStatus;
   namespace?: string;
   external_urls?: ServiceEndpointInfo[];
+  /** True when the deployment has a messaging sidecar with a web (http) service. */
+  messaging_web_configured?: boolean;
   created_at: string;
   updated_at?: string;
+}
+
+// ============================================================================
+// Deployment messaging proxy (via astro-server → sidecar)
+// ============================================================================
+
+export interface MessagingCreateConversationResponse {
+  conversation_id: string;
+  created_at?: string;
+}
+
+export interface MessagingSendMessageResponse {
+  message_id: string;
+  timestamp?: string;
+}
+
+export interface MessagingHistoryMessage {
+  message_id: string;
+  content: string;
+  timestamp?: string;
+  user?: { id: string; username?: string };
+}
+
+export interface DeploymentChatConversationSummary {
+  conversation_id: string;
+  title: string;
+  updated_at: string;
+}
+
+export interface DeploymentChatMessageRecord {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ListDeploymentChatConversationsResponse {
+  conversations: DeploymentChatConversationSummary[];
+}
+
+export interface GetDeploymentChatConversationResponse {
+  conversation_id: string;
+  title: string;
+  updated_at: string;
+  messages: DeploymentChatMessageRecord[];
+  /** Server-authoritative: the messaging proxy is persisting an assistant reply. */
+  assistant_streaming?: boolean;
+  has_more?: boolean;
+  oldest_seq?: number;
+}
+
+export type DeploymentChatConversationQuery = {
+  /** Return the last N messages (live refresh). Omit for full thread. */
+  limit?: number;
+  before_seq?: number;
+};
+
+export interface MessagingHistoryResponse {
+  conversation_id: string;
+  messages: MessagingHistoryMessage[];
+  is_complete?: boolean;
+  fetched_at?: string;
 }
 
 export interface DeploymentsListResponse {
@@ -1930,6 +1993,128 @@ class ApiClient {
   async getDeploymentStatus(id: string): Promise<DeploymentStatus> {
     return this.request<DeploymentStatus>(
       `/api/v1/deployments/${encodeURIComponent(id)}/status`
+    );
+  }
+
+  messagingProxyPath(deploymentId: string, subpath: string): string {
+    const base = `/api/v1/deployments/${encodeURIComponent(deploymentId)}/messaging`;
+    return subpath ? `${base}/${subpath.replace(/^\//, "")}` : base;
+  }
+
+  async createMessagingConversation(
+    deploymentId: string,
+  ): Promise<MessagingCreateConversationResponse> {
+    return this.request<MessagingCreateConversationResponse>(
+      this.messagingProxyPath(deploymentId, "conversations"),
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  async sendMessagingMessage(
+    deploymentId: string,
+    conversationId: string,
+    content: string,
+  ): Promise<MessagingSendMessageResponse> {
+    return this.request<MessagingSendMessageResponse>(
+      this.messagingProxyPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}/messages`,
+      ),
+      { method: "POST", body: JSON.stringify({ content }) },
+    );
+  }
+
+  messagingStreamPath(deploymentId: string, conversationId: string): string {
+    return this.messagingProxyPath(
+      deploymentId,
+      `conversations/${encodeURIComponent(conversationId)}/stream`,
+    );
+  }
+
+  async getMessagingHistory(
+    deploymentId: string,
+    conversationId: string,
+  ): Promise<MessagingHistoryResponse> {
+    return this.request<MessagingHistoryResponse>(
+      this.messagingProxyPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}/history`,
+      ),
+    );
+  }
+
+  /** Platform deployment chat API — shared by all Astro clients; see docs/04-guides/deployment-chat.md */
+  private deploymentChatPath(deploymentId: string, subpath?: string) {
+    const base = `/api/v1/deployments/${encodeURIComponent(deploymentId)}/chat`;
+    return subpath ? `${base}/${subpath.replace(/^\//, "")}` : base;
+  }
+
+  async listDeploymentChatConversations(
+    deploymentId: string,
+  ): Promise<ListDeploymentChatConversationsResponse> {
+    return this.request<ListDeploymentChatConversationsResponse>(
+      this.deploymentChatPath(deploymentId, "conversations"),
+    );
+  }
+
+  async getDeploymentChatConversation(
+    deploymentId: string,
+    conversationId: string,
+    query?: DeploymentChatConversationQuery,
+  ): Promise<GetDeploymentChatConversationResponse> {
+    const params = new URLSearchParams();
+    if (query?.limit != null) params.set("limit", String(query.limit));
+    if (query?.before_seq != null) {
+      params.set("before_seq", String(query.before_seq));
+    }
+    const qs = params.toString();
+    return this.request<GetDeploymentChatConversationResponse>(
+      this.deploymentChatPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}${qs ? `?${qs}` : ""}`,
+      ),
+    );
+  }
+
+  async upsertDeploymentChatConversation(
+    deploymentId: string,
+    conversationId: string,
+    body: { title: string },
+  ): Promise<{ conversation_id: string; title: string }> {
+    return this.request(
+      this.deploymentChatPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}`,
+      ),
+      { method: "PUT", body: JSON.stringify(body) },
+    );
+  }
+
+  async replaceDeploymentChatMessages(
+    deploymentId: string,
+    conversationId: string,
+    messages: DeploymentChatMessageRecord[],
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      this.deploymentChatPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}/messages`,
+      ),
+      { method: "PUT", body: JSON.stringify({ messages }) },
+    );
+  }
+
+  async appendDeploymentChatMessage(
+    deploymentId: string,
+    conversationId: string,
+    message: DeploymentChatMessageRecord,
+  ): Promise<void> {
+    await this.request(
+      this.deploymentChatPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}/messages`,
+      ),
+      { method: "POST", body: JSON.stringify(message) },
     );
   }
 

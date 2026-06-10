@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Loader2, Github, ArrowRight, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2, ArrowRight, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Github } from "@/components/icons/github-icon";
 import { Spinner } from "@/components/ui/spinner";
 import { AstroIcon } from "@/components/ui/astro-icon";
 import { cn } from "@/lib/utils";

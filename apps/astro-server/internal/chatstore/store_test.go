@@ -131,7 +131,7 @@ func TestUpsertConversation_ConflictReturnsError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec(`INSERT INTO deployment_chat_conversations`).
-		WithArgs(convID, deploymentID, accountID, userID, "Title").
+		WithArgs(convID, deploymentID, accountID, userID, "", "Title").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	store := New(db)
@@ -142,6 +142,7 @@ func TestUpsertConversation_ConflictReturnsError(t *testing.T) {
 		userID,
 		convID,
 		"Title",
+		"",
 	)
 	if !errors.Is(err, ErrConversationIDConflict) {
 		t.Fatalf("expected ErrConversationIDConflict, got %v", err)
@@ -238,6 +239,7 @@ func TestAppendUserMessage_ConversationIDConflict(t *testing.T) {
 		userID,
 		convID,
 		"Title",
+		"",
 		Message{ID: uuid.NewString(), Role: "user", Content: "hi"},
 	)
 	if !errors.Is(err, ErrConversationIDConflict) {
@@ -282,6 +284,7 @@ func TestAppendUserMessage_BlocksActiveAssistantStream(t *testing.T) {
 		userID,
 		convID,
 		"Title",
+		"",
 		Message{ID: uuid.NewString(), Role: "user", Content: "hi"},
 	)
 	if !errors.Is(err, ErrActiveAssistantStream) {

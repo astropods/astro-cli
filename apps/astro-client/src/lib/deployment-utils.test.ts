@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  isChatEligible,
+  isChatListEligible,
   isLaunchReady,
   isPausedState,
   launchUnavailableMessage,
 } from "./deployment-utils";
-import type { AgentDeployment } from "./api";
+import type { AgentDeployment, AgentDeploymentSummary } from "./api";
 
 // Most of the status-derivation logic that used to live in this module (the
 // fat mapDeploymentStatus / hasContainerMismatch helpers) moved server-side
@@ -26,6 +28,30 @@ const baseRecord: AgentDeployment = {
 function make(overrides: Partial<AgentDeployment>): AgentDeployment {
   return { ...baseRecord, ...overrides };
 }
+
+const baseSummary: AgentDeploymentSummary = {
+  id: "dep-1",
+  name: "agent",
+  build_id: "b1",
+  created_at: "2026-01-01T00:00:00Z",
+};
+
+describe("isChatListEligible", () => {
+  it("requires messaging_web_configured", () => {
+    expect(isChatListEligible({ ...baseSummary })).toBe(false);
+    expect(
+      isChatListEligible({ ...baseSummary, messaging_web_configured: true }),
+    ).toBe(true);
+  });
+});
+
+describe("isChatEligible", () => {
+  it("requires active status when provided", () => {
+    const summary = { ...baseSummary, messaging_web_configured: true };
+    expect(isChatEligible(summary, "deploying")).toBe(false);
+    expect(isChatEligible(summary, "active")).toBe(true);
+  });
+});
 
 describe("isLaunchReady", () => {
   it("returns false when no messaging endpoint exists", () => {

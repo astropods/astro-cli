@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { MOCK_BACKEND, resetMockBackend } from "./helpers";
 
-const MOCK_BACKEND = "http://localhost:48787";
 const ACCOUNT = "testuser";
 
 const REPOS = [
@@ -9,7 +9,7 @@ const REPOS = [
 ];
 
 test.beforeEach(async ({ page }) => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 
   // Serve repos directly from the browser context so there's no async gap
   // between "connected: true" landing and repo options being renderable.

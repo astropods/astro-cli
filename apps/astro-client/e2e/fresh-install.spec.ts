@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const AGENT_APP_TOKEN_ONLY = "code-reviewer";
-const MOCK_BACKEND = "http://localhost:48787";
 
 // Fresh installs add a new deployment to the mock backend's in-memory list,
 // so reset between tests to avoid stale entries from prior runs.
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 // Regression: if the deploy mutation only uses setQueryData (optimistic patch)

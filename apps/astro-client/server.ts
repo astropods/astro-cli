@@ -11,6 +11,8 @@ const SUPPRESS_E2E_RENDER_ABORT_LOGS = process.env.E2E_SUPPRESS_ABORT_LOGS === "
 const RENDER_ABORT_WITHOUT_REASON = "The render was aborted by the server without a reason.";
 
 const port = Number(process.env.PORT) || 3000;
+// Default all interfaces for Docker/K8s probes; E2E sets BIND_HOST=127.0.0.1 to avoid ::1 mismatches.
+const bindHost = process.env.BIND_HOST ?? "0.0.0.0";
 const API_URL = process.env.API_URL || "http://localhost:8080";
 const CLIENT_BUILD_DIR = path.resolve("./build/client");
 const PROXY_PREFIXES = ["/auth", "/api", "/download", "/install", "/schema", "/webhooks"];
@@ -42,6 +44,7 @@ if (SUPPRESS_E2E_RENDER_ABORT_LOGS) {
 }
 
 Bun.serve({
+  hostname: bindHost,
   port,
   fetch: withLogging(async (request) => {
     const url = new URL(request.url);

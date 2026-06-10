@@ -33,6 +33,17 @@ export function blueprintsAccountPath(account: string) {
   return `/blueprints?account=${encodeURIComponent(account)}`;
 }
 
+export const chatPath = "/chat";
+
+export function chatDeploymentPath(
+  deploymentId: string,
+  conversationId?: string | null,
+) {
+  const base = `/chat/${encodeURIComponent(deploymentId)}`;
+  if (!conversationId) return base;
+  return `${base}?conversation=${encodeURIComponent(conversationId)}`;
+}
+
 export const insightsPath = "/insights";
 export const knowledgePath = "/knowledge";
 export const newKnowledgePath = "/knowledge/new";

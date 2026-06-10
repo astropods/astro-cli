@@ -7,20 +7,17 @@
  *      computed background distinct from the page body (--card token lifts above --surface).
  */
 import { expect, test } from "@playwright/test";
-
-const MOCK_BACKEND = "http://localhost:48787";
+import { resetMockBackend } from "./helpers";
 
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 test("theme switcher is always present in the user menu dropdown", async ({ page }) => {
-  test.setTimeout(30_000);
-
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   const userMenu = page.getByRole("button", { name: /User menu for/i }).first();
-  await expect(userMenu).toBeVisible({ timeout: 10_000 });
+  await expect(userMenu).toBeVisible();
 
   await userMenu.click();
   await expect(page.getByRole("button", { name: "Use dark theme" })).toBeVisible();
@@ -29,29 +26,25 @@ test("theme switcher is always present in the user menu dropdown", async ({ page
 });
 
 test("selecting dark theme applies html.dark and persists across reload", async ({ page }) => {
-  test.setTimeout(30_000);
-
-  await page.goto("/agents", { waitUntil: "networkidle" });
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   const userMenu = page.getByRole("button", { name: /User menu for/i }).first();
-  await expect(userMenu).toBeVisible({ timeout: 10_000 });
+  await expect(userMenu).toBeVisible();
 
   const darkButton = page.getByRole("button", { name: "Use dark theme" });
   await expect(async () => {
     if (!(await darkButton.isVisible())) await userMenu.click();
     await expect(darkButton).toBeVisible({ timeout: 1_500 });
-  }).toPass({ timeout: 15_000 });
+  }).toPass({ timeout: 20_000 });
 
   await darkButton.click();
   await expect(page.locator("html.dark")).toHaveCount(1);
 
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("html.dark")).toHaveCount(1);
 });
 
 test("dark mode card token renders a valid non-transparent color", async ({ page }) => {
-  test.setTimeout(30_000);
-
   await page.addInitScript(() => {
     localStorage.setItem("astro:theme", "dark");
   });

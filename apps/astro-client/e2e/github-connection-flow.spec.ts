@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { MOCK_BACKEND, resetMockBackend } from "./helpers";
 
-const MOCK_BACKEND = "http://localhost:48787";
 const ACCOUNT = "testuser";
 const AGENT = "code-reviewer";
 
@@ -10,7 +10,7 @@ const REPOS = [
 ];
 
 test.beforeEach(async ({ page }) => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 
   await page.route("**/api/v1/accounts/*/github/repos**", (route) =>
     route.fulfill({

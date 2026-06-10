@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
-import path from "path";
+import { expectEventually, resetMockBackend } from "./helpers";
 
-const MOCK_BACKEND = "http://localhost:48787";
 const ACCOUNT = "testuser";
 
 // Minimal valid 1×1 PNG (binary)
@@ -13,17 +12,12 @@ const TINY_PNG = Buffer.from(
 );
 
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 test("avatar upload on blueprint detail: dialog opens, file uploads, POST fires", async ({ page }) => {
-  test.setTimeout(30_000);
-
-  // code-reviewer is owned by testuser → canEdit=true → camera button is shown
   await page.goto(`/${ACCOUNT}/code-reviewer`, { waitUntil: "domcontentloaded" });
-
-  // Wait for the page header to render (blueprint name visible)
-  await expect(page.getByRole("heading", { name: "code-reviewer" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "code-reviewer" })).toBeVisible();
 
   // Click the avatar camera button to open the upload dialog
   const avatarButton = page.locator("button.group").filter({ has: page.locator("svg") }).first();
@@ -40,8 +34,10 @@ test("avatar upload on blueprint detail: dialog opens, file uploads, POST fires"
     buffer: TINY_PNG,
   });
 
-  // Cropper phase: "Adjust the crop, then upload."
-  await expect(page.getByText(/adjust the crop/i)).toBeVisible({ timeout: 5_000 });
+  // Cropper phase can be slow on CI while the image decodes.
+  await expectEventually(async () => {
+    await expect(page.getByText(/adjust the crop/i)).toBeVisible();
+  });
 
   // Capture the avatar upload request
   const uploadReq = page.waitForRequest(
@@ -56,13 +52,8 @@ test("avatar upload on blueprint detail: dialog opens, file uploads, POST fires"
 });
 
 test("archive blueprint from account profile: dialog, confirm, POST fires", async ({ page }) => {
-  test.setTimeout(30_000);
-
-  // Account profile lists blueprints with archive button for the owner
   await page.goto(`/${ACCOUNT}`, { waitUntil: "domcontentloaded" });
-
-  // Wait for blueprint cards to render
-  await expect(page.getByText("code-reviewer").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("code-reviewer").first()).toBeVisible();
 
   // Open the options dropdown specifically for the code-reviewer card.
   // Sort by "newest" puts blueprints with more versions first, so we cannot

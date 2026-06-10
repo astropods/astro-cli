@@ -15,9 +15,6 @@ export default [
     route("explore", "pages/Explore.tsx"),
     route("request-agent", "pages/RequestBlueprint.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
-    route(":account", "pages/AccountProfile/AccountProfile.tsx"),
-    route(":account/:agentSlug", "pages/BlueprintDetail.tsx", { id: "agent-detail" }),
-    route("*", "pages/NotFound.tsx"),
 
     // Protected routes — auth is checked once at the layout level before any
     // child page mounts, so hooks in child components are safe.
@@ -26,6 +23,8 @@ export default [
       route("new/custom", "pages/NewBlueprint.tsx", { id: "new-custom" }),
       route("agents", "pages/AgentDashboard.tsx"),
       route("insights", "pages/Insights.tsx"),
+      route("chat", "pages/chat/Chat.tsx", { id: "chat-index" }),
+      route("chat/:deploymentId", "pages/chat/Chat.tsx", { id: "chat-deployment" }),
       route("knowledge", "pages/knowledge/KnowledgeStores.tsx"),
       route("knowledge/new", "pages/knowledge/NewKnowledgeStore/NewKnowledgeStore.tsx"),
       route("knowledge/:storeName", "pages/knowledge/KnowledgeStoreDetail/KnowledgeStoreDetail.tsx"),
@@ -64,5 +63,10 @@ export default [
         ]),
       ]),
     ]),
+
+    // Dynamic account slugs must follow static app routes (e.g. /chat).
+    route(":account", "pages/AccountProfile/AccountProfile.tsx"),
+    route(":account/:agentSlug", "pages/BlueprintDetail.tsx", { id: "agent-detail" }),
+    route("*", "pages/NotFound.tsx"),
   ]),
 ] satisfies RouteConfig;

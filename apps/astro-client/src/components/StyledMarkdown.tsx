@@ -40,7 +40,7 @@ export interface StyledMarkdownProps {
   className?: string;
 }
 
-const proseClasses = [
+export const proseClasses = [
   "prose prose-stone dark:prose-invert prose-sm max-w-none overflow-x-auto",
   "font-sans text-body text-foreground",
   // headings
@@ -69,9 +69,10 @@ const proseClasses = [
   "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:border [&_:not(pre)>code]:border-border",
   "[&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:text-foreground",
   "[&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']",
-  // images: block images get max-width, unwrapped consecutive images render inline
-  "prose-img:max-w-full prose-img:rounded",
+  // images: block images get max-width; inline images align with text (playground#28)
+  "prose-img:max-w-full prose-img:rounded prose-img:align-middle",
   "[&>img]:inline [&>a>img]:inline",
+  "[&_p_img]:m-0",
 ].join(" ");
 
 const remarkPlugins = [remarkGfm, remarkUnwrapImages];

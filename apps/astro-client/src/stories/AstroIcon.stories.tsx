@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Github } from "lucide-react";
+import { Github } from "@/components/icons/github-icon";
 import { AstroIcon } from "@/components/ui/astro-icon";
 
 const meta = {

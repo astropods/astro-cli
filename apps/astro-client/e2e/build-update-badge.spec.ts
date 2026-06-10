@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
@@ -6,11 +7,10 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const DEPLOYMENT_XACCT_PRIVATE_ID = "dep-xacct-private-1";
-const MOCK_BACKEND = "http://localhost:48787";
 
 // The mock backend is stateful (deploys update build_id), so reset between tests.
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 // Ensures the My Agents card advertises version drift when latest published build

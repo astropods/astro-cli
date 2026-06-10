@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { toRepoFullName } from "@/lib/github-utils";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { Check, ChevronDown, Search, Github, GitBranch, FolderOpen } from "lucide-react";
+import { Check, ChevronDown, Search, GitBranch, FolderOpen } from "lucide-react";
+import { Github } from "@/components/icons/github-icon";
 import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

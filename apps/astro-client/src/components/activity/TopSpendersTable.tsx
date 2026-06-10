@@ -22,7 +22,7 @@ import { UsersUsedAvatars } from "./UsersUsedAvatars";
 import { UserBadge } from "@/components/UserBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, Server, TriangleAlert, User } from "lucide-react";
+import { Info, CircleUserRound, Server, TriangleAlert, User } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { isSlackUserId, slackUserLabel } from "./user-classification";
 
@@ -619,7 +619,7 @@ function UnidentifiedUserCells({
             className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
             aria-hidden
           >
-            <User className="size-3" strokeWidth={1.75} />
+            <CircleUserRound className="size-3" strokeWidth={1.75} />
           </span>
           <span
             className="truncate text-mono-sm text-foreground"

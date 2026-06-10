@@ -1,4 +1,8 @@
-import type { AgentDeployment, AgentDeploymentSummary } from "./api";
+import type {
+  AgentDeployment,
+  AgentDeploymentSummary,
+  DeploymentStatusValue,
+} from "./api";
 
 export const launchUnavailableMessage =
   "Launch is unavailable while we create your custom URL";
@@ -18,6 +22,26 @@ export function getMessagingEndpoint(deployment: AgentDeployment | AgentDeployme
  * check `runtime.messaging_reachable !== false` after fetching the runtime
  * view. Most call sites only need the record-level gating below.
  */
+/** List filter: deployment spec includes web messaging (proxy-eligible). */
+export function isChatListEligible(
+  summary: AgentDeploymentSummary | null | undefined,
+): boolean {
+  return summary?.messaging_web_configured === true;
+}
+
+/**
+ * Whether the user can send messages in chat for this deployment.
+ * Requires web messaging in spec and coarse status `active` when provided.
+ */
+export function isChatEligible(
+  summary: AgentDeploymentSummary | null | undefined,
+  statusValue?: DeploymentStatusValue,
+): boolean {
+  if (!isChatListEligible(summary)) return false;
+  if (statusValue !== undefined && statusValue !== "active") return false;
+  return true;
+}
+
 export function isLaunchReady(deployment: AgentDeployment | null | undefined): boolean {
   const messaging = getMessagingEndpoint(deployment);
   if (!messaging?.url) return false;

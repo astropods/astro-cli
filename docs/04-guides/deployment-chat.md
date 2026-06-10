@@ -33,7 +33,7 @@ Base: `/api/v1/deployments/:deploymentId/chat`
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/conversations` | List summaries for this user + deployment (most recent 200) |
-| GET | `/conversations/:conversationId` | Thread (`messages[]`). Omit `limit` for full history. Optional `?limit=N` returns the tail (or older page with `?before_seq=S`); response includes `has_more` and `oldest_seq` when paginated. |
+| GET | `/conversations/:conversationId` | Thread (`messages[]`) plus `assistant_streaming` — true while the proxy is persisting an assistant reply. Omit `limit` for full history. Optional `?limit=N` returns the tail (or older page with `?before_seq=S`); response includes `has_more` and `oldest_seq` when paginated. |
 | PUT | `/conversations/:conversationId` | Create/update title (`{ "title": "..." }`); returns 409 if the id is owned by another user/deployment |
 | POST | `/conversations/:conversationId/messages` | Append one message (`id`, `role`, `content`) — optional; prefer proxy persistence on send |
 | PUT | `/conversations/:conversationId/messages` | Replace full thread — legacy/bulk sync; returns **409** while the messaging proxy is persisting an assistant SSE stream |
@@ -42,7 +42,7 @@ Base: `/api/v1/deployments/:deploymentId/chat`
 
 1. `PUT` conversation (title, optional empty thread).
 2. On user send: messaging `POST` message (server persists user row before upstream) → messaging SSE for live chunks.
-3. Poll or refetch `GET /conversations/:conversationId` for durable history; assistant text is written incrementally by the proxy until `finish`.
+3. Poll or refetch `GET /conversations/:conversationId` for durable history; assistant text is written incrementally by the proxy until `finish`. While a turn is live, clients should poll with `?limit=N` (tail only) and merge into cached history rather than re-downloading the full thread each tick.
 
 Message `id` values are UUIDs. Roles: `user` | `assistant`.
 
@@ -51,8 +51,9 @@ Message `id` values are UUIDs. Roles: `user` | `assistant`.
 Base: `/api/v1/deployments/:deploymentId/messaging` → sidecar `/api/...`
 
 - `POST /conversations` — only if the client did not pre-assign a conversation id.
-- `POST /conversations/:id/messages` — body `{ "content": "..." }`; proxy appends user message to Postgres **before** forwarding upstream.
-- SSE: `/conversations/:id/stream` (session cookie; same origin as API in browsers). Proxy mirrors assistant chunks into Postgres (throttled mid-stream, flush on `finish`) even if the browser disconnects.
+- `POST /conversations/:id/messages` — body `{ "content": "..." }`; proxy appends user message to Postgres **before** forwarding upstream. Returns **409** when the message cannot be persisted (assistant reply still streaming, message limit reached, or conversation id conflict) — the message is **not** forwarded upstream in that case.
+- SSE: `/conversations/:id/stream` (session cookie; same origin as API in browsers). The proxy mirrors assistant chunks into Postgres (throttled mid-stream, flush on `finish`) even if the browser disconnects. When a client opens SSE, the proxy also consumes upstream in a **detached** context so generation and persistence continue after navigation away or refresh — returning clients catch up via tail polling, not by requiring a new stream consumer. Active sends should still attach SSE so the proxy begins consuming promptly.
+- Turn state: the proxy marks the conversation as streaming from the first assistant chunk until `finish`/`error`; clients read it back as `assistant_streaming` on the chat GET and must treat it (or a trailing user message) as "turn in flight" rather than guessing from content growth.
 
 Server injects `X-Amzn-Oidc-Identity` for upstream messaging auth.
 
@@ -63,6 +64,8 @@ Use deployment list `messaging_web_configured` (batch DB: messaging sidecar + `h
 ## Storage
 
 Tables: `deployment_chat_conversations`, `deployment_chat_messages` in `sql/astro-server/schema.sql`. Apply via Atlas like other schema changes.
+
+Conversations store a denormalized `agent_name` snapshot and use `ON DELETE SET NULL` for `deployment_id` so history survives deployment removal and can be listed or exported at account scope later. The REST API remains deployment-scoped for now; account-level listing is a future surface.
 
 ## Consumers
 

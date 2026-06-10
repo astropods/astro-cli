@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const AGENT_CROSS_ACCOUNT = "cross-agent";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
-const MOCK_BACKEND = "http://localhost:48787";
 
 test.beforeEach(async () => {
-  await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  await resetMockBackend();
 });
 
 test.describe("cross-account configure page", () => {

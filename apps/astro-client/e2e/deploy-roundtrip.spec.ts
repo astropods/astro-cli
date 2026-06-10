@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
 const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
@@ -7,7 +8,7 @@ const DEPLOY_PAGE = `/deploy/${ACCOUNT}/${AGENT_INGESTION_SCHEDULE}`;
 const ROUNDTRIP_SECRET = "sk-roundtrip-test-key";
 
 test.beforeEach(async ({ request }) => {
-  await request.post("http://127.0.0.1:48787/test/reset");
+  await resetMockBackend(request);
 });
 
 test.describe("deploy then configure round-trip", () => {

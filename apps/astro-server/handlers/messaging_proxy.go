@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -107,7 +108,22 @@ func ProxyDeploymentMessaging(
 			upstreamBody = bytes.NewReader(raw)
 			if chatStore != nil {
 				bodyCopy := append([]byte(nil), raw...)
-				persistUserMessage(log, chatStore, dep.AccountID, dep.ID, user.ID, sendConvID, bodyCopy)
+				if err := persistUserMessage(log, chatStore, dep.AccountID, dep.ID, user.ID, sendConvID, dep.AgentName, bodyCopy); err != nil {
+					// Forwarding a message that is missing from history corrupts the
+					// thread (the next assistant upsert merges turns), so these are
+					// hard failures. Other persistence errors stay best-effort.
+					switch {
+					case errors.Is(err, chatstore.ErrActiveAssistantStream):
+						c.JSON(http.StatusConflict, gin.H{"error": "assistant is still responding; wait for the current reply to finish"})
+						return
+					case errors.Is(err, chatstore.ErrMessageLimitReached):
+						c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrMessageLimitReached.Error()})
+						return
+					case errors.Is(err, chatstore.ErrConversationIDConflict):
+						c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrConversationIDConflict.Error()})
+						return
+					}
+				}
 			}
 		}
 
@@ -226,35 +242,37 @@ func parseProxyConversationID(raw string) (string, bool) {
 // persistUserMessage writes the outgoing user message to chatstore, creating the
 // conversation row on first use. Runs synchronously before the upstream POST so
 // assistant stream upserts always see the user row (avoids overwriting the prior
-// turn). Persistence is best-effort in the sense that failures are logged but
-// do not fail the proxy response — upstream delivery proceeds either way.
+// turn). The returned error lets the caller reject sends that would otherwise be
+// delivered upstream while silently missing from history.
 func persistUserMessage(
 	log *logger.Logger,
 	chatStore *chatstore.Store,
-	accountID, deploymentID, userID, conversationID string,
+	accountID, deploymentID, userID, conversationID, agentName string,
 	body []byte,
-) {
+) error {
 	content := parseSendContent(body)
 	if content == "" {
-		return
+		return nil
 	}
 	if utf8.RuneCountInString(content) > chatstore.MaxMessageContentRunes {
 		log.Warn("chat user message exceeds limit; skipping persistence", "deployment", deploymentID)
-		return
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	title := truncateRunes(content, chatTitleMaxRunes)
-	if err := chatStore.AppendUserMessage(ctx, accountID, deploymentID, userID, conversationID, title, chatstore.Message{
+	err := chatStore.AppendUserMessage(ctx, accountID, deploymentID, userID, conversationID, title, agentName, chatstore.Message{
 		ID:      uuid.NewString(),
 		Role:    "user",
 		Content: content,
-	}); err != nil {
+	})
+	if err != nil {
 		log.Error("chat persist: append user message",
 			"deployment", deploymentID, "conversation", conversationID, "error", err)
 	}
+	return err
 }
 
 // parseSendContent extracts the message text from a messaging send body. The web
@@ -375,6 +393,11 @@ type chatStreamPersist struct {
 	content        strings.Builder
 	messageID      string
 	lastPersistAt  time.Time
+	// turnMarked tracks whether this consumer has flagged the conversation as
+	// actively streaming. The marker is per assistant turn (first chunk →
+	// finish/error), not per SSE connection — the connection is long-lived and
+	// idles between turns, and clients read the marker as "turn in flight".
+	turnMarked bool
 }
 
 // consume folds one SSE `data:` payload into the accumulated assistant text and
@@ -470,6 +493,22 @@ func setAssistantStreamActive(
 	}
 }
 
+func (p *chatStreamPersist) markTurnActive(log *logger.Logger) {
+	if p.turnMarked {
+		return
+	}
+	setAssistantStreamActive(log, p.store, p.deploymentID, p.userID, p.conversationID, true)
+	p.turnMarked = true
+}
+
+func (p *chatStreamPersist) clearTurnActive(log *logger.Logger) {
+	if !p.turnMarked {
+		return
+	}
+	setAssistantStreamActive(log, p.store, p.deploymentID, p.userID, p.conversationID, false)
+	p.turnMarked = false
+}
+
 func proxyMessagingEventStream(
 	log *logger.Logger,
 	c *gin.Context,
@@ -477,10 +516,10 @@ func proxyMessagingEventStream(
 	deploymentID string,
 	persist *chatStreamPersist,
 ) {
-	if persist != nil {
-		setAssistantStreamActive(log, persist.store, persist.deploymentID, persist.userID, persist.conversationID, true)
-		defer setAssistantStreamActive(log, persist.store, persist.deploymentID, persist.userID, persist.conversationID, false)
-	}
+	// The stream-active marker is per turn (first chunk → finish/error). Do not
+	// defer-clear on handler exit while the detached consumer is still reading
+	// upstream — that would drop the marker when the browser disconnects even
+	// though generation continues server-side.
 
 	if resp.StatusCode != http.StatusOK {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("upstream returned %d", resp.StatusCode)})
@@ -537,16 +576,14 @@ func proxyMessagingEventStream(
 				continue
 			}
 			typ := persist.consume(strings.TrimSpace(data), eventName)
-			if typ == "chunk" {
-				persist.maybeWriteProgress(log, false, false)
-			}
 			switch typ {
-			case "finish":
+			case "chunk":
+				persist.markTurnActive(log)
+				persist.maybeWriteProgress(log, false, false)
+			case "finish", "error":
 				persist.writeProgress(log, true)
 				persist.resetTurn()
-			case "error":
-				persist.writeProgress(log, true)
-				persist.resetTurn()
+				persist.clearTurnActive(log)
 			}
 		}
 	}
@@ -559,5 +596,6 @@ func proxyMessagingEventStream(
 	if persist != nil {
 		persist.writeProgress(log, true)
 		persist.resetTurn()
+		persist.clearTurnActive(log)
 	}
 }

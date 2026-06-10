@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 
+/**
+ * Matches viewport width. Initial render is always false (SSR + first client paint)
+ * so markup does not depend on window size until after mount.
+ */
 export function useMediaBreakpoint(breakpoint: number) {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
-  );
+  const [matches, setMatches] = useState(false);
 
   useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    setMatches(mql.matches);
-    const onChange = () => setMatches(mql.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
+    const query = `(max-width: ${breakpoint - 1}px)`;
+    const mql = window.matchMedia(query);
+    const update = () => setMatches(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
   }, [breakpoint]);
 
   return matches;
