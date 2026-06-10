@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -161,17 +163,15 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			return
 		}
 
-		// Validate redirect_to: must be a relative path (open-redirect guard).
-		redirectTo := c.Query("redirect_to")
-		if redirectTo == "" || !strings.HasPrefix(redirectTo, "/") || strings.HasPrefix(redirectTo, "//") {
-			redirectTo = "/settings/account"
-		}
+		redirectTo := safeSlackRedirectPath(c.Query("redirect_to"))
 
 		// Slack puts user-cancelled / scope-rejected errors directly on
 		// the redirect (?error=access_denied). Surface them cleanly.
 		if slackErr := c.Query("error"); slackErr != "" {
 			clearStateCookie(c, cfg)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error="+url.QueryEscape(slackErr))
+			params := url.Values{}
+			params.Set("slack_error", slackErr)
+			c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 			return
 		}
 
@@ -183,14 +183,18 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 		if err != nil || stateCookie.Value == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(gotState)) != 1 {
 			clearStateCookie(c, cfg)
 			log.Warn("slack: state mismatch on callback", "user", session.UserID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=state_mismatch")
+			params := url.Values{}
+			params.Set("slack_error", "state_mismatch")
+			c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 			return
 		}
 		clearStateCookie(c, cfg)
 
 		code := c.Query("code")
 		if code == "" {
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=missing_code")
+			params := url.Values{}
+			params.Set("slack_error", "missing_code")
+			c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 			return
 		}
 
@@ -203,7 +207,9 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 		resp, err := oauth.ExchangeCode(c.Request.Context(), code, redirectURI)
 		if err != nil {
 			log.Error("slack: oauth exchange failed", "error", err, "user", session.UserID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=exchange_failed")
+			params := url.Values{}
+			params.Set("slack_error", "exchange_failed")
+			c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 			return
 		}
 
@@ -257,8 +263,32 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			SlackUsername:  slackUsername,
 		}); upErr != nil {
 			log.Error("slack: persist identity mapping", "error", upErr, "user", session.UserID, "team_id", resp.Team.ID)
-			c.Redirect(http.StatusFound, cfg.FrontendURL+redirectTo+"?slack_error=persist_failed")
+			params := url.Values{}
+			params.Set("slack_error", "persist_failed")
+			c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 			return
+		}
+
+		if resp.AuthedUser.AccessToken != "" {
+			syncCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+			defer cancel()
+			users, truncated, usersErr := oauth.UsersList(syncCtx, resp.AuthedUser.AccessToken)
+			if usersErr != nil {
+				log.Warn("slack: users.list failed; workspace directory not refreshed",
+					"error", usersErr, "user", session.UserID, "team_id", resp.Team.ID)
+			} else {
+				if truncated {
+					log.Warn("slack: users.list reached page cap; workspace directory partially refreshed",
+						"user", session.UserID, "team_id", resp.Team.ID, "users", len(users))
+				}
+				if syncErr := store.UpsertObservedProfiles(
+					syncCtx,
+					observedUsersForSlackDirectory(resp.Team.ID, users),
+				); syncErr != nil {
+					log.Warn("slack: persist workspace directory failed",
+						"error", syncErr, "user", session.UserID, "team_id", resp.Team.ID)
+				}
+			}
 		}
 
 		params := url.Values{}
@@ -266,8 +296,69 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 		if resp.Team.Name != "" {
 			params.Set("slack_team", resp.Team.Name)
 		}
-		c.Redirect(http.StatusFound, fmt.Sprintf("%s%s?%s", cfg.FrontendURL, redirectTo, params.Encode()))
+		c.Redirect(http.StatusFound, slackFrontendRedirect(cfg.FrontendURL, redirectTo, params))
 	}
+}
+
+func safeSlackRedirectPath(redirectTo string) string {
+	const fallback = "/settings/account"
+	if redirectTo == "" || strings.HasPrefix(redirectTo, "//") {
+		return fallback
+	}
+	parsed, err := url.Parse(redirectTo)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") {
+		return fallback
+	}
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func slackFrontendRedirect(frontendURL, redirectTo string, params url.Values) string {
+	parsed, err := url.Parse(redirectTo)
+	if err != nil {
+		parsed = &url.URL{Path: "/settings/account"}
+	}
+	query := parsed.Query()
+	for key, values := range params {
+		query.Del(key)
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	parsed.Fragment = ""
+	return frontendURL + parsed.String()
+}
+
+func observedUsersForSlackDirectory(teamID string, users []slackclient.UserInfo) []slackidentity.ObservedUser {
+	if teamID == "" || len(users) == 0 {
+		return nil
+	}
+	observed := make([]slackidentity.ObservedUser, 0, len(users))
+	for _, user := range users {
+		if user.ID == "" {
+			continue
+		}
+		username := user.Name
+		if username == "" {
+			username = user.DisplayName
+		}
+		if username == "" {
+			username = user.RealName
+		}
+		observed = append(observed, slackidentity.ObservedUser{
+			TeamID:      teamID,
+			SlackUserID: user.ID,
+			Profile: slackidentity.SlackProfile{
+				DisplayName: user.DisplayName,
+				Username:    username,
+				AvatarURL:   user.AvatarURL,
+				IsBot:       user.IsBot,
+				Deleted:     user.Deleted,
+			},
+		})
+	}
+	return observed
 }
 
 // SlackAccountStatus handles GET /api/v1/accounts/:account/slack.

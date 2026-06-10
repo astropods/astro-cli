@@ -343,10 +343,12 @@ type AccountSparklines struct {
 // tokens so the client can slice the per-(day, user) data into any range
 // window and recompute per-user totals without an extra round-trip.
 type AccountUserCost struct {
-	UserID   string  `json:"user_id"`
-	CostUSD  float64 `json:"cost_usd"`
-	Requests int     `json:"requests"`
-	Tokens   int     `json:"tokens"`
+	IdentityKey string  `json:"identity_key,omitempty"`
+	UserID      string  `json:"user_id"`
+	SlackTeamID string  `json:"slack_team_id,omitempty"`
+	CostUSD     float64 `json:"cost_usd"`
+	Requests    int     `json:"requests"`
+	Tokens      int     `json:"tokens"`
 }
 
 // AccountCostOverTimeByUserEntry is one day's user-level cost breakdown for the chart.
@@ -391,24 +393,42 @@ type UserAgentRef struct {
 	Account      string `json:"account"`
 }
 
+// UserIdentityRef is the displayable identity shape shared by Insights places
+// that need user identity without per-user metrics. It intentionally mirrors
+// the identity/profile subset of UserSummaryEntry so the Agents "Used by"
+// column can render the same linked-member and unlinked-Slack identities as
+// the People table without inheriting cost/request fields.
+type UserIdentityRef struct {
+	IdentityKey string `json:"identity_key,omitempty"`
+	UserID      string `json:"user_id"`
+	SlackTeamID string `json:"slack_team_id,omitempty"`
+	// Best-effort profile metadata for unlinked Slack rows with one known workspace.
+	SlackDisplayName      string `json:"slack_display_name,omitempty"`
+	SlackUsername         string `json:"slack_username,omitempty"`
+	SlackAvatarURL        string `json:"slack_avatar_url,omitempty"`
+	SlackIsBot            bool   `json:"slack_is_bot,omitempty"`
+	SlackDeleted          bool   `json:"slack_deleted,omitempty"`
+	SlackWorkspaceName    string `json:"slack_workspace_name,omitempty"`
+	SlackWorkspaceDomain  string `json:"slack_workspace_domain,omitempty"`
+	SlackWorkspaceIconURL string `json:"slack_workspace_icon_url,omitempty"`
+}
+
 // UserSummaryEntry holds per-user aggregated observability for the users summary.
 // Counts traces (one per user-facing request) to match the agent-view "requests"
 // unit; tokens are combined (input + output) since the traces view only exposes
 // the sum, not the split.
 //
-// SlackTeamID is populated for rows whose user_id is a bare Slack identity
-// (`U07ABCDEF`) that the directory knows about (via the live-ingest path on
-// /authorize, or a historical backfill). Empty otherwise. The frontend uses
-// it to build the `slack://user?team=…&id=…` deep link without parsing
-// anything out of user_id itself.
+// SlackTeamID is populated for bare Slack rows when the Slack directory has
+// exactly one known workspace for that Slack user. The frontend uses it to
+// build the `slack://user?team=…&id=…` deep link without parsing anything out
+// of user_id itself.
 type UserSummaryEntry struct {
-	UserID      string         `json:"user_id"`
-	Requests    int            `json:"requests"`
-	CostUSD     float64        `json:"cost_usd"`
-	Tokens      int            `json:"tokens"`
-	LastSeen    string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
-	AgentsUsed  []UserAgentRef `json:"agents_used"`
-	SlackTeamID string         `json:"slack_team_id,omitempty"`
+	UserIdentityRef
+	Requests   int            `json:"requests"`
+	CostUSD    float64        `json:"cost_usd"`
+	Tokens     int            `json:"tokens"`
+	LastSeen   string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
+	AgentsUsed []UserAgentRef `json:"agents_used"`
 }
 
 // AccountUsersSummaryResponse is returned by the users-summary endpoint.
@@ -472,6 +492,11 @@ type DeploymentSummaryEntry struct {
 	// deployment in the period. Mirrors agents_used on the users-summary
 	// endpoint — the same (userId, tag) → deployment mapping, just inverted.
 	UsersUsed []string `json:"users_used"`
+	// UsersUsedDetails is the richer, display-ready identity list for the
+	// Agents view's "Used by" column. It applies the same Slack directory merge
+	// as the People table: linked Slack history collapses into the WorkOS user,
+	// while unlinked Slack identities keep team/profile/workspace metadata.
+	UsersUsedDetails []UserIdentityRef `json:"users_used_details,omitempty"`
 	// UndeployedAt is set when the deployment has been soft-deleted (status
 	// transitioned to 'undeployed' via the undeploy worker). Used by the
 	// frontend to render the "Deleted MMM DD" suffix when known. Can be nil

@@ -48,9 +48,9 @@ import (
 //     it's the linked WorkOS user (empty when no mapping exists). Only
 //     populated when allowed=true (denials don't leak mapping state).
 //   - `slack_user_id` / `slack_team_id` — echoed for identity_type=slack so
-//     the messaging container can attribute unlinked Slack users to a
-//     namespaced trace userId instead of dropping them onto Unattributed.
-//     Only populated when allowed=true.
+//     the messaging container can keep Slack workspace identity alongside the
+//     raw Slack user id without folding team_id into user_id. Only populated
+//     when allowed=true.
 //
 // Returns 4xx for malformed inputs and 5xx for server-side failures.
 func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationstore.Store, slackStore *slackidentity.Store) gin.HandlerFunc {
@@ -151,11 +151,13 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 			allowed = ownerAllowed
 		}
 
-		// Live-ingest into the Slack user directory so Insights can join
-		// historical bare-form Langfuse userIds to a team_id for the
-		// `slack://` deep link. Only fires when allowed=true — a denied
-		// principal isn't a member of this deployment's universe and
-		// shouldn't pollute the directory used for click-through.
+		// Live-ingest into the Slack user directory so Insights can enrich
+		// bare Slack rows with workspace metadata and the `slack://` deep link.
+		// Profile enrichment comes from Slack account
+		// connection directory sync (users.list), not per-message query params.
+		// Only fires when allowed=true — a denied principal isn't a member of
+		// this deployment's universe and shouldn't pollute the directory used for
+		// click-through.
 		//
 		// Fire-and-forget: errors don't fail authz, and the in-process
 		// dedupe (UpsertObserved) means a chatty workspace only touches

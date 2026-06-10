@@ -16,13 +16,9 @@ export const UNIDENTIFIED_COLOR = "var(--warning)";
 // looser would false-positive on any arbitrary `U…` string emitted by a
 // custom SDK.
 //
-// The slack adapter writes this exact shape onto `msg.User.Id` for every
-// unlinked Slack user (matching the format every historical Langfuse
-// trace already carries). The workspace team_id is *not* embedded — the
-// server attaches it as a separate response field via the
-// slack_identity_mappings directory join, so a single Slack user has one
-// aggregation key forever and the Insights "by people" view shows one
-// row per human.
+// The Slack adapter writes this shape onto `msg.User.Id` for unlinked Slack
+// users. The server may attach team/profile metadata separately, and
+// Insights uses that richer identity key when present.
 const SLACK_BARE_RE = /^U[A-Z0-9]{8,11}$/;
 
 /**
@@ -32,8 +28,4 @@ const SLACK_BARE_RE = /^U[A-Z0-9]{8,11}$/;
  */
 export function isSlackUserId(uid: string): boolean {
   return SLACK_BARE_RE.test(uid);
-}
-
-export function slackUserLabel(uid: string): string {
-  return `slack_${uid}`;
 }

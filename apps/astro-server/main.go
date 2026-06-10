@@ -1612,7 +1612,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(202, nil),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
-			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1621,7 +1621,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "Set to 'user' to include cost_over_time_by_user", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

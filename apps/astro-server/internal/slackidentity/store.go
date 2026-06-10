@@ -87,6 +87,24 @@ type Mapping struct {
 	RevokedAt     *time.Time // nil for active mappings
 }
 
+// SlackProfile is the best-effort display metadata resolved from Slack's
+// directory APIs. Empty values are valid: Slack may return a user without a
+// display name/avatar, or the app may be missing the users:read scope.
+type SlackProfile struct {
+	DisplayName string
+	Username    string
+	AvatarURL   string
+	IsBot       bool
+	Deleted     bool
+}
+
+// ObservedUser is one row in slack_observed_users.
+type ObservedUser struct {
+	TeamID      string
+	SlackUserID string
+	Profile     SlackProfile
+}
+
 // Upsert writes or refreshes a mapping. Used by the link handler after
 // auth.test resolves the slack identity for a freshly-connected Pipes
 // account. Re-linking the same (team_id, slack_user_id) — including after a
@@ -124,9 +142,8 @@ func (s *Store) Upsert(m Mapping) error {
 // directory. ON CONFLICT bumps last_seen_at so the row stays fresh
 // without growing.
 //
-// Used by Insights to attach team_id to bare-form Langfuse userIds so
-// the Slack profile deep link works for every Slack row, not just
-// linked identities.
+// Used by Insights to enrich Slack trace rows that already carry team_id with
+// profile and workspace metadata, not to infer team_id for unscoped traces.
 //
 // Per-process in-memory dedupe (observedSeen) eliminates the steady-
 // state DB write on every authorize call: a chatty workspace only
@@ -155,16 +172,102 @@ func (s *Store) UpsertObserved(ctx context.Context, teamID, slackUserID string) 
 	s.observedSeen[key] = struct{}{}
 	s.observedMu.Unlock()
 
+	if err := s.upsertObserved(ctx, teamID, slackUserID); err != nil {
+		// Roll back the dedupe entry so the next call retries the DB.
+		s.observedMu.Lock()
+		delete(s.observedSeen, key)
+		s.observedMu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// UpsertObservedProfiles refreshes Slack directory profiles in bulk. It is
+// used by the account Slack OAuth callback after users.list returns the
+// workspace directory, so Insights can render unlinked Slack users with
+// avatar/name/workspace/deep link before those users generate new traces.
+//
+// Existing rows keep their last_seen_at timestamp; live usage remains the
+// responsibility of UpsertObserved. New rows receive the table default for
+// first_seen_at/last_seen_at because the table stores both directory and live
+// observed identities.
+func (s *Store) UpsertObservedProfiles(ctx context.Context, observed []ObservedUser) error {
+	if len(observed) == 0 {
+		return nil
+	}
+
+	teamIDs := make([]string, 0, len(observed))
+	slackUserIDs := make([]string, 0, len(observed))
+	displayNames := make([]string, 0, len(observed))
+	usernames := make([]string, 0, len(observed))
+	avatarURLs := make([]string, 0, len(observed))
+	isBots := make([]bool, 0, len(observed))
+	deleted := make([]bool, 0, len(observed))
+	seen := make(map[string]struct{}, len(observed))
+	for _, user := range observed {
+		if user.TeamID == "" || user.SlackUserID == "" {
+			continue
+		}
+		key := slackIdentityKey(user.TeamID, user.SlackUserID)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		teamIDs = append(teamIDs, user.TeamID)
+		slackUserIDs = append(slackUserIDs, user.SlackUserID)
+		displayNames = append(displayNames, user.Profile.DisplayName)
+		usernames = append(usernames, user.Profile.Username)
+		avatarURLs = append(avatarURLs, user.Profile.AvatarURL)
+		isBots = append(isBots, user.Profile.IsBot)
+		deleted = append(deleted, user.Profile.Deleted)
+	}
+	if len(teamIDs) == 0 {
+		return nil
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		WITH input AS (
+			SELECT *
+			FROM unnest(
+				$1::text[],
+				$2::text[],
+				$3::text[],
+				$4::text[],
+				$5::text[],
+				$6::boolean[],
+				$7::boolean[]
+			) AS t(team_id, slack_user_id, slack_display_name, slack_username, slack_avatar_url, slack_is_bot, slack_deleted)
+		)
+		INSERT INTO slack_observed_users
+			(team_id, slack_user_id, slack_display_name, slack_username,
+			 slack_avatar_url, slack_is_bot, slack_deleted, profile_updated_at)
+		SELECT team_id, slack_user_id, slack_display_name, slack_username,
+		       slack_avatar_url, slack_is_bot, slack_deleted, now()
+		FROM input
+		ON CONFLICT (team_id, slack_user_id) DO UPDATE
+		SET slack_display_name = EXCLUDED.slack_display_name,
+		    slack_username     = EXCLUDED.slack_username,
+		    slack_avatar_url   = EXCLUDED.slack_avatar_url,
+		    slack_is_bot       = EXCLUDED.slack_is_bot,
+		    slack_deleted      = EXCLUDED.slack_deleted,
+		    profile_updated_at = now()
+	`, pq.Array(teamIDs), pq.Array(slackUserIDs), pq.Array(displayNames),
+		pq.Array(usernames), pq.Array(avatarURLs), pq.Array(isBots), pq.Array(deleted)); err != nil {
+		return fmt.Errorf("slackidentity: upsert observed profiles: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) upsertObserved(ctx context.Context, teamID, slackUserID string) error {
+	if teamID == "" || slackUserID == "" {
+		return nil
+	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO slack_observed_users (team_id, slack_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT (team_id, slack_user_id) DO UPDATE
 		SET last_seen_at = now()
 	`, teamID, slackUserID); err != nil {
-		// Roll back the dedupe entry so the next call retries the DB.
-		s.observedMu.Lock()
-		delete(s.observedSeen, key)
-		s.observedMu.Unlock()
 		return fmt.Errorf("slackidentity: upsert observed: %w", err)
 	}
 	return nil
@@ -208,89 +311,161 @@ func (s *Store) Lookup(teamID, slackUserID string) (LookupResult, error) {
 	return LookupResult{Found: true, WorkOSUserID: workosUserID}, nil
 }
 
-// DirectoryEntry is one resolved directory hit per Slack user. TeamID is
-// always set; WorkOSUserID is set only when the Slack user has linked via
-// oauth — observed-only rows leave it empty. The Insights users-summary
-// handler uses both: TeamID drives the deep link, WorkOSUserID redirects
-// historical bare-Slack metrics into the linked user's WorkOS row so Bob's
-// pre-link and post-link spend roll up under one Insights row instead of
-// splitting.
+// DirectoryEntry is one resolved directory hit for a Slack user.
+// TeamID is always set; WorkOSUserID is set only when the Slack user has linked
+// via oauth — observed-only rows leave it empty. The Insights users-summary
+// handler uses both: TeamID drives the deep link, WorkOSUserID redirects scoped
+// Slack metrics into the linked user's WorkOS row.
 type DirectoryEntry struct {
-	TeamID       string
-	WorkOSUserID string // empty for observed-only rows
+	TeamID           string
+	WorkOSUserID     string // empty for observed-only rows
+	Profile          SlackProfile
+	WorkspaceName    string
+	WorkspaceDomain  string
+	WorkspaceIconURL string
 }
 
-// DirectoryEntriesForSlackUsers returns the directory entry for each
-// slack_user_id the directory knows about. PR 2 cutover: the read now
-// unions across two tables.
-//
-//   - slack_identity_mappings — source of truth for workos_user_id
-//     (oauth-linked users), AND for team_id on revoked oauth rows so
-//     the deep link survives disconnect.
-//   - slack_observed_users    — source of truth for team_id when no
-//     oauth row exists (the common case for unlinked Slack senders).
-//
-// Precedence per slack_user_id: an active oauth row beats a revoked
-// oauth row; either beats a slack_observed_users entry. Within a tier,
-// most recently created wins (only relevant for the multi-workspace
-// case where the same U07ABCDEF appears under two team_ids).
-//
-// workos_user_id is masked to empty for revoked rows so the
-// metrics-merge path in mergeLinkedSlackRows doesn't fold a user's
-// post-disconnect spend back into the WorkOS account they deliberately
-// unlinked from.
-//
-// Multi-workspace caveat unchanged: same `U07ABCDEF` across two
-// different Slack workspaces collapses to one entry.
-func (s *Store) DirectoryEntriesForSlackUsers(slackUserIDs []string) (map[string]DirectoryEntry, error) {
+func slackIdentityKey(teamID, slackUserID string) string {
+	return teamID + "\x00" + slackUserID
+}
+
+// DirectoryEntriesForSlackUserIDs returns directory entries for bare Slack
+// user IDs only when the directory contains exactly one workspace for that
+// user. It is a conservative fallback for legacy Langfuse rows that do not
+// carry team_id: one observed workspace can safely provide a deep link/profile;
+// multiple workspaces means the trace row is ambiguous and must remain raw.
+func (s *Store) DirectoryEntriesForSlackUserIDs(slackUserIDs []string) (map[string]DirectoryEntry, error) {
 	out := make(map[string]DirectoryEntry)
 	if len(slackUserIDs) == 0 {
 		return out, nil
 	}
-	// UNION across the linked table (slack_identity_mappings) and the
-	// observed-directory table (slack_observed_users). source_priority
-	// (1 = slack_identity_mappings, 2 = slack_observed_users) prefers
-	// the linked source whenever both have an entry — that's how
-	// workos_user_id surfaces for oauth users. Within source_priority=1,
-	// active_flag DESC keeps a live oauth row ahead of a revoked one;
-	// created_at DESC is the multi-workspace tiebreaker.
+	input := make([]string, 0, len(slackUserIDs))
+	seen := make(map[string]struct{}, len(slackUserIDs))
+	for _, slackUserID := range slackUserIDs {
+		if slackUserID == "" {
+			continue
+		}
+		if _, ok := seen[slackUserID]; ok {
+			continue
+		}
+		seen[slackUserID] = struct{}{}
+		input = append(input, slackUserID)
+	}
+	if len(input) == 0 {
+		return out, nil
+	}
+
 	rows, err := s.db.Query(`
-		SELECT DISTINCT ON (slack_user_id)
-		       slack_user_id,
-		       team_id,
-		       workos_user_id
-		FROM (
-			SELECT slack_user_id,
-			       team_id,
-			       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '') AS workos_user_id,
-			       (revoked_at IS NULL)                                              AS active_flag,
-			       created_at,
-			       1                                                                  AS source_priority
-			FROM slack_identity_mappings
-			WHERE slack_user_id = ANY($1)
-			UNION ALL
-			SELECT slack_user_id,
-			       team_id,
-			       ''                                                                 AS workos_user_id,
-			       TRUE                                                               AS active_flag,
-			       last_seen_at                                                       AS created_at,
-			       2                                                                  AS source_priority
-			FROM slack_observed_users
-			WHERE slack_user_id = ANY($1)
-		) combined
-		ORDER BY slack_user_id, source_priority, active_flag DESC, created_at DESC
-	`, pq.Array(slackUserIDs))
+			WITH input AS (
+				SELECT unnest($1::text[]) AS slack_user_id
+			),
+			combined AS (
+				SELECT m.team_id,
+				       m.slack_user_id,
+				       COALESCE(CASE WHEN m.revoked_at IS NULL THEN m.workos_user_id END, '') AS workos_user_id,
+				       ''                                                                      AS slack_display_name,
+				       m.slack_username,
+				       ''                                                                      AS slack_avatar_url,
+				       FALSE                                                                   AS slack_is_bot,
+				       FALSE                                                                   AS slack_deleted,
+				       m.team_name,
+				       m.team_domain,
+				       m.team_icon_url,
+				       (m.revoked_at IS NULL)                                                  AS active_flag,
+				       m.created_at,
+				       1                                                                       AS source_priority
+				FROM slack_identity_mappings m
+				JOIN input USING (slack_user_id)
+				UNION ALL
+				SELECT o.team_id,
+				       o.slack_user_id,
+				       ''                                                                      AS workos_user_id,
+				       o.slack_display_name,
+				       o.slack_username,
+				       o.slack_avatar_url,
+				       o.slack_is_bot,
+				       o.slack_deleted,
+				       COALESCE(workspace.team_name, '')                                       AS team_name,
+				       COALESCE(workspace.team_domain, '')                                     AS team_domain,
+				       COALESCE(workspace.team_icon_url, '')                                   AS team_icon_url,
+				       TRUE                                                                    AS active_flag,
+				       o.last_seen_at                                                          AS created_at,
+				       2                                                                       AS source_priority
+				FROM slack_observed_users o
+				JOIN input USING (slack_user_id)
+				LEFT JOIN LATERAL (
+					SELECT team_name, team_domain, team_icon_url
+					FROM slack_identity_mappings
+					WHERE slack_identity_mappings.team_id = o.team_id
+					ORDER BY (revoked_at IS NULL) DESC, updated_at DESC, created_at DESC
+					LIMIT 1
+				) workspace ON TRUE
+			),
+			ranked AS (
+				SELECT *,
+				       row_number() OVER (
+				           PARTITION BY team_id, slack_user_id
+				           ORDER BY source_priority, active_flag DESC, created_at DESC
+				       ) AS rn
+				FROM combined
+			),
+			deduped AS (
+				SELECT *
+				FROM ranked
+				WHERE rn = 1
+			),
+			unambiguous AS (
+				SELECT slack_user_id
+				FROM deduped
+				GROUP BY slack_user_id
+				HAVING COUNT(DISTINCT team_id) = 1
+			)
+			SELECT d.team_id,
+			       d.slack_user_id,
+			       d.workos_user_id,
+			       d.slack_display_name,
+			       d.slack_username,
+			       d.slack_avatar_url,
+			       d.slack_is_bot,
+			       d.slack_deleted,
+			       d.team_name,
+			       d.team_domain,
+			       d.team_icon_url
+			FROM deduped d
+			JOIN unambiguous USING (slack_user_id)
+			ORDER BY d.slack_user_id, d.team_id
+		`, pq.Array(input))
 	if err != nil {
-		return nil, fmt.Errorf("slackidentity: directory entries: %w", err)
+		return nil, fmt.Errorf("slackidentity: unscoped directory entries: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
-		var slackUserID, teamID, workosUserID string
-		if err := rows.Scan(&slackUserID, &teamID, &workosUserID); err != nil {
-			return nil, fmt.Errorf("slackidentity: directory scan: %w", err)
+		var slackUserID, teamID, workosUserID, workspaceName, workspaceDomain, workspaceIconURL string
+		var profile SlackProfile
+		if err := rows.Scan(
+			&teamID,
+			&slackUserID,
+			&workosUserID,
+			&profile.DisplayName,
+			&profile.Username,
+			&profile.AvatarURL,
+			&profile.IsBot,
+			&profile.Deleted,
+			&workspaceName,
+			&workspaceDomain,
+			&workspaceIconURL,
+		); err != nil {
+			return nil, fmt.Errorf("slackidentity: unscoped directory scan: %w", err)
 		}
-		out[slackUserID] = DirectoryEntry{TeamID: teamID, WorkOSUserID: workosUserID}
+		out[slackUserID] = DirectoryEntry{
+			TeamID:           teamID,
+			WorkOSUserID:     workosUserID,
+			Profile:          profile,
+			WorkspaceName:    workspaceName,
+			WorkspaceDomain:  workspaceDomain,
+			WorkspaceIconURL: workspaceIconURL,
+		}
 	}
 	return out, rows.Err()
 }

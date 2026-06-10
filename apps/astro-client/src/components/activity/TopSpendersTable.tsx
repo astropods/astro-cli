@@ -19,12 +19,14 @@ import type {
 } from "@/lib/api";
 import { AgentsUsedChips } from "./AgentsUsedChips";
 import { UsersUsedAvatars } from "./UsersUsedAvatars";
+import { SlackUserIdentity } from "./SlackUserIdentity";
+import { insightsUserIdentityKey } from "./insights-user-identity";
 import { UserBadge } from "@/components/UserBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, CircleUserRound, Server, TriangleAlert, User } from "lucide-react";
+import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
-import { isSlackUserId, slackUserLabel } from "./user-classification";
+import { isSlackUserId } from "./user-classification";
 
 type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
@@ -226,7 +228,11 @@ function renderAgentRowContent(
         </span>
       </IdentityTableCell>
       <TableCell>
-        <UsersUsedAvatars userIds={b.users_used ?? []} account={ctx.account ?? ""} />
+        <UsersUsedAvatars
+          userIds={b.users_used ?? []}
+          users={b.users_used_details}
+          account={ctx.account ?? ""}
+        />
       </TableCell>
       <TableCell className="text-right text-foreground">{formatCompact(b.requests)}</TableCell>
       <TableCell className="text-right text-foreground">{formatCost(b.cost_usd)}</TableCell>
@@ -409,7 +415,7 @@ function userItemKey(d: UserDisplayItem): string {
   if (d.kind === "system") return "__system_spend__";
   // Composite key — guards against a theoretical collision where the same
   // user_id ends up in both buckets (e.g. classification change mid-render).
-  return `${d.kind}:${d.row.user_id}`;
+  return `${d.kind}:${insightsUserIdentityKey(d.row)}`;
 }
 
 function renderUserRowContent(
@@ -449,7 +455,7 @@ function renderUserRowContent(
         {ctx.memberIds.has(u.user_id) ? (
           <UserBadge userId={u.user_id} account={ctx.account} linkToProfile />
         ) : (
-          <SlackUserIdentity uid={u.user_id} teamId={u.slack_team_id} />
+          <SlackUserIdentity user={u} />
         )}
       </IdentityTableCell>
       <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
@@ -670,60 +676,5 @@ function SystemSpendCells({
       </IdentityTableCell>
       <MetricsCells row={agg.metrics} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
     </>
-  );
-}
-
-// SlackUserIdentity renders the per-row label for an unlinked Slack user.
-//
-// When the server attaches a team_id (via the slack_identity_mappings
-// directory join — populated by the live-ingest path on /authorize and the
-// one-time backfill), the label deep-links into Slack's user-profile UI
-// (`slack://user?team=T&id=U`) so an admin can click through and see who
-// the human behind the id is. Slack's OS protocol handler routes to the
-// desktop app or to the open web tab. Rows without a team_id (directory
-// miss — tombstoned user pre-backfill) render as plain text.
-function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
-  const display = slackUserLabel(uid);
-  const deepLink = teamId ? `slack://user?team=${teamId}&id=${uid}` : undefined;
-
-  const body = (
-    <>
-      <span
-        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        aria-hidden
-      >
-        <User className="size-3" strokeWidth={1.75} />
-      </span>
-      <span className="truncate text-mono-sm text-muted-foreground group-hover:text-foreground">
-        {display}
-      </span>
-    </>
-  );
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {deepLink ? (
-            <a
-              href={deepLink}
-              rel="noreferrer"
-              className="group inline-flex min-w-0 items-center gap-2 text-body-sm hover:underline"
-            >
-              {body}
-            </a>
-          ) : (
-            <span className="group inline-flex min-w-0 items-center gap-2 text-body-sm">
-              {body}
-            </span>
-          )}
-        </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
-          {deepLink
-            ? "Slack user not linked to an Astro account. Click to open their Slack profile."
-            : "Slack user not linked to an Astro account. Connect to attribute their usage to a member."}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   );
 }

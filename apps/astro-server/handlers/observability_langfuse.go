@@ -96,6 +96,7 @@ func GetAccountLangfuseSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -163,7 +164,7 @@ func GetAccountLangfuseSummary(
 			}
 		}
 
-		resp, err := ComputeAccountSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, acct, from, to, groupBy, includeArchived)
+		resp, err := ComputeAccountSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, groupBy, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
 			log.Warn("Langfuse account metrics unavailable; returning empty summary", "error", err)
 			degraded := zeroAccountSummary(from, to, hasPeriod)
@@ -220,7 +221,7 @@ func (c *InsightsSummaryComputer) ComputeSummary(ctx context.Context, accountID,
 	if err != nil {
 		return nil, err
 	}
-	resp, err := ComputeAccountSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, acct, "" /*from*/, "" /*to*/, groupBy, includeArchived)
+	resp, err := ComputeAccountSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.slackStore, acct, "" /*from*/, "" /*to*/, groupBy, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +234,7 @@ func (c *InsightsSummaryComputer) ComputeDeploymentsSummary(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	resp, err := ComputeDeploymentsSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, acct, "" /*from*/, "" /*to*/, includeArchived)
+	resp, err := ComputeDeploymentsSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.slackStore, acct, "" /*from*/, "" /*to*/, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +278,7 @@ func ComputeAccountSummary(
 	cfg *config.Config,
 	langfuseStore *langfuse.Store,
 	deploymentStore *deploymentstore.Store,
+	slackStore *slackidentity.Store,
 	acct *account.Account,
 	from, to, groupBy string,
 	includeArchived bool,
@@ -414,7 +416,8 @@ func ComputeAccountSummary(
 
 	resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
 	if groupBy == "user" {
-		resp.CostOverTimeByUser = buildCostOverTimeByUser(userCostRows)
+		slackEntries := lookupSlackDirectoryEntries(log, slackStore, slackLookupRowsFromMetricsRows(userCostRows), "account-summary-users")
+		resp.CostOverTimeByUser = buildCostOverTimeByUser(userCostRows, slackEntries)
 		resp.CostByModel = []AccountCostByModelEntry{}
 	}
 	return resp, nil
@@ -424,8 +427,10 @@ func ComputeAccountSummary(
 // entries with the user breakdown nested inside. Sorted by date ascending.
 // Each entry carries cost + requests + tokens so the client can slice the
 // per-(day, user) data into any range window without an extra round-trip.
-func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserEntry {
+func buildCostOverTimeByUser(rows []map[string]any, slackEntries slackDirectoryEntries) []AccountCostOverTimeByUserEntry {
 	type userBucket struct {
+		userID   string
+		teamID   string
 		cost     float64
 		requests int
 		tokens   int
@@ -444,6 +449,18 @@ func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserE
 		}
 		userID, _ := row["userId"].(string)
 		userID = normalizeUserID(userID)
+		bucketUserID := userID
+		slackTeamID := ""
+		if slackidentity.IsBareSlackUserID(userID) {
+			if entry, ok := slackEntries[userID]; ok {
+				if entry.WorkOSUserID != "" {
+					bucketUserID = entry.WorkOSUserID
+				} else {
+					slackTeamID = entry.TeamID
+				}
+			}
+		}
+		identityKey := usersSummaryIdentityKey(bucketUserID, slackTeamID)
 		cost := toFloat(row["sum_totalCost"])
 		requests := toInt(row["count_count"])
 		tokens := toInt(row["sum_totalTokens"])
@@ -455,10 +472,10 @@ func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserE
 			byUser = make(map[string]*userBucket)
 			byDateUser[date] = byUser
 		}
-		bucket, ok := byUser[userID]
+		bucket, ok := byUser[identityKey]
 		if !ok {
-			bucket = &userBucket{}
-			byUser[userID] = bucket
+			bucket = &userBucket{userID: bucketUserID, teamID: slackTeamID}
+			byUser[identityKey] = bucket
 		}
 		bucket.cost += cost
 		bucket.requests += requests
@@ -475,15 +492,32 @@ func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserE
 	for _, d := range dates {
 		byUser := byDateUser[d]
 		users := make([]AccountUserCost, 0, len(byUser))
-		for uid, b := range byUser {
+		for identityKey, b := range byUser {
 			users = append(users, AccountUserCost{
-				UserID:   uid,
-				CostUSD:  math.Round(b.cost*10000) / 10000,
-				Requests: b.requests,
-				Tokens:   b.tokens,
+				IdentityKey: identityKey,
+				UserID:      b.userID,
+				SlackTeamID: b.teamID,
+				CostUSD:     math.Round(b.cost*10000) / 10000,
+				Requests:    b.requests,
+				Tokens:      b.tokens,
 			})
 		}
 		out = append(out, AccountCostOverTimeByUserEntry{Date: d, Users: users})
+	}
+	return out
+}
+
+func slackLookupRowsFromMetricsRows(rows []map[string]any) []UserSummaryEntry {
+	out := make([]UserSummaryEntry, 0, len(rows))
+	for _, row := range rows {
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		if !slackidentity.IsBareSlackUserID(userID) {
+			continue
+		}
+		out = append(out, UserSummaryEntry{
+			UserIdentityRef: UserIdentityRef{UserID: userID},
+		})
 	}
 	return out
 }
@@ -702,21 +736,89 @@ func normalizeUserID(s string) string {
 	return s
 }
 
-// mergeLinkedSlackRows resolves each bare-Slack row through the directory
-// and either:
+func usersSummaryIdentityKey(userID, slackTeamID string) string {
+	if slackidentity.IsBareSlackUserID(userID) && slackTeamID != "" {
+		return "slack:" + slackTeamID + ":" + userID
+	}
+	return userID
+}
+
+func stampSlackDirectoryEntry(u *UserSummaryEntry, entry slackidentity.DirectoryEntry) {
+	u.UserIdentityRef = UserIdentityRef{
+		IdentityKey:           usersSummaryIdentityKey(u.UserID, entry.TeamID),
+		UserID:                u.UserID,
+		SlackTeamID:           entry.TeamID,
+		SlackDisplayName:      entry.Profile.DisplayName,
+		SlackUsername:         entry.Profile.Username,
+		SlackAvatarURL:        entry.Profile.AvatarURL,
+		SlackIsBot:            entry.Profile.IsBot,
+		SlackDeleted:          entry.Profile.Deleted,
+		SlackWorkspaceName:    entry.WorkspaceName,
+		SlackWorkspaceDomain:  entry.WorkspaceDomain,
+		SlackWorkspaceIconURL: entry.WorkspaceIconURL,
+	}
+}
+
+func clearSlackDirectoryFields(u *UserSummaryEntry) {
+	u.UserIdentityRef = UserIdentityRef{
+		IdentityKey: usersSummaryIdentityKey(u.UserID, ""),
+		UserID:      u.UserID,
+	}
+}
+
+type slackDirectoryEntries map[string]slackidentity.DirectoryEntry
+
+func lookupSlackDirectoryEntries(log *logger.Logger, slackStore *slackidentity.Store, rows []UserSummaryEntry, contextLabel string) slackDirectoryEntries {
+	out := slackDirectoryEntries{}
+	if slackStore == nil || len(rows) == 0 {
+		return out
+	}
+
+	unscopedSlackIDs := make([]string, 0, len(rows))
+	seenUnscoped := make(map[string]struct{}, len(rows))
+	for _, u := range rows {
+		if !slackidentity.IsBareSlackUserID(u.UserID) {
+			continue
+		}
+		if _, ok := seenUnscoped[u.UserID]; ok {
+			continue
+		}
+		seenUnscoped[u.UserID] = struct{}{}
+		unscopedSlackIDs = append(unscopedSlackIDs, u.UserID)
+	}
+
+	if len(unscopedSlackIDs) > 0 {
+		entries, err := slackStore.DirectoryEntriesForSlackUserIDs(unscopedSlackIDs)
+		if err != nil {
+			log.Warn(contextLabel+": unscoped slack directory lookup failed; legacy deep links unavailable", "error", err)
+		} else {
+			out = entries
+		}
+	}
+	return out
+}
+
+func userIdentityRefFromSummary(row UserSummaryEntry) UserIdentityRef {
+	return row.UserIdentityRef
+}
+
+// mergeLinkedSlackRows resolves each bare-Slack row through the directory and
+// either:
 //   - rolls the row's metrics into the linked WorkOS user's row (creating
 //     it if absent), dropping the bare row entirely; or
 //   - stamps slack_team_id on the bare row for the deep link (observed-only
 //     directory hit); or
-//   - leaves an unknown bare-Slack row unchanged so a later, conservative
-//     single-team fallback can decide whether to stamp slack_team_id.
+//   - leaves an unknown or unscoped bare-Slack row unchanged.
 //
 // Number accuracy is the bar here — when Bob's pre-link bare row merges
 // into his post-link "Bob Smith" row, the cost/requests/tokens must sum
 // exactly, last_seen must take the max, and agents_used must union
 // keyed on DeploymentID so two deployments of the same blueprint stay
 // as two refs through the merge.
-func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackidentity.DirectoryEntry) []UserSummaryEntry {
+func mergeLinkedSlackRows(
+	rows []UserSummaryEntry,
+	entries map[string]slackidentity.DirectoryEntry,
+) []UserSummaryEntry {
 	if len(entries) == 0 {
 		return rows
 	}
@@ -740,17 +842,27 @@ func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackident
 
 	for i := range rows {
 		u := rows[i]
-		entry, ok := entries[u.UserID]
+		var entry slackidentity.DirectoryEntry
+		var ok bool
+		if slackidentity.IsBareSlackUserID(u.UserID) {
+			entry, ok = entries[u.UserID]
+			if ok {
+				u.SlackTeamID = entry.TeamID
+			}
+		}
 		if !ok {
 			// Not a bare-Slack row we know about — pass through unchanged.
-			byID[u.UserID] = len(out)
+			if u.IdentityKey == "" {
+				u.IdentityKey = usersSummaryIdentityKey(u.UserID, u.SlackTeamID)
+			}
+			byID[u.IdentityKey] = len(out)
 			out = append(out, u)
 			continue
 		}
 		if entry.WorkOSUserID == "" {
 			// Observed-only directory hit: keep the row, attach team_id.
-			u.SlackTeamID = entry.TeamID
-			byID[u.UserID] = len(out)
+			stampSlackDirectoryEntry(&u, entry)
+			byID[u.IdentityKey] = len(out)
 			out = append(out, u)
 			continue
 		}
@@ -769,54 +881,11 @@ func mergeLinkedSlackRows(rows []UserSummaryEntry, entries map[string]slackident
 		// shows them under their Astro name with their historical spend.
 		merged := ls.src
 		merged.UserID = ls.target
-		merged.SlackTeamID = "" // synthesized as a WorkOS row, not a Slack row
+		clearSlackDirectoryFields(&merged)
 		byID[ls.target] = len(out)
 		out = append(out, merged)
 	}
 	return out
-}
-
-// singleSlackTeamID returns the only team_id present in directory entries, or
-// "" when there is no team signal or more than one possible team. It is the
-// conservative guard for stamping deep links on bare Slack rows that predate
-// the observed-user directory: if the scoped Insights result already proves
-// exactly one Slack workspace, unknown bare Slack IDs can inherit that team_id.
-func singleSlackTeamID(entries map[string]slackidentity.DirectoryEntry) string {
-	var teamID string
-	for _, entry := range entries {
-		if entry.TeamID == "" {
-			continue
-		}
-		if teamID == "" {
-			teamID = entry.TeamID
-			continue
-		}
-		if entry.TeamID != teamID {
-			return ""
-		}
-	}
-	return teamID
-}
-
-// applySingleTeamSlackFallback stamps fallbackTeamID on bare Slack rows that
-// still lack a slack_team_id after the exact directory merge. Exact directory
-// hits always win, and linked Slack rows have already been converted to their
-// WorkOS user_id by mergeLinkedSlackRows, so this only affects unknown bare
-// Slack rows in a one-workspace result set.
-func applySingleTeamSlackFallback(rows []UserSummaryEntry, fallbackTeamID string) []UserSummaryEntry {
-	if fallbackTeamID == "" {
-		return rows
-	}
-	for i := range rows {
-		if rows[i].SlackTeamID != "" {
-			continue
-		}
-		if !slackidentity.IsBareSlackUserID(rows[i].UserID) {
-			continue
-		}
-		rows[i].SlackTeamID = fallbackTeamID
-	}
-	return rows
 }
 
 // mergeInto sums src's metrics into target, takes the max last_seen, and
@@ -1128,6 +1197,60 @@ func batchedP95Latencies(
 	return out, nil
 }
 
+func buildDeploymentUserRows(tagsRows []map[string]any) map[string][]UserSummaryEntry {
+	byDep := make(map[string]map[string]UserSummaryEntry)
+	for _, row := range tagsRows {
+		userID, _ := row["userId"].(string)
+		userID = normalizeUserID(userID)
+		if userID == "" {
+			continue
+		}
+		identityKey := usersSummaryIdentityKey(userID, "")
+		for _, tag := range tagStrings(row["tags"]) {
+			if !strings.HasPrefix(tag, "deployment:") {
+				continue
+			}
+			depID := strings.TrimPrefix(tag, "deployment:")
+			set, exists := byDep[depID]
+			if !exists {
+				set = make(map[string]UserSummaryEntry)
+				byDep[depID] = set
+			}
+			set[identityKey] = UserSummaryEntry{
+				UserIdentityRef: UserIdentityRef{
+					IdentityKey: identityKey,
+					UserID:      userID,
+				},
+			}
+		}
+	}
+
+	out := make(map[string][]UserSummaryEntry, len(byDep))
+	for depID, set := range byDep {
+		rows := make([]UserSummaryEntry, 0, len(set))
+		for _, row := range set {
+			rows = append(rows, row)
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			return rows[i].IdentityKey < rows[j].IdentityKey
+		})
+		out[depID] = rows
+	}
+	return out
+}
+
+func flattenDeploymentUserRows(usersByDep map[string][]UserSummaryEntry) []UserSummaryEntry {
+	total := 0
+	for _, rows := range usersByDep {
+		total += len(rows)
+	}
+	out := make([]UserSummaryEntry, 0, total)
+	for _, rows := range usersByDep {
+		out = append(out, rows...)
+	}
+	return out
+}
+
 // buildDeploymentSummary turns the per-deployment metrics into one
 // DeploymentSummaryEntry per deployment, sorted by cost descending. tagsRows
 // is the per-(userId, tag) Langfuse response used to populate users_used;
@@ -1143,6 +1266,22 @@ func buildDeploymentSummary(
 	deployments []*deploymentstore.Deployment,
 	archivedIDs map[string]struct{},
 ) []DeploymentSummaryEntry {
+	return buildDeploymentSummaryWithUsers(
+		metrics,
+		buildDeploymentUserRows(tagsRows),
+		deployments,
+		archivedIDs,
+		slackDirectoryEntries{},
+	)
+}
+
+func buildDeploymentSummaryWithUsers(
+	metrics []deploymentMetrics,
+	usersByDep map[string][]UserSummaryEntry,
+	deployments []*deploymentstore.Deployment,
+	archivedIDs map[string]struct{},
+	slackEntries slackDirectoryEntries,
+) []DeploymentSummaryEntry {
 	// Sidecar: deployment_id → display metadata. Walk the deployments slice
 	// once so the per-row build below can look up display_name / namespace
 	// without scanning.
@@ -1157,32 +1296,6 @@ func buildDeploymentSummary(
 			displayName:  d.DisplayName,
 			namespace:    d.Namespace,
 			undeployedAt: d.UndeployedAt,
-		}
-	}
-
-	// Invert (userId, tag) rows into deployment_id → set of userIDs. With the
-	// agent_name rollup gone, the inversion key is the deployment id itself.
-	usersByDep := make(map[string]map[string]struct{})
-	for _, row := range tagsRows {
-		userID, _ := row["userId"].(string)
-		userID = normalizeUserID(userID)
-		if userID == "" {
-			continue
-		}
-		// `tags` comes back from Langfuse as either a single string or a JSON
-		// array depending on the row — tagStrings() normalizes both shapes.
-		// Same handling as the users-summary inversion at the bottom of this file.
-		for _, tag := range tagStrings(row["tags"]) {
-			if !strings.HasPrefix(tag, "deployment:") {
-				continue
-			}
-			depID := strings.TrimPrefix(tag, "deployment:")
-			set, exists := usersByDep[depID]
-			if !exists {
-				set = make(map[string]struct{})
-				usersByDep[depID] = set
-			}
-			set[userID] = struct{}{}
 		}
 	}
 
@@ -1252,11 +1365,31 @@ func buildDeploymentSummary(
 			})
 		}
 
-		usersUsed := make([]string, 0, len(usersByDep[m.DeploymentID]))
-		for uid := range usersByDep[m.DeploymentID] {
+		userRows := mergeLinkedSlackRows(usersByDep[m.DeploymentID], slackEntries)
+		usersUsedSet := make(map[string]struct{}, len(userRows))
+		for _, row := range userRows {
+			usersUsedSet[row.UserID] = struct{}{}
+		}
+		usersUsed := make([]string, 0, len(usersUsedSet))
+		for uid := range usersUsedSet {
 			usersUsed = append(usersUsed, uid)
 		}
 		sort.Strings(usersUsed)
+		usersUsedDetails := make([]UserIdentityRef, 0, len(userRows))
+		for _, row := range userRows {
+			usersUsedDetails = append(usersUsedDetails, userIdentityRefFromSummary(row))
+		}
+		sort.Slice(usersUsedDetails, func(i, j int) bool {
+			left := usersUsedDetails[i].IdentityKey
+			if left == "" {
+				left = usersUsedDetails[i].UserID
+			}
+			right := usersUsedDetails[j].IdentityKey
+			if right == "" {
+				right = usersUsedDetails[j].UserID
+			}
+			return left < right
+		})
 
 		md := depMeta[m.DeploymentID]
 		_, isArchived := archivedIDs[m.DeploymentID]
@@ -1285,6 +1418,7 @@ func buildDeploymentSummary(
 			RequestsOverTime: requestsOverTime,
 			TokensOverTime:   tokensOverTime,
 			UsersUsed:        usersUsed,
+			UsersUsedDetails: usersUsedDetails,
 			UndeployedAt:     md.undeployedAt,
 			IsArchived:       isArchived,
 		})
@@ -1350,6 +1484,7 @@ func GetAccountDeploymentsSummary(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
+	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1402,7 +1537,7 @@ func GetAccountDeploymentsSummary(
 			}
 		}
 
-		resp, err := ComputeDeploymentsSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, acct, from, to, includeArchived)
+		resp, err := ComputeDeploymentsSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
 			log.Warn("Langfuse deployments metrics unavailable; returning empty list", "error", err)
 			degraded := zeroDeploymentEntries(from, to)
@@ -1438,6 +1573,7 @@ func ComputeDeploymentsSummary(
 	cfg *config.Config,
 	langfuseStore *langfuse.Store,
 	deploymentStore *deploymentstore.Store,
+	slackStore *slackidentity.Store,
 	acct *account.Account,
 	from, to string,
 	includeArchived bool,
@@ -1618,8 +1754,11 @@ func ComputeDeploymentsSummary(
 		return AccountDeploymentsSummaryResponse{}, ErrAllLangfuseCallsFailed
 	}
 
+	usersByDep := buildDeploymentUserRows(tagsRows)
+	slackEntries := lookupSlackDirectoryEntries(log, slackStore, flattenDeploymentUserRows(usersByDep), "deployments-summary")
+
 	return AccountDeploymentsSummaryResponse{
-		Deployments: buildDeploymentSummary(results, tagsRows, deployments, archivedIDs),
+		Deployments: buildDeploymentSummaryWithUsers(results, usersByDep, deployments, archivedIDs, slackEntries),
 		Period:      buildPeriod(from, to),
 	}, nil
 }
@@ -1628,10 +1767,12 @@ func ComputeDeploymentsSummary(
 
 // userAgg holds in-flight per-user state while we accumulate Q_main rows.
 type userAgg struct {
-	requests   int
-	cost       float64
-	tokens     int    // combined input + output — traces view only exposes the sum
-	lastSeenTS string // RFC3339 — Langfuse's hour-bucket timestamp, kept as-is for the response
+	userID      string
+	slackTeamID string
+	requests    int
+	cost        float64
+	tokens      int    // combined input + output — traces view only exposes the sum
+	lastSeenTS  string // RFC3339 — Langfuse's hour-bucket timestamp, kept as-is for the response
 }
 
 // maxAgentsPerUser caps the size of agents_used in each row of the response so
@@ -1848,8 +1989,8 @@ func ComputeUsersSummary(
 		// 24× the bucket count for zero product gain and is the single
 		// biggest contributor to Q_main's ClickHouse cost over the 90d
 		// lookback. With day granularity, Q_main shape is at most
-		// ~90 buckets × N users × tag-filtered traces — easily under the
-		// 30s context timeout for any account we've seen.
+		// ~90 buckets × N users — still tractable for the full-window
+		// People table totals.
 		q := langfuse.MetricsQuery{
 			View: "traces",
 			Metrics: []langfuse.MetricsQueryField{
@@ -1900,34 +2041,13 @@ func ComputeUsersSummary(
 
 	users := buildUsersSummary(mainRows, tagsRows, depToAgent)
 
-	// Resolve bare-form Slack rows through the directory. Two cases:
-	//   - Linked (workos_user_id present): the Slack user has since
-	//     created an Astro account and linked their Slack identity.
-	//     Their historical bare-Slack metrics need to roll up into
-	//     their WorkOS row so Insights shows one row per human, not
-	//     a split between "Slack user - U07…" and "Bob Smith".
-	//   - Observed-only (workos_user_id empty): attach team_id so
-	//     the frontend can build the `slack://` deep link.
+	// Resolve bare Slack rows through the directory. Linked rows roll into
+	// their WorkOS user; observed-only rows pick up profile/workspace metadata
+	// for display when the directory has exactly one workspace for that Slack
+	// user. Ambiguous multi-workspace rows stay raw.
 	// Lookup failure is non-fatal — rows still render, just without
 	// the merge or deep link.
-	if slackStore != nil {
-		bareSlackIDs := make([]string, 0, len(users))
-		for _, u := range users {
-			if slackidentity.IsBareSlackUserID(u.UserID) {
-				bareSlackIDs = append(bareSlackIDs, u.UserID)
-			}
-		}
-		if len(bareSlackIDs) > 0 {
-			entries, derr := slackStore.DirectoryEntriesForSlackUsers(bareSlackIDs)
-			if derr != nil {
-				log.Warn("users-summary: slack directory lookup failed; deep links unavailable", "error", derr)
-			} else {
-				fallbackTeamID := singleSlackTeamID(entries)
-				users = mergeLinkedSlackRows(users, entries)
-				users = applySingleTeamSlackFallback(users, fallbackTeamID)
-			}
-		}
-	}
+	users = mergeLinkedSlackRows(users, lookupSlackDirectoryEntries(log, slackStore, users, "users-summary"))
 
 	// Cap AFTER the merge — truncating first could drop a bare-Slack row
 	// that should have rolled into a top-N WorkOS row. Re-sort by cost
@@ -1949,11 +2069,12 @@ func ComputeUsersSummary(
 // summary rows sorted by cost descending.
 func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[string]UserAgentRef) []UserSummaryEntry {
 	aggs := make(map[string]*userAgg)
-	getOrCreate := func(userID string) *userAgg {
-		a, ok := aggs[userID]
+	getOrCreate := func(userID, slackTeamID string) *userAgg {
+		key := usersSummaryIdentityKey(userID, slackTeamID)
+		a, ok := aggs[key]
 		if !ok {
-			a = &userAgg{}
-			aggs[userID] = a
+			a = &userAgg{userID: userID, slackTeamID: slackTeamID}
+			aggs[key] = a
 		}
 		return a
 	}
@@ -1968,7 +2089,7 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 		tokens := toInt(row["sum_totalTokens"])
 		ts, _ := row[langfuseTimeDimensionKey].(string)
 
-		a := getOrCreate(userID)
+		a := getOrCreate(userID, "")
 		a.requests += count
 		a.cost += cost
 		a.tokens += tokens
@@ -1994,6 +2115,7 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 	for _, row := range tagsRows {
 		userID, _ := row["userId"].(string)
 		userID = normalizeUserID(userID)
+		identityKey := usersSummaryIdentityKey(userID, "")
 		for _, tag := range tagStrings(row["tags"]) {
 			if !strings.HasPrefix(tag, "deployment:") {
 				continue
@@ -2003,24 +2125,24 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 			if !ok || ref.Name == "" {
 				continue
 			}
-			if _, exists := aggs[userID]; !exists {
+			if _, exists := aggs[identityKey]; !exists {
 				// Tag-only user (no cost in Q_main) shouldn't really happen —
 				// if it does, surface them with zero metrics.
-				getOrCreate(userID)
+				getOrCreate(userID, "")
 			}
-			set := agentsByUser[userID]
+			set := agentsByUser[identityKey]
 			if set == nil {
 				set = make(map[string]UserAgentRef)
-				agentsByUser[userID] = set
+				agentsByUser[identityKey] = set
 			}
 			set[depID] = ref
 		}
 	}
 
 	out := make([]UserSummaryEntry, 0, len(aggs))
-	for userID, a := range aggs {
-		agents := make([]UserAgentRef, 0, len(agentsByUser[userID]))
-		for _, ref := range agentsByUser[userID] {
+	for identityKey, a := range aggs {
+		agents := make([]UserAgentRef, 0, len(agentsByUser[identityKey]))
+		for _, ref := range agentsByUser[identityKey] {
 			agents = append(agents, ref)
 		}
 		sort.Slice(agents, func(i, j int) bool {
@@ -2036,7 +2158,11 @@ func buildUsersSummary(mainRows, tagsRows []map[string]any, depToAgent map[strin
 			agents = agents[:maxAgentsPerUser]
 		}
 		out = append(out, UserSummaryEntry{
-			UserID:     userID,
+			UserIdentityRef: UserIdentityRef{
+				IdentityKey: identityKey,
+				UserID:      a.userID,
+				SlackTeamID: a.slackTeamID,
+			},
 			Requests:   a.requests,
 			CostUSD:    math.Round(a.cost*10000) / 10000,
 			Tokens:     a.tokens,

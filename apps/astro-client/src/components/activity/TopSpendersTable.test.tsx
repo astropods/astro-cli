@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TopSpendersTable } from "./TopSpendersTable";
 import { renderWithProviders } from "@/test/test-utils";
 import { accountKeys } from "@/api/queries/keys";
+import type { InsightsUserIdentity } from "@/lib/api";
 
 afterEach(cleanup);
 
@@ -21,6 +22,7 @@ type Deployment = {
   total_tokens: number;
   top_model: string;
   users_used: string[];
+  users_used_details?: InsightsUserIdentity[];
 };
 
 function makeDeployment(overrides: Partial<Deployment> & { agent_name: string }): Deployment {
@@ -45,6 +47,8 @@ const sampleDeployments: Deployment[] = [
   makeDeployment({ agent_name: "beta",  cost_usd: 10, requests: 50 }),
   makeDeployment({ agent_name: "gamma", cost_usd: 20, requests: 30 }),
 ];
+
+const ACCOUNT = "acme";
 
 describe("TopSpendersTable (agents view, per-deployment rows)", () => {
   it("shows ghost (skeleton) rows when loading=true", () => {
@@ -125,6 +129,81 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     expect(within(betaRow).getByText("—")).toBeInTheDocument();
   });
 
+  it("uses rich Slack Used by identities for names, avatars, and deep links", async () => {
+    const deployments: Deployment[] = [
+      makeDeployment({
+        agent_name: "alpha",
+        cost_usd: 30,
+        users_used: ["U07SOHUM1"],
+        users_used_details: [
+          {
+            identity_key: "slack:TPOSTMAN:U07SOHUM1",
+            user_id: "U07SOHUM1",
+            slack_team_id: "TPOSTMAN",
+            slack_display_name: "Sohum Dalal",
+            slack_username: "sohum",
+            slack_avatar_url: "https://avatars.slack-edge.com/sohum-postman.png",
+            slack_workspace_name: "Postman",
+          },
+          {
+            identity_key: "slack:TASTRO:U07SOHUM1",
+            user_id: "U07SOHUM1",
+            slack_team_id: "TASTRO",
+            slack_display_name: "Sohum Dalal",
+            slack_username: "sohum",
+            slack_workspace_name: "Astro",
+          },
+          { user_id: "u_alice" },
+          { user_id: "anon-user" },
+        ],
+      }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="agents" account={ACCOUNT} deployments={deployments} loading={false} />,
+    );
+    seedMembers(queryClient, [
+      { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
+    ]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show 4 people" }));
+
+    expect(await screen.findAllByText("Sohum Dalal")).toHaveLength(2);
+    expect(screen.queryByText("(Postman) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
+    expect(screen.queryByText("(Astro) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
+    expect(screen.getByText("Alice Chen")).toBeInTheDocument();
+    expect(screen.getByText("anon-user")).toBeInTheDocument();
+
+    const slackLinks = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a")?.getAttribute("href"));
+    expect(slackLinks).toEqual(expect.arrayContaining([
+      "slack://user?team=TPOSTMAN&id=U07SOHUM1",
+      "slack://user?team=TASTRO&id=U07SOHUM1",
+    ]));
+    const avatar = document.querySelector('img[src="https://avatars.slack-edge.com/sohum-postman.png"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar).toHaveClass("rounded-full");
+  });
+
+  it("prefers Used by details so linked Slack history renders as the Astro member", async () => {
+    const deployments: Deployment[] = [
+      makeDeployment({
+        agent_name: "alpha",
+        cost_usd: 30,
+        users_used: ["U07SOHUM1"],
+        users_used_details: [{ user_id: "u_alice" }],
+      }),
+    ];
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable mode="agents" account={ACCOUNT} deployments={deployments} loading={false} />,
+    );
+    seedMembers(queryClient, [
+      { user_id: "u_alice", username: "alice", display_name: "Alice Chen" },
+    ]);
+
+    const memberLink = await screen.findByRole("link", { name: "Alice Chen" });
+    expect(memberLink.getAttribute("href")).toBe("/alice");
+    expect(screen.queryByText(/U07SOHUM1/)).not.toBeInTheDocument();
+  });
+
   it("two deployments of the same agent_name render as separate rows (no rollup)", () => {
     const deployments: Deployment[] = [
       makeDeployment({ deployment_id: "dep-east", agent_name: "swipefile", display_name: "Swipefile East", cost_usd: 30 }),
@@ -175,6 +254,7 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
 // ── Users mode ────────────────────────────────────────────────────────────────
 
 type UserRow = {
+  identity_key?: string;
   user_id: string;
   cost_usd: number;
   requests: number;
@@ -186,6 +266,14 @@ type UserRow = {
   // if the API ever dropped `slack_team_id`. The test exercises it via
   // makeUserRow({ slack_team_id: "T07XYZ" }).
   slack_team_id?: string;
+  slack_display_name?: string;
+  slack_username?: string;
+  slack_avatar_url?: string;
+  slack_is_bot?: boolean;
+  slack_deleted?: boolean;
+  slack_workspace_name?: string;
+  slack_workspace_domain?: string;
+  slack_workspace_icon_url?: string;
 };
 
 function makeUserRow(overrides: Partial<UserRow> & { user_id: string }): UserRow {
@@ -198,8 +286,6 @@ function makeUserRow(overrides: Partial<UserRow> & { user_id: string }): UserRow
     ...overrides,
   };
 }
-
-const ACCOUNT = "acme";
 
 function seedMembers(qc: ReturnType<typeof renderWithProviders>["queryClient"], members: Array<{ user_id: string; username: string; display_name: string }>) {
   qc.setQueryData(accountKeys.members(ACCOUNT), {
@@ -329,8 +415,8 @@ describe("TopSpendersTable users mode", () => {
   // mounting every hidden row at once.
   it("collapses long real-row lists, then reveals top 10, then all rows", async () => {
     // Slack-format IDs land in the "real" bucket alongside named members.
-    // SlackUserIdentity renders as "slack_U…" so the assertions match
-    // substring rather than exact text.
+    // SlackUserIdentity may render raw fallback labels or enriched profile
+    // names, so the assertions match the stable raw ID substring.
     const users = Array.from({ length: 18 }, (_, i) =>
       makeUserRow({ user_id: `U07ABC${String(i).padStart(2, "0")}A`, cost_usd: 18 - i }),
     );
@@ -478,7 +564,7 @@ describe("TopSpendersTable users mode", () => {
     // Wait for member name to resolve so we can assert row order.
     await screen.findByText("Alice Chen");
     const allRows = screen.getAllByRole("row");
-    const slackRow = allRows.find((r) => within(r).queryByText("slack_U07HEAVY1"))!;
+    const slackRow = allRows.find((r) => within(r).queryByText("Slack user - U07HEAVY1"))!;
     const aliceRow = allRows.find((r) => within(r).queryByText("Alice Chen"))!;
     // Higher-spend Slack user must sort above lower-spend named member —
     // proves the two groups aren't rendered as separate blocks.
@@ -502,10 +588,81 @@ describe("TopSpendersTable users mode", () => {
     );
     seedMembers(queryClient, []);
 
-    const label = await screen.findByText("slack_U07ABCDEF");
+    const label = await screen.findByText("Slack user - U07ABCDEF");
     const anchor = label.closest("a");
     expect(anchor).not.toBeNull();
     expect(anchor!.getAttribute("href")).toBe("slack://user?team=T07XYZ&id=U07ABCDEF");
+    expect(anchor!.querySelector(".rounded-full")).not.toBeNull();
+  });
+
+  it("renders enriched Slack profile metadata for unlinked users", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({
+            user_id: "U07ABCDEF",
+            cost_usd: 4,
+            slack_team_id: "T07XYZ",
+            slack_display_name: "Jesse Morgan",
+            slack_username: "jesse",
+            slack_avatar_url: "https://avatars.slack-edge.com/jesse.png",
+          }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, []);
+
+    expect(await screen.findByText("Jesse Morgan")).toBeInTheDocument();
+    expect(screen.queryByText("@jesse - U07ABCDEF")).not.toBeInTheDocument();
+    expect(screen.queryByText("U07ABCDEF")).not.toBeInTheDocument();
+    const avatar = document.querySelector('img[src="https://avatars.slack-edge.com/jesse.png"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar!).toHaveAttribute("src", "https://avatars.slack-edge.com/jesse.png");
+    expect(avatar!).toHaveClass("rounded-full");
+  });
+
+  it("renders the same Slack user id as separate rows when workspaces differ", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({
+            identity_key: "slack:TPOSTMAN:U07SOHUM1",
+            user_id: "U07SOHUM1",
+            cost_usd: 7,
+            slack_team_id: "TPOSTMAN",
+            slack_display_name: "Sohum Dalal",
+            slack_username: "sohum",
+            slack_workspace_name: "Postman",
+          }),
+          makeUserRow({
+            identity_key: "slack:TASTRO:U07SOHUM1",
+            user_id: "U07SOHUM1",
+            cost_usd: 5,
+            slack_team_id: "TASTRO",
+            slack_display_name: "Sohum Dalal",
+            slack_username: "sohum",
+            slack_workspace_name: "Astro",
+          }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, []);
+
+    expect(await screen.findAllByText("Sohum Dalal")).toHaveLength(2);
+    expect(screen.queryByText("(Postman) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
+    expect(screen.queryByText("(Astro) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
+
+    const slackLinks = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a")?.getAttribute("href"));
+    expect(slackLinks).toEqual(expect.arrayContaining([
+      "slack://user?team=TPOSTMAN&id=U07SOHUM1",
+      "slack://user?team=TASTRO&id=U07SOHUM1",
+    ]));
   });
 
   // When the directory join misses (e.g. tombstoned user, pre-backfill), the
@@ -524,13 +681,13 @@ describe("TopSpendersTable users mode", () => {
     );
     seedMembers(queryClient, []);
 
-    const label = await screen.findByText("slack_U01LEGACY");
+    const label = await screen.findByText("Slack user - U01LEGACY");
     expect(label.closest("a")).toBeNull();
   });
 
   // Unlinked Slack users used to disappear into the Unidentified bucket
   // alongside any other non-member id. Now each one renders as its own
-  // subtle `slack_U07…` row so a CEO scanning Insights can see which
+  // subtle Slack user row so a CEO scanning Insights can see which
   // workspace teammates are driving spend without first asking them to
   // link an Astro account.
   it("renders unlinked Slack users as per-id rows, not aggregated", async () => {
@@ -551,8 +708,8 @@ describe("TopSpendersTable users mode", () => {
     ]);
 
     expect(await screen.findByText("Alice Chen")).toBeInTheDocument();
-    expect(screen.getByText("slack_U07ABCDEF")).toBeInTheDocument();
-    expect(screen.getByText("slack_U01LEGACY")).toBeInTheDocument();
+    expect(screen.getByText("Slack user - U07ABCDEF")).toBeInTheDocument();
+    expect(screen.getByText("Slack user - U01LEGACY")).toBeInTheDocument();
     // The aggregated Unidentified bucket must NOT appear for slack ids.
     expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
   });

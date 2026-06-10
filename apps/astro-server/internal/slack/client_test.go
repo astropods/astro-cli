@@ -193,7 +193,15 @@ func TestOAuthClient_UserInfo_OK(t *testing.T) {
 			"user": {
 				"id": "U456",
 				"name": "alice",
-				"profile": { "display_name": "Alice Cooper" }
+				"real_name": "Alice Real",
+				"is_bot": false,
+				"deleted": true,
+				"profile": {
+					"display_name": "Alice Cooper",
+					"real_name": "Alice Profile",
+					"image_48": "https://example.com/alice-48.png",
+					"image_72": "https://example.com/alice-72.png"
+				}
 			}
 		}`))
 	}))
@@ -206,6 +214,122 @@ func TestOAuthClient_UserInfo_OK(t *testing.T) {
 	}
 	if info.ID != "U456" || info.Name != "alice" || info.DisplayName != "Alice Cooper" {
 		t.Errorf("identity: %+v", info)
+	}
+	if info.RealName != "Alice Profile" || info.AvatarURL != "https://example.com/alice-72.png" || !info.Deleted {
+		t.Errorf("profile metadata: %+v", info)
+	}
+}
+
+// UsersList paginates through Slack's workspace directory and extracts the
+// profile fields Insights needs for unlinked Slack users.
+func TestOAuthClient_UsersList_PaginatesAndParsesProfiles(t *testing.T) {
+	var cursors []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/users.list" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer xoxp-test" {
+			t.Errorf("auth header: %q", got)
+		}
+		cursors = append(cursors, r.URL.Query().Get("cursor"))
+		switch r.URL.Query().Get("cursor") {
+		case "":
+			_, _ = w.Write([]byte(`{
+				"ok": true,
+				"members": [
+					{
+						"id": "U111",
+						"name": "jesse",
+						"real_name": "Jesse Root",
+						"profile": {
+							"display_name": "Jesse Morgan",
+							"real_name": "Jesse Profile",
+							"image_48": "https://example.com/jesse-48.png",
+							"image_72": "https://example.com/jesse-72.png"
+						}
+					}
+				],
+				"response_metadata": { "next_cursor": "page-2" }
+			}`))
+		case "page-2":
+			_, _ = w.Write([]byte(`{
+				"ok": true,
+				"members": [
+					{
+						"id": "U222",
+						"name": "botty",
+						"is_bot": true,
+						"deleted": true,
+						"profile": {
+							"real_name": "Botty Bot",
+							"image_192": "https://example.com/botty-192.png"
+						}
+					}
+				],
+				"response_metadata": { "next_cursor": "" }
+			}`))
+		default:
+			t.Fatalf("unexpected cursor: %q", r.URL.Query().Get("cursor"))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	users, truncated, err := c.UsersList(context.Background(), "xoxp-test")
+	if err != nil {
+		t.Fatalf("users.list: %v", err)
+	}
+	if truncated {
+		t.Fatalf("users.list unexpectedly truncated")
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+	if cursors[0] != "" || cursors[1] != "page-2" {
+		t.Fatalf("unexpected cursor sequence: %+v", cursors)
+	}
+	if users[0].ID != "U111" || users[0].Name != "jesse" || users[0].DisplayName != "Jesse Morgan" {
+		t.Errorf("first user identity: %+v", users[0])
+	}
+	if users[0].RealName != "Jesse Profile" || users[0].AvatarURL != "https://example.com/jesse-72.png" {
+		t.Errorf("first user profile: %+v", users[0])
+	}
+	if users[1].ID != "U222" || users[1].DisplayName != "Botty Bot" || !users[1].IsBot || !users[1].Deleted {
+		t.Errorf("second user metadata: %+v", users[1])
+	}
+	if users[1].AvatarURL != "https://example.com/botty-192.png" {
+		t.Errorf("second user avatar fallback: %+v", users[1])
+	}
+}
+
+func TestOAuthClient_UsersList_StopsAtPageCap(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/users.list" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		requests++
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"members": [{ "id": "U111", "name": "jesse" }],
+			"response_metadata": { "next_cursor": "next-page" }
+		}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	users, truncated, err := c.UsersList(context.Background(), "xoxp-test")
+	if err != nil {
+		t.Fatalf("users.list: %v", err)
+	}
+	if !truncated {
+		t.Fatalf("expected users.list to report truncation")
+	}
+	if requests != maxUsersListPages {
+		t.Fatalf("expected %d requests, got %d", maxUsersListPages, requests)
+	}
+	if len(users) != maxUsersListPages {
+		t.Fatalf("expected one user per capped page, got %d", len(users))
 	}
 }
 

@@ -555,9 +555,8 @@ func TestAuthorize_DenyOmitsUserID(t *testing.T) {
 }
 
 // Slack identity is echoed back on every allowed=true response so the
-// messaging container can attribute unlinked Slack users via a namespaced
-// trace userId (slack:<team>:<user>) instead of dropping them onto the
-// Unattributed bucket.
+// messaging container can keep Slack workspace identity alongside the raw
+// Slack user id without folding team_id into user_id.
 //
 // Cell (linked, anyone-grant): mapping hits, anyone short-circuits the grant
 // lookup, response carries WorkOS user_id AND echoed slack identity.
@@ -591,8 +590,8 @@ func TestAuthorize_SlackAnyoneGrant_LinkedUserIDInResponse(t *testing.T) {
 }
 
 // Cell (unlinked, anyone-grant): no mapping; response carries the slack
-// identity but empty user_id, so the messaging container falls back to a
-// namespaced slack:<team>:<user> trace userId.
+// identity but empty user_id, so the messaging container keeps the raw Slack
+// user id while forwarding team_id separately in platform context.
 func TestAuthorize_SlackAnyoneGrant_UnlinkedEchoesSlackOnly(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")
 	defer f.close()

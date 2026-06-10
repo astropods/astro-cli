@@ -50,7 +50,7 @@ func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
 	})
 	// deploymentStore is nil — not reached in the "not configured" early-return path.
 	router.GET("/api/v1/accounts/:account/observability/summary",
-		GetAccountLangfuseSummary(log, cfg, accountStore, nil, langfuseStore, nil))
+		GetAccountLangfuseSummary(log, cfg, accountStore, nil, langfuseStore, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/summary", nil)
 	rec := httptest.NewRecorder()
@@ -574,7 +574,7 @@ func TestBuildCostOverTimeByUser_AggregatesSameUserPerDate(t *testing.T) {
 		{"userId": "u_bob", "sum_totalCost": 2.0, "time_dimension": "2026-04-01T12:00:00.000Z"},
 	}
 
-	out := buildCostOverTimeByUser(rows)
+	out := buildCostOverTimeByUser(rows, slackDirectoryEntries{})
 	if len(out) != 1 {
 		t.Fatalf("expected 1 date entry, got %d", len(out))
 	}
@@ -594,6 +594,63 @@ func TestBuildCostOverTimeByUser_AggregatesSameUserPerDate(t *testing.T) {
 	}
 }
 
+func TestBuildCostOverTimeByUser_UsesUnscopedSlackDirectory(t *testing.T) {
+	rows := []map[string]any{
+		{"userId": "U07SOHUM1", "sum_totalCost": 1.0, "count_count": 2.0, "sum_totalTokens": 200.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
+		{"userId": "U07BOBBOB1", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T16:00:00.000Z"},
+	}
+	entries := slackDirectoryEntries{
+		"U07SOHUM1": {TeamID: "TPOSTMAN"},
+		"U07BOBBOB1": {
+			TeamID:       "TPOSTMAN",
+			WorkOSUserID: "user_bob",
+		},
+	}
+
+	out := buildCostOverTimeByUser(rows, entries)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 date entry, got %d", len(out))
+	}
+	byIdentity := map[string]AccountUserCost{}
+	for _, user := range out[0].Users {
+		byIdentity[user.IdentityKey] = user
+	}
+	if got := byIdentity["slack:TPOSTMAN:U07SOHUM1"]; got.UserID != "U07SOHUM1" || got.SlackTeamID != "TPOSTMAN" || got.CostUSD != 1.0 {
+		t.Errorf("observed-only bucket mismatch: %+v", got)
+	}
+	if got := byIdentity["user_bob"]; got.UserID != "user_bob" || got.SlackTeamID != "" || got.CostUSD != 3.0 {
+		t.Errorf("linked bucket mismatch: %+v", got)
+	}
+}
+
+func TestBuildCostOverTimeByUser_MergesLinkedSlackIntoAstroUser(t *testing.T) {
+	rows := []map[string]any{
+		{"userId": "U07BOBBOB1", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
+		{"userId": "user_bob", "sum_totalCost": 2.0, "count_count": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T16:00:00.000Z"},
+	}
+	entries := slackDirectoryEntries{
+		"U07BOBBOB1": {
+			TeamID:       "TPOSTMAN",
+			WorkOSUserID: "user_bob",
+		},
+	}
+
+	out := buildCostOverTimeByUser(rows, entries)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 date entry, got %d", len(out))
+	}
+	if len(out[0].Users) != 1 {
+		t.Fatalf("expected linked slack and astro rows to merge, got %+v", out[0].Users)
+	}
+	got := out[0].Users[0]
+	if got.IdentityKey != "user_bob" || got.UserID != "user_bob" || got.SlackTeamID != "" {
+		t.Fatalf("merged identity mismatch: %+v", got)
+	}
+	if got.CostUSD != 5.0 || got.Requests != 5 || got.Tokens != 500 {
+		t.Fatalf("merged metrics mismatch: %+v", got)
+	}
+}
+
 func TestBuildCostOverTimeByUser_TruncatesDateAndExcludesZeroCost(t *testing.T) {
 	rows := []map[string]any{
 		// Same date bucket as a different row; both contribute.
@@ -605,7 +662,7 @@ func TestBuildCostOverTimeByUser_TruncatesDateAndExcludesZeroCost(t *testing.T) 
 		{"userId": "u_alice", "sum_totalCost": 0.5, "time_dimension": "2026-04-01T08:00:00.000Z"},
 	}
 
-	out := buildCostOverTimeByUser(rows)
+	out := buildCostOverTimeByUser(rows, slackDirectoryEntries{})
 
 	if len(out) != 2 {
 		t.Fatalf("expected 2 date entries, got %d (%+v)", len(out), out)

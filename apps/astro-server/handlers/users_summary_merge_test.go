@@ -16,14 +16,20 @@ import (
 func TestMergeLinkedSlackRows_LinkedUser_MergesIntoExistingWorkOSRow(t *testing.T) {
 	rows := []UserSummaryEntry{
 		{
-			UserID: "U07BOBBOB1", Requests: 10, CostUSD: 5.0, Tokens: 1000,
-			LastSeen:   "2026-04-01T00:00:00Z",
-			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"}},
+			UserIdentityRef: UserIdentityRef{UserID: "U07BOBBOB1"},
+			Requests:        10, CostUSD: 5.0, Tokens: 1000,
+			LastSeen: "2026-04-01T00:00:00Z",
+			AgentsUsed: []UserAgentRef{
+				{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"},
+			},
 		},
 		{
-			UserID: "user_01HXX_bob", Requests: 3, CostUSD: 2.5, Tokens: 300,
-			LastSeen:   "2026-06-01T12:00:00Z",
-			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"}},
+			UserIdentityRef: UserIdentityRef{UserID: "user_01HXX_bob"},
+			Requests:        3, CostUSD: 2.5, Tokens: 300,
+			LastSeen: "2026-06-01T12:00:00Z",
+			AgentsUsed: []UserAgentRef{
+				{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"},
+			},
 		},
 	}
 	entries := map[string]slackidentity.DirectoryEntry{
@@ -63,14 +69,20 @@ func TestMergeLinkedSlackRows_LinkedUser_WorkOSRowAppearsBeforeBareSlack(t *test
 	rows := []UserSummaryEntry{
 		// WorkOS row first — the bug case.
 		{
-			UserID: "user_01HXX_bob", Requests: 3, CostUSD: 2.5, Tokens: 300,
-			LastSeen:   "2026-06-01T12:00:00Z",
-			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"}},
+			UserIdentityRef: UserIdentityRef{UserID: "user_01HXX_bob"},
+			Requests:        3, CostUSD: 2.5, Tokens: 300,
+			LastSeen: "2026-06-01T12:00:00Z",
+			AgentsUsed: []UserAgentRef{
+				{DeploymentID: "dep-new-bot", Name: "new-bot", Account: "postman"},
+			},
 		},
 		{
-			UserID: "U07BOBBOB1", Requests: 10, CostUSD: 5.0, Tokens: 1000,
-			LastSeen:   "2026-04-01T00:00:00Z",
-			AgentsUsed: []UserAgentRef{{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"}},
+			UserIdentityRef: UserIdentityRef{UserID: "U07BOBBOB1"},
+			Requests:        10, CostUSD: 5.0, Tokens: 1000,
+			LastSeen: "2026-04-01T00:00:00Z",
+			AgentsUsed: []UserAgentRef{
+				{DeploymentID: "dep-old-bot", Name: "old-bot", Account: "postman"},
+			},
 		},
 	}
 	entries := map[string]slackidentity.DirectoryEntry{
@@ -97,14 +109,14 @@ func TestMergeLinkedSlackRows_LinkedUser_WorkOSRowAppearsBeforeBareSlack(t *test
 	}
 }
 
-// Linked Slack user with no post-link activity: only the historical bare
-// row is in Langfuse. The merge synthesizes a WorkOS-keyed row carrying
-// the bare metrics so the next user-list render shows Bob under his Astro
-// name even though he hasn't messaged since linking.
+// Linked Slack user with no post-link activity: only the scoped Slack row is in
+// Langfuse. The merge synthesizes a WorkOS-keyed row carrying the metrics so the
+// next user-list render shows Bob under his Astro name.
 func TestMergeLinkedSlackRows_LinkedUser_NoExistingWorkOSRow_Synthesizes(t *testing.T) {
 	rows := []UserSummaryEntry{
 		{
-			UserID: "U07BOBBOB1", Requests: 10, CostUSD: 5.0, Tokens: 1000,
+			UserIdentityRef: UserIdentityRef{UserID: "U07BOBBOB1"},
+			Requests:        10, CostUSD: 5.0, Tokens: 1000,
 			LastSeen: "2026-04-01T00:00:00Z",
 		},
 	}
@@ -128,18 +140,22 @@ func TestMergeLinkedSlackRows_LinkedUser_NoExistingWorkOSRow_Synthesizes(t *test
 	}
 }
 
-// Observed-only directory hit (no WorkOS link) stays as a Slack row with
-// team_id attached for the deep link. Number accuracy unchanged — no
-// merge happens.
-func TestMergeLinkedSlackRows_ObservedOnly_StampsTeamID(t *testing.T) {
+// Unscoped bare Slack rows can still be enriched when the directory lookup has
+// already proven there is exactly one possible workspace for that Slack user.
+func TestMergeLinkedSlackRows_UnscopedObservedUnique_StampsTeamID(t *testing.T) {
 	rows := []UserSummaryEntry{
-		{
-			UserID: "U07CAROL00", Requests: 4, CostUSD: 1.5, Tokens: 400,
-			LastSeen: "2026-05-15T00:00:00Z",
-		},
+		{UserIdentityRef: UserIdentityRef{UserID: "U07CAROL00"}, CostUSD: 1.5, Requests: 4, Tokens: 400},
 	}
 	entries := map[string]slackidentity.DirectoryEntry{
-		"U07CAROL00": {TeamID: "T07POSTMAN", WorkOSUserID: ""},
+		"U07CAROL00": {
+			TeamID:        "T07POSTMAN",
+			WorkspaceName: "Postman",
+			Profile: slackidentity.SlackProfile{
+				DisplayName: "Carol Chen",
+				Username:    "carol",
+				AvatarURL:   "https://avatars.slack-edge.com/carol.png",
+			},
+		},
 	}
 
 	out := mergeLinkedSlackRows(rows, entries)
@@ -147,26 +163,29 @@ func TestMergeLinkedSlackRows_ObservedOnly_StampsTeamID(t *testing.T) {
 	if len(out) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(out))
 	}
-	if out[0].UserID != "U07CAROL00" {
-		t.Errorf("observed-only row keeps its bare user_id, got %q", out[0].UserID)
+	if out[0].IdentityKey != "slack:T07POSTMAN:U07CAROL00" {
+		t.Errorf("expected Slack directory identity key, got %q", out[0].IdentityKey)
 	}
-	if out[0].SlackTeamID != "T07POSTMAN" {
-		t.Errorf("expected slack_team_id stamped for deep link, got %q", out[0].SlackTeamID)
+	if out[0].SlackTeamID != "T07POSTMAN" || out[0].SlackWorkspaceName != "Postman" {
+		t.Errorf("expected Slack workspace metadata, got %+v", out[0])
 	}
-	if out[0].CostUSD != 1.5 {
+	if out[0].SlackDisplayName != "Carol Chen" || out[0].SlackAvatarURL == "" {
+		t.Errorf("expected Slack profile metadata, got %+v", out[0])
+	}
+	if out[0].CostUSD != 1.5 || out[0].Requests != 4 || out[0].Tokens != 400 {
 		t.Errorf("metrics must not change for observed-only: %+v", out[0])
 	}
 }
 
-// Directory miss (tombstoned user before backfill): row passes through
-// unchanged, no team_id stamped, no merge.
+// Unscoped bare Slack rows pass through unchanged when the unscoped directory
+// lookup returns no entry. That includes unknown users and ambiguous users with
+// multiple possible workspaces.
 func TestMergeLinkedSlackRows_DirectoryMiss_PassesThrough(t *testing.T) {
 	rows := []UserSummaryEntry{
-		{UserID: "U07GHOSTLY", CostUSD: 2.0, Requests: 5},
+		{UserIdentityRef: UserIdentityRef{UserID: "U07GHOSTLY"}, CostUSD: 2.0, Requests: 5},
 	}
-	entries := map[string]slackidentity.DirectoryEntry{} // empty
 
-	out := mergeLinkedSlackRows(rows, entries)
+	out := mergeLinkedSlackRows(rows, nil)
 
 	if len(out) != 1 || out[0].UserID != "U07GHOSTLY" {
 		t.Errorf("expected pass-through, got %+v", out)
@@ -176,81 +195,20 @@ func TestMergeLinkedSlackRows_DirectoryMiss_PassesThrough(t *testing.T) {
 	}
 }
 
-func TestSingleSlackTeamFallback_StampsDirectoryMissesWhenTeamIsUnambiguous(t *testing.T) {
-	rows := []UserSummaryEntry{
-		{UserID: "U07KNOWN1", CostUSD: 1.0},
-		{UserID: "U07MISSNG", CostUSD: 2.0},
-		{UserID: "custom-user", CostUSD: 3.0},
-	}
-	entries := map[string]slackidentity.DirectoryEntry{
-		"U07KNOWN1": {TeamID: "T07POSTMAN", WorkOSUserID: ""},
-	}
-
-	fallbackTeamID := singleSlackTeamID(entries)
-	out := mergeLinkedSlackRows(rows, entries)
-	out = applySingleTeamSlackFallback(out, fallbackTeamID)
-
-	byID := map[string]UserSummaryEntry{}
-	for _, row := range out {
-		byID[row.UserID] = row
-	}
-	if byID["U07KNOWN1"].SlackTeamID != "T07POSTMAN" {
-		t.Errorf("known Slack row should keep exact team id: %+v", byID["U07KNOWN1"])
-	}
-	if byID["U07MISSNG"].SlackTeamID != "T07POSTMAN" {
-		t.Errorf("missing bare Slack row should inherit unambiguous team id: %+v", byID["U07MISSNG"])
-	}
-	if byID["custom-user"].SlackTeamID != "" {
-		t.Errorf("non-Slack user ids must not inherit fallback team id: %+v", byID["custom-user"])
-	}
-}
-
-func TestSingleSlackTeamFallback_DoesNotStampWhenTeamsConflict(t *testing.T) {
-	rows := []UserSummaryEntry{
-		{UserID: "U07MISSNG", CostUSD: 2.0},
-	}
-	entries := map[string]slackidentity.DirectoryEntry{
-		"U07KNOWN1": {TeamID: "T07POSTMAN", WorkOSUserID: ""},
-		"U07KNOWN2": {TeamID: "T08ACMECO", WorkOSUserID: ""},
-	}
-
-	fallbackTeamID := singleSlackTeamID(entries)
-	if fallbackTeamID != "" {
-		t.Fatalf("conflicting team ids must not produce a fallback, got %q", fallbackTeamID)
-	}
-	out := applySingleTeamSlackFallback(rows, fallbackTeamID)
-
-	if out[0].SlackTeamID != "" {
-		t.Errorf("ambiguous team context must leave missing Slack row unlinked: %+v", out[0])
-	}
-}
-
-func TestSingleSlackTeamFallback_DoesNotOverrideExactDirectoryHit(t *testing.T) {
-	rows := []UserSummaryEntry{
-		{UserID: "U07EXACT1", SlackTeamID: "T08EXACT", CostUSD: 2.0},
-	}
-
-	out := applySingleTeamSlackFallback(rows, "T07FALLBK")
-
-	if out[0].SlackTeamID != "T08EXACT" {
-		t.Errorf("fallback must not override exact directory team id, got %+v", out[0])
-	}
-}
-
 // agents_used union must dedupe on DeploymentID — the same deployment
 // appearing on both rows collapses, but two deployments of the same
 // blueprint (identical Account/Name, distinct DeploymentID) stay as
 // separate refs through the merge.
 func TestMergeInto_AgentsUsedUnionDedupesOnDeploymentID(t *testing.T) {
 	target := UserSummaryEntry{
-		UserID: "user_alice",
+		UserIdentityRef: UserIdentityRef{UserID: "user_alice"},
 		AgentsUsed: []UserAgentRef{
 			{DeploymentID: "dep-shared", Name: "shared", Account: "postman"},
 			{DeploymentID: "dep-alice-only", Name: "alice-only", Account: "postman"},
 		},
 	}
 	src := UserSummaryEntry{
-		UserID: "U07ABCDEF",
+		UserIdentityRef: UserIdentityRef{UserID: "U07ABCDEF"},
 		AgentsUsed: []UserAgentRef{
 			// Same deployment_id as target's "shared" — should NOT add.
 			{DeploymentID: "dep-shared", Name: "shared", Account: "postman"},

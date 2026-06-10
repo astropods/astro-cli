@@ -1,6 +1,8 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
+import { RefreshCw } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { ViewToggle, parseActivityView, type ActivityView } from "@/components/activity/ViewToggle";
@@ -15,7 +17,8 @@ import {
 import { useDeploymentsSummary, useUsersSummary } from "@/api/queries/observability";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
-import { useMemo } from "react";
+import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
+import { insightsUserIdentityKey } from "@/components/activity/insights-user-identity";
 import { isSlackUserId } from "@/components/activity/user-classification";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
@@ -23,12 +26,15 @@ import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { WarningPanel } from "@/components/ui/status-panel";
+import { Button } from "@/components/ui/button";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { accountKeys, deploymentKeys, observabilityKeys } from "@/api/queries/keys";
+import { accountKeys, deploymentKeys, observabilityKeys, slackKeys } from "@/api/queries/keys";
+import type { InsightsUserIdentity } from "@/lib/api";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
+const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
 
 function buildDateLabel(range: ActivityRange): string {
   const { from, to } = buildPeriodParams(range);
@@ -39,6 +45,18 @@ function parseRange(raw: string | null): ActivityRange {
   // Stale "?range=all" deep-links from before the all-time range was retired
   // fall through to the 30d default rather than 404ing the page.
   return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
+}
+
+export function countSlackRowsMissingDetails(
+  users: Array<Pick<InsightsUserIdentity, "identity_key" | "user_id" | "slack_team_id" | "slack_display_name" | "slack_avatar_url">>,
+): number {
+  const missing = new Set<string>();
+  for (const user of users) {
+    if (!isSlackUserId(user.user_id)) continue;
+    if (user.slack_team_id && (user.slack_display_name || user.slack_avatar_url)) continue;
+    missing.add(insightsUserIdentityKey(user));
+  }
+  return missing.size;
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -105,6 +123,7 @@ export function shouldRevalidate({
 }
 
 export default function Insights({ loaderData }: Route.ComponentProps) {
+  const queryClient = useQueryClient();
   usePrimeQueryCache(loaderData, (qc, ld) => {
     if (!ld?.account) return;
     // Loader-fetched data primed under the same keys the hooks read on
@@ -137,6 +156,29 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
+  const slackConnected = searchParams.get("slack_connected") === "true";
+  const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
+
+  useEffect(() => {
+    if (!hasSlackOAuthParam) return;
+    if (slackConnected && activeAccount) {
+      void queryClient.invalidateQueries({
+        queryKey: observabilityKeys.activitySummary(activeAccount, undefined, undefined, "user"),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: observabilityKeys.deploymentsSummary(activeAccount, undefined, undefined),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: observabilityKeys.usersSummary(activeAccount, undefined, undefined),
+      });
+      void queryClient.invalidateQueries({ queryKey: accountKeys.members(activeAccount) });
+      void queryClient.invalidateQueries({ queryKey: slackKeys.accountStatus(activeAccount) });
+    }
+    setSearchParams((prev) => {
+      for (const key of SLACK_OAUTH_PARAMS) prev.delete(key);
+      return prev;
+    }, { replace: true });
+  }, [activeAccount, hasSlackOAuthParam, queryClient, setSearchParams, slackConnected]);
 
   function setView(next: ActivityView) {
     // Toggling views always clears the current search — a People-view term
@@ -302,6 +344,16 @@ function InsightsView({
   const usersTableQ = useUsersSummary(account, undefined, undefined);
   const membersQ = useAccountMembers(account);
   const allTimeUsers = usersTableQ.data?.users ?? [];
+  const slackRowsMissingDetails = useMemo(
+    () => countSlackRowsMissingDetails(allTimeUsers),
+    [allTimeUsers],
+  );
+  const showSlackDetailsAction = slackRowsMissingDetails > 0 && !usersTableQ.isLoading;
+  const slackStatusQ = useSlackAccountStatus(account, {
+    enabled: showSlackDetailsAction,
+  });
+  const slackConnect = useSlackAccountConnect(account);
+  const slackConnected = (slackStatusQ.data?.workspaces.length ?? 0) > 0;
   const members = membersQ.data?.members ?? [];
   const memberIds = useMemo(
     () => new Set(members.map((m) => m.user_id)),
@@ -318,7 +370,7 @@ function InsightsView({
     for (const u of allTimeUsers) {
       if (!u.user_id) hasUnattributed = true;
       else if (memberIds.has(u.user_id)) namedIds.add(u.user_id);
-      else if (isSlackUserId(u.user_id)) slackIds.add(u.user_id);
+      else if (isSlackUserId(u.user_id)) slackIds.add(insightsUserIdentityKey(u));
       else unidentifiedIds.add(u.user_id);
     }
     return namedIds.size + slackIds.size + unidentifiedIds.size + (hasUnattributed ? 1 : 0);
@@ -345,7 +397,15 @@ function InsightsView({
     if (!needle) return allTimeUsers;
     return allTimeUsers.filter((u) => {
       const m = memberById.get(u.user_id);
-      const haystack = `${m?.display_name ?? ""} ${m?.username ?? ""} ${u.user_id}`.toLowerCase();
+      const haystack = [
+        m?.display_name,
+        m?.username,
+        u.user_id,
+        u.slack_display_name,
+        u.slack_username,
+        u.slack_workspace_name,
+        u.slack_workspace_domain,
+      ].filter(Boolean).join(" ").toLowerCase();
       return haystack.includes(needle);
     });
   }, [allTimeUsers, memberById, needle]);
@@ -361,6 +421,15 @@ function InsightsView({
     () => allTimeUsers.reduce((s, u) => s + u.cost_usd, 0),
     [allTimeUsers],
   );
+
+  const handleSlackDetails = () => {
+    const returnPath = `${window.location.pathname || "/insights"}${window.location.search}`;
+    slackConnect.mutate(returnPath, {
+      onSuccess: (data) => {
+        if (data.redirect_url) window.location.href = data.redirect_url;
+      },
+    });
+  };
 
   // Counts shown in the toggle pills are the un-filtered totals — the pill
   // reflects how much data exists, not how much the current search returns.
@@ -379,12 +448,30 @@ function InsightsView({
           agentsCount={allTimeDeployments.length || undefined}
         />
       </div>
-      <FilterInput
-        containerClassName="h-8 w-full shrink-0 @md:w-80"
-        placeholder="Search by name"
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-      />
+      <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
+        {showSlackDetailsAction && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            disabled={slackConnect.isPending}
+            onClick={handleSlackDetails}
+          >
+            <RefreshCw className={`size-3.5 ${slackConnect.isPending ? "animate-spin" : ""}`} />
+            {slackConnect.isPending
+              ? "Opening Slack..."
+              : slackConnected
+                ? "Refresh Slack details"
+                : "Connect Slack"}
+          </Button>
+        )}
+        <FilterInput
+          containerClassName="h-8 w-full shrink-0 @md:w-80"
+          placeholder="Search by name"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+        />
+      </div>
     </div>
   );
 

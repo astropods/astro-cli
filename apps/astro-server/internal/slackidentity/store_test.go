@@ -21,41 +21,15 @@ func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock, *sql.DB) {
 }
 
 const (
-	upsertQuery         = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
-	upsertObservedQuery = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, source)\n\t\tVALUES ($1, $2, NULL, 'observed')\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET revoked_at = NULL,\n\t\t    updated_at = now()\n\t\tWHERE slack_identity_mappings.revoked_at IS NOT NULL\n\t\t  AND slack_identity_mappings.source     = 'observed'\n\t"
-	lookupQuery         = "\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t"
-	listQuery           = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
-	listManyQuery       = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
-	revokeQuery         = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
-	revokeOneQuery      = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
-	directoryEntries    = `
-		SELECT DISTINCT ON (slack_user_id)
-		       slack_user_id,
-		       team_id,
-		       workos_user_id
-		FROM (
-			SELECT slack_user_id,
-			       team_id,
-			       COALESCE(CASE WHEN revoked_at IS NULL THEN workos_user_id END, '') AS workos_user_id,
-			       (revoked_at IS NULL)                                              AS active_flag,
-			       created_at,
-			       1                                                                  AS source_priority
-			FROM slack_identity_mappings
-			WHERE slack_user_id = ANY($1)
-			UNION ALL
-			SELECT slack_user_id,
-			       team_id,
-			       ''                                                                 AS workos_user_id,
-			       TRUE                                                               AS active_flag,
-			       last_seen_at                                                       AS created_at,
-			       2                                                                  AS source_priority
-			FROM slack_observed_users
-			WHERE slack_user_id = ANY($1)
-		) combined
-		ORDER BY slack_user_id, source_priority, active_flag DESC, created_at DESC
-	`
+	upsertQuery    = "\n\t\tINSERT INTO slack_identity_mappings\n\t\t\t(team_id, slack_user_id, workos_user_id, organization_id,\n\t\t\t team_name, team_domain, team_icon_url, slack_username, updated_at, revoked_at)\n\t\tVALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, now(), NULL)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE SET\n\t\t\tworkos_user_id   = EXCLUDED.workos_user_id,\n\t\t\torganization_id  = EXCLUDED.organization_id,\n\t\t\tteam_name        = EXCLUDED.team_name,\n\t\t\tteam_domain      = EXCLUDED.team_domain,\n\t\t\tteam_icon_url    = EXCLUDED.team_icon_url,\n\t\t\tslack_username   = EXCLUDED.slack_username,\n\t\t\tupdated_at       = now(),\n\t\t\trevoked_at       = NULL\n\t"
+	lookupQuery    = "\n\t\tSELECT workos_user_id\n\t\tFROM slack_identity_mappings\n\t\tWHERE team_id = $1 AND slack_user_id = $2\n\t\t  AND workos_user_id IS NOT NULL\n\t\t  AND revoked_at IS NULL\n\t\tLIMIT 1\n\t"
+	listQuery      = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	listManyQuery  = "\n\t\tSELECT team_id, slack_user_id, workos_user_id,\n\t\t       COALESCE(organization_id, ''),\n\t\t       team_name, team_domain, team_icon_url, slack_username,\n\t\t       created_at, updated_at, revoked_at\n\t\tFROM slack_identity_mappings\n\t\tWHERE workos_user_id = ANY($1) AND revoked_at IS NULL\n\t\tORDER BY created_at DESC\n\t"
+	revokeQuery    = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND revoked_at IS NULL\n\t"
+	revokeOneQuery = "\n\t\tUPDATE slack_identity_mappings\n\t\tSET revoked_at = now(), updated_at = now()\n\t\tWHERE workos_user_id = $1 AND team_id = $2 AND revoked_at IS NULL\n\t"
 	// Sole observed-write target after PR 2 cutover.
-	upsertObservedUserQuery = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id)\n\t\tVALUES ($1, $2)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET last_seen_at = now()\n\t"
+	upsertObservedUserQuery     = "\n\t\tINSERT INTO slack_observed_users (team_id, slack_user_id)\n\t\tVALUES ($1, $2)\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET last_seen_at = now()\n\t"
+	upsertObservedProfilesQuery = "\n\t\tWITH input AS (\n\t\t\tSELECT *\n\t\t\tFROM unnest(\n\t\t\t\t$1::text[],\n\t\t\t\t$2::text[],\n\t\t\t\t$3::text[],\n\t\t\t\t$4::text[],\n\t\t\t\t$5::text[],\n\t\t\t\t$6::boolean[],\n\t\t\t\t$7::boolean[]\n\t\t\t) AS t(team_id, slack_user_id, slack_display_name, slack_username, slack_avatar_url, slack_is_bot, slack_deleted)\n\t\t)\n\t\tINSERT INTO slack_observed_users\n\t\t\t(team_id, slack_user_id, slack_display_name, slack_username,\n\t\t\t slack_avatar_url, slack_is_bot, slack_deleted, profile_updated_at)\n\t\tSELECT team_id, slack_user_id, slack_display_name, slack_username,\n\t\t       slack_avatar_url, slack_is_bot, slack_deleted, now()\n\t\tFROM input\n\t\tON CONFLICT (team_id, slack_user_id) DO UPDATE\n\t\tSET slack_display_name = EXCLUDED.slack_display_name,\n\t\t    slack_username     = EXCLUDED.slack_username,\n\t\t    slack_avatar_url   = EXCLUDED.slack_avatar_url,\n\t\t    slack_is_bot       = EXCLUDED.slack_is_bot,\n\t\t    slack_deleted      = EXCLUDED.slack_deleted,\n\t\t    profile_updated_at = now()\n\t"
 )
 
 // Upsert writes a row with all the expected fields and clears revoked_at on
@@ -418,6 +392,77 @@ func TestUpsertObserved_PerProcessDedupe(t *testing.T) {
 	}
 }
 
+func TestUpsertObservedProfiles_BulkWritesUniqueDirectoryRows(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	mock.ExpectExec(upsertObservedProfilesQuery).
+		WithArgs(
+			pq.Array([]string{"T07XYZ", "T08XYZ"}),
+			pq.Array([]string{"U07ABCDEF", "U08ABCDEF"}),
+			pq.Array([]string{"Jesse Morgan", "Sohum Dalal"}),
+			pq.Array([]string{"jesse", "sohum"}),
+			pq.Array([]string{"https://avatars.slack-edge.com/jesse.png", "https://avatars.slack-edge.com/sohum.png"}),
+			pq.Array([]bool{false, false}),
+			pq.Array([]bool{false, true}),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	if err := store.UpsertObservedProfiles(t.Context(), []ObservedUser{
+		{
+			TeamID:      "T07XYZ",
+			SlackUserID: "U07ABCDEF",
+			Profile: SlackProfile{
+				DisplayName: "Jesse Morgan",
+				Username:    "jesse",
+				AvatarURL:   "https://avatars.slack-edge.com/jesse.png",
+			},
+		},
+		{
+			TeamID:      "T07XYZ",
+			SlackUserID: "U07ABCDEF",
+			Profile: SlackProfile{
+				DisplayName: "Duplicate Skipped",
+			},
+		},
+		{TeamID: "", SlackUserID: "U-empty-team"},
+		{TeamID: "T-empty-user", SlackUserID: ""},
+		{
+			TeamID:      "T08XYZ",
+			SlackUserID: "U08ABCDEF",
+			Profile: SlackProfile{
+				DisplayName: "Sohum Dalal",
+				Username:    "sohum",
+				AvatarURL:   "https://avatars.slack-edge.com/sohum.png",
+				Deleted:     true,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("bulk upsert observed profiles: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("bulk profile upsert expectations: %v", err)
+	}
+}
+
+func TestUpsertObservedProfiles_EmptyInputsAreNoOp(t *testing.T) {
+	store, mock, db := newMockStore(t)
+	defer db.Close()
+
+	if err := store.UpsertObservedProfiles(t.Context(), nil); err != nil {
+		t.Fatalf("nil input: %v", err)
+	}
+	if err := store.UpsertObservedProfiles(t.Context(), []ObservedUser{
+		{TeamID: "", SlackUserID: "U07ABC"},
+		{TeamID: "T07XYZ", SlackUserID: ""},
+	}); err != nil {
+		t.Fatalf("empty keys: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A repeat (team, user) pair after the dedupe map resets bumps
 // last_seen_at via the ON CONFLICT DO UPDATE branch. PR 2 cutover: the
 // new table has no revoked_at, no oauth/observed split; the only
@@ -541,67 +586,63 @@ func TestLookup_ExcludesObservedOnlyRows(t *testing.T) {
 	}
 }
 
-// ── DirectoryEntriesForSlackUsers ────────────────────────────────────────────
-
-// Linked Slack users return workos_user_id; observed-only return team only.
-// Insights uses both: workos_user_id triggers the merge into the WorkOS
-// row; team_id alone drives the deep link for unmapped users.
-func TestDirectoryEntriesForSlackUsers_MixedRows(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectQuery(directoryEntries).
-		WithArgs(pq.Array([]string{"U07LINKED", "U07OBSERVED"})).
-		WillReturnRows(sqlmock.NewRows([]string{"slack_user_id", "team_id", "workos_user_id"}).
-			AddRow("U07LINKED", "T07XYZ", "user_alice").
-			AddRow("U07OBSERVED", "T07XYZ", ""))
-
-	out, err := store.DirectoryEntriesForSlackUsers([]string{"U07LINKED", "U07OBSERVED"})
+func TestDirectoryEntriesForSlackUserIDs_ReturnsUniqueWorkspaceRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
 	if err != nil {
-		t.Fatalf("directory entries: %v", err)
+		t.Fatalf("sqlmock: %v", err)
 	}
-	if got := out["U07LINKED"]; got.TeamID != "T07XYZ" || got.WorkOSUserID != "user_alice" {
-		t.Errorf("linked entry: got %+v", got)
+	defer db.Close()
+	store := NewStore(db)
+
+	mock.ExpectQuery(`(?s)WITH input AS .*unambiguous AS`).
+		WithArgs(pq.Array([]string{"U07CAROL00"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"team_id",
+			"slack_user_id",
+			"workos_user_id",
+			"slack_display_name",
+			"slack_username",
+			"slack_avatar_url",
+			"slack_is_bot",
+			"slack_deleted",
+			"team_name",
+			"team_domain",
+			"team_icon_url",
+		}).AddRow(
+			"T07POSTMAN",
+			"U07CAROL00",
+			"",
+			"Carol Chen",
+			"carol",
+			"https://avatars.slack-edge.com/carol.png",
+			false,
+			false,
+			"Postman",
+			"postman",
+			"https://avatars.slack-edge.com/postman.png",
+		))
+
+	out, err := store.DirectoryEntriesForSlackUserIDs([]string{"U07CAROL00", "U07CAROL00"})
+	if err != nil {
+		t.Fatalf("unscoped directory entries: %v", err)
 	}
-	if got := out["U07OBSERVED"]; got.TeamID != "T07XYZ" || got.WorkOSUserID != "" {
-		t.Errorf("observed entry should leave WorkOSUserID empty: got %+v", got)
+	entry := out["U07CAROL00"]
+	if entry.TeamID != "T07POSTMAN" || entry.WorkspaceName != "Postman" {
+		t.Errorf("entry mismatch: %+v", entry)
+	}
+	if entry.Profile.DisplayName != "Carol Chen" || entry.Profile.AvatarURL == "" {
+		t.Errorf("profile mismatch: %+v", entry.Profile)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// Revoked rows return team_id (so the Insights deep link still resolves)
-// but mask workos_user_id to empty (so post-disconnect spend isn't folded
-// back into the unlinked WorkOS account). Without this, previously-linked-
-// then-disconnected Slack users permanently lose their deep link because
-// the (team_id, slack_user_id) unique constraint prevents live-ingest from
-// creating a fresh observed row alongside the revoked oauth one.
-func TestDirectoryEntriesForSlackUsers_RevokedRowReturnsTeamIDOnly(t *testing.T) {
-	store, mock, db := newMockStore(t)
-	defer db.Close()
-
-	mock.ExpectQuery(directoryEntries).
-		WithArgs(pq.Array([]string{"U07REVOKED"})).
-		WillReturnRows(sqlmock.NewRows([]string{"slack_user_id", "team_id", "workos_user_id"}).
-			AddRow("U07REVOKED", "T07XYZ", ""))
-
-	out, err := store.DirectoryEntriesForSlackUsers([]string{"U07REVOKED"})
-	if err != nil {
-		t.Fatalf("directory entries: %v", err)
-	}
-	got := out["U07REVOKED"]
-	if got.TeamID != "T07XYZ" {
-		t.Errorf("revoked entry should still return team_id: got %+v", got)
-	}
-	if got.WorkOSUserID != "" {
-		t.Errorf("revoked entry must mask workos_user_id: got %+v", got)
-	}
-}
-
-// Empty input returns an empty map without a DB round-trip.
-func TestDirectoryEntriesForSlackUsers_EmptyInput(t *testing.T) {
+func TestDirectoryEntriesForSlackUserIDs_EmptyInput(t *testing.T) {
 	store, _, db := newMockStore(t)
 	defer db.Close()
 
-	out, err := store.DirectoryEntriesForSlackUsers(nil)
+	out, err := store.DirectoryEntriesForSlackUserIDs(nil)
 	if err != nil {
 		t.Fatalf("empty input: %v", err)
 	}

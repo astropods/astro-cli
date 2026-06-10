@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { UserAvatar } from "@/components/UserAvatar";
+import { IdentityBadge } from "@/components/IdentityBadge";
 
 export interface UserBadgeProps {
   /** WorkOS user ID (e.g. trace.user_id). */
@@ -58,22 +59,13 @@ export function UserBadge({ userId, account, avatarOnly, linkToProfile, classNam
     ) : avatar;
   }
 
-  const body = (
-    <>
-      <UserAvatar handle={member.username} name={displayName} className="size-5" />
-      <span className="truncate text-foreground" title={displayName}>
-        {displayName}
-      </span>
-    </>
-  );
-  return linkToProfile ? (
-    <Link
-      to={`/${member.username}`}
-      className={cn("flex min-w-0 items-center gap-2 hover:underline", className)}
-    >
-      {body}
-    </Link>
-  ) : (
-    <div className={cn("flex min-w-0 items-center gap-2", className)}>{body}</div>
+  return (
+    <IdentityBadge
+      avatar={<UserAvatar handle={member.username} name={displayName} className="size-5" />}
+      label={displayName}
+      link={linkToProfile ? { type: "internal", to: `/${member.username}` } : undefined}
+      display="flex"
+      className={className}
+    />
   );
 }

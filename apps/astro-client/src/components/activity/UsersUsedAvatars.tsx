@@ -1,17 +1,25 @@
-import { useId, useMemo } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Server, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
-import type { AccountMember } from "@/lib/api";
+import type { AccountMember, InsightsUserIdentity } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isSlackUserId, slackUserLabel } from "./user-classification";
+import { isSlackUserId } from "./user-classification";
 import { OverflowPopover } from "./OverflowPopover";
+import { SlackIdentityAvatar } from "./SlackUserIdentity";
+import {
+  identityRefFromUserID,
+  insightsUserIdentityKey,
+  slackIdentityDisplay,
+} from "./insights-user-identity";
 
 interface UsersUsedAvatarsProps {
-  /** WorkOS user IDs from the blueprint's users_used field. */
+  /** Legacy IDs from the deployment's users_used field. */
   userIds: string[];
+  /** Rich identities from users_used_details. Preferred when present. */
+  users?: InsightsUserIdentity[];
   /** Account whose member list resolves WorkOS IDs to avatars. */
   account: string;
   /** Avatars to render before collapsing into a +N overflow chip. */
@@ -21,46 +29,108 @@ interface UsersUsedAvatarsProps {
 
 /** Per-uid classification result — derived once from members, consumed by
  *  both the visible-avatars row and the +N overflow popover. The `kind`
- *  drives avatar selection, the row label, and whether the chip links to a
- *  profile. */
+ *  drives avatar selection (member chip / Slack icon / generic / system),
+ *  the row label, and whether the chip links to a profile. */
 type UserKind = "member" | "slack" | "unidentified" | "unattributed";
 
 interface ClassifiedUser {
-  uid: string;
+  key: string;
+  identity: InsightsUserIdentity;
   kind: UserKind;
   member: AccountMember | undefined;
   /** Display string for the row label, popover line, and avatar tooltip. */
   primary: string;
+  deepLink?: string;
 }
 
-function GenericUserAvatar() {
+function classify(identity: InsightsUserIdentity, member: AccountMember | undefined): ClassifiedUser {
+  const uid = identity.user_id;
+  const key = insightsUserIdentityKey(identity);
+  if (!uid) {
+    return { key, identity, kind: "unattributed", member: undefined, primary: "System spend" };
+  }
+  if (member) {
+    return { key, identity, kind: "member", member, primary: member.display_name || member.username };
+  }
+  if (isSlackUserId(uid)) {
+    const display = slackIdentityDisplay(identity);
+    return {
+      key,
+      identity,
+      kind: "slack",
+      member: undefined,
+      primary: display.primary,
+      deepLink: display.deepLink,
+    };
+  }
+  return { key, identity, kind: "unidentified", member: undefined, primary: uid };
+}
+
+function UserChipAvatar({ user }: { user: ClassifiedUser }) {
+  if (user.kind === "slack") {
+    return (
+      <SlackIdentityAvatar
+        user={user.identity}
+        className="size-6"
+        iconClassName="size-3.5"
+      />
+    );
+  }
+  if (user.kind === "unidentified") {
+    return (
+      <span
+        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        aria-hidden
+      >
+        <User className="size-3.5" strokeWidth={1.75} />
+      </span>
+    );
+  }
+  if (user.kind === "unattributed") {
+    return <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />;
+  }
   return (
-    <span
-      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-      aria-hidden
-    >
-      <User className="size-3.5" strokeWidth={1.75} />
-    </span>
+    <UserAvatar
+      handle={user.member?.username ?? user.identity.user_id}
+      name={user.primary}
+      className="size-6 shrink-0"
+    />
   );
 }
 
-function classify(uid: string, member: AccountMember | undefined): ClassifiedUser {
-  if (!uid) {
-    return { uid, kind: "unattributed", member: undefined, primary: "System spend" };
+function UserIdentityTarget({
+  user,
+  className,
+  children,
+}: {
+  user: ClassifiedUser;
+  className: string;
+  children: ReactNode;
+}) {
+  if (user.kind === "member" && user.member) {
+    return (
+      <Link to={`/${user.member.username}`} className={className}>
+        {children}
+      </Link>
+    );
   }
-  if (member) {
-    return { uid, kind: "member", member, primary: member.display_name || member.username };
+  if (user.kind === "slack" && user.deepLink) {
+    return (
+      <a href={user.deepLink} rel="noreferrer" className={className}>
+        {children}
+      </a>
+    );
   }
-  if (isSlackUserId(uid)) {
-    // Matches the per-row label rendered by SlackUserIdentity in
-    // TopSpendersTable so the People column on the agents view reads the
-    // same way as the People table on Insights.
-    return { uid, kind: "slack", member: undefined, primary: slackUserLabel(uid) };
-  }
-  return { uid, kind: "unidentified", member: undefined, primary: uid };
+  return <span className={className}>{children}</span>;
 }
 
-export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }: UsersUsedAvatarsProps) {
+export function UsersUsedAvatars({
+  userIds,
+  users,
+  account,
+  maxVisible = 3,
+  className,
+}: UsersUsedAvatarsProps) {
   const titleId = useId();
   const { data: members } = useAccountMembers(account, { enabled: !!account });
 
@@ -69,14 +139,19 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
     [members],
   );
 
-  // Single pass over the userIds — both the visible chips and the +N
+  const identityRefs = useMemo(
+    () => users && users.length > 0 ? users : userIds.map(identityRefFromUserID),
+    [users, userIds],
+  );
+
+  // Single pass over the identities: both the visible chips and the +N
   // popover read from this list so the classification + name derivation
   // logic lives in one place.
   const classified = useMemo<ClassifiedUser[]>(() => {
-    return userIds.map((uid) => classify(uid, memberById.get(uid)));
-  }, [userIds, memberById]);
+    return identityRefs.map((identity) => classify(identity, memberById.get(identity.user_id)));
+  }, [identityRefs, memberById]);
 
-  if (userIds.length === 0) {
+  if (identityRefs.length === 0) {
     return <span className="text-faint-foreground">—</span>;
   }
 
@@ -86,34 +161,21 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
   return (
     <div className={cn("inline-flex items-center gap-1", className)} aria-labelledby={titleId}>
       <span id={titleId} className="sr-only">
-        {userIds.length} user{userIds.length === 1 ? "" : "s"}
+        {identityRefs.length} user{identityRefs.length === 1 ? "" : "s"}
       </span>
       <TooltipProvider delayDuration={200}>
         {visible.map((c) => {
-          const avatarNode =
-            c.kind === "slack" || c.kind === "unidentified" ? (
-              <GenericUserAvatar />
-            ) : c.kind === "unattributed" ? (
-              <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
-            ) : (
-              <UserAvatar
-                handle={c.member?.username ?? c.uid}
-                name={c.primary}
-                className="size-6"
-              />
-            );
+          const avatarNode = <UserChipAvatar user={c} />;
           return (
-            <Tooltip key={c.uid}>
+            <Tooltip key={c.key}>
               <TooltipTrigger asChild>
-                {c.kind === "member" && c.member ? (
-                  <Link to={`/${c.member.username}`} className="inline-flex rounded-full">
-                    {avatarNode}
-                  </Link>
-                ) : (
-                  <span className="inline-flex">{avatarNode}</span>
-                )}
+                <UserIdentityTarget user={c} className="inline-flex rounded-full">
+                  {avatarNode}
+                </UserIdentityTarget>
               </TooltipTrigger>
-              <TooltipContent side="top">{c.primary}</TooltipContent>
+              <TooltipContent side="top">
+                <span className="block">{c.primary}</span>
+              </TooltipContent>
             </Tooltip>
           );
         })}
@@ -121,49 +183,37 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
       {overflow > 0 && (
         <OverflowPopover
           overflow={overflow}
-          total={userIds.length}
+          total={identityRefs.length}
           itemNoun={{ singular: "person", plural: "people" }}
         >
           <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
             {classified.map((c) => {
               const rowBody = (
                 <>
-                  {c.kind === "slack" || c.kind === "unidentified" ? (
-                    <GenericUserAvatar />
-                  ) : c.kind === "unattributed" ? (
-                    <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : (
-                    <UserAvatar
-                      handle={c.member?.username ?? c.uid}
-                      name={c.primary}
-                      className="size-6 shrink-0"
-                    />
-                  )}
-                  <span
-                    className={cn(
-                      "min-w-0 truncate",
-                      (c.kind === "slack" || c.kind === "unidentified") &&
-                        "font-mono text-mono-sm text-muted-foreground",
-                    )}
-                  >
-                    {c.primary}
+                  <UserChipAvatar user={c} />
+                  <span className="min-w-0">
+                    <span
+                      className={cn(
+                        "block truncate",
+                        c.kind === "unidentified" && "font-mono text-mono-sm",
+                      )}
+                    >
+                      {c.primary}
+                    </span>
                   </span>
                 </>
               );
               return (
-                <li key={c.uid}>
-                  {c.kind === "member" && c.member ? (
-                    <Link
-                      to={`/${c.member.username}`}
-                      className="flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground hover:bg-muted"
-                    >
-                      {rowBody}
-                    </Link>
-                  ) : (
-                    <span className="flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground">
-                      {rowBody}
-                    </span>
-                  )}
+                <li key={c.key}>
+                  <UserIdentityTarget
+                    user={c}
+                    className={cn(
+                      "flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground",
+                      (c.kind === "member" || c.deepLink) && "hover:bg-muted",
+                    )}
+                  >
+                    {rowBody}
+                  </UserIdentityTarget>
                 </li>
               );
             })}

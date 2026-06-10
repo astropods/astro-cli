@@ -6,6 +6,7 @@ import {
 import { buildPeriodParams, type ActivityRange } from "./ranges";
 import { buildModelColorMap } from "./model-colors";
 import { UNATTRIBUTED_USER_KEY, UNIDENTIFIED_USER_KEY, isSlackUserId } from "./user-classification";
+import { insightsUserIdentityKey } from "./insights-user-identity";
 import type {
   AccountDeploymentsSummaryResponse,
   AccountObservabilitySummaryResponse,
@@ -402,6 +403,7 @@ function rangeWindow(range: ActivityRange): { fromDate: string; toDate: string }
 // else collapses to the matching sentinel bucket key.
 function visibilityKey(uid: string | null | undefined, memberIds: Set<string>): string {
   if (!uid) return UNATTRIBUTED_USER_KEY;
+  if (uid.startsWith("slack:")) return uid;
   if (memberIds.has(uid) || isSlackUserId(uid)) return uid;
   return UNIDENTIFIED_USER_KEY;
 }
@@ -431,11 +433,27 @@ export function sliceUsersByRange(
   sparklines: { cost: number[]; requests: number[]; tokens: number[] };
 } {
   const rows = summary?.cost_over_time_by_user ?? [];
-  const agentsByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.agents_used]));
-  // Same shape as agentsByUser — source slack_team_id from the server's
-  // per-user response so the bounded-window rows carry the deep-link
-  // team_id without re-running the directory join or single-team fallback.
-  const slackTeamByUser = new Map((usersData?.users ?? []).map((u) => [u.user_id, u.slack_team_id]));
+  // Source identity/profile fields from the server's per-user response so
+  // bounded-window rows keep Slack enrichment without re-running the directory
+  // join client-side.
+  const identityDetailsByUser = new Map(
+    (usersData?.users ?? []).map((u) => [
+      insightsUserIdentityKey(u),
+      {
+        agents_used: u.agents_used,
+        identity_key: u.identity_key,
+        slack_team_id: u.slack_team_id,
+        slack_display_name: u.slack_display_name,
+        slack_username: u.slack_username,
+        slack_avatar_url: u.slack_avatar_url,
+        slack_is_bot: u.slack_is_bot,
+        slack_deleted: u.slack_deleted,
+        slack_workspace_name: u.slack_workspace_name,
+        slack_workspace_domain: u.slack_workspace_domain,
+        slack_workspace_icon_url: u.slack_workspace_icon_url,
+      },
+    ]),
+  );
   const { fromDate, toDate } = rangeWindow(range);
 
   // No per-day data → no sparklines, fall back to the server's per-user array.
@@ -443,7 +461,7 @@ export function sliceUsersByRange(
     return { users: usersData?.users ?? [], sparklines: { cost: [], requests: [], tokens: [] } };
   }
 
-  const perUser = new Map<string, { cost: number; requests: number; tokens: number; lastSeen: string }>();
+  const perUser = new Map<string, { user_id: string; cost: number; requests: number; tokens: number; lastSeen: string }>();
   const dailyTotals = new Map<string, { cost: number; requests: number; tokens: number }>();
 
   for (const row of rows) {
@@ -451,8 +469,9 @@ export function sliceUsersByRange(
     if (date < fromDate || date > toDate) continue;
 
     for (const u of row.users) {
+      const identityKey = insightsUserIdentityKey(u);
       // Per-user aggregation for the selected range window.
-      const existing = perUser.get(u.user_id) ?? { cost: 0, requests: 0, tokens: 0, lastSeen: "" };
+      const existing = perUser.get(identityKey) ?? { user_id: u.user_id, cost: 0, requests: 0, tokens: 0, lastSeen: "" };
       existing.cost += u.cost_usd;
       existing.requests += u.requests;
       existing.tokens += u.tokens;
@@ -461,7 +480,7 @@ export function sliceUsersByRange(
       if ((u.requests > 0 || u.cost_usd > 0) && date > existing.lastSeen) {
         existing.lastSeen = date;
       }
-      perUser.set(u.user_id, existing);
+      perUser.set(identityKey, existing);
 
       // Per-day sparkline aggregation. Filter by visibleUserIds when one
       // is active so an applied user chip narrows the headline cards' bars.
@@ -470,7 +489,7 @@ export function sliceUsersByRange(
       // anything else collapses to the unidentified/unattributed sentinel.
       // Collapsing Slack ids all the way to UNIDENTIFIED_USER_KEY would
       // break the per-Slack-user filter — see visibilityKey above.
-      if (visibleUserIds && !visibleUserIds.has(visibilityKey(u.user_id, memberIds))) continue;
+      if (visibleUserIds && !visibleUserIds.has(visibilityKey(identityKey, memberIds))) continue;
       const dayAcc = dailyTotals.get(date) ?? { cost: 0, requests: 0, tokens: 0 };
       dayAcc.cost += u.cost_usd;
       dayAcc.requests += u.requests;
@@ -479,15 +498,19 @@ export function sliceUsersByRange(
     }
   }
 
-  const users: UserRow[] = [...perUser.entries()].map(([user_id, agg]) => ({
-    user_id,
-    cost_usd: parseFloat(agg.cost.toFixed(4)),
-    requests: agg.requests,
-    tokens: agg.tokens,
-    last_seen: agg.lastSeen ? `${agg.lastSeen}T00:00:00Z` : undefined,
-    agents_used: agentsByUser.get(user_id) ?? [],
-    slack_team_id: slackTeamByUser.get(user_id),
-  }));
+  const users: UserRow[] = [...perUser.entries()].map(([identityKey, agg]) => {
+    const details = identityDetailsByUser.get(identityKey);
+    return {
+      ...details,
+      identity_key: identityKey,
+      user_id: agg.user_id,
+      cost_usd: parseFloat(agg.cost.toFixed(4)),
+      requests: agg.requests,
+      tokens: agg.tokens,
+      last_seen: agg.lastSeen ? `${agg.lastSeen}T00:00:00Z` : undefined,
+      agents_used: details?.agents_used ?? [],
+    };
+  });
 
   const dates = enumerateDates(fromDate, toDate);
   const sparklines = {
@@ -505,6 +528,29 @@ export interface ActiveSpendPoint {
   date: string;
   users: number;
   cost: number;
+}
+
+export function buildActiveSpendSeries(
+  rows: NonNullable<AccountObservabilitySummaryResponse["cost_over_time_by_user"]>,
+  range: ActivityRange,
+): ActiveSpendPoint[] {
+  const { from, to } = buildPeriodParams(range);
+  const fromDate = from.slice(0, 10);
+  const toDate = to.slice(0, 10);
+
+  const points: ActiveSpendPoint[] = [];
+  for (const row of rows) {
+    const date = row.date.slice(0, 10);
+    if (date < fromDate || date > toDate) continue;
+    let cost = 0;
+    const activeUsers = new Set<string>();
+    for (const u of row.users) {
+      cost += u.cost_usd;
+      if (u.cost_usd > 0) activeUsers.add(insightsUserIdentityKey(u));
+    }
+    points.push({ date, users: activeUsers.size, cost });
+  }
+  return points;
 }
 
 // useActiveSpendSeries derives per-day { active users, total spend } for the
@@ -525,23 +571,7 @@ export function useActiveSpendSeries(
 
   const data = useMemo<ActiveSpendPoint[]>(() => {
     const rows = summaryQ.data?.cost_over_time_by_user ?? [];
-    const { from, to } = buildPeriodParams(range);
-    const fromDate = from.slice(0, 10);
-    const toDate = to.slice(0, 10);
-
-    const points: ActiveSpendPoint[] = [];
-    for (const row of rows) {
-      const date = row.date.slice(0, 10);
-      if (date < fromDate || date > toDate) continue;
-      let cost = 0;
-      const activeUsers = new Set<string>();
-      for (const u of row.users) {
-        cost += u.cost_usd;
-        if (u.cost_usd > 0) activeUsers.add(u.user_id);
-      }
-      points.push({ date, users: activeUsers.size, cost });
-    }
-    return points;
+    return buildActiveSpendSeries(rows, range);
   }, [summaryQ.data, range]);
 
   return {

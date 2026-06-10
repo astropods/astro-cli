@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	authorizeURL = "https://slack.com/oauth/v2/authorize"
-	accessURL    = "https://slack.com/api/oauth.v2.access"
+	authorizeURL      = "https://slack.com/oauth/v2/authorize"
+	accessURL         = "https://slack.com/api/oauth.v2.access"
+	maxUsersListPages = 50
 )
 
 // OAuthResponse is the subset of slack's oauth.v2.access response we
@@ -69,13 +70,18 @@ type TeamInfo struct {
 	IconURL string
 }
 
-// UserInfo is a subset of the slack `users.info` response. We capture
-// the username at link time so the settings UI can show "@alice" instead
-// of "@U0ALENLUWBG".
+// UserInfo is a subset of Slack's user objects from users.info/users.list.
+// We capture enough profile metadata at link time to render connected
+// settings rows and to seed the Insights Slack directory without per-message
+// Slack API calls from deployed agents.
 type UserInfo struct {
 	ID          string
 	Name        string // slack username (handle), e.g. "alice"
 	DisplayName string // user-set display name, e.g. "Alice Cooper"
+	RealName    string
+	AvatarURL   string
+	IsBot       bool
+	Deleted     bool
 }
 
 // OAuthClient holds a slack app's client credentials and an HTTP client
@@ -298,15 +304,9 @@ func (c *OAuthClient) UserInfo(ctx context.Context, userToken, userID string) (U
 	}
 
 	var raw struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
-		User  struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Profile struct {
-				DisplayName string `json:"display_name,omitempty"`
-			} `json:"profile"`
-		} `json:"user"`
+		OK    bool         `json:"ok"`
+		Error string       `json:"error,omitempty"`
+		User  slackUserRaw `json:"user"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return UserInfo{}, fmt.Errorf("slack users.info: decode: %w", err)
@@ -314,9 +314,113 @@ func (c *OAuthClient) UserInfo(ctx context.Context, userToken, userID string) (U
 	if !raw.OK {
 		return UserInfo{}, fmt.Errorf("slack users.info: %s", raw.Error)
 	}
+	return userInfoFromRaw(raw.User), nil
+}
+
+// UsersList calls slack.com/api/users.list with the supplied user token.
+// Requires users:read, which the account-link OAuth flow already requests.
+// The bool return is true when pagination hit the safety cap and the returned
+// user slice is a partial workspace directory.
+//
+// This is used once at account-connect time to seed slack_observed_users with
+// the workspace directory. That keeps Insights deterministic for unlinked
+// Slack users without asking every deployed agent to perform per-message
+// profile lookups.
+func (c *OAuthClient) UsersList(ctx context.Context, userToken string) ([]UserInfo, bool, error) {
+	var users []UserInfo
+	cursor := ""
+	for page := 0; page < maxUsersListPages; page++ {
+		q := url.Values{}
+		q.Set("limit", "200")
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://slack.com/api/users.list?"+q.Encode(), nil)
+		if err != nil {
+			return nil, false, fmt.Errorf("slack users.list: build request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+userToken)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, false, fmt.Errorf("slack users.list: request: %w", err)
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		closeErr := resp.Body.Close()
+		if readErr != nil {
+			return nil, false, fmt.Errorf("slack users.list: read body: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, false, fmt.Errorf("slack users.list: close body: %w", closeErr)
+		}
+		if resp.StatusCode >= 400 {
+			return nil, false, fmt.Errorf("slack users.list: returned %d: %s", resp.StatusCode, body)
+		}
+
+		var raw struct {
+			OK               bool           `json:"ok"`
+			Error            string         `json:"error,omitempty"`
+			Members          []slackUserRaw `json:"members"`
+			ResponseMetadata struct {
+				NextCursor string `json:"next_cursor,omitempty"`
+			} `json:"response_metadata"`
+		}
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, false, fmt.Errorf("slack users.list: decode: %w", err)
+		}
+		if !raw.OK {
+			return nil, false, fmt.Errorf("slack users.list: %s", raw.Error)
+		}
+		for _, member := range raw.Members {
+			info := userInfoFromRaw(member)
+			if info.ID != "" {
+				users = append(users, info)
+			}
+		}
+		cursor = raw.ResponseMetadata.NextCursor
+		if cursor == "" {
+			break
+		}
+		if page == maxUsersListPages-1 {
+			return users, true, nil
+		}
+	}
+	return users, false, nil
+}
+
+type slackUserRaw struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	RealName string `json:"real_name,omitempty"`
+	IsBot    bool   `json:"is_bot,omitempty"`
+	Deleted  bool   `json:"deleted,omitempty"`
+	Profile  struct {
+		DisplayName string `json:"display_name,omitempty"`
+		RealName    string `json:"real_name,omitempty"`
+		Image48     string `json:"image_48,omitempty"`
+		Image72     string `json:"image_72,omitempty"`
+		Image192    string `json:"image_192,omitempty"`
+		Image512    string `json:"image_512,omitempty"`
+	} `json:"profile"`
+}
+
+func userInfoFromRaw(raw slackUserRaw) UserInfo {
 	return UserInfo{
-		ID:          raw.User.ID,
-		Name:        raw.User.Name,
-		DisplayName: raw.User.Profile.DisplayName,
-	}, nil
+		ID:          raw.ID,
+		Name:        raw.Name,
+		DisplayName: firstNonEmpty(raw.Profile.DisplayName, raw.Profile.RealName, raw.RealName),
+		RealName:    firstNonEmpty(raw.Profile.RealName, raw.RealName),
+		AvatarURL:   firstNonEmpty(raw.Profile.Image72, raw.Profile.Image48, raw.Profile.Image192, raw.Profile.Image512),
+		IsBot:       raw.IsBot,
+		Deleted:     raw.Deleted,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

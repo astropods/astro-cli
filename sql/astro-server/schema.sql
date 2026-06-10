@@ -808,10 +808,10 @@ CREATE INDEX idx_slack_identity_mappings_workos_user ON public.slack_identity_ma
 CREATE INDEX idx_slack_identity_mappings_lookup ON public.slack_identity_mappings(team_id, slack_user_id) WHERE revoked_at IS NULL;
 
 -- slack_observed_users is the directory of Slack identities the server has
--- observed via the /authorize live-ingest path and the historical Langfuse
--- backfill. Pure derived cache: there is no identity here, only a
--- (team_id, slack_user_id) tuple that the Insights deep link consults to
--- turn a bare-Slack userId into a `slack://user?team=…&id=…` URL.
+-- learned via the /authorize live-ingest path and Slack account-connect
+-- users.list sync. Pure derived cache: there is no Astro identity here, only
+-- a (team_id, slack_user_id) tuple plus best-effort Slack profile metadata
+-- that Insights uses to render and deep-link bare-Slack userIds.
 --
 -- Split out from slack_identity_mappings because that table was conflating
 -- two cardinalities (linked oauth identities + observed-anonymous users)
@@ -820,15 +820,20 @@ CREATE INDEX idx_slack_identity_mappings_lookup ON public.slack_identity_mapping
 -- this table, observed-row truncation is routine; live-ingest refills on
 -- every /authorize call.
 --
--- PR 1 dual-writes from /authorize and the backfill worker to both this
--- table and slack_identity_mappings (observed source). PR 2 switches reads.
--- PR 3 drops the observed rows from slack_identity_mappings and the related
--- constraints.
+-- Live ingest refreshes activity timestamps; account-connect directory sync
+-- refreshes Slack profile fields. Historical backfills can populate the same
+-- table without reintroducing observed rows into slack_identity_mappings.
 CREATE TABLE public.slack_observed_users (
-    team_id        varchar     NOT NULL,
-    slack_user_id  varchar     NOT NULL,
-    first_seen_at  timestamptz NOT NULL DEFAULT now(),
-    last_seen_at   timestamptz NOT NULL DEFAULT now(),
+    team_id              varchar     NOT NULL,
+    slack_user_id        varchar     NOT NULL,
+    slack_display_name   varchar     NOT NULL DEFAULT '',
+    slack_username       varchar     NOT NULL DEFAULT '',
+    slack_avatar_url     varchar     NOT NULL DEFAULT '',
+    slack_is_bot         boolean     NOT NULL DEFAULT false,
+    slack_deleted        boolean     NOT NULL DEFAULT false,
+    profile_updated_at   timestamptz,
+    first_seen_at        timestamptz NOT NULL DEFAULT now(),
+    last_seen_at         timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT slack_observed_users_pkey PRIMARY KEY (team_id, slack_user_id)
 );
 

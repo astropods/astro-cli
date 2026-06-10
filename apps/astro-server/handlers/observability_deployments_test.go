@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 )
 
@@ -264,6 +265,63 @@ func TestBuildDeploymentSummary_UsersUsedInversion(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentSummary_UsersUsedDetailsMergesLinkedSlackRows(t *testing.T) {
+	metrics := []deploymentMetrics{
+		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+	}
+	tagsRows := []map[string]any{
+		{"userId": "user_sohum", "tags": "deployment:dep-1"},
+		{"userId": "U07SOHUM1", "tags": []any{"deployment:dep-1"}},
+	}
+	entries := slackDirectoryEntries{
+		"U07SOHUM1": {TeamID: "TPOSTMAN", WorkOSUserID: "user_sohum"},
+	}
+
+	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil, entries)
+	if len(out) != 1 {
+		t.Fatalf("expected one deployment, got %d", len(out))
+	}
+	if got, want := out[0].UsersUsed, []string{"user_sohum"}; !equalStrings(got, want) {
+		t.Fatalf("users_used = %v, want %v", got, want)
+	}
+	if len(out[0].UsersUsedDetails) != 1 {
+		t.Fatalf("expected one rich identity after merge, got %+v", out[0].UsersUsedDetails)
+	}
+	if got := out[0].UsersUsedDetails[0]; got.UserID != "user_sohum" || got.SlackTeamID != "" {
+		t.Errorf("merged identity mismatch: %+v", got)
+	}
+}
+
+func TestBuildDeploymentSummary_UsersUsedDetailsStampsUnlinkedSlackDirectory(t *testing.T) {
+	metrics := []deploymentMetrics{
+		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+	}
+	tagsRows := []map[string]any{
+		{"userId": "U07SOHUM1", "tags": []any{"deployment:dep-1"}},
+	}
+	entries := slackDirectoryEntries{
+		"U07SOHUM1": {
+			TeamID:        "TPOSTMAN",
+			WorkspaceName: "Postman",
+			Profile: slackidentity.SlackProfile{
+				DisplayName: "Sohum Dalal",
+				Username:    "sohum",
+			},
+		},
+	}
+
+	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil, entries)
+	if len(out) != 1 {
+		t.Fatalf("expected one deployment, got %d", len(out))
+	}
+	if len(out[0].UsersUsedDetails) != 1 {
+		t.Fatalf("expected one Slack identity, got %+v", out[0].UsersUsedDetails)
+	}
+	if got := out[0].UsersUsedDetails[0]; got.IdentityKey != "slack:TPOSTMAN:U07SOHUM1" || got.UserID != "U07SOHUM1" || got.SlackWorkspaceName != "Postman" {
+		t.Errorf("slack identity mismatch: %+v", got)
+	}
+}
+
 func TestBuildDeploymentSummary_SameUserAcrossDeployments(t *testing.T) {
 	// Same user touching two deployments of the same agent_name shows up
 	// under BOTH deployment rows. No rollup → no dedupe across deployments.
@@ -420,7 +478,7 @@ func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary", nil)
 	rec := httptest.NewRecorder()
@@ -469,7 +527,7 @@ func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary?from=not-a-date&to=also-not-a-date", nil)
 	rec := httptest.NewRecorder()
@@ -553,7 +611,7 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, depStore, langfuseStore, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, depStore, langfuseStore, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/accounts/myorg/observability/deployments-summary?from=2026-05-01T00:00:00Z&to=2026-05-08T00:00:00Z", nil)

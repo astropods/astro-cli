@@ -137,7 +137,7 @@ func TestGetAccountLangfuseSummary_CacheHit_ReturnsCachedBytes(t *testing.T) {
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, cache),
+		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, nil, cache),
 		"/api/v1/accounts/:account/observability/summary",
 	)
 
@@ -167,7 +167,7 @@ func TestGetAccountLangfuseSummary_LangfuseFails_DegradesTo200WithFlag(t *testin
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil),
+		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil, nil),
 		"/api/v1/accounts/:account/observability/summary",
 	)
 
@@ -195,7 +195,7 @@ func TestGetAccountLangfuseSummary_LangfuseFails_DegradesTo200WithFlag(t *testin
 // TestGetAccountLangfuseSummary_PartialLangfuseFailure_NoBanner exercises
 // the "any-failed vs all-failed" semantic the review bot flagged. With
 // group_by=user, two errgroup goroutines can return errors — accountDailyMetrics
-// (the main KPIs) and the userId-grouped query (the active-users chart).
+// (the main KPIs) and the user/tag-grouped query (the active-users chart).
 // If only the user-grouped query fails, the page must still render with the
 // main metrics intact and NO banner — banner is reserved for the all-failed
 // case (typical Langfuse outage).
@@ -205,7 +205,7 @@ func TestGetAccountLangfuseSummary_PartialLangfuseFailure_NoBanner(t *testing.T)
 
 	// Mixed server: succeed on the tags-grouped and providedModelName-grouped
 	// queries (the "main" data path inside accountDailyMetrics), fail only on
-	// the userId-grouped query. This matches a transient per-query failure
+	// the user/tag-grouped query. This matches a transient per-query failure
 	// (rate-limit, single-worker timeout) — the worst case the bot called out.
 	mixedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("query")
@@ -221,7 +221,7 @@ func TestGetAccountLangfuseSummary_PartialLangfuseFailure_NoBanner(t *testing.T)
 	cfg.Deployment.LangfuseBaseURL = mixedSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil),
+		GetAccountLangfuseSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil, nil),
 		"/api/v1/accounts/:account/observability/summary",
 	)
 
@@ -270,7 +270,7 @@ func TestGetAccountDeploymentsSummary_CacheHit_ReturnsCachedBytes(t *testing.T) 
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountDeploymentsSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, cache),
+		GetAccountDeploymentsSummary(logger.New("error", "json"), cfg, accountStore, nil, langfuseStore, nil, cache),
 		"/api/v1/accounts/:account/observability/deployments-summary",
 	)
 
@@ -297,7 +297,7 @@ func TestGetAccountDeploymentsSummary_AllLangfuseFails_DegradesWithFlag(t *testi
 	cfg.Deployment.LangfuseBaseURL = failSrv.URL
 
 	router := newCachingTestRouter(
-		GetAccountDeploymentsSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil),
+		GetAccountDeploymentsSummary(logger.New("error", "json"), cfg, accountStore, depStore, langfuseStore, nil, nil),
 		"/api/v1/accounts/:account/observability/deployments-summary",
 	)
 
