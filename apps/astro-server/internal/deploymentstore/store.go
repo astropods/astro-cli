@@ -411,6 +411,41 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 	return deployments, nil
 }
 
+// GetVisibleDeploymentsByAccountAndBuilds is the build-filtered variant of
+// GetVisibleDeploymentsByAccount. With buildIDs non-empty, the WHERE clause
+// additionally restricts to deployments whose build_id is in the set —
+// pushing the filter into SQL avoids fetching/enriching rows the caller
+// would discard. Empty buildIDs is treated as "no rows match" rather than
+// "no filter" so callers can't accidentally fall back to the full list.
+func (s *Store) GetVisibleDeploymentsByAccountAndBuilds(accountID string, buildIDs []string) ([]*Deployment, error) {
+	if len(buildIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE account_id = $1 AND status != 'undeployed' AND build_id = ANY($2)
+		ORDER BY deployed_at DESC
+	`, accountID, pq.Array(buildIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query visible deployments by account and builds: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var deployments []*Deployment
+	for rows.Next() {
+		d, err := scanDeployment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan deployment: %w", err)
+		}
+		deployments = append(deployments, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
 // GetDeploymentsByIDsForAccount fetches a slice of deployments by ID, scoped to
 // an account (the account filter is a defence against cross-account lookups
 // even though IDs are globally unique). Used by the Insights tombstone path:

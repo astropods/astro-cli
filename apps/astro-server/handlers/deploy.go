@@ -44,6 +44,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1321,6 +1322,8 @@ type AgentDeploymentSummary struct {
 	LatestBuildID          string                `json:"latest_build_id,omitempty"`
 	Status                 string                `json:"status,omitempty"`
 	Namespace              string                `json:"namespace,omitempty"`
+	AccountID              string                `json:"account_id"`
+	AccountName            string                `json:"account_name"`
 	ExternalURLs           []ServiceEndpointInfo `json:"external_urls,omitempty"`
 	MessagingWebConfigured bool                  `json:"messaging_web_configured"`
 	CreatedAt              string                `json:"created_at"`
@@ -1458,7 +1461,162 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 	}
 }
 
+// enrichDeploymentsForAccount loads visible deployments for one account and
+// runs the standard enrichment pipeline (messaging URLs, audit timestamps,
+// avatars, latest build IDs). Shared between the per-account and cross-
+// account paths of ListDeployments so the two paths cannot drift.
+func enrichDeploymentsForAccount(
+	ctx context.Context,
+	log *logger.Logger,
+	accountID string,
+	accountName string,
+	buildIDs []string,
+	accountStore *account.AccountStore,
+	deployStore *deploymentstore.Store,
+	agentIdx *agentindex.Index,
+	avatarStore *avatar.Store,
+	auditStore *auditlog.Store,
+) ([]AgentDeploymentSummary, error) {
+	var (
+		dbDeps []*deploymentstore.Deployment
+		err    error
+	)
+	if len(buildIDs) > 0 {
+		dbDeps, err = deployStore.GetVisibleDeploymentsByAccountAndBuilds(accountID, buildIDs)
+	} else {
+		dbDeps, err = deployStore.GetVisibleDeploymentsByAccount(accountID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	allDeployments := make([]AgentDeployment, len(dbDeps))
+	depIDs := make([]string, len(dbDeps))
+	for i, dbDep := range dbDeps {
+		allDeployments[i] = agentDeploymentFromDB(log, dbDep)
+		depIDs[i] = dbDep.ID
+	}
+
+	if messagingURLs, merr := deployStore.GetMessagingURLs(depIDs); merr != nil {
+		log.Warn("Failed to load messaging URLs", "error", merr)
+	} else {
+		for i, d := range allDeployments {
+			if url, ok := messagingURLs[d.ID]; ok {
+				allDeployments[i].ExternalURLs = []ServiceEndpointInfo{
+					{Name: "messaging", Type: "messaging", URL: url, Ready: true},
+				}
+			}
+		}
+	}
+
+	messagingWebConfigured := make(map[string]bool)
+	if webConfigured, werr := deployStore.GetMessagingWebConfigured(ctx, depIDs); werr != nil {
+		log.Warn("Failed to load messaging web configured flags", "error", werr)
+	} else {
+		messagingWebConfigured = webConfigured
+	}
+
+	if auditStore != nil && len(allDeployments) > 0 {
+		latestMap, err := auditStore.LatestPerResource(ctx, accountID, "deployment", depIDs)
+		if err != nil {
+			log.Warn("Failed to load audit timestamps for deployments", "error", err)
+		} else {
+			for i, d := range allDeployments {
+				if latest, ok := latestMap[d.ID]; ok {
+					allDeployments[i].UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
+					allDeployments[i].UpdatedBy = latest.ActorID
+				}
+			}
+		}
+	}
+
+	dbColorsByID := make(map[string]json.RawMessage, len(dbDeps))
+	for _, dep := range dbDeps {
+		if dep.AvatarColors != nil {
+			dbColorsByID[dep.ID] = *dep.AvatarColors
+		}
+	}
+
+	if avatarStore != nil {
+		for i, d := range allDeployments {
+			allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
+		}
+	}
+	for i, d := range allDeployments {
+		if len(allDeployments[i].AvatarColors) == 0 {
+			if colors, ok := dbColorsByID[d.ID]; ok {
+				allDeployments[i].AvatarColors = colors
+			}
+		}
+		if avatarStore != nil {
+			allDeployments[i].AvatarColors = colorextract.EnsureCurrent(ctx, allDeployments[i].AvatarColors,
+				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, d.ID) },
+				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(d.ID, j) },
+			)
+		}
+	}
+
+	populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
+
+	summaries := make([]AgentDeploymentSummary, len(allDeployments))
+	for i, d := range allDeployments {
+		summaries[i] = AgentDeploymentSummary{
+			ID:                     d.ID,
+			Name:                   d.Name,
+			DisplayName:            d.DisplayName,
+			AvatarColors:           d.AvatarColors,
+			BuildID:                d.BuildID,
+			LatestBuildID:          d.LatestBuildID,
+			Status:                 d.Status,
+			Namespace:              d.Namespace,
+			AccountID:              accountID,
+			AccountName:            accountName,
+			ExternalURLs:           d.ExternalURLs,
+			MessagingWebConfigured: messagingWebConfigured[d.ID],
+			CreatedAt:              d.CreatedAt,
+			UpdatedAt:              d.UpdatedAt,
+		}
+	}
+	return summaries, nil
+}
+
+// maxBuildIDFilter caps the number of build IDs accepted in a single
+// request. The blueprint sidebar — the only known caller — passes one
+// entry per version on the blueprint, which in practice stays well under
+// this limit. The cap exists so a misbehaving caller can't expand
+// build_id = ANY($N) into an array large enough to bother the query
+// planner or balloon parameter memory.
+const maxBuildIDFilter = 200
+
+// parseBuildIDFilter extracts the build_id query filter. Accepts either a
+// single comma-separated value (?build_id=a,b,c) or repeated params
+// (?build_id=a&build_id=b). Empty/whitespace entries are dropped. Returns
+// nil when the filter is absent so callers can branch on len()==0.
+//
+// The size cap is enforced at the handler (400 on overflow) rather than
+// here, so this stays a pure input → output transform.
+func parseBuildIDFilter(c *gin.Context) []string {
+	raw := c.QueryArray("build_id")
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		for _, part := range strings.Split(v, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // ListDeployments returns the list of deployments visible to the account.
+// When `account` is omitted, returns deployments across every account the
+// authenticated user belongs to.
 //
 // DB-ONLY. Do not add Kubernetes reads to this handler. Live operational
 // state (replicas, pods, workload status, events) is exposed via the per-
@@ -1483,10 +1641,90 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			return
 		}
 
-		// Resolve account from query param
+		if deployStore == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "deployment store not configured",
+			})
+			return
+		}
+
+		// Optional ?build_id= filter. Accepts a comma-separated list or
+		// repeated query params; the SQL layer applies it as build_id =
+		// ANY(...). Pushing the filter into SQL keeps the cross-account
+		// response bounded by the natural cardinality of "deployments of
+		// this blueprint" rather than "all deployments across all of the
+		// viewer's accounts".
+		buildIDs := parseBuildIDFilter(c)
+		if len(buildIDs) > maxBuildIDFilter {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("build_id accepts at most %d values, got %d", maxBuildIDFilter, len(buildIDs)),
+			})
+			return
+		}
+
+		// Cross-account fan-out: when `account` is omitted, aggregate
+		// deployments across every account the user belongs to. Lets the
+		// blueprint detail page surface the viewer's deployments regardless
+		// of which account they live in. Cache is per-account, so this
+		// path skips the cache.
 		accountName := c.Query("account")
+
+		// Require build_id when account is omitted. The cross-account path
+		// exists for the blueprint sidebar, which always knows the blueprint's
+		// builds. Allowing an unfiltered cross-account fan-out would return
+		// every deployment in every account the user belongs to in a single
+		// uncached response — refuse it explicitly rather than silently
+		// truncating. If a future caller legitimately needs the unfiltered
+		// firehose, add cursor pagination then.
+		if accountName == "" && len(buildIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "build_id query parameter is required when account is omitted",
+			})
+			return
+		}
+
 		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			accounts, err := accountStore.GetAccountsForUser(user.ID)
+			if err != nil {
+				log.Error("Failed to load accounts for user", "error", err, "user_id", user.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load accounts"})
+				return
+			}
+
+			// Per-account enrichment is independent — run in parallel. A
+			// single account's failure is logged and skipped so the rest
+			// of the response still renders. errgroup.SetLimit caps
+			// concurrent DB/avatar fan-out so a user in many accounts
+			// can't stampede the pool.
+			perAccount := make([][]AgentDeploymentSummary, len(accounts))
+			var g errgroup.Group
+			g.SetLimit(8)
+			ctx := c.Request.Context()
+			for i, a := range accounts {
+				g.Go(func() error {
+					summaries, err := enrichDeploymentsForAccount(ctx, log, a.ID, a.Name, buildIDs, accountStore, deployStore, agentIdx, avatarStore, auditStore)
+					if err != nil {
+						log.Warn("Failed to load deployments for account in cross-account list", "account_id", a.ID, "error", err)
+						return nil
+					}
+					perAccount[i] = summaries
+					return nil
+				})
+			}
+			_ = g.Wait()
+
+			total := 0
+			for _, s := range perAccount {
+				total += len(s)
+			}
+			combined := make([]AgentDeploymentSummary, 0, total)
+			for _, s := range perAccount {
+				combined = append(combined, s...)
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"deployments": combined,
+				"count":       len(combined),
+			})
 			return
 		}
 
@@ -1513,20 +1751,19 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 		// returns a payload that's accurate up to the most recent mutation.
 		// SafetyTTL bounds worst-case staleness if a future write site
 		// forgets to bust.
-		if cached, ok := deploycache.Get(c.Request.Context(), cache, acct.ID); ok {
-			c.Data(http.StatusOK, "application/json", cached)
-			return
+		//
+		// Cache stores the unfiltered list keyed by account ID. A build_id
+		// filter would explode the key space, so skip the cache when the
+		// filter is set — the filtered consumer (blueprint sidebar) only
+		// pulls a handful of rows, so the cache win isn't load-bearing.
+		if len(buildIDs) == 0 {
+			if cached, ok := deploycache.Get(c.Request.Context(), cache, acct.ID); ok {
+				c.Data(http.StatusOK, "application/json", cached)
+				return
+			}
 		}
 
-		if deployStore == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "deployment store not configured",
-			})
-			return
-		}
-
-		// DB is the source of truth — query all visible deployments (not just active)
-		dbDeps, err := deployStore.GetVisibleDeploymentsByAccount(acct.ID)
+		summaries, err := enrichDeploymentsForAccount(c.Request.Context(), log, acct.ID, acct.Name, buildIDs, accountStore, deployStore, agentIdx, avatarStore, auditStore)
 		if err != nil {
 			log.Error("Failed to load deployments from DB", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -1536,99 +1773,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			return
 		}
 
-		allDeployments := make([]AgentDeployment, len(dbDeps))
-		depIDs := make([]string, len(dbDeps))
-		for i, dbDep := range dbDeps {
-			allDeployments[i] = agentDeploymentFromDB(log, dbDep)
-			depIDs[i] = dbDep.ID
-		}
-
-		// Populate messaging URLs from DB in one batch query.
-		if messagingURLs, merr := deployStore.GetMessagingURLs(depIDs); merr != nil {
-			log.Warn("Failed to load messaging URLs", "error", merr)
-		} else {
-			for i, d := range allDeployments {
-				if url, ok := messagingURLs[d.ID]; ok {
-					allDeployments[i].ExternalURLs = []ServiceEndpointInfo{
-						{Name: "messaging", Type: "messaging", URL: url, Ready: true},
-					}
-				}
-			}
-		}
-
-		messagingWebConfigured := make(map[string]bool)
-		if webConfigured, werr := deployStore.GetMessagingWebConfigured(c.Request.Context(), depIDs); werr != nil {
-			log.Warn("Failed to load messaging web configured flags", "error", werr)
-		} else {
-			messagingWebConfigured = webConfigured
-		}
-
-		// Resolve updated_at from the latest audit log entry per deployment.
-		if auditStore != nil && len(allDeployments) > 0 {
-			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", depIDs)
-			if err != nil {
-				log.Warn("Failed to load audit timestamps for deployments", "error", err)
-			} else {
-				for i, d := range allDeployments {
-					if latest, ok := latestMap[d.ID]; ok {
-						allDeployments[i].UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
-						allDeployments[i].UpdatedBy = latest.ActorID
-					}
-				}
-			}
-		}
-
-		// Build a lookup of avatar colors from the original DB records.
-		dbColorsByID := make(map[string]json.RawMessage, len(dbDeps))
-		for _, dep := range dbDeps {
-			if dep.AvatarColors != nil {
-				dbColorsByID[dep.ID] = *dep.AvatarColors
-			}
-		}
-
-		// Resolve avatar URLs and colors for each deployment.
-		if avatarStore != nil {
-			for i, d := range allDeployments {
-				allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
-			}
-		}
-		for i, d := range allDeployments {
-			if len(allDeployments[i].AvatarColors) == 0 {
-				if colors, ok := dbColorsByID[d.ID]; ok {
-					allDeployments[i].AvatarColors = colors
-				}
-			}
-			if avatarStore != nil {
-				allDeployments[i].AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), allDeployments[i].AvatarColors,
-					func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, d.ID) },
-					func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(d.ID, j) },
-				)
-			}
-		}
-
-		populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
-
-		summaries := make([]AgentDeploymentSummary, len(allDeployments))
-		for i, d := range allDeployments {
-			summaries[i] = AgentDeploymentSummary{
-				ID:                     d.ID,
-				Name:                   d.Name,
-				DisplayName:            d.DisplayName,
-				AvatarColors:           d.AvatarColors,
-				BuildID:                d.BuildID,
-				LatestBuildID:          d.LatestBuildID,
-				Status:                 d.Status,
-				Namespace:              d.Namespace,
-				ExternalURLs:           d.ExternalURLs,
-				MessagingWebConfigured: messagingWebConfigured[d.ID],
-				CreatedAt:              d.CreatedAt,
-				UpdatedAt:              d.UpdatedAt,
-			}
-		}
-
-		// Marshal once, write to cache + response. Caching the full envelope
-		// (not just the deployments slice) lets the hit path do c.Data with
-		// zero re-marshal cost on subsequent loads.
+		// Marshal once. Cache only the unfiltered envelope — filtered
+		// responses are skipped above and shouldn't be written back here.
 		body, marshalErr := json.Marshal(gin.H{
 			"deployments": summaries,
 			"count":       len(summaries),
@@ -1638,9 +1784,11 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode deployments"})
 			return
 		}
-		if cerr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cerr != nil {
-			// Cache failure is non-fatal — next request just repopulates.
-			log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cerr)
+		if len(buildIDs) == 0 {
+			if cerr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cerr != nil {
+				// Cache failure is non-fatal — next request just repopulates.
+				log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cerr)
+			}
 		}
 		c.Data(http.StatusOK, "application/json", body)
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1238,8 +1239,75 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestListDeployments_MissingAccountParam(t *testing.T) {
-	router, _, _ := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+func TestParseBuildIDFilter(t *testing.T) {
+	// Table-driven coverage for parseBuildIDFilter's edge cases: comma
+	// splitting, whitespace trimming, empty/whitespace-only inputs, and
+	// the interaction of repeated query params with comma-separated values.
+	// These are exercised indirectly through the full handler, but pinning
+	// them here makes regressions in the parser stand out.
+	cases := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{name: "absent", query: "", want: nil},
+		{name: "single value", query: "?build_id=b1", want: []string{"b1"}},
+		{name: "comma-separated", query: "?build_id=b1,b2,b3", want: []string{"b1", "b2", "b3"}},
+		{name: "repeated param", query: "?build_id=b1&build_id=b2", want: []string{"b1", "b2"}},
+		{name: "mixed repeated and comma", query: "?build_id=b1,b2&build_id=b3", want: []string{"b1", "b2", "b3"}},
+		{name: "trims whitespace around values", query: "?build_id=%20b1%20,%20b2", want: []string{"b1", "b2"}},
+		{name: "drops empty entries between commas", query: "?build_id=b1,,b2", want: []string{"b1", "b2"}},
+		{name: "drops trailing comma", query: "?build_id=b1,", want: []string{"b1"}},
+		{name: "drops leading comma", query: "?build_id=,b1", want: []string{"b1"}},
+		{name: "whitespace-only value returns nil", query: "?build_id=%20", want: nil},
+		{name: "all-empty repeated params return nil", query: "?build_id=&build_id=,", want: nil},
+		{name: "empty value returns nil", query: "?build_id=", want: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("GET", "/api/v1/deployments"+tc.query, nil)
+
+			got := parseBuildIDFilter(c)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("parseBuildIDFilter(%q) = %#v, want %#v", tc.query, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestListDeployments_RejectsOversizedBuildIDFilter(t *testing.T) {
+	// The build_id filter is capped to prevent a misbehaving caller from
+	// expanding the SQL ANY() array into something that bothers the planner.
+	// 201 entries (one over the cap) should be rejected with 400 before any
+	// DB or account lookup runs — no mocks set up, since reaching them is
+	// itself a failure.
+	router, _, _ := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	ids := make([]string, 201)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("b%d", i)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/deployments?build_id="+strings.Join(ids, ","), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "at most 200") {
+		t.Errorf("expected error message to mention the cap, got %s", w.Body.String())
+	}
+}
+
+func TestListDeployments_RejectsUnfilteredCrossAccount(t *testing.T) {
+	// The cross-account path is only meant to power the blueprint sidebar,
+	// which always supplies ?build_id=. Refusing the unfiltered combo
+	// (no account, no build_id) prevents callers from accidentally pulling
+	// every deployment across every account in one uncached response.
+	router, _, _ := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments", nil)
 	w := httptest.NewRecorder()
@@ -1247,6 +1315,313 @@ func TestListDeployments_MissingAccountParam(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListDeployments_OmittedAccount_StampsAccountContext(t *testing.T) {
+	// The cross-account fan-out must stamp account_id / account_name on every
+	// returned summary so the blueprint sidebar can attribute, link, and route
+	// per deployment without a second join.
+	depID := deployid.New()
+	router, deployMock, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	now := time.Now()
+
+	// GetAccountsForUser → one account.
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name",
+		}).AddRow("acct-1", "myorg", "organization", "", "", now, now, "MyOrg"))
+
+	// GetVisibleDeploymentsByAccountAndBuilds → one deployment.
+	deployMock.ExpectQuery(`build_id = ANY`).
+		WithArgs("acct-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at", "avatar_colors",
+		}).AddRow(
+			depID, "acct-1", nil, "my-agent", "build-1", "astro-abc-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?build_id=build-1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count       int                      `json:"count"`
+		Deployments []AgentDeploymentSummary `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected 1 deployment, got %d", resp.Count)
+	}
+	got := resp.Deployments[0]
+	if got.AccountID != "acct-1" {
+		t.Errorf("AccountID = %q, want %q", got.AccountID, "acct-1")
+	}
+	if got.AccountName != "myorg" {
+		t.Errorf("AccountName = %q, want %q", got.AccountName, "myorg")
+	}
+}
+
+func TestListDeployments_OmittedAccount_AggregatesAcrossAccounts(t *testing.T) {
+	// Happy path for the cross-account fan-out: deployments from every
+	// account the user belongs to should appear in the combined response,
+	// each stamped with the originating account_id / account_name.
+	depA := deployid.New()
+	depB := deployid.New()
+	router, deployMock, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	// Fan-out runs accounts concurrently — queries may arrive in either order.
+	deployMock.MatchExpectationsInOrder(false)
+
+	now := time.Now()
+
+	// GetAccountsForUser → two accounts.
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name",
+		}).
+			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha").
+			AddRow("acct-2", "beta", "personal", "", "", now, now, "Beta"))
+
+	// GetVisibleDeploymentsByAccountAndBuilds → one deployment per account.
+	depCols := []string{
+		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at", "avatar_colors",
+	}
+	deployMock.ExpectQuery(`build_id = ANY`).WithArgs("acct-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(depCols).AddRow(
+			depA, "acct-1", nil, "agent-a", "b1", "astro-aaa-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+	deployMock.ExpectQuery(`build_id = ANY`).WithArgs("acct-2", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(depCols).AddRow(
+			depB, "acct-2", nil, "agent-b", "b1", "astro-bbb-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?build_id=b1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count       int                      `json:"count"`
+		Deployments []AgentDeploymentSummary `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 2 {
+		t.Fatalf("expected count=2, got %d", resp.Count)
+	}
+
+	byID := make(map[string]AgentDeploymentSummary, len(resp.Deployments))
+	for _, d := range resp.Deployments {
+		byID[d.ID] = d
+	}
+	if got := byID[depA]; got.AccountID != "acct-1" || got.AccountName != "alpha" {
+		t.Errorf("dep A account ctx: AccountID=%q AccountName=%q, want acct-1/alpha", got.AccountID, got.AccountName)
+	}
+	if got := byID[depB]; got.AccountID != "acct-2" || got.AccountName != "beta" {
+		t.Errorf("dep B account ctx: AccountID=%q AccountName=%q, want acct-2/beta", got.AccountID, got.AccountName)
+	}
+}
+
+func TestListDeployments_BuildIDFilter_SingleAccount(t *testing.T) {
+	// ?build_id=b1 must restrict the single-account response to deployments
+	// of those builds — the filter is pushed into SQL via the build-filtered
+	// store method, so the mock only sees one query with build_ids in args.
+	depID := deployid.New()
+	router, deployMock, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// The filtered query must reach the build_id = ANY(...) variant — assert
+	// by matching the SQL fragment, not just `SELECT`. WithArgs pins the
+	// account ID and the build-IDs array binding.
+	deployMock.ExpectQuery(`build_id = ANY`).
+		WithArgs("acct-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at", "avatar_colors",
+		}).AddRow(
+			depID, "acct-1", nil, "my-agent", "b1", "astro-abc-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg&build_id=b1,b2", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count       int                      `json:"count"`
+		Deployments []AgentDeploymentSummary `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected count=1, got %d", resp.Count)
+	}
+	if resp.Deployments[0].BuildID != "b1" {
+		t.Errorf("BuildID = %q, want %q", resp.Deployments[0].BuildID, "b1")
+	}
+}
+
+func TestListDeployments_BuildIDFilter_CrossAccount(t *testing.T) {
+	// The cross-account path must also honor ?build_id=. Each per-account
+	// fan-out goroutine should hit the filtered store method, not the
+	// unfiltered one.
+	depA := deployid.New()
+	router, deployMock, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	deployMock.MatchExpectationsInOrder(false)
+
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name",
+		}).
+			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha").
+			AddRow("acct-2", "beta", "personal", "", "", now, now, "Beta"))
+
+	depCols := []string{
+		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at", "avatar_colors",
+	}
+	deployMock.ExpectQuery(`build_id = ANY`).
+		WithArgs("acct-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(depCols).AddRow(
+			depA, "acct-1", nil, "agent-a", "b1", "astro-aaa-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+	// Account 2 has no matching builds — the filtered query returns empty.
+	deployMock.ExpectQuery(`build_id = ANY`).
+		WithArgs("acct-2", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(depCols))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?build_id=b1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count       int                      `json:"count"`
+		Deployments []AgentDeploymentSummary `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected count=1 (only acct-1 had a match), got %d", resp.Count)
+	}
+	if got := resp.Deployments[0]; got.ID != depA || got.AccountID != "acct-1" {
+		t.Errorf("matched dep: got ID=%q AccountID=%q, want %q / acct-1", got.ID, got.AccountID, depA)
+	}
+}
+
+func TestListDeployments_OmittedAccount_PartialFailureKeepsSuccessfulAccount(t *testing.T) {
+	// A single account's failure must not blank the sidebar. The
+	// cross-account path logs and skips the failing account; deployments
+	// from the surviving accounts still render.
+	depOK := deployid.New()
+	router, deployMock, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	deployMock.MatchExpectationsInOrder(false)
+
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name",
+		}).
+			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha").
+			AddRow("acct-bad", "broken", "organization", "", "", now, now, "Broken"))
+
+	depCols := []string{
+		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at", "avatar_colors",
+	}
+	deployMock.ExpectQuery(`build_id = ANY`).WithArgs("acct-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(depCols).AddRow(
+			depOK, "acct-1", nil, "agent-a", "b1", "astro-aaa-0", "",
+			`{}`, nil, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil, nil,
+		))
+	deployMock.ExpectQuery(`build_id = ANY`).WithArgs("acct-bad", sqlmock.AnyArg()).
+		WillReturnError(fmt.Errorf("db unavailable"))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?build_id=b1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite partial failure, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count       int                      `json:"count"`
+		Deployments []AgentDeploymentSummary `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected count=1 (surviving account), got %d", resp.Count)
+	}
+	if got := resp.Deployments[0]; got.ID != depOK || got.AccountID != "acct-1" {
+		t.Errorf("surviving dep: got ID=%q AccountID=%q, want %q / acct-1", got.ID, got.AccountID, depOK)
 	}
 }
 
@@ -1470,6 +1845,16 @@ func TestListDeployments_PerDeploymentClusterRouting(t *testing.T) {
 	}
 	if byID[depAdditional].Name != "agent-other" {
 		t.Errorf("additional dep name: got %q", byID[depAdditional].Name)
+	}
+	// Account context must be stamped on every summary so the consumer can
+	// attribute and link per deployment without joining a second endpoint.
+	for _, d := range resp.Deployments {
+		if d.AccountID != "acct-1" {
+			t.Errorf("dep %q: AccountID = %q, want %q", d.ID, d.AccountID, "acct-1")
+		}
+		if d.AccountName != "myorg" {
+			t.Errorf("dep %q: AccountName = %q, want %q", d.ID, d.AccountName, "myorg")
+		}
 	}
 }
 
