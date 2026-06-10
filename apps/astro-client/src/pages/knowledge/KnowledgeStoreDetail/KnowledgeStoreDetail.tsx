@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router";
-import { Bot, Calendar } from "lucide-react";
+import { BookOpen, ChevronRight } from "lucide-react";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
-  Squares2X2Icon,
   QueueListIcon,
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Tag } from "@/components/Tag";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
@@ -22,8 +20,6 @@ import {
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
-import { PageBreadcrumb } from "@/components/PageBreadcrumb";
-import { UserAvatar } from "@/components/UserAvatar";
 import { cn } from "@/lib/utils";
 import { Chip } from "./Chip";
 import { OverviewTab } from "./OverviewTab";
@@ -43,7 +39,7 @@ function KnowledgeStoreDetailContent() {
   const [tab, setTab] = useState<Tab>("overview");
 
   const tabs: { key: Tab; label: string; hidden?: boolean; icon: React.ReactNode }[] = [
-    { key: "overview", label: "Overview", icon: <Squares2X2Icon className="size-3.5 shrink-0" /> },
+    { key: "overview", label: "Overview", icon: <BookOpen className="size-3.5 shrink-0" /> },
     { key: "logs", label: "Logs", hidden: store?.mode !== "managed", icon: <QueueListIcon className="size-3.5 shrink-0" /> },
     { key: "settings", label: "Settings", icon: <Cog6ToothIcon className="size-3.5 shrink-0" /> },
   ];
@@ -65,59 +61,53 @@ function KnowledgeStoreDetailContent() {
     );
   }
 
+  const fullValue = store.public_host || store.arn;
+  const isArn = !store.public_host;
+  const display = isArn && fullValue ? `…${fullValue.split(":").pop() ?? fullValue}` : fullValue;
+
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden relative bg-background">
       <div className="flex flex-1 flex-col min-w-0 min-h-0">
 
-        <PageBreadcrumb
-          items={[
-            { label: "Knowledge Stores", to: knowledgePath },
-            { label: account, to: accountProfilePath(account) },
-            { label: store.name },
-          ]}
-          mobileItems={[
-            {
-              label: (
-                <span className="inline-flex items-center gap-2">
-                  <UserAvatar handle={account} name={account} className="size-5" />
-                  {account}
-                </span>
-              ),
-              to: accountProfilePath(account),
-            },
-          ]}
-        />
-
         <div className="bg-background border-b border-border shrink-0 pt-6">
-          <div className="mb-4 px-8">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 mb-2.5">
-                <h1 className="text-heading-1 text-foreground w-full sm:w-auto">{store.name}</h1>
+          <div className="px-8 pb-7">
+            <nav className="mb-4 flex items-center gap-1.5 font-mono text-mono-sm text-muted-foreground" aria-label="Breadcrumb">
+              <Link to={knowledgePath} className="hover:text-foreground transition-colors">Knowledge</Link>
+              <ChevronRight className="size-3.5 shrink-0 text-faint-foreground" />
+              <Link to={accountProfilePath(account)} className="hover:text-foreground transition-colors">{account}</Link>
+              <ChevronRight className="size-3.5 shrink-0 text-faint-foreground" />
+              <span className="text-foreground truncate">{store.name}</span>
+            </nav>
+
+            <div className="flex items-center justify-between gap-x-3 gap-y-4 flex-wrap">
+              <div className="flex items-center gap-x-2.5 gap-y-1.5 flex-wrap min-w-0">
+                <h1 className="text-heading-1 text-foreground">{store.name}</h1>
                 <StatusBadge color={statusToColor(store.status)} spinning={isTransitionalStatus(store.status)}>
                   {statusLabel(store.status)}
                 </StatusBadge>
-                <Tag color={store.mode === "managed" ? "blue" : "default"}>
-                  {store.mode === "managed" ? "Managed" : "External"}
-                </Tag>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <Chip>
                   <ProviderIcon provider={store.provider} className="size-3.5 shrink-0" />
                   {PROVIDER_LABELS[store.provider] ?? store.provider}
+                  <span className="text-faint-foreground">·</span>
+                  {store.mode === "managed" ? "Managed" : "External"}
                 </Chip>
-                <Chip>
-                  <Bot className="size-3.5 shrink-0" />
-                  {store.bound_agents?.length ?? 0} bound agents
-                </Chip>
-                <Chip>
-                  <Calendar className="size-3.5 shrink-0" />
-                  Created {new Date(store.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                </Chip>
-                {(store.public_host || store.arn) && (
-                  <Chip>
-                    <span className="font-mono text-mono-sm">{store.public_host || store.arn}</span>
-                    <CopyButton copyText={store.public_host || store.arn} className="size-4 p-0 shrink-0 border-0 bg-transparent shadow-none hover:bg-slate-200" iconClassName="size-3" />
-                  </Chip>
+                {fullValue && (
+                  <span className="inline-flex items-stretch h-7 max-w-full rounded-sm border border-border overflow-hidden">
+                    <span className="inline-flex items-center px-2 font-sans text-label uppercase tracking-wide text-faint-foreground shrink-0">
+                      {isArn ? "ARN" : "URL"}
+                    </span>
+                    <span className="w-px bg-border shrink-0" />
+                    <span className="inline-flex items-center px-2 font-sans text-body-sm text-foreground min-w-0 truncate">
+                      {display}
+                    </span>
+                    <CopyButton
+                      copyText={fullValue}
+                      className="h-7 w-7 rounded-none border-0 border-l border-border bg-transparent shadow-none hover:bg-muted shrink-0"
+                      iconClassName="size-3.5"
+                    />
+                  </span>
                 )}
               </div>
             </div>

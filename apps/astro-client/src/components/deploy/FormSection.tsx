@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 export interface FormSectionProps {
   title: string;
-  description: string;
+  description: ReactNode;
   children: ReactNode;
   /** Optional action element rendered to the right of the title. */
   action?: ReactNode;
@@ -18,7 +18,7 @@ export function FormSection({ title, description, children, action }: FormSectio
         </div>
         <p className="text-[13px] text-muted-foreground mt-0.5">{description}</p>
       </div>
-      <hr className="border-border-strong mb-5 mt-4" />
+      <hr className="border-border mb-5 mt-4" />
       {children}
     </section>
   );

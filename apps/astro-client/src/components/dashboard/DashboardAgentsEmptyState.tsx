@@ -30,12 +30,12 @@ export function DashboardAgentsEmptyState({ account }: DashboardAgentsEmptyState
   const hasBlueprints = (blueprintsData?.agents?.length ?? 0) > 0;
 
   return (
-    <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
-      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-border">
-        <RocketLaunchIcon className="size-6 text-muted-foreground" />
+    <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+      <div className="flex justify-center mb-3 text-muted-foreground">
+        <RocketLaunchIcon className="size-6" />
       </div>
-      <p className="text-heading-3 text-foreground mb-2">No agents deployed yet</p>
-      <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
+      <p className="text-sm font-medium text-foreground">No agents deployed yet</p>
+      <p className="text-xs text-muted-foreground mt-1 mb-4 max-w-sm mx-auto">
         {hasBlueprints
           ? "Pick one of your blueprints and deploy it to get an agent running."
           : "To deploy an agent you'll need a blueprint, a spec that defines what your agent does."}

@@ -31,18 +31,18 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
       {store.endpoint && <PrivateLinkSection store={store} />}
 
       {store.status !== "pending-acceptance" && <>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} className="bg-card" />
-          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} className="bg-card" />
-          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} className="bg-card" />
-          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} className="bg-card"
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard label="CPU" value={cpuValue} showTrend={false} loading={metricsLoading} className="bg-muted/30 dark:bg-muted/30" />
+          <MetricCard label="Memory" value={memValue} showTrend={false} loading={metricsLoading} className="bg-muted/30 dark:bg-muted/30" />
+          <MetricCard label="Storage" value={storageUsed} valueSuffix={storageSuffix} showTrend={false} loading={metricsLoading} className="bg-muted/30 dark:bg-muted/30" />
+          <MetricCard label="Uptime" value={uptimeValue} showTrend={false} loading={metricsLoading} className="bg-muted/30 dark:bg-muted/30"
             description={metrics?.uptime_seconds != null ? <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground"><CheckCircleIcon className="size-3.5 shrink-0 text-success" />No restarts detected</span> : undefined}
           />
         </div>
 
         <div className={cn("grid gap-3", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
-          <div className="rounded-md border border-border bg-card overflow-hidden">
-            <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface">
+          <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
               <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
               <Tag>{store.bound_agents?.length ?? 0}</Tag>
             </div>
@@ -52,9 +52,11 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Bot className="size-10 text-muted-foreground" />
-                <p className="mt-3 text-body-sm text-foreground font-medium">No agents are bound to this store yet.</p>
-                <p className="mt-1 text-body-sm text-muted-foreground">
+                <div className="flex justify-center mb-3 text-muted-foreground">
+                  <Bot className="size-6" />
+                </div>
+                <p className="text-sm font-medium text-foreground">No agents bound</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   Select this store as a shared database when deploying an agent.
                 </p>
               </div>
@@ -63,8 +65,8 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
 
           {store.mode === "managed" && (
             <div className="flex flex-col">
-              <div className="rounded-md border border-border bg-card overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-surface">
+              <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border">
                   <h3 className="text-heading-4 text-foreground">Event log</h3>
                   <Button variant="ghost" size="sm" onClick={onViewLogs}>View logs</Button>
                 </div>

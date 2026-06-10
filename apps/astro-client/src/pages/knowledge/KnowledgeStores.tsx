@@ -34,17 +34,15 @@ import {
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
-import { getIntegrationIconUrl } from "@/lib/assets";
 import { loadAccountScoped } from "@/lib/api.server";
-import type { KnowledgeStore, KnowledgeProvider } from "@/lib/api";
+import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
+import type { KnowledgeStore } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
 
 export async function loader({ request }: Route.LoaderArgs) {
   return loadAccountScoped(request, (api, account) => api.listKnowledgeStores(account));
 }
-
-const PROVIDERS_WITH_ICON = new Set<KnowledgeProvider>(["postgres", "qdrant", "redis", "pinecone", "neo4j", "mysql"]);
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -95,12 +93,12 @@ function KnowledgeStoresContent() {
       />
 
         {isLoading && stores.length === 0 ? null : stores.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
-            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-md bg-border">
-              <CircleStackIcon className="size-6 text-muted-foreground" />
+          <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+            <div className="flex justify-center mb-3 text-muted-foreground">
+              <CircleStackIcon className="size-6" />
             </div>
-            <p className="text-heading-3 text-foreground mb-2">No knowledge stores yet</p>
-            <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
+            <p className="text-sm font-medium text-foreground">No knowledge stores yet</p>
+            <p className="text-xs text-muted-foreground mt-1 mb-4">
               Create a store to give your agents a database for memory, vector search, or caching.
             </p>
             <Button onClick={() => navigate(newKnowledgePath)}>
@@ -140,16 +138,7 @@ function KnowledgeStoresContent() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <span className="inline-flex items-center gap-2">
-                      {PROVIDERS_WITH_ICON.has(store.provider) ? (
-                        <img
-                          src={getIntegrationIconUrl(store.provider, "light")}
-                          alt=""
-                          className="size-4 object-contain"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <CircleStackIcon className="size-4 text-muted-foreground/60" />
-                      )}
+                      <ProviderIcon provider={store.provider} className="size-4" />
                       {PROVIDER_LABELS[store.provider] ?? store.provider}
                     </span>
                   </TableCell>
