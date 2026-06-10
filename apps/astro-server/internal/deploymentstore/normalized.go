@@ -1,6 +1,7 @@
 package deploymentstore
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -1304,6 +1305,37 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 			scheme = "http"
 		}
 		result[depID] = scheme + "://" + hostname
+	}
+	return result, rows.Err()
+}
+
+// GetMessagingWebConfigured returns deployment IDs that have a messaging
+// sidecar with an http service (web adapter). Does not require an ingress row,
+// so proxy-reachable agents appear in list UIs even when Launch URL is absent.
+func (s *Store) GetMessagingWebConfigured(ctx context.Context, deploymentIDs []string) (map[string]bool, error) {
+	if len(deploymentIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT sc.deployment_id
+		FROM deployment_sidecars sc
+		JOIN deployment_services ds ON ds.sidecar_id = sc.id
+		WHERE sc.deployment_id = ANY($1)
+		  AND sc.component_kind = 'messaging'
+		  AND ds.name = 'http'
+	`, pq.Array(deploymentIDs))
+	if err != nil {
+		return nil, fmt.Errorf("query messaging web configured: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string]bool, len(deploymentIDs))
+	for rows.Next() {
+		var depID string
+		if err := rows.Scan(&depID); err != nil {
+			return nil, fmt.Errorf("scan messaging web configured: %w", err)
+		}
+		result[depID] = true
 	}
 	return result, rows.Err()
 }

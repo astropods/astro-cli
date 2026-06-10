@@ -1,6 +1,7 @@
 package deploymentstore
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -1496,6 +1497,96 @@ func TestGetMessagingURLs(t *testing.T) {
 		}
 		if urls != nil {
 			t.Errorf("expected nil for empty input, got %v", urls)
+		}
+	})
+}
+
+func TestGetMessagingWebConfigured(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	insertMessagingHTTP := func(t *testing.T, depID string) {
+		t.Helper()
+		var scID int
+		if err := db.QueryRow(`
+			INSERT INTO deployment_sidecars (deployment_id, name, component_kind, image,
+				cpu_request, memory_request, cpu_limit, memory_limit)
+			VALUES ($1, 'messaging', 'messaging', 'msg:latest', '100m', '128Mi', '200m', '256Mi')
+			RETURNING id`, depID).Scan(&scID); err != nil {
+			t.Fatalf("insert sidecar: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO deployment_services (workload_id, sidecar_id, name, port, target_port, protocol)
+			VALUES (NULL, $1, 'http', 8080, 8080, 'http')`, scID); err != nil {
+			t.Fatalf("insert http service: %v", err)
+		}
+	}
+
+	insertMessagingSlackOnly := func(t *testing.T, depID string) {
+		t.Helper()
+		var scID int
+		if err := db.QueryRow(`
+			INSERT INTO deployment_sidecars (deployment_id, name, component_kind, image,
+				cpu_request, memory_request, cpu_limit, memory_limit)
+			VALUES ($1, 'messaging', 'messaging', 'msg:latest', '100m', '128Mi', '200m', '256Mi')
+			RETURNING id`, depID).Scan(&scID); err != nil {
+			t.Fatalf("insert sidecar: %v", err)
+		}
+		if _, err := db.Exec(`
+			INSERT INTO deployment_services (workload_id, sidecar_id, name, port, target_port, protocol)
+			VALUES (NULL, $1, 'grpc', 9090, 9090, 'grpc')`, scID); err != nil {
+			t.Fatalf("insert grpc service: %v", err)
+		}
+	}
+
+	makeDeployment := func(t *testing.T, name string) string {
+		t.Helper()
+		d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+			ID: newID(), AccountID: accountID, AgentName: name,
+			BuildID: "b1", Namespace: "ns-" + name, SpecJSON: `{}`,
+		}, nil)
+		if err != nil {
+			t.Fatalf("SaveDeploymentPending: %v", err)
+		}
+		return d.ID
+	}
+
+	t.Run("true when messaging sidecar has http service", func(t *testing.T) {
+		depID := makeDeployment(t, "web-msg-agent")
+		insertMessagingHTTP(t, depID)
+
+		got, err := store.GetMessagingWebConfigured(context.Background(), []string{depID})
+		if err != nil {
+			t.Fatalf("GetMessagingWebConfigured: %v", err)
+		}
+		if !got[depID] {
+			t.Error("expected messaging web configured")
+		}
+	})
+
+	t.Run("false for slack-only grpc service", func(t *testing.T) {
+		depID := makeDeployment(t, "slack-only-agent")
+		insertMessagingSlackOnly(t, depID)
+
+		got, err := store.GetMessagingWebConfigured(context.Background(), []string{depID})
+		if err != nil {
+			t.Fatalf("GetMessagingWebConfigured: %v", err)
+		}
+		if got[depID] {
+			t.Error("expected false for slack-only sidecar")
+		}
+	})
+
+	t.Run("absent for deployment without messaging sidecar", func(t *testing.T) {
+		depID := makeDeployment(t, "no-msg-agent")
+
+		got, err := store.GetMessagingWebConfigured(context.Background(), []string{depID})
+		if err != nil {
+			t.Fatalf("GetMessagingWebConfigured: %v", err)
+		}
+		if got[depID] {
+			t.Error("expected absent for deployment without messaging")
 		}
 	})
 }

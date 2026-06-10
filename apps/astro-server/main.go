@@ -34,6 +34,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -666,6 +667,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	deploymentStore := deps.Stores.Deployment
 	accountVarsStore := deps.Stores.AccountVars
 	heartStore := deps.Stores.Heart
+	chatStore := chatstore.New(db)
 	agentMetricsStore := deps.Stores.AgentMetrics
 	clusterStore := deps.Stores.Cluster
 	auditStore := deps.Stores.Audit
@@ -1453,11 +1455,49 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentRuntimeResponse{}),
 			)
-			// Messaging proxy — same-origin chat on astropod.ai without a second WorkOS login.
+			// Messaging proxy — send + SSE only; durable history is /deployments/:id/chat (see deployment-chat.md).
 			// Validates Astro session, forwards to the deployment messaging sidecar, and
 			// injects x-amzn-oidc-identity for upstream auth.
-			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
+			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg, chatStore)
 			protected.Any("/deployments/:id/messaging/*proxyPath", messagingProxy)
+			api.GET(protected, "/deployments/:id/chat/conversations", "List deployment chat conversations",
+				handlers.ListDeploymentChatConversations(log, accountStore, deploymentStore, chatStore),
+				oapispec.Tags("Chat"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.ListChatConversationsResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
+				handlers.GetDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
+				oapispec.Tags("Chat"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("conversationId", "Conversation ID"),
+				oapispec.QueryParam("limit", "Max messages to return (tail or older page; max 1000)", false),
+				oapispec.QueryParam("before_seq", "Return messages older than this seq (requires limit)", false),
+				oapispec.Response(200, &handlers.GetChatConversationResponse{}),
+			)
+			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId", "Upsert deployment chat conversation",
+				handlers.UpsertDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
+				oapispec.Tags("Chat"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("conversationId", "Conversation ID"),
+			)
+			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId/messages", "Replace deployment chat messages",
+				handlers.ReplaceDeploymentChatMessages(log, accountStore, deploymentStore, chatStore),
+				oapispec.Tags("Chat"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("conversationId", "Conversation ID"),
+			)
+			api.POST(protected, "/deployments/:id/chat/conversations/:conversationId/messages", "Append deployment chat message",
+				handlers.AppendDeploymentChatMessage(log, accountStore, deploymentStore, chatStore),
+				oapispec.Tags("Chat"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("conversationId", "Conversation ID"),
+			)
 			// Authorization is configured exclusively through `interfaces.auth`
 			// in the deployment spec — no imperative endpoints here. The only
 			// authorization endpoint is the messaging-facing

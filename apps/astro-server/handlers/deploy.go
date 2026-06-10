@@ -1321,9 +1321,10 @@ type AgentDeploymentSummary struct {
 	LatestBuildID string                `json:"latest_build_id,omitempty"`
 	Status        string                `json:"status,omitempty"`
 	Namespace     string                `json:"namespace,omitempty"`
-	ExternalURLs  []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	CreatedAt     string                `json:"created_at"`
-	UpdatedAt     string                `json:"updated_at,omitempty"`
+	ExternalURLs            []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	MessagingWebConfigured  bool                  `json:"messaging_web_configured"`
+	CreatedAt               string                `json:"created_at"`
+	UpdatedAt               string                `json:"updated_at,omitempty"`
 }
 
 // CountDeployments returns a handler that returns the number of visible deployments for an account.
@@ -1555,6 +1556,13 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			}
 		}
 
+		messagingWebConfigured := make(map[string]bool)
+		if webConfigured, werr := deployStore.GetMessagingWebConfigured(c.Request.Context(), depIDs); werr != nil {
+			log.Warn("Failed to load messaging web configured flags", "error", werr)
+		} else {
+			messagingWebConfigured = webConfigured
+		}
+
 		// Resolve updated_at from the latest audit log entry per deployment.
 		if auditStore != nil && len(allDeployments) > 0 {
 			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", depIDs)
@@ -1603,17 +1611,18 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 		summaries := make([]AgentDeploymentSummary, len(allDeployments))
 		for i, d := range allDeployments {
 			summaries[i] = AgentDeploymentSummary{
-				ID:            d.ID,
-				Name:          d.Name,
-				DisplayName:   d.DisplayName,
-				AvatarColors:  d.AvatarColors,
-				BuildID:       d.BuildID,
-				LatestBuildID: d.LatestBuildID,
-				Status:        d.Status,
-				Namespace:     d.Namespace,
-				ExternalURLs:  d.ExternalURLs,
-				CreatedAt:     d.CreatedAt,
-				UpdatedAt:     d.UpdatedAt,
+				ID:                     d.ID,
+				Name:                   d.Name,
+				DisplayName:            d.DisplayName,
+				AvatarColors:           d.AvatarColors,
+				BuildID:                d.BuildID,
+				LatestBuildID:          d.LatestBuildID,
+				Status:                 d.Status,
+				Namespace:              d.Namespace,
+				ExternalURLs:           d.ExternalURLs,
+				MessagingWebConfigured: messagingWebConfigured[d.ID],
+				CreatedAt:              d.CreatedAt,
+				UpdatedAt:              d.UpdatedAt,
 			}
 		}
 
