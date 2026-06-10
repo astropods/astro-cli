@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 export interface SidebarSectionProps {
   title: string;
@@ -29,19 +29,19 @@ export function SidebarSection({
         <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
           {title}
         </span>
-        {badge && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="text-amber-500 dark:text-amber-400 cursor-default">
-                  {badge}
-                </span>
-              </TooltipTrigger>
-              {badgeTooltip && (
-                <TooltipContent>{badgeTooltip}</TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+        {badge && badgeTooltip && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="cursor-pointer rounded-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                aria-label={badgeTooltip}
+              >
+                {badge}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent>{badgeTooltip}</PopoverContent>
+          </Popover>
         )}
         {trailing && <span className="ml-auto">{trailing}</span>}
       </header>

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -6,6 +7,7 @@ import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
 import { GitHubConnectionPanel } from "./GitHubConnectionPanel";
 import { SidebarAuthor } from "./SidebarAuthor";
+import { SidebarDeployedAgents } from "./SidebarDeployedAgents";
 import { SidebarRepository } from "./SidebarRepository";
 import { SidebarSection } from "./SidebarSection";
 import { SidebarStats } from "./SidebarStats";
@@ -64,6 +66,11 @@ export function SidebarCard({
   const repository = getBlueprintRepository(agent);
   const isDraft = agent.versions.length === 0;
 
+  const buildIds = useMemo(
+    () => agent.versions.map((v) => v.build_id),
+    [agent.versions],
+  );
+
   return (
     <div className="space-y-4">
       <div className="rounded-[4px] border border-border-strong bg-slate-200 p-4 dark:bg-muted/30">
@@ -85,6 +92,12 @@ export function SidebarCard({
       {canEdit && (
         <GitHubConnectionPanel account={agent.account} name={agent.name} preConnectedRepo={githubRepoName} preConnectedBranch={githubBranch} />
       )}
+
+      <SidebarDeployedAgents
+        account={agent.account}
+        blueprintName={agent.name}
+        buildIds={buildIds}
+      />
 
       <SidebarStats
         rating={rating}
