@@ -6,6 +6,8 @@ import (
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/docker/compose/v5/pkg/api"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // helper to dereference a *string from env maps, returning "" if nil.
@@ -497,6 +499,52 @@ func TestBuildProject_KnowledgeInputsInjected(t *testing.T) {
 	if envVal(svc2.Environment, "POSTGRES_DB") != "my_db" {
 		t.Errorf("POSTGRES_DB = %q, want %q", envVal(svc2.Environment, "POSTGRES_DB"), "my_db")
 	}
+}
+
+func TestBuildProject_PostgresCredentialsAutoInjected(t *testing.T) {
+	// Container-mode postgres should get USER/PASSWORD/DB on both the sidecar
+	// and the agent without the user declaring any inputs — mirrors prod, where
+	// generateKnowledgeCredentials does the same.
+	s := &spec.AstroSpec{
+		Name:  "recruiter-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"db": {Provider: "postgres"},
+		},
+	}
+
+	t.Run("defaults when no envVars", func(t *testing.T) {
+		project, err := BuildProject(s, "/work", nil)
+		require.NoError(t, err)
+
+		sidecar := project.Services["knowledge-db"]
+		assert.Equal(t, "astro", envVal(sidecar.Environment, "POSTGRES_USER"))
+		assert.Equal(t, "localdev", envVal(sidecar.Environment, "POSTGRES_PASSWORD"))
+		assert.Equal(t, "recruiter_agent", envVal(sidecar.Environment, "POSTGRES_DB"))
+
+		agent := project.Services["agent"]
+		assert.Equal(t, "astro", envVal(agent.Environment, "POSTGRES_USER"))
+		assert.Equal(t, "localdev", envVal(agent.Environment, "POSTGRES_PASSWORD"))
+		assert.Equal(t, "recruiter_agent", envVal(agent.Environment, "POSTGRES_DB"))
+		assert.Equal(t, "knowledge-db", envVal(agent.Environment, "POSTGRES_HOST"))
+		assert.Equal(t, "5432", envVal(agent.Environment, "POSTGRES_PORT"))
+	})
+
+	t.Run("envVars override defaults on both sidecar and agent", func(t *testing.T) {
+		project, err := BuildProject(s, "/work", map[string]string{
+			"POSTGRES_USER":     "custom_user",
+			"POSTGRES_PASSWORD": "custom_pw",
+			"POSTGRES_DB":       "custom_db",
+		})
+		require.NoError(t, err)
+
+		for _, svcName := range []string{"knowledge-db", "agent"} {
+			svc := project.Services[svcName]
+			assert.Equal(t, "custom_user", envVal(svc.Environment, "POSTGRES_USER"), svcName)
+			assert.Equal(t, "custom_pw", envVal(svc.Environment, "POSTGRES_PASSWORD"), svcName)
+			assert.Equal(t, "custom_db", envVal(svc.Environment, "POSTGRES_DB"), svcName)
+		}
+	})
 }
 
 func TestBuildProject_IntegrationInputsInjected(t *testing.T) {
