@@ -325,9 +325,10 @@ function InsightsView({
   }, [allTimeUsers, memberIds]);
 
   // ── Search filter ─────────────────────────────────────────────────────────
-  // Single free-text input filters whichever view is active. Match
-  // deployments by agent_name / display_name / namespace; match users by
-  // display_name / username / user_id. Empty query → no filtering.
+  // Single free-text input filters whichever view is active before the table
+  // applies its visible-row window, so search can match rows hidden behind
+  // Show more. Match deployments by agent_name / display_name / namespace;
+  // match users by display_name / username / user_id. Empty query → no filtering.
   const needle = query.trim().toLowerCase();
   const filteredDeployments = useMemo(() => {
     if (!needle) return allTimeDeployments;

@@ -53,6 +53,19 @@ describe("AgentsUsedChips", () => {
     expect(screen.getByAltText("beta")).toBeInTheDocument();
   });
 
+  it("renders agent chips with BlueprintCard-style icon styling", () => {
+    renderWithProviders(<AgentsUsedChips agents={[ref("alpha")]} />);
+
+    // These class assertions intentionally mirror BlueprintCard's avatar
+    // treatment. If BlueprintCard changes, update this chip contract with it.
+    expect(screen.getByAltText("alpha")).toHaveClass(
+      "size-6",
+      "rounded-[3px]",
+      "border-[0.5px]",
+    );
+    expect(screen.getByRole("link")).toHaveClass("rounded-[3px]");
+  });
+
   // When deploymentsByAgent is undefined (initial render / still loading),
   // chips must NOT flash "(deleted)" — that state is reserved for the
   // index-loaded-but-deployment-missing case (genuinely tombstoned). The

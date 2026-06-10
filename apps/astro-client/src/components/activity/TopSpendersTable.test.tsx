@@ -70,19 +70,20 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
 
     const spendHeader = screen.getByText("Spend");
+    const labelOf = (cell: HTMLElement) => cell.textContent?.trim().replace(/^\d+/, "");
 
     // First click: sort by cost_usd descending (default when switching to a new key)
     // The table already defaults to cost_usd desc, so click once to go asc
     fireEvent.click(spendHeader);
 
     let rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
-    const firstClickOrder = rows.map((r) => r.textContent);
+    const firstClickOrder = rows.map(labelOf);
 
     // Click again to reverse
     fireEvent.click(spendHeader);
 
     rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
-    const secondClickOrder = rows.map((r) => r.textContent);
+    const secondClickOrder = rows.map(labelOf);
 
     // The two orders should be reversed relative to each other
     expect(firstClickOrder).toEqual([...secondClickOrder].reverse());
@@ -91,8 +92,9 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
   it("initial sort is cost_usd descending — alpha(30) first, beta(10) last", () => {
     renderWithProviders(<TopSpendersTable mode="agents" deployments={sampleDeployments} loading={false} />);
     const rows = screen.getAllByRole("cell", { name: /alpha|beta|gamma/ });
-    expect(rows[0].textContent).toBe("alpha");
-    expect(rows[rows.length - 1].textContent).toBe("beta");
+    const labelOf = (cell: HTMLElement) => cell.textContent?.trim().replace(/^\d+/, "");
+    expect(labelOf(rows[0])).toBe("alpha");
+    expect(labelOf(rows[rows.length - 1])).toBe("beta");
   });
 
   it("groupLabel column header ('Name') has no sort icon (no ↕, ↑, or ↓)", () => {
@@ -153,7 +155,7 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     expect(screen.queryByText("Agent 05")).not.toBeInTheDocument();
     expect(screen.queryByText("Agent 06")).not.toBeInTheDocument();
 
-    const showMore = screen.getByRole("button", { name: /^Show 2 more$/ });
+    const showMore = screen.getByRole("button", { name: /^Show all$/ });
     fireEvent.click(showMore);
 
     // Expanded: all 7 visible, button toggles to "Show less".
@@ -166,7 +168,7 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     await waitFor(() =>
       expect(screen.queryByText("Agent 06")).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: /^Show 2 more$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show all$/ })).toBeInTheDocument();
   });
 });
 
@@ -322,33 +324,40 @@ describe("TopSpendersTable users mode", () => {
   });
 
   // Long real-row lists (named members + linked Slack users) collapse to 5
-  // rows with a "Show N more" toggle so the Insights page fits without an
-  // outer scrollbar. Unidentified rows and System spend are pinned below and
-  // not subject to the slice.
-  it("collapses long real-row lists with a Show-more toggle that expands and re-collapses", async () => {
+  // rows with a "Show top 10" control so the Insights page fits without an
+  // outer scrollbar. Large lists move from top 5 → top 10 → all instead of
+  // mounting every hidden row at once.
+  it("collapses long real-row lists, then reveals top 10, then all rows", async () => {
     // Slack-format IDs land in the "real" bucket alongside named members.
-    // SlackUserIdentity renders as "Slack user - U…" so the assertions match
+    // SlackUserIdentity renders as "slack_U…" so the assertions match
     // substring rather than exact text.
-    const users = Array.from({ length: 12 }, (_, i) =>
-      makeUserRow({ user_id: `U07ABC${String(i).padStart(2, "0")}A`, cost_usd: 12 - i }),
+    const users = Array.from({ length: 18 }, (_, i) =>
+      makeUserRow({ user_id: `U07ABC${String(i).padStart(2, "0")}A`, cost_usd: 18 - i }),
     );
     const { queryClient } = renderWithProviders(
       <TopSpendersTable mode="users" account={ACCOUNT} loading={false} users={users} />,
     );
     seedMembers(queryClient, []);
 
-    // Initial render: top 5 by spend visible, remaining 7 hidden.
+    // Initial render: top 5 by spend visible, remaining 13 hidden.
     await screen.findByText(/U07ABC00A/);
     expect(screen.getByText(/U07ABC04A/)).toBeInTheDocument();
     expect(screen.queryByText(/U07ABC05A/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/U07ABC11A/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/U07ABC17A/)).not.toBeInTheDocument();
 
-    const showMore = screen.getByRole("button", { name: /^Show 7 more$/ });
+    const showMore = screen.getByRole("button", { name: /^Show top 10$/ });
     fireEvent.click(showMore);
 
-    // Expanded: all 12 visible, button toggles to "Show less".
+    // First reveal: top 10 visible, remaining 8 still hidden, collapse remains available.
     expect(screen.getByText(/U07ABC05A/)).toBeInTheDocument();
-    expect(screen.getByText(/U07ABC11A/)).toBeInTheDocument();
+    expect(screen.getByText(/U07ABC09A/)).toBeInTheDocument();
+    expect(screen.queryByText(/U07ABC10A/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show all$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show less$/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Show all$/ }));
+    expect(screen.getByText(/U07ABC17A/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show all$/ })).not.toBeInTheDocument();
     const showLess = screen.getByRole("button", { name: /^Show less$/ });
     fireEvent.click(showLess);
 
@@ -357,7 +366,7 @@ describe("TopSpendersTable users mode", () => {
     await waitFor(() =>
       expect(screen.queryByText(/U07ABC05A/)).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: /^Show 7 more$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show top 10$/ })).toBeInTheDocument();
   });
 
   it("does not render the Show-more toggle when the real-row list fits in the default window", async () => {
@@ -403,7 +412,7 @@ describe("TopSpendersTable users mode", () => {
     expect(within(visibleRows[1]).getByText(/U07ABC01A/)).toBeInTheDocument();
     expect(within(visibleRows[4]).getByText("anon-low")).toBeInTheDocument();
     expect(screen.queryByText("System spend")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Show 1 more$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Show all$/ })).toBeInTheDocument();
   });
 
   it("hides everything past row 5 behind Show-more when real overflows", async () => {
@@ -427,8 +436,8 @@ describe("TopSpendersTable users mode", () => {
     // Unidentified + system also hidden — only revealed by Show-more.
     expect(screen.queryByText("weird-id-1")).not.toBeInTheDocument();
     expect(screen.queryByText("System spend")).not.toBeInTheDocument();
-    // Show-more count = 1 hidden real + 1 unidentified + 1 system = 3.
-    expect(screen.getByRole("button", { name: /^Show 3 more$/ })).toBeInTheDocument();
+    // One click reveals all hidden rows because the full list fits within top 10.
+    expect(screen.getByRole("button", { name: /^Show all$/ })).toBeInTheDocument();
   });
 
   it("aggregates empty user_id rows into the Unattributed bucket", async () => {
@@ -469,7 +478,7 @@ describe("TopSpendersTable users mode", () => {
     // Wait for member name to resolve so we can assert row order.
     await screen.findByText("Alice Chen");
     const allRows = screen.getAllByRole("row");
-    const slackRow = allRows.find((r) => within(r).queryByText("Slack user - U07HEAVY1"))!;
+    const slackRow = allRows.find((r) => within(r).queryByText("slack_U07HEAVY1"))!;
     const aliceRow = allRows.find((r) => within(r).queryByText("Alice Chen"))!;
     // Higher-spend Slack user must sort above lower-spend named member —
     // proves the two groups aren't rendered as separate blocks.
@@ -493,7 +502,7 @@ describe("TopSpendersTable users mode", () => {
     );
     seedMembers(queryClient, []);
 
-    const label = await screen.findByText("Slack user - U07ABCDEF");
+    const label = await screen.findByText("slack_U07ABCDEF");
     const anchor = label.closest("a");
     expect(anchor).not.toBeNull();
     expect(anchor!.getAttribute("href")).toBe("slack://user?team=T07XYZ&id=U07ABCDEF");
@@ -515,13 +524,13 @@ describe("TopSpendersTable users mode", () => {
     );
     seedMembers(queryClient, []);
 
-    const label = await screen.findByText("Slack user - U01LEGACY");
+    const label = await screen.findByText("slack_U01LEGACY");
     expect(label.closest("a")).toBeNull();
   });
 
   // Unlinked Slack users used to disappear into the Unidentified bucket
   // alongside any other non-member id. Now each one renders as its own
-  // "Slack user - U07…" row so a CEO scanning Insights can see which
+  // subtle `slack_U07…` row so a CEO scanning Insights can see which
   // workspace teammates are driving spend without first asking them to
   // link an Astro account.
   it("renders unlinked Slack users as per-id rows, not aggregated", async () => {
@@ -542,17 +551,17 @@ describe("TopSpendersTable users mode", () => {
     ]);
 
     expect(await screen.findByText("Alice Chen")).toBeInTheDocument();
-    expect(screen.getByText("Slack user - U07ABCDEF")).toBeInTheDocument();
-    expect(screen.getByText("Slack user - U01LEGACY")).toBeInTheDocument();
+    expect(screen.getByText("slack_U07ABCDEF")).toBeInTheDocument();
+    expect(screen.getByText("slack_U01LEGACY")).toBeInTheDocument();
     // The aggregated Unidentified bucket must NOT appear for slack ids.
     expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
   });
 
-  // Rank column reflects position in the visible list. The expected first
-  // cell of each user row is the rank number; we filter to rows that actually
-  // contain a user id so we skip the header.
+  // Rank prefix reflects position in the visible list. It lives inside the
+  // Name cell before the identity label, so the table keeps one coherent
+  // identity column instead of exposing a separate Rank header.
   function rankOf(row: HTMLElement): string {
-    return within(row).getAllByRole("cell")[0]?.textContent?.trim() ?? "";
+    return within(row).getAllByRole("cell")[0]?.textContent?.trim().match(/^\d+/)?.[0] ?? "";
   }
   function userRows(): HTMLElement[] {
     return screen.getAllByRole("row").filter((r) => /U07/.test(r.textContent ?? ""));
@@ -583,7 +592,7 @@ describe("TopSpendersTable users mode", () => {
     seedMembers(queryClient, []);
 
     await screen.findByText(/U07RANK00A/);
-    fireEvent.click(screen.getByRole("button", { name: /^Show 2 more$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Show all$/ }));
 
     const rows = userRows();
     expect(rows).toHaveLength(7);

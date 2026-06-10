@@ -69,6 +69,28 @@ function chipTooltip(
   return indexAvailable ? `${agentName} (deleted)` : agentName;
 }
 
+function AgentUsedAvatar({
+  account,
+  name,
+  isDeleted,
+}: {
+  account: string;
+  name: string;
+  isDeleted: boolean;
+}) {
+  return (
+    <BlueprintIdentity
+      account={account}
+      name={name}
+      size={24}
+      className={cn(
+        "size-6 shrink-0 rounded-[3px] border-[0.5px] border-slate-100 dark:border-white/20",
+        isDeleted && "opacity-60",
+      )}
+    />
+  );
+}
+
 export function AgentsUsedChips({
   agents,
   maxVisible = 3,
@@ -109,14 +131,6 @@ export function AgentsUsedChips({
           // don't see a flash of "(deleted)" before deploymentsByAgent
           // resolves.
           const isDeleted = indexAvailable && dep === null;
-          const avatarNode = (
-            <BlueprintIdentity
-              account={account}
-              name={name}
-              size={24}
-              className={cn("size-6 rounded-[3px]", isDeleted && "opacity-60")}
-            />
-          );
           const linkTo = dep
             ? deploymentPath(account, deployment_id, DeploymentTab.Monitor)
             : `${accountProfilePath(account)}/${name}`;
@@ -126,9 +140,9 @@ export function AgentsUsedChips({
                 <span className="inline-flex">
                   <Link
                     to={linkTo}
-                    className="inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="inline-flex rounded-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    {avatarNode}
+                    <AgentUsedAvatar account={account} name={name} isDeleted={isDeleted} />
                   </Link>
                 </span>
               </TooltipTrigger>
@@ -160,12 +174,7 @@ export function AgentsUsedChips({
                       isDeleted ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
-                    <BlueprintIdentity
-                      account={account}
-                      name={name}
-                      size={24}
-                      className={cn("size-6 shrink-0 rounded-[3px]", isDeleted && "opacity-60")}
-                    />
+                    <AgentUsedAvatar account={account} name={name} isDeleted={isDeleted} />
                     <span className="min-w-0 flex-1 truncate">
                       {primary}
                       {isDeleted && (

@@ -1,12 +1,12 @@
 import { useId, useMemo } from "react";
 import { Link } from "react-router";
-import { Server, Slack, User } from "lucide-react";
+import { Server, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
 import type { AccountMember } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isSlackUserId } from "./user-classification";
+import { isSlackUserId, slackUserLabel } from "./user-classification";
 import { OverflowPopover } from "./OverflowPopover";
 
 interface UsersUsedAvatarsProps {
@@ -21,8 +21,8 @@ interface UsersUsedAvatarsProps {
 
 /** Per-uid classification result — derived once from members, consumed by
  *  both the visible-avatars row and the +N overflow popover. The `kind`
- *  drives avatar selection (member chip / Slack icon / generic / system),
- *  the row label, and whether the chip links to a profile. */
+ *  drives avatar selection, the row label, and whether the chip links to a
+ *  profile. */
 type UserKind = "member" | "slack" | "unidentified" | "unattributed";
 
 interface ClassifiedUser {
@@ -31,6 +31,17 @@ interface ClassifiedUser {
   member: AccountMember | undefined;
   /** Display string for the row label, popover line, and avatar tooltip. */
   primary: string;
+}
+
+function GenericUserAvatar() {
+  return (
+    <span
+      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+      aria-hidden
+    >
+      <User className="size-3.5" strokeWidth={1.75} />
+    </span>
+  );
 }
 
 function classify(uid: string, member: AccountMember | undefined): ClassifiedUser {
@@ -44,7 +55,7 @@ function classify(uid: string, member: AccountMember | undefined): ClassifiedUse
     // Matches the per-row label rendered by SlackUserIdentity in
     // TopSpendersTable so the People column on the agents view reads the
     // same way as the People table on Insights.
-    return { uid, kind: "slack", member: undefined, primary: `Slack user - ${uid}` };
+    return { uid, kind: "slack", member: undefined, primary: slackUserLabel(uid) };
   }
   return { uid, kind: "unidentified", member: undefined, primary: uid };
 }
@@ -80,15 +91,8 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
       <TooltipProvider delayDuration={200}>
         {visible.map((c) => {
           const avatarNode =
-            c.kind === "slack" ? (
-              <Slack className="size-6 shrink-0 text-muted-foreground" aria-hidden />
-            ) : c.kind === "unidentified" ? (
-              <span
-                className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                aria-hidden
-              >
-                <User className="size-3.5" strokeWidth={1.75} />
-              </span>
+            c.kind === "slack" || c.kind === "unidentified" ? (
+              <GenericUserAvatar />
             ) : c.kind === "unattributed" ? (
               <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
             ) : (
@@ -124,15 +128,8 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
             {classified.map((c) => {
               const rowBody = (
                 <>
-                  {c.kind === "slack" ? (
-                    <Slack className="size-6 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : c.kind === "unidentified" ? (
-                    <span
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                      aria-hidden
-                    >
-                      <User className="size-3.5" strokeWidth={1.75} />
-                    </span>
+                  {c.kind === "slack" || c.kind === "unidentified" ? (
+                    <GenericUserAvatar />
                   ) : c.kind === "unattributed" ? (
                     <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />
                   ) : (
@@ -145,7 +142,8 @@ export function UsersUsedAvatars({ userIds, account, maxVisible = 3, className }
                   <span
                     className={cn(
                       "min-w-0 truncate",
-                      c.kind === "unidentified" && "font-mono text-mono-sm",
+                      (c.kind === "slack" || c.kind === "unidentified") &&
+                        "font-mono text-mono-sm text-muted-foreground",
                     )}
                   >
                     {c.primary}

@@ -4,8 +4,7 @@ import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UserBadge } from "@/components/UserBadge";
-import { AnimatePresence } from "motion/react";
-import { TableShowMore, AnimatedRow } from "@/components/ui/table";
+import { TableShowMore } from "@/components/ui/table";
 import {
   MultiSelect,
   MultiSelectTrigger,
@@ -174,22 +173,19 @@ export function TracesTable({
                     </tr>
                   );
                 })}
-                <AnimatePresence initial={false}>
-                  {expanded &&
-                    expandableTraces.map((trace, i) => {
-                      const isSelected = trace.trace_id === selectedTraceId;
-                      return (
-                        <AnimatedRow
-                          key={trace.trace_id}
-                          index={i}
-                          onClick={() => onSelectTrace?.(trace)}
-                          className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
-                        >
-                          <TraceRowCells trace={trace} account={account} />
-                        </AnimatedRow>
-                      );
-                    })}
-                </AnimatePresence>
+                {expanded &&
+                  expandableTraces.map((trace) => {
+                    const isSelected = trace.trace_id === selectedTraceId;
+                    return (
+                      <tr
+                        key={trace.trace_id}
+                        onClick={() => onSelectTrace?.(trace)}
+                        className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
+                      >
+                        <TraceRowCells trace={trace} account={account} />
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>

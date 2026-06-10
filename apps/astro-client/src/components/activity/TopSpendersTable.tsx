@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { formatTimeAgo } from "@/lib/time-format";
 import { type AgentDeploymentRef } from "./AgentNameLink";
@@ -12,7 +11,6 @@ import {
   TableHeader,
   TableRow,
   TableShowMore,
-  AnimatedRow,
 } from "@/components/ui/table";
 import { formatCost, formatCompact, formatLatency } from "@/lib/format-utils";
 import type {
@@ -24,9 +22,9 @@ import { UsersUsedAvatars } from "./UsersUsedAvatars";
 import { UserBadge } from "@/components/UserBadge";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, Server, Slack, TriangleAlert, User } from "lucide-react";
+import { Info, Server, TriangleAlert, User } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
-import { isSlackUserId } from "./user-classification";
+import { isSlackUserId, slackUserLabel } from "./user-classification";
 
 type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
@@ -35,11 +33,40 @@ type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_requ
 type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
 
 // Collapse long lists so the Insights page fits without an outer scrollbar,
-// with a "Show N more" toggle to expand. Agents and People views share the
-// same cap so the affordance reads consistently. Tighter than the Monitor
-// traces table (which uses 10) — that page is just the trace list; this one
-// stacks stat cards, charts, and the table above the fold.
+// with progressive "Show top 10" / "Show all" controls. Agents and People
+// views share the same cap so the affordance reads consistently. Tighter
+// than the Monitor traces table (which uses 10) — that page is just the
+// trace list; this one stacks stat cards, charts, and the table above the fold.
 const DEFAULT_VISIBLE_ROWS = 5;
+const TOP_VISIBLE_ROWS = 10;
+
+function useProgressiveRows(totalRows: number, resetSignal: unknown) {
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_ROWS);
+
+  useEffect(() => {
+    setVisibleCount(DEFAULT_VISIBLE_ROWS);
+  }, [resetSignal]);
+
+  const cappedVisibleCount = Math.min(visibleCount, totalRows);
+  const hiddenCount = Math.max(totalRows - cappedVisibleCount, 0);
+  const revealedCount = Math.max(cappedVisibleCount - DEFAULT_VISIBLE_ROWS, 0);
+  const showMoreLabel =
+    cappedVisibleCount < TOP_VISIBLE_ROWS && totalRows > TOP_VISIBLE_ROWS
+      ? `Show top ${TOP_VISIBLE_ROWS}`
+      : "Show all";
+
+  return {
+    visibleCount: cappedVisibleCount,
+    hiddenCount,
+    revealedCount,
+    showMoreLabel,
+    showMore: () =>
+      setVisibleCount((count) =>
+        count < TOP_VISIBLE_ROWS ? Math.min(totalRows, TOP_VISIBLE_ROWS) : totalRows,
+      ),
+    showLess: () => setVisibleCount(DEFAULT_VISIBLE_ROWS),
+  };
+}
 
 function useSort<K extends string>(initial: K) {
   const [sortKey, setSortKey] = useState<K>(initial);
@@ -60,10 +87,29 @@ function formatShare(cost: number, total: number): string {
   return `${((cost / total) * 100).toFixed(1)}%`;
 }
 
-function RankCell({ rank }: { rank: number | null }) {
+function RankMarker({ rank }: { rank: number }) {
   return (
-    <TableCell className="w-14 pr-2 text-right text-mono-sm tabular-nums text-faint-foreground">
-      {rank ?? ""}
+    <span className="w-5 shrink-0 text-right text-mono-sm tabular-nums text-faint-foreground">
+      {rank}
+    </span>
+  );
+}
+
+function IdentityTableCell({
+  rank,
+  children,
+}: {
+  rank: number;
+  children: ReactNode;
+}) {
+  return (
+    <TableCell className="pl-3 pr-4">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <RankMarker rank={rank} />
+        <div className="min-w-0 flex-1">
+          {children}
+        </div>
+      </div>
     </TableCell>
   );
 }
@@ -151,8 +197,7 @@ function renderAgentRowContent(
   );
   return (
     <>
-      <RankCell rank={rank} />
-      <TableCell className="pr-4">
+      <IdentityTableCell rank={rank}>
         <span className="inline-flex items-center gap-1.5">
           {ctx.account ? (
             <Link
@@ -179,7 +224,7 @@ function renderAgentRowContent(
             </TooltipProvider>
           )}
         </span>
-      </TableCell>
+      </IdentityTableCell>
       <TableCell>
         <UsersUsedAvatars userIds={b.users_used ?? []} account={ctx.account ?? ""} />
       </TableCell>
@@ -220,34 +265,30 @@ function DeploymentsTopSpenders({
 
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
 
-  const [expanded, setExpanded] = useState(false);
-  const stableSorted = sorted.slice(0, DEFAULT_VISIBLE_ROWS);
-  const expandableSorted = sorted.slice(DEFAULT_VISIBLE_ROWS);
-  const hiddenCount = expandableSorted.length;
-  // Filtering down to a list that fits in the top-N invalidates an
-  // outstanding expanded state — reset so the next overflow starts collapsed.
-  useEffect(() => {
-    if (hiddenCount <= 0 && expanded) setExpanded(false);
-  }, [hiddenCount, expanded]);
+  const { visibleCount, hiddenCount, revealedCount, showMoreLabel, showMore, showLess } =
+    useProgressiveRows(sorted.length, sorted);
+  const visibleSorted = sorted.slice(0, visibleCount);
 
   return (
     <Table
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 ? (
+        hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
-            expanded={expanded}
-            onToggle={() => setExpanded((e) => !e)}
+            expanded={revealedCount > 0 && hiddenCount === 0}
+            onToggle={showMore}
+            showMoreLabel={showMoreLabel}
+            revealedCount={revealedCount}
+            onShowLess={showLess}
           />
         ) : undefined
       }
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
-          <TableHead>{groupLabel}</TableHead>
+          <TableHead className="pl-3">{groupLabel}</TableHead>
           <TableHead>Used by</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
@@ -259,26 +300,18 @@ function DeploymentsTopSpenders({
       </TableHeader>
       <TableBody>
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={9} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
         ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={9} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
               No deployment activity in this period
             </TableCell>
           </TableRow>
         ) : (
           <>
-            {stableSorted.map((b, i) => (
+            {visibleSorted.map((b, i) => (
               <TableRow key={b.deployment_id}>{renderAgentRowContent(b, i + 1, { denom, account })}</TableRow>
             ))}
-            <AnimatePresence initial={false}>
-              {expanded &&
-                expandableSorted.map((b, i) => (
-                  <AnimatedRow key={b.deployment_id} index={i}>
-                    {renderAgentRowContent(b, DEFAULT_VISIBLE_ROWS + i + 1, { denom, account })}
-                  </AnimatedRow>
-                ))}
-            </AnimatePresence>
           </>
         )}
       </TableBody>
@@ -412,14 +445,13 @@ function renderUserRowContent(
   const u = d.row;
   return (
     <>
-      <RankCell rank={rank} />
-      <TableCell className="pr-4">
+      <IdentityTableCell rank={rank}>
         {ctx.memberIds.has(u.user_id) ? (
           <UserBadge userId={u.user_id} account={ctx.account} linkToProfile />
         ) : (
           <SlackUserIdentity uid={u.user_id} teamId={u.slack_team_id} />
         )}
-      </TableCell>
+      </IdentityTableCell>
       <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
     </>
   );
@@ -492,8 +524,8 @@ function UsersTopSpenders({
   // user_id can rank above named members. System spend is the only kind
   // pinned last; it's an aggregate, not a user, so it sits outside the
   // ranking competition. Slice top 5 across the merged list, Show-more
-  // reveals the rest.
-  const [expanded, setExpanded] = useState(false);
+  // reveals in predictable steps without per-row animation, which keeps
+  // large workspaces responsive.
   const displayItems: UserDisplayItem[] = useMemo(() => {
     type UserItem = { kind: "real" | "unidentified"; row: UserRow };
     const userItems: UserItem[] = [
@@ -508,33 +540,30 @@ function UsersTopSpenders({
       ? [...userItems, { kind: "system" as const, agg: unattributed }]
       : userItems;
   }, [rows, unidentified, unattributed, sortKey, asc]);
-  const stableDisplay = displayItems.slice(0, DEFAULT_VISIBLE_ROWS);
-  const hiddenItems = displayItems.slice(DEFAULT_VISIBLE_ROWS);
-  const hiddenCount = hiddenItems.length;
-  // Filtering down to a list that fits in the top-N invalidates an
-  // outstanding expanded state — reset so the next overflow starts collapsed.
-  useEffect(() => {
-    if (hiddenCount <= 0 && expanded) setExpanded(false);
-  }, [hiddenCount, expanded]);
+  const { visibleCount, hiddenCount, revealedCount, showMoreLabel, showMore, showLess } =
+    useProgressiveRows(displayItems.length, displayItems);
+  const visibleDisplay = displayItems.slice(0, visibleCount);
 
   return (
     <Table
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 ? (
+        hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
-            expanded={expanded}
-            onToggle={() => setExpanded((e) => !e)}
+            expanded={revealedCount > 0 && hiddenCount === 0}
+            onToggle={showMore}
+            showMoreLabel={showMoreLabel}
+            revealedCount={revealedCount}
+            onShowLess={showLess}
           />
         ) : undefined
       }
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
-          <TableHead>Name</TableHead>
+          <TableHead className="pl-3">Name</TableHead>
           <TableHead>Agents Used</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
@@ -545,16 +574,16 @@ function UsersTopSpenders({
       </TableHeader>
       <TableBody>
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
         ) : totalRows === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
               No activity from people in this period
             </TableCell>
           </TableRow>
         ) : (
           <>
-            {stableDisplay.map((d, i) => (
+            {visibleDisplay.map((d, i) => (
               <TableRow key={userItemKey(d)}>
                 {renderUserRowContent(d, i + 1, {
                   denom,
@@ -564,19 +593,6 @@ function UsersTopSpenders({
                 })}
               </TableRow>
             ))}
-            <AnimatePresence initial={false}>
-              {expanded &&
-                hiddenItems.map((d, i) => (
-                  <AnimatedRow key={userItemKey(d)} index={i}>
-                    {renderUserRowContent(d, stableDisplay.length + i + 1, {
-                      denom,
-                      memberIds,
-                      account,
-                      deploymentsByAgent,
-                    })}
-                  </AnimatedRow>
-                ))}
-            </AnimatePresence>
           </>
         )}
       </TableBody>
@@ -597,8 +613,7 @@ function UnidentifiedUserCells({
 }) {
   return (
     <>
-      <RankCell rank={rank} />
-      <TableCell className="pr-4">
+      <IdentityTableCell rank={rank}>
         <div className="flex min-w-0 items-center gap-2">
           <span
             className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
@@ -613,7 +628,7 @@ function UnidentifiedUserCells({
             {user.user_id}
           </span>
         </div>
-      </TableCell>
+      </IdentityTableCell>
       <MetricsCells row={user} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
     </>
   );
@@ -632,13 +647,17 @@ function SystemSpendCells({
 }) {
   return (
     <>
-      <RankCell rank={rank} />
-      <TableCell className="pr-4">
+      <IdentityTableCell rank={rank}>
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
-                <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span
+                  className="flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+                  aria-hidden
+                >
+                  <Server className="size-3" strokeWidth={1.75} />
+                </span>
                 System spend
                 <Info className="size-3 text-muted-foreground" aria-hidden />
               </span>
@@ -648,7 +667,7 @@ function SystemSpendCells({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      </TableCell>
+      </IdentityTableCell>
       <MetricsCells row={agg.metrics} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
     </>
   );
@@ -664,13 +683,20 @@ function SystemSpendCells({
 // desktop app or to the open web tab. Rows without a team_id (directory
 // miss — tombstoned user pre-backfill) render as plain text.
 function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
-  const display = uid;
+  const display = slackUserLabel(uid);
   const deepLink = teamId ? `slack://user?team=${teamId}&id=${uid}` : undefined;
 
   const body = (
     <>
-      <Slack className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="truncate">Slack user - {display}</span>
+      <span
+        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        aria-hidden
+      >
+        <User className="size-3" strokeWidth={1.75} />
+      </span>
+      <span className="truncate text-mono-sm text-muted-foreground group-hover:text-foreground">
+        {display}
+      </span>
     </>
   );
 
@@ -682,12 +708,12 @@ function SlackUserIdentity({ uid, teamId }: { uid: string; teamId?: string }) {
             <a
               href={deepLink}
               rel="noreferrer"
-              className="inline-flex items-center gap-2 text-body-sm text-foreground hover:underline"
+              className="group inline-flex min-w-0 items-center gap-2 text-body-sm hover:underline"
             >
               {body}
             </a>
           ) : (
-            <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+            <span className="group inline-flex min-w-0 items-center gap-2 text-body-sm">
               {body}
             </span>
           )}

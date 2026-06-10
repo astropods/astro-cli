@@ -27,9 +27,13 @@ const SLACK_BARE_RE = /^U[A-Z0-9]{8,11}$/;
 
 /**
  * True when uid looks like a Slack user_id — used to render the row with
- * the Slack icon and the deep-link affordance. Linked Slack users surface
- * as their WorkOS id and are not matched here.
+ * a subtle unlinked-user treatment and the deep-link affordance. Linked
+ * Slack users surface as their WorkOS id and are not matched here.
  */
 export function isSlackUserId(uid: string): boolean {
   return SLACK_BARE_RE.test(uid);
+}
+
+export function slackUserLabel(uid: string): string {
+  return `slack_${uid}`;
 }

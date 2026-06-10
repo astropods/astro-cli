@@ -1,6 +1,5 @@
 import * as React from "react"
 import { ChevronDown } from "lucide-react"
-import { motion } from "motion/react"
 
 import { cn } from "@/lib/utils"
 
@@ -61,43 +60,59 @@ function Table({
   )
 }
 
-// Reveal animation for rows uncovered by <TableShowMore /> — fades + slides
-// in with a small stagger so the eye can follow the order, then exits
-// quickly on collapse. Wrap a group of `<AnimatedRow>` children in
-// `<AnimatePresence initial={false}>` so the first render doesn't animate
-// (we only want motion for the user-triggered expand/collapse).
-function AnimatedRow({
-  index,
-  className,
-  children,
-  ...rest
-}: { index: number } & React.ComponentProps<typeof motion.tr>) {
-  return (
-    <motion.tr
-      data-slot="table-row"
-      className={cn("border-b border-border last:border-b-0", className)}
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.18, delay: index * 0.02, ease: "easeOut" }}
-      {...rest}
-    >
-      {children}
-    </motion.tr>
-  );
-}
-
 function TableShowMore({
   hiddenCount,
   expanded,
   onToggle,
   className,
+  showMoreLabel,
+  revealedCount = 0,
+  onShowLess,
 }: {
   hiddenCount: number;
   expanded: boolean;
   onToggle: () => void;
   className?: string;
+  /** Optional label for the reveal action, e.g. "Show top 10" or "Show all". */
+  showMoreLabel?: string;
+  /** Rows already revealed past the default window; enables a collapse affordance. */
+  revealedCount?: number;
+  onShowLess?: () => void;
 }) {
+  if (hiddenCount <= 0 && revealedCount <= 0) return null;
+
+  if (showMoreLabel || revealedCount > 0) {
+    return (
+      <div
+        className={cn(
+          "flex w-full items-center justify-center gap-2 py-2.5 text-mono-sm",
+          className,
+        )}
+      >
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown aria-hidden className="size-3.5" />
+            {showMoreLabel ?? `Show ${hiddenCount} more`}
+          </button>
+        )}
+        {revealedCount > 0 && (
+          <button
+            type="button"
+            onClick={onShowLess ?? onToggle}
+            className="inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 text-faint-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown aria-hidden className="size-3.5 rotate-180" />
+            Show less
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (hiddenCount <= 0) return null;
   return (
     <button
@@ -252,5 +267,4 @@ export {
   TableCell,
   TableCaption,
   TableShowMore,
-  AnimatedRow,
 }
