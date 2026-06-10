@@ -153,7 +153,7 @@ func (p *PushPipeline) Build() *PushPipeline {
 			fmt.Printf("%s→%s Building %s[%s %s]%s %s%s%s",
 				colorCyan, colorReset, colorDim, comp.Kind, p.cfg.Platform, colorReset, colorBold, platTag, colorReset)
 
-			if err := buildImageSDK(p.ctx, cli, contextPath, dockerfile, platTag,
+			if err := buildImageBuildKit(p.ctx, cli, contextPath, dockerfile, platTag,
 				comp.Build.Args, comp.Build.Secrets, envVars,
 				false, p.cfg.Verbose, false, p.cfg.Platform); err != nil {
 				fmt.Printf(" %s✗%s\n", colorRed, colorReset)

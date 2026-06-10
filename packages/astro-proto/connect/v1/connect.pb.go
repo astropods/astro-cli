@@ -1,5 +1,7 @@
 // Code generated manually to match proto/connect/v1/connect.proto.
-// Uses JSON-over-gRPC encoding (shared codec registered by admin/v1).
+// Uses JSON-over-gRPC encoding registered under the "json" content-subtype.
+// Clients must opt in via grpc.CallContentSubtype("json"); see
+// apps/astro-cli/internal/connect/client.go.
 
 package connectv1
 
@@ -10,8 +12,8 @@ import (
 )
 
 func init() {
-	// Register JSON codec (idempotent — same as admin/v1).
-	// Needed when connect/v1 is imported without admin/v1 (e.g. CLI).
+	// Register JSON codec under name "json" so it doesn't shadow gRPC's
+	// default proto codec. Idempotent with admin/v1's registration.
 	encoding.RegisterCodec(jsonCodec{})
 }
 
@@ -19,7 +21,7 @@ type jsonCodec struct{}
 
 func (jsonCodec) Marshal(v interface{}) ([]byte, error)      { return json.Marshal(v) }
 func (jsonCodec) Unmarshal(data []byte, v interface{}) error { return json.Unmarshal(data, v) }
-func (jsonCodec) Name() string                               { return "proto" }
+func (jsonCodec) Name() string                               { return "json" }
 
 // --- Client -> Server ---
 

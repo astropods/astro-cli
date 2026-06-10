@@ -3,29 +3,21 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
-	"time"
 
-	"bufio"
-
-	"github.com/containerd/platforms"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-
-	"net/url"
-
-	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/client"
+	"golang.org/x/sync/errgroup"
 
+	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
-	"github.com/moby/go-archive"
-	"github.com/moby/patternmatcher/ignorefile"
+	"github.com/moby/buildkit/util/progress/progressui"
+	"github.com/tonistiigi/fsutil"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -79,7 +71,7 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 				fmt.Printf("%s→%s Building %s[%s %s]%s %s%s%s", colorCyan, colorReset, colorDim, comp.Kind, plat, colorReset, colorBold, platTag, colorReset)
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, comp.Build.Args, comp.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
+			if err := buildImageBuildKit(ctx, cli, contextPath, dockerfile, platTag, comp.Build.Args, comp.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -128,247 +120,94 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 	return nil
 }
 
-// parseDockerfileBaseImages reads a Dockerfile and returns the base images from FROM instructions.
-// It resolves build arg references (e.g. FROM ${BASE_IMAGE}) using the provided buildArgs map.
-// Images named "scratch" and build stage aliases are excluded.
-func parseDockerfileBaseImages(dockerfilePath string, buildArgs map[string]string) ([]string, error) {
-	f, err := os.Open(filepath.Clean(dockerfilePath))
+// buildImageBuildKit builds an image via BuildKit's gRPC Solve API against
+// the Docker daemon's embedded BuildKit endpoint — the same path docker buildx
+// uses with the "docker" driver.
+func buildImageBuildKit(ctx context.Context, dockerCli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, buildSecrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
+	bkc, err := bkclient.New(ctx, "", bkclient.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		return dockerCli.DialHijack(ctx, "/grpc", "h2c", nil)
+	}))
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("connect buildkit: %w", err)
 	}
-	defer f.Close() //nolint:errcheck
+	defer bkc.Close() //nolint:errcheck
 
-	var images []string
-	stages := make(map[string]bool) // track named build stages
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(strings.ToUpper(line), "FROM ") {
-			continue
-		}
-
-		// Parse: FROM [--platform=...] image [:tag] [AS name]
-		fields := strings.Fields(line)[1:] // drop "FROM"
-		if len(fields) == 0 {
-			continue
-		}
-
-		// Skip --platform or other flags
-		idx := 0
-		for idx < len(fields) && strings.HasPrefix(fields[idx], "--") {
-			idx++
-		}
-		if idx >= len(fields) {
-			continue
-		}
-
-		img := fields[idx]
-
-		// Resolve build arg references like ${VAR} or $VAR
-		img = os.Expand(img, func(key string) string {
-			if v, ok := buildArgs[key]; ok {
-				return v
-			}
-			return ""
-		})
-
-		// Track "AS name" for multi-stage builds
-		if idx+2 < len(fields) && strings.EqualFold(fields[idx+1], "AS") {
-			stages[fields[idx+2]] = true
-		}
-
-		if img != "" && !strings.EqualFold(img, "scratch") && !stages[img] {
-			images = append(images, img)
-		}
-	}
-
-	return images, scanner.Err()
-}
-
-// prePullBaseImages pulls the base images referenced in a Dockerfile so that BuildKit
-// can resolve them from the local cache instead of timing out on registry metadata fetches.
-func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, dockerfile string, buildArgs map[string]string, platform string, quiet bool) {
-	dockerfilePath := filepath.Join(contextPath, dockerfile)
-	images, err := parseDockerfileBaseImages(dockerfilePath, buildArgs)
+	contextFS, err := fsutil.NewFS(contextPath)
 	if err != nil {
-		// Non-fatal: if we can't parse, let the build handle it
-		return
+		return fmt.Errorf("init context fs: %w", err)
 	}
 
-	pullOpts := client.ImagePullOptions{}
-	if platform != "" {
-		p, err := platforms.Parse(platform)
-		if err == nil {
-			pullOpts.Platforms = []ocispec.Platform{p}
-		}
-	}
-
-	seen := make(map[string]bool)
-	for _, img := range images {
-		if seen[img] {
-			continue
-		}
-		seen[img] = true
-
-		if !quiet {
-			fmt.Printf("      %sPre-pulling %s%s\n", colorDim, img, colorReset)
-		}
-
-		reader, err := cli.ImagePull(ctx, img, pullOpts)
-		if err != nil {
-			if !quiet {
-				fmt.Printf("      %sPre-pull skipped (%s): %s%s\n", colorDim, img, err, colorReset)
-			}
-			continue
-		}
-		// Drain the pull output to completion
-		_, _ = io.Copy(io.Discard, reader) //nolint:errcheck
-		_ = reader.Close()                 //nolint:errcheck
-	}
-}
-
-func readDockerignore(contextPath string) ([]string, error) {
-	f, err := os.Open(filepath.Clean(filepath.Join(contextPath, ".dockerignore")))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close() //nolint:errcheck
-	return ignorefile.ReadAll(f)
-}
-
-func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
-	// Pre-pull base images so BuildKit resolves them from local cache
-	prePullBaseImages(ctx, cli, contextPath, dockerfile, buildArgs, platform, quiet)
-
-	excludes, err := readDockerignore(contextPath)
-	if err != nil {
-		return fmt.Errorf("failed to read .dockerignore: %w", err)
-	}
-	// Create build context tar
-	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{
-		ExcludePatterns: excludes,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create build context: %w", err)
-	}
-	defer buildContext.Close() //nolint:errcheck
-
-	// Convert buildArgs map[string]string to map[string]*string
-	buildArgsPtr := make(map[string]*string)
-	for k, v := range buildArgs {
-		val := v
-		buildArgsPtr[k] = &val
-	}
-
-	// Prepare build options
-	opts := client.ImageBuildOptions{
-		Dockerfile: dockerfile,
-		Tags:       []string{imageName},
-		Remove:     true,
-		NoCache:    noCache,
-		BuildArgs:  buildArgsPtr,
-	}
-
-	// Platforms is honored by both classic and BuildKit code paths on the
-	// daemon side, so set it whenever the caller specified one — independent
-	// of whether we end up opting into BuildKit below.
-	if platform != "" {
-		p, err := platforms.Parse(platform)
-		if err != nil {
-			return fmt.Errorf("invalid platform %q: %w", platform, err)
-		}
-		opts.Platforms = []ocispec.Platform{p}
-	}
-
-	// Only opt into BuildKit when we need a feature only it supports — today
-	// that's build secrets. Multi-arch alone does NOT require BuildKit; the
-	// classic builder honors opts.Platforms.
-	//
-	// We avoid this code path unless secrets force us into it because it has
-	// known reliability issues on Engine 29.x: when the engine's /build shim
-	// is asked to handle a BuildKit build with a session attached, the
-	// daemon-side session manager runs a 5s-interval health check
-	// (buildkit/session/grpc.go:71-133, monitorHealth) that closes the
-	// session on the second consecutive failure (~10s). When that fires
-	// mid-build, the build surfaces non-deterministically as one of:
-	// "archive/tar: invalid tar header", "unexpected EOF", or an indefinite
-	// hang at "load remote build context". We were not able to make those
-	// health checks succeed from the client side — registering filesync,
-	// synchronizing the session dial with the build POST, and bumping
-	// docker/moby module versions all failed to prevent the +10s timeout.
-	// See tools/bkprobe for a standalone reproduction harness that uses
-	// bkclient.Solve against a docker-container driver builder; that path
-	// works, but requires a separately-provisioned buildkitd container and
-	// is not currently used by the CLI.
-	if len(secrets) > 0 {
-		opts.Version = build.BuilderBuildKit
-
-		sess, err := session.NewSession(ctx, filepath.Base(contextPath))
-		if err != nil {
-			return fmt.Errorf("failed to create build session: %w", err)
-		}
-		defer sess.Close() //nolint:errcheck
-
+	attachables := []session.Attachable{}
+	if len(buildSecrets) > 0 {
 		secretMap := make(map[string][]byte)
-		for _, s := range secrets {
+		for _, s := range buildSecrets {
 			if val, ok := envVars[s.Env]; ok {
 				secretMap[s.ID] = []byte(val)
 			}
 		}
-		sess.Allow(secretsprovider.FromMap(secretMap))
-
-		// Defense-in-depth: enforce that /session has been dialed before we
-		// POST /build, so the daemon sees the session registered under
-		// sess.ID() by the time it processes the build request. The race
-		// this protects against is plausible from the code shape (sess.Run
-		// runs in a goroutine; cli.ImageBuild runs on the main thread) but
-		// we never empirically observed it firing — the failures we saw on
-		// this path were caused by the daemon-side monitorHealth timeout
-		// described above, which this barrier does NOT address. Keeping the
-		// ordering guarantee because it's cheap and correct, not because
-		// it was the load-bearing fix.
-		sessionReady := make(chan struct{})
-		var sessionReadyOnce sync.Once
-		dialSession := func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
-			conn, err := cli.DialHijack(ctx, "/session", proto, meta)
-			if err == nil {
-				sessionReadyOnce.Do(func() { close(sessionReady) })
-			}
-			return conn, err
-		}
-
-		sessionRunErr := make(chan error, 1)
-		go func() { sessionRunErr <- sess.Run(ctx, dialSession) }()
-
-		select {
-		case <-sessionReady:
-		case err := <-sessionRunErr:
-			return fmt.Errorf("build session failed before connect: %w", err)
-		case <-time.After(10 * time.Second):
-			return fmt.Errorf("build session did not connect within 10s")
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-
-		opts.SessionID = sess.ID()
+		attachables = append(attachables, secretsprovider.FromMap(secretMap))
 	}
 
-	// Build the image
-	resp, err := cli.ImageBuild(ctx, buildContext, opts)
+	frontendAttrs := map[string]string{
+		"filename": dockerfile,
+	}
+	if platform != "" {
+		frontendAttrs["platform"] = platform
+	}
+	for k, v := range buildArgs {
+		frontendAttrs["build-arg:"+k] = v
+	}
+	if noCache {
+		frontendAttrs["no-cache"] = ""
+	}
+
+	opts := bkclient.SolveOpt{
+		Frontend:      "dockerfile.v0",
+		FrontendAttrs: frontendAttrs,
+		LocalMounts: map[string]fsutil.FS{
+			"context":    contextFS,
+			"dockerfile": contextFS,
+		},
+		Session: attachables,
+		Exports: []bkclient.ExportEntry{
+			{
+				// "moby" is an undocumented buildkit exporter that writes to
+				// the daemon's moby image store, making the image visible to
+				// the classic Docker API (docker.Client.ImageTag/ImagePush).
+				// "image" writes to the buildkit-only containerd namespace
+				// and is invisible to the classic API. Same trick buildx uses
+				// in driver/docker/IsMobyDriver branches (build/opt.go:466).
+				Type:  "moby",
+				Attrs: map[string]string{"name": imageName},
+			},
+		},
+	}
+
+	ch := make(chan *bkclient.SolveStatus, 16)
+
+	mode := progressui.AutoMode
+	if quiet {
+		mode = progressui.QuietMode
+	} else if verbose {
+		mode = progressui.PlainMode
+	}
+	display, err := progressui.NewDisplay(os.Stderr, mode)
 	if err != nil {
-		return fmt.Errorf("failed to build image: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	// Stream build output
-	if err := streamBuildOutput(resp.Body, verbose, quiet); err != nil {
-		return fmt.Errorf("error during build: %w", err)
+		return fmt.Errorf("init progress display: %w", err)
 	}
 
+	eg, gctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		_, err := bkc.Solve(gctx, nil, opts, ch)
+		return err
+	})
+	eg.Go(func() error {
+		_, err := display.UpdateFrom(gctx, ch)
+		return err
+	})
+	if err := eg.Wait(); err != nil {
+		return fmt.Errorf("buildkit solve: %w", err)
+	}
 	return nil
 }
 
@@ -400,3 +239,4 @@ func resolveBuildPlatform(serverURL string) (platform string, skipPush bool) {
 	}
 	return "linux/amd64", false
 }
+

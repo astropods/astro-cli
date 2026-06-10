@@ -40,6 +40,11 @@ func New(cfg *config.Config) (*Client, error) {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
+	// adminv1 messages are JSON-encoded; opt into the "json" codec so the
+	// server marshals/unmarshals them with the JSON codec instead of the
+	// default proto codec.
+	opts = append(opts, grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")))
+
 	// grpc.NewClient defaults to the "dns" resolver, which can produce zero
 	// addresses for bare host:port targets on some systems. Use passthrough
 	// to connect directly without service discovery.

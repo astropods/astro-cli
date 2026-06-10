@@ -1,5 +1,7 @@
 // Code generated manually to match proto/admin/v1/admin.proto.
-// Uses JSON-over-gRPC encoding (overrides default proto codec).
+// Uses JSON-over-gRPC encoding registered under the "json" content-subtype.
+// Clients must opt in via grpc.CallContentSubtype("json"); see
+// apps/astro-queen/internal/client/client.go.
 // Regenerate by running: buf generate (requires buf CLI)
 
 package adminv1
@@ -14,8 +16,10 @@ func init() {
 	encoding.RegisterCodec(jsonCodec{})
 }
 
-// jsonCodec overrides the default proto codec with JSON encoding.
-// This allows plain Go structs to be used as gRPC message types.
+// jsonCodec marshals gRPC messages as JSON. Registered under name "json" so it
+// never shadows gRPC's default proto codec — that collision previously broke
+// the BuildKit session's grpc_health_v1 server in Docker Desktop 4.77.0
+// because every gRPC server in our binary inherited the JSON codec.
 type jsonCodec struct{}
 
 func (jsonCodec) Marshal(v interface{}) ([]byte, error) {
@@ -26,7 +30,7 @@ func (jsonCodec) Unmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
-func (jsonCodec) Name() string { return "proto" }
+func (jsonCodec) Name() string { return "json" }
 
 // Message types — mirrors proto/admin/v1/admin.proto
 

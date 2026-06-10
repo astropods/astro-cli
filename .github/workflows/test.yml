@@ -53,6 +53,7 @@ jobs:
               - 'apps/astro-cli/!(VERSION)'
               - 'apps/astro-queen/**'
               - 'packages/astro-spec/**'
+              - 'packages/astro-proto/**'
             go-cli:
               - 'apps/astro-cli/!(VERSION)/**'
               - 'apps/astro-cli/!(VERSION)'
@@ -110,6 +111,8 @@ jobs:
         app:
           - name: astro-spec
             path: packages/astro-spec
+          - name: astro-proto
+            path: packages/astro-proto
           - name: astro-server
             path: apps/astro-server
           - name: astro-registry
@@ -393,10 +396,38 @@ jobs:
       - name: Build and smoke-test astro-client image
         run: bash deployment/smoke-test-astro-client.sh
 
+  codec-collision-guard:
+    runs-on: ubuntu-latest
+    name: Codec collision guard (astro-proto)
+    # Always runs — no path filter — because the cost of letting a codec
+    # rename slip through is too high (see
+    # docs/changelog/fix/grpc-codec-name-collision-2026-06-10.md).
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forbid built-in codec names in astro-proto
+        run: |
+          set -euo pipefail
+          # Naming a custom gRPC codec after a built-in ("proto", "json",
+          # "gzip", etc) overrides the global registry process-wide for every
+          # binary that imports the package. The internal tests in
+          # admin/v1/codec_test.go and connect/v1/codec_test.go cover the
+          # current "json" codec; this grep is belt + suspenders against any
+          # NEW codec re-introducing the same footgun.
+          matches=$(grep -rnE 'func \(.*\) Name\(\) string.*return "(proto|gzip|identity)"' packages/astro-proto --include='*.go' || true)
+          if [ -n "$matches" ]; then
+            echo "::error::Custom gRPC codec named after a built-in detected in packages/astro-proto:"
+            echo "$matches"
+            echo
+            echo "Pick a unique name and have clients opt in via grpc.CallContentSubtype(...)."
+            echo "See docs/changelog/fix/grpc-codec-name-collision-2026-06-10.md"
+            exit 1
+          fi
+
   ci-gate:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - codec-collision-guard
       - test-bun
       - test-go
       - test-cli-integration
