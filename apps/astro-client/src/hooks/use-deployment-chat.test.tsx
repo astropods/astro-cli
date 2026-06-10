@@ -40,12 +40,19 @@ class MockEventSource {
     if (!last) throw new Error("No MockEventSource instances");
     return last;
   }
+
+  emit(type: string, data: string) {
+    const listeners = this.listeners.get(type);
+    if (!listeners) return;
+    const event = new MessageEvent(type, { data });
+    listeners.forEach((listener) => listener(event));
+  }
 }
 
 const deploymentId = "dep-chat-1";
 const newConversationId = "ef382a6b-c6c7-4a3e-a57b-b6832759f136";
 
-function chatHandlers() {
+function messagingHandlers() {
   server.use(
     http.post(
       `/api/v1/deployments/${deploymentId}/messaging/conversations`,
@@ -55,28 +62,6 @@ function chatHandlers() {
     http.post(
       `/api/v1/deployments/${deploymentId}/messaging/conversations/${newConversationId}/messages`,
       () => HttpResponse.json({ status: "ok" }),
-    ),
-    http.get(
-      `/api/v1/deployments/${deploymentId}/chat/conversations/${newConversationId}`,
-      () =>
-        HttpResponse.json({
-          conversation_id: newConversationId,
-          title: "hello",
-          updated_at: "2026-06-08T00:00:00Z",
-          assistant_streaming: false,
-          messages: [
-            {
-              id: "msg-user-1",
-              role: "user",
-              content: "hello",
-            },
-            {
-              id: "msg-assistant-1",
-              role: "assistant",
-              content: "hi there",
-            },
-          ],
-        }),
     ),
   );
 }
@@ -91,37 +76,8 @@ describe("useDeploymentChat", () => {
     vi.unstubAllGlobals();
   });
 
-  it("lazy create fetches history for the new conversation id", async () => {
-    const fetched: string[] = [];
-    server.use(
-      http.post(
-        `/api/v1/deployments/${deploymentId}/messaging/conversations`,
-        () =>
-          HttpResponse.json({ conversation_id: newConversationId }),
-      ),
-      http.post(
-        `/api/v1/deployments/${deploymentId}/messaging/conversations/${newConversationId}/messages`,
-        () => HttpResponse.json({ status: "ok" }),
-      ),
-      http.get(
-        `/api/v1/deployments/${deploymentId}/chat/conversations/${newConversationId}`,
-        () => {
-          fetched.push(newConversationId);
-          return HttpResponse.json({
-            conversation_id: newConversationId,
-            title: "hello",
-            updated_at: "2026-06-08T00:00:00Z",
-            messages: [
-              {
-                id: "msg-user-1",
-                role: "user",
-                content: "hello",
-              },
-            ],
-          });
-        },
-      ),
-    );
+  it("lazy create shows user message and streams assistant reply from SSE", async () => {
+    messagingHandlers();
 
     const { wrapper } = createHookWrapper();
     const { result } = renderHook(
@@ -133,16 +89,34 @@ describe("useDeploymentChat", () => {
       await result.current.sendMessage("hello");
     });
 
-    expect(fetched.length).toBeGreaterThanOrEqual(1);
-    expect(fetched.every((id) => id === newConversationId)).toBe(true);
-    await waitFor(() => {
-      expect(result.current.messages.at(-1)?.content).toBe("hello");
-    });
+    expect(result.current.messages.at(-1)?.content).toBe("hello");
     expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(1);
+
+    act(() => {
+      MockEventSource.latest().emit(
+        "chunk",
+        JSON.stringify({ type: "chunk", content: "hi there" }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages.at(-1)?.content).toBe("hi there");
+    });
+
+    act(() => {
+      MockEventSource.latest().emit(
+        "finish",
+        JSON.stringify({ type: "finish" }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+    });
   });
 
   it("sets streamError when send fails", async () => {
-    chatHandlers();
+    messagingHandlers();
     server.use(
       http.post(
         `/api/v1/deployments/${deploymentId}/messaging/conversations/${newConversationId}/messages`,

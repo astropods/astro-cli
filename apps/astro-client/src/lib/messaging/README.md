@@ -1,6 +1,6 @@
 # Deployment chat client messaging
 
-**Hot path (v1):** server-owned history via `use-deployment-chat.ts` — poll `GET …/chat/conversations/:id`, open SSE only during an active send. See `docs/04-guides/deployment-chat.md`.
+**Hot path (v1):** in-session history via `use-deployment-chat.ts` — accumulate SSE chunks locally. Server chat API is stubbed pending Langfuse-backed history. See `docs/04-guides/deployment-chat.md`.
 
 | Module | Runtime |
 |--------|---------|

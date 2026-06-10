@@ -837,38 +837,3 @@ CREATE TABLE public.slack_observed_users (
     last_seen_at         timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT slack_observed_users_pkey PRIMARY KEY (team_id, slack_user_id)
 );
-
--- Deployment chat history (platform API; all clients). Scoped per deployment and WorkOS user.
--- agent_name is a denormalized snapshot for portability; deployment_id is nullable so
--- history survives deployment removal (ON DELETE SET NULL) for future account export.
-CREATE TABLE public.deployment_chat_conversations (
-    id uuid NOT NULL,
-    deployment_id varchar(11),
-    account_id uuid NOT NULL,
-    user_id text NOT NULL,
-    agent_name text NOT NULL DEFAULT '',
-    title text NOT NULL DEFAULT 'New conversation',
-    assistant_stream_active_at timestamptz,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT deployment_chat_conversations_pkey PRIMARY KEY (id),
-    CONSTRAINT deployment_chat_conversations_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE SET NULL,
-    CONSTRAINT deployment_chat_conversations_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_deployment_chat_conversations_list ON public.deployment_chat_conversations(deployment_id, user_id, updated_at DESC);
-CREATE INDEX idx_deployment_chat_conversations_account_user ON public.deployment_chat_conversations(account_id, user_id, updated_at DESC);
-
-CREATE TABLE public.deployment_chat_messages (
-    id uuid NOT NULL,
-    conversation_id uuid NOT NULL,
-    role text NOT NULL,
-    content text NOT NULL,
-    seq integer NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT deployment_chat_messages_pkey PRIMARY KEY (id),
-    CONSTRAINT deployment_chat_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.deployment_chat_conversations(id) ON DELETE CASCADE,
-    CONSTRAINT deployment_chat_messages_role_check CHECK (role IN ('user', 'assistant'))
-);
-
-CREATE UNIQUE INDEX idx_deployment_chat_messages_conv_seq ON public.deployment_chat_messages(conversation_id, seq);

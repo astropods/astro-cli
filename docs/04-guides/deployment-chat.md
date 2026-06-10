@@ -1,15 +1,17 @@
 # Deployment chat (platform API)
 
-Canonical persistence and transport for **any** Astro client where a signed-in user messages a deployed agent (web, CLI, mobile, etc.). History lives on **astro-server**; the deployment **messaging sidecar** is transport only (send + SSE stream). Sidecar in-memory history is not durable and must not be used as source of truth.
+Canonical transport for **any** Astro client where a signed-in user messages a deployed agent (web, CLI, mobile, etc.). The deployment **messaging sidecar** handles send + SSE stream.
+
+**Durable history is disabled.** Postgres persistence was removed pending Langfuse-backed history (user/agent content should not live in astro-server RDS). Clients keep in-session thread state locally; the chat API routes remain as no-op stubs for forward compatibility.
 
 ## Responsibilities
 
 | Layer | Owns |
 |-------|------|
-| `GET/PUT/POST /api/v1/deployments/:id/chat/...` | Conversation list, titles, message history (Postgres) |
+| `GET/PUT/POST /api/v1/deployments/:id/chat/...` | Stub API (empty history) — TODO: Langfuse-backed history |
 | `POST/GET /api/v1/deployments/:id/messaging/...` | Proxy to sidecar: create conversation (optional), send message, SSE stream |
 
-Clients **read** history from the chat API. **Writes** to history during a turn are performed by astro-server inside the messaging proxy (user message on send, assistant message during SSE). Clients must not duplicate that persistence.
+Clients **read** in-session history from local state (SSE chunks). **TODO:** replace with Langfuse trace reads keyed by `conversation_id` metadata.
 
 ## Auth and scope
 
@@ -40,9 +42,9 @@ Base: `/api/v1/deployments/:deploymentId/chat`
 
 **Typical client flow**
 
-1. `PUT` conversation (title, optional empty thread).
-2. On user send: messaging `POST` message (server persists user row before upstream) → messaging SSE for live chunks.
-3. Poll or refetch `GET /conversations/:conversationId` for durable history; assistant text is written incrementally by the proxy until `finish`. While a turn is live, clients should poll with `?limit=N` (tail only) and merge into cached history rather than re-downloading the full thread each tick.
+1. Optional `PUT` conversation (title) — no-op until Langfuse history ships.
+2. On user send: messaging `POST` message → messaging SSE for live chunks.
+3. Accumulate assistant text from SSE in client state for the current session.
 
 Message `id` values are UUIDs. Roles: `user` | `assistant`.
 
@@ -51,9 +53,9 @@ Message `id` values are UUIDs. Roles: `user` | `assistant`.
 Base: `/api/v1/deployments/:deploymentId/messaging` → sidecar `/api/...`
 
 - `POST /conversations` — only if the client did not pre-assign a conversation id.
-- `POST /conversations/:id/messages` — body `{ "content": "..." }`; proxy appends user message to Postgres **before** forwarding upstream. Returns **409** when the message cannot be persisted (assistant reply still streaming, message limit reached, or conversation id conflict) — the message is **not** forwarded upstream in that case.
-- SSE: `/conversations/:id/stream` (session cookie; same origin as API in browsers). The proxy mirrors assistant chunks into Postgres (throttled mid-stream, flush on `finish`) even if the browser disconnects. When a client opens SSE, the proxy also consumes upstream in a **detached** context so generation and persistence continue after navigation away or refresh — returning clients catch up via tail polling, not by requiring a new stream consumer. Active sends should still attach SSE so the proxy begins consuming promptly.
-- Turn state: the proxy marks the conversation as streaming from the first assistant chunk until `finish`/`error`; clients read it back as `assistant_streaming` on the chat GET and must treat it (or a trailing user message) as "turn in flight" rather than guessing from content growth.
+- `POST /conversations/:id/messages` — body `{ "content": "..." }`; proxy forwards upstream (no server-side history write).
+- SSE: `/conversations/:id/stream` (session cookie; same origin as API in browsers). Clients attach during an active send to receive assistant chunks.
+- Turn state: clients track in-flight turns from local SSE state until Langfuse-backed `assistant_streaming` returns on the chat GET.
 
 Server injects `X-Amzn-Oidc-Identity` for upstream messaging auth.
 
@@ -63,9 +65,9 @@ Use deployment list `messaging_web_configured` (batch DB: messaging sidecar + `h
 
 ## Storage
 
-Tables: `deployment_chat_conversations`, `deployment_chat_messages` in `sql/astro-server/schema.sql`. Apply via Atlas like other schema changes.
+**TODO:** Langfuse-backed history — tag traces with `conversation_id`, read input/output from the account's Langfuse project. Do not store free-form user content in astro-server Postgres.
 
-Conversations store a denormalized `agent_name` snapshot and use `ON DELETE SET NULL` for `deployment_id` so history survives deployment removal and can be listed or exported at account scope later. The REST API remains deployment-scoped for now; account-level listing is a future surface.
+The `/chat` REST routes remain registered but return empty/no-op responses until that lands.
 
 ## Consumers
 

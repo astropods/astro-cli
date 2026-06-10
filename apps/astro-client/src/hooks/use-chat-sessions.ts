@@ -1,8 +1,4 @@
-import { useCallback, useMemo } from "react";
-import {
-  useDeploymentChatConversations,
-  useUpsertDeploymentChatConversation,
-} from "@/api/queries/chat";
+import { useCallback, useMemo, useState } from "react";
 import type { ChatSession } from "@/lib/chat/types";
 
 export function titleFromFirstMessage(
@@ -13,27 +9,37 @@ export function titleFromFirstMessage(
   return trimmed || existingTitle || "New conversation";
 }
 
+/**
+ * Ephemeral chat session list for the current browser session.
+ *
+ * TODO: Load session summaries from Langfuse-backed history once server
+ * persistence returns.
+ */
 export function useChatSessions(deploymentId: string) {
-  const { data, isLoading } = useDeploymentChatConversations(deploymentId);
-  const upsert = useUpsertDeploymentChatConversation(deploymentId);
+  const [sessionsByDeployment, setSessionsByDeployment] = useState<
+    Record<string, ChatSession[]>
+  >({});
 
-  const sessions = useMemo((): ChatSession[] => {
-    return (data?.conversations ?? []).map((c) => ({
-      conversationId: c.conversation_id,
-      deploymentId,
-      title: c.title,
-      updatedAt: c.updated_at,
-    }));
-  }, [data?.conversations, deploymentId]);
+  const sessions = useMemo(
+    (): ChatSession[] => sessionsByDeployment[deploymentId] ?? [],
+    [deploymentId, sessionsByDeployment],
+  );
 
   const recordSession = useCallback(
     (session: ChatSession) => {
-      upsert.mutate({
-        conversationId: session.conversationId,
-        title: session.title,
+      setSessionsByDeployment((prev) => {
+        const existing = prev[deploymentId] ?? [];
+        const idx = existing.findIndex(
+          (s) => s.conversationId === session.conversationId,
+        );
+        const next =
+          idx >= 0
+            ? existing.map((s, i) => (i === idx ? session : s))
+            : [session, ...existing];
+        return { ...prev, [deploymentId]: next };
       });
     },
-    [upsert],
+    [deploymentId],
   );
 
   const recordFirstMessage = useCallback(
@@ -49,5 +55,5 @@ export function useChatSessions(deploymentId: string) {
     [deploymentId, recordSession, sessions],
   );
 
-  return { sessions, recordSession, recordFirstMessage, isLoading };
+  return { sessions, recordSession, recordFirstMessage, isLoading: false };
 }

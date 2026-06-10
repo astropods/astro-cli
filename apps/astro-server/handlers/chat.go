@@ -1,6 +1,8 @@
-// Deployment chat HTTP handlers — platform API for durable conversation history.
+// Deployment chat HTTP handlers — platform API for conversation history.
 // Any authenticated client (web, CLI, etc.) uses these routes; messaging proxy is separate.
-// See docs/04-guides/deployment-chat.md.
+//
+// TODO: Back deployment chat history with Langfuse traces (tagged by conversation_id)
+// instead of astro-server Postgres. See docs/04-guides/deployment-chat.md.
 package handlers
 
 import (
@@ -12,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -20,23 +21,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const chatMaxTitleRunes = 200
-
-func chatConversationNotFound(err error) bool {
-	return errors.Is(err, chatstore.ErrConversationNotFound)
-}
-
-func chatConversationIDConflict(err error) bool {
-	return errors.Is(err, chatstore.ErrConversationIDConflict)
-}
-
-func chatActiveAssistantStream(err error) bool {
-	return errors.Is(err, chatstore.ErrActiveAssistantStream)
-}
-
-func chatMessageLimitReached(err error) bool {
-	return errors.Is(err, chatstore.ErrMessageLimitReached)
-}
+const (
+	chatMaxTitleRunes           = 200
+	chatMaxMessageContentRunes  = 128_000
+	chatMaxMessagesPerThread    = 1000
+	chatMaxGetConversationLimit = chatMaxMessagesPerThread
+)
 
 type ChatConversationSummaryResponse struct {
 	ConversationID string    `json:"conversation_id"`
@@ -77,6 +67,11 @@ type ReplaceChatMessagesInput struct {
 // AppendChatMessageInput shares the wire shape of ChatMessageResponse.
 type AppendChatMessageInput ChatMessageResponse
 
+type chatConversationPage struct {
+	Limit     int
+	BeforeSeq int
+}
+
 func parseConversationID(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -104,19 +99,10 @@ func validateChatMessage(m ChatMessageResponse) error {
 	if strings.TrimSpace(m.Content) == "" {
 		return errInvalid("message content is required")
 	}
-	if utf8.RuneCountInString(m.Content) > chatstore.MaxMessageContentRunes {
+	if utf8.RuneCountInString(m.Content) > chatMaxMessageContentRunes {
 		return errInvalid("message content too long")
 	}
 	return nil
-}
-
-func normalizeChatMessage(m ChatMessageResponse) chatstore.Message {
-	id, _ := parseMessageID(m.ID)
-	return chatstore.Message{
-		ID:      id,
-		Role:    strings.TrimSpace(m.Role),
-		Content: m.Content,
-	}
 }
 
 type chatInvalidError struct{ msg string }
@@ -125,12 +111,12 @@ func (e chatInvalidError) Error() string { return e.msg }
 
 func errInvalid(msg string) error { return chatInvalidError{msg: msg} }
 
-func parseConversationPage(c *gin.Context) (chatstore.ConversationPage, error) {
-	page := chatstore.ConversationPage{}
+func parseConversationPage(c *gin.Context) (chatConversationPage, error) {
+	page := chatConversationPage{}
 	rawLimit := strings.TrimSpace(c.Query("limit"))
 	if rawLimit != "" {
 		limit, err := strconv.Atoi(rawLimit)
-		if err != nil || limit < 1 || limit > chatstore.MaxGetConversationLimit {
+		if err != nil || limit < 1 || limit > chatMaxGetConversationLimit {
 			return page, errInvalid("invalid limit")
 		}
 		page.Limit = limit
@@ -153,10 +139,9 @@ func chatInvalidFromErr(err error) (chatInvalidError, bool) {
 
 // ListDeploymentChatConversations handles GET /api/v1/deployments/:id/chat/conversations.
 func ListDeploymentChatConversations(
-	log *logger.Logger,
+	_ *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -165,37 +150,21 @@ func ListDeploymentChatConversations(
 			return
 		}
 
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
+		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
-		rows, err := chatStore.ListConversations(c.Request.Context(), dep.ID, user.ID)
-		if err != nil {
-			log.Error("list chat conversations", "deployment", dep.ID, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list conversations"})
-			return
-		}
-
-		out := make([]ChatConversationSummaryResponse, 0, len(rows))
-		for _, row := range rows {
-			out = append(out, ChatConversationSummaryResponse{
-				ConversationID: row.ID,
-				Title:          row.Title,
-				UpdatedAt:      row.UpdatedAt,
-			})
-		}
-		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: out})
+		_ = user
+		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: []ChatConversationSummaryResponse{}})
 	}
 }
 
 // GetDeploymentChatConversation handles GET /api/v1/deployments/:id/chat/conversations/:conversationId.
 func GetDeploymentChatConversation(
-	log *logger.Logger,
+	_ *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -204,8 +173,7 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
+		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -216,8 +184,7 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		page, err := parseConversationPage(c)
-		if err != nil {
+		if _, err := parseConversationPage(c); err != nil {
 			if inv, ok := chatInvalidFromErr(err); ok {
 				c.JSON(http.StatusBadRequest, gin.H{"error": inv.Error()})
 				return
@@ -226,42 +193,22 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		conv, err := chatStore.GetConversation(c.Request.Context(), dep.ID, user.ID, convID, page)
-		if err != nil {
-			log.Error("get chat conversation", "deployment", dep.ID, "conversation", convID, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load conversation"})
-			return
-		}
-		if conv == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
-			return
-		}
-
-		messages := make([]ChatMessageResponse, 0, len(conv.Messages))
-		for _, m := range conv.Messages {
-			messages = append(messages, ChatMessageResponse{ID: m.ID, Role: m.Role, Content: m.Content})
-		}
-		resp := GetChatConversationResponse{
-			ConversationID:     conv.ID,
-			Title:              conv.Title,
-			UpdatedAt:          conv.UpdatedAt,
-			Messages:           messages,
-			AssistantStreaming: conv.AssistantStreaming,
-		}
-		if page.Limit > 0 {
-			resp.HasMore = conv.HasMore
-			resp.OldestSeq = conv.OldestSeq
-		}
-		c.JSON(http.StatusOK, resp)
+		_ = user
+		c.JSON(http.StatusOK, GetChatConversationResponse{
+			ConversationID:     convID,
+			Title:              "New conversation",
+			UpdatedAt:          time.Now().UTC(),
+			Messages:           []ChatMessageResponse{},
+			AssistantStreaming: false,
+		})
 	}
 }
 
 // UpsertDeploymentChatConversation handles PUT /api/v1/deployments/:id/chat/conversations/:conversationId.
 func UpsertDeploymentChatConversation(
-	log *logger.Logger,
+	_ *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -270,8 +217,7 @@ func UpsertDeploymentChatConversation(
 			return
 		}
 
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
+		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -296,26 +242,16 @@ func UpsertDeploymentChatConversation(
 			return
 		}
 
-		if err := chatStore.UpsertConversation(c.Request.Context(), dep.AccountID, dep.ID, user.ID, convID, title, dep.AgentName); err != nil {
-			if chatConversationIDConflict(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrConversationIDConflict.Error()})
-				return
-			}
-			log.Error("upsert chat conversation", "deployment", dep.ID, "conversation", convID, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save conversation"})
-			return
-		}
-
+		_ = user
 		c.JSON(http.StatusOK, gin.H{"conversation_id": convID, "title": title})
 	}
 }
 
 // ReplaceDeploymentChatMessages handles PUT /api/v1/deployments/:id/chat/conversations/:conversationId/messages.
 func ReplaceDeploymentChatMessages(
-	log *logger.Logger,
+	_ *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -324,8 +260,7 @@ func ReplaceDeploymentChatMessages(
 			return
 		}
 
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
+		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -342,12 +277,11 @@ func ReplaceDeploymentChatMessages(
 			return
 		}
 
-		if len(input.Messages) > chatstore.MaxMessagesPerConversation {
+		if len(input.Messages) > chatMaxMessagesPerThread {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "too many messages"})
 			return
 		}
 
-		msgs := make([]chatstore.Message, 0, len(input.Messages))
 		for _, m := range input.Messages {
 			if err := validateChatMessage(m); err != nil {
 				if inv, ok := chatInvalidFromErr(err); ok {
@@ -357,33 +291,19 @@ func ReplaceDeploymentChatMessages(
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message"})
 				return
 			}
-			msgs = append(msgs, normalizeChatMessage(m))
 		}
 
-		if err := chatStore.ReplaceMessages(c.Request.Context(), dep.ID, user.ID, convID, msgs); err != nil {
-			if chatConversationNotFound(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": chatstore.ErrConversationNotFound.Error()})
-				return
-			}
-			if chatActiveAssistantStream(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrActiveAssistantStream.Error()})
-				return
-			}
-			log.Error("replace chat messages", "deployment", dep.ID, "conversation", convID, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save messages"})
-			return
-		}
-
+		_ = user
+		_ = convID
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
 
 // AppendDeploymentChatMessage handles POST /api/v1/deployments/:id/chat/conversations/:conversationId/messages.
 func AppendDeploymentChatMessage(
-	log *logger.Logger,
+	_ *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -392,8 +312,7 @@ func AppendDeploymentChatMessage(
 			return
 		}
 
-		dep, err := resolveDeployment(c, deployStore, accountStore)
-		if err != nil {
+		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -420,24 +339,8 @@ func AppendDeploymentChatMessage(
 			return
 		}
 
-		if err := chatStore.AppendMessage(c.Request.Context(), dep.ID, user.ID, convID, normalizeChatMessage(msg)); err != nil {
-			if chatConversationNotFound(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": chatstore.ErrConversationNotFound.Error()})
-				return
-			}
-			if chatActiveAssistantStream(err) {
-				c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrActiveAssistantStream.Error()})
-				return
-			}
-			if chatMessageLimitReached(err) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": chatstore.ErrMessageLimitReached.Error()})
-				return
-			}
-			log.Error("append chat message", "deployment", dep.ID, "conversation", convID, "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save message"})
-			return
-		}
-
+		_ = user
+		_ = convID
 		c.Status(http.StatusCreated)
 	}
 }

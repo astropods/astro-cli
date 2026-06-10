@@ -9,7 +9,6 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -35,7 +34,7 @@ func setupMessagingProxyRouter(upstreamURL string, withAuth bool) (*gin.Engine, 
 		router.Use(setAuthUser("user-workos-1"))
 	}
 
-	handler := ProxyDeploymentMessaging(log, accountStore, deployStore, nil, cfg, nil)
+	handler := ProxyDeploymentMessaging(log, accountStore, deployStore, nil, cfg)
 	router.Any("/deployments/:id/messaging/*proxyPath", handler)
 
 	return router, accountMock, deployMock
@@ -214,48 +213,6 @@ func TestMessagingUpstreamPath(t *testing.T) {
 		if got := messagingUpstreamPath(tc.in); got != tc.want {
 			t.Errorf("messagingUpstreamPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-	}
-}
-
-func TestMessagingProxy_ChatSendBodyTooLarge(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "upstream should not be called", http.StatusInternalServerError)
-	}))
-	defer upstream.Close()
-
-	router, accountMock, deployMock := setupMessagingProxyRouter(upstream.URL, true)
-	expectMessagingProxyAuth(accountMock, deployMock)
-
-	body := strings.Repeat("a", messagingProxyMaxSendBody+1)
-	convID := "ef382a6b-c6c7-4a3e-a57b-b6832759f136"
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/deployments/dep-1/messaging/conversations/"+convID+"/messages",
-		strings.NewReader(`{"content":"`+body+`"}`),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestChatStreamPersistConsume_StopsAccumulatingAtCap(t *testing.T) {
-	t.Parallel()
-
-	p := &chatStreamPersist{}
-	chunk := strings.Repeat("a", chatstore.StreamPersistMaxAccumBytes)
-	p.consume(`{"type":"chunk","content":"`+chunk+`"}`, "")
-
-	if p.content.Len() != chatstore.StreamPersistMaxAccumBytes {
-		t.Fatalf("expected first chunk to fill cap, got len=%d", p.content.Len())
-	}
-
-	p.consume(`{"type":"chunk","content":"overflow"}`, "")
-	if p.content.Len() != chatstore.StreamPersistMaxAccumBytes {
-		t.Fatalf("expected cap to block further accumulation, got len=%d", p.content.Len())
 	}
 }
 

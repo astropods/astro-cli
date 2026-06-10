@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -25,26 +24,6 @@ func TestValidateChatMessage_RejectsEmptyContent(t *testing.T) {
 	inv, ok := chatInvalidFromErr(err)
 	if !ok || inv.Error() != "message content is required" {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestNormalizeChatMessage_TrimsRoleAndCanonicalizesID(t *testing.T) {
-	t.Parallel()
-
-	id := uuid.NewString()
-	got := normalizeChatMessage(ChatMessageResponse{
-		ID:      " " + id + " ",
-		Role:    " user ",
-		Content: "hello",
-	})
-	if got.ID != id {
-		t.Fatalf("expected canonical id %s, got %s", id, got.ID)
-	}
-	if got.Role != "user" {
-		t.Fatalf("expected trimmed role user, got %q", got.Role)
-	}
-	if got.Content != "hello" {
-		t.Fatalf("expected content preserved, got %q", got.Content)
 	}
 }
 
@@ -101,7 +80,7 @@ func TestParseConversationPage(t *testing.T) {
 func TestValidateChatMessage_RejectsOversizeContent(t *testing.T) {
 	t.Parallel()
 
-	content := strings.Repeat("x", chatstore.MaxMessageContentRunes+1)
+	content := strings.Repeat("x", chatMaxMessageContentRunes+1)
 	err := validateChatMessage(ChatMessageResponse{
 		ID:      uuid.NewString(),
 		Role:    "assistant",
