@@ -11,12 +11,12 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import { ChatButton } from "@/components/assistant-ui/chat-button";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { DeploymentChatHistoryScroll } from "@/components/chat/DeploymentChatHistoryScroll";
 import { DeploymentChatStreamingIndicator } from "@/components/chat/DeploymentChatStreamingIndicator";
 import { DeploymentChatText } from "@/components/chat/DeploymentChatText";
 import { useDeploymentChatViewport } from "@/components/chat/deployment-chat-streaming-context";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   ActionBarPrimitive,
@@ -182,7 +182,7 @@ const ComposerAction: FC<{ disabled?: boolean }> = ({ disabled }) => (
     </AuiIf>
     <AuiIf condition={(s) => s.thread.isRunning}>
       <ComposerPrimitive.Cancel asChild>
-        <Button
+        <ChatButton
           type="button"
           variant="default"
           size="icon"
@@ -190,7 +190,7 @@ const ComposerAction: FC<{ disabled?: boolean }> = ({ disabled }) => (
           aria-label="Stop generating"
         >
           <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-        </Button>
+        </ChatButton>
       </ComposerPrimitive.Cancel>
     </AuiIf>
   </div>

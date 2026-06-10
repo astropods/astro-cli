@@ -3,19 +3,24 @@
 import { type ComponentPropsWithRef, forwardRef } from "react";
 import { Slot } from "radix-ui";
 
+import { ChatButton } from "@/components/assistant-ui/chat-button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {
+export type TooltipIconButtonProps = ComponentPropsWithRef<typeof ChatButton> & {
   tooltip: string;
   side?: "top" | "bottom" | "left" | "right";
 };
+
+const chatTooltipContentClassName =
+  "rounded-md bg-foreground px-3 py-1.5 text-background";
+
+const chatTooltipArrowClassName = "bg-foreground fill-foreground";
 
 export const TooltipIconButton = forwardRef<
   HTMLButtonElement,
@@ -25,18 +30,22 @@ export const TooltipIconButton = forwardRef<
     <TooltipProvider delayDuration={0}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
+          <ChatButton
             {...rest}
             className={cn("aui-button-icon size-6 p-1", className)}
             ref={ref}
           >
             <Slot.Slottable>{children}</Slot.Slottable>
             <span className="aui-sr-only sr-only">{tooltip}</span>
-          </Button>
+          </ChatButton>
         </TooltipTrigger>
-        <TooltipContent side={side}>{tooltip}</TooltipContent>
+        <TooltipContent
+          side={side}
+          className={chatTooltipContentClassName}
+          arrowClassName={chatTooltipArrowClassName}
+        >
+          {tooltip}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
