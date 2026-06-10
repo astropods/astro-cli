@@ -2,8 +2,9 @@ import { type ReactNode, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { RefreshCw } from "lucide-react";
+import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { PillToggleChrome } from "@/components/activity/PillToggle";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { ViewToggle, parseActivityView, type ActivityView } from "@/components/activity/ViewToggle";
 import { StatCards } from "@/components/activity/StatCards";
@@ -17,20 +18,19 @@ import {
 import { useDeploymentsSummary, useUsersSummary } from "@/api/queries/observability";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useDeployments } from "@/api/queries/deployments";
+import { countSlackRowsMissingDetails, insightsUserIdentityKey } from "@/components/activity/insights-user-identity";
 import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
-import { insightsUserIdentityKey } from "@/components/activity/insights-user-identity";
 import { isSlackUserId } from "@/components/activity/user-classification";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WarningPanel } from "@/components/ui/status-panel";
-import { Button } from "@/components/ui/button";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { accountKeys, deploymentKeys, observabilityKeys, slackKeys } from "@/api/queries/keys";
-import type { InsightsUserIdentity } from "@/lib/api";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -45,18 +45,6 @@ function parseRange(raw: string | null): ActivityRange {
   // Stale "?range=all" deep-links from before the all-time range was retired
   // fall through to the 30d default rather than 404ing the page.
   return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
-}
-
-export function countSlackRowsMissingDetails(
-  users: Array<Pick<InsightsUserIdentity, "identity_key" | "user_id" | "slack_team_id" | "slack_display_name" | "slack_avatar_url">>,
-): number {
-  const missing = new Set<string>();
-  for (const user of users) {
-    if (!isSlackUserId(user.user_id)) continue;
-    if (user.slack_team_id && (user.slack_display_name || user.slack_avatar_url)) continue;
-    missing.add(insightsUserIdentityKey(user));
-  }
-  return missing.size;
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -431,6 +419,30 @@ function InsightsView({
     });
   };
 
+  const slackActionLabel = slackConnect.isPending
+    ? "Opening Slack..."
+    : slackConnected
+      ? "Resync Slack"
+      : "Connect Slack";
+  const slackActionButton = (
+    <button
+      type="button"
+      className="relative inline-flex items-center gap-1.5 rounded-[5px] px-3 py-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+      aria-label={slackConnected ? "Resync Slack" : "Connect Slack"}
+      disabled={slackConnect.isPending}
+      onClick={handleSlackDetails}
+    >
+      {(slackConnect.isPending || slackConnected) && (
+        <RefreshCw className={`size-3.5 shrink-0 ${slackConnect.isPending ? "animate-spin" : ""}`} />
+      )}
+      {slackActionLabel}
+      {!slackConnect.isPending && !slackConnected && (
+        <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
+      )}
+    </button>
+  );
+  const shouldShowConnectTooltip = !slackConnected && !slackConnect.isPending;
+
   // Counts shown in the toggle pills are the un-filtered totals — the pill
   // reflects how much data exists, not how much the current search returns.
   // Toggle + search render inside the table's bordered container via the
@@ -450,20 +462,20 @@ function InsightsView({
       </div>
       <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
         {showSlackDetailsAction && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 shrink-0"
-            disabled={slackConnect.isPending}
-            onClick={handleSlackDetails}
-          >
-            <RefreshCw className={`size-3.5 ${slackConnect.isPending ? "animate-spin" : ""}`} />
-            {slackConnect.isPending
-              ? "Opening Slack..."
-              : slackConnected
-                ? "Refresh Slack details"
-                : "Connect Slack"}
-          </Button>
+          <PillToggleChrome size="md" inline className="shrink-0">
+            {shouldShowConnectTooltip ? (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    {slackActionButton}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Connect to identify Slack users.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : slackActionButton}
+          </PillToggleChrome>
         )}
         <FilterInput
           containerClassName="h-8 w-full shrink-0 @md:w-80"

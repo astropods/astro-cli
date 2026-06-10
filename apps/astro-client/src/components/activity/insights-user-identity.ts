@@ -16,6 +16,18 @@ export function insightsUserIdentityKey(
   return user.user_id;
 }
 
+export function countSlackRowsMissingDetails(
+  users: Array<Pick<InsightsUserIdentity, "identity_key" | "user_id" | "slack_team_id" | "slack_display_name" | "slack_avatar_url">>,
+): number {
+  const missing = new Set<string>();
+  for (const user of users) {
+    if (!isSlackUserId(user.user_id)) continue;
+    if (user.slack_team_id && (user.slack_display_name || user.slack_avatar_url)) continue;
+    missing.add(insightsUserIdentityKey(user));
+  }
+  return missing.size;
+}
+
 export function slackIdentityDisplay(user: InsightsUserIdentity): SlackIdentityDisplay {
   const uid = user.user_id;
   const primary = user.slack_display_name || `Slack user - ${uid}`;

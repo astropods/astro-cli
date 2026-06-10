@@ -14,6 +14,13 @@ export interface PillOption<K extends string> {
 
 type PillSize = "sm" | "md";
 
+interface PillToggleChromeProps {
+  children: ReactNode;
+  size?: PillSize;
+  inline?: boolean;
+  className?: string;
+}
+
 interface PillToggleProps<K extends string> {
   value: K;
   options: PillOption<K>[];
@@ -41,6 +48,27 @@ const PILL_SIZE: Record<PillSize, { container: string; item: string; indicator: 
   },
 };
 
+export function PillToggleChrome({
+  children,
+  size = "sm",
+  inline = false,
+  className,
+}: PillToggleChromeProps) {
+  const s = PILL_SIZE[size];
+  return (
+    <div
+      className={cn(
+        inline ? "inline-flex" : "flex",
+        "items-center border border-border bg-muted dark:bg-surface/60",
+        s.container,
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 // Shared chrome for Insights' header pill toggles (date range + view).
 // Spring timing matches TimeRangeSelector's original feel — bounce 0.15,
 // duration 0.4 — so every pill on the page shares the same motion.
@@ -54,13 +82,7 @@ export function PillToggle<K extends string>({
 }: PillToggleProps<K>) {
   const s = PILL_SIZE[size];
   return (
-    <div
-      className={cn(
-        "flex items-center border border-border bg-muted dark:bg-surface/60",
-        s.container,
-        className,
-      )}
-    >
+    <PillToggleChrome size={size} className={className}>
       {options.map(({ key, label, ariaLabel, icon, count }) => {
         const isActive = key === value;
         return (
@@ -93,6 +115,6 @@ export function PillToggle<K extends string>({
           </button>
         );
       })}
-    </div>
+    </PillToggleChrome>
   );
 }

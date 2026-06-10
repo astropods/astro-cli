@@ -40,6 +40,7 @@ interface ClassifiedUser {
   member: AccountMember | undefined;
   /** Display string for the row label, popover line, and avatar tooltip. */
   primary: string;
+  secondary?: string;
   deepLink?: string;
 }
 
@@ -50,7 +51,14 @@ function classify(identity: InsightsUserIdentity, member: AccountMember | undefi
     return { key, identity, kind: "unattributed", member: undefined, primary: "System spend" };
   }
   if (member) {
-    return { key, identity, kind: "member", member, primary: member.display_name || member.username };
+    return {
+      key,
+      identity,
+      kind: "member",
+      member,
+      primary: member.display_name || member.username,
+      secondary: `@${member.username}`,
+    };
   }
   if (isSlackUserId(uid)) {
     const display = slackIdentityDisplay(identity);
@@ -60,6 +68,7 @@ function classify(identity: InsightsUserIdentity, member: AccountMember | undefi
       kind: "slack",
       member: undefined,
       primary: display.primary,
+      secondary: identity.slack_username ? `@${identity.slack_username}` : undefined,
       deepLink: display.deepLink,
     };
   }
@@ -71,7 +80,7 @@ function UserChipAvatar({ user }: { user: ClassifiedUser }) {
     return (
       <SlackIdentityAvatar
         user={user.identity}
-        className="size-6"
+        className="size-6 opacity-60 transition-opacity group-hover:opacity-100"
         iconClassName="size-3.5"
       />
     );
@@ -87,7 +96,7 @@ function UserChipAvatar({ user }: { user: ClassifiedUser }) {
     );
   }
   if (user.kind === "unattributed") {
-    return <Server className="size-6 shrink-0 text-muted-foreground" aria-hidden />;
+    return <Server className="size-6 shrink-0 text-faint-foreground" aria-hidden />;
   }
   return (
     <UserAvatar
@@ -98,30 +107,43 @@ function UserChipAvatar({ user }: { user: ClassifiedUser }) {
   );
 }
 
-function UserIdentityTarget({
-  user,
-  className,
-  children,
-}: {
-  user: ClassifiedUser;
-  className: string;
-  children: ReactNode;
-}) {
+function userTooltipTitle(user: ClassifiedUser) {
+  return user.secondary ? `${user.primary} (${user.secondary})` : user.primary;
+}
+
+function UserTooltipContent({ user }: { user: ClassifiedUser }) {
+  return (
+    <>
+      <span className="block">{user.primary}</span>
+      {user.secondary && (
+        <span className="block text-faint-foreground">{user.secondary}</span>
+      )}
+    </>
+  );
+}
+
+function userIdentityTarget(
+  user: ClassifiedUser,
+  className: string,
+  children: ReactNode,
+  options?: { title?: boolean },
+) {
+  const title = options?.title === false ? undefined : userTooltipTitle(user);
   if (user.kind === "member" && user.member) {
     return (
-      <Link to={`/${user.member.username}`} className={className}>
+      <Link to={`/${user.member.username}`} className={className} title={title}>
         {children}
       </Link>
     );
   }
   if (user.kind === "slack" && user.deepLink) {
     return (
-      <a href={user.deepLink} rel="noreferrer" className={className}>
+      <a href={user.deepLink} rel="noreferrer" className={className} title={title}>
         {children}
       </a>
     );
   }
-  return <span className={className}>{children}</span>;
+  return <span className={className} title={title}>{children}</span>;
 }
 
 export function UsersUsedAvatars({
@@ -166,15 +188,22 @@ export function UsersUsedAvatars({
       <TooltipProvider delayDuration={200}>
         {visible.map((c) => {
           const avatarNode = <UserChipAvatar user={c} />;
+          const target = userIdentityTarget(
+            c,
+            cn(
+              "inline-flex rounded-full",
+              (c.kind === "slack" || c.kind === "unattributed") && "group",
+            ),
+            avatarNode,
+            { title: false },
+          );
           return (
             <Tooltip key={c.key}>
               <TooltipTrigger asChild>
-                <UserIdentityTarget user={c} className="inline-flex rounded-full">
-                  {avatarNode}
-                </UserIdentityTarget>
+                {target}
               </TooltipTrigger>
               <TooltipContent side="top">
-                <span className="block">{c.primary}</span>
+                <UserTooltipContent user={c} />
               </TooltipContent>
             </Tooltip>
           );
@@ -188,14 +217,16 @@ export function UsersUsedAvatars({
         >
           <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
             {classified.map((c) => {
+              const isDimmed = c.kind === "slack" || c.kind === "unattributed";
               const rowBody = (
                 <>
                   <UserChipAvatar user={c} />
                   <span className="min-w-0">
                     <span
                       className={cn(
-                        "block truncate",
-                        c.kind === "unidentified" && "font-mono text-mono-sm",
+                        "block truncate transition-colors",
+                        isDimmed && "text-faint-foreground group-hover:text-foreground",
+                        c.kind === "unidentified" && "font-mono",
                       )}
                     >
                       {c.primary}
@@ -205,15 +236,15 @@ export function UsersUsedAvatars({
               );
               return (
                 <li key={c.key}>
-                  <UserIdentityTarget
-                    user={c}
-                    className={cn(
-                      "flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground",
+                  {userIdentityTarget(
+                    c,
+                    cn(
+                      "group flex items-center gap-2 rounded px-2 py-1 text-body-sm text-foreground",
+                      isDimmed && "text-faint-foreground",
                       (c.kind === "member" || c.deepLink) && "hover:bg-muted",
-                    )}
-                  >
-                    {rowBody}
-                  </UserIdentityTarget>
+                    ),
+                    rowBody,
+                  )}
                 </li>
               );
             })}

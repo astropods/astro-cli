@@ -173,14 +173,18 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
     expect(screen.getByText("Alice Chen")).toBeInTheDocument();
     expect(screen.getByText("anon-user")).toBeInTheDocument();
 
-    const slackLinks = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a")?.getAttribute("href"));
+    const slackAnchors = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a"));
+    const slackLinks = slackAnchors.map((anchor) => anchor?.getAttribute("href"));
     expect(slackLinks).toEqual(expect.arrayContaining([
       "slack://user?team=TPOSTMAN&id=U07SOHUM1",
       "slack://user?team=TASTRO&id=U07SOHUM1",
     ]));
+    expect(slackAnchors.map((anchor) => anchor?.getAttribute("title"))).toContain("Sohum Dalal (@sohum)");
+    expect(screen.getAllByTitle("Alice Chen (@alice)").length).toBeGreaterThan(0);
     const avatar = document.querySelector('img[src="https://avatars.slack-edge.com/sohum-postman.png"]');
     expect(avatar).not.toBeNull();
     expect(avatar).toHaveClass("rounded-full");
+    expect(avatar).toHaveClass("opacity-60");
   });
 
   it("prefers Used by details so linked Slack history renders as the Astro member", async () => {
@@ -622,6 +626,7 @@ describe("TopSpendersTable users mode", () => {
     expect(avatar).not.toBeNull();
     expect(avatar!).toHaveAttribute("src", "https://avatars.slack-edge.com/jesse.png");
     expect(avatar!).toHaveClass("rounded-full");
+    expect(avatar!).toHaveClass("opacity-60");
   });
 
   it("renders the same Slack user id as separate rows when workspaces differ", async () => {

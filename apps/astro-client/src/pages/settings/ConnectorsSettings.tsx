@@ -223,11 +223,10 @@ function SlackSection() {
   const { data: status, isLoading } = useSlackAccountStatus(account, {
     enabled: !!account,
   });
-  const disconnect = useSlackAccountDisconnect(account);
-  const connect = useSlackAccountConnect(account);
-
   const workspaces = status?.workspaces ?? [];
   const connected = workspaces.length > 0;
+  const disconnect = useSlackAccountDisconnect(account);
+  const connect = useSlackAccountConnect(account);
 
   const handleConnect = () => {
     connect.mutate(RETURN_PATH, {
@@ -260,8 +259,14 @@ function SlackSection() {
     ? `${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""} linked`
     : undefined;
 
-  const action = (
-    <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+  const connectAction = (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={connected ? "Add Slack workspace" : "Connect Slack"}
+      disabled={connect.isPending}
+      onClick={handleConnect}
+    >
       {connect.isPending ? "Opening Slack…" : connected ? "Add workspace" : "Connect Slack"}
     </Button>
   );
@@ -281,7 +286,7 @@ function SlackSection() {
         isLoading={isLoading}
         status={statusLine}
         meta={metaLine}
-        action={action}
+        action={connectAction}
       >
         {connected && workspaces.map((w) => (
           <ConnectorCardRow key={w.team_id}>

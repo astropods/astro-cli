@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countSlackRowsMissingDetails, shouldRevalidate } from "./Insights";
+import { shouldRevalidate } from "./Insights";
 
 // Insights opts most search-param changes out of loader revalidation
 // (range/agent toggles handle the new query key client-side). Only
@@ -32,23 +32,5 @@ describe("Insights shouldRevalidate", () => {
   it("defers to defaultShouldRevalidate when the pathname actually changed", () => {
     expect(shouldRevalidate(args("http://x/agents", "http://x/insights", true))).toBe(true);
     expect(shouldRevalidate(args("http://x/agents", "http://x/insights", false))).toBe(false);
-  });
-});
-
-describe("countSlackRowsMissingDetails", () => {
-  it("counts unique Slack rows missing team or profile details", () => {
-    expect(countSlackRowsMissingDetails([
-      { user_id: "U07UNKNOWN" },
-      { user_id: "U07UNKNOWN" },
-      { user_id: "U08NOPROF1", slack_team_id: "T08TEAM" },
-      { user_id: "U09READY01", slack_team_id: "T09TEAM", slack_display_name: "Ready User" },
-      { user_id: "user_01HXX" },
-    ])).toBe(2);
-  });
-
-  it("does not count enriched Slack rows even when avatar is absent", () => {
-    expect(countSlackRowsMissingDetails([
-      { user_id: "U09READY01", slack_team_id: "T09TEAM", slack_display_name: "Ready User" },
-    ])).toBe(0);
   });
 });

@@ -91,7 +91,7 @@ function formatShare(cost: number, total: number): string {
 
 function RankMarker({ rank }: { rank: number }) {
   return (
-    <span className="w-5 shrink-0 text-right text-mono-sm tabular-nums text-faint-foreground">
+    <span className="w-5 shrink-0 text-left text-mono-sm tabular-nums text-faint-foreground">
       {rank}
     </span>
   );
@@ -108,7 +108,7 @@ function IdentityTableCell({
     <TableCell className="pl-3 pr-4">
       <div className="flex min-w-0 items-center gap-2.5">
         <RankMarker rank={rank} />
-        <div className="min-w-0 flex-1">
+        <div className="-ml-1 min-w-0 flex-1">
           {children}
         </div>
       </div>
@@ -455,7 +455,7 @@ function renderUserRowContent(
         {ctx.memberIds.has(u.user_id) ? (
           <UserBadge userId={u.user_id} account={ctx.account} linkToProfile />
         ) : (
-          <SlackUserIdentity user={u} />
+          <SlackUserIdentity user={u} orgName={ctx.account} />
         )}
       </IdentityTableCell>
       <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
@@ -628,7 +628,7 @@ function UnidentifiedUserCells({
             <CircleUserRound className="size-3" strokeWidth={1.75} />
           </span>
           <span
-            className="truncate text-mono-sm text-foreground"
+            className="truncate font-mono text-foreground"
             title={user.user_id}
           >
             {user.user_id}
@@ -657,15 +657,15 @@ function SystemSpendCells({
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-2 text-body-sm text-foreground">
+              <span className="inline-flex items-center gap-2 text-faint-foreground">
                 <span
-                  className="flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+                  className="flex size-5 shrink-0 items-center justify-center text-faint-foreground"
                   aria-hidden
                 >
                   <Server className="size-3" strokeWidth={1.75} />
                 </span>
                 System spend
-                <Info className="size-3 text-muted-foreground" aria-hidden />
+                <Info className="size-3 text-faint-foreground" aria-hidden />
               </span>
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
