@@ -569,6 +569,93 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /deployments/authorize:
+    get:
+      tags: [deployments]
+      summary: Authorize a deployment request
+      description: |
+        Callback used by the messaging container — and by any agent that handles its own
+        HTTP requests (e.g. a frontend agent) — to check whether an inbound request should
+        be allowed against this deployment's grants.
+
+        Authentication is the per-deployment JWT injected as `ASTRO_AUTHZ_TOKEN`. The token's
+        `sub` claim identifies the deployment; no other deployment ID is passed in the request.
+
+        Returns `200` with the decision on every authoritative answer. Identity fields are
+        only populated when `allowed: true` — denials don't leak mapping state.
+      operationId: authorizeDeployment
+      security:
+        - DeployTokenAuth: []
+      parameters:
+        - name: identity_type
+          in: query
+          required: false
+          description: |
+            `user` for a signed-in user, `slack` for a Slack user, or empty for anonymous
+            (only valid when an `anyone` grant exists for the adapter).
+          schema:
+            type: string
+            enum: [user, slack]
+        - name: identity_id
+          in: query
+          required: false
+          description: |
+            The user id corresponding to `identity_type` — the platform user id for `user`,
+            the Slack user id for `slack`. Must be supplied together with `identity_type`;
+            providing one without the other returns 400.
+          schema:
+            type: string
+        - name: identity_scope
+          in: query
+          required: false
+          description: |
+            Adapter-specific disambiguator for `identity_id`. For `slack`, this is the
+            workspace `team_id` (Slack user ids are only unique within a team). Omit for `web`.
+          schema:
+            type: string
+        - name: adapter
+          in: query
+          required: true
+          description: The adapter handling the request.
+          schema:
+            type: string
+            enum: [web, slack]
+      responses:
+        "200":
+          description: Authorization decision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowed]
+                properties:
+                  allowed:
+                    type: boolean
+                    description: Whether the request is allowed.
+                  user_id:
+                    type: string
+                    description: |
+                      Resolved platform user id. Echoed back for `identity_type=user`;
+                      looked up via Slack identity mappings for `identity_type=slack` (empty
+                      when no mapping exists). Only present when `allowed: true`.
+                  slack_user_id:
+                    type: string
+                    description: |
+                      The Slack user id from the request, echoed back so callers can attribute
+                      unlinked Slack users to a namespaced trace id. Only present when
+                      `allowed: true` and `identity_type=slack`.
+                  slack_team_id:
+                    type: string
+                    description: |
+                      The Slack workspace id (`team_id`) from the request, echoed back. Only
+                      present when `allowed: true` and `identity_type=slack`.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /deploy:
     post:
       tags: [deployments]
@@ -919,7 +1006,15 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: OAuth 2.0 device flow or session token from WorkOS
+      description: OAuth 2.0 device flow or platform session token
+    DeployTokenAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Per-deployment JWT signed by astro-server (HS256). Injected into the agent and
+        messaging containers as the `ASTRO_AUTHZ_TOKEN` environment variable. The `sub`
+        claim identifies the deployment.
 
   parameters:
     Account:

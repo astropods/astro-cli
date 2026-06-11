@@ -1,0 +1,179 @@
+---
+title: Manually authorize requests
+subtitle: Reproduce the access checks that the messaging sidecar runs for you
+slug: manual-authz
+---
+
+When you deploy with the default `web` or `slack` adapter, the messaging sidecar handles authorization automatically: every incoming request is checked against the deployment's grants table before it reaches your agent. If you're running a [frontend agent](/frontend-agents) or a custom HTTP server inside the messaging container, there's no sidecar to do this for you — but the platform still issues the same credentials, and you can call the same endpoint yourself.
+
+This guide explains the contract and shows how to replicate it.
+
+---
+
+## What the sidecar is doing
+
+For every inbound request, the messaging sidecar:
+
+1. Extracts an identity from the request (the OIDC user_id for web, the Slack user/team for slack).
+2. Calls `GET /api/v1/deployments/authorize` on astro-server with that identity and the adapter name, authenticated by the deploy token.
+3. Allows the request if the server returns `allowed: true`; denies it otherwise.
+4. Caches the answer for ~60s so chatty sessions don't pay the round-trip on every event.
+5. Falls back to the deploy token's `anyone_adapters` claim if the server is unreachable, so an outage doesn't take down open-grant deployments.
+
+When you handle requests directly, you reproduce these five steps inside your agent.
+
+---
+
+## Inputs the platform gives you
+
+Every deployed agent — including frontend agents — receives a single environment variable:
+
+| Variable | Description |
+|---|---|
+| `ASTRO_AUTHZ_TOKEN` | Short JWT signed by astro-server. Use as a bearer credential when calling the authorize endpoint. |
+
+The token is opaque to you, but two claims inside it are useful:
+
+| Claim | Meaning |
+|---|---|
+| `iss` | astro-server's base URL — the host you call. No separate `ASTRO_AUTHZ_URL` env var is needed. |
+| `sub` | This deployment's ID. You don't pass it explicitly; the server reads it from the token. |
+| `anyone_adapters` | Adapters with an `anyone` grant at deploy time. Used only as a degraded-mode fallback. |
+
+Decode the JWT once at startup to read `iss`. Don't bother validating the signature — the server re-validates on every call.
+
+---
+
+## The authorize call
+
+Substitute the server URL with the `iss` claim from your `ASTRO_AUTHZ_TOKEN`, and pass the raw token as a Bearer credential:
+
+<EndpointRequestSnippet endpoint="GET /deployments/authorize" />
+
+**Query parameters:**
+
+| Param | When to set |
+|---|---|
+| `identity_type` | `user` for a signed-in user, `slack` for a Slack user, empty for anonymous (only valid when an `anyone` grant exists). |
+| `identity_id` | The corresponding user id. Must be supplied together with `identity_type` — supplying one without the other is a 400. |
+| `identity_scope` | Slack only: the `team_id` (Slack user IDs are only unique per team). Omit for web. |
+| `adapter` | `web` or `slack`. Required. Any other value is a 400. |
+
+**Response (200):**
+
+```json
+{
+  "allowed": true,
+  "user_id": "user_01HXY..."
+}
+```
+
+- `allowed` — the final decision.
+- `user_id` — the resolved platform user id when the server could resolve one (for `identity_type=user` it's the input echoed back; for `slack` it's the linked platform user, empty when no mapping exists). Only present when `allowed: true`.
+
+Treat 4xx as malformed input (don't retry) and 5xx as transient (retry once, then fail-closed).
+
+---
+
+## Reference implementations
+
+A minimal authorize client you can drop into your agent:
+
+<Tabs>
+  <Tab title="Node.js">
+    ```typescript authz.ts
+    type AuthzResult = { allowed: boolean; userId?: string };
+
+    const token = process.env.ASTRO_AUTHZ_TOKEN ?? "";
+    const issuer = token
+      ? JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).iss
+      : "";
+
+    export async function authorize(
+      identityType: "user" | "slack" | "",
+      identityId: string,
+      adapter: "web" | "slack",
+      identityScope = "",
+    ): Promise<AuthzResult> {
+      if (!token || !issuer) return { allowed: true }; // dev fallback
+      const url = new URL(`${issuer}/api/v1/deployments/authorize`);
+      url.searchParams.set("adapter", adapter);
+      if (identityType) url.searchParams.set("identity_type", identityType);
+      if (identityId) url.searchParams.set("identity_id", identityId);
+      if (identityScope) url.searchParams.set("identity_scope", identityScope);
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) throw new Error(`authz: ${res.status}`);
+      const body = (await res.json()) as { allowed: boolean; user_id?: string };
+      return { allowed: body.allowed, userId: body.user_id };
+    }
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python authz.py
+    import base64, json, os
+    from dataclasses import dataclass
+    import httpx
+
+    @dataclass
+    class AuthzResult:
+        allowed: bool
+        user_id: str = ""
+
+    _token = os.environ.get("ASTRO_AUTHZ_TOKEN", "")
+    _issuer = ""
+    if _token:
+        payload = _token.split(".")[1] + "=="  # pad for base64
+        _issuer = json.loads(base64.urlsafe_b64decode(payload)).get("iss", "")
+
+    async def authorize(
+        identity_type: str,           # "user" | "slack" | ""
+        identity_id: str,
+        adapter: str,                 # "web" | "slack"
+        identity_scope: str = "",
+    ) -> AuthzResult:
+        if not _token or not _issuer:
+            return AuthzResult(allowed=True)  # dev fallback
+
+        params = {"adapter": adapter}
+        if identity_type: params["identity_type"] = identity_type
+        if identity_id: params["identity_id"] = identity_id
+        if identity_scope: params["identity_scope"] = identity_scope
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{_issuer}/api/v1/deployments/authorize",
+                params=params,
+                headers={"Authorization": f"Bearer {_token}", "Accept": "application/json"},
+            )
+        r.raise_for_status()
+        body = r.json()
+        return AuthzResult(allowed=body["allowed"], user_id=body.get("user_id", ""))
+    ```
+  </Tab>
+</Tabs>
+
+Source the identity from wherever your front door puts it — OIDC session cookie, signed header from a reverse proxy, custom JWT, etc. — and pass it to `authorize()` before serving the request.
+
+---
+
+## Caveats worth knowing
+
+- **Cache for ~60s.** Without a cache, every page navigation pays a round-trip to astro-server. The sidecar caches per `(identity_type, identity_id, adapter, identity_scope)` for 60 seconds; do the same. Grant edits take up to a minute to propagate, which is acceptable.
+- **Fail-closed on timeouts.** A 5s timeout is the platform default. Treat any error as a denial unless the adapter is in the token's `anyone_adapters` claim — in which case a server outage should not lock everyone out of an open deployment. Cap the degraded-mode TTL low (10s or so) so recovery is reflected promptly.
+- **Anonymous is only valid with an `anyone` grant.** Sending empty `identity_type` + empty `identity_id` is allowed by the server only when the adapter is publicly granted. If your UI has a public route, route it through the same authorize call with empty identity instead of branching around it.
+- **Use the resolved `user_id` downstream.** For Slack, the linked platform user id is what trace attribution and observability buckets are keyed on. For web, it's just the input echoed back. Either way, forward `result.user_id` to your downstream telemetry rather than the raw input.
+- **No token, no platform.** In local dev (`ast project start`), `ASTRO_AUTHZ_TOKEN` is not set. Return `allowed: true` so devs aren't blocked. The platform only injects the token in deployed builds.
+
+---
+
+## When you don't need this
+
+If you're using the default `--adapter web` flow, the sidecar already handles all of this for you and your agent code never sees `ASTRO_AUTHZ_TOKEN` directly. This guide is only relevant when:
+
+- You set `agent.interfaces.frontend: true` and serve your own UI.
+- You're authoring a [custom adapter](/adapters/custom-node) and want to wire authorize calls into the request path yourself.
+- You're building a server-to-server integration that talks to astro-server on the deployment's behalf.

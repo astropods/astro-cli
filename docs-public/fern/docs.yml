@@ -24,9 +24,9 @@ tabs:
   CLI:
     display-name: CLI
     icon: terminal
-  # API Reference:
-  #   display-name: API Reference
-  #   icon: puzzle
+  api:
+    display-name: API Reference
+    icon: puzzle
 
 navigation:
   - tab: home
@@ -73,6 +73,9 @@ navigation:
           - page: Connect to a private database
             path: docs/pages/private-database.mdx
             icon: fa-duotone fa-database
+          - page: Manually authorize requests
+            path: docs/pages/manual-authz.mdx
+            icon: fa-duotone fa-shield-check
           - section: Messaging SDK
             icon: fa-duotone fa-messages
             contents:
@@ -126,17 +129,10 @@ navigation:
           - page: Reference
             path: docs/pages/cli-reference.mdx
             icon: fa-duotone fa-list
-  # - tab: API Reference
-  #   layout:
-  #     - section: Overview
-  #       contents:
-  #         - page: API reference
-  #           path: docs/pages/api-reference-overview.mdx
-  #           icon: fa-duotone fa-book
-  #     - section: Endpoints
-  #       contents:
-  #         - api: Astro AI API
-  #           api-name: astro-api
+  - tab: api
+    layout:
+      - api: Astro AI API
+        api-name: astro-api
 
 colors:
   accent-primary:
