@@ -1,6 +1,5 @@
 import type { EntryContext } from "react-router";
 import { ServerRouter } from "react-router";
-import { isbot } from "isbot";
 import { renderToReadableStream } from "react-dom/server";
 import { getChildLogger } from "../logger";
 
@@ -22,10 +21,15 @@ export default async function handleRequest(
     },
   );
 
-  // Await the full stream for bots so they get complete HTML
-  if (isbot(request.headers.get("user-agent") || "")) {
-    await body.allReady;
-  }
+  // Streaming the response truncates large payloads in the Bun+ALB+CloudFront
+  // pipeline for browser UAs: any account whose loader response is large enough
+  // for the turbo-stream encoder to yield to main triggers a Suspense in the
+  // SSR data-streaming Suspense boundary, and the response is closed before the
+  // first streamController.enqueue() fires. Result: client gets shell-only HTML
+  // with no closing tags, React Router suspends on data forever, page sits on
+  // the route's fallback. Awaiting allReady (what bots used to get) buffers the
+  // full response server-side and ships a complete document.
+  await body.allReady;
 
   responseHeaders.set("Content-Type", "text/html; charset=utf-8");
 
