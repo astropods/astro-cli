@@ -26,7 +26,6 @@ import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
 import { useAccountMembers } from "@/api/queries/accounts";
-import { isSlackUserId } from "./user-classification";
 
 type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
 type UserRow = AccountUsersSummaryResponse["users"][number];
@@ -452,10 +451,16 @@ function renderUserRowContent(
   return (
     <>
       <IdentityTableCell rank={rank}>
-        {ctx.memberIds.has(u.user_id) ? (
-          <UserBadge userId={u.user_id} account={ctx.account} linkToProfile />
-        ) : (
+        {u.user_details.kind === "slack" ? (
           <SlackUserIdentity user={u} orgName={ctx.account} />
+        ) : (
+          <UserBadge
+            userId={u.user_id}
+            account={ctx.account}
+            displayName={u.user_details.display_name}
+            username={u.user_details.username}
+            linkToProfile
+          />
         )}
       </IdentityTableCell>
       <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
@@ -502,9 +507,26 @@ function UsersTopSpenders({
     const unidentifiedRows: UserRow[] = [];
     const unattributedRows: UserRow[] = [];
     for (const u of users) {
-      if (!u.user_id) unattributedRows.push(u);
-      else if (memberIds.has(u.user_id) || isSlackUserId(u.user_id)) realRows.push(u);
-      else unidentifiedRows.push(u);
+      if (!u.user_id) {
+        unattributedRows.push(u);
+        continue;
+      }
+      // Real rows now include three sub-cases:
+      //   - in-account members (memberIds.has) — render via the
+      //     member-list lookup with full Slack-workspace metadata.
+      //   - Slack-kind rows — render via SlackUserIdentity, deep-link to
+      //     the workspace when team_id is hydrated.
+      //   - Astro-kind rows with hydrated user_details — covers cross-
+      //     account spend where the user belongs to a different
+      //     account's member list. Without hydration these used to fall
+      //     into the unidentified bucket.
+      const kind = u.user_details.kind;
+      const hydratedAstro = kind === "astro" && !!u.user_details.username;
+      if (memberIds.has(u.user_id) || kind === "slack" || hydratedAstro) {
+        realRows.push(u);
+      } else {
+        unidentifiedRows.push(u);
+      }
     }
     return {
       rows: realRows,

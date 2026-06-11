@@ -15,7 +15,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // ---------------------------------------------------------------------------
@@ -231,7 +233,7 @@ func setupTraceDetailRouter(t *testing.T, withUser bool, upstreamHandler http.Ha
 	t.Helper()
 	f, log, cfg, accountStore, deployStore, langfuseStore := newLangfuseFixture(t, withUser, upstreamHandler)
 	f.router.GET("/api/v1/deployments/:id/observability/traces/:traceId",
-		GetLangfuseTraceDetail(log, cfg, accountStore, deployStore, langfuseStore))
+		GetLangfuseTraceDetail(log, cfg, accountStore, deployStore, langfuseStore, nil))
 	return f
 }
 
@@ -308,6 +310,99 @@ func TestGetLangfuseTraceDetail_OK(t *testing.T) {
 	}
 	if resp.Scores[0]["name"] != "quality" {
 		t.Errorf("score[0].name = %v, want quality", resp.Scores[0]["name"])
+	}
+}
+
+func TestGetLangfuseTraceDetail_IncludesSlackIdentity(t *testing.T) {
+	upstream := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fields := r.URL.Query().Get("fields")
+		base := langfuse.TraceDetail{
+			Trace: langfuse.Trace{
+				ID:        "trace-x",
+				Name:      "invoke_agent",
+				Latency:   2.49,
+				TotalCost: 0.0068,
+				CreatedAt: "2026-05-09T12:00:00Z",
+				Tags:      []string{"deployment:dep-1"},
+			},
+			UserID: "U07CAROL00",
+		}
+		if fields == "core,io,scores,metrics" {
+			base.Scores = []langfuse.Score{{ID: "s-1", Name: "quality", Value: 0.9}}
+		} else {
+			base.Observations = []langfuse.Observation{
+				{ID: "o-1", Type: "SPAN", Name: "root", Latency: 2.49, StartTime: "2026-05-09T12:00:00Z"},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(base)
+	}
+	f, log, cfg, accountStore, deployStore, langfuseStore := newLangfuseFixture(t, true, upstream)
+	slackDB, slackMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer slackDB.Close()
+	slackStore := slackidentity.NewStore(slackDB)
+	slackMock.ExpectQuery(`(?s)WITH input AS .*unambiguous AS`).
+		WithArgs(pq.Array([]string{"U07CAROL00"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"team_id",
+			"slack_user_id",
+			"workos_user_id",
+			"slack_display_name",
+			"slack_username",
+			"slack_avatar_url",
+			"slack_is_bot",
+			"slack_deleted",
+			"team_name",
+			"team_domain",
+			"team_icon_url",
+		}).AddRow(
+			"T07POSTMAN",
+			"U07CAROL00",
+			"",
+			"Carol Chen",
+			"carol",
+			"https://avatars.slack-edge.com/carol.png",
+			false,
+			false,
+			"Postman",
+			"postman",
+			"https://avatars.slack-edge.com/postman.png",
+		))
+	f.router.GET("/api/v1/deployments/:id/observability/traces/:traceId",
+		GetLangfuseTraceDetail(log, cfg, accountStore, deployStore, langfuseStore, slackStore))
+	expectAuthorizedDeployment(f)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/observability/traces/trace-x", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Trace map[string]any `json:"trace"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	details, ok := resp.Trace["user_details"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected trace user_details, got %#v", resp.Trace["user_details"])
+	}
+	if details["kind"] != "slack" {
+		t.Errorf("kind = %v, want slack", details["kind"])
+	}
+	if details["team_id"] != "T07POSTMAN" {
+		t.Errorf("team_id mismatch: %+v", details)
+	}
+	if details["display_name"] != "Carol Chen" || details["avatar_url"] == "" {
+		t.Errorf("slack profile mismatch: %+v", details)
+	}
+	if err := slackMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

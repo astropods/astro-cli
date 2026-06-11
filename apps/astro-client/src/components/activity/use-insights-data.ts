@@ -433,24 +433,16 @@ export function sliceUsersByRange(
   sparklines: { cost: number[]; requests: number[]; tokens: number[] };
 } {
   const rows = summary?.cost_over_time_by_user ?? [];
-  // Source identity/profile fields from the server's per-user response so
+  // Source identity / agents_used from the server's per-user response so
   // bounded-window rows keep Slack enrichment without re-running the directory
-  // join client-side.
+  // join client-side. user_details carries the discriminated identity payload
+  // (kind + Slack profile/workspace when applicable).
   const identityDetailsByUser = new Map(
     (usersData?.users ?? []).map((u) => [
       insightsUserIdentityKey(u),
       {
         agents_used: u.agents_used,
-        identity_key: u.identity_key,
-        slack_team_id: u.slack_team_id,
-        slack_display_name: u.slack_display_name,
-        slack_username: u.slack_username,
-        slack_avatar_url: u.slack_avatar_url,
-        slack_is_bot: u.slack_is_bot,
-        slack_deleted: u.slack_deleted,
-        slack_workspace_name: u.slack_workspace_name,
-        slack_workspace_domain: u.slack_workspace_domain,
-        slack_workspace_icon_url: u.slack_workspace_icon_url,
+        user_details: u.user_details,
       },
     ]),
   );
@@ -498,12 +490,11 @@ export function sliceUsersByRange(
     }
   }
 
-  const users: UserRow[] = [...perUser.entries()].map(([identityKey, agg]) => {
-    const details = identityDetailsByUser.get(identityKey);
+  const users: UserRow[] = [...perUser.entries()].map(([, agg]) => {
+    const details = identityDetailsByUser.get(agg.user_id);
     return {
-      ...details,
-      identity_key: identityKey,
       user_id: agg.user_id,
+      user_details: details?.user_details ?? { kind: "unknown" },
       cost_usd: parseFloat(agg.cost.toFixed(4)),
       requests: agg.requests,
       tokens: agg.tokens,

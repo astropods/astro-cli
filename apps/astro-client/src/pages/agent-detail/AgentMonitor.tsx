@@ -275,6 +275,7 @@ export default function AgentMonitor() {
           <TraceDetailPanel
             deploymentId={deploymentId}
             trace={selectedTrace}
+            account={account}
             onClose={() => setSelectedTrace(null)}
             canGoPrev={selectedIndex > 0}
             canGoNext={selectedIndex < allTraces.length - 1}

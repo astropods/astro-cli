@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TopSpendersTable } from "./TopSpendersTable";
 import { renderWithProviders } from "@/test/test-utils";
 import { accountKeys } from "@/api/queries/keys";
-import type { InsightsUserIdentity } from "@/lib/api";
+import type { UserIdentity } from "@/lib/api";
 
 afterEach(cleanup);
 
@@ -22,7 +22,7 @@ type Deployment = {
   total_tokens: number;
   top_model: string;
   users_used: string[];
-  users_used_details?: InsightsUserIdentity[];
+  users_used_details?: UserIdentity[];
 };
 
 function makeDeployment(overrides: Partial<Deployment> & { agent_name: string }): Deployment {
@@ -137,24 +137,26 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
         users_used: ["U07SOHUM1"],
         users_used_details: [
           {
-            identity_key: "slack:TPOSTMAN:U07SOHUM1",
             user_id: "U07SOHUM1",
-            slack_team_id: "TPOSTMAN",
-            slack_display_name: "Sohum Dalal",
-            slack_username: "sohum",
-            slack_avatar_url: "https://avatars.slack-edge.com/sohum-postman.png",
-            slack_workspace_name: "Postman",
+            user_details: {
+              kind: "slack",
+              team_id: "TPOSTMAN",
+              display_name: "Sohum Dalal",
+              username: "sohum",
+              avatar_url: "https://avatars.slack-edge.com/sohum-postman.png",
+            },
           },
           {
-            identity_key: "slack:TASTRO:U07SOHUM1",
             user_id: "U07SOHUM1",
-            slack_team_id: "TASTRO",
-            slack_display_name: "Sohum Dalal",
-            slack_username: "sohum",
-            slack_workspace_name: "Astro",
+            user_details: {
+              kind: "slack",
+              team_id: "TASTRO",
+              display_name: "Sohum Dalal",
+              username: "sohum",
+            },
           },
-          { user_id: "u_alice" },
-          { user_id: "anon-user" },
+          { user_id: "u_alice", user_details: { kind: "astro" } },
+          { user_id: "anon-user", user_details: { kind: "unknown" } },
         ],
       }),
     ];
@@ -167,19 +169,19 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Show 4 people" }));
 
-    expect(await screen.findAllByText("Sohum Dalal")).toHaveLength(2);
+    expect(await screen.findAllByText("sohum")).toHaveLength(2);
     expect(screen.queryByText("(Postman) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
     expect(screen.queryByText("(Astro) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
     expect(screen.getByText("Alice Chen")).toBeInTheDocument();
     expect(screen.getByText("anon-user")).toBeInTheDocument();
 
-    const slackAnchors = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a"));
+    const slackAnchors = screen.getAllByText("sohum").map((label) => label.closest("a"));
     const slackLinks = slackAnchors.map((anchor) => anchor?.getAttribute("href"));
     expect(slackLinks).toEqual(expect.arrayContaining([
       "slack://user?team=TPOSTMAN&id=U07SOHUM1",
       "slack://user?team=TASTRO&id=U07SOHUM1",
     ]));
-    expect(slackAnchors.map((anchor) => anchor?.getAttribute("title"))).toContain("Sohum Dalal (@sohum)");
+    expect(slackAnchors.map((anchor) => anchor?.getAttribute("title"))).toContain("sohum");
     expect(screen.getAllByTitle("Alice Chen (@alice)").length).toBeGreaterThan(0);
     const avatar = document.querySelector('img[src="https://avatars.slack-edge.com/sohum-postman.png"]');
     expect(avatar).not.toBeNull();
@@ -193,7 +195,7 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
         agent_name: "alpha",
         cost_usd: 30,
         users_used: ["U07SOHUM1"],
-        users_used_details: [{ user_id: "u_alice" }],
+        users_used_details: [{ user_id: "u_alice", user_details: { kind: "astro" } }],
       }),
     ];
     const { queryClient } = renderWithProviders(
@@ -258,35 +260,32 @@ describe("TopSpendersTable (agents view, per-deployment rows)", () => {
 // ── Users mode ────────────────────────────────────────────────────────────────
 
 type UserRow = {
-  identity_key?: string;
   user_id: string;
+  user_details: { kind: "astro" | "slack" | "unknown"; team_id?: string; display_name?: string; username?: string; avatar_url?: string; is_bot?: boolean; deleted?: boolean };
   cost_usd: number;
   requests: number;
   tokens: number;
   last_seen?: string;
   agents_used: Array<{ deployment_id: string; name: string; account: string }>;
-  // Mirrors AccountUsersSummaryResponse.users — keep this field in the
-  // local type so the deep-link assertions below would fail to compile
-  // if the API ever dropped `slack_team_id`. The test exercises it via
-  // makeUserRow({ slack_team_id: "T07XYZ" }).
-  slack_team_id?: string;
-  slack_display_name?: string;
-  slack_username?: string;
-  slack_avatar_url?: string;
-  slack_is_bot?: boolean;
-  slack_deleted?: boolean;
-  slack_workspace_name?: string;
-  slack_workspace_domain?: string;
-  slack_workspace_icon_url?: string;
 };
 
+// makeUserRow defaults user_details from the user_id shape (matching
+// classifyUserID server-side). Pass `user_details: {...}` to override —
+// the deep-link assertions need a populated team_id, the enrichment
+// assertions need display_name / avatar_url, etc.
 function makeUserRow(overrides: Partial<UserRow> & { user_id: string }): UserRow {
+  const inferKind = (uid: string): "astro" | "slack" | "unknown" => {
+    if (/^U[A-Z0-9]{6,9}$/.test(uid)) return "slack";
+    if (uid.startsWith("user_")) return "astro";
+    return "unknown";
+  };
   return {
     cost_usd: 1,
     requests: 1,
     tokens: 100,
     last_seen: "2026-05-01T00:00:00Z",
     agents_used: [],
+    user_details: overrides.user_details ?? { kind: inferKind(overrides.user_id) },
     ...overrides,
   };
 }
@@ -586,7 +585,7 @@ describe("TopSpendersTable users mode", () => {
         account={ACCOUNT}
         loading={false}
         users={[
-          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, slack_team_id: "T07XYZ" }),
+          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, user_details: { kind: "slack", team_id: "T07XYZ" } }),
         ]}
       />,
     );
@@ -609,17 +608,21 @@ describe("TopSpendersTable users mode", () => {
           makeUserRow({
             user_id: "U07ABCDEF",
             cost_usd: 4,
-            slack_team_id: "T07XYZ",
-            slack_display_name: "Jesse Morgan",
-            slack_username: "jesse",
-            slack_avatar_url: "https://avatars.slack-edge.com/jesse.png",
+            user_details: {
+              kind: "slack",
+              team_id: "T07XYZ",
+              display_name: "Jesse Morgan",
+              username: "jesse",
+              avatar_url: "https://avatars.slack-edge.com/jesse.png",
+            },
           }),
         ]}
       />,
     );
     seedMembers(queryClient, []);
 
-    expect(await screen.findByText("Jesse Morgan")).toBeInTheDocument();
+    expect(await screen.findByText("jesse")).toBeInTheDocument();
+    expect(screen.queryByText("Jesse Morgan")).not.toBeInTheDocument();
     expect(screen.queryByText("@jesse - U07ABCDEF")).not.toBeInTheDocument();
     expect(screen.queryByText("U07ABCDEF")).not.toBeInTheDocument();
     const avatar = document.querySelector('img[src="https://avatars.slack-edge.com/jesse.png"]');
@@ -637,33 +640,35 @@ describe("TopSpendersTable users mode", () => {
         loading={false}
         users={[
           makeUserRow({
-            identity_key: "slack:TPOSTMAN:U07SOHUM1",
             user_id: "U07SOHUM1",
             cost_usd: 7,
-            slack_team_id: "TPOSTMAN",
-            slack_display_name: "Sohum Dalal",
-            slack_username: "sohum",
-            slack_workspace_name: "Postman",
+            user_details: {
+              kind: "slack",
+              team_id: "TPOSTMAN",
+              display_name: "Sohum Dalal",
+              username: "sohum",
+            },
           }),
           makeUserRow({
-            identity_key: "slack:TASTRO:U07SOHUM1",
             user_id: "U07SOHUM1",
             cost_usd: 5,
-            slack_team_id: "TASTRO",
-            slack_display_name: "Sohum Dalal",
-            slack_username: "sohum",
-            slack_workspace_name: "Astro",
+            user_details: {
+              kind: "slack",
+              team_id: "TASTRO",
+              display_name: "Sohum Dalal",
+              username: "sohum",
+            },
           }),
         ]}
       />,
     );
     seedMembers(queryClient, []);
 
-    expect(await screen.findAllByText("Sohum Dalal")).toHaveLength(2);
+    expect(await screen.findAllByText("sohum")).toHaveLength(2);
     expect(screen.queryByText("(Postman) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
     expect(screen.queryByText("(Astro) - @sohum - U07SOHUM1")).not.toBeInTheDocument();
 
-    const slackLinks = screen.getAllByText("Sohum Dalal").map((label) => label.closest("a")?.getAttribute("href"));
+    const slackLinks = screen.getAllByText("sohum").map((label) => label.closest("a")?.getAttribute("href"));
     expect(slackLinks).toEqual(expect.arrayContaining([
       "slack://user?team=TPOSTMAN&id=U07SOHUM1",
       "slack://user?team=TASTRO&id=U07SOHUM1",
@@ -702,7 +707,7 @@ describe("TopSpendersTable users mode", () => {
         account={ACCOUNT}
         loading={false}
         users={[
-          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, slack_team_id: "T07XYZ" }),
+          makeUserRow({ user_id: "U07ABCDEF", cost_usd: 4, user_details: { kind: "slack", team_id: "T07XYZ" } }),
           makeUserRow({ user_id: "U01LEGACY", cost_usd: 2 }),
           makeUserRow({ user_id: "u_alice", cost_usd: 6 }),
         ]}
@@ -717,6 +722,66 @@ describe("TopSpendersTable users mode", () => {
     expect(screen.getByText("Slack user - U01LEGACY")).toBeInTheDocument();
     // The aggregated Unidentified bucket must NOT appear for slack ids.
     expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
+  });
+
+  // A cross-account astro user (used a public blueprint from another org)
+  // won't show up in the current account's member list. The row has
+  // kind=astro + hydrated display_name + username from the server's
+  // global personal-account lookup. The People table must render them
+  // with their real name + handle, not fall into the Unidentified bucket
+  // or get rendered as a Slack user.
+  it("renders cross-account astro users via hydrated user_details when not in the member list", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          // Bob doesn't belong to ACCOUNT, but the server hydrated his
+          // personal-account info so the row can still render properly.
+          makeUserRow({
+            user_id: "user_01HXX_bob",
+            cost_usd: 4,
+            user_details: { kind: "astro", display_name: "Bob Smith", username: "bob" },
+          }),
+        ]}
+      />,
+    );
+    // Empty member list — Bob isn't a member of ACCOUNT.
+    seedMembers(queryClient, []);
+
+    // Display name renders (not the raw user_01HXX_bob, not a Slack badge).
+    expect(await screen.findByText("Bob Smith")).toBeInTheDocument();
+    expect(screen.queryByText(/Slack user - /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unidentified · /)).not.toBeInTheDocument();
+    // The profile link target uses the hydrated username slug.
+    const link = screen.getByRole("link", { name: /Bob Smith/ });
+    expect(link.getAttribute("href")).toBe("/bob");
+  });
+
+  // Cross-account astro WITHOUT hydration (server lookup missed — e.g.
+  // user deleted between trace emission and read) falls into the
+  // unidentified bucket rather than crashing or rendering a broken link.
+  it("falls back to unidentified for astro users with no hydrated user_details", async () => {
+    const { queryClient } = renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        account={ACCOUNT}
+        loading={false}
+        users={[
+          makeUserRow({
+            user_id: "user_01HXX_ghost",
+            cost_usd: 4,
+            user_details: { kind: "astro" }, // no display_name / username
+          }),
+        ]}
+      />,
+    );
+    seedMembers(queryClient, []);
+
+    // No profile link — the row is unidentified.
+    await screen.findByText(/user_01HXX_ghost|Unidentified/);
+    expect(screen.queryByRole("link", { name: /user_01HXX_ghost/ })).not.toBeInTheDocument();
   });
 
   // Rank prefix reflects position in the visible list. It lives inside the

@@ -638,6 +638,58 @@ func TestDirectoryEntriesForSlackUserIDs_ReturnsUniqueWorkspaceRows(t *testing.T
 	}
 }
 
+func TestDirectoryEntriesForSlackUserIDs_LinkedRowsCarryObservedProfile(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	store := NewStore(db)
+
+	mock.ExpectQuery(`(?s)LEFT JOIN slack_observed_users observed_profile.*unambiguous AS`).
+		WithArgs(pq.Array([]string{"U07BOBBOB1"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"team_id",
+			"slack_user_id",
+			"workos_user_id",
+			"slack_display_name",
+			"slack_username",
+			"slack_avatar_url",
+			"slack_is_bot",
+			"slack_deleted",
+			"team_name",
+			"team_domain",
+			"team_icon_url",
+		}).AddRow(
+			"T07POSTMAN",
+			"U07BOBBOB1",
+			"user_01HXX_bob",
+			"Bob Smith",
+			"bob",
+			"https://avatars.slack-edge.com/bob.png",
+			false,
+			false,
+			"Postman",
+			"postman",
+			"https://avatars.slack-edge.com/postman.png",
+		))
+
+	out, err := store.DirectoryEntriesForSlackUserIDs([]string{"U07BOBBOB1"})
+	if err != nil {
+		t.Fatalf("unscoped directory entries: %v", err)
+	}
+	entry := out["U07BOBBOB1"]
+	if entry.WorkOSUserID != "user_01HXX_bob" {
+		t.Fatalf("expected linked WorkOS user id, got %+v", entry)
+	}
+	if entry.Profile.DisplayName != "Bob Smith" || entry.Profile.Username != "bob" || entry.Profile.AvatarURL == "" {
+		t.Errorf("expected observed Slack profile on linked row, got %+v", entry.Profile)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDirectoryEntriesForSlackUserIDs_EmptyInput(t *testing.T) {
 	store, _, db := newMockStore(t)
 	defer db.Close()

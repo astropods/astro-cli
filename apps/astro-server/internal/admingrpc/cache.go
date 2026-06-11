@@ -6,39 +6,24 @@ import (
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 
+	"github.com/astropods/astro/apps/astro-server/internal/accountcache"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
-// InvalidateAccountCaches busts the agents-page deploy cache for one account
-// plus the per-deployment obs summary cache for each of its active deployments.
-// Used by queen as a manual escape hatch when an admin needs to clear a single
-// account's cached payload without waiting on SafetyTTL.
+// InvalidateAccountCaches busts every per-account cache Queen's trash-can
+// action owns: agents-page deploy payload, Insights endpoint cache, and the
+// per-deployment obs summary cache for active deployments.
 func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.InvalidateAccountCachesRequest) (*adminv1.InvalidateCachesResponse, error) {
 	if req.AccountID == "" {
 		return nil, fmt.Errorf("account_id is required")
 	}
 
-	// Bust the per-account agents-page payload. Safe to call even when the
-	// underlying cache is nil (NoopCache when REDIS_URL is unset).
-	_ = deploycache.Invalidate(ctx, s.cache, req.AccountID)
-
-	// Bust the Insights endpoint cache for this account. Forces the next
-	// page-load to fall through to a live Langfuse fetch (which then
-	// repopulates the cache on success) instead of waiting on the 6h cron.
-	insightscache.InvalidateAccount(ctx, s.cache, req.AccountID)
-
-	// Bust each active deployment's obs summary. We only know about active
-	// rows here; undeployed entries are already cleared by the undeploy
-	// worker, so iterating active deployments covers the live cache surface.
-	deps, err := s.deployStore.GetActiveDeploymentsByAccount(req.AccountID)
+	result, err := accountcache.InvalidateAccount(ctx, s.cache, s.deployStore, req.AccountID)
 	if err != nil {
-		return nil, fmt.Errorf("list active deployments: %w", err)
-	}
-	for _, d := range deps {
-		_ = obssummary.Delete(ctx, s.cache, d.ID)
+		return nil, err
 	}
 
 	if s.auditStore != nil {
@@ -46,26 +31,26 @@ func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.Inval
 		evt.Action = auditlog.CacheInvalidateAccount
 		evt.ResourceType = "account"
 		evt.ResourceID = req.AccountID
-		evt.Description = fmt.Sprintf("Admin invalidated agents-page caches for account (1 account, %d deployments)", len(deps))
-		evt.Metadata = map[string]any{"deployments_busted": len(deps)}
+		evt.Description = fmt.Sprintf("Admin invalidated agents-page caches for account (1 account, %d deployments)", result.DeploymentsBusted)
+		evt.Metadata = map[string]any{"deployments_busted": result.DeploymentsBusted}
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	s.log.Info("Admin invalidated account caches",
 		"account_id", req.AccountID,
-		"deployments", len(deps),
+		"deployments", result.DeploymentsBusted,
 	)
 
 	return &adminv1.InvalidateCachesResponse{
-		AccountsBusted:    1,
-		DeploymentsBusted: int32(len(deps)), //nolint:gosec // bounded by DB rows
+		AccountsBusted:    int32(result.AccountsBusted),    //nolint:gosec // bounded by DB rows
+		DeploymentsBusted: int32(result.DeploymentsBusted), //nolint:gosec // bounded by DB rows
 	}, nil
 }
 
-// InvalidateAllCaches busts every account's deploy cache + every active
-// deployment's obs summary cache. Failsafe — call when something has gone
-// systemically wrong with the agents-page caches and SafetyTTL is too long
-// to wait. Expensive at large scale; not for routine use.
+// InvalidateAllCaches busts every account's deploy cache + Insights endpoint
+// cache + every active deployment's obs summary cache. Failsafe — call when
+// something has gone systemically wrong with cached page data and SafetyTTL is
+// too long to wait. Expensive at large scale; not for routine use.
 func (s *Server) InvalidateAllCaches(ctx context.Context, _ *adminv1.InvalidateAllCachesRequest) (*adminv1.InvalidateCachesResponse, error) {
 	// List every account we know about. We pull from the existing ListAccounts
 	// RPC so the bust set tracks whatever ListAccounts considers "an account

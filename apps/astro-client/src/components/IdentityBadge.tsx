@@ -12,6 +12,7 @@ interface IdentityBadgeProps {
   link?: IdentityBadgeLink;
   display?: "flex" | "inline-flex";
   className?: string;
+  labelTitle?: string | false;
 }
 
 export function IdentityBadge({
@@ -20,11 +21,12 @@ export function IdentityBadge({
   link,
   display = "inline-flex",
   className,
+  labelTitle,
 }: IdentityBadgeProps) {
   const content = (
     <>
       {avatar}
-      <span className="truncate text-foreground" title={label}>
+      <span className="truncate text-foreground" title={labelTitle === false ? undefined : labelTitle ?? label}>
         {label}
       </span>
     </>

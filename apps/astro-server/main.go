@@ -1563,7 +1563,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/traces", "Get deployment traces", handlers.GetLangfuseTraces(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/deployments/:id/observability/traces", "Get deployment traces", handlers.GetLangfuseTraces(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1573,7 +1573,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore),
+			api.GET(protected, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

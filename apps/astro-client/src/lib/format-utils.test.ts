@@ -3,6 +3,11 @@ import { formatCost, formatCompact, formatLatency, formatDateShort } from "./for
 import { buildPeriodParams } from "@/components/activity/ranges";
 
 describe("formatCost", () => {
+  it("formats billions and trillions", () => {
+    expect(formatCost(1_047_900_000)).toBe("$1.05B");
+    expect(formatCost(2_500_000_000_000)).toBe("$2.50T");
+  });
+
   it("formats millions", () => {
     expect(formatCost(2_500_000)).toBe("$2.50M");
   });
@@ -22,6 +27,11 @@ describe("formatCost", () => {
 });
 
 describe("formatCompact", () => {
+  it("formats billions and trillions", () => {
+    expect(formatCompact(1_047_900_000)).toBe("1.05B");
+    expect(formatCompact(2_500_000_000_000)).toBe("2.50T");
+  });
+
   it("formats millions", () => {
     expect(formatCompact(1_200_000)).toBe("1.2M");
   });
@@ -37,6 +47,12 @@ describe("formatCompact", () => {
 });
 
 describe("formatLatency", () => {
+  it("formats minute-level latencies", () => {
+    expect(formatLatency(60_000)).toBe("1m");
+    expect(formatLatency(65_000)).toBe("1m 5s");
+    expect(formatLatency(511_200)).toBe("8m 31s");
+  });
+
   it("formats seconds for values >= 1000ms", () => {
     expect(formatLatency(1_500)).toBe("1.5s");
     expect(formatLatency(1_000)).toBe("1.0s");

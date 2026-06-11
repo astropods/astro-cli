@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,6 +122,10 @@ func TestGetAccountLangfuseSummary_CacheHit_ReturnsCachedBytes(t *testing.T) {
 	langfuseStore := langfuse.NewStore(langfuseStoreDB)
 
 	cache := mapCache{}
+	// The cache holds the un-resolved compute output (no Slack identities
+	// stamped in). The handler runs ResolveAccountSummaryIdentities at read
+	// time; with nil slackStore the resolver no-ops and the payload comes
+	// through structurally identical, modulo full-shape JSON marshaling.
 	const cachedBody = `{"period":{"days":0},"totals":{"cost_usd":12.5,"requests":42},"metrics_unavailable":false}`
 	if err := insightscache.Put(t.Context(), cache, "acct-1",
 		insightscache.EndpointSummary,
@@ -149,8 +152,15 @@ func TestGetAccountLangfuseSummary_CacheHit_ReturnsCachedBytes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if got := rec.Body.String(); got != cachedBody {
-		t.Errorf("response body = %q, want exactly the cached bytes %q", got, cachedBody)
+	var got AccountObservabilitySummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.Totals.CostUSD != 12.5 || got.Totals.Requests != 42 {
+		t.Errorf("response totals = %+v, want cost_usd=12.5 requests=42 from cached payload", got.Totals)
+	}
+	if got.MetricsUnavailable {
+		t.Errorf("MetricsUnavailable = true; cache hit must not surface the degraded flag")
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("content-type = %q, want application/json prefix", ct)
@@ -282,8 +292,12 @@ func TestGetAccountDeploymentsSummary_CacheHit_ReturnsCachedBytes(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if got, _ := io.ReadAll(rec.Body); string(got) != cachedBody {
-		t.Errorf("response body = %q, want exactly the cached bytes %q", got, cachedBody)
+	var got AccountDeploymentsSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(got.Deployments) != 1 || got.Deployments[0].DeploymentID != "dep-cached" || got.Deployments[0].CostUSD != 3.14 {
+		t.Errorf("response deployments = %+v, want the cached dep-cached/3.14 row", got.Deployments)
 	}
 }
 
@@ -355,8 +369,12 @@ func TestGetAccountUsersSummary_CacheHit_ReturnsCachedBytes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if got := rec.Body.String(); got != cachedBody {
-		t.Errorf("response body = %q, want exactly the cached bytes %q", got, cachedBody)
+	var got AccountUsersSummaryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(got.Users) != 1 || got.Users[0].UserID != "u_cached" || got.Users[0].Requests != 7 {
+		t.Errorf("response users = %+v, want the cached u_cached/7 row", got.Users)
 	}
 }
 

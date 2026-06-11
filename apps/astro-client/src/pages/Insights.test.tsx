@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldRevalidate } from "./Insights";
+import { insightsSlackResyncQueryKeys, shouldRevalidate } from "./Insights";
 
 // Insights opts most search-param changes out of loader revalidation
 // (range/agent toggles handle the new query key client-side). Only
@@ -32,5 +32,17 @@ describe("Insights shouldRevalidate", () => {
   it("defers to defaultShouldRevalidate when the pathname actually changed", () => {
     expect(shouldRevalidate(args("http://x/agents", "http://x/insights", true))).toBe(true);
     expect(shouldRevalidate(args("http://x/agents", "http://x/insights", false))).toBe(false);
+  });
+});
+
+describe("insightsSlackResyncQueryKeys", () => {
+  it("covers every cache entry the Insights page reads after Slack resync", () => {
+    expect(insightsSlackResyncQueryKeys("acme")).toEqual([
+      ["observability", "activity-summary", "acme", undefined, undefined, "user"],
+      ["observability", "deployments-summary", "acme", undefined, undefined],
+      ["observability", "users-summary", "acme", undefined, undefined],
+      ["accounts", "acme", "members"],
+      ["slack", "acme", "status"],
+    ]);
   });
 });

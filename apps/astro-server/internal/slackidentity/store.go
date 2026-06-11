@@ -363,11 +363,11 @@ func (s *Store) DirectoryEntriesForSlackUserIDs(slackUserIDs []string) (map[stri
 				SELECT m.team_id,
 				       m.slack_user_id,
 				       COALESCE(CASE WHEN m.revoked_at IS NULL THEN m.workos_user_id END, '') AS workos_user_id,
-				       ''                                                                      AS slack_display_name,
-				       m.slack_username,
-				       ''                                                                      AS slack_avatar_url,
-				       FALSE                                                                   AS slack_is_bot,
-				       FALSE                                                                   AS slack_deleted,
+				       COALESCE(observed_profile.slack_display_name, '')                       AS slack_display_name,
+				       COALESCE(NULLIF(observed_profile.slack_username, ''), m.slack_username) AS slack_username,
+				       COALESCE(observed_profile.slack_avatar_url, '')                         AS slack_avatar_url,
+				       COALESCE(observed_profile.slack_is_bot, FALSE)                          AS slack_is_bot,
+				       COALESCE(observed_profile.slack_deleted, FALSE)                         AS slack_deleted,
 				       m.team_name,
 				       m.team_domain,
 				       m.team_icon_url,
@@ -376,6 +376,9 @@ func (s *Store) DirectoryEntriesForSlackUserIDs(slackUserIDs []string) (map[stri
 				       1                                                                       AS source_priority
 				FROM slack_identity_mappings m
 				JOIN input USING (slack_user_id)
+				LEFT JOIN slack_observed_users observed_profile
+				  ON observed_profile.team_id = m.team_id
+				 AND observed_profile.slack_user_id = m.slack_user_id
 				UNION ALL
 				SELECT o.team_id,
 				       o.slack_user_id,

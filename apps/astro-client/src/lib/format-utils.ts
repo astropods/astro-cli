@@ -1,6 +1,8 @@
 export function formatCost(v: number): string {
   const abs = Math.abs(v);
   const sign = v < 0 ? "-" : "";
+  if (abs >= 1_000_000_000_000) return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
   if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
   if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
   if (abs < 0.01 && abs > 0) return `${sign}$${abs.toFixed(4)}`;
@@ -8,12 +10,22 @@ export function formatCost(v: number): string {
 }
 
 export function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000_000_000) return `${sign}${(abs / 1_000_000_000_000).toFixed(2)}T`;
+  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
 }
 
 export function formatLatency(ms: number): string {
+  if (ms >= 60_000) {
+    const totalSeconds = Math.round(ms / 1_000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+  }
   if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
   return `${ms}ms`;
 }

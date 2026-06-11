@@ -3,6 +3,15 @@ import {
   sliceUsersByRange,
   shiftPriorWindow,
 } from "./use-insights-data";
+import { classifyUserID } from "./insights-user-identity";
+
+// withUserDetails adds the discriminated user_details payload to a fixture
+// row that only specifies user_id + metrics. Tests don't care about the
+// directory state, so we derive the kind from the user_id shape via the
+// same heuristic the server uses (classifyUserID).
+function withUserDetails<T extends { user_id: string }>(row: T): T & { user_details: { kind: ReturnType<typeof classifyUserID> } } {
+  return { ...row, user_details: { kind: classifyUserID(row.user_id) } };
+}
 
 // `rangeWindow` (used by sliceUsersByRange for both per-user totals and
 // per-day sparklines) derives the window from `new Date()`. Freeze it so the
@@ -17,11 +26,13 @@ afterAll(() => {
 
 // ── Fixture helpers ─────────────────────────────────────────────────────────
 
-type CostOverTimeByUser = NonNullable<
-  Parameters<typeof sliceUsersByRange>[0]
->["cost_over_time_by_user"];
+type SummaryRowInput = { date: string; users: Array<{ user_id: string; cost_usd: number; requests: number; tokens: number }> };
 
-function summary(rows: CostOverTimeByUser): Parameters<typeof sliceUsersByRange>[0] {
+function summary(rows: SummaryRowInput[] | undefined): Parameters<typeof sliceUsersByRange>[0] {
+  const promotedRows = rows?.map((entry) => ({
+    date: entry.date,
+    users: entry.users.map(withUserDetails),
+  }));
   return {
     period: { start: "", end: "", days: 0 },
     totals: { cost_usd: 0, requests: 0, input_tokens: 0, output_tokens: 0, total_tokens: 0, active_agents: 0 },
@@ -29,14 +40,20 @@ function summary(rows: CostOverTimeByUser): Parameters<typeof sliceUsersByRange>
     cost_over_time: [],
     cost_by_model: [],
     sparklines: { cost: [], requests: [], tokens: [] },
-    cost_over_time_by_user: rows,
+    cost_over_time_by_user: promotedRows,
   };
 }
 
-function usersData(users: Parameters<typeof sliceUsersByRange>[1] extends infer U
-  ? U extends { users: infer A } ? A : never
-  : never): Parameters<typeof sliceUsersByRange>[1] {
-  return { users, period: { start: "", end: "", days: 0 } };
+type UserInput = { user_id: string; cost_usd: number; requests: number; tokens: number; agents_used?: Array<{ deployment_id: string; name: string; account: string }> };
+
+function usersData(users: UserInput[]): Parameters<typeof sliceUsersByRange>[1] {
+  return {
+    users: users.map((u) => ({
+      ...withUserDetails(u),
+      agents_used: u.agents_used ?? [],
+    })),
+    period: { start: "", end: "", days: 0 },
+  };
 }
 
 // ── sliceUsersByRange ───────────────────────────────────────────────────────
@@ -95,9 +112,12 @@ describe("sliceUsersByRange — users output", () => {
       { user_id: "u_alice", cost_usd: 100, requests: 50, tokens: 1000, agents_used: [] },
     ];
     const s = summary(undefined);
+    const wrapped = usersData(allTimeUsers)!;
 
-    const { users } = sliceUsersByRange(s, usersData(allTimeUsers), "7d");
-    expect(users).toBe(allTimeUsers); // identity — fallback path
+    const { users } = sliceUsersByRange(s, wrapped, "7d");
+    // Fallback path returns the per-user payload's `users` array directly —
+    // identity check pins that we don't re-bucket via cost_over_time_by_user.
+    expect(users).toBe(wrapped.users);
   });
 });
 

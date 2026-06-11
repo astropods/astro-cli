@@ -1,9 +1,10 @@
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { ArrowUpRight, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Check, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { ViewToggle, parseActivityView, type ActivityView } from "@/components/activity/ViewToggle";
@@ -35,6 +36,14 @@ import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
+const SLACK_REFRESH_FEEDBACK_MS = 3_500;
+
+type SlackRefreshStatus = "idle" | "refreshing" | "success" | "error";
+
+function stripSlackOAuthParams(params: URLSearchParams) {
+  for (const key of SLACK_OAUTH_PARAMS) params.delete(key);
+  return params;
+}
 
 function buildDateLabel(range: ActivityRange): string {
   const { from, to } = buildPeriodParams(range);
@@ -45,6 +54,29 @@ function parseRange(raw: string | null): ActivityRange {
   // Stale "?range=all" deep-links from before the all-time range was retired
   // fall through to the 30d default rather than 404ing the page.
   return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
+}
+
+export function insightsSlackResyncQueryKeys(account: string) {
+  return [
+    observabilityKeys.activitySummary(account, undefined, undefined, "user"),
+    observabilityKeys.deploymentsSummary(account, undefined, undefined),
+    observabilityKeys.usersSummary(account, undefined, undefined),
+    accountKeys.members(account),
+    slackKeys.accountStatus(account),
+  ];
+}
+
+async function invalidateInsightsSlackResyncQueries(queryClient: QueryClient, account: string) {
+  const queryKeys = insightsSlackResyncQueryKeys(account);
+  await Promise.all(
+    queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey, refetchType: "none" })),
+  );
+  await Promise.all(
+    queryKeys.map((queryKey) => queryClient.refetchQueries(
+      { queryKey, type: "active" },
+      { throwOnError: true },
+    )),
+  );
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -145,28 +177,46 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
   const slackConnected = searchParams.get("slack_connected") === "true";
+  const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
+  const accountForSlackResync = activeAccount || loaderData.account || "";
+  const [slackRefreshStatus, setSlackRefreshStatus] = useState<SlackRefreshStatus>("idle");
 
   useEffect(() => {
     if (!hasSlackOAuthParam) return;
-    if (slackConnected && activeAccount) {
-      void queryClient.invalidateQueries({
-        queryKey: observabilityKeys.activitySummary(activeAccount, undefined, undefined, "user"),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: observabilityKeys.deploymentsSummary(activeAccount, undefined, undefined),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: observabilityKeys.usersSummary(activeAccount, undefined, undefined),
-      });
-      void queryClient.invalidateQueries({ queryKey: accountKeys.members(activeAccount) });
-      void queryClient.invalidateQueries({ queryKey: slackKeys.accountStatus(activeAccount) });
+    if (slackConnected) {
+      if (!accountForSlackResync) {
+        setSearchParams(stripSlackOAuthParams, { replace: true });
+        return;
+      }
+      setSlackRefreshStatus("refreshing");
+      let active = true;
+      void invalidateInsightsSlackResyncQueries(queryClient, accountForSlackResync)
+        .then(() => {
+          if (active) setSlackRefreshStatus("success");
+        })
+        .catch(() => {
+          if (active) setSlackRefreshStatus("error");
+        })
+        .finally(() => {
+          if (!active) return;
+          setSearchParams(stripSlackOAuthParams, { replace: true });
+        });
+      return () => {
+        active = false;
+      };
     }
-    setSearchParams((prev) => {
-      for (const key of SLACK_OAUTH_PARAMS) prev.delete(key);
-      return prev;
-    }, { replace: true });
-  }, [activeAccount, hasSlackOAuthParam, queryClient, setSearchParams, slackConnected]);
+    if (slackError) {
+      setSlackRefreshStatus("error");
+    }
+    setSearchParams(stripSlackOAuthParams, { replace: true });
+  }, [accountForSlackResync, hasSlackOAuthParam, queryClient, setSearchParams, slackConnected, slackError]);
+
+  useEffect(() => {
+    if (slackRefreshStatus !== "success" && slackRefreshStatus !== "error") return;
+    const timeout = window.setTimeout(() => setSlackRefreshStatus("idle"), SLACK_REFRESH_FEEDBACK_MS);
+    return () => window.clearTimeout(timeout);
+  }, [slackRefreshStatus]);
 
   function setView(next: ActivityView) {
     // Toggling views always clears the current search — a People-view term
@@ -223,6 +273,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         onViewChange={setView}
         query={q}
         onQueryChange={setQuery}
+        slackRefreshStatus={slackRefreshStatus}
       />
     </PageContainer>
   );
@@ -275,6 +326,13 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
         </div>
         {table}
       </motion.div>
+      {/* Insights data is served from a 6-hourly refresh — the server's
+          cache holds last-known-good metrics so a Langfuse outage
+          doesn't blank the page. Keep the note muted; it's a
+          disclaimer, not a status. */}
+      <p className="mt-6 text-center text-body-sm text-faint-foreground">
+        Updated results may take up to 6 hours to reflect on this page.
+      </p>
     </>
   );
 }
@@ -293,6 +351,7 @@ interface InsightsViewProps {
   onViewChange: (v: ActivityView) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  slackRefreshStatus: SlackRefreshStatus;
 }
 
 function InsightsView({
@@ -302,6 +361,7 @@ function InsightsView({
   onViewChange,
   query,
   onQueryChange,
+  slackRefreshStatus,
 }: InsightsViewProps) {
   // ── Charts (view-independent) ────────────────────────────────────────────
   const chartsData = useInsightsData({ account, range });
@@ -385,14 +445,13 @@ function InsightsView({
     if (!needle) return allTimeUsers;
     return allTimeUsers.filter((u) => {
       const m = memberById.get(u.user_id);
+      const d = u.user_details;
       const haystack = [
         m?.display_name,
         m?.username,
         u.user_id,
-        u.slack_display_name,
-        u.slack_username,
-        u.slack_workspace_name,
-        u.slack_workspace_domain,
+        d?.display_name,
+        d?.username,
       ].filter(Boolean).join(" ").toLowerCase();
       return haystack.includes(needle);
     });
@@ -418,30 +477,49 @@ function InsightsView({
       },
     });
   };
-
+  const showSlackRefreshFeedback = slackRefreshStatus !== "idle";
+  const showSlackDetailsButton = showSlackDetailsAction || showSlackRefreshFeedback;
   const slackActionLabel = slackConnect.isPending
     ? "Opening Slack..."
-    : slackConnected
-      ? "Resync Slack"
-      : "Connect Slack";
+    : slackRefreshStatus === "refreshing"
+      ? "Refreshing..."
+      : slackRefreshStatus === "success"
+        ? "Updated"
+        : slackRefreshStatus === "error"
+          ? "Refresh failed"
+          : slackConnected
+            ? "Resync Slack"
+            : "Connect Slack";
   const slackActionButton = (
     <button
       type="button"
-      className="relative inline-flex items-center gap-1.5 rounded-[5px] px-3 py-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+      className={cn(
+        "relative inline-flex items-center gap-1.5 rounded-[5px] px-3 py-1 text-body-sm text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+        showSlackRefreshFeedback && "pointer-events-none",
+        slackRefreshStatus === "success" && "text-success hover:text-success",
+        slackRefreshStatus === "error" && "text-destructive hover:text-destructive",
+      )}
       aria-label={slackConnected ? "Resync Slack" : "Connect Slack"}
-      disabled={slackConnect.isPending}
+      aria-live="polite"
+      disabled={slackConnect.isPending || slackRefreshStatus === "refreshing"}
       onClick={handleSlackDetails}
     >
-      {(slackConnect.isPending || slackConnected) && (
-        <RefreshCw className={`size-3.5 shrink-0 ${slackConnect.isPending ? "animate-spin" : ""}`} />
+      {slackRefreshStatus === "success" ? (
+        <Check className="size-3.5 shrink-0" />
+      ) : slackRefreshStatus === "error" ? (
+        <TriangleAlert className="size-3.5 shrink-0" />
+      ) : (slackConnect.isPending || slackConnected || slackRefreshStatus === "refreshing") && (
+        <RefreshCw
+          className={`size-3.5 shrink-0 ${slackConnect.isPending || slackRefreshStatus === "refreshing" ? "animate-spin" : ""}`}
+        />
       )}
       {slackActionLabel}
-      {!slackConnect.isPending && !slackConnected && (
+      {!slackConnect.isPending && !slackConnected && !showSlackRefreshFeedback && (
         <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
       )}
     </button>
   );
-  const shouldShowConnectTooltip = !slackConnected && !slackConnect.isPending;
+  const shouldShowConnectTooltip = !slackConnected && !slackConnect.isPending && !showSlackRefreshFeedback;
 
   // Counts shown in the toggle pills are the un-filtered totals — the pill
   // reflects how much data exists, not how much the current search returns.
@@ -461,7 +539,7 @@ function InsightsView({
         />
       </div>
       <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
-        {showSlackDetailsAction && (
+        {showSlackDetailsButton && (
           <PillToggleChrome size="md" inline className="shrink-0">
             {shouldShowConnectTooltip ? (
               <TooltipProvider delayDuration={200}>

@@ -1,4 +1,4 @@
-import type { InsightsUserIdentity } from "@/lib/api";
+import type { UserDetailsKind, UserIdentity } from "@/lib/api";
 import { isSlackUserId } from "./user-classification";
 
 export interface SlackIdentityDisplay {
@@ -6,36 +6,65 @@ export interface SlackIdentityDisplay {
   deepLink: string | undefined;
 }
 
+// classifyUserID mirrors the server-side discriminator (handlers/observability_langfuse.go).
+// Used when the client builds a placeholder UserIdentity from a raw user_id
+// (e.g. older deployments_summary payloads that only carry users_used: string[]).
+export function classifyUserID(userID: string): UserDetailsKind {
+  if (!userID) return "unknown";
+  if (isSlackUserId(userID)) return "slack";
+  if (userID.startsWith("user_")) return "astro";
+  return "unknown";
+}
+
+// insightsUserIdentityKey returns the stable React key for a user row.
+// Slack users with a known workspace use `slack:<team>:<uid>` so the same
+// Slack id observed in two workspaces stays distinct; everything else
+// keys on user_id directly.
 export function insightsUserIdentityKey(
-  user: Pick<InsightsUserIdentity, "identity_key" | "user_id" | "slack_team_id">,
+  user: Pick<UserIdentity, "user_id" | "user_details">,
 ): string {
-  if (user.identity_key) return user.identity_key;
-  if (isSlackUserId(user.user_id) && user.slack_team_id) {
-    return `slack:${user.slack_team_id}:${user.user_id}`;
+  const details = user.user_details;
+  if (details?.kind === "slack" && details.team_id) {
+    return `slack:${details.team_id}:${user.user_id}`;
   }
   return user.user_id;
 }
 
+// countSlackRowsMissingDetails counts the unique Slack rows the directory
+// has nothing useful to render for — no team_id, or team_id but no
+// display name / username / avatar. Drives the "missing Slack identities"
+// banner on the Insights page.
 export function countSlackRowsMissingDetails(
-  users: Array<Pick<InsightsUserIdentity, "identity_key" | "user_id" | "slack_team_id" | "slack_display_name" | "slack_avatar_url">>,
+  users: Array<Pick<UserIdentity, "user_id" | "user_details">>,
 ): number {
   const missing = new Set<string>();
-  for (const user of users) {
-    if (!isSlackUserId(user.user_id)) continue;
-    if (user.slack_team_id && (user.slack_display_name || user.slack_avatar_url)) continue;
-    missing.add(insightsUserIdentityKey(user));
+  for (const u of users) {
+    const d = u.user_details;
+    if (d?.kind !== "slack") continue;
+    if (d.team_id && (d.display_name || d.username || d.avatar_url)) continue;
+    missing.add(insightsUserIdentityKey(u));
   }
   return missing.size;
 }
 
-export function slackIdentityDisplay(user: InsightsUserIdentity): SlackIdentityDisplay {
+// slackIdentityDisplay picks the human-facing label + slack:// deep link
+// for a Slack-kind row. Username preferred over display name; falls back
+// to the raw id. Deep link is omitted when the directory didn't surface a
+// team_id (the slack:// URL is invalid without one).
+export function slackIdentityDisplay(
+  user: Pick<UserIdentity, "user_id" | "user_details">,
+): SlackIdentityDisplay {
   const uid = user.user_id;
-  const primary = user.slack_display_name || `Slack user - ${uid}`;
-  const deepLink = user.slack_team_id ? `slack://user?team=${user.slack_team_id}&id=${uid}` : undefined;
-
+  const details = user.user_details;
+  const primary = details?.username || details?.display_name || `Slack user - ${uid}`;
+  const deepLink = details?.team_id ? `slack://user?team=${details.team_id}&id=${uid}` : undefined;
   return { primary, deepLink };
 }
 
-export function identityRefFromUserID(userID: string): InsightsUserIdentity {
-  return { user_id: userID };
+// identityRefFromUserID builds a placeholder UserIdentity from a raw
+// user_id alone. Used by trace-detail and deployment-summary callers
+// that only have the user_id string and need to feed a UserIdentity-
+// shaped value to UI components.
+export function identityRefFromUserID(userID: string): UserIdentity {
+  return { user_id: userID, user_details: { kind: classifyUserID(userID) } };
 }

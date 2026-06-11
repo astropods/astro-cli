@@ -343,12 +343,10 @@ type AccountSparklines struct {
 // tokens so the client can slice the per-(day, user) data into any range
 // window and recompute per-user totals without an extra round-trip.
 type AccountUserCost struct {
-	IdentityKey string  `json:"identity_key,omitempty"`
-	UserID      string  `json:"user_id"`
-	SlackTeamID string  `json:"slack_team_id,omitempty"`
-	CostUSD     float64 `json:"cost_usd"`
-	Requests    int     `json:"requests"`
-	Tokens      int     `json:"tokens"`
+	UserIdentity
+	CostUSD  float64 `json:"cost_usd"`
+	Requests int     `json:"requests"`
+	Tokens   int     `json:"tokens"`
 }
 
 // AccountCostOverTimeByUserEntry is one day's user-level cost breakdown for the chart.
@@ -393,37 +391,52 @@ type UserAgentRef struct {
 	Account      string `json:"account"`
 }
 
-// UserIdentityRef is the displayable identity shape shared by Insights places
-// that need user identity without per-user metrics. It intentionally mirrors
-// the identity/profile subset of UserSummaryEntry so the Agents "Used by"
-// column can render the same linked-member and unlinked-Slack identities as
-// the People table without inheriting cost/request fields.
-type UserIdentityRef struct {
-	IdentityKey string `json:"identity_key,omitempty"`
-	UserID      string `json:"user_id"`
-	SlackTeamID string `json:"slack_team_id,omitempty"`
-	// Best-effort profile metadata for unlinked Slack rows with one known workspace.
-	SlackDisplayName      string `json:"slack_display_name,omitempty"`
-	SlackUsername         string `json:"slack_username,omitempty"`
-	SlackAvatarURL        string `json:"slack_avatar_url,omitempty"`
-	SlackIsBot            bool   `json:"slack_is_bot,omitempty"`
-	SlackDeleted          bool   `json:"slack_deleted,omitempty"`
-	SlackWorkspaceName    string `json:"slack_workspace_name,omitempty"`
-	SlackWorkspaceDomain  string `json:"slack_workspace_domain,omitempty"`
-	SlackWorkspaceIconURL string `json:"slack_workspace_icon_url,omitempty"`
+// UserDetailsKind is the discriminator for UserDetails — every row that
+// represents a user carries one of these three values.
+//   - astro: a WorkOS-shaped user_id (an Astro account). No Slack
+//     metadata; the frontend resolves name + avatar via the members API.
+//   - slack: a bare-Slack-shaped user_id. Profile + workspace fields may
+//     be populated when the Slack directory has the user observed.
+//   - unknown: anything else (opaque session tokens, system actors, etc.).
+//     No metadata; the frontend renders the raw user_id.
+type UserDetailsKind string
+
+const (
+	UserDetailsKindAstro   UserDetailsKind = "astro"
+	UserDetailsKindSlack   UserDetailsKind = "slack"
+	UserDetailsKindUnknown UserDetailsKind = "unknown"
+)
+
+// UserDetails is the discriminated union of identity facts for one user
+// row. Kind is always set; the Slack-specific fields are populated only
+// when Kind == "slack" (and even then only when the directory has the
+// data — e.g. a known Slack id whose profile hasn't been synced yet
+// will surface kind="slack" with team_id + profile empty).
+type UserDetails struct {
+	Kind UserDetailsKind `json:"kind"`
+	// Slack fields — populated only for Kind == "slack".
+	TeamID      string `json:"team_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Username    string `json:"username,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	IsBot       bool   `json:"is_bot,omitempty"`
+	Deleted     bool   `json:"deleted,omitempty"`
+}
+
+// UserIdentity is the user_id + user_details pair surfaced by every
+// Insights endpoint and trace row. Embedded in UserSummaryEntry,
+// AccountUserCost, and used as the element type for users_used_details.
+type UserIdentity struct {
+	UserID      string      `json:"user_id"`
+	UserDetails UserDetails `json:"user_details"`
 }
 
 // UserSummaryEntry holds per-user aggregated observability for the users summary.
 // Counts traces (one per user-facing request) to match the agent-view "requests"
 // unit; tokens are combined (input + output) since the traces view only exposes
 // the sum, not the split.
-//
-// SlackTeamID is populated for bare Slack rows when the Slack directory has
-// exactly one known workspace for that Slack user. The frontend uses it to
-// build the `slack://user?team=…&id=…` deep link without parsing anything out
-// of user_id itself.
 type UserSummaryEntry struct {
-	UserIdentityRef
+	UserIdentity
 	Requests   int            `json:"requests"`
 	CostUSD    float64        `json:"cost_usd"`
 	Tokens     int            `json:"tokens"`
@@ -493,10 +506,12 @@ type DeploymentSummaryEntry struct {
 	// endpoint — the same (userId, tag) → deployment mapping, just inverted.
 	UsersUsed []string `json:"users_used"`
 	// UsersUsedDetails is the richer, display-ready identity list for the
-	// Agents view's "Used by" column. It applies the same Slack directory merge
-	// as the People table: linked Slack history collapses into the WorkOS user,
-	// while unlinked Slack identities keep team/profile/workspace metadata.
-	UsersUsedDetails []UserIdentityRef `json:"users_used_details,omitempty"`
+	// Agents view's "Used by" column. Carries one UserIdentity per resolved
+	// identity (post-translation, post-stamp): WorkOS users surface as
+	// kind="astro", unlinked observed Slack users surface as kind="slack"
+	// with workspace + profile metadata, and unknown ids surface as
+	// kind="unknown".
+	UsersUsedDetails []UserIdentity `json:"users_used_details,omitempty"`
 	// UndeployedAt is set when the deployment has been soft-deleted (status
 	// transitioned to 'undeployed' via the undeploy worker). Used by the
 	// frontend to render the "Deleted MMM DD" suffix when known. Can be nil
@@ -521,16 +536,20 @@ type AccountDeploymentsSummaryResponse struct {
 	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
 }
 
-// TraceEntry represents a single trace in the traces list.
+// TraceEntry represents a single trace in the traces list. UserID is the
+// raw Langfuse user_id; UserDetails is the resolved discriminated identity
+// (nil when the trace has no user attached or when classification can't
+// produce useful data).
 type TraceEntry struct {
-	TraceID   string  `json:"trace_id"`
-	Name      string  `json:"name"`
-	Status    string  `json:"status"`
-	LatencyMs float64 `json:"latency_ms"`
-	Input     string  `json:"input"`
-	Output    string  `json:"output"`
-	Timestamp string  `json:"timestamp"`
-	UserID    string  `json:"user_id,omitempty"`
+	TraceID     string       `json:"trace_id"`
+	Name        string       `json:"name"`
+	Status      string       `json:"status"`
+	LatencyMs   float64      `json:"latency_ms"`
+	Input       string       `json:"input"`
+	Output      string       `json:"output"`
+	Timestamp   string       `json:"timestamp"`
+	UserID      string       `json:"user_id,omitempty"`
+	UserDetails *UserDetails `json:"user_details,omitempty"`
 }
 
 // TraceDetail describes a trace's full content, including the conversation
@@ -545,6 +564,7 @@ type TraceDetail struct {
 	Output      any            `json:"output"`
 	SessionID   string         `json:"session_id,omitempty"`
 	UserID      string         `json:"user_id,omitempty"`
+	UserDetails *UserDetails   `json:"user_details,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	Environment string         `json:"environment,omitempty"`

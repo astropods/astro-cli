@@ -20,6 +20,7 @@ import { ObservationDetail } from "./detail/ObservationDetail";
 export interface TraceDetailPanelProps {
   deploymentId: string;
   trace: TraceEntry;
+  account: string;
   onClose: () => void;
   canGoPrev?: boolean;
   canGoNext?: boolean;
@@ -33,6 +34,7 @@ export interface TraceDetailPanelProps {
 export function TraceDetailPanel({
   deploymentId,
   trace,
+  account,
   onClose,
   canGoPrev,
   canGoNext,
@@ -77,7 +79,8 @@ export function TraceDetailPanel({
       input: hasContent(base?.input) ? base!.input : trace.input,
       output: hasContent(base?.output) ? base!.output : trace.output,
       session_id: base?.session_id,
-      user_id: base?.user_id,
+      user_id: base?.user_id ?? trace.user_id,
+      user_details: base?.user_details ?? trace.user_details,
       tags: base?.tags,
       metadata: base?.metadata,
       environment: base?.environment,
@@ -129,6 +132,7 @@ export function TraceDetailPanel({
           <TraceOverviewTab
             trace={traceForDisplay}
             scores={scores}
+            account={account}
           />
         )}
 

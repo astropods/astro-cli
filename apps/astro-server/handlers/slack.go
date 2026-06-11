@@ -291,6 +291,11 @@ func SlackAccountCallback(log *logger.Logger, store *slackidentity.Store, cfg Sl
 			}
 		}
 
+		// No cache bust needed here: Insights endpoints resolve Slack
+		// directory state at read time, so the freshly-synced
+		// profile/link rows surface on the next request without
+		// touching the metric-layer cache.
+
 		params := url.Values{}
 		params.Set("slack_connected", "true")
 		if resp.Team.Name != "" {

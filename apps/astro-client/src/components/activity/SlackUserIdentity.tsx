@@ -1,24 +1,24 @@
-import type { InsightsUserIdentity } from "@/lib/api";
+import type { UserDetails, UserIdentity } from "@/lib/api";
 import { UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { slackIdentityDisplay } from "./insights-user-identity";
 
 interface SlackIdentityAvatarProps {
-  user: InsightsUserIdentity;
+  details?: UserDetails;
   className?: string;
   iconClassName?: string;
 }
 
 export function SlackIdentityAvatar({
-  user,
+  details,
   className = "size-5",
   iconClassName = "size-4",
 }: SlackIdentityAvatarProps) {
-  if (user.slack_avatar_url) {
+  if (details?.avatar_url) {
     return (
       <img
-        src={user.slack_avatar_url}
+        src={details.avatar_url}
         alt=""
         className={cn(className, "shrink-0 rounded-full bg-muted object-cover")}
         referrerPolicy="no-referrer"
@@ -42,18 +42,34 @@ export function SlackIdentityAvatar({
 // deep-links into Slack's user-profile UI (`slack://user?team=T&id=U`) so an
 // admin can click through and see who the human behind the id is. Rows without
 // a team_id render as plain text because the Slack URL would be incomplete.
-export function SlackUserIdentity({ user, orgName }: { user: InsightsUserIdentity; orgName?: string }) {
+export function SlackUserIdentity({
+  user,
+  orgName,
+  variant = "insights",
+}: {
+  user: UserIdentity;
+  orgName?: string;
+  variant?: "insights" | "trace";
+}) {
   const display = slackIdentityDisplay(user);
   const orgLabel = orgName || "this org";
   const tooltipCopy = `This user isn't a member of ${orgLabel}.`;
+  const isTrace = variant === "trace";
   const label = (
-    <span className="inline-flex min-w-0 items-center gap-2">
+    <span className={cn("inline-flex min-w-0 max-w-full items-center", isTrace ? "gap-1.5" : "gap-2")}>
       <SlackIdentityAvatar
-        user={user}
-        className="size-5 opacity-60 transition-opacity group-hover:opacity-100"
+        details={user.user_details}
+        className={cn(
+          "opacity-60 transition-opacity group-hover:opacity-100",
+          isTrace ? "size-4" : "size-5",
+        )}
+        iconClassName={isTrace ? "size-3" : "size-4"}
       />
       <span
-        className="truncate text-faint-foreground transition-colors group-hover:text-foreground"
+        className={cn(
+          "truncate transition-colors group-hover:text-foreground",
+          isTrace ? "text-body-sm text-muted-foreground" : "text-faint-foreground",
+        )}
         title={display.primary}
       >
         {display.primary}
@@ -66,11 +82,11 @@ export function SlackUserIdentity({ user, orgName }: { user: InsightsUserIdentit
       <Tooltip>
         <TooltipTrigger asChild>
           {display.deepLink ? (
-            <a href={display.deepLink} rel="noreferrer" className="group inline-flex min-w-0 hover:underline">
+            <a href={display.deepLink} rel="noreferrer" className="group inline-flex min-w-0 max-w-full hover:underline">
               {label}
             </a>
           ) : (
-            <span className="group inline-flex min-w-0">
+            <span className="group inline-flex min-w-0 max-w-full">
               {label}
             </span>
           )}

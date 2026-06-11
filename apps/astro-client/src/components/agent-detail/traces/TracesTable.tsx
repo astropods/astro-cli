@@ -3,7 +3,6 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { UserBadge } from "@/components/UserBadge";
 import { TableShowMore } from "@/components/ui/table";
 import {
   MultiSelect,
@@ -14,6 +13,7 @@ import {
   MultiSelectItem,
 } from "@/components/ui/multi-select";
 import type { TraceEntry } from "@/lib/api";
+import { TraceUserIdentity } from "./TraceUserIdentity";
 import {
   type TraceStatus,
   STATUS_CONFIG,
@@ -35,30 +35,40 @@ const TRACE_ROW_CLASS = "group cursor-pointer border-b border-border/30 transiti
 const TRACE_ROW_SELECTED = "bg-black/3 dark:bg-white/4";
 const TRACE_ROW_HOVER = "hover:bg-black/2 dark:hover:bg-white/3";
 
+function shortTraceId(traceId: string) {
+  if (traceId.length <= 24) return traceId;
+  return `${traceId.slice(0, 12)}...${traceId.slice(-8)}`;
+}
+
 function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string }) {
   const status = normalizeStatus(trace.status);
   const cfg = STATUS_CONFIG[status];
+  const timestamp = formatTimestamp(trace.timestamp);
   return (
     <>
-      <td className="whitespace-nowrap px-4 py-2.5 text-body-sm text-foreground">
-        {formatTimestamp(trace.timestamp)}
+      <td className="truncate whitespace-nowrap px-3 py-2.5 text-body-sm text-foreground" title={timestamp}>
+        {timestamp}
       </td>
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-2.5">
         <StatusBadge color={STATUS_BADGE_COLOR[status]}>{cfg.label}</StatusBadge>
       </td>
-      <td className="max-w-[180px] px-4 py-2.5">
-        <UserBadge userId={trace.user_id} account={account} />
+      <td className="min-w-0 py-2.5 pl-3 pr-4">
+        <div className="min-w-0 truncate">
+          <TraceUserIdentity userId={trace.user_id} userDetails={trace.user_details} account={account} />
+        </div>
       </td>
-      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-foreground">
+      <td className="truncate whitespace-nowrap py-2.5 pl-3 pr-2 font-mono text-body-sm text-foreground">
         {formatLatency(trace.latency_ms)}
       </td>
-      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-body-sm text-muted-foreground">
+      <td className="truncate whitespace-nowrap px-2 py-2.5 font-mono text-body-sm text-muted-foreground">
         {formatCost(trace.total_cost)}
       </td>
-      <td className="px-4 py-2.5">
-        <span className="flex items-center gap-2">
-          <span className="font-mono text-body-sm text-muted-foreground">
-            {trace.trace_id}
+      <td className="min-w-0 px-3 py-2.5" title={trace.trace_id}>
+        <span className="flex min-w-0 max-w-full items-center gap-1.5">
+          <span
+            className="block min-w-0 truncate whitespace-nowrap font-mono text-mono-sm text-muted-foreground"
+          >
+            {shortTraceId(trace.trace_id)}
           </span>
           <CopyButton
             copyText={trace.trace_id}
@@ -148,16 +158,24 @@ export function TracesTable({
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] border-collapse">
+          <div className="overflow-hidden">
+            <table className="w-full table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[18%]" />
+                <col className="w-[12%]" />
+                <col className="w-[24%]" />
+                <col className="w-[9%]" />
+                <col className="w-[11%]" />
+                <col className="w-[26%]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Date</th>
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Status</th>
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">User</th>
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Latency</th>
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Cost</th>
-                  <th className="px-4 py-2 text-left text-mono-sm font-normal text-muted-foreground">Trace ID</th>
+                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Date</th>
+                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Status</th>
+                  <th className="py-2 pl-3 pr-4 text-left text-mono-sm font-normal text-muted-foreground">User</th>
+                  <th className="py-2 pl-3 pr-2 text-left text-mono-sm font-normal text-muted-foreground">Latency</th>
+                  <th className="px-2 py-2 text-left text-mono-sm font-normal text-muted-foreground">Cost</th>
+                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Trace ID</th>
                 </tr>
               </thead>
               <tbody>

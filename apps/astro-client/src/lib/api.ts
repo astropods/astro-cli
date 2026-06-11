@@ -1064,7 +1064,7 @@ export interface AccountObservabilitySummaryResponse {
   /** Present only when the endpoint was called with ?group_by=user. */
   cost_over_time_by_user?: Array<{
     date: string;
-    users: Array<{ identity_key?: string; user_id: string; slack_team_id?: string; cost_usd: number; requests: number; tokens: number }>;
+    users: Array<UserIdentity & { cost_usd: number; requests: number; tokens: number }>;
   }>;
   /** True when the upstream Langfuse query failed (e.g. ClickHouse outage).
    *  Payload is zero-valued; render a "metrics temporarily unavailable" banner. */
@@ -1072,7 +1072,7 @@ export interface AccountObservabilitySummaryResponse {
 }
 
 export interface AccountUsersSummaryResponse {
-  users: Array<InsightsUserIdentity & {
+  users: Array<UserIdentity & {
     requests: number;
     cost_usd: number;
     /** Combined input + output tokens. Traces view only exposes the sum. */
@@ -1095,24 +1095,34 @@ export interface AccountUsersSummaryResponse {
   metrics_unavailable?: boolean;
 }
 
-export interface InsightsUserIdentity {
-  /** Stable row identity. For unlinked Slack rows with one known workspace this
-   *  is `slack:<team_id>:<user_id>`. WorkOS rows use user_id. */
-  identity_key?: string;
+/** UserDetailsKind is the discriminator for {@link UserDetails}. Every row
+ *  that represents a user carries exactly one. The server determines this
+ *  from the user_id shape — bare Slack id → "slack", WorkOS-prefixed id →
+ *  "astro", anything else → "unknown". */
+export type UserDetailsKind = "astro" | "slack" | "unknown";
+
+/** UserDetails is the discriminated identity payload for a user row.
+ *  `kind` is always present; the Slack-specific fields (team_id, profile)
+ *  populate only when `kind === "slack"`, and even then only when the
+ *  Slack directory has metadata for the user. */
+export interface UserDetails {
+  kind: UserDetailsKind;
+  /** Slack team (workspace) id — required for the slack:// deep link. */
+  team_id?: string;
+  /** Slack profile metadata. */
+  display_name?: string;
+  username?: string;
+  avatar_url?: string;
+  is_bot?: boolean;
+  deleted?: boolean;
+}
+
+/** UserIdentity is the user_id + user_details pair the server surfaces
+ *  for every per-user row (users-summary, cost_over_time_by_user,
+ *  users_used_details). */
+export interface UserIdentity {
   user_id: string;
-  /** Workspace team_id for Slack `user_id`s with one known workspace in the
-   *  observed directory. Used to build Slack profile deep links. */
-  slack_team_id?: string;
-  /** Best-effort Slack profile metadata for Slack users that have not linked an
-   *  Astro account. Populated by Astro Server's Slack workspace directory sync. */
-  slack_display_name?: string;
-  slack_username?: string;
-  slack_avatar_url?: string;
-  slack_is_bot?: boolean;
-  slack_deleted?: boolean;
-  slack_workspace_name?: string;
-  slack_workspace_domain?: string;
-  slack_workspace_icon_url?: string;
+  user_details: UserDetails;
 }
 
 export interface AccountDeploymentsSummaryResponse {
@@ -1145,7 +1155,7 @@ export interface AccountDeploymentsSummaryResponse {
     /** WorkOS user IDs that drove ≥1 trace against this deployment in the period. */
     users_used: string[];
     /** Display-ready identities for the Used by column. Prefer over users_used when present. */
-    users_used_details?: InsightsUserIdentity[];
+    users_used_details?: UserIdentity[];
     /** RFC3339 timestamp set when the deployment has been soft-deleted (status
      *  flipped to 'undeployed'). Optional date for the tombstone caption —
      *  can be missing even on archived rows (e.g. status='undeploying'
@@ -1173,6 +1183,7 @@ export interface TraceEntry {
   output: string;
   timestamp: string;
   user_id?: string;
+  user_details?: UserDetails;
 }
 
 export interface ObservabilityTracesResponse {
@@ -1234,6 +1245,7 @@ export interface TraceDetail {
   output: unknown;
   session_id?: string;
   user_id?: string;
+  user_details?: UserDetails;
   tags?: string[];
   metadata?: Record<string, unknown>;
   environment?: string;

@@ -540,6 +540,153 @@ func TestBuildUsersSummary_SameBlueprintDifferentDeployments(t *testing.T) {
 	}
 }
 
+// ── Translation + aggregation correctness ───────────────────────────────
+//
+// These tests pin the contract that linked Slack ids get rewritten to
+// the WorkOS id BEFORE buildUsersSummary runs, so the resulting per-
+// user buckets sum cost/requests/tokens exactly across what were
+// previously two parallel rows. The compute path applies
+// applyLinkedSlackUserIDTranslation directly; this is the same flow.
+
+// Linked Slack and WorkOS spend for the same human folds into one
+// row keyed by the WorkOS id after translation. Verifies the four
+// metric invariants: cost+requests+tokens sum exactly, last_seen takes
+// the max, agents_used unions on deployment_id without duplicates.
+func TestBuildUsersSummary_LinkedSlackFoldsIntoWorkOSWithCorrectMetrics(t *testing.T) {
+	mainRows := []map[string]any{
+		// Bob's bare-Slack spend before he linked his account.
+		{"userId": "U07BOBBOB1", "count_count": 10.0, "sum_totalCost": 5.0, "sum_totalTokens": 1000.0, "time_dimension": "2026-04-01T00:00:00Z"},
+		// Bob's WorkOS spend after he linked.
+		{"userId": "user_01HXX_bob", "count_count": 3.0, "sum_totalCost": 2.5, "sum_totalTokens": 300.0, "time_dimension": "2026-06-01T12:00:00Z"},
+	}
+	tagsRows := []map[string]any{
+		// Pre-link activity tagged to dep-old; post-link tagged to dep-new.
+		{"userId": "U07BOBBOB1", "tags": "deployment:dep-old"},
+		{"userId": "user_01HXX_bob", "tags": "deployment:dep-new"},
+	}
+	depToAgent := map[string]UserAgentRef{
+		"dep-old": {DeploymentID: "dep-old", Name: "old-bot", Account: "postman"},
+		"dep-new": {DeploymentID: "dep-new", Name: "new-bot", Account: "postman"},
+	}
+	linkMap := map[string]string{"U07BOBBOB1": "user_01HXX_bob"}
+
+	applyLinkedSlackUserIDTranslation(linkMap, mainRows, tagsRows)
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+
+	if len(out) != 1 {
+		t.Fatalf("expected 1 row after translation, got %d: %+v", len(out), out)
+	}
+	bob := out[0]
+	if bob.UserID != "user_01HXX_bob" {
+		t.Errorf("merged row should key on WorkOS id, got %q", bob.UserID)
+	}
+	if bob.Requests != 13 || bob.CostUSD != 7.5 || bob.Tokens != 1300 {
+		t.Errorf("metrics did not sum exactly: requests=%d cost=%v tokens=%d (want 13 / 7.5 / 1300)",
+			bob.Requests, bob.CostUSD, bob.Tokens)
+	}
+	if bob.LastSeen != "2026-06-01T12:00:00Z" {
+		t.Errorf("last_seen = %q, want max timestamp 2026-06-01T12:00:00Z", bob.LastSeen)
+	}
+	if len(bob.AgentsUsed) != 2 {
+		t.Errorf("agents_used should union to 2 refs (no dup deployment_id), got %d: %+v",
+			len(bob.AgentsUsed), bob.AgentsUsed)
+	}
+	depIDs := map[string]bool{}
+	for _, a := range bob.AgentsUsed {
+		depIDs[a.DeploymentID] = true
+	}
+	if !depIDs["dep-old"] || !depIDs["dep-new"] {
+		t.Errorf("agents_used missing one of dep-old/dep-new: %+v", bob.AgentsUsed)
+	}
+}
+
+// Unlinked Slack and Astro rows for different humans must NOT fold
+// together — translation only rewrites ids the directory says are
+// linked. Belt-and-suspenders against a regression where the rewrite
+// accidentally affects non-linked ids.
+func TestBuildUsersSummary_UnlinkedSlackKeepsItsOwnRow(t *testing.T) {
+	mainRows := []map[string]any{
+		{"userId": "U07GHOSTLY", "count_count": 5.0, "sum_totalCost": 2.0, "sum_totalTokens": 500.0, "time_dimension": "2026-04-01T00:00:00Z"},
+		{"userId": "user_01HXX_alice", "count_count": 3.0, "sum_totalCost": 1.5, "sum_totalTokens": 300.0, "time_dimension": "2026-04-02T00:00:00Z"},
+	}
+	tagsRows := []map[string]any{}
+	depToAgent := map[string]UserAgentRef{}
+	// Empty link map — no rewrite. Both rows stay separate.
+	applyLinkedSlackUserIDTranslation(map[string]string{}, mainRows, tagsRows)
+
+	out := buildUsersSummary(mainRows, tagsRows, depToAgent)
+	if len(out) != 2 {
+		t.Fatalf("expected 2 distinct rows, got %d: %+v", len(out), out)
+	}
+}
+
+// Cost-over-time per-day per-user totals sum exactly across the same
+// day when translation collapses two parallel rows into one bucket.
+// Different days must remain separate entries.
+func TestBuildCostOverTimeByUser_LinkedRowsSumExactlyPerDay(t *testing.T) {
+	rows := []map[string]any{
+		// Day 1: bare-Slack and WorkOS spend on the same day — should fold.
+		{"userId": "U07BOBBOB1", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T08:00:00Z"},
+		{"userId": "user_01HXX_bob", "sum_totalCost": 2.0, "count_count": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T16:00:00Z"},
+		// Day 2: only WorkOS spend — stays as its own entry on its own day.
+		{"userId": "user_01HXX_bob", "sum_totalCost": 1.5, "count_count": 2.0, "sum_totalTokens": 200.0, "time_dimension": "2026-04-02T08:00:00Z"},
+	}
+	applyLinkedSlackUserIDTranslation(map[string]string{"U07BOBBOB1": "user_01HXX_bob"}, rows)
+	out := buildCostOverTimeByUser(rows)
+
+	if len(out) != 2 {
+		t.Fatalf("expected 2 date entries, got %d: %+v", len(out), out)
+	}
+	if out[0].Date != "2026-04-01" || out[1].Date != "2026-04-02" {
+		t.Errorf("dates not sorted ascending: %q / %q", out[0].Date, out[1].Date)
+	}
+	if len(out[0].Users) != 1 {
+		t.Fatalf("day-1: expected 1 merged user, got %+v", out[0].Users)
+	}
+	day1 := out[0].Users[0]
+	if day1.UserID != "user_01HXX_bob" || day1.CostUSD != 5.0 || day1.Requests != 5 || day1.Tokens != 500 {
+		t.Errorf("day-1 metrics mismatch: %+v (want user_01HXX_bob / 5.0 / 5 / 500)", day1)
+	}
+	day2 := out[1].Users[0]
+	if day2.CostUSD != 1.5 || day2.Requests != 2 || day2.Tokens != 200 {
+		t.Errorf("day-2 metrics mismatch: %+v", day2)
+	}
+}
+
+// Deployments-summary's users_used + users_used_details fold linked
+// rows into one entry per resolved user_id post-translation. Two
+// deployments touched by the linked user collapse independently per
+// deployment (no cross-deployment merge).
+func TestBuildDeploymentSummary_LinkedSlackFoldsPerDeployment(t *testing.T) {
+	metrics := []deploymentMetrics{
+		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+		{DeploymentID: "dep-2", AgentName: "swipefile", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
+	}
+	// Both the bare-Slack id and the WorkOS id touch dep-1; only the
+	// WorkOS id touches dep-2.
+	tagsRows := []map[string]any{
+		{"userId": "U07BOBBOB1", "tags": []any{"deployment:dep-1"}},
+		{"userId": "user_01HXX_bob", "tags": []any{"deployment:dep-1"}},
+		{"userId": "user_01HXX_bob", "tags": []any{"deployment:dep-2"}},
+	}
+	applyLinkedSlackUserIDTranslation(map[string]string{"U07BOBBOB1": "user_01HXX_bob"}, tagsRows)
+	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil)
+
+	byID := make(map[string]DeploymentSummaryEntry, len(out))
+	for _, d := range out {
+		byID[d.DeploymentID] = d
+	}
+	if len(byID["dep-1"].UsersUsed) != 1 || byID["dep-1"].UsersUsed[0] != "user_01HXX_bob" {
+		t.Errorf("dep-1 should have one user (user_01HXX_bob), got %+v", byID["dep-1"].UsersUsed)
+	}
+	if len(byID["dep-1"].UsersUsedDetails) != 1 || byID["dep-1"].UsersUsedDetails[0].UserID != "user_01HXX_bob" {
+		t.Errorf("dep-1 users_used_details should fold to one entry, got %+v", byID["dep-1"].UsersUsedDetails)
+	}
+	if len(byID["dep-2"].UsersUsed) != 1 || byID["dep-2"].UsersUsed[0] != "user_01HXX_bob" {
+		t.Errorf("dep-2 should have user_01HXX_bob, got %+v", byID["dep-2"].UsersUsed)
+	}
+}
+
 func TestBuildUsersSummary_MaxAgentsPerUserCap(t *testing.T) {
 	mainRows := []map[string]any{
 		{"userId": "u_heavy", "count_count": 1.0, "sum_totalCost": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T00:00:00Z"},
@@ -574,7 +721,7 @@ func TestBuildCostOverTimeByUser_AggregatesSameUserPerDate(t *testing.T) {
 		{"userId": "u_bob", "sum_totalCost": 2.0, "time_dimension": "2026-04-01T12:00:00.000Z"},
 	}
 
-	out := buildCostOverTimeByUser(rows, slackDirectoryEntries{})
+	out := buildCostOverTimeByUser(rows)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 date entry, got %d", len(out))
 	}
@@ -594,57 +741,38 @@ func TestBuildCostOverTimeByUser_AggregatesSameUserPerDate(t *testing.T) {
 	}
 }
 
-func TestBuildCostOverTimeByUser_UsesUnscopedSlackDirectory(t *testing.T) {
-	rows := []map[string]any{
-		{"userId": "U07SOHUM1", "sum_totalCost": 1.0, "count_count": 2.0, "sum_totalTokens": 200.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
-		{"userId": "U07BOBBOB1", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T16:00:00.000Z"},
-	}
-	entries := slackDirectoryEntries{
-		"U07SOHUM1": {TeamID: "TPOSTMAN"},
-		"U07BOBBOB1": {
-			TeamID:       "TPOSTMAN",
-			WorkOSUserID: "user_bob",
-		},
-	}
+// The Slack-directory merge for cost-over-time has moved out of
+// buildCostOverTimeByUser entirely. Linked-Slack rows are now rewritten
+// in the raw Langfuse rows BEFORE buildCostOverTimeByUser runs (via
+// translateLinkedSlackUserIDs at the compute layer), so the bucketing
+// happens naturally on the resolved user_id. ResolveAccountSummaryIdentities
+// only stamps team_id on the unlinked bare-Slack rows that survived.
+// Those two layers each have their own tests below.
 
-	out := buildCostOverTimeByUser(rows, entries)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 date entry, got %d", len(out))
-	}
-	byIdentity := map[string]AccountUserCost{}
-	for _, user := range out[0].Users {
-		byIdentity[user.IdentityKey] = user
-	}
-	if got := byIdentity["slack:TPOSTMAN:U07SOHUM1"]; got.UserID != "U07SOHUM1" || got.SlackTeamID != "TPOSTMAN" || got.CostUSD != 1.0 {
-		t.Errorf("observed-only bucket mismatch: %+v", got)
-	}
-	if got := byIdentity["user_bob"]; got.UserID != "user_bob" || got.SlackTeamID != "" || got.CostUSD != 3.0 {
-		t.Errorf("linked bucket mismatch: %+v", got)
-	}
-}
-
-func TestBuildCostOverTimeByUser_MergesLinkedSlackIntoAstroUser(t *testing.T) {
+// TestBuildCostOverTimeByUser_LinkedRowsBucketByWorkOSId pins the contract
+// that buildCostOverTimeByUser groups by whatever user_id is in the row —
+// the compute layer is expected to have already translated linked Slack
+// user_ids to their WorkOS id.
+func TestBuildCostOverTimeByUser_LinkedRowsBucketByWorkOSId(t *testing.T) {
 	rows := []map[string]any{
-		{"userId": "U07BOBBOB1", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
+		// Caller (compute path) translated U07BOBBOB1 → user_bob before
+		// calling buildCostOverTimeByUser. Two rows for user_bob on the
+		// same day should merge.
+		{"userId": "user_bob", "sum_totalCost": 3.0, "count_count": 4.0, "sum_totalTokens": 400.0, "time_dimension": "2026-04-01T08:00:00.000Z"},
 		{"userId": "user_bob", "sum_totalCost": 2.0, "count_count": 1.0, "sum_totalTokens": 100.0, "time_dimension": "2026-04-01T16:00:00.000Z"},
 	}
-	entries := slackDirectoryEntries{
-		"U07BOBBOB1": {
-			TeamID:       "TPOSTMAN",
-			WorkOSUserID: "user_bob",
-		},
-	}
 
-	out := buildCostOverTimeByUser(rows, entries)
+	out := buildCostOverTimeByUser(rows)
+
 	if len(out) != 1 {
 		t.Fatalf("expected 1 date entry, got %d", len(out))
 	}
 	if len(out[0].Users) != 1 {
-		t.Fatalf("expected linked slack and astro rows to merge, got %+v", out[0].Users)
+		t.Fatalf("expected one user_bob bucket post-translation, got %+v", out[0].Users)
 	}
 	got := out[0].Users[0]
-	if got.IdentityKey != "user_bob" || got.UserID != "user_bob" || got.SlackTeamID != "" {
-		t.Fatalf("merged identity mismatch: %+v", got)
+	if got.UserID != "user_bob" || got.UserDetails.Kind != UserDetailsKindAstro {
+		t.Fatalf("identity mismatch: %+v", got)
 	}
 	if got.CostUSD != 5.0 || got.Requests != 5 || got.Tokens != 500 {
 		t.Fatalf("merged metrics mismatch: %+v", got)
@@ -662,7 +790,7 @@ func TestBuildCostOverTimeByUser_TruncatesDateAndExcludesZeroCost(t *testing.T) 
 		{"userId": "u_alice", "sum_totalCost": 0.5, "time_dimension": "2026-04-01T08:00:00.000Z"},
 	}
 
-	out := buildCostOverTimeByUser(rows, slackDirectoryEntries{})
+	out := buildCostOverTimeByUser(rows)
 
 	if len(out) != 2 {
 		t.Fatalf("expected 2 date entries, got %d (%+v)", len(out), out)

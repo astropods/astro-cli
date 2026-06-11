@@ -16,7 +16,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 )
 
@@ -265,7 +264,11 @@ func TestBuildDeploymentSummary_UsersUsedInversion(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentSummary_UsersUsedDetailsMergesLinkedSlackRows(t *testing.T) {
+// Linked Slack and WorkOS rows for the same human bucket together
+// because the compute path translates the Slack user_id to its WorkOS
+// id via applyLinkedSlackUserIDTranslation BEFORE buildDeploymentUserRows
+// runs. No merge step downstream — the bucketing is automatic.
+func TestBuildDeploymentSummary_TranslatedLinkedRowsBucketByWorkOSId(t *testing.T) {
 	metrics := []deploymentMetrics{
 		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
 	}
@@ -273,11 +276,12 @@ func TestBuildDeploymentSummary_UsersUsedDetailsMergesLinkedSlackRows(t *testing
 		{"userId": "user_sohum", "tags": "deployment:dep-1"},
 		{"userId": "U07SOHUM1", "tags": []any{"deployment:dep-1"}},
 	}
-	entries := slackDirectoryEntries{
-		"U07SOHUM1": {TeamID: "TPOSTMAN", WorkOSUserID: "user_sohum"},
+	linkMap := map[string]string{
+		"U07SOHUM1": "user_sohum",
 	}
 
-	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil, entries)
+	applyLinkedSlackUserIDTranslation(linkMap, tagsRows)
+	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil)
 	if len(out) != 1 {
 		t.Fatalf("expected one deployment, got %d", len(out))
 	}
@@ -285,40 +289,40 @@ func TestBuildDeploymentSummary_UsersUsedDetailsMergesLinkedSlackRows(t *testing
 		t.Fatalf("users_used = %v, want %v", got, want)
 	}
 	if len(out[0].UsersUsedDetails) != 1 {
-		t.Fatalf("expected one rich identity after merge, got %+v", out[0].UsersUsedDetails)
+		t.Fatalf("expected one identity after translation, got %+v", out[0].UsersUsedDetails)
 	}
-	if got := out[0].UsersUsedDetails[0]; got.UserID != "user_sohum" || got.SlackTeamID != "" {
-		t.Errorf("merged identity mismatch: %+v", got)
+	if got := out[0].UsersUsedDetails[0]; got.UserID != "user_sohum" || got.UserDetails.Kind != UserDetailsKindAstro {
+		t.Errorf("translated identity mismatch: %+v", got)
 	}
 }
 
-func TestBuildDeploymentSummary_UsersUsedDetailsStampsUnlinkedSlackDirectory(t *testing.T) {
+// Unlinked bare-Slack rows pass through compute time unchanged. Profile
+// + workspace metadata is stamped by ResolveDeploymentsSummaryIdentities
+// at read time — covered by the trace identity tests in
+// users_summary_merge_test.go (same stampSlackDirectoryEntry helper).
+// Here we just pin that the build layer carries the bare Slack id
+// forward without inventing identity data.
+func TestBuildDeploymentSummary_UnlinkedSlackRowsPassThroughRaw(t *testing.T) {
 	metrics := []deploymentMetrics{
 		{DeploymentID: "dep-1", AgentName: "code-reviewer", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 1, TotalCost: 1.0}}},
 	}
 	tagsRows := []map[string]any{
 		{"userId": "U07SOHUM1", "tags": []any{"deployment:dep-1"}},
 	}
-	entries := slackDirectoryEntries{
-		"U07SOHUM1": {
-			TeamID:        "TPOSTMAN",
-			WorkspaceName: "Postman",
-			Profile: slackidentity.SlackProfile{
-				DisplayName: "Sohum Dalal",
-				Username:    "sohum",
-			},
-		},
-	}
 
-	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil, entries)
+	out := buildDeploymentSummaryWithUsers(metrics, buildDeploymentUserRows(tagsRows), nil, nil)
 	if len(out) != 1 {
 		t.Fatalf("expected one deployment, got %d", len(out))
 	}
 	if len(out[0].UsersUsedDetails) != 1 {
-		t.Fatalf("expected one Slack identity, got %+v", out[0].UsersUsedDetails)
+		t.Fatalf("expected one identity, got %+v", out[0].UsersUsedDetails)
 	}
-	if got := out[0].UsersUsedDetails[0]; got.IdentityKey != "slack:TPOSTMAN:U07SOHUM1" || got.UserID != "U07SOHUM1" || got.SlackWorkspaceName != "Postman" {
-		t.Errorf("slack identity mismatch: %+v", got)
+	got := out[0].UsersUsedDetails[0]
+	if got.UserID != "U07SOHUM1" || got.UserDetails.Kind != UserDetailsKindSlack {
+		t.Errorf("unlinked Slack row should classify as kind=slack from id alone, got %+v", got)
+	}
+	if got.UserDetails.TeamID != "" || got.UserDetails.DisplayName != "" {
+		t.Errorf("build layer should not stamp directory data, got %+v", got.UserDetails)
 	}
 }
 

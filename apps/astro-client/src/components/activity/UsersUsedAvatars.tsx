@@ -3,10 +3,9 @@ import { Link } from "react-router";
 import { Server, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAccountMembers } from "@/api/queries/accounts";
-import type { AccountMember, InsightsUserIdentity } from "@/lib/api";
+import type { AccountMember, UserIdentity } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isSlackUserId } from "./user-classification";
 import { OverflowPopover } from "./OverflowPopover";
 import { SlackIdentityAvatar } from "./SlackUserIdentity";
 import {
@@ -19,7 +18,7 @@ interface UsersUsedAvatarsProps {
   /** Legacy IDs from the deployment's users_used field. */
   userIds: string[];
   /** Rich identities from users_used_details. Preferred when present. */
-  users?: InsightsUserIdentity[];
+  users?: UserIdentity[];
   /** Account whose member list resolves WorkOS IDs to avatars. */
   account: string;
   /** Avatars to render before collapsing into a +N overflow chip. */
@@ -35,32 +34,26 @@ type UserKind = "member" | "slack" | "unidentified" | "unattributed";
 
 interface ClassifiedUser {
   key: string;
-  identity: InsightsUserIdentity;
+  identity: UserIdentity;
   kind: UserKind;
   member: AccountMember | undefined;
+  /** Username slug — drives the avatar hash and the profile link target.
+   *  Sourced from the loaded account-member when present, falls back to
+   *  the row's `user_details.username` for cross-account astro users. */
+  handle?: string;
   /** Display string for the row label, popover line, and avatar tooltip. */
   primary: string;
   secondary?: string;
   deepLink?: string;
 }
 
-function classify(identity: InsightsUserIdentity, member: AccountMember | undefined): ClassifiedUser {
+function classify(identity: UserIdentity, member: AccountMember | undefined): ClassifiedUser {
   const uid = identity.user_id;
   const key = insightsUserIdentityKey(identity);
   if (!uid) {
     return { key, identity, kind: "unattributed", member: undefined, primary: "System spend" };
   }
-  if (member) {
-    return {
-      key,
-      identity,
-      kind: "member",
-      member,
-      primary: member.display_name || member.username,
-      secondary: `@${member.username}`,
-    };
-  }
-  if (isSlackUserId(uid)) {
+  if (identity.user_details.kind === "slack") {
     const display = slackIdentityDisplay(identity);
     return {
       key,
@@ -68,8 +61,32 @@ function classify(identity: InsightsUserIdentity, member: AccountMember | undefi
       kind: "slack",
       member: undefined,
       primary: display.primary,
-      secondary: identity.slack_username ? `@${identity.slack_username}` : undefined,
       deepLink: display.deepLink,
+    };
+  }
+  if (member) {
+    return {
+      key,
+      identity,
+      kind: "member",
+      member,
+      handle: member.username,
+      primary: member.display_name || member.username,
+      secondary: `@${member.username}`,
+    };
+  }
+  // Astro user not loaded as a member (cross-account public-blueprint
+  // spend). Fall back to the hydrated user_details so the row still
+  // renders with a real name + username instead of the raw id.
+  if (identity.user_details.kind === "astro" && identity.user_details.username) {
+    return {
+      key,
+      identity,
+      kind: "member",
+      member: undefined,
+      handle: identity.user_details.username,
+      primary: identity.user_details.display_name || identity.user_details.username,
+      secondary: `@${identity.user_details.username}`,
     };
   }
   return { key, identity, kind: "unidentified", member: undefined, primary: uid };
@@ -79,7 +96,7 @@ function UserChipAvatar({ user }: { user: ClassifiedUser }) {
   if (user.kind === "slack") {
     return (
       <SlackIdentityAvatar
-        user={user.identity}
+        details={user.identity.user_details}
         className="size-6 opacity-60 transition-opacity group-hover:opacity-100"
         iconClassName="size-3.5"
       />
@@ -100,7 +117,7 @@ function UserChipAvatar({ user }: { user: ClassifiedUser }) {
   }
   return (
     <UserAvatar
-      handle={user.member?.username ?? user.identity.user_id}
+      handle={user.handle ?? user.identity.user_id}
       name={user.primary}
       className="size-6 shrink-0"
     />
@@ -129,9 +146,9 @@ function userIdentityTarget(
   options?: { title?: boolean },
 ) {
   const title = options?.title === false ? undefined : userTooltipTitle(user);
-  if (user.kind === "member" && user.member) {
+  if (user.kind === "member" && user.handle) {
     return (
-      <Link to={`/${user.member.username}`} className={className} title={title}>
+      <Link to={`/${user.handle}`} className={className} title={title}>
         {children}
       </Link>
     );
