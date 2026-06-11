@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -39,6 +39,12 @@ const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "
 const USERS_COLOR = "var(--color-primary-400)";
 const SPEND_COLOR = "var(--color-muted-foreground)";
 
+function useHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  return hydrated;
+}
+
 function CustomTooltip({
   active,
   payload,
@@ -77,6 +83,7 @@ function CustomTooltip({
 }
 
 export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps) {
+  const hydrated = useHydrated();
   // Clickable legend: toggle either series off to compare scales on a
   // single axis. One series always stays visible — hiding both leaves an
   // empty chart, which is silly.
@@ -119,9 +126,9 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
       <div className="mb-4 shrink-0">
         <h3 className="text-heading-4 text-foreground">People spend over time</h3>
       </div>
-      {isEmpty ? (
+      {isEmpty || !hydrated ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-body-sm text-faint-foreground">No spend yet</p>
+          <p className="text-body-sm text-faint-foreground">{isEmpty ? "No spend yet" : "Loading chart..."}</p>
         </div>
       ) : (
         <>

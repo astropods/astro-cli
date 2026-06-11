@@ -56,6 +56,12 @@ function parseRange(raw: string | null): ActivityRange {
   return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
 }
 
+function useHasHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  return hydrated;
+}
+
 export function insightsSlackResyncQueryKeys(account: string) {
   return [
     observabilityKeys.activitySummary(account, undefined, undefined, "user"),
@@ -176,6 +182,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
+  const hasHydrated = useHasHydrated();
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
@@ -266,16 +273,55 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         action={headerAction}
       />
 
-      <InsightsView
-        account={activeAccount}
-        range={range}
-        view={view}
-        onViewChange={setView}
-        query={q}
-        onQueryChange={setQuery}
-        slackRefreshStatus={slackRefreshStatus}
-      />
+      {hasHydrated ? (
+        <InsightsView
+          account={activeAccount}
+          range={range}
+          view={view}
+          onViewChange={setView}
+          query={q}
+          onQueryChange={setQuery}
+          slackRefreshStatus={slackRefreshStatus}
+        />
+      ) : (
+        <InsightsClientFallback />
+      )}
     </PageContainer>
+  );
+}
+
+function InsightsClientFallback() {
+  return (
+    <div className="space-y-6" aria-live="polite" aria-busy="true">
+      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+        {["SPEND", "REQUESTS", "TOKENS"].map((label) => (
+          <div key={label} className="rounded-lg border border-border bg-card p-[12px_14px] dark:bg-surface">
+            <span className="block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
+              {label}
+            </span>
+            <div className="mt-2 h-8 w-24 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
+        <div className="flex h-[300px] items-center justify-center rounded-lg border border-border bg-card dark:bg-surface">
+          <p className="text-body-sm text-faint-foreground">Loading insights...</p>
+        </div>
+        <div className="flex h-[300px] items-center justify-center rounded-lg border border-border bg-card dark:bg-surface">
+          <p className="text-body-sm text-faint-foreground">Loading insights...</p>
+        </div>
+      </div>
+      <div className="rounded-lg border border-border bg-card dark:bg-surface">
+        <div className="border-b border-border p-4">
+          <div className="h-8 w-64 rounded bg-muted" />
+        </div>
+        <div className="space-y-3 p-4">
+          {[0, 1, 2, 3, 4].map((row) => (
+            <div key={row} className="h-10 rounded bg-muted/70" />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
