@@ -73,6 +73,9 @@ navigation:
           - page: Connect to a private database
             path: docs/pages/private-database.mdx
             icon: fa-duotone fa-database
+          - page: Serve a frontend from your agent
+            path: docs/pages/frontend-agents.mdx
+            icon: fa-duotone fa-window
           - page: Manually authorize requests
             path: docs/pages/manual-authz.mdx
             icon: fa-duotone fa-shield-check
