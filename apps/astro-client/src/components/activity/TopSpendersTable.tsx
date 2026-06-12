@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { cn } from "@/lib/utils";
-import { formatTimeAgo } from "@/lib/time-format";
-import { type AgentDeploymentRef } from "./AgentNameLink";
+import { Info, Server, TriangleAlert, User } from "lucide-react";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { UserAvatar } from "@/components/UserAvatar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -12,70 +18,75 @@ import {
   TableRow,
   TableShowMore,
 } from "@/components/ui/table";
-import { formatCost, formatCompact, formatLatency } from "@/lib/format-utils";
+import { cn } from "@/lib/utils";
+import { formatTimeAgo } from "@/lib/time-format";
+import { formatCompact, formatCost, formatLatency } from "@/lib/format-utils";
 import type {
-  AccountDeploymentsSummaryResponse,
-  AccountUsersSummaryResponse,
+  InsightsAgentChip,
+  InsightsAgentRow,
+  InsightsIdentityRef,
+  InsightsPersonRow,
 } from "@/lib/api";
-import { AgentsUsedChips } from "./AgentsUsedChips";
-import { UsersUsedAvatars } from "./UsersUsedAvatars";
-import { SlackUserIdentity } from "./SlackUserIdentity";
-import { insightsUserIdentityKey } from "./insights-user-identity";
-import { UserBadge } from "@/components/UserBadge";
-import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, CircleUserRound, Server, TriangleAlert } from "lucide-react";
-import { useAccountMembers } from "@/api/queries/accounts";
+import { OverflowPopover } from "./OverflowPopover";
 
-type DeploymentRow = AccountDeploymentsSummaryResponse["deployments"][number];
-type UserRow = AccountUsersSummaryResponse["users"][number];
+export type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
+export type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
+export type TopSpendersSortDirection = "asc" | "desc";
 
-type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
-type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
-
-// Collapse long lists so the Insights page fits without an outer scrollbar,
-// with progressive "Show top 10" / "Show all" controls. Agents and People
-// views share the same cap so the affordance reads consistently. Tighter
-// than the Monitor traces table (which uses 10) — that page is just the
-// trace list; this one stacks stat cards, charts, and the table above the fold.
 const DEFAULT_VISIBLE_ROWS = 5;
-const TOP_VISIBLE_ROWS = 10;
+const PAGE_SIZE_ROWS = 10;
+const MAX_VISIBLE_IDENTITIES = 3;
+const MAX_VISIBLE_AGENTS = 3;
 
-function useProgressiveRows(totalRows: number, resetSignal: unknown) {
-  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_ROWS);
+type TopSpendersPagination = {
+  totalRows: number;
+  onShowMore: () => void;
+  onShowLess: () => void;
+};
 
-  useEffect(() => {
-    setVisibleCount(DEFAULT_VISIBLE_ROWS);
-  }, [resetSignal]);
+type TopSpendersTableProps =
+  | {
+      mode: "agents";
+      rows: InsightsAgentRow[];
+      loading: boolean;
+      groupLabel?: string;
+      panelHeader?: ReactNode;
+      sortKey?: AgentSortKey;
+      sortDirection?: TopSpendersSortDirection;
+      onSort?: (key: AgentSortKey) => void;
+      pagination?: TopSpendersPagination;
+    }
+  | {
+      mode: "users";
+      rows: InsightsPersonRow[];
+      loading: boolean;
+      panelHeader?: ReactNode;
+      sortKey?: UserSortKey;
+      sortDirection?: TopSpendersSortDirection;
+      onSort?: (key: UserSortKey) => void;
+      pagination?: TopSpendersPagination;
+    };
 
-  const cappedVisibleCount = Math.min(visibleCount, totalRows);
-  const hiddenCount = Math.max(totalRows - cappedVisibleCount, 0);
-  const revealedCount = Math.max(cappedVisibleCount - DEFAULT_VISIBLE_ROWS, 0);
-  const showMoreLabel =
-    cappedVisibleCount < TOP_VISIBLE_ROWS && totalRows > TOP_VISIBLE_ROWS
-      ? `Show top ${TOP_VISIBLE_ROWS}`
-      : "Show all";
-
-  return {
-    visibleCount: cappedVisibleCount,
-    hiddenCount,
-    revealedCount,
-    showMoreLabel,
-    showMore: () =>
-      setVisibleCount((count) =>
-        count < TOP_VISIBLE_ROWS ? Math.min(totalRows, TOP_VISIBLE_ROWS) : totalRows,
-      ),
-    showLess: () => setVisibleCount(DEFAULT_VISIBLE_ROWS),
-  };
+export function TopSpendersTable(props: TopSpendersTableProps) {
+  if (props.mode === "users") {
+    return <UsersTopSpenders {...props} />;
+  }
+  return <AgentsTopSpenders {...props} />;
 }
 
 function useSort<K extends string>(initial: K) {
   const [sortKey, setSortKey] = useState<K>(initial);
   const [asc, setAsc] = useState(false);
+
   function handleSort(key: K) {
-    if (key === sortKey) setAsc((v) => !v);
-    else { setSortKey(key); setAsc(false); }
+    if (key === sortKey) {
+      setAsc((value) => !value);
+      return;
+    }
+    setSortKey(key);
+    setAsc(false);
   }
+
   return { sortKey, asc, handleSort };
 }
 
@@ -83,34 +94,10 @@ function sortDirFor<K extends string>(active: K, asc: boolean, col: K) {
   return active === col ? (asc ? "asc" : "desc") : undefined;
 }
 
-function formatShare(cost: number, total: number): string {
-  if (total <= 0) return "—";
-  return `${((cost / total) * 100).toFixed(1)}%`;
-}
-
-function RankMarker({ rank }: { rank: number }) {
+function RankCell({ rank }: { rank: number }) {
   return (
-    <span className="w-5 shrink-0 text-left text-mono-sm tabular-nums text-faint-foreground">
+    <TableCell className="w-14 pr-2 text-right text-mono-sm tabular-nums text-faint-foreground">
       {rank}
-    </span>
-  );
-}
-
-function IdentityTableCell({
-  rank,
-  children,
-}: {
-  rank: number;
-  children: ReactNode;
-}) {
-  return (
-    <TableCell className="pl-3 pr-4">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <RankMarker rank={rank} />
-        <div className="-ml-1 min-w-0 flex-1">
-          {children}
-        </div>
-      </div>
     </TableCell>
   );
 }
@@ -127,173 +114,410 @@ function GhostRow({ columns }: { columns: number }) {
   );
 }
 
-type TopSpendersTableProps =
-  | {
-      mode: "agents";
-      /** One row per deployment — multi-region deployments of the same
-       *  agent_name surface as separate rows. */
-      deployments: DeploymentRow[];
-      loading: boolean;
-      groupLabel?: string;
-      /** Account name used to linkify the row. When omitted (e.g. a future
-       *  Models view), the cell renders text-only. */
-      account?: string;
-      /** Denominator for the `% Total` column. Owned by the caller so it can
-       *  stay stable across search-driven row filtering — otherwise typing in
-       *  the search input shifts every visible percentage. */
-      totalCost?: number;
-      /** Rendered inside the table's bordered container, above the column
-       *  headers — used for the view toggle + search row. */
-      panelHeader?: ReactNode;
-    }
-  | {
-      mode: "users";
-      users: UserRow[];
-      account: string;
-      loading: boolean;
-      /** Map of agent_name → all matching deployments. Forwarded to
-       *  `AgentsUsedChips` so each chip / popover row routes to a
-       *  deployment's Monitor tab instead of the blueprint detail page. */
-      deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
-      /** Denominator for the `% Total` column. Owned by the caller — see the
-       *  agents-mode note. */
-      totalCost?: number;
-      /** Rendered inside the table's bordered container, above the column
-       *  headers — used for the view toggle + search row. */
-      panelHeader?: ReactNode;
-    };
-
-export function TopSpendersTable(props: TopSpendersTableProps) {
-  if (props.mode === "users") {
-    return <UsersTopSpenders {...props} />;
-  }
-  return <DeploymentsTopSpenders {...props} />;
+function formatShare(percent: number): string {
+  return percent > 0 ? `${percent.toFixed(1)}%` : "-";
 }
 
-// ── Agents mode ──────────────────────────────────────────────────────────────
+function formatLastSeen(ts: string | undefined): string {
+  if (!ts) return "-";
+  return formatTimeAgo(ts);
+}
 
-function renderAgentRowContent(
-  b: DeploymentRow,
-  rank: number,
-  ctx: { denom: number; account?: string },
+function identityKey(identity: InsightsIdentityRef, index = 0) {
+  return `${identity.kind}:${identity.identity_key ?? identity.user_id ?? identity.id ?? identity.label}:${index}`;
+}
+
+function maybeWithTooltip(
+  children: ReactNode,
+  identity: Pick<InsightsIdentityRef, "label" | "tooltip">,
+  side: "top" | "right" = "top",
 ) {
-  // Zero requests in the period means no traces ever landed for this
-  // deployment — usually the agent isn't sending observability data. Flag
-  // with a small warning icon so the all-zero row reads as "not instrumented"
-  // rather than "deployment did nothing".
-  const notInstrumented = b.requests === 0;
-  const label = b.display_name || b.agent_name;
-  const identityRow = (
-    <span className="inline-flex min-w-0 items-center gap-2">
-      {ctx.account && (
-        <BlueprintIdentity
-          account={ctx.account}
-          name={b.agent_name}
-          size={20}
-          className="size-5 shrink-0 rounded-full"
+  if (!identity.tooltip) return children;
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} className="max-w-[260px] [text-wrap:initial]">
+          {identity.tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function IdentityAvatar({
+  identity,
+  className,
+  size = 24,
+}: {
+  identity: InsightsIdentityRef;
+  className?: string;
+  size?: number;
+}) {
+  const baseClassName = cn("size-6 shrink-0 rounded-full", className);
+
+  if (identity.kind === "agent" && identity.avatar_account && identity.avatar_name) {
+    return (
+      <BlueprintIdentity
+        account={identity.avatar_account}
+        name={identity.avatar_name}
+        size={size}
+        className={baseClassName}
+      />
+    );
+  }
+
+  if (identity.kind === "member" && identity.avatar_handle) {
+    return (
+      <UserAvatar
+        handle={identity.avatar_handle}
+        name={identity.label}
+        className={baseClassName}
+      />
+    );
+  }
+
+  if (identity.kind === "slack") {
+    if (identity.user_details?.avatar_url) {
+      return (
+        <img
+          src={identity.user_details.avatar_url}
+          alt=""
+          className={cn(baseClassName, "bg-muted object-cover")}
+          referrerPolicy="no-referrer"
         />
-      )}
-      <span className="min-w-0 truncate text-foreground">{label}</span>
+      );
+    }
+
+    return (
+      <span
+        className={cn(baseClassName, "flex items-center justify-center bg-muted text-muted-foreground")}
+        aria-hidden
+      >
+        <User className="size-3.5" strokeWidth={1.75} />
+      </span>
+    );
+  }
+
+  if (identity.kind === "system") {
+    return (
+      <span
+        className={cn(baseClassName, "flex items-center justify-center bg-muted text-muted-foreground")}
+        aria-hidden
+      >
+        <Server className="size-3.5" strokeWidth={1.75} />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(baseClassName, "flex items-center justify-center bg-muted text-muted-foreground")}
+      aria-hidden
+    >
+      <User className="size-3.5" strokeWidth={1.75} />
     </span>
   );
-  return (
+}
+
+function IdentityLabel({
+  identity,
+  className,
+  icon,
+}: {
+  identity: InsightsIdentityRef;
+  className?: string;
+  icon?: ReactNode;
+}) {
+  const body = (
     <>
-      <IdentityTableCell rank={rank}>
-        <span className="inline-flex items-center gap-1.5">
-          {ctx.account ? (
-            <Link
-              to={`/${ctx.account}/agents/${b.deployment_id}/monitor`}
-              className="inline-flex items-center hover:underline"
-            >
-              {identityRow}
-            </Link>
-          ) : (
-            identityRow
-          )}
-          {notInstrumented && (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-faint-foreground" aria-label="Not instrumented">
-                    <TriangleAlert className="size-3.5" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
-                  Instrumentation not available — no requests, spend, or token data available.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </span>
-      </IdentityTableCell>
-      <TableCell>
-        <UsersUsedAvatars
-          userIds={b.users_used ?? []}
-          users={b.users_used_details}
-          account={ctx.account ?? ""}
-        />
-      </TableCell>
-      <TableCell className="text-right text-foreground">{formatCompact(b.requests)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatCost(b.cost_usd)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatShare(b.cost_usd, ctx.denom)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatCost(b.cost_per_request)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatCompact(b.tok_per_request)}</TableCell>
-      <TableCell className="text-right text-foreground">
-        {b.p95_latency_ms > 0 ? formatLatency(b.p95_latency_ms) : "—"}
-      </TableCell>
+      {icon}
+      <span className="min-w-0 truncate">{identity.label}</span>
+      {identity.kind === "system" && <Info className="size-3 text-muted-foreground" aria-hidden />}
     </>
+  );
+  const bodyClassName = cn(
+    "inline-flex min-w-0 items-center gap-2 text-body-sm text-foreground",
+    identity.kind === "unidentified" && "font-mono",
+    className,
+  );
+
+  let node: ReactNode;
+  if (identity.href?.startsWith("/")) {
+    node = (
+      <Link to={identity.href} className={cn(bodyClassName, "hover:underline")}>
+        {body}
+      </Link>
+    );
+  } else if (identity.href) {
+    node = (
+      <a href={identity.href} rel="noreferrer" className={cn(bodyClassName, "hover:underline")}>
+        {body}
+      </a>
+    );
+  } else {
+    node = <span className={bodyClassName}>{body}</span>;
+  }
+
+  return maybeWithTooltip(node, identity, "right");
+}
+
+function IdentityRow({ identity }: { identity: InsightsIdentityRef }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <IdentityAvatar identity={identity} className="size-5" size={20} />
+      <IdentityLabel identity={identity} />
+    </div>
   );
 }
 
-function DeploymentsTopSpenders({
-  deployments,
+function AgentRowIdentity({ identity }: { identity: InsightsIdentityRef }) {
+  return (
+    <IdentityLabel
+      identity={identity}
+      icon={<IdentityAvatar identity={identity} className="size-5" size={20} />}
+    />
+  );
+}
+
+function IdentityAvatarStack({
+  identities,
+}: {
+  identities: InsightsIdentityRef[];
+}) {
+  if (identities.length === 0) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  const visible = identities.slice(0, MAX_VISIBLE_IDENTITIES);
+  const overflow = identities.length - visible.length;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {visible.map((identity, index) => (
+        <span key={identityKey(identity, index)}>
+          {maybeWithTooltip(
+            <span className="inline-flex">
+              <IdentityAvatar identity={identity} className="size-6" size={24} />
+            </span>,
+            identity,
+          )}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <OverflowPopover
+          overflow={overflow}
+          total={identities.length}
+          itemNoun={{ singular: "person", plural: "people" }}
+        >
+          <ul className="min-h-0 overflow-y-auto">
+            {identities.map((identity, index) => (
+              <li key={identityKey(identity, index)} className="rounded px-2 py-1.5">
+                <IdentityRow identity={identity} />
+              </li>
+            ))}
+          </ul>
+        </OverflowPopover>
+      )}
+    </div>
+  );
+}
+
+function AgentChipAvatar({ agent }: { agent: InsightsAgentChip }) {
+  return (
+    <BlueprintIdentity
+      account={agent.avatar_account}
+      name={agent.avatar_name}
+      size={24}
+      className="size-6 shrink-0 rounded-[3px] border-[0.5px] border-border object-cover"
+    />
+  );
+}
+
+function AgentChips({ agents }: { agents: InsightsAgentChip[] }) {
+  if (agents.length === 0) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  const visible = agents.slice(0, MAX_VISIBLE_AGENTS);
+  const overflow = agents.length - visible.length;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="sr-only">{agents.map((agent) => agent.label).join(", ")}</span>
+      {visible.map((agent) => (
+        <TooltipProvider key={agent.key} delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link to={agent.href} className="inline-flex rounded-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <AgentChipAvatar agent={agent} />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {agent.label}{agent.is_deleted ? " (deleted)" : ""}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ))}
+      {overflow > 0 && (
+        <OverflowPopover
+          overflow={overflow}
+          total={agents.length}
+          itemNoun={{ singular: "agent", plural: "agents" }}
+        >
+          <ul className="min-h-0 overflow-y-auto">
+            {agents.map((agent) => (
+              <li key={agent.key}>
+                <Link
+                  to={agent.href}
+                  className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-body-sm hover:bg-muted/60"
+                >
+                  <AgentChipAvatar agent={agent} />
+                  <span className="min-w-0 truncate text-foreground">
+                    {agent.label}{agent.is_deleted ? " (deleted)" : ""}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </OverflowPopover>
+      )}
+    </div>
+  );
+}
+
+function NotInstrumentedMarker() {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-faint-foreground" aria-label="Not instrumented" tabIndex={0}>
+            <TriangleAlert className="size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
+          Instrumentation not available: no requests, spend, or token data available.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function agentSortValue(row: InsightsAgentRow, key: AgentSortKey): number {
+  switch (key) {
+    case "cost_usd":
+      return row.metrics.cost_usd;
+    case "requests":
+      return row.metrics.requests;
+    case "cost_per_request":
+      return row.metrics.cost_per_request;
+    case "tok_per_request":
+      return row.metrics.tok_per_request;
+    case "p95_latency_ms":
+      return row.metrics.p95_latency_ms;
+  }
+}
+
+function userSortValue(row: InsightsPersonRow, key: UserSortKey): number {
+  switch (key) {
+    case "cost_usd":
+      return row.metrics.cost_usd;
+    case "requests":
+      return row.metrics.requests;
+    case "tokens":
+      return row.metrics.tokens;
+    case "last_seen":
+      return row.metrics.last_seen ? new Date(row.metrics.last_seen).getTime() : 0;
+  }
+}
+
+function useVisibleRows<Row extends { key: string }>(rows: Row[], pagination?: TopSpendersPagination) {
+  const [expanded, setExpanded] = useState(false);
+  const rowKeySignal = useMemo(() => rows.map((row) => row.key).join("\u0000"), [rows]);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [rowKeySignal]);
+
+  if (pagination) {
+    const hiddenCount = Math.max(pagination.totalRows - rows.length, 0);
+    return {
+      visibleRows: rows,
+      hiddenCount,
+      expanded: rows.length > DEFAULT_VISIBLE_ROWS,
+      setExpanded,
+      revealedCount: Math.max(rows.length - DEFAULT_VISIBLE_ROWS, 0),
+      showMoreLabel: hiddenCount > 0 ? `Show ${Math.min(PAGE_SIZE_ROWS, hiddenCount)} more` : undefined,
+      onToggle: pagination.onShowMore,
+      onShowLess: pagination.onShowLess,
+    };
+  }
+  const visibleRows = expanded ? rows : rows.slice(0, DEFAULT_VISIBLE_ROWS);
+  const hiddenCount = Math.max(rows.length - DEFAULT_VISIBLE_ROWS, 0);
+
+  return {
+    visibleRows,
+    hiddenCount,
+    expanded,
+    setExpanded,
+    revealedCount: expanded ? hiddenCount : 0,
+    showMoreLabel: undefined,
+    onToggle: () => setExpanded((value) => !value),
+    onShowLess: undefined,
+  };
+}
+
+function AgentsTopSpenders({
+  rows,
   loading,
   groupLabel = "Name",
-  account,
-  totalCost,
   panelHeader,
+  sortKey: controlledSortKey,
+  sortDirection,
+  onSort,
+  pagination,
 }: Extract<TopSpendersTableProps, { mode: "agents" }>) {
-  const { sortKey, asc, handleSort } = useSort<AgentSortKey>("cost_usd");
-
+  const localSort = useSort<AgentSortKey>("cost_usd");
+  const sortKey = controlledSortKey ?? localSort.sortKey;
+  const asc = sortDirection ? sortDirection === "asc" : localSort.asc;
+  const handleSort = (key: AgentSortKey) => {
+    if (onSort) onSort(key);
+    else localSort.handleSort(key);
+  };
   const sorted = useMemo(
-    () => [...deployments].sort((a, b) => {
-      const diff = a[sortKey] - b[sortKey];
-      return asc ? diff : -diff;
-    }),
-    [deployments, sortKey, asc],
+    () => {
+      if (onSort) return rows;
+      return [...rows].sort((a, b) => {
+        const diff = agentSortValue(a, sortKey) - agentSortValue(b, sortKey);
+        return asc ? diff : -diff;
+      });
+    },
+    [rows, sortKey, asc, onSort],
   );
-
-  // Fall back to a self-computed sum when the caller hasn't wired a stable
-  // denominator — percentages still render, they just re-base if rows get
-  // filtered.
-  const denom = totalCost ?? deployments.reduce((s, b) => s + b.cost_usd, 0);
-
+  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
-
-  const { visibleCount, hiddenCount, revealedCount, showMoreLabel, showMore, showLess } =
-    useProgressiveRows(sorted.length, sorted);
-  const visibleSorted = sorted.slice(0, visibleCount);
 
   return (
     <Table
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 || revealedCount > 0 ? (
+        hiddenCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
-            expanded={revealedCount > 0 && hiddenCount === 0}
-            onToggle={showMore}
+            expanded={expanded}
+            onToggle={onToggle}
             showMoreLabel={showMoreLabel}
             revealedCount={revealedCount}
-            onShowLess={showLess}
+            onShowLess={onShowLess}
           />
         ) : undefined
       }
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="pl-3">{groupLabel}</TableHead>
+          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
+          <TableHead>{groupLabel}</TableHead>
           <TableHead>Used by</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
@@ -305,293 +529,94 @@ function DeploymentsTopSpenders({
       </TableHeader>
       <TableBody>
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={9} />)
         ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={9} className="py-10 text-center text-body-sm text-faint-foreground">
               No deployment activity in this period
             </TableCell>
           </TableRow>
         ) : (
-          <>
-            {visibleSorted.map((b, i) => (
-              <TableRow key={b.deployment_id}>{renderAgentRowContent(b, i + 1, { denom, account })}</TableRow>
-            ))}
-          </>
+          visibleRows.map((row, index) => (
+            <TableRow key={row.key}>
+              <RankCell rank={index + 1} />
+              <TableCell className="pr-4">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <AgentRowIdentity identity={row.identity} />
+                  {row.not_instrumented && <NotInstrumentedMarker />}
+                </span>
+              </TableCell>
+              <TableCell>
+                <IdentityAvatarStack identities={row.used_by} />
+              </TableCell>
+              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_per_request)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tok_per_request)}</TableCell>
+              <TableCell className="text-right text-foreground">
+                {row.metrics.p95_latency_ms > 0 ? formatLatency(row.metrics.p95_latency_ms) : "-"}
+              </TableCell>
+            </TableRow>
+          ))
         )}
       </TableBody>
     </Table>
   );
 }
 
-// ── Users mode ───────────────────────────────────────────────────────────────
-
-function userSortValue(u: UserRow, k: UserSortKey): number {
-  switch (k) {
-    case "cost_usd": return u.cost_usd;
-    case "requests": return u.requests;
-    case "tokens": return u.tokens;
-    case "last_seen": return u.last_seen ? new Date(u.last_seen).getTime() : 0;
-  }
-}
-
-function formatLastSeen(ts: string | undefined): string {
-  if (!ts) return "—";
-  return formatTimeAgo(ts);
-}
-
-type AgentRef = UserRow["agents_used"][number];
-
-interface UserMetrics {
-  cost_usd: number;
-  requests: number;
-  tokens: number;
-  last_seen?: string;
-  agents_used: AgentRef[];
-}
-
-interface Aggregate {
-  count: number;
-  metrics: UserMetrics;
-}
-
-function aggregateUsers(rows: UserRow[]): Aggregate | null {
-  if (rows.length === 0) return null;
-  let lastSeen: string | undefined;
-  // Dedupe by deployment_id so two deployments of the same blueprint each
-  // render their own chip — mirrors the server-side dedup in buildUsersSummary
-  // and the "one row per deployment" shape on the Agents tab.
-  const agents = new Map<string, AgentRef>();
-  let cost = 0, reqs = 0, tokens = 0;
-  for (const r of rows) {
-    cost += r.cost_usd;
-    reqs += r.requests;
-    tokens += r.tokens;
-    if (r.last_seen && (!lastSeen || r.last_seen > lastSeen)) lastSeen = r.last_seen;
-    for (const a of r.agents_used) agents.set(a.deployment_id, a);
-  }
-  return {
-    count: rows.length,
-    metrics: {
-      cost_usd: parseFloat(cost.toFixed(2)),
-      requests: reqs,
-      tokens,
-      last_seen: lastSeen,
-      agents_used: [...agents.values()],
-    },
-  };
-}
-
-function MetricsCells({
-  row,
-  totalCost,
-  deploymentsByAgent,
-}: {
-  row: UserMetrics;
-  totalCost: number;
-  deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
-}) {
-  return (
-    <>
-      <TableCell>
-        <AgentsUsedChips agents={row.agents_used} deploymentsByAgent={deploymentsByAgent} />
-      </TableCell>
-      <TableCell className="text-right text-foreground">{formatCost(row.cost_usd)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatShare(row.cost_usd, totalCost)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatCompact(row.requests)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatCompact(row.tokens)}</TableCell>
-      <TableCell className="text-right text-foreground">{formatLastSeen(row.last_seen)}</TableCell>
-    </>
-  );
-}
-
-type UserDisplayItem =
-  | { kind: "real"; row: UserRow }
-  | { kind: "unidentified"; row: UserRow }
-  | { kind: "system"; agg: Aggregate };
-
-function userItemKey(d: UserDisplayItem): string {
-  if (d.kind === "system") return "__system_spend__";
-  // Composite key — guards against a theoretical collision where the same
-  // user_id ends up in both buckets (e.g. classification change mid-render).
-  return `${d.kind}:${insightsUserIdentityKey(d.row)}`;
-}
-
-function renderUserRowContent(
-  d: UserDisplayItem,
-  rank: number,
-  ctx: {
-    denom: number;
-    memberIds: Set<string>;
-    account: string;
-    deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
-  },
-) {
-  if (d.kind === "unidentified") {
-    return (
-      <UnidentifiedUserCells
-        rank={rank}
-        user={d.row}
-        totalCost={ctx.denom}
-        deploymentsByAgent={ctx.deploymentsByAgent}
-      />
-    );
-  }
-  if (d.kind === "system") {
-    return (
-      <SystemSpendCells
-        rank={rank}
-        agg={d.agg}
-        totalCost={ctx.denom}
-        deploymentsByAgent={ctx.deploymentsByAgent}
-      />
-    );
-  }
-  const u = d.row;
-  return (
-    <>
-      <IdentityTableCell rank={rank}>
-        {u.user_details.kind === "slack" ? (
-          <SlackUserIdentity user={u} orgName={ctx.account} />
-        ) : (
-          <UserBadge
-            userId={u.user_id}
-            account={ctx.account}
-            displayName={u.user_details.display_name}
-            username={u.user_details.username}
-            linkToProfile
-          />
-        )}
-      </IdentityTableCell>
-      <MetricsCells row={u} totalCost={ctx.denom} deploymentsByAgent={ctx.deploymentsByAgent} />
-    </>
-  );
-}
-
 function UsersTopSpenders({
-  users,
-  account,
+  rows,
   loading,
-  deploymentsByAgent,
-  totalCost,
   panelHeader,
+  sortKey: controlledSortKey,
+  sortDirection,
+  onSort,
+  pagination,
 }: Extract<TopSpendersTableProps, { mode: "users" }>) {
-  const { sortKey, asc, handleSort } = useSort<UserSortKey>("cost_usd");
-
-  // Members feeds classification — without it every named user falls into
-  // Unidentified. Treat its load as part of the table's loading state so the
-  // skeleton stays up until classification can be trusted.
-  const { data: membersData, isLoading: membersLoading } = useAccountMembers(account);
-  const memberIds = useMemo(
-    () => new Set(membersData?.members.map((m) => m.user_id) ?? []),
-    [membersData],
+  const localSort = useSort<UserSortKey>("cost_usd");
+  const sortKey = controlledSortKey ?? localSort.sortKey;
+  const asc = sortDirection ? sortDirection === "asc" : localSort.asc;
+  const handleSort = (key: UserSortKey) => {
+    if (onSort) onSort(key);
+    else localSort.handleSort(key);
+  };
+  const sorted = useMemo(
+    () => {
+      if (onSort) return rows;
+      return [...rows].sort((a, b) => {
+        if (a.identity.kind === "system" && b.identity.kind !== "system") return 1;
+        if (b.identity.kind === "system" && a.identity.kind !== "system") return -1;
+        const diff = userSortValue(a, sortKey) - userSortValue(b, sortKey);
+        return asc ? diff : -diff;
+      });
+    },
+    [rows, sortKey, asc, onSort],
   );
-  const isLoading = loading || membersLoading;
-
-  // Three "real" buckets land in the table:
-  //   - rows: per-id rows for named members (WorkOS user → account member)
-  //     and unlinked Slack users (bare `U07ABCDEF` — the only format the
-  //     messaging adapter writes for unlinked senders). They're merged
-  //     into one sorted list so a Slack user who's out-spending a named
-  //     member sorts above them — the row label differentiates them
-  //     visually (UserBadge vs SlackUserIdentity).
-  //   - unidentified: everything else that isn't empty (rare; arbitrary
-  //     trace user_ids agents may emit). Rendered per-row with a soft
-  //     circle + mono user_id.
-  //   - unattributed: empty user_id. Stays aggregated (system spend).
-  // Bucketize only — the displayItems memo below merges real + unidentified
-  // and applies the active sort key. Doing the sort there avoids duplicating
-  // it per bucket here.
-  const { rows, unidentified, unattributed } = useMemo(() => {
-    const realRows: UserRow[] = [];
-    const unidentifiedRows: UserRow[] = [];
-    const unattributedRows: UserRow[] = [];
-    for (const u of users) {
-      if (!u.user_id) {
-        unattributedRows.push(u);
-        continue;
-      }
-      // Real rows now include three sub-cases:
-      //   - in-account members (memberIds.has) — render via the
-      //     member-list lookup with full Slack-workspace metadata.
-      //   - Slack-kind rows — render via SlackUserIdentity, deep-link to
-      //     the workspace when team_id is hydrated.
-      //   - Astro-kind rows with hydrated user_details — covers cross-
-      //     account spend where the user belongs to a different
-      //     account's member list. Without hydration these used to fall
-      //     into the unidentified bucket.
-      const kind = u.user_details.kind;
-      const hydratedAstro = kind === "astro" && !!u.user_details.username;
-      if (memberIds.has(u.user_id) || kind === "slack" || hydratedAstro) {
-        realRows.push(u);
-      } else {
-        unidentifiedRows.push(u);
-      }
-    }
-    return {
-      rows: realRows,
-      unidentified: unidentifiedRows,
-      unattributed: aggregateUsers(unattributedRows),
-    };
-  }, [users, memberIds]);
-
+  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
   const dir = (col: UserSortKey) => sortDirFor(sortKey, asc, col);
-  const totalRows = rows.length + unidentified.length + (unattributed ? 1 : 0);
-  // Fall back to a self-computed sum when the caller hasn't wired a stable
-  // denominator. The fallback derives from the filtered rows + buckets, so
-  // search interactions will re-base the percentages — same caveat as the
-  // agents-mode branch.
-  const denom = totalCost ?? (
-    rows.reduce((s, u) => s + u.cost_usd, 0) +
-    unidentified.reduce((s, u) => s + u.cost_usd, 0) +
-    (unattributed?.metrics.cost_usd ?? 0)
-  );
-
-  // All user rows compete on the same sort — cost (or whichever key is
-  // active) wins regardless of identification, so a high-spend unidentified
-  // user_id can rank above named members. System spend is the only kind
-  // pinned last; it's an aggregate, not a user, so it sits outside the
-  // ranking competition. Slice top 5 across the merged list, Show-more
-  // reveals in predictable steps without per-row animation, which keeps
-  // large workspaces responsive.
-  const displayItems: UserDisplayItem[] = useMemo(() => {
-    type UserItem = { kind: "real" | "unidentified"; row: UserRow };
-    const userItems: UserItem[] = [
-      ...rows.map((row) => ({ kind: "real" as const, row })),
-      ...unidentified.map((row) => ({ kind: "unidentified" as const, row })),
-    ];
-    userItems.sort((a, b) => {
-      const diff = userSortValue(a.row, sortKey) - userSortValue(b.row, sortKey);
-      return asc ? diff : -diff;
-    });
-    return unattributed
-      ? [...userItems, { kind: "system" as const, agg: unattributed }]
-      : userItems;
-  }, [rows, unidentified, unattributed, sortKey, asc]);
-  const { visibleCount, hiddenCount, revealedCount, showMoreLabel, showMore, showLess } =
-    useProgressiveRows(displayItems.length, displayItems);
-  const visibleDisplay = displayItems.slice(0, visibleCount);
 
   return (
     <Table
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 || revealedCount > 0 ? (
+        hiddenCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
-            expanded={revealedCount > 0 && hiddenCount === 0}
-            onToggle={showMore}
+            expanded={expanded}
+            onToggle={onToggle}
             showMoreLabel={showMoreLabel}
             revealedCount={revealedCount}
-            onShowLess={showLess}
+            onShowLess={onShowLess}
           />
         ) : undefined
       }
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="pl-3">Name</TableHead>
+          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
+          <TableHead>Name</TableHead>
           <TableHead>Agents Used</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
@@ -601,102 +626,33 @@ function UsersTopSpenders({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
-        ) : totalRows === 0 ? (
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+        ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
               No activity from people in this period
             </TableCell>
           </TableRow>
         ) : (
-          <>
-            {visibleDisplay.map((d, i) => (
-              <TableRow key={userItemKey(d)}>
-                {renderUserRowContent(d, i + 1, {
-                  denom,
-                  memberIds,
-                  account,
-                  deploymentsByAgent,
-                })}
-              </TableRow>
-            ))}
-          </>
+          visibleRows.map((row, index) => (
+            <TableRow key={row.key}>
+              <RankCell rank={index + 1} />
+              <TableCell className="pr-4">
+                <IdentityRow identity={row.identity} />
+              </TableCell>
+              <TableCell>
+                <AgentChips agents={row.agents_used} />
+              </TableCell>
+              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tokens)}</TableCell>
+              <TableCell className="text-right text-foreground">{formatLastSeen(row.metrics.last_seen)}</TableCell>
+            </TableRow>
+          ))
         )}
       </TableBody>
     </Table>
-  );
-}
-
-function UnidentifiedUserCells({
-  rank,
-  user,
-  totalCost,
-  deploymentsByAgent,
-}: {
-  rank: number;
-  user: UserRow;
-  totalCost: number;
-  deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
-}) {
-  return (
-    <>
-      <IdentityTableCell rank={rank}>
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-            aria-hidden
-          >
-            <CircleUserRound className="size-3" strokeWidth={1.75} />
-          </span>
-          <span
-            className="truncate font-mono text-foreground"
-            title={user.user_id}
-          >
-            {user.user_id}
-          </span>
-        </div>
-      </IdentityTableCell>
-      <MetricsCells row={user} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
-    </>
-  );
-}
-
-function SystemSpendCells({
-  rank,
-  agg,
-  totalCost,
-  deploymentsByAgent,
-}: {
-  rank: number;
-  agg: Aggregate;
-  totalCost: number;
-  deploymentsByAgent?: Map<string, AgentDeploymentRef[]>;
-}) {
-  return (
-    <>
-      <IdentityTableCell rank={rank}>
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-2 text-faint-foreground">
-                <span
-                  className="flex size-5 shrink-0 items-center justify-center text-faint-foreground"
-                  aria-hidden
-                >
-                  <Server className="size-3" strokeWidth={1.75} />
-                </span>
-                System spend
-                <Info className="size-3 text-faint-foreground" aria-hidden />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
-              Traces not associated with any user — typically background jobs, system tasks, or SDK calls that didn't forward a user identifier.
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </IdentityTableCell>
-      <MetricsCells row={agg.metrics} totalCost={totalCost} deploymentsByAgent={deploymentsByAgent} />
-    </>
   );
 }

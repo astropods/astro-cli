@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyUserID,
-  countSlackRowsMissingDetails,
   identityRefFromUserID,
   insightsUserIdentityKey,
   slackIdentityDisplay,
@@ -40,25 +39,6 @@ describe("insightsUserIdentityKey", () => {
       user_id: "U07GHOSTLY",
       user_details: { kind: "slack" },
     })).toBe("U07GHOSTLY");
-  });
-});
-
-describe("countSlackRowsMissingDetails", () => {
-  it("counts unique Slack rows missing team or profile details", () => {
-    expect(countSlackRowsMissingDetails([
-      { user_id: "U07UNKNOWN", user_details: { kind: "slack" } },
-      { user_id: "U07UNKNOWN", user_details: { kind: "slack" } },
-      { user_id: "U08NOPROF1", user_details: { kind: "slack", team_id: "T08TEAM" } },
-      { user_id: "U09READY01", user_details: { kind: "slack", team_id: "T09TEAM", display_name: "Ready User" } },
-      { user_id: "user_01HXX", user_details: { kind: "astro" } },
-    ])).toBe(2);
-  });
-
-  it("does not count enriched Slack rows even when avatar is absent", () => {
-    expect(countSlackRowsMissingDetails([
-      { user_id: "U09READY01", user_details: { kind: "slack", team_id: "T09TEAM", display_name: "Ready User" } },
-      { user_id: "U09HANDLE1", user_details: { kind: "slack", team_id: "T09TEAM", username: "handle.only" } },
-    ])).toBe(0);
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -28,12 +28,6 @@ const AXIS_TICK = { fill: "var(--color-muted-foreground)", fontSize: 11, fontFam
 const X_AXIS_BASE = { dataKey: "date", tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 8, minTickGap: 40 } as const;
 const Y_AXIS_PROPS = { tickFormatter: formatCost, tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 4, width: 56 } as const;
 const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "var(--color-border)", strokeOpacity: 0.5 } as const;
-
-function useHydrated() {
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-  return hydrated;
-}
 
 function CustomTooltip({
   active,
@@ -71,7 +65,6 @@ function CustomTooltip({
 }
 
 export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
-  const hydrated = useHydrated();
   const { chartData, allModels, colorMap } = useMemo(() => {
     const models = [...new Set(data.flatMap((d) => d.models.map((m) => m.model)))];
     const cMap = externalColorMap ?? buildModelColorMap(models);
@@ -120,9 +113,9 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
       <div className="mb-4 shrink-0">
         <h3 className="text-heading-4 text-foreground">Agent spend over time</h3>
       </div>
-      {isEmpty || !hydrated ? (
+      {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-body-sm text-faint-foreground">{isEmpty ? "No spend yet" : "Loading chart..."}</p>
+          <p className="text-body-sm text-faint-foreground">No spend yet</p>
         </div>
       ) : (
         <>

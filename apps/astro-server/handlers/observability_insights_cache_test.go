@@ -19,7 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Tests in this file cover two behaviors the cache layer adds to the three
+// Tests in this file cover two behaviors the cache layer adds to the lower-level
 // Insights handlers:
 //
 //   1. Cache hit: when a key is present in Redis, the handler must return

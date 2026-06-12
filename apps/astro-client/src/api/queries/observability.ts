@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, type InsightsQueryParams } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
@@ -16,6 +16,11 @@ const ACTIVITY_QUERY_OPTS = {
   refetchOnWindowFocus: false,
 } as const;
 
+const INSIGHTS_QUERY_OPTS = {
+  ...ACTIVITY_QUERY_OPTS,
+  gcTime: 1000 * 60 * 5,
+} as const;
+
 const LIVE_QUERY_OPTS = {
   staleTime: 0,
   gcTime: 1000 * 60 * 30,
@@ -24,57 +29,16 @@ const LIVE_QUERY_OPTS = {
   refetchOnWindowFocus: false,
 } as const;
 
-function buildDateParams(from?: string, to?: string): Record<string, string> {
-  const p: Record<string, string> = {};
-  if (from) p.from = from;
-  if (to) p.to = to;
-  return p;
-}
-
-export function useAccountActivitySummary(
+export function useAccountInsights(
   account: string,
-  from?: string,
-  to?: string,
-  opts?: { groupBy?: 'user'; enabled?: boolean },
-) {
-  const groupBy = opts?.groupBy;
-  return useQuery({
-    queryKey: observabilityKeys.activitySummary(account, from, to, groupBy),
-    queryFn: () => {
-      const p = buildDateParams(from, to);
-      if (groupBy) p.group_by = groupBy;
-      return api.getAccountObservabilitySummary(account, p);
-    },
-    enabled: (opts?.enabled ?? true) && !!account,
-    ...ACTIVITY_QUERY_OPTS,
-  });
-}
-
-export function useDeploymentsSummary(
-  account: string,
-  from?: string,
-  to?: string,
+  params?: InsightsQueryParams,
   opts?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.deploymentsSummary(account, from, to),
-    queryFn: () => api.getAccountDeploymentsSummary(account, buildDateParams(from, to)),
+    queryKey: observabilityKeys.insights(account, params),
+    queryFn: () => api.getAccountInsights(account, params),
     enabled: (opts?.enabled ?? true) && !!account,
-    ...ACTIVITY_QUERY_OPTS,
-  });
-}
-
-export function useUsersSummary(
-  account: string,
-  from?: string,
-  to?: string,
-  opts?: { enabled?: boolean },
-) {
-  return useQuery({
-    queryKey: observabilityKeys.usersSummary(account, from, to),
-    queryFn: () => api.getAccountUsersSummary(account, buildDateParams(from, to)),
-    enabled: (opts?.enabled ?? true) && !!account,
-    ...ACTIVITY_QUERY_OPTS,
+    ...INSIGHTS_QUERY_OPTS,
   });
 }
 

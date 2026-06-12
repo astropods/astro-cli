@@ -1635,6 +1635,22 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
+			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.QueryParam("q", "Search query for agent and people table rows", false),
+				oapispec.QueryParam("agents_limit", "Maximum agent table rows to return", false),
+				oapispec.QueryParam("agents_offset", "Agent table row offset", false),
+				oapispec.QueryParam("agents_sort", "Agent table sort key", false),
+				oapispec.QueryParam("agents_direction", "Agent table sort direction: asc or desc", false),
+				oapispec.QueryParam("people_limit", "Maximum people table rows to return", false),
+				oapispec.QueryParam("people_offset", "People table row offset", false),
+				oapispec.QueryParam("people_sort", "People table sort key", false),
+				oapispec.QueryParam("people_direction", "People table sort direction: asc or desc", false),
+				oapispec.QueryParam("skip_ranges", "Set to true to omit chart range data for table-only refreshes", false),
+				oapispec.Response(200, &handlers.InsightsResponse{}),
+			)
 
 			api.GET(accountMember, "/observability/deployment-summaries", "Get bulk deployment observability summaries", handlers.GetLangfuseSummaries(log, deploymentStore, k8sCache),
 				oapispec.Tags("Observability"),

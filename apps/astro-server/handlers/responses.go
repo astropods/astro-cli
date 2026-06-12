@@ -536,6 +536,123 @@ type AccountDeploymentsSummaryResponse struct {
 	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
 }
 
+// InsightsResponse is the server-owned view model for the Insights page.
+// It intentionally returns display-ready ranges and table rows so the
+// frontend renders instead of re-deriving account membership, Slack identity,
+// deployment labels, totals, and chart windows from several lower-level APIs.
+// Ranges may be empty when the request sets skip_ranges=true for a table-only
+// refresh.
+type InsightsResponse struct {
+	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
+	Ranges             map[string]InsightsRange `json:"ranges"`
+	Tables             InsightsTables           `json:"tables"`
+}
+
+type InsightsRange struct {
+	Days             int                        `json:"days"`
+	Period           AccountSummaryPeriod       `json:"period"`
+	StatCards        InsightsStatCards          `json:"stat_cards"`
+	AgentSpendChart  []AccountCostOverTimeEntry `json:"agent_spend_chart"`
+	PeopleSpendChart []InsightsPeopleSpendPoint `json:"people_spend_chart"`
+	SeriesLabels     map[string]string          `json:"series_labels"`
+}
+
+type InsightsStatCards struct {
+	Totals AccountSummaryTotals  `json:"totals"`
+	Change *AccountSummaryChange `json:"change,omitempty"`
+}
+
+type InsightsPeopleSpendPoint struct {
+	Date  string  `json:"date"`
+	Users int     `json:"users"`
+	Cost  float64 `json:"cost"`
+}
+
+type InsightsTables struct {
+	Agents InsightsAgentsTable `json:"agents"`
+	People InsightsPeopleTable `json:"people"`
+}
+
+type InsightsTablePagination struct {
+	Limit         int  `json:"limit"`
+	Offset        int  `json:"offset"`
+	TotalCount    int  `json:"total_count"`
+	FilteredCount int  `json:"filtered_count"`
+	HasMore       bool `json:"has_more"`
+}
+
+type InsightsAgentsTable struct {
+	Rows       []InsightsAgentRow      `json:"rows"`
+	TotalCost  float64                 `json:"total_cost"`
+	Count      int                     `json:"count"`
+	Pagination InsightsTablePagination `json:"pagination"`
+}
+
+type InsightsPeopleTable struct {
+	Rows                     []InsightsPersonRow     `json:"rows"`
+	TotalCost                float64                 `json:"total_cost"`
+	Count                    int                     `json:"count"`
+	MissingSlackDetailsCount int                     `json:"missing_slack_details_count,omitempty"`
+	Pagination               InsightsTablePagination `json:"pagination"`
+}
+
+type InsightsIdentityRef struct {
+	Kind          string       `json:"kind"`
+	IdentityKey   string       `json:"identity_key,omitempty"`
+	ID            string       `json:"id,omitempty"`
+	Label         string       `json:"label"`
+	Href          string       `json:"href,omitempty"`
+	AvatarAccount string       `json:"avatar_account,omitempty"`
+	AvatarName    string       `json:"avatar_name,omitempty"`
+	AvatarHandle  string       `json:"avatar_handle,omitempty"`
+	UserID        string       `json:"user_id,omitempty"`
+	UserDetails   *UserDetails `json:"user_details,omitempty"`
+	Tooltip       string       `json:"tooltip,omitempty"`
+}
+
+type InsightsAgentChip struct {
+	Key           string `json:"key"`
+	Label         string `json:"label"`
+	Href          string `json:"href"`
+	AvatarAccount string `json:"avatar_account"`
+	AvatarName    string `json:"avatar_name"`
+	IsDeleted     bool   `json:"is_deleted,omitempty"`
+}
+
+type InsightsAgentMetrics struct {
+	Requests       int     `json:"requests"`
+	CostUSD        float64 `json:"cost_usd"`
+	CostPct        float64 `json:"cost_pct"`
+	CostPerRequest float64 `json:"cost_per_request"`
+	TokPerRequest  float64 `json:"tok_per_request"`
+	P95LatencyMs   int     `json:"p95_latency_ms"`
+}
+
+type InsightsPersonMetrics struct {
+	Requests int     `json:"requests"`
+	CostUSD  float64 `json:"cost_usd"`
+	CostPct  float64 `json:"cost_pct"`
+	Tokens   int     `json:"tokens"`
+	LastSeen string  `json:"last_seen,omitempty"`
+}
+
+type InsightsAgentRow struct {
+	Key             string                `json:"key"`
+	SearchText      string                `json:"search_text"`
+	Identity        InsightsIdentityRef   `json:"identity"`
+	UsedBy          []InsightsIdentityRef `json:"used_by"`
+	Metrics         InsightsAgentMetrics  `json:"metrics"`
+	NotInstrumented bool                  `json:"not_instrumented,omitempty"`
+}
+
+type InsightsPersonRow struct {
+	Key        string                `json:"key"`
+	SearchText string                `json:"search_text"`
+	Identity   InsightsIdentityRef   `json:"identity"`
+	AgentsUsed []InsightsAgentChip   `json:"agents_used"`
+	Metrics    InsightsPersonMetrics `json:"metrics"`
+}
+
 // TraceEntry represents a single trace in the traces list. UserID is the
 // raw Langfuse user_id; UserDetails is the resolved discriminated identity
 // (nil when the trace has no user attached or when classification can't

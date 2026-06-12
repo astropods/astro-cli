@@ -11,8 +11,14 @@ import {
   type BlueprintListParams,
 } from "./blueprint-list-params";
 
-function buildQS(params?: Record<string, string>): string {
-  return params ? `?${new URLSearchParams(params)}` : '';
+function buildQS(params?: Record<string, string | undefined>): string {
+  if (!params) return '';
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) qs.set(key, value);
+  }
+  const encoded = qs.toString();
+  return encoded ? `?${encoded}` : '';
 }
 
 // ============================================================================
@@ -1152,24 +1158,131 @@ export interface AccountDeploymentsSummaryResponse {
       /** Combined per-day token count. Prefer over input+output. */
       total_tokens: number;
     }>;
-    /** WorkOS user IDs that drove ≥1 trace against this deployment in the period. */
+    /** WorkOS user IDs that drove >=1 trace against this deployment in the period. */
     users_used: string[];
     /** Display-ready identities for the Used by column. Prefer over users_used when present. */
     users_used_details?: UserIdentity[];
     /** RFC3339 timestamp set when the deployment has been soft-deleted (status
-     *  flipped to 'undeployed'). Optional date for the tombstone caption —
+     *  flipped to 'undeployed'). Optional date for the tombstone caption -
      *  can be missing even on archived rows (e.g. status='undeploying'
      *  mid-tear-down). Don't use this as the tombstone signal; use
      *  is_archived instead. */
     undeployed_at?: string | null;
     /** True when this entry corresponds to a deployment not in the visible
-     *  list (i.e. archived). Source of truth for the tombstone styling —
+     *  list (i.e. archived). Source of truth for the tombstone styling -
      *  set independently of undeployed_at. */
     is_archived?: boolean;
   }>;
   period: { start: string; end: string; days: number };
   /** See note on AccountObservabilitySummaryResponse.metrics_unavailable. */
   metrics_unavailable?: boolean;
+}
+
+export interface InsightsIdentityRef {
+  kind: 'agent' | 'member' | 'slack' | 'unidentified' | 'system';
+  identity_key?: string;
+  id?: string;
+  label: string;
+  href?: string;
+  avatar_account?: string;
+  avatar_name?: string;
+  avatar_handle?: string;
+  user_id?: string;
+  user_details?: UserDetails;
+  tooltip?: string;
+}
+
+export interface InsightsAgentChip {
+  key: string;
+  label: string;
+  href: string;
+  avatar_account: string;
+  avatar_name: string;
+  is_deleted?: boolean;
+}
+
+export interface InsightsStatCards {
+  totals: AccountObservabilitySummaryResponse['totals'];
+  change?: AccountObservabilitySummaryResponse['change'];
+}
+
+export interface InsightsAgentRow {
+  key: string;
+  search_text: string;
+  identity: InsightsIdentityRef;
+  used_by: InsightsIdentityRef[];
+  metrics: {
+    requests: number;
+    cost_usd: number;
+    cost_pct: number;
+    cost_per_request: number;
+    tok_per_request: number;
+    p95_latency_ms: number;
+  };
+  not_instrumented?: boolean;
+}
+
+export interface InsightsPersonRow {
+  key: string;
+  search_text: string;
+  identity: InsightsIdentityRef;
+  agents_used: InsightsAgentChip[];
+  metrics: {
+    requests: number;
+    cost_usd: number;
+    cost_pct: number;
+    tokens: number;
+    last_seen?: string;
+  };
+}
+
+export interface InsightsQueryParams {
+  [key: string]: string | undefined;
+  q?: string;
+  agents_limit?: string;
+  agents_offset?: string;
+  agents_sort?: string;
+  agents_direction?: string;
+  people_limit?: string;
+  people_offset?: string;
+  people_sort?: string;
+  people_direction?: string;
+  skip_ranges?: string;
+}
+
+export interface InsightsTablePagination {
+  limit: number;
+  offset: number;
+  total_count: number;
+  filtered_count: number;
+  has_more: boolean;
+}
+
+export interface InsightsResponse {
+  metrics_unavailable?: boolean;
+  ranges: Record<string, {
+    days: number;
+    period: { start: string; end: string; days: number };
+    stat_cards: InsightsStatCards;
+    agent_spend_chart: AccountObservabilitySummaryResponse['cost_over_time'];
+    people_spend_chart: Array<{ date: string; users: number; cost: number }>;
+    series_labels: Record<string, string>;
+  }>;
+  tables: {
+    agents: {
+      rows: InsightsAgentRow[];
+      total_cost: number;
+      count: number;
+      pagination: InsightsTablePagination;
+    };
+    people: {
+      rows: InsightsPersonRow[];
+      total_cost: number;
+      count: number;
+      missing_slack_details_count?: number;
+      pagination: InsightsTablePagination;
+    };
+  };
 }
 
 export interface TraceEntry {
@@ -2285,21 +2398,9 @@ class ApiClient {
     );
   }
 
-  async getAccountDeploymentsSummary(
-    account: string,
-    params?: Record<string, string>,
-  ): Promise<AccountDeploymentsSummaryResponse> {
-    return this.request<AccountDeploymentsSummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/deployments-summary${buildQS(params)}`
-    );
-  }
-
-  async getAccountUsersSummary(
-    account: string,
-    params?: Record<string, string>,
-  ): Promise<AccountUsersSummaryResponse> {
-    return this.request<AccountUsersSummaryResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/observability/users-summary${buildQS(params)}`
+  async getAccountInsights(account: string, params?: InsightsQueryParams): Promise<InsightsResponse> {
+    return this.request<InsightsResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
     );
   }
 

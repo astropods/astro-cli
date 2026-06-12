@@ -106,20 +106,24 @@ func Get(ctx context.Context, cache k8scache.Cache, accountID string, endpoint E
 
 // Put writes the JSON bytes for (account, endpoint, params) with CacheTTL.
 func Put(ctx context.Context, cache k8scache.Cache, accountID string, endpoint Endpoint, p Params, data []byte) error {
+	return PutWithTTL(ctx, cache, accountID, endpoint, p, data, CacheTTL)
+}
+
+// PutWithTTL writes the JSON bytes for (account, endpoint, params) with the
+// supplied TTL. Most callers should use Put.
+func PutWithTTL(ctx context.Context, cache k8scache.Cache, accountID string, endpoint Endpoint, p Params, data []byte, ttl time.Duration) error {
 	if cache == nil {
 		return nil
 	}
-	if err := cache.Set(ctx, Key(accountID, endpoint, p), data, CacheTTL); err != nil {
+	if err := cache.Set(ctx, Key(accountID, endpoint, p), data, ttl); err != nil {
 		return fmt.Errorf("insightscache: set: %w", err)
 	}
 	return nil
 }
 
-// InvalidateAccount removes every cache entry for an account that the
-// refresh worker writes. Called by the admin grpc cache-invalidation RPC
-// so an operator can force a fresh fetch without waiting on the 6h
-// refresh cycle. Iterates WarmedVariants so the bust set tracks the
-// populate set automatically.
+// InvalidateAccount removes every Insights cache entry for an account. Called
+// by the admin grpc cache-invalidation RPC so an operator can force a fresh
+// fetch without waiting on the 6h refresh cycle.
 func InvalidateAccount(ctx context.Context, cache k8scache.Cache, accountID string) {
 	if cache == nil {
 		return

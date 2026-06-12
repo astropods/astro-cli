@@ -458,10 +458,9 @@ func ComputeAccountSummary(
 // Each entry carries cost + requests + tokens so the client can slice the
 // per-(day, user) data into any range window without an extra round-trip.
 //
-// Emits rows keyed by raw Langfuse user_id with no Slack-directory merge;
-// IdentityKey defaults to user_id and SlackTeamID is empty.
-// ResolveAccountSummaryIdentities re-buckets by directory-merged identity
-// at response time.
+// Emits rows keyed by the user_id values it receives. Linked Slack IDs are
+// translated before this function runs; ResolveAccountSummaryIdentities only
+// hydrates display/profile metadata at response time.
 func buildCostOverTimeByUser(rows []map[string]any) []AccountCostOverTimeByUserEntry {
 	type userBucket struct {
 		userID   string

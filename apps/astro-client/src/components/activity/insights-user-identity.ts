@@ -1,9 +1,14 @@
 import type { UserDetailsKind, UserIdentity } from "@/lib/api";
-import { isSlackUserId } from "./user-classification";
 
 export interface SlackIdentityDisplay {
   primary: string;
   deepLink: string | undefined;
+}
+
+const SLACK_BARE_RE = /^U[A-Z0-9]{8,11}$/;
+
+function isSlackUserId(uid: string): boolean {
+  return SLACK_BARE_RE.test(uid);
 }
 
 // classifyUserID mirrors the server-side discriminator (handlers/observability_langfuse.go).
@@ -28,23 +33,6 @@ export function insightsUserIdentityKey(
     return `slack:${details.team_id}:${user.user_id}`;
   }
   return user.user_id;
-}
-
-// countSlackRowsMissingDetails counts the unique Slack rows the directory
-// has nothing useful to render for — no team_id, or team_id but no
-// display name / username / avatar. Drives the "missing Slack identities"
-// banner on the Insights page.
-export function countSlackRowsMissingDetails(
-  users: Array<Pick<UserIdentity, "user_id" | "user_details">>,
-): number {
-  const missing = new Set<string>();
-  for (const u of users) {
-    const d = u.user_details;
-    if (d?.kind !== "slack") continue;
-    if (d.team_id && (d.display_name || d.username || d.avatar_url)) continue;
-    missing.add(insightsUserIdentityKey(u));
-  }
-  return missing.size;
 }
 
 // slackIdentityDisplay picks the human-facing label + slack:// deep link

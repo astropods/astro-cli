@@ -2,13 +2,9 @@ import type { ReactNode } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
-// Shared popover shell for "+N" overflow chips. Used by `AgentsUsedChips`
-// and `UsersUsedAvatars` — the two places where a row's identity column
-// shows a few visible chips and a "+N" affordance that opens a list of
-// every entry. Owns the trigger styling (+N button + focus ring), the
-// popover content chrome (bg-popover, border, viewport-aware max-height,
-// animation classes), and the count label at the top of the panel.
-// Children render the scrollable list — typically a `<ul>` of `<li>` rows.
+// Shared popover shell for "+N" overflow chips in Insights table cells.
+// Owns trigger styling, popover chrome, and the count label; callers render
+// the scrollable list body.
 
 interface OverflowPopoverProps {
   /** The number of items hidden behind the chip — displayed as `+N`. */

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -12,7 +12,12 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatCost, formatDateShort } from "@/lib/format-utils";
 import { dayKeysForRange } from "@/lib/date-utils";
-import type { ActiveSpendPoint } from "./use-insights-data";
+
+interface ActiveSpendPoint {
+  date: string;
+  users: number;
+  cost: number;
+}
 
 interface ActiveUsersSpendChartProps {
   data: ActiveSpendPoint[];
@@ -38,12 +43,6 @@ const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "
 // series in light mode.
 const USERS_COLOR = "var(--color-primary-400)";
 const SPEND_COLOR = "var(--color-muted-foreground)";
-
-function useHydrated() {
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-  return hydrated;
-}
 
 function CustomTooltip({
   active,
@@ -83,7 +82,6 @@ function CustomTooltip({
 }
 
 export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps) {
-  const hydrated = useHydrated();
   // Clickable legend: toggle either series off to compare scales on a
   // single axis. One series always stays visible — hiding both leaves an
   // empty chart, which is silly.
@@ -126,9 +124,9 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
       <div className="mb-4 shrink-0">
         <h3 className="text-heading-4 text-foreground">People spend over time</h3>
       </div>
-      {isEmpty || !hydrated ? (
+      {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-body-sm text-faint-foreground">{isEmpty ? "No spend yet" : "Loading chart..."}</p>
+          <p className="text-body-sm text-faint-foreground">No spend yet</p>
         </div>
       ) : (
         <>

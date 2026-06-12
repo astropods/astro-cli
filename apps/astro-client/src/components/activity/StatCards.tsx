@@ -4,7 +4,7 @@ import { MetricCard } from "@/components/MetricCard";
 import type { ActivityRange } from "./ranges";
 
 interface StatCardsProps {
-  data?: AccountObservabilitySummaryResponse | null;
+  data?: Pick<AccountObservabilitySummaryResponse, "totals" | "change"> | null;
   showChange: boolean;
   range: ActivityRange;
 }

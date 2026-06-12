@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
@@ -11,17 +11,14 @@ import { ViewToggle, parseActivityView, type ActivityView } from "@/components/a
 import { StatCards } from "@/components/activity/StatCards";
 import { CostOverTimeChart } from "@/components/activity/CostOverTimeChart";
 import { ActiveUsersSpendChart } from "@/components/activity/ActiveUsersSpendChart";
-import { TopSpendersTable } from "@/components/activity/TopSpendersTable";
 import {
-  useInsightsData,
-  useActiveSpendSeries,
-} from "@/components/activity/use-insights-data";
-import { useDeploymentsSummary, useUsersSummary } from "@/api/queries/observability";
-import { useAccountMembers } from "@/api/queries/accounts";
-import { useDeployments } from "@/api/queries/deployments";
-import { countSlackRowsMissingDetails, insightsUserIdentityKey } from "@/components/activity/insights-user-identity";
+  TopSpendersTable,
+  type AgentSortKey,
+  type TopSpendersSortDirection,
+  type UserSortKey,
+} from "@/components/activity/TopSpendersTable";
+import { useAccountInsights } from "@/api/queries/observability";
 import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
-import { isSlackUserId } from "@/components/activity/user-classification";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
@@ -31,12 +28,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { WarningPanel } from "@/components/ui/status-panel";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { accountKeys, deploymentKeys, observabilityKeys, slackKeys } from "@/api/queries/keys";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { observabilityKeys, slackKeys } from "@/api/queries/keys";
+import type { InsightsQueryParams, InsightsResponse } from "@/lib/api";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
 const SLACK_REFRESH_FEEDBACK_MS = 3_500;
+const SEARCH_DEBOUNCE_MS = 300;
+const DEFAULT_TABLE_LIMIT = 5;
+const TABLE_PAGE_SIZE = 10;
+const DEFAULT_AGENT_SORT: AgentSortKey = "cost_usd";
+const DEFAULT_USER_SORT: UserSortKey = "cost_usd";
 
 type SlackRefreshStatus = "idle" | "refreshing" | "success" | "error";
 
@@ -56,18 +60,9 @@ function parseRange(raw: string | null): ActivityRange {
   return raw === "7d" || raw === "14d" || raw === "30d" || raw === "90d" ? raw : "30d";
 }
 
-function useHasHydrated() {
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-  return hydrated;
-}
-
 export function insightsSlackResyncQueryKeys(account: string) {
   return [
-    observabilityKeys.activitySummary(account, undefined, undefined, "user"),
-    observabilityKeys.deploymentsSummary(account, undefined, undefined),
-    observabilityKeys.usersSummary(account, undefined, undefined),
-    accountKeys.members(account),
+    observabilityKeys.insights(account),
     slackKeys.accountStatus(account),
   ];
 }
@@ -85,54 +80,70 @@ async function invalidateInsightsSlackResyncQueries(queryClient: QueryClient, ac
   );
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const ctx = await getActiveAccount(request);
-  if (!ctx) {
-    return {
-      account: null, summary: null, deploymentsSummary: null,
-      usersData: null, members: null, deployments: null,
-    };
-  }
-
-  // Both views share the same chart subtree (Agent Spend + Active Users +
-  // Spend) and both view modes' tables mount independently, so InsightsView
-  // unconditionally consumes all five data sources. Loader fetches all of
-  // them up-front to warm the TanStack cache and avoid a post-hydration
-  // skeleton flash when the user toggles the view. Range toggles never
-  // re-run the loader — they slice this all-time data client-side. The
-  // ?view= param is read client-side; the loader doesn't branch on it.
-  //
-  // Summary is fetched with group_by=user because that's the only summary
-  // shape any consumer reads (powers the Active Users + Spend chart). The
-  // model-grouped summary that used to feed StatCards/CostOverTimeChart is
-  // no longer needed — those derive from deployments now.
-  //
-  // Deployments list (separate from the obs summary) primes the
-  // AgentsUsedChips picker in the People view so the agent-name links
-  // resolve to a Monitor tab on first paint instead of flashing through
-  // the blueprint-detail fallback.
-  const [summary, deploymentsSummary, usersData, members, deployments] = await Promise.all([
-    ctx.api.getAccountObservabilitySummary(ctx.accountName, { group_by: "user" }).catch(() => null),
-    ctx.api.getAccountDeploymentsSummary(ctx.accountName, {}).catch(() => null),
-    ctx.api.getAccountUsersSummary(ctx.accountName, {}).catch(() => null),
-    ctx.api.getAccountMembers(ctx.accountName, {}).catch(() => null),
-    ctx.api.listDeployments(ctx.accountName).catch(() => null),
-  ]);
-
+function buildInsightsQueryParams({
+  query = "",
+  agentsLimit = DEFAULT_TABLE_LIMIT,
+  peopleLimit = DEFAULT_TABLE_LIMIT,
+  agentSortKey = DEFAULT_AGENT_SORT,
+  agentSortDirection = "desc",
+  peopleSortKey = DEFAULT_USER_SORT,
+  peopleSortDirection = "desc",
+  skipRanges = false,
+}: {
+  query?: string;
+  agentsLimit?: number;
+  peopleLimit?: number;
+  agentSortKey?: AgentSortKey;
+  agentSortDirection?: TopSpendersSortDirection;
+  peopleSortKey?: UserSortKey;
+  peopleSortDirection?: TopSpendersSortDirection;
+  skipRanges?: boolean;
+}): InsightsQueryParams {
+  const trimmedQuery = query.trim();
   return {
-    account: ctx.accountName,
-    summary,
-    deploymentsSummary,
-    usersData,
-    members,
-    deployments,
+    q: trimmedQuery || undefined,
+    agents_limit: String(agentsLimit),
+    agents_offset: "0",
+    agents_sort: agentSortKey,
+    agents_direction: agentSortDirection,
+    people_limit: String(peopleLimit),
+    people_offset: "0",
+    people_sort: peopleSortKey,
+    people_direction: peopleSortDirection,
+    skip_ranges: skipRanges ? "true" : undefined,
   };
 }
 
+function insightsTableParamsSignature(params: InsightsQueryParams): string {
+  return [
+    params.q ?? "",
+    params.agents_limit ?? "",
+    params.agents_offset ?? "",
+    params.agents_sort ?? "",
+    params.agents_direction ?? "",
+    params.people_limit ?? "",
+    params.people_offset ?? "",
+    params.people_sort ?? "",
+    params.people_direction ?? "",
+  ].join("\u0000");
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const ctx = await getActiveAccount(request);
+  if (!ctx) {
+    return { account: null, insights: null, insightsParams: buildInsightsQueryParams({}) };
+  }
+
+  const url = new URL(request.url);
+  const insightsParams = buildInsightsQueryParams({ query: url.searchParams.get("q") ?? "" });
+  const insights = await ctx.api.getAccountInsights(ctx.accountName, insightsParams).catch(() => null);
+  return { account: ctx.accountName, insights, insightsParams };
+}
+
 // Range / view / search-query toggles change search params client-side, so
-// they skip the loader (TanStack picks up the new key for any per-range
-// fetches; view + q are pure client-side filters). The only loader re-run
-// is the programmatic revalidate signal used for org-switching
+// they skip the loader. The consolidated Insights response contains every
+// supported range; view + q are pure client-side display choices. The only
+// loader re-run is the programmatic revalidate signal used for org-switching
 // (currentUrl === nextUrl).
 export function shouldRevalidate({
   currentUrl,
@@ -152,28 +163,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const queryClient = useQueryClient();
   usePrimeQueryCache(loaderData, (qc, ld) => {
     if (!ld?.account) return;
-    // Loader-fetched data primed under the same keys the hooks read on
-    // mount. Summary is always group_by=user (matches useActiveSpendSeries).
-    if (ld.summary) {
-      qc.setQueryData(observabilityKeys.activitySummary(ld.account, undefined, undefined, "user"), ld.summary);
-    }
-    if (ld.deploymentsSummary) {
-      qc.setQueryData(observabilityKeys.deploymentsSummary(ld.account, undefined, undefined), ld.deploymentsSummary);
-    }
-    if (ld.usersData) {
-      qc.setQueryData(observabilityKeys.usersSummary(ld.account, undefined, undefined), ld.usersData);
-    }
-    if (ld.members) {
-      // Without this, the users tab flashes a skeleton on hard refresh because
-      // useAccountMembers fires post-hydration and gates classification.
-      qc.setQueryData(accountKeys.members(ld.account), ld.members);
-    }
-    if (ld.deployments) {
-      // Same rationale as `members`: the agent-name picker's 1-to-many map
-      // is built from `useDeployments`, so without priming the row links
-      // flash through their fallback (blueprint detail) before the deploy
-      // fetch resolves.
-      qc.setQueryData(deploymentKeys.all(ld.account), ld.deployments);
+    if (ld.insights) {
+      qc.setQueryData(observabilityKeys.insights(ld.account, ld.insightsParams), ld.insights);
     }
   });
 
@@ -182,7 +173,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
-  const hasHydrated = useHasHydrated();
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
@@ -225,7 +215,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     return () => window.clearTimeout(timeout);
   }, [slackRefreshStatus]);
 
-  function setView(next: ActivityView) {
+  const setView = useCallback((next: ActivityView) => {
     // Toggling views always clears the current search — a People-view term
     // would otherwise empty the Agents table (and vice versa).
     setSearchParams((prev) => {
@@ -234,15 +224,15 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
       prev.delete("q");
       return prev;
     }, { replace: true });
-  }
+  }, [setSearchParams]);
 
-  function setQuery(next: string) {
+  const setQuery = useCallback((next: string) => {
     setSearchParams((prev) => {
       if (next === "") prev.delete("q");
       else prev.set("q", next);
       return prev;
     }, { replace: true });
-  }
+  }, [setSearchParams]);
 
   const dateLabel = buildDateLabel(range);
 
@@ -273,55 +263,16 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         action={headerAction}
       />
 
-      {hasHydrated ? (
-        <InsightsView
-          account={activeAccount}
-          range={range}
-          view={view}
-          onViewChange={setView}
-          query={q}
-          onQueryChange={setQuery}
-          slackRefreshStatus={slackRefreshStatus}
-        />
-      ) : (
-        <InsightsClientFallback />
-      )}
+      <InsightsView
+        account={activeAccount}
+        range={range}
+        view={view}
+        onViewChange={setView}
+        query={q}
+        onQueryChange={setQuery}
+        slackRefreshStatus={slackRefreshStatus}
+      />
     </PageContainer>
-  );
-}
-
-function InsightsClientFallback() {
-  return (
-    <div className="space-y-6" aria-live="polite" aria-busy="true">
-      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
-        {["SPEND", "REQUESTS", "TOKENS"].map((label) => (
-          <div key={label} className="rounded-lg border border-border bg-card p-[12px_14px] dark:bg-surface">
-            <span className="block font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
-              {label}
-            </span>
-            <div className="mt-2 h-8 w-24 rounded bg-muted" />
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
-        <div className="flex h-[300px] items-center justify-center rounded-lg border border-border bg-card dark:bg-surface">
-          <p className="text-body-sm text-faint-foreground">Loading insights...</p>
-        </div>
-        <div className="flex h-[300px] items-center justify-center rounded-lg border border-border bg-card dark:bg-surface">
-          <p className="text-body-sm text-faint-foreground">Loading insights...</p>
-        </div>
-      </div>
-      <div className="rounded-lg border border-border bg-card dark:bg-surface">
-        <div className="border-b border-border p-4">
-          <div className="h-8 w-64 rounded bg-muted" />
-        </div>
-        <div className="space-y-3 p-4">
-          {[0, 1, 2, 3, 4].map((row) => (
-            <div key={row} className="h-10 rounded bg-muted/70" />
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -385,11 +336,6 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
 
 // ── Insights view ───────────────────────────────────────────────────────────
 
-// InsightsView is the single component that stays mounted across view-toggle
-// flips. Hooks for both views' table data are unconditionally evaluated; the
-// query cache makes repeated fetches free, but more importantly the chart +
-// stat-card subtree never unmounts when ?view= flips. Only the table body
-// swaps when toggling People <-> Agents.
 interface InsightsViewProps {
   account: string;
   range: ActivityRange;
@@ -409,111 +355,97 @@ function InsightsView({
   onQueryChange,
   slackRefreshStatus,
 }: InsightsViewProps) {
-  // ── Charts (view-independent) ────────────────────────────────────────────
-  const chartsData = useInsightsData({ account, range });
-  const activeSpendSeries = useActiveSpendSeries(account, range);
-  const days = RANGE_DAYS[range];
+  const [agentsLimit, setAgentsLimit] = useState(DEFAULT_TABLE_LIMIT);
+  const [peopleLimit, setPeopleLimit] = useState(DEFAULT_TABLE_LIMIT);
+  const [agentSortKey, setAgentSortKey] = useState<AgentSortKey>(DEFAULT_AGENT_SORT);
+  const [agentSortDirection, setAgentSortDirection] = useState<TopSpendersSortDirection>("desc");
+  const [peopleSortKey, setPeopleSortKey] = useState<UserSortKey>(DEFAULT_USER_SORT);
+  const [peopleSortDirection, setPeopleSortDirection] = useState<TopSpendersSortDirection>("desc");
+  const [searchInput, setSearchInput] = useState(query);
+  const [rangeCache, setRangeCache] = useState<{
+    account: string;
+    paramsKey: string;
+    ranges: InsightsResponse["ranges"];
+  } | null>(null);
+  const debouncedSearchInput = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
 
-  // ── Agents-mode table data (all-time, per-deployment rows) ───────────────
-  const deploymentsSummaryQ = useDeploymentsSummary(account, undefined, undefined);
-  const allTimeDeployments = deploymentsSummaryQ.data?.deployments ?? [];
+  useEffect(() => {
+    setAgentsLimit(DEFAULT_TABLE_LIMIT);
+    setPeopleLimit(DEFAULT_TABLE_LIMIT);
+  }, [query]);
 
-  // Deployments list (separate from the summary) feeds the AgentsUsedChips
-  // picker on the People view — chips can reference the same agent_name
-  // across multiple deployments, and clicking one should still route to a
-  // specific Monitor tab.
-  const deploymentsQ = useDeployments(account);
-  const deploymentsByAgent = useMemo(() => {
-    const m = new Map<string, Array<{ id: string; name: string; display_name?: string; namespace?: string }>>();
-    for (const d of deploymentsQ.data?.deployments ?? []) {
-      const list = m.get(d.name);
-      const ref = { id: d.id, name: d.name, display_name: d.display_name, namespace: d.namespace };
-      if (list) list.push(ref);
-      else m.set(d.name, [ref]);
-    }
-    return m;
-  }, [deploymentsQ.data]);
+  useEffect(() => {
+    setSearchInput(query);
+  }, [query]);
 
-  // ── Users-mode table data (all-time) ─────────────────────────────────────
-  const usersTableQ = useUsersSummary(account, undefined, undefined);
-  const membersQ = useAccountMembers(account);
-  const allTimeUsers = usersTableQ.data?.users ?? [];
-  const slackRowsMissingDetails = useMemo(
-    () => countSlackRowsMissingDetails(allTimeUsers),
-    [allTimeUsers],
+  useEffect(() => {
+    if (debouncedSearchInput === query) return;
+    onQueryChange(debouncedSearchInput);
+  }, [debouncedSearchInput, onQueryChange, query]);
+
+  const baseInsightsParams = useMemo(
+    () => buildInsightsQueryParams({
+      query,
+      agentsLimit,
+      peopleLimit,
+      agentSortKey,
+      agentSortDirection,
+      peopleSortKey,
+      peopleSortDirection,
+    }),
+    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query],
   );
-  const showSlackDetailsAction = slackRowsMissingDetails > 0 && !usersTableQ.isLoading;
+  const baseInsightsParamsKey = useMemo(() => insightsTableParamsSignature(baseInsightsParams), [baseInsightsParams]);
+  const cachedRangeState = rangeCache?.account === account ? rangeCache : null;
+  const skipRanges = !!cachedRangeState && cachedRangeState.paramsKey !== baseInsightsParamsKey;
+  const insightsParams = useMemo(
+    () => (skipRanges ? { ...baseInsightsParams, skip_ranges: "true" } : baseInsightsParams),
+    [baseInsightsParams, skipRanges],
+  );
+  const insightsQ = useAccountInsights(account, insightsParams);
+  const insights = insightsQ.data;
+  const responseRanges = insights?.ranges;
+  const hasResponseRanges = responseRanges ? Object.keys(responseRanges).length > 0 : false;
+
+  useEffect(() => {
+    if (!account || !responseRanges || Object.keys(responseRanges).length === 0) return;
+    setRangeCache({ account, paramsKey: baseInsightsParamsKey, ranges: responseRanges });
+  }, [account, baseInsightsParamsKey, responseRanges]);
+
+  const ranges = hasResponseRanges
+    ? responseRanges
+    : cachedRangeState?.ranges;
+  const rangeData = ranges?.[range];
+  const days = rangeData?.days ?? RANGE_DAYS[range];
+  const agentRows = insights?.tables.agents.rows ?? [];
+  const peopleRows = insights?.tables.people.rows ?? [];
+  const slackRowsMissingDetails = insights?.tables.people.missing_slack_details_count ?? 0;
+  const showSlackDetailsAction = slackRowsMissingDetails > 0 && !insightsQ.isLoading;
   const slackStatusQ = useSlackAccountStatus(account, {
     enabled: showSlackDetailsAction,
   });
   const slackConnect = useSlackAccountConnect(account);
   const slackConnected = (slackStatusQ.data?.workspaces.length ?? 0) > 0;
-  const members = membersQ.data?.members ?? [];
-  const memberIds = useMemo(
-    () => new Set(members.map((m) => m.user_id)),
-    [members],
-  );
-  // Mirrors TopSpendersTable's row count: each named member, each Slack
-  // user, and each unidentified user_id renders as its own row; the
-  // unattributed bucket collapses to a single row when non-empty.
-  const allUserBuckets = useMemo(() => {
-    const namedIds = new Set<string>();
-    const slackIds = new Set<string>();
-    const unidentifiedIds = new Set<string>();
-    let hasUnattributed = false;
-    for (const u of allTimeUsers) {
-      if (!u.user_id) hasUnattributed = true;
-      else if (memberIds.has(u.user_id)) namedIds.add(u.user_id);
-      else if (isSlackUserId(u.user_id)) slackIds.add(insightsUserIdentityKey(u));
-      else unidentifiedIds.add(u.user_id);
+
+  const handleAgentSort = (key: AgentSortKey) => {
+    setAgentsLimit(DEFAULT_TABLE_LIMIT);
+    if (key === agentSortKey) {
+      setAgentSortDirection((direction) => (direction === "asc" ? "desc" : "asc"));
+      return;
     }
-    return namedIds.size + slackIds.size + unidentifiedIds.size + (hasUnattributed ? 1 : 0);
-  }, [allTimeUsers, memberIds]);
+    setAgentSortKey(key);
+    setAgentSortDirection("desc");
+  };
 
-  // ── Search filter ─────────────────────────────────────────────────────────
-  // Single free-text input filters whichever view is active before the table
-  // applies its visible-row window, so search can match rows hidden behind
-  // Show more. Match deployments by agent_name / display_name / namespace;
-  // match users by display_name / username / user_id. Empty query → no filtering.
-  const needle = query.trim().toLowerCase();
-  const filteredDeployments = useMemo(() => {
-    if (!needle) return allTimeDeployments;
-    return allTimeDeployments.filter((d) => {
-      const haystack = `${d.agent_name} ${d.display_name ?? ""} ${d.namespace ?? ""}`.toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [allTimeDeployments, needle]);
-  const memberById = useMemo(
-    () => new Map(members.map((m) => [m.user_id, m])),
-    [members],
-  );
-  const filteredUsers = useMemo(() => {
-    if (!needle) return allTimeUsers;
-    return allTimeUsers.filter((u) => {
-      const m = memberById.get(u.user_id);
-      const d = u.user_details;
-      const haystack = [
-        m?.display_name,
-        m?.username,
-        u.user_id,
-        d?.display_name,
-        d?.username,
-      ].filter(Boolean).join(" ").toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [allTimeUsers, memberById, needle]);
-
-  // % Total denominator: total cost across the un-filtered population, so
-  // percentages stay anchored while the user searches. Computed once per
-  // dataset change rather than on every keystroke.
-  const totalDeploymentCost = useMemo(
-    () => allTimeDeployments.reduce((s, b) => s + b.cost_usd, 0),
-    [allTimeDeployments],
-  );
-  const totalUserCost = useMemo(
-    () => allTimeUsers.reduce((s, u) => s + u.cost_usd, 0),
-    [allTimeUsers],
-  );
+  const handlePeopleSort = (key: UserSortKey) => {
+    setPeopleLimit(DEFAULT_TABLE_LIMIT);
+    if (key === peopleSortKey) {
+      setPeopleSortDirection((direction) => (direction === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setPeopleSortKey(key);
+    setPeopleSortDirection("desc");
+  };
 
   const handleSlackDetails = () => {
     const returnPath = `${window.location.pathname || "/insights"}${window.location.search}`;
@@ -580,8 +512,8 @@ function InsightsView({
         <ViewToggle
           value={view}
           onChange={onViewChange}
-          usersCount={allUserBuckets || undefined}
-          agentsCount={allTimeDeployments.length || undefined}
+          usersCount={insights?.tables.people.count || undefined}
+          agentsCount={insights?.tables.agents.count || undefined}
         />
       </div>
       <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
@@ -604,57 +536,64 @@ function InsightsView({
         <FilterInput
           containerClassName="h-8 w-full shrink-0 @md:w-80"
           placeholder="Search by name"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
       </div>
     </div>
   );
 
   const metricsUnavailable =
-    chartsData.metricsUnavailable ||
-    activeSpendSeries.metricsUnavailable ||
-    deploymentsSummaryQ.data?.metrics_unavailable === true ||
-    usersTableQ.data?.metrics_unavailable === true;
+    insights?.metrics_unavailable === true;
 
   return (
     <InsightsBody
-        range={range}
-        displaySummary={chartsData.displaySummary}
-        metricsUnavailable={metricsUnavailable}
-        chartLeft={
-          <CostOverTimeChart
-            data={chartsData.deploymentCostOverTime}
-            days={days}
-            colorMap={chartsData.colorMap}
-            seriesLabels={chartsData.seriesLabels}
-            variant={days > 60 ? "line" : "bar"}
+      range={range}
+      displaySummary={rangeData?.stat_cards}
+      metricsUnavailable={metricsUnavailable}
+      chartLeft={
+        <CostOverTimeChart
+          data={rangeData?.agent_spend_chart ?? []}
+          days={days}
+          seriesLabels={rangeData?.series_labels}
+          variant={days > 60 ? "line" : "bar"}
+        />
+      }
+      chartRight={<ActiveUsersSpendChart data={rangeData?.people_spend_chart ?? []} days={days} />}
+      table={
+        view === "agents" ? (
+          <TopSpendersTable
+            mode="agents"
+            rows={agentRows}
+            loading={insightsQ.isLoading && !insights}
+            groupLabel="Name"
+            panelHeader={panelHeader}
+            sortKey={agentSortKey}
+            sortDirection={agentSortDirection}
+            onSort={handleAgentSort}
+            pagination={{
+              totalRows: insights?.tables.agents.pagination.filtered_count ?? agentRows.length,
+              onShowMore: () => setAgentsLimit((limit) => limit + TABLE_PAGE_SIZE),
+              onShowLess: () => setAgentsLimit(DEFAULT_TABLE_LIMIT),
+            }}
           />
-        }
-        chartRight={<ActiveUsersSpendChart data={activeSpendSeries.data} days={days} />}
-        table={
-          view === "agents" ? (
-            <TopSpendersTable
-              mode="agents"
-              deployments={filteredDeployments}
-              loading={deploymentsSummaryQ.isLoading}
-              groupLabel="Name"
-              account={account}
-              totalCost={totalDeploymentCost}
-              panelHeader={panelHeader}
-            />
-          ) : (
-            <TopSpendersTable
-              mode="users"
-              account={account}
-              users={filteredUsers}
-              loading={usersTableQ.isLoading || membersQ.isLoading}
-              deploymentsByAgent={deploymentsByAgent}
-              totalCost={totalUserCost}
-              panelHeader={panelHeader}
-            />
-          )
-        }
-      />
+        ) : (
+          <TopSpendersTable
+            mode="users"
+            rows={peopleRows}
+            loading={insightsQ.isLoading && !insights}
+            panelHeader={panelHeader}
+            sortKey={peopleSortKey}
+            sortDirection={peopleSortDirection}
+            onSort={handlePeopleSort}
+            pagination={{
+              totalRows: insights?.tables.people.pagination.filtered_count ?? peopleRows.length,
+              onShowMore: () => setPeopleLimit((limit) => limit + TABLE_PAGE_SIZE),
+              onShowLess: () => setPeopleLimit(DEFAULT_TABLE_LIMIT),
+            }}
+          />
+        )
+      }
+    />
   );
 }
