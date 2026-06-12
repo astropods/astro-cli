@@ -12,8 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useUpsertDeploymentChatConversation } from "@/api/queries/chat";
 import { isChatListEligible } from "@/lib/deployment-utils";
-import { useExperiments } from "@/lib/experiments";
-import { chatDeploymentPath, dashboardPath } from "@/lib/routes";
+import { chatDeploymentPath } from "@/lib/routes";
 
 // Desktop left column (16rem) — must match workspace aside; do not add flex-1 on md.
 const SIDEBAR_MD = "md:w-64 md:max-w-64 md:shrink-0 md:flex-none";
@@ -21,14 +20,6 @@ const SIDEBAR_MD = "md:w-64 md:max-w-64 md:shrink-0 md:flex-none";
 export const meta: Route.MetaFunction = () => [{ title: "Chat | Astro" }];
 
 export default function ChatPage() {
-  const { experiments } = useExperiments();
-  if (!experiments.chat) {
-    return <Navigate to={dashboardPath} replace />;
-  }
-  return <ChatPageContent />;
-}
-
-function ChatPageContent() {
   const { isAuthenticated } = useAuth();
   const { activeAccount } = useActiveAccount();
   const { deploymentId } = useParams<{ deploymentId?: string }>();

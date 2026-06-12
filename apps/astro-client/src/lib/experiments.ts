@@ -2,14 +2,12 @@ import { useSyncExternalStore } from "react";
 
 export interface Experiments {
   evals: boolean;
-  chat: boolean;
 }
 
 const STORAGE_KEY = "astro:experiments";
 
 const DEFAULTS: Experiments = {
   evals: false,
-  chat: false,
 };
 
 export const hasExperiments = Object.keys(DEFAULTS).length > 0;

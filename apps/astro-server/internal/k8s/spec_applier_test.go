@@ -11,6 +11,7 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -1162,7 +1163,8 @@ func TestNetworkPolicies_NoPortlessEgressRule(t *testing.T) {
 	a := &Applier{
 		clientset:      fakeClient,
 		namespace:      "test-ns",
-		podSubnetCIDRs: []string{"10.3.11.0/24", "10.3.12.0/24"},
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+		cpSubnetCIDRs:  []string{"10.3.11.0/24", "10.3.12.0/24"},
 	}
 
 	if err := a.applyNetworkPolicies(context.Background()); err != nil {
@@ -1210,7 +1212,8 @@ func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
 	a := &Applier{
 		clientset:      fakeClient,
 		namespace:      "test-ns",
-		podSubnetCIDRs: []string{"10.3.11.0/24", "10.3.12.0/24"},
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+		cpSubnetCIDRs:  []string{"10.3.11.0/24", "10.3.12.0/24"},
 	}
 
 	if err := a.applyNetworkPolicies(context.Background()); err != nil {
@@ -1263,6 +1266,252 @@ func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
 			t.Errorf("monitoring ingress rule is missing port %d", port)
 		}
 	}
+}
+
+// TestNetworkPolicies_ApiserverProxyNP verifies the sibling allow-apiserver-proxy
+// policy is generated with the right shape: scoped to component=agent pods,
+// source restricted to cpSubnetCIDRs, ports 8090/9090 only, no egress.
+func TestNetworkPolicies_ApiserverProxyNP(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+		cpSubnetCIDRs:  []string{"10.3.11.0/24", "10.3.12.0/24"},
+	}
+
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-apiserver-proxy", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-apiserver-proxy: %v", err)
+	}
+
+	if got := np.Spec.PodSelector.MatchLabels["app.kubernetes.io/component"]; got != "agent" {
+		t.Errorf("podSelector component = %q, want %q", got, "agent")
+	}
+	if len(np.Spec.PolicyTypes) != 1 || np.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
+		t.Errorf("policyTypes = %v, want [Ingress]", np.Spec.PolicyTypes)
+	}
+	if len(np.Spec.Ingress) != 1 {
+		t.Fatalf("expected exactly 1 ingress rule, got %d", len(np.Spec.Ingress))
+	}
+
+	rule := np.Spec.Ingress[0]
+	wantCIDRs := map[string]bool{"10.3.11.0/24": false, "10.3.12.0/24": false}
+	for _, from := range rule.From {
+		if from.IPBlock == nil {
+			t.Errorf("rule.From peer is not an IPBlock: %+v", from)
+			continue
+		}
+		if _, ok := wantCIDRs[from.IPBlock.CIDR]; !ok {
+			t.Errorf("unexpected ipBlock %q", from.IPBlock.CIDR)
+			continue
+		}
+		wantCIDRs[from.IPBlock.CIDR] = true
+	}
+	for cidr, seen := range wantCIDRs {
+		if !seen {
+			t.Errorf("missing CIDR %s", cidr)
+		}
+	}
+
+	wantPorts := map[int]bool{8090: false}
+	for _, p := range rule.Ports {
+		if p.Protocol == nil || *p.Protocol != corev1.ProtocolTCP {
+			t.Error("expected TCP")
+		}
+		if p.Port == nil {
+			t.Error("port is nil")
+			continue
+		}
+		if _, ok := wantPorts[p.Port.IntValue()]; !ok {
+			t.Errorf("unexpected port %v (only 8090 should be exposed)", p.Port)
+			continue
+		}
+		wantPorts[p.Port.IntValue()] = true
+	}
+	for port, seen := range wantPorts {
+		if !seen {
+			t.Errorf("missing port %d", port)
+		}
+	}
+}
+
+// TestNetworkPolicies_ApiserverProxyNotMixedIntoAllowNamespace guards the
+// shape choice: apiserver-proxy ingress must NOT be a rule inside the broad
+// allow-namespace-traffic policy (which has no podSelector and would expose
+// any pod bound to 8090/9090). It belongs in the sibling NP only.
+func TestNetworkPolicies_ApiserverProxyNotMixedIntoAllowNamespace(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+		cpSubnetCIDRs:  []string{"10.3.11.0/24", "10.3.12.0/24"},
+	}
+
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	for i, rule := range np.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.IPBlock == nil {
+				continue
+			}
+			if from.IPBlock.CIDR == "10.3.11.0/24" || from.IPBlock.CIDR == "10.3.12.0/24" {
+				t.Errorf(
+					"allow-namespace-traffic ingress rule %d contains apiserver CIDR %q — "+
+						"this exposes every namespace pod on the messaging port. "+
+						"Apiserver allow belongs in the sibling allow-apiserver-proxy NP.",
+					i, from.IPBlock.CIDR,
+				)
+			}
+		}
+	}
+}
+
+func TestApiserverProxyNetworkPolicy(t *testing.T) {
+	t.Run("empty returns nil", func(t *testing.T) {
+		if np := apiserverProxyNetworkPolicy("ns", nil); np != nil {
+			t.Fatalf("expected nil, got %+v", np)
+		}
+	})
+
+	t.Run("shape", func(t *testing.T) {
+		np := apiserverProxyNetworkPolicy("ns", []string{"10.3.11.0/24"})
+		if np == nil {
+			t.Fatal("expected non-nil NP")
+		}
+		if np.Name != "allow-apiserver-proxy" || np.Namespace != "ns" {
+			t.Errorf("metadata: %+v", np.ObjectMeta)
+		}
+		if got := np.Spec.PodSelector.MatchLabels["app.kubernetes.io/component"]; got != "agent" {
+			t.Errorf("podSelector component = %q, want agent", got)
+		}
+		if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].From) != 1 {
+			t.Fatalf("ingress shape: %+v", np.Spec.Ingress)
+		}
+		if cidr := np.Spec.Ingress[0].From[0].IPBlock.CIDR; cidr != "10.3.11.0/24" {
+			t.Errorf("CIDR = %q", cidr)
+		}
+		gotPorts := map[int]bool{}
+		for _, p := range np.Spec.Ingress[0].Ports {
+			if p.Protocol == nil || *p.Protocol != corev1.ProtocolTCP {
+				t.Error("expected TCP")
+			}
+			gotPorts[p.Port.IntValue()] = true
+		}
+		if len(gotPorts) != 1 || !gotPorts[8090] {
+			t.Errorf("expected only port 8090, got %v", gotPorts)
+		}
+		if gotPorts[9090] {
+			t.Error("port 9090 must not be exposed via apiserver proxy")
+		}
+	})
+}
+
+// Regression: primary VPC private subnets (apiserver ENIs) must not appear in the
+// external ingress except list — that exclusion blocked service-proxy traffic.
+func TestNetworkPolicies_ExternalIngressExceptPodSubnetsOnly(t *testing.T) {
+	podCIDRs := []string{"100.65.0.0/20", "100.65.16.0/20"}
+	cpCIDRs := []string{"10.3.11.0/24", "10.3.12.0/24"}
+
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: podCIDRs,
+		cpSubnetCIDRs:  cpCIDRs,
+	}
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	except := externalIngressExceptCIDRs(np)
+	for _, want := range podCIDRs {
+		if !containsString(except, want) {
+			t.Errorf("external ingress except missing pod CIDR %q; got %v", want, except)
+		}
+	}
+	for _, forbid := range cpCIDRs {
+		if containsString(except, forbid) {
+			t.Errorf("external ingress except must not include apiserver CIDR %q (blocks service proxy)", forbid)
+		}
+	}
+}
+
+// When CP_SUBNET_CIDRS is unset (local dev, non-managed clusters), the sibling
+// allow-apiserver-proxy NP must not be created at all.
+func TestNetworkPolicies_NoApiserverProxyNPWhenCPUnset(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+	}
+
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	_, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-apiserver-proxy", metav1.GetOptions{},
+	)
+	if err == nil {
+		t.Error("expected allow-apiserver-proxy to not exist when CP_SUBNET_CIDRS unset")
+	}
+}
+
+func externalIngressExceptCIDRs(np *networkingv1.NetworkPolicy) []string {
+	for _, rule := range np.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.IPBlock != nil && from.IPBlock.CIDR == "0.0.0.0/0" {
+				return from.IPBlock.Except
+			}
+		}
+	}
+	return nil
+}
+
+func ingressRulesWithTCPPort(np *networkingv1.NetworkPolicy, port int) int {
+	count := 0
+	for _, rule := range np.Spec.Ingress {
+		for _, p := range rule.Ports {
+			if p.Port != nil && p.Port.IntValue() == port {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer verifies that when

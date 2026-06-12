@@ -57,6 +57,23 @@ func TestResolve_PrimaryUsesEnvDefaults(t *testing.T) {
 	}
 }
 
+func TestResolve_PrimaryCPSubnetCIDRs(t *testing.T) {
+	dep := envDefaults()
+	dep.PodSubnetCIDRs = []string{"100.65.0.0/20", "100.65.16.0/20"}
+	dep.CPSubnetCIDRs = []string{"10.3.11.0/24", "10.3.12.0/24"}
+
+	got, err := Resolve(context.Background(), nil, dep, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.PodSubnetCIDRs) != 2 || got.PodSubnetCIDRs[0] != "100.65.0.0/20" {
+		t.Errorf("pod subnet cidrs: %v", got.PodSubnetCIDRs)
+	}
+	if len(got.CPSubnetCIDRs) != 2 || got.CPSubnetCIDRs[0] != "10.3.11.0/24" {
+		t.Errorf("cp subnet cidrs: %v", got.CPSubnetCIDRs)
+	}
+}
+
 func TestResolve_PrimaryIDUsesEnvDefaults(t *testing.T) {
 	got, err := Resolve(context.Background(), nil, envDefaults(), k8s.PrimaryClusterID)
 	if err != nil {

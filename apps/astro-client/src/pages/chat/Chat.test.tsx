@@ -1,9 +1,8 @@
-import { describe, expect, it, afterEach, beforeEach } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { renderRoute } from "@/test/test-utils";
-import { setExperiment } from "@/lib/experiments";
 import ChatPage from "./Chat";
 
 const eligibleDeployment = {
@@ -15,12 +14,7 @@ const eligibleDeployment = {
   created_at: "2026-01-01T00:00:00Z",
 };
 
-beforeEach(() => {
-  setExperiment("chat", true);
-});
-
 afterEach(() => {
-  setExperiment("chat", false);
   cleanup();
 });
 

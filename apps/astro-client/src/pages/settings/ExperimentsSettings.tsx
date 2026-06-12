@@ -18,16 +18,6 @@ export default function ExperimentsSettings() {
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3">
           <div>
-            <p className="text-body-sm font-medium text-foreground">Chat tab</p>
-            <p className="text-body-sm text-muted-foreground">Show the Chat page in the main navigation.</p>
-          </div>
-          <Switch
-            checked={experiments.chat}
-            onCheckedChange={(checked) => setExperiment("chat", checked)}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card px-4 py-3">
-          <div>
             <p className="text-body-sm font-medium text-foreground">Eval tab</p>
             <p className="text-body-sm text-muted-foreground">Show the Eval tab on agent detail pages.</p>
           </div>

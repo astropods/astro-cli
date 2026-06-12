@@ -524,3 +524,21 @@ func TestNewApplier_LocalModePropagation(t *testing.T) {
 		})
 	}
 }
+
+func TestNewApplier_CPSubnetCIDRsPropagation(t *testing.T) {
+	client := newStubClient(t)
+	want := []string{"10.3.11.0/24", "10.3.12.0/24"}
+	a := NewApplier(client, ApplierConfig{
+		Namespace:      "ns",
+		PodSubnetCIDRs: []string{"100.65.0.0/20"},
+		CPSubnetCIDRs:  want,
+	})
+	if len(a.cpSubnetCIDRs) != len(want) {
+		t.Fatalf("cpSubnetCIDRs len = %d, want %d", len(a.cpSubnetCIDRs), len(want))
+	}
+	for i, cidr := range want {
+		if a.cpSubnetCIDRs[i] != cidr {
+			t.Errorf("cpSubnetCIDRs[%d] = %q, want %q", i, a.cpSubnetCIDRs[i], cidr)
+		}
+	}
+}

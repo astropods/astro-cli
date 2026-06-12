@@ -29,7 +29,7 @@ import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import { formatDate } from "@/lib/deployment-utils";
 import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { DeploymentTab, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
+import { DeploymentTab, chatDeploymentPath, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
 import type { AvatarColors } from "@/lib/api";
 import cloud1 from "@/assets/clouds/cloud-1.png";
 import cloud2 from "@/assets/clouds/cloud-2.png";
@@ -65,9 +65,10 @@ export interface DeployedAgentCardProps {
   /** Daily token totals, oldest → newest. Normalized independently from
    *  requestSeries so the two lines overlay cleanly. */
   tokenSeries?: number[];
-  /** External URL for the "Launch" CTA. When omitted the action row collapses
-   *  to a single full-width "Manage agent" button. */
-  launchUrl?: string;
+  /** Whether to surface the "Launch" CTA (opens the in-app chat for this
+   *  deployment). When false/omitted the action row collapses to a single
+   *  full-width "Manage agent" button. Requires `deploymentId` to navigate. */
+  canLaunch?: boolean;
   /** Surfaces an error pill under the subline. */
   hasError?: boolean;
   /** Deployment creation timestamp; surfaced in the badge modal's stats row. */
@@ -481,7 +482,7 @@ export function DeployedAgentCard({
   avatarColors,
   requestSeries,
   tokenSeries,
-  launchUrl,
+  canLaunch,
   hasError,
   installedAt,
   hasUpdateAvailable,
@@ -700,31 +701,25 @@ export function DeployedAgentCard({
         />
       </div>
       <div className="relative z-[1] flex w-full items-center gap-2">
-        {launchUrl ? (
+        {canLaunch && deploymentId ? (
           <>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button asChild variant="outline" size="icon" aria-label="Manage agent" className="size-10">
-                    {deploymentId ? (
-                      <Link to={deploymentPath(account, deploymentId)}>
-                        <Cog6ToothIcon />
-                      </Link>
-                    ) : (
-                      <button type="button">
-                        <Cog6ToothIcon />
-                      </button>
-                    )}
+                    <Link to={deploymentPath(account, deploymentId)}>
+                      <Cog6ToothIcon />
+                    </Link>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Manage agent</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             <Button asChild className="flex-1">
-              <a href={launchUrl} target="_blank" rel="noopener noreferrer">
+              <Link to={chatDeploymentPath(deploymentId)}>
                 Launch
                 <ArrowUpRightIcon strokeWidth={3} className="size-3.5" />
-              </a>
+              </Link>
             </Button>
           </>
         ) : (

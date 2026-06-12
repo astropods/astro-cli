@@ -53,9 +53,13 @@ type ApplierConfig struct {
 	NamespaceLabels map[string]string
 	// NamespaceAnnotations are merged into the namespace metadata on create/update
 	NamespaceAnnotations map[string]string
-	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
+	// PodSubnetCIDRs are the secondary-private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
+	// CPSubnetCIDRs are primary VPC private subnets hosting EKS apiserver ENIs.
+	// When non-empty, a sibling `allow-apiserver-proxy` NetworkPolicy is generated
+	// allowing service-proxy traffic to messaging sidecars on TCP 8090/9090.
+	CPSubnetCIDRs []string
 	// LangfuseVPCEIPs are the VPC endpoint ENI IPs for Langfuse PrivateLink.
 	// When non-empty, an egress rule allowing port 3000 to these IPs is added.
 	LangfuseVPCEIPs []string
@@ -136,6 +140,7 @@ type Applier struct {
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs       []string
+	cpSubnetCIDRs        []string
 	langfuseVPCEIPs      []string
 	localMode            bool
 	astroGatewayAPIKey   string
@@ -176,6 +181,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceLabels:        cfg.NamespaceLabels,
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
+		cpSubnetCIDRs:          cfg.CPSubnetCIDRs,
 		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
 		localMode:              cfg.LocalMode,
 		astroGatewayAPIKey:     cfg.AstroGatewayAPIKey,

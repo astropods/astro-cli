@@ -194,8 +194,11 @@ type DeploymentConfig struct {
 	KnowledgeAllowManagedCreate bool   // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
 	IngestionACMCertARN         string // ACM certificate ARN for ingestion wildcard cert
 	IngestionALBGroupName       string // ALB group name for ingestion ALB (separate from agents)
-	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
+	// NetworkPolicy isolation: secondary-private subnet CIDRs where pods run (comma-separated).
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
+	// EKS apiserver ENI subnets (primary VPC private subnets). Service proxy traffic
+	// from astro-server enters tenant pods from these CIDRs.
+	CPSubnetCIDRs []string // CP_SUBNET_CIDRS
 	// KMS envelope encryption for deployment secrets
 	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
 	// AI Gateway (LiteLLM) — per-tenant virtual key issuance and the base URL
@@ -274,6 +277,7 @@ func Load() (*Config, error) {
 			KnowledgeDomain:               getEnv("KNOWLEDGE_DOMAIN", ""),
 			KnowledgeAllowManagedCreate:   getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
 			PodSubnetCIDRs:                getEnvSlice("POD_SUBNET_CIDRS", nil),
+			CPSubnetCIDRs:                 getEnvSlice("CP_SUBNET_CIDRS", nil),
 			KMSKeyARN:                     getEnv("KMS_KEY_ARN", ""),
 			AIGatewayURL:                  getEnv("AI_GATEWAY_URL", ""),
 			AIGatewayMasterKey:            getEnv("AI_GATEWAY_MASTER_KEY", ""),

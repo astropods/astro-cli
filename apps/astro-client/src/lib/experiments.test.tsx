@@ -20,7 +20,7 @@ afterEach(() => {
 describe("useExperiments", () => {
   it("returns default experiment values", () => {
     const { result } = renderHook(() => useExperiments());
-    expect(result.current.experiments).toEqual({ evals: false, chat: false });
+    expect(result.current.experiments).toEqual({ evals: false });
   });
 
   it("hasExperiments is true when experiments are defined", () => {

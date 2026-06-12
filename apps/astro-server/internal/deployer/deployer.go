@@ -212,6 +212,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		LangfuseBaseURL:        clusterCfg.LangfuseBaseURL,
 		DeploymentID:           dep.ID,
 		PodSubnetCIDRs:         clusterCfg.PodSubnetCIDRs,
+		CPSubnetCIDRs:          clusterCfg.CPSubnetCIDRs,
 		LangfuseVPCEIPs:        clusterCfg.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		AstroGatewayAPIKey:     aigwAPIKey,

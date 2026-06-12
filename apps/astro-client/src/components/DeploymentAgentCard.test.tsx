@@ -12,6 +12,7 @@ const BASE: AgentDeploymentSummary = {
   build_id: "build-1",
   created_at: "2025-01-01T00:00:00Z",
   external_urls: [{ name: "messaging", type: "messaging", url: "https://my-agent.example.com", ready: true }],
+  messaging_web_configured: true,
 };
 
 function renderCard(deployment: AgentDeploymentSummary) {
@@ -35,8 +36,8 @@ describe("DeploymentAgentCard launch button", () => {
     },
   );
 
-  it("hides Launch when there is no messaging URL", () => {
-    renderCard({ ...BASE, status: "Running", external_urls: [] });
+  it("hides Launch when messaging web is not configured", () => {
+    renderCard({ ...BASE, status: "Running", messaging_web_configured: false });
     expect(screen.queryByRole("link", { name: /launch/i })).not.toBeInTheDocument();
   });
 });

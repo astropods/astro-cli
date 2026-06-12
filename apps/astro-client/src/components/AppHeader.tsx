@@ -42,7 +42,6 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useExperiments } from "@/lib/experiments";
 import { chatPath, insightsPath, dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
 
 interface NavItem {
@@ -116,7 +115,6 @@ function ThemeSwitcher() {
 
 export function AppHeader() {
   const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
-  const { experiments } = useExperiments();
   const location = useLocation();
   const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -134,7 +132,7 @@ export function AppHeader() {
   const authenticatedNav: NavItem[] = [
     ...publicNav,
     { label: "Agents", to: dashboardPath },
-    ...(experiments.chat ? [{ label: "Chat", to: chatPath }] : []),
+    { label: "Chat", to: chatPath },
     { label: "Insights", to: insightsPath },
     { label: "Knowledge", to: knowledgePath },
   ];

@@ -1221,6 +1221,9 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 // Policy 2 (allow-namespace-traffic): allow intra-namespace pods, ALB/external
 // traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs), DNS, and
 // monitoring namespace ingress on port 9091 (for Alloy metrics scraping).
+// Policy 3 (allow-apiserver-proxy, conditional): when cpSubnetCIDRs is set,
+// a sibling NP scoped to messaging sidecar pods (component=agent) allows
+// service-proxy ingress on TCP 8090 only from apiserver ENI CIDRs.
 func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 	policyTypes := []networkingv1.PolicyType{
 		networkingv1.PolicyTypeIngress,
@@ -1248,6 +1251,44 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		return fmt.Errorf("default-deny-all: %w", err)
 	}
 
+	ingressRules := []networkingv1.NetworkPolicyIngressRule{
+		{
+			From: []networkingv1.NetworkPolicyPeer{
+				{PodSelector: &metav1.LabelSelector{}},
+			},
+		},
+		{
+			From: []networkingv1.NetworkPolicyPeer{
+				{IPBlock: &externalIPBlock},
+			},
+		},
+		{
+			From: []networkingv1.NetworkPolicyPeer{
+				{
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"name": "monitoring",
+						},
+					},
+				},
+			},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{
+					Protocol: protocolPtr(corev1.ProtocolTCP),
+					Port:     portPtr(intstr.FromInt32(9091)),
+				},
+				{
+					Protocol: protocolPtr(corev1.ProtocolTCP),
+					Port:     portPtr(intstr.FromInt32(4317)),
+				},
+				{
+					Protocol: protocolPtr(corev1.ProtocolTCP),
+					Port:     portPtr(intstr.FromInt32(4318)),
+				},
+			},
+		},
+	}
+
 	// Policy 2: allow-namespace-traffic
 	allowNamespace := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1257,49 +1298,7 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: policyTypes,
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				// Allow from same-namespace pods
-				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{PodSelector: &metav1.LabelSelector{}},
-					},
-				},
-				// Allow from ALB/external (0.0.0.0/0 except pod subnets)
-				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{IPBlock: &externalIPBlock},
-					},
-				},
-				// Allow from monitoring namespace:
-				//   - 9091: Alloy scrapes messaging sidecar metrics
-				//   - 4317/4318: trace-router fans LLM-proxy spans out to
-				//     the per-agent collector (OTLP gRPC/HTTP)
-				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"name": "monitoring",
-								},
-							},
-						},
-					},
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: protocolPtr(corev1.ProtocolTCP),
-							Port:     portPtr(intstr.FromInt32(9091)),
-						},
-						{
-							Protocol: protocolPtr(corev1.ProtocolTCP),
-							Port:     portPtr(intstr.FromInt32(4317)),
-						},
-						{
-							Protocol: protocolPtr(corev1.ProtocolTCP),
-							Port:     portPtr(intstr.FromInt32(4318)),
-						},
-					},
-				},
-			},
+			Ingress:     ingressRules,
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				// Allow to same-namespace pods
 				{
@@ -1341,7 +1340,63 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		return fmt.Errorf("allow-namespace-traffic: %w", err)
 	}
 
+	// Policy 3 (conditional): allow-apiserver-proxy. Scoped to messaging sidecar
+	// pods only. Carves back the kubectl-proxy / services/proxy path that
+	// allow-namespace-traffic excepts via its podSubnetCIDRs except list.
+	if proxyNP := apiserverProxyNetworkPolicy(a.namespace, a.cpSubnetCIDRs); proxyNP != nil {
+		if err := a.applyNetworkPolicy(ctx, proxyNP); err != nil {
+			return fmt.Errorf("allow-apiserver-proxy: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// apiserverProxyNetworkPolicy builds the sibling NetworkPolicy that allows the
+// EKS apiserver to reach messaging sidecars via services/proxy. Returns nil
+// when cpSubnetCIDRs is empty (local dev, clusters without netpol isolation),
+// so callers skip the apply.
+//
+// Shape is intentionally narrow: podSelector restricts the destination to
+// messaging sidecar pods (component=agent), source ipBlocks restrict to
+// apiserver ENI subnets, and ports restrict to 8090 (messaging HTTP — the
+// service-proxy path in-client chat uses). The gRPC 9090 surface is not
+// exposed: nothing reaches it via apiserver-proxy today.
+func apiserverProxyNetworkPolicy(namespace string, cpSubnetCIDRs []string) *networkingv1.NetworkPolicy {
+	if len(cpSubnetCIDRs) == 0 {
+		return nil
+	}
+	from := make([]networkingv1.NetworkPolicyPeer, 0, len(cpSubnetCIDRs))
+	for _, cidr := range cpSubnetCIDRs {
+		from = append(from, networkingv1.NetworkPolicyPeer{
+			IPBlock: &networkingv1.IPBlock{CIDR: cidr},
+		})
+	}
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-apiserver-proxy",
+			Namespace: namespace,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app.kubernetes.io/component": "agent",
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: from,
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: protocolPtr(corev1.ProtocolTCP),
+							Port:     portPtr(intstr.FromInt32(8090)),
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 // buildKnowledgeService builds a knowledge service exposing all declared endpoints.

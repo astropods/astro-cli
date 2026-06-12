@@ -30,6 +30,7 @@ type Resolved struct {
 	LangfuseBaseURL        string   // collector LANGFUSE_BASE_URL
 	LangfuseVPCEIPs        []string // VPCE ENI IPs for netpol :3000 egress
 	PodSubnetCIDRs         []string // pod subnet CIDRs for netpol except list
+	CPSubnetCIDRs          []string // apiserver ENI subnets for service-proxy ingress NP
 }
 
 // Resolve returns the effective config for a deployment targeting clusterID.
@@ -54,6 +55,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 			LangfuseBaseURL:        langfuseURL,
 			LangfuseVPCEIPs:        dep.LangfuseVPCEIPs,
 			PodSubnetCIDRs:         dep.PodSubnetCIDRs,
+			CPSubnetCIDRs:          dep.CPSubnetCIDRs,
 		}, nil
 	}
 

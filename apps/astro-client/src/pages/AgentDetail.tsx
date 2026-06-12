@@ -1,4 +1,4 @@
-import { Outlet, useParams, useOutletContext, useLocation } from "react-router";
+import { Link, Outlet, useParams, useOutletContext, useLocation } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import type { Route } from "./+types/AgentDetail";
 import { createServerApi } from "@/lib/api.server";
@@ -8,7 +8,7 @@ import { AgentIdentity } from "@/components/agent-detail/AgentIdentity";
 import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
 import { useDeployment, useDeploymentRuntime } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentRuntime } from "@/lib/api";
-import { getMessagingEndpoint, isLaunchReady, launchUnavailableMessage } from "@/lib/deployment-utils";
+import { chatDeploymentPath } from "@/lib/routes";
 import { ArrowUpRight } from "lucide-react";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -65,9 +65,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { data: runtimeData } = useDeploymentRuntime(deploymentId ?? "");
   const deployment = data?.deployment ?? loaderData.deployment;
   const runtime = runtimeData?.runtime;
-  const messagingEndpoint = getMessagingEndpoint(deployment);
-  const messagingUrl = messagingEndpoint?.url;
-  const launchReady = isLaunchReady(deployment);
+  const canLaunch = deployment?.messaging_configured === true;
 
   const context: AgentDetailContext | null = deployment
     ? { deployment, runtime, account: account ?? "", deploymentId: deploymentId ?? "" }
@@ -104,16 +102,13 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         <div className="absolute top-4 right-0 z-20 flex items-center pr-6 max-[700px]:hidden">
           <div className="flex items-center gap-4 rounded-[8px] dark:rounded-md bg-background p-1 pl-3 pr-1 dark:bg-transparent dark:p-0 dark:pl-0 dark:pr-0">
             <AgentStatusToggle deployment={deployment} account={account ?? ""} />
-            {messagingUrl && (
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity enabled:cursor-pointer enabled:hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!launchReady}
-                title={!launchReady ? launchUnavailableMessage : undefined}
-                onClick={() => window.open(messagingUrl, '_blank', 'noopener,noreferrer')}
+            {canLaunch && deploymentId && (
+              <Link
+                to={chatDeploymentPath(deploymentId)}
+                className="flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity hover:opacity-85"
               >
                 Launch <ArrowUpRight className="size-3.5" />
-              </button>
+              </Link>
             )}
           </div>
         </div>
