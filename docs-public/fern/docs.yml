@@ -68,6 +68,19 @@ navigation:
           - page: Make your agent discoverable
             path: docs/pages/agent-card.mdx
             icon: fa-duotone fa-id-card
+      - section: Monitor your agents
+        contents:
+          - page: Overview
+            path: docs/pages/monitor-agents.mdx
+            icon: fa-duotone fa-chart-line
+          - section: Frameworks
+            contents:
+              - page: Mastra
+                path: docs/pages/monitor-mastra.mdx
+                icon: fa-duotone fa-cube
+              - page: Claude Agent SDK
+                path: docs/pages/monitor-claude-agent-sdk.mdx
+                icon: fa-duotone fa-robot
       - section: Guides
         contents:
           - page: Connect to a private database

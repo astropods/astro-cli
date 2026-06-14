@@ -1,0 +1,58 @@
+---
+title: Monitor your agents
+subtitle: Send OpenTelemetry traces from your agent to see token usage, tool calls, and latency in the Astro dashboard
+slug: monitor-agents
+---
+
+Astro automatically monitors agents that interact with common AI model providers. After deploying an agent on Astro, you can monitor your agents using the [insights](https://astropods.com/insights) page. For enhanced observability, Astro provides adapters for common frameworks.
+
+## Framework guides
+
+- [Mastra](/monitor-mastra)
+- [Claude Agent SDK](/monitor-claude-agent-sdk)
+
+## Manually attaching observability
+
+When an adapter isn't available for your framework of choice, you may manually instrument an agent using standard OpenTelemetry. Every deployed agent container receives these environment variables automatically:
+
+| Variable | Purpose |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP base URL. Append `/v1/traces` for the traces signal. |
+| `ASTRO_AGENT_NAME` | Use as OpenTelemetry `service.name`. |
+| `ASTRO_AGENT_BUILD` | Use as OpenTelemetry `service.version`. |
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is unset during local development. Guard your instrumentation on the variable so the agent runs cleanly in both environments.
+
+### Node.js
+
+Install the OpenTelemetry SDK and the OTLP HTTP trace exporter:
+
+```bash
+bun add @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions
+```
+
+Initialize the SDK at the entry point of your agent, before any other imports that you want traced:
+
+```typescript
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
+
+if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+  new NodeSDK({
+    resource: resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: process.env.ASTRO_AGENT_NAME ?? "agent",
+      [ATTR_SERVICE_VERSION]: process.env.ASTRO_AGENT_BUILD ?? "dev",
+    }),
+    traceExporter: new OTLPTraceExporter({
+      url: `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`,
+    }),
+  }).start();
+}
+```
+
+With the SDK running, emit spans wherever you want them — see the [OpenTelemetry tracing API](https://opentelemetry.io/docs/languages/js/instrumentation/#traces) for the span API and the [auto-instrumentation packages](https://opentelemetry.io/docs/languages/js/libraries/) for HTTP, fetch, and other off-the-shelf coverage.

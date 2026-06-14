@@ -1,0 +1,45 @@
+---
+title: Claude Agent SDK
+subtitle: Automatically instrument Claude Agent SDK for monitoring in Astro
+slug: monitor-claude-agent-sdk
+---
+
+`@astropods/adapter-claude-agent-sdk` is a drop-in replacement for `@anthropic-ai/claude-agent-sdk`. It re-exports the entire SDK surface with `query()` instrumented for OpenTelemetry, so `query()` calls, sub-agent steps, tool calls, and model invocations flow into the dashboard automatically.
+
+The adapter is versioned independently and floats against a compatible range of Claude Agent SDK releases. The current version line supports `@anthropic-ai/claude-agent-sdk` `^0.3.142` — patches and minors within that range are supported.
+
+## Install
+
+Add `@astropods/adapter-claude-agent-sdk` and remove any direct dependency on `@anthropic-ai/claude-agent-sdk`.
+
+```json
+{
+  "dependencies": {
+    "@astropods/adapter-claude-agent-sdk": "^0.3.0"
+  }
+}
+```
+
+```bash
+bun install
+```
+
+## Update imports
+
+Point existing imports at the adapter:
+
+```typescript
+import { query, tool, AbortError, type SDKMessage } from "@astropods/adapter-claude-agent-sdk";
+```
+
+The full Claude Agent SDK surface is available, with small patches applied to auto-instrument your agent for monitoring in Astro.
+
+## Verify
+
+Deploy the agent, send it a message, then open the agent's detail page in the Astro dashboard. Traces appear within ~30 seconds.
+
+If nothing shows up:
+
+- Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` is present in the deployed container.
+- Confirm every import of `@anthropic-ai/claude-agent-sdk` in your codebase has been switched to `@astropods/adapter-claude-agent-sdk`.
+- Check the agent container logs for OpenTelemetry export errors.
