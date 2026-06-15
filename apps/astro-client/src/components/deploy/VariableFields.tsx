@@ -112,7 +112,7 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
                     href={v.helpUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                    className="text-xs text-foreground hover:underline flex items-center gap-1"
                   >
                     Where do I find this?
                     <ExternalLink className="h-3 w-3" />
