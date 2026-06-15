@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -37,10 +39,10 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	return &datasetFixture{traceDetailFixture: f, datasetMock: datasetMock}
 }
 
-func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int, lastTraceAt *time.Time) {
+func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int) {
 	rows := sqlmock.NewRows([]string{
-		"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
-	}).AddRow(deploymentID, "acct-1", datasetName, itemCount, lastTraceAt, lastTraceAt, lastTraceAt, time.Now(), time.Now())
+		"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
+	}).AddRow(deploymentID, "acct-1", datasetName, itemCount, time.Now(), time.Now())
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(rows)
@@ -50,7 +52,7 @@ func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
+			"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
 		}))
 }
 
@@ -134,10 +136,9 @@ func TestGetEvalDataset_DatasetNotYetCreated(t *testing.T) {
 }
 
 func TestGetEvalDataset_OK(t *testing.T) {
-	lastTrace := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 42, &lastTrace)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 42)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
 	rec := httptest.NewRecorder()
@@ -148,11 +149,8 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	}
 
 	var resp struct {
-		DatasetName  string  `json:"dataset_name"`
-		LastTraceAt  *string `json:"last_trace_at"`
-		LastAttempt  *string `json:"last_sync_attempted_at"`
-		LastSyncedAt *string `json:"last_synced_at"`
-		ItemCount    int     `json:"item_count"`
+		DatasetName string `json:"dataset_name"`
+		ItemCount   int    `json:"item_count"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -160,44 +158,8 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	if resp.DatasetName != "dep-dep-1" {
 		t.Errorf("dataset_name = %q, want dep-dep-1", resp.DatasetName)
 	}
-	if resp.LastTraceAt == nil {
-		t.Error("last_trace_at should not be nil")
-	}
-	if resp.LastAttempt == nil {
-		t.Error("last_sync_attempted_at should not be nil")
-	}
-	if resp.LastSyncedAt == nil {
-		t.Error("last_synced_at should not be nil")
-	}
 	if resp.ItemCount != 42 {
 		t.Errorf("item_count = %d, want 42", resp.ItemCount)
-	}
-}
-
-func TestGetEvalDataset_NeverSynced(t *testing.T) {
-	f := setupDatasetRouter(t, true, nil)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 0, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	var resp struct {
-		ItemCount   int     `json:"item_count"`
-		LastTraceAt *string `json:"last_trace_at"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.ItemCount != 0 {
-		t.Errorf("item_count = %d, want 0", resp.ItemCount)
-	}
-	if resp.LastTraceAt != nil {
-		t.Errorf("last_trace_at should be nil when never synced")
 	}
 }
 
@@ -245,7 +207,7 @@ func TestDownloadEvalDataset_OK(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(items, 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 1, nil)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/download", nil)
 	rec := httptest.NewRecorder()
@@ -257,11 +219,18 @@ func TestDownloadEvalDataset_OK(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
 		t.Errorf("Content-Type = %q, want application/zip", ct)
 	}
-	if cd := rec.Header().Get("Content-Disposition"); cd == "" {
-		t.Error("Content-Disposition should be set")
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="eval-dep-1.zip"` {
+		t.Errorf("Content-Disposition = %q, want eval-dep-1.zip attachment", cd)
 	}
 	if rec.Body.Len() == 0 {
 		t.Error("response body should not be empty")
+	}
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("open response zip: %v", err)
+	}
+	if len(zr.File) != 1 || zr.File[0].Name != "eval-dep-1.jsonl" {
+		t.Fatalf("zip entries = %+v, want eval-dep-1.jsonl", zr.File)
 	}
 }
 
@@ -271,7 +240,7 @@ func TestDownloadEvalDataset_LangfuseError(t *testing.T) {
 	})
 	f := setupDatasetRouter(t, true, errorUpstream)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 0, nil)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 0)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/download", nil)
 	rec := httptest.NewRecorder()

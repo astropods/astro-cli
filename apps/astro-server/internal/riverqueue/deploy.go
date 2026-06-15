@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -161,6 +162,51 @@ func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
 	if _, err := ensureDataset(context.Background(), dep, w.datasetStore, client); err != nil {
 		w.log.Warn("Deploy: provision dataset failed", "deployment_id", dep.ID, "error", err)
 	}
+}
+
+// ensureDataset returns the existing eval_datasets row, creating it in
+// both Langfuse and the DB if it does not yet exist. Pre-flip rows whose
+// Langfuse dataset is still named dep-* are healed in place: the eval-*
+// dataset is created in Langfuse (idempotent) and the row is updated to
+// point at it. Heal failures are swallowed and the unchanged dep-* row
+// is returned so the deploy itself never fails over dataset state — the
+// next deploy retries.
+func ensureDataset(ctx context.Context, dep *deploymentstore.Deployment, dsStore *datasetstore.Store, client *langfuse.Client) (*datasetstore.EvalDataset, error) {
+	existing, err := dsStore.Get(dep.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get dataset row: %w", err)
+	}
+	if existing != nil {
+		if strings.HasPrefix(existing.LangfuseDatasetName, "dep-") {
+			newName := "eval-" + dep.ID
+			if err := client.CreateDataset(ctx, newName, dep.AgentName); err != nil {
+				return existing, nil
+			}
+			if err := dsStore.Repoint(dep.ID, newName); err != nil {
+				return existing, nil
+			}
+			existing.LangfuseDatasetName = newName
+			existing.ItemCount = 0
+		}
+		return existing, nil
+	}
+	datasetName := "eval-" + dep.ID
+	if err := client.CreateDataset(ctx, datasetName, dep.AgentName); err != nil {
+		return nil, fmt.Errorf("create langfuse dataset: %w", err)
+	}
+	record := &datasetstore.EvalDataset{
+		DeploymentID:        dep.ID,
+		AccountID:           dep.AccountID,
+		LangfuseDatasetName: datasetName,
+	}
+	if err := dsStore.Create(record); err != nil {
+		return nil, fmt.Errorf("create dataset row: %w", err)
+	}
+	canonical, err := dsStore.Get(dep.ID)
+	if err != nil {
+		return nil, fmt.Errorf("re-read dataset row: %w", err)
+	}
+	return canonical, nil
 }
 
 func statusOrNil(dep *deploymentstore.Deployment) string {

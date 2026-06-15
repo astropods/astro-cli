@@ -924,9 +924,6 @@ export interface DeploymentEventsResponse {
 
 export interface EvalDatasetResponse {
   dataset_name: string;
-  last_trace_at: string | null;
-  last_sync_attempted_at: string | null;
-  last_synced_at: string | null;
   item_count: number;
 }
 
@@ -2319,13 +2316,6 @@ class ApiClient {
   async getEvalDataset(deploymentId: string): Promise<EvalDatasetResponse> {
     return this.request<EvalDatasetResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset`
-    );
-  }
-
-  async triggerEvalDatasetSync(deploymentId: string): Promise<void> {
-    await this.request<void>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/sync`,
-      { method: "POST" }
     );
   }
 

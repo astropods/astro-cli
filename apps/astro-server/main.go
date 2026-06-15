@@ -1603,12 +1603,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.POST(protected, "/deployments/:id/dataset/sync", "Trigger an immediate dataset sync", handlers.TriggerEvalDatasetSync(log, accountStore, deploymentStore, queue),
-				oapispec.Tags("Dataset"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(202, nil),
-			)
 			// Account-scoped observability (aggregates across all account deployments)
 			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
 				oapispec.Tags("Observability"),

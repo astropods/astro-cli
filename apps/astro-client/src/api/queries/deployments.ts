@@ -439,14 +439,3 @@ export function useEvalDataset(deploymentId: string) {
   });
 }
 
-export function useTriggerEvalDatasetSync(deploymentId: string) {
-  const api = useApiClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.triggerEvalDatasetSync(deploymentId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: deploymentKeys.dataset(deploymentId) });
-    },
-  });
-}
-

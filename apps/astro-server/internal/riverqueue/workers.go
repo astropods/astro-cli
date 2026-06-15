@@ -115,9 +115,9 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 }
 
 // addWorkers registers all River workers.
-// Returns the ReconcileWorker, AccountPurgeWorker, InsightsRefreshWorker, DatasetSyncSchedulerWorker,
+// Returns the ReconcileWorker, AccountPurgeWorker, InsightsRefreshWorker,
 // and MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *DatasetSyncSchedulerWorker, *MigrateDeploymentClusterWorker) {
+func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
 	log := cfg.Logger
 	logDuplicateJobKinds(log)
 
@@ -348,24 +348,5 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	// Dataset sync workers (enabled when LangfuseStore is configured).
-	dsStore := datasetstore.NewStore(cfg.DB)
-	dScheduler := &DatasetSyncSchedulerWorker{
-		deploymentStore: store,
-		log:             log,
-		// queue is set after client creation in New()
-	}
-	addWorkerWithCatalogCheck(log, workers, dScheduler)
-	log.Info("river: registered worker", "worker", "DatasetSyncSchedulerWorker", "period", "24h")
-
-	addWorkerWithCatalogCheck(log, workers, &DatasetSyncWorker{
-		deploymentStore: store,
-		datasetStore:    dsStore,
-		langfuseStore:   cfg.LangfuseStore,
-		langfuseBaseURL: langfuseBaseURL,
-		log:             log,
-	})
-	log.Info("river: registered worker", "worker", "DatasetSyncWorker")
-
-	return rw, pw, insightsDiscovery, dScheduler, migrateWorker
+	return rw, pw, insightsDiscovery, migrateWorker
 }

@@ -47,7 +47,9 @@ type Config struct {
 	Logger               *logger.Logger
 	WorkOSClient         *auth.WorkOSClient
 	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
-	// LangfuseStore enables dataset sync workers (optional — workers still register but skip silently when nil).
+	// LangfuseStore is used by the DeployWorker to provision per-deployment
+	// Langfuse datasets at deploy time. Optional — when nil, dataset
+	// provisioning is skipped.
 	LangfuseStore *langfuse.Store
 	// GitHub build worker deps (optional — worker skipped if PipesClient is nil)
 	PipesClient *pipes.Client
@@ -96,7 +98,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	reconcileWorker, purgeWorker, insightsDiscovery, datasetSchedulerWorker, migrateWorker := addWorkers(workers, cfg)
+	reconcileWorker, purgeWorker, insightsDiscovery, migrateWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -128,9 +130,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 	if insightsDiscovery != nil {
 		insightsDiscovery.queue = q
-	}
-	if datasetSchedulerWorker != nil {
-		datasetSchedulerWorker.queue = q
 	}
 	if purgeWorker != nil {
 		purgeWorker.enqueueUndeploy = func(ctx context.Context, deploymentID string) error {
@@ -278,12 +277,6 @@ func (q *Queue) InsertPrivateLinkProvisionJob(ctx context.Context, storeID strin
 // InsertPrivateLinkDeleteJob enqueues a job to delete a VPC endpoint.
 func (q *Queue) InsertPrivateLinkDeleteJob(ctx context.Context, storeID, endpointID string) error {
 	_, err := q.Insert(ctx, PrivateLinkDeleteArgs{StoreID: storeID, EndpointID: endpointID}, nil)
-	return err
-}
-
-// InsertDatasetSyncJob enqueues a per-deployment dataset sync job.
-func (q *Queue) InsertDatasetSyncJob(ctx context.Context, deploymentID string) error {
-	_, err := q.Insert(ctx, DatasetSyncArgs{DeploymentID: deploymentID}, nil)
 	return err
 }
 

@@ -65,7 +65,6 @@ func TestRegisteredJobKinds_AvailableWithoutWorkers(t *testing.T) {
 	}
 
 	for _, kind := range []string{
-		"dataset.sync",
 		"deploy",
 		"github_build",
 		"openmeter.heartbeat",

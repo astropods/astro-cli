@@ -18,7 +18,7 @@ import (
 // datasetColumns is the column list expected by datasetstore.Store.Get.
 var datasetColumns = []string{
 	"deployment_id", "account_id", "langfuse_dataset_name", "item_count",
-	"last_trace_at", "last_sync_attempted_at", "last_synced_at", "created_at", "updated_at",
+	"created_at", "updated_at",
 }
 
 func langfuseOKServer(t *testing.T) (*httptest.Server, *bool) {
@@ -84,14 +84,28 @@ func expectDatasetExists(mock *sqlmock.Sqlmock, depID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(depID).
 		WillReturnRows(sqlmock.NewRows(datasetColumns).AddRow(
-			depID, "acct-1", "dep-"+depID, 0, nil, nil, nil, time.Now(), time.Now(),
+			depID, "acct-1", "eval-"+depID, 0, time.Now(), time.Now(),
 		))
 }
 
 func expectDatasetCreate(mock *sqlmock.Sqlmock, depID, accountID string) {
 	(*mock).ExpectExec("INSERT INTO eval_datasets").
-		WithArgs(depID, accountID, "dep-"+depID).
+		WithArgs(depID, accountID, "eval-"+depID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+}
+
+func expectDepDatasetExists(mock *sqlmock.Sqlmock, depID string) {
+	(*mock).ExpectQuery("SELECT .+ FROM eval_datasets").
+		WithArgs(depID).
+		WillReturnRows(sqlmock.NewRows(datasetColumns).AddRow(
+			depID, "acct-1", "dep-"+depID, 0, time.Now(), time.Now(),
+		))
+}
+
+func expectDatasetRepoint(mock *sqlmock.Sqlmock, depID, newName string) {
+	(*mock).ExpectExec("UPDATE eval_datasets").
+		WithArgs(newName, depID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func testDep(depID, accountID string) *deploymentstore.Deployment {
@@ -123,8 +137,8 @@ func TestEnsureDataset_CreatesWhenNotExists(t *testing.T) {
 	if record == nil {
 		t.Fatal("expected non-nil record")
 	}
-	if record.LangfuseDatasetName != "dep-dep-1" {
-		t.Errorf("LangfuseDatasetName = %q, want dep-dep-1", record.LangfuseDatasetName)
+	if record.LangfuseDatasetName != "eval-dep-1" {
+		t.Errorf("LangfuseDatasetName = %q, want eval-dep-1", record.LangfuseDatasetName)
 	}
 	if !*called {
 		t.Error("expected Langfuse CreateDataset API to be called")
@@ -151,6 +165,54 @@ func TestEnsureDataset_SkipsWhenAlreadyExists(t *testing.T) {
 	}
 	if *called {
 		t.Error("Langfuse API should not be called when dataset already exists")
+	}
+	if err := (*dsMock).ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsureDataset_HealsDepRowOnRedeploy(t *testing.T) {
+	srv, called := langfuseOKServer(t)
+	dsMock, dsStore := newDatasetMock(t)
+	dep := testDep("dep-1", "acct-1")
+
+	expectDepDatasetExists(dsMock, dep.ID)
+	expectDatasetRepoint(dsMock, dep.ID, "eval-dep-1")
+
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+	record, err := ensureDataset(context.Background(), dep, dsStore, client)
+	if err != nil {
+		t.Fatalf("ensureDataset: %v", err)
+	}
+	if record.LangfuseDatasetName != "eval-dep-1" {
+		t.Errorf("LangfuseDatasetName = %q, want eval-dep-1", record.LangfuseDatasetName)
+	}
+	if !*called {
+		t.Error("expected Langfuse CreateDataset to be called for heal")
+	}
+	if err := (*dsMock).ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsureDataset_HealLangfuseFailureLeavesDepRow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	dsMock, dsStore := newDatasetMock(t)
+	dep := testDep("dep-1", "acct-1")
+
+	expectDepDatasetExists(dsMock, dep.ID)
+
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+	record, err := ensureDataset(context.Background(), dep, dsStore, client)
+	if err != nil {
+		t.Fatalf("ensureDataset returned error: %v", err)
+	}
+	if record.LangfuseDatasetName != "dep-dep-1" {
+		t.Errorf("LangfuseDatasetName = %q, want dep-dep-1 (heal should not have flipped row)", record.LangfuseDatasetName)
 	}
 	if err := (*dsMock).ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

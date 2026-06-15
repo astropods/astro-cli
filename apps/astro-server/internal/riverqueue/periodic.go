@@ -135,20 +135,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
-	if cfg.LangfuseStore != nil {
-		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return DatasetSyncSchedulerArgs{}, &river.InsertOpts{
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 24 * time.Hour,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: false},
-		))
-	}
-
 	// Refresh the observability summary cache on the same interval the
 	// frontend's TTL admits. RunOnStart so a fresh server populates the
 	// cache immediately rather than waiting RefreshInterval for the first

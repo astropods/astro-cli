@@ -17,9 +17,6 @@ afterEach(() => server.resetHandlers());
 function makeDatasetResponse(overrides?: Partial<EvalDatasetResponse>): EvalDatasetResponse {
   return {
     dataset_name: "dep-test-deployment",
-    last_trace_at: "2026-06-01T12:00:00Z",
-    last_sync_attempted_at: "2026-06-01T13:05:00Z",
-    last_synced_at: "2026-06-01T13:00:00Z",
     item_count: 42,
     ...overrides,
   };
@@ -92,19 +89,11 @@ describe("error state", () => {
 });
 
 describe("summary view", () => {
-  it("shows dataset name, item count, and last synced time", async () => {
+  it("shows dataset name and item count", async () => {
     setupDataset(makeDatasetResponse());
     renderDataset();
     expect(await screen.findByText("dep-test-deployment")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText(/last synced/i)).toBeInTheDocument();
-  });
-
-  it("shows Never when last_synced_at is null", async () => {
-    setupDataset(makeDatasetResponse({ last_synced_at: null }));
-    renderDataset();
-    await screen.findByText("dep-test-deployment");
-    expect(screen.getByText("Never")).toBeInTheDocument();
   });
 
   it("shows download button", async () => {
