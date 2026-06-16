@@ -1,10 +1,10 @@
 import { Link, type MetaFunction } from 'react-router'
-import { Settings } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
-import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Tag, type TagColor } from '@/components/Tag'
 import { UserAvatar } from '@/components/UserAvatar'
+import { SectionHeader } from '@/components/settings/SettingsShared'
 import { useAuth } from '@/lib/auth'
 
 export const meta: MetaFunction = () => [{ title: "Organizations - Settings | Astro" }];
@@ -20,36 +20,31 @@ export default function OrganizationsSettings() {
   const orgs = accounts.filter(a => a.type === 'organization')
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-heading-2 text-foreground">Organizations</h2>
-          <p className="text-[13px] text-muted-foreground mt-1">
-            Manage your organizations and access settings
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+    <>
+      <SectionHeader
+        title="Organizations"
+        subtitle="Manage your organizations and access settings"
+        action={
           <Button size="sm" asChild>
             <Link to="/organization/new">
               <PlusIcon className="size-3.5" />
               Create organization
             </Link>
           </Button>
-        </div>
-      </div>
-
-      <Separator />
+        }
+      />
 
       {orgs.length === 0 ? (
         <p className="text-[13px] text-muted-foreground py-4">You're not a member of any organizations yet.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {orgs.map(org => {
             const roleTag = org.role ? ORG_ROLE_TAG[org.role.toLowerCase()] : null
             return (
-            <div
+            <Link
               key={org.name}
-              className="flex items-center gap-4 px-5 py-4 rounded-lg border border-border"
+              to={`/settings/org/${org.name}/general`}
+              className="group flex items-center gap-4 px-4 py-3 rounded-lg border border-border transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <UserAvatar
                 handle={org.name}
@@ -66,17 +61,15 @@ export default function OrganizationsSettings() {
                 )}
               </div>
 
-              <Button variant="outline" size="sm" asChild>
-                <Link to={`/settings/org/${org.name}/general`}>
-                  <Settings className="size-3.5" />
-                  Settings
-                </Link>
-              </Button>
-            </div>
+              <ChevronRight
+                aria-hidden
+                className="size-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground"
+              />
+            </Link>
             )
           })}
         </div>
       )}
-    </div>
+    </>
   )
 }

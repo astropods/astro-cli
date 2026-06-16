@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useRenameAccount } from "@/api/queries";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
@@ -59,11 +58,6 @@ export function ChangeUsernameDialog({
         setNewUsername("");
         renameAccount.reset();
       }}
-      trigger={
-        <Button variant="link" className="h-auto p-0 text-[13px]">
-          Change username
-        </Button>
-      }
     >
       <div>
         <Label size="md">New username</Label>

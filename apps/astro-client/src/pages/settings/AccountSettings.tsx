@@ -1,7 +1,10 @@
 import { useState } from "react";
 import type { MetaFunction } from "react-router";
+import { Pencil, TriangleAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TimezoneSelect } from "@/components/ui/timezone-select";
 import { useAuth } from "@/lib/auth";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
@@ -16,57 +19,82 @@ export const meta: MetaFunction = () => [{ title: "Account - Settings | Astro" }
 function AccountSection() {
   const { user, personalAccount, refresh } = useAuth();
   const [open, setOpen] = useState(false);
-  const { showSaved, flash } = useSavedFlash();
+  const { showSaved: usernameSaved, flash: flashUsername } = useSavedFlash();
+  const { showSaved: timezoneSaved, flash: flashTimezone } = useSavedFlash();
+  const { timezone, setTimezone } = useLogTimezone();
 
-  const handleSuccess = () => {
+  const handleUsernameSuccess = () => {
     refresh();
     setOpen(false);
-    flash();
+    flashUsername();
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {user && (
         <div className="max-w-sm">
           <Label size="md">Email</Label>
-          <Input defaultValue={user.email} disabled />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <Input defaultValue={user.email} disabled />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Email is managed by your sign-in provider</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       )}
-      <div>
+      <div className="max-w-sm">
         <Label size="md">Username</Label>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[13px] text-foreground">
-            @{personalAccount?.name}
-          </span>
-          {personalAccount && (
-            <ChangeUsernameDialog
-              currentName={personalAccount.name}
-              open={open}
-              onOpenChange={setOpen}
-              onSuccess={handleSuccess}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1">
+            <Input
+              value={personalAccount ? `@${personalAccount.name}` : ""}
+              disabled
+              className="font-mono pr-10"
             />
-          )}
-          <SavedIndicator visible={showSaved} />
+            {personalAccount && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Change username"
+                      onClick={() => setOpen(true)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Change username</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+          <SavedIndicator visible={usernameSaved} />
         </div>
+        {personalAccount && (
+          <ChangeUsernameDialog
+            currentName={personalAccount.name}
+            open={open}
+            onOpenChange={setOpen}
+            onSuccess={handleUsernameSuccess}
+          />
+        )}
       </div>
-    </div>
-  );
-}
-
-function PreferencesSection() {
-  const { timezone, setTimezone } = useLogTimezone();
-  const { showSaved, flash } = useSavedFlash();
-
-  return (
-    <div className="flex flex-col gap-2 max-w-sm">
-      <Label size="md">Timezone</Label>
-      <div className="flex items-center gap-3">
-        <TimezoneSelect
-          value={timezone}
-          onValueChange={(tz) => { setTimezone(tz); flash(); }}
-          className="flex-1"
-        />
-        <SavedIndicator visible={showSaved} />
+      <div className="flex flex-col gap-2 max-w-sm">
+        <Label size="md">Timezone</Label>
+        <div className="flex items-center gap-3">
+          <TimezoneSelect
+            value={timezone}
+            onValueChange={(tz) => { setTimezone(tz); flashTimezone(); }}
+            className="flex-1"
+          />
+          <SavedIndicator visible={timezoneSaved} />
+        </div>
       </div>
     </div>
   );
@@ -91,14 +119,19 @@ function DangerZone() {
 export default function AccountSettings() {
   return (
     <>
-      <SectionHeader title="Account" subtitle="Manage your profile and account settings" />
+      <SectionHeader
+        title="Account"
+        subtitle="Manage your profile and preferences"
+      />
       <AccountSection />
-      <hr className="my-2 border-border" />
-      <SectionHeader title="Preferences" subtitle="Display and localization" />
-      <PreferencesSection />
-      <hr className="my-2 border-border" />
-      <SectionHeader title="Danger Zone" subtitle="These actions are irreversible" />
-      <DangerZone />
+      <section className="pt-8">
+        <h3 className="flex items-center gap-1.5 font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
+          <TriangleAlert className="size-3.5 shrink-0" />
+          Danger Zone
+        </h3>
+        <hr className="border-border mb-5 mt-2" />
+        <DangerZone />
+      </section>
     </>
   );
 }

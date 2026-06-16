@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Separator } from '@/components/ui/separator'
+import { SectionHeader } from '@/components/settings/SettingsShared'
 import {
   Table,
   TableBody,
@@ -108,21 +108,17 @@ export function VaultSettings({ account: accountName }: { account: string }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-heading-2 text-foreground">Variables & Secrets</h2>
-          <p className="text-[13px] text-muted-foreground mt-1">
-            Set and manage reusable credentials and configuration values for your agents
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setNewDialogOpen(true)} className="shrink-0">
-          <PlusIcon className="size-3.5" />
-          New variable
-        </Button>
-      </div>
-
-      <Separator />
+    <>
+      <SectionHeader
+        title="Variables & Secrets"
+        subtitle="Set and manage reusable credentials and configuration values for your agents"
+        action={
+          <Button size="sm" onClick={() => setNewDialogOpen(true)}>
+            <PlusIcon className="size-3.5" />
+            New variable
+          </Button>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
@@ -218,7 +214,7 @@ export function VaultSettings({ account: accountName }: { account: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }
 

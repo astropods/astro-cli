@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { SectionHeader } from "@/components/settings/SettingsShared";
 import {
   Table,
   TableBody,
@@ -173,151 +173,148 @@ export function AuditLogView({
   const fromSelect = (val: string) => (val === NO_FILTER ? "" : val);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-heading-2 text-foreground">Audit Log</h2>
-        <p className="text-[13px] text-muted-foreground mt-1">{subtitle}</p>
-      </div>
+    <>
+      <SectionHeader title="Audit Log" subtitle={subtitle} />
 
-      <Separator />
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterInput
+            placeholder="Search events..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            containerClassName="w-56"
+          />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterInput
-          placeholder="Search events..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          containerClassName="w-56"
-        />
-
-        <Select
-          value={resourceType || NO_FILTER}
-          onValueChange={(val) => setResourceType(fromSelect(val))}
-        >
-          <SelectTrigger className="h-9 w-[150px] text-body-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_FILTER}>All resources</SelectItem>
-            {resourceTypes.map((rt) => (
-              <SelectItem key={rt} value={rt}>
-                {rt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={action || NO_FILTER}
-          onValueChange={(val) => setAction(fromSelect(val))}
-        >
-          <SelectTrigger className="h-9 w-[210px] text-body-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_FILTER}>All actions</SelectItem>
-            {allActions.map((a) => (
-              <SelectItem key={a} value={a}>
-                {a}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {actorOptions.length > 0 && (
           <Select
-            value={actorId || NO_FILTER}
-            onValueChange={(val) => setActorId(fromSelect(val))}
+            value={resourceType || NO_FILTER}
+            onValueChange={(val) => setResourceType(fromSelect(val))}
           >
-            <SelectTrigger className="h-9 w-[160px] text-body-sm">
+            <SelectTrigger className="h-9 w-[150px] text-body-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_FILTER}>All actors</SelectItem>
-              {actorOptions.map((a) => (
-                <SelectItem key={a.value} value={a.value}>
-                  {a.label}
+              <SelectItem value={NO_FILTER}>All resources</SelectItem>
+              {resourceTypes.map((rt) => (
+                <SelectItem key={rt} value={rt}>
+                  {rt}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        )}
 
-        {hasActiveFilters && (
-          <Button variant="ghost" size="sm" onClick={clearAll}>
-            <X className="size-3" />
-            Clear
-          </Button>
+          <Select
+            value={action || NO_FILTER}
+            onValueChange={(val) => setAction(fromSelect(val))}
+          >
+            <SelectTrigger className="h-9 w-[210px] text-body-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_FILTER}>All actions</SelectItem>
+              {allActions.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {actorOptions.length > 0 && (
+            <Select
+              value={actorId || NO_FILTER}
+              onValueChange={(val) => setActorId(fromSelect(val))}
+            >
+              <SelectTrigger className="h-9 w-[160px] text-body-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_FILTER}>All actors</SelectItem>
+                {actorOptions.map((a) => (
+                  <SelectItem key={a.value} value={a.value}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearAll}>
+              <X className="size-3" />
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            Loading...
+          </div>
+        ) : error ? (
+          <p className="text-[13px] text-muted-foreground py-4">
+            Failed to load audit log.
+          </p>
+        ) : entries.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+            <div className="flex justify-center mb-3 text-muted-foreground">
+              <ScrollText className="size-6" />
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              {hasActiveFilters ? "No matching events" : "No events yet"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {hasActiveFilters
+                ? "Try adjusting your filters"
+                : "Actions taken in this account will appear here"}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="text-[13px] text-muted-foreground">
+              Showing {entries.length} {entries.length === 1 ? "entry" : "entries"}
+              {hasNextPage && !debouncedSearch ? "+" : ""}
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Event</TableHead>
+                  <TableHead>Resource</TableHead>
+                  <TableHead>Actor</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <EntryRow
+                    key={entry.id}
+                    entry={entry}
+                    members={memberMap}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+
+            {hasNextPage && !debouncedSearch && (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isFetchingNextPage}
+                  onClick={() => fetchNextPage()}
+                >
+                  {isFetchingNextPage ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    "Load more"
+                  )}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
-          <Loader2 size={14} className="animate-spin" />
-          Loading...
-        </div>
-      ) : error ? (
-        <p className="text-[13px] text-muted-foreground py-4">
-          Failed to load audit log.
-        </p>
-      ) : entries.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-          <div className="flex justify-center mb-3 text-muted-foreground">
-            <ScrollText className="size-6" />
-          </div>
-          <p className="text-sm font-medium text-foreground">
-            {hasActiveFilters ? "No matching events" : "No events yet"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {hasActiveFilters
-              ? "Try adjusting your filters"
-              : "Actions taken in this account will appear here"}
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="text-[13px] text-muted-foreground">
-            Showing {entries.length} {entries.length === 1 ? "entry" : "entries"}
-            {hasNextPage && !debouncedSearch ? "+" : ""}
-          </div>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Event</TableHead>
-                <TableHead>Resource</TableHead>
-                <TableHead>Actor</TableHead>
-                <TableHead>Time</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((entry) => (
-                <EntryRow
-                  key={entry.id}
-                  entry={entry}
-                  members={memberMap}
-                />
-              ))}
-            </TableBody>
-          </Table>
-
-          {hasNextPage && !debouncedSearch && (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isFetchingNextPage}
-                onClick={() => fetchNextPage()}
-              >
-                {isFetchingNextPage ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  "Load more"
-                )}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+    </>
   );
 }

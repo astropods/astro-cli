@@ -5,23 +5,31 @@ import { cn } from "@/lib/utils";
 const headingClass = {
   h1: "text-heading-1",
   h2: "text-heading-2",
+  h3: "text-heading-3",
 } as const;
 
 export function SectionHeader({
   as: Heading = "h2",
   title,
   subtitle,
+  action,
   className,
 }: {
-  as?: "h1" | "h2";
+  as?: "h1" | "h2" | "h3";
   title: React.ReactNode;
   subtitle: string;
+  action?: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-1 pb-6 border-b border-border", className)}>
-      <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
-      <p className="text-[13px] text-muted-foreground">{subtitle}</p>
+    <div className={cn("pb-4 mb-4 border-b border-border", className)}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1 min-w-0">
+          <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
+          <p className="text-[13px] text-muted-foreground">{subtitle}</p>
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
     </div>
   );
 }

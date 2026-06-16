@@ -94,7 +94,7 @@ export function TimezoneSelect({ value, onValueChange, className }: TimezoneSele
         <button
           type="button"
           className={cn(
-            "group inline-flex h-9 w-full items-center justify-between gap-1.5 px-3 text-body-sm",
+            "group inline-flex h-11 w-full items-center justify-between gap-1.5 px-3.5 text-body",
             inputBase,
             inputFocusVisible,
             "data-[state=open]:border-slate-600 data-[state=open]:ring-[3px] data-[state=open]:ring-[var(--input-focus-ring)] dark:data-[state=open]:border-slate-400",

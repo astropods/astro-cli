@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
+import { SectionHeader } from "@/components/settings/SettingsShared";
 import {
   Table,
   TableBody,
@@ -235,77 +235,73 @@ export default function OrgMembersSettings() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-heading-2 text-foreground">Members</h2>
-          <p className="text-[13px] text-muted-foreground mt-1">
-            Manage who has access to this organization
-          </p>
-        </div>
-        {isAdmin && (
-          <div className="flex items-center gap-2 shrink-0">
+    <>
+      <SectionHeader
+        title="Members"
+        subtitle="Manage who has access to this organization"
+        action={
+          isAdmin && (
             <Button size="sm" onClick={() => setInviteOpen(true)}>
               <UserPlus className="size-3.5" />
               Invite members
             </Button>
+          )
+        }
+      />
+
+      <div className="space-y-6">
+        {(updateRole.isError || removeMember.isError) && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p className="text-[13px] text-destructive">
+              {((updateRole.error || removeMember.error) as Error)?.message ||
+                "An error occurred. You may not have permission for this action."}
+            </p>
           </div>
         )}
-      </div>
 
-      <Separator />
-
-      {(updateRole.isError || removeMember.isError) && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-[13px] text-destructive">
-            {((updateRole.error || removeMember.error) as Error)?.message ||
-              "An error occurred. You may not have permission for this action."}
+        {membersLoading ? (
+          <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            Loading...
+          </div>
+        ) : membersError ? (
+          <p className="text-[13px] text-muted-foreground py-4">
+            Failed to load members.
           </p>
-        </div>
-      )}
-
-      {membersLoading ? (
-        <div className="flex items-center gap-2 py-8 text-[13px] text-muted-foreground">
-          <Loader2 size={14} className="animate-spin" />
-          Loading...
-        </div>
-      ) : membersError ? (
-        <p className="text-[13px] text-muted-foreground py-4">
-          Failed to load members.
-        </p>
-      ) : members.length === 0 ? (
-        <EmptyState isAdmin={isAdmin} onInvite={() => setInviteOpen(true)} />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {members.map((member) => (
-              <MemberRow
-                key={member.user_id}
-                member={member}
-                isCurrentUser={member.user_id === user?.id}
-                canManage={canManageMember(member)}
-                disabled={updateRole.isPending || removeMember.isPending}
-                onChangeRole={(r) => handleChangeRole(member, r)}
-                onRemove={() => handleRemove(member)}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      )}
+        ) : members.length === 0 ? (
+          <EmptyState isAdmin={isAdmin} onInvite={() => setInviteOpen(true)} />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Joined</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((member) => (
+                <MemberRow
+                  key={member.user_id}
+                  member={member}
+                  isCurrentUser={member.user_id === user?.id}
+                  canManage={canManageMember(member)}
+                  disabled={updateRole.isPending || removeMember.isPending}
+                  onChangeRole={(r) => handleChangeRole(member, r)}
+                  onRemove={() => handleRemove(member)}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       <InviteMembersDialog
         orgSlug={orgSlug}
         open={inviteOpen}
         onOpenChange={setInviteOpen}
       />
-    </div>
+    </>
   );
 }

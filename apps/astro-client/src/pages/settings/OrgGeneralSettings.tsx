@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate, type MetaFunction } from "react-router";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -200,12 +201,14 @@ export default function OrgGeneralSettings() {
         subtitle="Organization username and identity"
       />
       <AccountSection readOnly={!isAdmin} />
-      <hr className="my-2 border-border" />
-      <SectionHeader
-        title="Danger Zone"
-        subtitle="These actions may be irreversible"
-      />
-      <DangerZone isAdmin={isAdmin} />
+      <section className="pt-8">
+        <h3 className="flex items-center gap-1.5 font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
+          <TriangleAlert className="size-3.5 shrink-0" />
+          Danger Zone
+        </h3>
+        <hr className="border-border mb-5 mt-2" />
+        <DangerZone isAdmin={isAdmin} />
+      </section>
     </>
   );
 }
