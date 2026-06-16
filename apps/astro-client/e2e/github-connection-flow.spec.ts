@@ -70,7 +70,7 @@ test("linking a repo via BP panel shows account as globally connected in setting
   // Account status query fires fresh and must return connected:true.
   await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("button", { name: /^disconnect$/i })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /github options/i })).toBeVisible({ timeout: 10_000 });
 });
 
 // ─── Test 2: Unlinking a BP repo does NOT disconnect GitHub globally ──────────
@@ -106,7 +106,7 @@ test("unlinking a BP repo leaves the global GitHub connection intact", async ({ 
 
   await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("button", { name: /^disconnect$/i })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /github options/i })).toBeVisible({ timeout: 10_000 });
 });
 
 // ─── Test 3: Global disconnect from connectors settings clears all BP connections ─
@@ -131,10 +131,11 @@ test("global GitHub disconnect from settings severs all BP connections", async (
 
   await page.goto("/settings/connectors", { waitUntil: "networkidle" });
   await expect(page.getByText(/@testgh/i)).toBeVisible({ timeout: 20_000 });
-  const disconnectTrigger = page.getByRole("button", { name: /^disconnect$/i });
-  await expect(disconnectTrigger).toBeVisible({ timeout: 10_000 });
+  const githubKebab = page.getByRole("button", { name: /github options/i });
+  await expect(githubKebab).toBeVisible({ timeout: 10_000 });
 
-  await disconnectTrigger.click();
+  await githubKebab.click();
+  await page.getByRole("menuitem", { name: /^disconnect$/i }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
 
@@ -156,7 +157,7 @@ test("global GitHub disconnect from settings severs all BP connections", async (
   };
   expect(connections.connections).toHaveLength(0);
 
-  await expect(page.getByRole("button", { name: /connect github/i })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Connect GitHub" })).toBeVisible({ timeout: 15_000 });
 
   await page.goto(`/${ACCOUNT}/${AGENT}`, { waitUntil: "networkidle" });
   await expect(page.getByRole("button", { name: /connect github repo/i })).toBeVisible({ timeout: 20_000 });

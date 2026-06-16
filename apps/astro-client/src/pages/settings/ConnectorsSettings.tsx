@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { SectionHeader } from "@/components/settings/SettingsShared";
-import { ConnectorCard, ConnectorCardRow } from "@/components/settings/ConnectorCard";
+import { ConnectorRow, ConnectorRowList, ConnectorRowItem } from "@/components/settings/ConnectorRow";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountOrgs } from "@/api/queries/github";
 import { useSlackAccountStatus, useSlackAccountDisconnect, useSlackAccountConnect } from "@/api/queries/slack";
 import type { GitHubConnectResponse } from "@/lib/api";
@@ -15,42 +15,43 @@ import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 import { Slack } from "@/components/ui/svgs/slack";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useCleanupOAuthParams } from "@/hooks/use-cleanup-oauth-params";
-import { Square2StackIcon, CheckIcon } from "@heroicons/react/24/outline";
-import { X } from "lucide-react";
+import { Link2Off, MoreHorizontal } from "lucide-react";
+import { ErrorPanel } from "@/components/ui/status-panel";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 export const meta: MetaFunction = () => [{ title: "Connectors - Settings | Astro" }];
 
 const RETURN_PATH = "/settings/connectors";
 const GITHUB_OAUTH_PARAMS = ["github_connected", "github_login"] as const;
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
+
+function slackErrorMessage(code: string): string {
+  if (code === "access_denied") return "Slack didn't authorize the connection. Try again, or contact your workspace admin if this keeps happening.";
+  return "Couldn't connect to Slack. Please try again.";
+}
 const GITHUB_APP_SETTINGS_URL = "https://github.com/settings/connections/applications";
+
+const GITHUB_DESCRIPTION = "Build and deploy agents directly from your repositories.";
+const SLACK_DESCRIPTION = "Message agents directly from any connected Slack workspace.";
 
 function RequestAccessLink() {
   return (
-    <Button variant="link" size="sm" asChild className="h-auto p-0 font-normal">
-      <a href={GITHUB_APP_SETTINGS_URL} target="_blank" rel="noreferrer">
-        Request access on GitHub
-      </a>
-    </Button>
-  );
-}
-
-function CopyInline({ value, label }: { value: string; label: string }) {
-  const { copy, copied } = useCopyToClipboard(1600);
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={copied ? "Copied!" : label}
-      onClick={() => void copy(value)}
-      className="shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+    <a
+      href={GITHUB_APP_SETTINGS_URL}
+      target="_blank"
+      rel="noreferrer"
+      // Lighter shade of indigo (400) than `--primary` (600) in dark mode for link contrast.
+      className="text-indigo-700 dark:text-indigo-400 underline-offset-2 hover:underline"
     >
-      {copied
-        ? <CheckIcon className="size-3 text-success" />
-        : <Square2StackIcon className="size-3" />}
-    </button>
+      Request access
+    </a>
   );
 }
 
@@ -105,58 +106,67 @@ function GitHubSection() {
     });
   };
 
-  const statusLine: ReactNode = connected
-    ? <>Connected as <span className="font-mono">@{login}</span></>
-    : "Not connected";
-  const metaLine = connected
-    ? `${orgs.length} organization${orgs.length !== 1 ? "s" : ""} accessible`
-    : undefined;
+  const description: ReactNode = connected ? (
+    <>
+      Connected as <span className="font-mono">@{login}</span>
+      {!orgsLoading && ` · ${orgs.length} organization${orgs.length !== 1 ? "s" : ""}`}
+    </>
+  ) : GITHUB_DESCRIPTION;
 
   const action = connected ? (
-    <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleReauthorize}>
-        {connect.isPending ? "Opening GitHub…" : "Reauthorize"}
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={disconnect.isPending}
-        onClick={() => setConfirmOpen(true)}
-      >
-        {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
-      </Button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label="GitHub options">
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          disabled={connect.isPending}
+          onClick={handleReauthorize}
+        >
+          {connect.isPending ? "Opening GitHub…" : "Reauthorize"}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={disconnect.isPending}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   ) : (
-    <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
-      {connect.isPending ? "Connecting…" : "Connect GitHub"}
+    <Button variant="outline" size="sm" aria-label="Connect GitHub" disabled={connect.isPending} onClick={handleConnect}>
+      {connect.isPending ? "Connecting…" : "Connect"}
     </Button>
   );
 
   return (
     <>
-      <ConnectorCard
-        icon={<GitHubIcon className="size-5 text-foreground" aria-hidden />}
-        isLoading={isLoading}
-        status={statusLine}
-        meta={metaLine}
+      <ConnectorRow
+        icon={<GitHubIcon className="size-6 text-foreground" aria-hidden />}
+        name="GitHub"
+        description={description}
         action={action}
+        isLoading={isLoading}
       >
         {connected && (
-          <>
+          <ConnectorRowList>
             {orgsLoading && (
-              <ConnectorCardRow>
+              <ConnectorRowItem>
                 <div className="h-3.5 w-32 rounded animate-pulse bg-muted" />
-              </ConnectorCardRow>
+              </ConnectorRowItem>
             )}
             {!orgsLoading && orgs.length === 0 && (
-              <ConnectorCardRow>
-                <span className="text-muted-foreground italic">
-                  No organizations granted. <RequestAccessLink />.
+              <ConnectorRowItem>
+                <span className="text-muted-foreground">
+                  No organizations have approved Astro yet. <RequestAccessLink /> on GitHub.
                 </span>
-              </ConnectorCardRow>
+              </ConnectorRowItem>
             )}
             {!orgsLoading && orgs.map((o) => (
-              <ConnectorCardRow key={o.login}>
+              <ConnectorRowItem key={o.login}>
                 {o.avatar_url ? (
                   <img
                     src={o.avatar_url}
@@ -167,18 +177,18 @@ function GitHubSection() {
                   <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
                 )}
                 <span className="font-medium text-foreground truncate">{o.login}</span>
-              </ConnectorCardRow>
+              </ConnectorRowItem>
             ))}
             {!orgsLoading && orgs.length > 0 && (
-              <ConnectorCardRow>
-                <span className="text-muted-foreground text-xs">
-                  Missing an org? <RequestAccessLink />.
+              <ConnectorRowItem>
+                <span className="text-muted-foreground">
+                  Missing an organization? <RequestAccessLink /> on GitHub.
                 </span>
-              </ConnectorCardRow>
+              </ConnectorRowItem>
             )}
-          </>
+          </ConnectorRowList>
         )}
-      </ConnectorCard>
+      </ConnectorRow>
 
       <ConfirmationDialog
         open={confirmOpen}
@@ -223,10 +233,13 @@ function SlackSection() {
   const { data: status, isLoading } = useSlackAccountStatus(account, {
     enabled: !!account,
   });
-  const workspaces = status?.workspaces ?? [];
-  const connected = workspaces.length > 0;
   const disconnect = useSlackAccountDisconnect(account);
   const connect = useSlackAccountConnect(account);
+
+  const workspaces = status?.workspaces ?? [];
+  const connected = workspaces.length > 0;
+  const [pendingRemove, setPendingRemove] = useState<{ teamId: string; team: string } | null>(null);
+  const [pendingDisconnectAll, setPendingDisconnectAll] = useState(false);
 
   const handleConnect = () => {
     connect.mutate(RETURN_PATH, {
@@ -238,7 +251,7 @@ function SlackSection() {
     });
   };
 
-  const handleDisconnectOne = (teamID: string) => {
+  const handleRemoveOne = (teamID: string) => {
     const key = slackKeys.accountStatus(account);
     const previous = queryClient.getQueryData<typeof status>(key);
     if (previous) {
@@ -247,6 +260,7 @@ function SlackSection() {
         workspaces: previous.workspaces.filter((w) => w.team_id !== teamID),
       });
     }
+    setPendingRemove(null);
     disconnect.mutate(teamID, {
       onError: () => {
         if (previous) queryClient.setQueryData(key, previous);
@@ -254,72 +268,146 @@ function SlackSection() {
     });
   };
 
-  const statusLine: ReactNode = connected ? "Connected" : "Not connected";
-  const metaLine = connected
-    ? `${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""} linked`
-    : undefined;
+  const handleDisconnectAll = () => {
+    const key = slackKeys.accountStatus(account);
+    const previous = queryClient.getQueryData<typeof status>(key);
+    if (previous) {
+      queryClient.setQueryData(key, { ...previous, workspaces: [] });
+    }
+    setPendingDisconnectAll(false);
+    disconnect.mutate(undefined, {
+      onError: () => {
+        if (previous) queryClient.setQueryData(key, previous);
+      },
+    });
+  };
 
-  const connectAction = (
-    <Button
-      variant="outline"
-      size="sm"
-      aria-label={connected ? "Add Slack workspace" : "Connect Slack"}
-      disabled={connect.isPending}
-      onClick={handleConnect}
-    >
-      {connect.isPending ? "Opening Slack…" : connected ? "Add workspace" : "Connect Slack"}
+  const description: ReactNode = connected
+    ? `Connected · ${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""}`
+    : SLACK_DESCRIPTION;
+
+  const action = connected ? (
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
+        {connect.isPending ? "Opening Slack…" : "Add workspace"}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label="Slack options">
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={disconnect.isPending}
+            onClick={() => setPendingDisconnectAll(true)}
+          >
+            {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : (
+    <Button variant="outline" size="sm" aria-label="Connect Slack" disabled={connect.isPending} onClick={handleConnect}>
+      {connect.isPending ? "Opening Slack…" : "Connect"}
     </Button>
   );
 
   return (
     <>
       {oauthError && (
-        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
-          <p className="text-[12px] text-destructive">
-            Couldn't link your Slack account ({oauthError}). Try again?
-          </p>
+        <div className="mb-3">
+          <ErrorPanel variant="inline">{slackErrorMessage(oauthError)}</ErrorPanel>
         </div>
       )}
 
-      <ConnectorCard
-        icon={<Slack className="size-5" aria-hidden />}
+      <ConnectorRow
+        icon={<Slack className="size-6" aria-hidden />}
+        name="Slack"
+        description={description}
+        action={action}
         isLoading={isLoading}
-        status={statusLine}
-        meta={metaLine}
-        action={connectAction}
       >
-        {connected && workspaces.map((w) => (
-          <ConnectorCardRow key={w.team_id}>
-            {w.icon ? (
-              <img
-                src={w.icon}
-                alt=""
-                className="size-3.5 shrink-0 rounded-sm object-cover"
-              />
-            ) : (
-              <Slack className="size-3.5 shrink-0" aria-hidden />
-            )}
-            <span className="font-medium text-foreground truncate">
-              {w.team || w.team_domain || w.team_id}
-            </span>
-            <div className="ml-auto flex items-center gap-2 min-w-0">
-              {w.slack_username && (
-                <span className="font-mono text-muted-foreground truncate">@{w.slack_username}</span>
-              )}
-              <CopyInline value={w.slack_user_id} label="Copy user ID" />
-              <button
-                type="button"
-                aria-label={`Disconnect ${w.team || w.team_id}`}
-                onClick={() => handleDisconnectOne(w.team_id)}
-                disabled={disconnect.isPending}
-                className="shrink-0 text-muted-foreground hover:text-destructive transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          </ConnectorCardRow>
-        ))}
-      </ConnectorCard>
+        {connected && (
+          <ConnectorRowList>
+            {workspaces.map((w) => (
+              <ConnectorRowItem key={w.team_id}>
+                {w.icon ? (
+                  <img
+                    src={w.icon}
+                    alt=""
+                    className="size-3.5 shrink-0 rounded-sm object-cover"
+                  />
+                ) : (
+                  <Slack className="size-3.5 shrink-0" aria-hidden />
+                )}
+                <span className="font-medium text-foreground truncate">
+                  {w.team || w.team_domain || w.team_id}
+                </span>
+                <div className="ml-auto flex items-center gap-2 min-w-0">
+                  {w.slack_username && (
+                    <span className="font-mono text-muted-foreground truncate">@{w.slack_username}</span>
+                  )}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Disconnect ${w.team || w.team_domain || w.team_id}`}
+                          className="text-muted-foreground hover:text-destructive"
+                          disabled={disconnect.isPending}
+                          onClick={() => setPendingRemove({ teamId: w.team_id, team: w.team || w.team_domain || w.team_id })}
+                        >
+                          <Link2Off className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Disconnect workspace</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </ConnectorRowItem>
+            ))}
+          </ConnectorRowList>
+        )}
+      </ConnectorRow>
+
+      <ConfirmationDialog
+        open={pendingRemove !== null}
+        onOpenChange={(o) => { if (!o) setPendingRemove(null); }}
+        title="Remove Slack workspace?"
+        description={
+          <>
+            Astro will no longer be able to act on messages from <span className="font-semibold text-foreground">{pendingRemove?.team}</span>. You can reconnect anytime.
+          </>
+        }
+        checkboxLabel={<>I understand that removing <span className="font-semibold">{pendingRemove?.team}</span> will stop Astro from acting in that workspace.</>}
+        actionLabel="Remove"
+        pendingLabel="Removing…"
+        error={disconnect.isError ? (disconnect.error as Error) : null}
+        defaultErrorMessage="Failed to remove the workspace. Please try again."
+        isPending={disconnect.isPending}
+        canConfirm
+        onConfirm={() => pendingRemove && handleRemoveOne(pendingRemove.teamId)}
+        onReset={() => disconnect.reset()}
+      />
+
+      <ConfirmationDialog
+        open={pendingDisconnectAll}
+        onOpenChange={setPendingDisconnectAll}
+        title="Disconnect Slack?"
+        description={`This will remove all ${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""} and stop Astro from acting on any Slack messages. You can reconnect anytime.`}
+        checkboxLabel="I understand that disconnecting Slack will remove every workspace."
+        actionLabel="Disconnect Slack"
+        pendingLabel="Disconnecting…"
+        error={disconnect.isError ? (disconnect.error as Error) : null}
+        defaultErrorMessage="Failed to disconnect Slack. Please try again."
+        isPending={disconnect.isPending}
+        canConfirm
+        onConfirm={handleDisconnectAll}
+        onReset={() => disconnect.reset()}
+      />
     </>
   );
 }
@@ -327,17 +415,12 @@ function SlackSection() {
 export default function ConnectorsSettings() {
   return (
     <>
-      <SectionHeader
-        title="GitHub"
-        subtitle="Link a GitHub account so Astro can clone, build, and watch repositories on your behalf."
-      />
-      <GitHubSection />
-      <hr className="my-2 border-border" />
-      <SectionHeader
-        title="Slack"
-        subtitle="Map your Astro identity to your Slack identity in each workspace. Agents use this mapping to authorize requests that reach them from Slack."
-      />
-      <SlackSection />
+      <SectionHeader title="Connectors" subtitle="Connect your Astro account to external services" />
+      <div>
+        <GitHubSection />
+        <SlackSection />
+      </div>
     </>
   );
 }
+
