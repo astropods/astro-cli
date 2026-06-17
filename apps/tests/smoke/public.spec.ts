@@ -8,17 +8,19 @@ test.describe("Homepage (/)", () => {
 
   test("loads with hero content", async ({ page }) => {
     await expect(page).toHaveTitle(/Astro AI/i);
-    await expect(page.getByText("Agent-native infrastructure")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /where agents become teammates/i })).toBeVisible();
   });
 
-  test("install command is visible", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "Copy install command" })).toBeVisible();
+  test("Book a demo CTA is visible and links to the scheduler", async ({ page }) => {
+    const cta = page.getByRole("link", { name: /book a demo/i }).first();
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute("href", /calendar\.app\.google/);
   });
 
-  test("Get started button links to signup", async ({ page }) => {
-    const btn = page.getByRole("link", { name: /get started/i }).first();
-    await expect(btn).toBeVisible();
-    await expect(btn).toHaveAttribute("href", /signup/);
+  test("Login link points to the app", async ({ page }) => {
+    const login = page.getByRole("link", { name: "Login" }).first();
+    await expect(login).toBeVisible();
+    await expect(login).toHaveAttribute("href", /\/login/);
   });
 
   test("Docs nav link is present", async ({ page }) => {
@@ -85,7 +87,7 @@ test.describe("JSON specs", () => {
 test.describe("External links", () => {
   test("Discord invite link is valid and not expired", async ({ page, request }) => {
     await page.goto("/", { waitUntil: "load" });
-    const discordLink = page.getByRole("link", { name: /discord/i });
+    const discordLink = page.getByRole("link", { name: /discord/i }).first();
     await expect(discordLink).toBeVisible();
     const href = await discordLink.getAttribute("href");
     expect(href).toBeTruthy();
