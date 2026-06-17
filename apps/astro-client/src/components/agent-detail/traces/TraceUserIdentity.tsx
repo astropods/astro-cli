@@ -22,5 +22,5 @@ export function TraceUserIdentity({ userId, userDetails, account }: TraceUserIde
     return <SlackUserIdentity user={identity} variant="trace" />;
   }
 
-  return <UserBadge userId={userId} account={account} className="max-w-full" />;
+  return <UserBadge userId={userId} account={account} className="max-w-full text-body-sm" />;
 }

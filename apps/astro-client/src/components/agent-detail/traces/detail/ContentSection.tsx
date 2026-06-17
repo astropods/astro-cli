@@ -90,7 +90,12 @@ export function ContentSection({
 
   return (
     <section className="overflow-hidden rounded-md border border-border/40">
-      <div className="flex items-center gap-2 transition-colors hover:bg-muted/40">
+      <div
+        className={cn(
+          "flex items-center gap-2 transition-colors hover:bg-muted/40",
+          open && "bg-muted/30",
+        )}
+      >
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}

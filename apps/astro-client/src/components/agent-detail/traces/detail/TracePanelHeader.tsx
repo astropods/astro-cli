@@ -28,7 +28,7 @@ export function TracePanelHeader({
         <h3 className="text-heading-4 text-foreground">
           {formatTimestamp(timestamp, true)}
         </h3>
-        <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/40">
+        <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
           {traceId}
         </p>
       </div>

@@ -20,7 +20,8 @@ export function CopyButton({ copyText, title = "Copy", resetMs, iconClassName = 
       variant="outline"
       size="icon"
       title={copied ? "Copied!" : title}
-      onClick={() => {
+      onClick={(e) => {
+        e.stopPropagation();
         const text = typeof copyText === "function" ? copyText() : copyText;
         void copy(text);
       }}

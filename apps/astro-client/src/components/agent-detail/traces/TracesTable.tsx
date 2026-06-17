@@ -73,7 +73,7 @@ function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string 
           <CopyButton
             copyText={trace.trace_id}
             title="Copy trace ID"
-            className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            className="size-6 rounded-sm shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
             iconClassName="size-3"
           />
         </span>

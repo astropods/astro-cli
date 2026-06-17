@@ -82,7 +82,7 @@ export function ObservationTreeNode({
         <div className="flex w-full min-w-0 items-center gap-1.5">
           <Icon
             className="size-3.5 shrink-0"
-            style={{ color: errorTone ? "var(--color-coral-600)" : TYPE_ICON_COLOR[node.type] }}
+            style={{ color: errorTone ? "var(--error)" : TYPE_ICON_COLOR[node.type] }}
           />
           <span className="min-w-0 flex-1 truncate text-body-sm text-foreground">
             <span className="font-medium">
@@ -141,7 +141,7 @@ function NodeStats({
   if (latency <= 0 && !usage && !cost) return null;
 
   const valueClass = "font-mono text-mono-sm";
-  const valueColor = errorTone ? "var(--color-coral-600)" : undefined;
+  const valueColor = errorTone ? "var(--error)" : undefined;
   const mutedClass = "font-mono text-mono-sm text-muted-foreground";
 
   return (
@@ -187,7 +187,7 @@ function Waterfall({
   errorTone: boolean;
 }) {
   const fill = errorTone
-    ? "var(--color-coral-600)"
+    ? "var(--error)"
     : "var(--color-indigo-400)";
 
   return (
