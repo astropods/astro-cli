@@ -30,6 +30,8 @@ export function DeploymentChatRuntimeProvider({
     streamError,
     sendMessage,
     cancelStream,
+    hasMoreHistory,
+    loadOlderMessages,
   } = useDeploymentChat(deploymentId, { conversationId, onConversationCreated });
 
   const threadMessages = useMemo(
@@ -79,11 +81,15 @@ export function DeploymentChatRuntimeProvider({
       historyLoading: historyLoading && !!conversationId,
       isStreaming: assistantStreaming != null,
       streamError,
+      hasMoreHistory,
+      loadOlderMessages,
     }),
     [
       assistantStreaming,
       conversationId,
+      hasMoreHistory,
       historyLoading,
+      loadOlderMessages,
       streamError,
       streamingMessageId,
     ],

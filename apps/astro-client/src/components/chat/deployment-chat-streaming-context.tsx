@@ -6,6 +6,8 @@ export type DeploymentChatViewportState = {
   historyLoading: boolean;
   isStreaming: boolean;
   streamError: string | null;
+  hasMoreHistory: boolean;
+  loadOlderMessages: () => Promise<void>;
 };
 
 const defaultViewportState: DeploymentChatViewportState = {
@@ -14,6 +16,8 @@ const defaultViewportState: DeploymentChatViewportState = {
   historyLoading: false,
   isStreaming: false,
   streamError: null,
+  hasMoreHistory: false,
+  loadOlderMessages: async () => {},
 };
 
 export const DeploymentChatStreamingContext =

@@ -11,11 +11,18 @@ const LOAD_SETTLE_MS = 4000;
  * Live streaming scroll is handled by assistant-ui (`autoScroll` / top anchor).
  */
 export function DeploymentChatHistoryScroll() {
-  const { conversationId, historyLoading, isStreaming, streamingMessageId } =
-    useDeploymentChatViewport();
+  const {
+    conversationId,
+    historyLoading,
+    isStreaming,
+    streamingMessageId,
+    hasMoreHistory,
+    loadOlderMessages,
+  } = useDeploymentChatViewport();
   const scrollToBottom = useThreadViewport((s) => s.scrollToBottom);
   const viewportEl = useThreadViewport((s) => s.element.viewport);
   const generationRef = useRef(0);
+  const loadingOlderRef = useRef(false);
 
   // Conversation switches reuse the same DOM viewport in assistant-ui unless the
   // runtime remounts; always reset scroll position immediately.
@@ -23,6 +30,30 @@ export function DeploymentChatHistoryScroll() {
     if (!conversationId) return;
     scrollToBottom({ behavior: "instant" });
   }, [conversationId, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    const el = viewportEl;
+    if (!el || !conversationId || !hasMoreHistory) return;
+
+    const onScroll = () => {
+      if (loadingOlderRef.current || historyLoading || isStreaming) return;
+      if (el.scrollTop > 48) return;
+      loadingOlderRef.current = true;
+      void loadOlderMessages().finally(() => {
+        loadingOlderRef.current = false;
+      });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [
+    conversationId,
+    hasMoreHistory,
+    historyLoading,
+    isStreaming,
+    loadOlderMessages,
+    viewportEl,
+  ]);
 
   useLayoutEffect(() => {
     const shouldPin =

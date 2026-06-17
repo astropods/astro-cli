@@ -7,12 +7,12 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import {
-  ApiRequestError,
   type ApiClient,
   type GetDeploymentChatConversationResponse,
 } from "@/lib/api";
 import { useApiClient } from "@/lib/api-context";
 import {
+  CHAT_INITIAL_PAGE_LIMIT,
   CHAT_LIVE_TAIL_LIMIT,
   mergeConversationTail,
 } from "@/lib/chat/conversation-sync";
@@ -24,19 +24,9 @@ export async function fetchDeploymentChatConversation(
   deploymentId: string,
   conversationId: string,
 ): Promise<GetDeploymentChatConversationResponse> {
-  try {
-    return await api.getDeploymentChatConversation(deploymentId, conversationId);
-  } catch (err) {
-    if (err instanceof ApiRequestError && err.status === 404) {
-      return {
-        conversation_id: conversationId,
-        title: "New conversation",
-        updated_at: new Date().toISOString(),
-        messages: [],
-      };
-    }
-    throw err;
-  }
+  return api.getDeploymentChatConversation(deploymentId, conversationId, {
+    limit: CHAT_INITIAL_PAGE_LIMIT,
+  });
 }
 
 /** Tail-only refresh for live turns — merges into the cached full thread. */
@@ -98,6 +88,9 @@ export function useDeploymentChatConversation(
       return fetchDeploymentChatConversation(api, deploymentId, conversationId!);
     },
     enabled: !!deploymentId && !!conversationId,
+    staleTime: 30_000,
+    refetchOnMount: (query) =>
+      query.state.data?.assistant_streaming ? "always" : true,
     refetchInterval: (query) =>
       options?.shouldPoll?.(query.state.data) ? CHAT_POLL_MS : false,
   });
@@ -117,7 +110,27 @@ export function useUpsertDeploymentChatConversation(deploymentId: string) {
       api.upsertDeploymentChatConversation(deploymentId, conversationId, {
         title,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, { conversationId }) => {
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.conversations(deploymentId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.conversation(deploymentId, conversationId),
+      });
+    },
+  });
+}
+
+export function useDeleteDeploymentChatConversation(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      api.deleteDeploymentChatConversation(deploymentId, conversationId),
+    onSuccess: (_data, conversationId) => {
+      queryClient.removeQueries({
+        queryKey: chatKeys.conversation(deploymentId, conversationId),
+      });
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversations(deploymentId),
       });

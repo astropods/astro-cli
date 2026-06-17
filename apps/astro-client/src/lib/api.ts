@@ -2228,31 +2228,16 @@ class ApiClient {
     );
   }
 
-  async replaceDeploymentChatMessages(
+  async deleteDeploymentChatConversation(
     deploymentId: string,
     conversationId: string,
-    messages: DeploymentChatMessageRecord[],
-  ): Promise<{ ok: boolean }> {
-    return this.request(
-      this.deploymentChatPath(
-        deploymentId,
-        `conversations/${encodeURIComponent(conversationId)}/messages`,
-      ),
-      { method: "PUT", body: JSON.stringify({ messages }) },
-    );
-  }
-
-  async appendDeploymentChatMessage(
-    deploymentId: string,
-    conversationId: string,
-    message: DeploymentChatMessageRecord,
   ): Promise<void> {
     await this.request(
       this.deploymentChatPath(
         deploymentId,
-        `conversations/${encodeURIComponent(conversationId)}/messages`,
+        `conversations/${encodeURIComponent(conversationId)}`,
       ),
-      { method: "POST", body: JSON.stringify(message) },
+      { method: "DELETE" },
     );
   }
 

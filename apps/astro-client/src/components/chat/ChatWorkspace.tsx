@@ -3,6 +3,10 @@ import { ChevronLeftIcon } from "@heroicons/react/24/outline";
 import { useSearchParams } from "react-router";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { useChatSessions } from "@/hooks/use-chat-sessions";
+import {
+  useDeleteDeploymentChatConversation,
+  useUpsertDeploymentChatConversation,
+} from "@/api/queries/chat";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatSessionSidebar } from "./ChatSessionSidebar";
@@ -24,6 +28,8 @@ export function ChatWorkspace({
 
   const { sessions, recordFirstMessage, isLoading: sessionsLoading } =
     useChatSessions(deploymentId);
+  const renameConversation = useUpsertDeploymentChatConversation(deploymentId);
+  const deleteConversation = useDeleteDeploymentChatConversation(deploymentId);
   const autoSelectedRef = useRef(false);
 
   const setConversationId = useCallback(
@@ -61,13 +67,31 @@ export function ChatWorkspace({
   ]);
 
   const onConversationCreated = useCallback(
-    (convId: string, preview: string) => {
-      recordFirstMessage(convId, preview);
+    async (convId: string, preview: string) => {
+      await recordFirstMessage(convId, preview);
       if (conversationId !== convId) {
         setConversationId(convId);
       }
     },
     [conversationId, recordFirstMessage, setConversationId],
+  );
+
+  const onRenameSession = useCallback(
+    (convId: string, title: string) => {
+      renameConversation.mutate({ conversationId: convId, title });
+    },
+    [renameConversation],
+  );
+
+  const onDeleteSession = useCallback(
+    (convId: string) => {
+      deleteConversation.mutate(convId);
+      if (conversationId === convId) {
+        autoSelectedRef.current = true;
+        setConversationId(null);
+      }
+    },
+    [conversationId, deleteConversation, setConversationId],
   );
 
   return (
@@ -84,6 +108,8 @@ export function ChatWorkspace({
           sessions={sessions}
           activeConversationId={conversationId}
           onSelectSession={setConversationId}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
         />
       </aside>
       <section

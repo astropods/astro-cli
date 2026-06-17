@@ -34,6 +34,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -1453,20 +1454,23 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentRuntimeResponse{}),
 			)
-			// Messaging proxy — send + SSE only (see deployment-chat.md; durable history TODO: Langfuse).
-			// Validates Astro session, forwards to the deployment messaging sidecar, and
-			// injects x-amzn-oidc-identity for upstream auth.
-			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
+			// Chat store backs sidebar metadata and durable message bodies (messaging
+			// proxy persistence). Langfuse traces hydrate when available.
+			chatStore := chatstore.NewStore(db)
+			// Messaging proxy — send + SSE; mirrors user sends and assistant streams
+			// into chatstore so history survives navigation and reloads.
+			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg, chatStore)
 			protected.Any("/deployments/:id/messaging/*proxyPath", messagingProxy)
+			chatLangfuseStore := langfuse.NewStore(db)
 			api.GET(protected, "/deployments/:id/chat/conversations", "List deployment chat conversations",
-				handlers.ListDeploymentChatConversations(log, accountStore, deploymentStore),
+				handlers.ListDeploymentChatConversations(log, accountStore, deploymentStore, chatStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.ListChatConversationsResponse{}),
 			)
 			api.GET(protected, "/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
-				handlers.GetDeploymentChatConversation(log, accountStore, deploymentStore),
+				handlers.GetDeploymentChatConversation(log, cfg, accountStore, deploymentStore, chatStore, chatLangfuseStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1476,21 +1480,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.GetChatConversationResponse{}),
 			)
 			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId", "Upsert deployment chat conversation",
-				handlers.UpsertDeploymentChatConversation(log, accountStore, deploymentStore),
+				handlers.UpsertDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("conversationId", "Conversation ID"),
 			)
-			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId/messages", "Replace deployment chat messages",
-				handlers.ReplaceDeploymentChatMessages(log, accountStore, deploymentStore),
-				oapispec.Tags("Chat"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("conversationId", "Conversation ID"),
-			)
-			api.POST(protected, "/deployments/:id/chat/conversations/:conversationId/messages", "Append deployment chat message",
-				handlers.AppendDeploymentChatMessage(log, accountStore, deploymentStore),
+			api.DELETE(protected, "/deployments/:id/chat/conversations/:conversationId", "Delete deployment chat conversation",
+				handlers.DeleteDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

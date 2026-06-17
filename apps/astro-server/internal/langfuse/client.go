@@ -177,38 +177,80 @@ type DailyMetricsResponse struct {
 	} `json:"meta"`
 }
 
+// traceFilter narrows a /api/public/traces query. The deployment tag is always
+// applied; userID and sessionID are optional additional filters.
+type traceFilter struct {
+	deploymentID string
+	userID       string
+	sessionID    string
+	startTime    string
+	endTime      string
+	limit        int
+	offset       int
+	fields       string
+	orderBy      string
+}
+
 // GetTraces returns traces filtered by deployment ID tag.
 func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
-	return c.getTraces(ctx, deploymentID, startTime, endTime, limit, offset, "", "")
+	return c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		startTime:    startTime,
+		endTime:      endTime,
+		limit:        limit,
+		offset:       offset,
+	})
 }
 
-// GetDatasetTraces returns the trace fields needed to build dataset items.
-// Orders ascending by timestamp so offset paging over a frozen
-// [fromTimestamp, toTimestamp] window is stable across requests.
-func (c *Client) GetDatasetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
-	return c.getTraces(ctx, deploymentID, startTime, endTime, limit, offset, "core,io", "timestamp.asc")
+// GetSessionTraces returns every trace in one conversation (Langfuse session),
+// scoped to a single user, ordered oldest-first with trace input/output so the
+// chat history can be reconstructed turn-by-turn. The deployment tag plus the
+// user filter ensure a caller only ever reads their own conversation.
+func (c *Client) GetSessionTraces(
+	ctx context.Context,
+	deploymentID, userID, sessionID string,
+	limit int,
+	orderBy string,
+) (*TracesResponse, error) {
+	if orderBy == "" {
+		orderBy = "timestamp.asc"
+	}
+	return c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		userID:       userID,
+		sessionID:    sessionID,
+		limit:        limit,
+		fields:       "core,io",
+		orderBy:      orderBy,
+	})
 }
 
-func (c *Client) getTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int, fields, orderBy string) (*TracesResponse, error) {
+func (c *Client) getTraces(ctx context.Context, f traceFilter) (*TracesResponse, error) {
 	params := url.Values{}
-	params.Set("tags", "deployment:"+deploymentID)
-	if startTime != "" {
-		params.Set("fromTimestamp", startTime)
+	params.Set("tags", "deployment:"+f.deploymentID)
+	if f.userID != "" {
+		params.Set("userId", f.userID)
 	}
-	if endTime != "" {
-		params.Set("toTimestamp", endTime)
+	if f.sessionID != "" {
+		params.Set("sessionId", f.sessionID)
 	}
-	if limit > 0 {
-		params.Set("limit", fmt.Sprintf("%d", limit))
+	if f.startTime != "" {
+		params.Set("fromTimestamp", f.startTime)
 	}
-	if offset > 0 {
-		params.Set("page", fmt.Sprintf("%d", offset/max(limit, 1)+1))
+	if f.endTime != "" {
+		params.Set("toTimestamp", f.endTime)
 	}
-	if fields != "" {
-		params.Set("fields", fields)
+	if f.limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", f.limit))
 	}
-	if orderBy != "" {
-		params.Set("orderBy", orderBy)
+	if f.offset > 0 {
+		params.Set("page", fmt.Sprintf("%d", f.offset/max(f.limit, 1)+1))
+	}
+	if f.fields != "" {
+		params.Set("fields", f.fields)
+	}
+	if f.orderBy != "" {
+		params.Set("orderBy", f.orderBy)
 	}
 
 	var result TracesResponse

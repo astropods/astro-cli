@@ -34,7 +34,7 @@ func setupMessagingProxyRouter(upstreamURL string, withAuth bool) (*gin.Engine, 
 		router.Use(setAuthUser("user-workos-1"))
 	}
 
-	handler := ProxyDeploymentMessaging(log, accountStore, deployStore, nil, cfg)
+	handler := ProxyDeploymentMessaging(log, accountStore, deployStore, nil, cfg, nil)
 	router.Any("/deployments/:id/messaging/*proxyPath", handler)
 
 	return router, accountMock, deployMock

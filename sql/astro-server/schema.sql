@@ -718,6 +718,58 @@ CREATE TABLE public.deployment_authorization_grants (
 
 CREATE INDEX idx_deployment_authorization_grants_deployment ON public.deployment_authorization_grants(deployment_id);
 
+-- Durable metadata for deployment chat conversations (web chat UI).
+--
+-- Message *content* is NOT stored here — it lives in Langfuse traces keyed by
+-- session_id = conversation_id. This table only powers the conversation sidebar:
+-- list, recency ordering, title, rename, and soft-delete. The only user
+-- identifier is the opaque WorkOS user id (same posture as account_members) —
+-- no PII and no message bodies are persisted.
+--
+-- conversation_id is the client-generated UUID that is also forwarded to the
+-- messaging sidecar and emitted as the Langfuse session id, so a row here joins
+-- to its messages purely by that id.
+CREATE TABLE public.deployment_chat_conversations (
+    deployment_id   varchar     NOT NULL,
+    conversation_id varchar     NOT NULL,
+    account_id      uuid        NOT NULL,
+    user_id         text        NOT NULL,
+    title           varchar     NOT NULL DEFAULT '',
+    assistant_stream_active_at timestamptz NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    archived_at     timestamptz NULL,
+    CONSTRAINT deployment_chat_conversations_pkey PRIMARY KEY (deployment_id, conversation_id),
+    CONSTRAINT deployment_chat_conversations_deployment_fkey FOREIGN KEY (deployment_id)
+        REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+-- Sidebar query: active conversations for one (deployment, user) by recency.
+CREATE INDEX idx_deployment_chat_conversations_user
+    ON public.deployment_chat_conversations(deployment_id, user_id, updated_at DESC)
+    WHERE archived_at IS NULL;
+
+-- Message bodies for deployment chat. Primary durable store when Langfuse traces
+-- are unavailable (e.g. local dev without OTEL export); Langfuse remains the
+-- long-term content store where configured. Scoped by (deployment_id,
+-- conversation_id) and owned by the same user as the metadata row.
+CREATE TABLE public.deployment_chat_messages (
+    id              uuid        NOT NULL DEFAULT gen_random_uuid(),
+    deployment_id   varchar     NOT NULL,
+    conversation_id varchar     NOT NULL,
+    role            varchar     NOT NULL,
+    content         text        NOT NULL,
+    seq             integer     NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_chat_messages_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_chat_messages_role_check CHECK (role IN ('user', 'assistant')),
+    CONSTRAINT deployment_chat_messages_conversation_fkey FOREIGN KEY (deployment_id, conversation_id)
+        REFERENCES public.deployment_chat_conversations(deployment_id, conversation_id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_chat_messages_conv_seq
+    ON public.deployment_chat_messages(deployment_id, conversation_id, seq);
+
 -- Billing state tables for event-driven compute metering.
 -- Tracks what has been billed so inline events and the heartbeat reconciler
 -- can calculate fractional CU-hours without double-counting.

@@ -1,31 +1,46 @@
 // Deployment chat HTTP handlers — platform API for conversation history.
 // Any authenticated client (web, CLI, etc.) uses these routes; messaging proxy is separate.
 //
-// TODO: Back deployment chat history with Langfuse traces (tagged by conversation_id)
-// instead of astro-server Postgres. See docs/04-guides/deployment-chat.md.
+// Storage is split by sensitivity: conversation *metadata* (the sidebar — list,
+// title, recency, soft-delete) lives in astro Postgres (chatstore), keyed by the
+// opaque WorkOS user id with no message bodies. Message *content* is written by the
+// messaging proxy (send + SSE) and hydrated on read from Langfuse traces and/or
+// Postgres. See docs/04-guides/deployment-chat.md.
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+// chatDefaultSessionTraces is the default Langfuse trace fetch for the latest
+// page of a conversation (≈ one message per trace, two roles per trace).
+const chatDefaultSessionTraces = 50
+
+// chatMaxSessionTraces caps Langfuse fetches when loading older history.
+const chatMaxSessionTraces = 500
+
 const (
-	chatMaxTitleRunes           = 200
-	chatMaxMessageContentRunes  = 128_000
-	chatMaxMessagesPerThread    = 1000
-	chatMaxGetConversationLimit = chatMaxMessagesPerThread
+	chatDefaultConversationLimit = 100
+	chatMaxTitleRunes            = 200
+	chatMaxGetConversationLimit  = 1000
 )
 
 type ChatConversationSummaryResponse struct {
@@ -60,13 +75,6 @@ type UpsertChatConversationInput struct {
 	Title string `json:"title"`
 }
 
-type ReplaceChatMessagesInput struct {
-	Messages []ChatMessageResponse `json:"messages"`
-}
-
-// AppendChatMessageInput shares the wire shape of ChatMessageResponse.
-type AppendChatMessageInput ChatMessageResponse
-
 type chatConversationPage struct {
 	Limit     int
 	BeforeSeq int
@@ -82,27 +90,6 @@ func parseConversationID(raw string) (string, bool) {
 		return "", false
 	}
 	return id.String(), true
-}
-
-func parseMessageID(raw string) (string, bool) {
-	return parseConversationID(raw)
-}
-
-func validateChatMessage(m ChatMessageResponse) error {
-	if _, ok := parseMessageID(m.ID); !ok {
-		return errInvalid("invalid message id")
-	}
-	role := strings.TrimSpace(m.Role)
-	if role != "user" && role != "assistant" {
-		return errInvalid("role must be user or assistant")
-	}
-	if strings.TrimSpace(m.Content) == "" {
-		return errInvalid("message content is required")
-	}
-	if utf8.RuneCountInString(m.Content) > chatMaxMessageContentRunes {
-		return errInvalid("message content too long")
-	}
-	return nil
 }
 
 type chatInvalidError struct{ msg string }
@@ -138,10 +125,13 @@ func chatInvalidFromErr(err error) (chatInvalidError, bool) {
 }
 
 // ListDeploymentChatConversations handles GET /api/v1/deployments/:id/chat/conversations.
+// Returns the authenticated user's active conversations for this deployment,
+// most-recent first. Served entirely from metadata (no Langfuse call).
 func ListDeploymentChatConversations(
-	_ *logger.Logger,
+	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -150,21 +140,41 @@ func ListDeploymentChatConversations(
 			return
 		}
 
-		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
-		_ = user
-		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: []ChatConversationSummaryResponse{}})
+		convs, err := chatStore.ListByUser(dep.ID, user.ID)
+		if err != nil {
+			log.Error("Failed to list chat conversations", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list conversations"})
+			return
+		}
+
+		out := make([]ChatConversationSummaryResponse, 0, len(convs))
+		for _, conv := range convs {
+			out = append(out, ChatConversationSummaryResponse{
+				ConversationID: conv.ConversationID,
+				Title:          conv.Title,
+				UpdatedAt:      conv.UpdatedAt,
+			})
+		}
+		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: out})
 	}
 }
 
 // GetDeploymentChatConversation handles GET /api/v1/deployments/:id/chat/conversations/:conversationId.
+// Verifies the conversation belongs to the authenticated user (metadata row),
+// then hydrates the message thread from Langfuse traces keyed by session id.
 func GetDeploymentChatConversation(
-	_ *logger.Logger,
+	log *logger.Logger,
+	cfg *config.Config,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	chatStore *chatstore.Store,
+	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -173,7 +183,8 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -184,7 +195,8 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		if _, err := parseConversationPage(c); err != nil {
+		page, err := parseConversationPage(c)
+		if err != nil {
 			if inv, ok := chatInvalidFromErr(err); ok {
 				c.JSON(http.StatusBadRequest, gin.H{"error": inv.Error()})
 				return
@@ -193,22 +205,308 @@ func GetDeploymentChatConversation(
 			return
 		}
 
-		_ = user
+		// Ownership: only the user who owns the metadata row may read it. This is
+		// the authoritative per-user scope on top of account membership.
+		conv, err := chatStore.Get(dep.ID, convID)
+		if err != nil {
+			log.Error("Failed to load chat conversation", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load conversation"})
+			return
+		}
+		if conv == nil || conv.UserID != user.ID {
+			c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+			return
+		}
+
+		thread := hydrateConversationMessages(
+			c.Request.Context(), log, cfg, langfuseStore, chatStore, dep, user.ID, convID, page,
+		)
+		messages, hasMore, oldestSeq := paginateConversationMessages(thread.messages, page, thread.truncated)
+
+		assistantStreaming := false
+		if active, err := chatStore.AssistantStreamActive(dep.ID, convID); err != nil {
+			log.Warn("Failed to check assistant stream state",
+				"deployment_id", dep.ID, "conversation_id", convID, "error", err)
+		} else {
+			assistantStreaming = active
+		}
+
 		c.JSON(http.StatusOK, GetChatConversationResponse{
 			ConversationID:     convID,
-			Title:              "New conversation",
-			UpdatedAt:          time.Now().UTC(),
-			Messages:           []ChatMessageResponse{},
-			AssistantStreaming: false,
+			Title:              conv.Title,
+			UpdatedAt:          conv.UpdatedAt,
+			Messages:           messages,
+			AssistantStreaming: assistantStreaming,
+			HasMore:            hasMore,
+			OldestSeq:          oldestSeq,
 		})
 	}
 }
 
+type hydratedThread struct {
+	messages  []ChatMessageResponse
+	truncated bool
+}
+
+// hydrateConversationMessages reconstructs the chat thread. Langfuse traces are
+// preferred when present; otherwise messages are read from the messaging-proxy
+// persistence layer in Postgres (primary in dev when OTEL export is off).
+func hydrateConversationMessages(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	chatStore *chatstore.Store,
+	dep *deploymentstore.Deployment,
+	userID, conversationID string,
+	page chatConversationPage,
+) hydratedThread {
+	langfuseMsgs, langfuseTruncated := hydrateFromLangfuse(
+		ctx, log, cfg, langfuseStore, dep, userID, conversationID, page,
+	)
+	postgresMsgs := hydrateFromChatStore(log, chatStore, dep.ID, conversationID)
+	selected := selectLongerHydratedThread(langfuseMsgs, postgresMsgs)
+	truncated := langfuseTruncated && len(langfuseMsgs) >= len(postgresMsgs)
+	return hydratedThread{messages: selected, truncated: truncated}
+}
+
+// selectLongerHydratedThread picks the more complete thread when Langfuse traces
+// lag behind messaging-proxy Postgres persistence (common during live turns).
+func selectLongerHydratedThread(langfuseMsgs, postgresMsgs []ChatMessageResponse) []ChatMessageResponse {
+	if len(langfuseMsgs) == 0 {
+		return postgresMsgs
+	}
+	if len(postgresMsgs) > len(langfuseMsgs) {
+		return postgresMsgs
+	}
+	return langfuseMsgs
+}
+
+func paginateConversationMessages(
+	all []ChatMessageResponse,
+	page chatConversationPage,
+	sourceTruncated bool,
+) (messages []ChatMessageResponse, hasMore bool, oldestSeq int) {
+	limit := page.Limit
+	if limit == 0 {
+		limit = chatDefaultConversationLimit
+	}
+	n := len(all)
+	if n == 0 {
+		return nil, false, 0
+	}
+
+	if page.BeforeSeq > 0 {
+		end := page.BeforeSeq - 1
+		if end < 1 {
+			return nil, false, 0
+		}
+		start := end - limit + 1
+		if start < 1 {
+			start = 1
+		}
+		return all[start-1 : end], start > 1, start
+	}
+
+	if n <= limit {
+		return all, sourceTruncated, 1
+	}
+	start := n - limit
+	return all[start:], true, start + 1
+}
+
+func langfuseTraceLimit(page chatConversationPage) int {
+	if page.BeforeSeq > 0 {
+		return chatMaxSessionTraces
+	}
+	msgLimit := page.Limit
+	if msgLimit == 0 {
+		msgLimit = chatDefaultConversationLimit
+	}
+	traces := (msgLimit + 1) / 2
+	if traces < chatDefaultSessionTraces {
+		traces = chatDefaultSessionTraces
+	}
+	if traces > chatMaxSessionTraces {
+		traces = chatMaxSessionTraces
+	}
+	return traces
+}
+
+func langfuseHydrationCacheKey(deploymentID, userID, conversationID string) string {
+	return deploymentID + ":" + userID + ":" + conversationID
+}
+
+func hydrateFromLangfuse(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	dep *deploymentstore.Deployment,
+	userID, conversationID string,
+	page chatConversationPage,
+) ([]ChatMessageResponse, bool) {
+	cacheKey := langfuseHydrationCacheKey(dep.ID, userID, conversationID)
+	if page.BeforeSeq == 0 {
+		if cached, truncated, ok := chatLangfuseHydrationCache.get(cacheKey); ok {
+			return cached, truncated
+		}
+	}
+
+	creds, err := langfuseStore.Get(dep.AccountID)
+	if err != nil || creds == nil {
+		log.Debug("Langfuse not configured; skipping trace hydration",
+			"deployment_id", dep.ID, "error", err)
+		return nil, false
+	}
+
+	traceLimit := langfuseTraceLimit(page)
+	orderBy := "timestamp.desc"
+	if page.BeforeSeq > 0 {
+		orderBy = "timestamp.asc"
+	}
+
+	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+	resp, err := client.GetSessionTraces(ctx, dep.ID, userID, conversationID, traceLimit, orderBy)
+	if err != nil {
+		log.Warn("Failed to hydrate chat history from Langfuse",
+			"deployment_id", dep.ID, "conversation_id", conversationID, "error", err)
+		return nil, false
+	}
+
+	traces := resp.Data
+	if orderBy == "timestamp.desc" {
+		sort.SliceStable(traces, func(i, j int) bool {
+			return traces[i].CreatedAt < traces[j].CreatedAt
+		})
+	}
+
+	messages := tracesToChatMessages(traces)
+	truncated := resp.Meta.TotalItems > len(traces) || len(traces) >= traceLimit
+
+	if page.BeforeSeq == 0 {
+		chatLangfuseHydrationCache.set(cacheKey, messages, truncated)
+	}
+	return messages, truncated
+}
+
+func tracesToChatMessages(traces []langfuse.Trace) []ChatMessageResponse {
+	messages := make([]ChatMessageResponse, 0, len(traces)*2)
+	for _, t := range traces {
+		if userText := traceContentText(t.Input); userText != "" {
+			messages = append(messages, ChatMessageResponse{
+				ID:      t.ID + "-u",
+				Role:    "user",
+				Content: userText,
+			})
+		}
+		if assistantText := traceContentText(t.Output); assistantText != "" {
+			messages = append(messages, ChatMessageResponse{
+				ID:      t.ID + "-a",
+				Role:    "assistant",
+				Content: assistantText,
+			})
+		}
+	}
+	return messages
+}
+
+func hydrateFromChatStore(
+	log *logger.Logger,
+	chatStore *chatstore.Store,
+	deploymentID, conversationID string,
+) []ChatMessageResponse {
+	stored, err := chatStore.ListMessages(deploymentID, conversationID)
+	if err != nil {
+		log.Warn("Failed to hydrate chat history from Postgres",
+			"deployment_id", deploymentID, "conversation_id", conversationID, "error", err)
+		return []ChatMessageResponse{}
+	}
+	out := make([]ChatMessageResponse, 0, len(stored))
+	for _, m := range stored {
+		out = append(out, ChatMessageResponse{
+			ID:      m.ID,
+			Role:    m.Role,
+			Content: m.Content,
+		})
+	}
+	return out
+}
+
+// traceContentText best-effort extracts a display string from a Langfuse trace
+// input/output value, which may be a plain string, a message object, or a list
+// of message objects depending on the agent framework.
+func traceContentText(v any) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(val)
+	case map[string]any:
+		for _, key := range []string{"content", "text", "message", "output", "value", "response"} {
+			if s, ok := val[key].(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+		// Some frameworks nest the last message under "messages".
+		if msgs, ok := val["messages"].([]any); ok {
+			if s := lastMessageText(msgs); s != "" {
+				return s
+			}
+		}
+		return jsonFallback(val)
+	case []any:
+		if s := lastMessageText(val); s != "" {
+			return s
+		}
+		return jsonFallback(val)
+	default:
+		return jsonFallback(val)
+	}
+}
+
+// lastMessageText pulls the content of the last string-bearing entry from a
+// slice of message-like values (objects with a "content"/"text" field, or bare
+// strings).
+func lastMessageText(items []any) string {
+	for i := len(items) - 1; i >= 0; i-- {
+		switch item := items[i].(type) {
+		case string:
+			if s := strings.TrimSpace(item); s != "" {
+				return s
+			}
+		case map[string]any:
+			for _, key := range []string{"content", "text"} {
+				if s, ok := item[key].(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func jsonFallback(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "null" || s == `""` || s == "{}" || s == "[]" {
+		return ""
+	}
+	return s
+}
+
 // UpsertDeploymentChatConversation handles PUT /api/v1/deployments/:id/chat/conversations/:conversationId.
+// Creates the conversation row (on first send / "New conversation"), renames it
+// (non-empty title), or just bumps recency (empty title = touch). The opaque
+// WorkOS user id is the only identity persisted.
 func UpsertDeploymentChatConversation(
-	_ *logger.Logger,
+	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -217,7 +515,8 @@ func UpsertDeploymentChatConversation(
 			return
 		}
 
-		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -234,24 +533,30 @@ func UpsertDeploymentChatConversation(
 			return
 		}
 		title := strings.TrimSpace(input.Title)
-		if title == "" {
-			title = "New conversation"
-		}
 		if utf8.RuneCountInString(title) > chatMaxTitleRunes {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "title too long"})
 			return
 		}
 
-		_ = user
+		if err := chatStore.Upsert(dep.ID, convID, dep.AccountID, user.ID, title); err != nil {
+			log.Error("Failed to upsert chat conversation", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save conversation"})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{"conversation_id": convID, "title": title})
 	}
 }
 
-// ReplaceDeploymentChatMessages handles PUT /api/v1/deployments/:id/chat/conversations/:conversationId/messages.
-func ReplaceDeploymentChatMessages(
-	_ *logger.Logger,
+// DeleteDeploymentChatConversation handles DELETE /api/v1/deployments/:id/chat/conversations/:conversationId.
+// Soft-deletes the conversation for the owning user. Langfuse traces are left
+// intact (purged with the account); the thread simply disappears from the list
+// and subsequent reads 404.
+func DeleteDeploymentChatConversation(
+	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -260,7 +565,8 @@ func ReplaceDeploymentChatMessages(
 			return
 		}
 
-		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
@@ -271,76 +577,17 @@ func ReplaceDeploymentChatMessages(
 			return
 		}
 
-		var input ReplaceChatMessagesInput
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		deleted, err := chatStore.SoftDelete(dep.ID, convID, user.ID)
+		if err != nil {
+			log.Error("Failed to delete chat conversation", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete conversation"})
+			return
+		}
+		if !deleted {
+			c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 			return
 		}
 
-		if len(input.Messages) > chatMaxMessagesPerThread {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "too many messages"})
-			return
-		}
-
-		for _, m := range input.Messages {
-			if err := validateChatMessage(m); err != nil {
-				if inv, ok := chatInvalidFromErr(err); ok {
-					c.JSON(http.StatusBadRequest, gin.H{"error": inv.Error()})
-					return
-				}
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message"})
-				return
-			}
-		}
-
-		_ = user
-		_ = convID
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	}
-}
-
-// AppendDeploymentChatMessage handles POST /api/v1/deployments/:id/chat/conversations/:conversationId/messages.
-func AppendDeploymentChatMessage(
-	_ *logger.Logger,
-	accountStore *account.AccountStore,
-	deployStore *deploymentstore.Store,
-) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		if _, err := resolveDeployment(c, deployStore, accountStore); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
-		}
-
-		convID, ok := parseConversationID(c.Param("conversationId"))
-		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid conversation id"})
-			return
-		}
-
-		var input AppendChatMessageInput
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-			return
-		}
-
-		msg := ChatMessageResponse(input)
-		if err := validateChatMessage(msg); err != nil {
-			if inv, ok := chatInvalidFromErr(err); ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": inv.Error()})
-				return
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid message"})
-			return
-		}
-
-		_ = user
-		_ = convID
-		c.Status(http.StatusCreated)
+		c.Status(http.StatusNoContent)
 	}
 }

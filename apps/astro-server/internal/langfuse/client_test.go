@@ -110,7 +110,7 @@ func TestGetTraces_QueryParams(t *testing.T) {
 	}
 }
 
-func TestGetDatasetTraces_QueryParams(t *testing.T) {
+func TestGetSessionTraces_QueryParams(t *testing.T) {
 	var gotQuery map[string][]string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,18 +121,24 @@ func TestGetDatasetTraces_QueryParams(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	_, err := c.GetDatasetTraces(context.Background(), "dep-1", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", 50, 50)
+	_, err := c.GetSessionTraces(
+		context.Background(),
+		"dep-1",
+		"user-1",
+		"conv-1",
+		50,
+		"timestamp.desc",
+	)
 	if err != nil {
-		t.Fatalf("GetDatasetTraces returned error: %v", err)
+		t.Fatalf("GetSessionTraces returned error: %v", err)
 	}
 
 	assertParam(t, gotQuery, "tags", "deployment:dep-1")
-	assertParam(t, gotQuery, "fromTimestamp", "2026-01-01T00:00:00Z")
-	assertParam(t, gotQuery, "toTimestamp", "2026-01-02T00:00:00Z")
+	assertParam(t, gotQuery, "userId", "user-1")
+	assertParam(t, gotQuery, "sessionId", "conv-1")
 	assertParam(t, gotQuery, "limit", "50")
-	assertParam(t, gotQuery, "page", "2")
 	assertParam(t, gotQuery, "fields", "core,io")
-	assertParam(t, gotQuery, "orderBy", "timestamp.asc")
+	assertParam(t, gotQuery, "orderBy", "timestamp.desc")
 }
 
 func TestGetDailyMetrics_QueryParams(t *testing.T) {

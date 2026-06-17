@@ -1,5 +1,8 @@
 import type { GetDeploymentChatConversationResponse } from "@/lib/api";
 
+/** Initial history page when opening a conversation. */
+export const CHAT_INITIAL_PAGE_LIMIT = 100;
+
 /** Tail page size for live refresh while a turn is in flight (poll / SSE chunk). */
 export const CHAT_LIVE_TAIL_LIMIT = 32;
 
@@ -39,5 +42,21 @@ export function mergeConversationTail(
     has_more: keptPrefix > 0 || !!existing.has_more || !!tail.has_more,
     oldest_seq:
       keptPrefix > 0 ? existing.oldest_seq : tail.oldest_seq,
+  };
+}
+
+/** Prepend an older page fetched via before_seq. */
+export function mergeConversationOlder(
+  existing: GetDeploymentChatConversationResponse,
+  older: GetDeploymentChatConversationResponse,
+): GetDeploymentChatConversationResponse {
+  return {
+    conversation_id: existing.conversation_id,
+    title: existing.title,
+    updated_at: existing.updated_at,
+    assistant_streaming: existing.assistant_streaming,
+    messages: [...older.messages, ...existing.messages],
+    has_more: older.has_more,
+    oldest_seq: older.oldest_seq,
   };
 }

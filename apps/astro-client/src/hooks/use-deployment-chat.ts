@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
-import { ApiRequestError } from "@/lib/api";
-import type { ChatMessage } from "@/lib/chat/message";
+import { ApiRequestError, type GetDeploymentChatConversationResponse } from "@/lib/api";
+import {
+  type ChatMessage,
+  mapServerMessages,
+  mergeLocalAndServerMessages,
+} from "@/lib/chat/message";
+import { useDeploymentChatConversation } from "@/api/queries/chat";
+import { chatKeys } from "@/api/queries/keys";
+import {
+  CHAT_INITIAL_PAGE_LIMIT,
+  mergeConversationOlder,
+} from "@/lib/chat/conversation-sync";
 import { openMessagingStream } from "@/lib/messaging/transport";
 
 const IN_FLIGHT_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
- * Platform deployment chat with in-session history only.
+ * Platform deployment chat.
  *
- * TODO: Replace client-local message state with Langfuse-backed history from
- * astro-server once durable storage moves off Postgres.
+ * Persisted history is hydrated from astro-server (Langfuse-backed, keyed by
+ * conversation id) when a conversation is opened. Live turns are appended to
+ * local state and streamed via SSE; a just-sent turn stays local until its
+ * Langfuse trace lands, at which point it is de-duplicated against the server
+ * snapshot by (role, content).
  */
 export function useDeploymentChat(
   deploymentId: string,
@@ -20,6 +34,7 @@ export function useDeploymentChat(
   },
 ) {
   const api = useApiClient();
+  const queryClient = useQueryClient();
   const conversationIdFromOptions = options?.conversationId ?? null;
   const onConversationCreated = options?.onConversationCreated;
 
@@ -33,6 +48,24 @@ export function useDeploymentChat(
   const sendLockRef = useRef(false);
 
   const activeConversationId = conversationIdFromOptions ?? createdConversationId;
+
+  // Persisted history (Postgres + Langfuse). Refetches when stale or while a
+  // turn is in flight (see chat.ts query options).
+  const {
+    data: serverData,
+    isLoading: historyQueryLoading,
+    isFetching: historyFetching,
+  } = useDeploymentChatConversation(deploymentId, activeConversationId);
+
+  const serverMessages = useMemo(
+    () => mapServerMessages(serverData?.messages ?? [], null),
+    [serverData?.messages],
+  );
+
+  const historyLoading =
+    !!activeConversationId &&
+    (historyQueryLoading ||
+      (historyFetching && serverMessages.length === 0));
 
   const appendAssistantChunk = useCallback((content: string, chunkType?: string) => {
     setLocalMessages((prev) => {
@@ -134,7 +167,15 @@ export function useDeploymentChat(
     isStreaming,
   ]);
 
-  const messages = useMemo(() => localMessages, [localMessages]);
+  // Server history first, then local turns not yet reflected server-side. Once
+  // the server snapshot catches up with the trailing local turns (Langfuse
+  // trace landed + a refetch), those turns are dropped to avoid duplicates.
+  // Matching is anchored to the tail (in order) so a repeated identical message
+  // earlier in history is never mistaken for an unconfirmed local turn.
+  const messages = useMemo(
+    () => mergeLocalAndServerMessages(serverMessages, localMessages),
+    [serverMessages, localMessages],
+  );
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -196,13 +237,42 @@ export function useDeploymentChat(
     return tail?.role === "assistant" ? tail.id : null;
   }, [isStreaming, messages]);
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeConversationId || !serverData?.has_more || !serverData.oldest_seq) {
+      return;
+    }
+    const key = chatKeys.conversation(deploymentId, activeConversationId);
+    const existing =
+      queryClient.getQueryData<GetDeploymentChatConversationResponse>(key) ??
+      serverData;
+    if (!existing.has_more || !existing.oldest_seq) return;
+
+    const older = await api.getDeploymentChatConversation(
+      deploymentId,
+      activeConversationId,
+      {
+        limit: CHAT_INITIAL_PAGE_LIMIT,
+        before_seq: existing.oldest_seq,
+      },
+    );
+    queryClient.setQueryData(key, mergeConversationOlder(existing, older));
+  }, [
+    activeConversationId,
+    api,
+    deploymentId,
+    queryClient,
+    serverData,
+  ]);
+
   return {
     messages,
     conversationId: activeConversationId,
     isStreaming,
     assistantStreaming,
     streamError,
-    historyLoading: false,
+    historyLoading: historyLoading && !!activeConversationId,
+    hasMoreHistory: !!serverData?.has_more,
+    loadOlderMessages,
     sendMessage,
     cancelStream,
   };
