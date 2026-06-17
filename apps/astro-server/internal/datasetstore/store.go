@@ -8,6 +8,7 @@ import (
 
 // EvalDataset is a row in the eval_datasets table.
 type EvalDataset struct {
+	ID                  string
 	DeploymentID        string
 	AccountID           string
 	LangfuseDatasetName string
@@ -26,15 +27,15 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Get returns the dataset record for a deployment, or nil if none exists.
-func (s *Store) Get(deploymentID string) (*EvalDataset, error) {
+// GetByDeploymentID returns the dataset record for a deployment, or nil if none exists.
+func (s *Store) GetByDeploymentID(deploymentID string) (*EvalDataset, error) {
 	var d EvalDataset
 	err := s.db.QueryRow(`
-		SELECT deployment_id, account_id, langfuse_dataset_name, item_count, created_at, updated_at
+		SELECT id, deployment_id, account_id, langfuse_dataset_name, item_count, created_at, updated_at
 		FROM eval_datasets
 		WHERE deployment_id = $1
 	`, deploymentID).Scan(
-		&d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName, &d.ItemCount,
+		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName, &d.ItemCount,
 		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -59,10 +60,10 @@ func (s *Store) Create(d *EvalDataset) error {
 	return nil
 }
 
-// Repoint flips the Langfuse dataset name a row points at and resets the
-// cached item count, since the new Langfuse dataset starts empty. Used to
-// heal pre-flip dep-* rows to the eval-* naming convention.
-func (s *Store) Repoint(deploymentID, langfuseDatasetName string) error {
+// RepointByDeploymentID flips the Langfuse dataset name for a deployment row
+// and resets the cached item count, since the new Langfuse dataset starts
+// empty. Used to heal pre-flip dep-* rows to the eval-* naming convention.
+func (s *Store) RepointByDeploymentID(deploymentID, langfuseDatasetName string) error {
 	_, err := s.db.Exec(`
 		UPDATE eval_datasets
 		SET langfuse_dataset_name = $1, item_count = 0, updated_at = NOW()

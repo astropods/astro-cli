@@ -41,8 +41,8 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 
 func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int) {
 	rows := sqlmock.NewRows([]string{
-		"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
-	}).AddRow(deploymentID, "acct-1", datasetName, itemCount, time.Now(), time.Now())
+		"id", "deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
+	}).AddRow("dataset-"+deploymentID, deploymentID, "acct-1", datasetName, itemCount, time.Now(), time.Now())
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(rows)
@@ -52,7 +52,7 @@ func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(deploymentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
+			"id", "deployment_id", "account_id", "langfuse_dataset_name", "item_count", "created_at", "updated_at",
 		}))
 }
 

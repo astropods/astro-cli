@@ -45,7 +45,7 @@ func GetEvalDataset(
 			return
 		}
 
-		ds, err := datasetStore.Get(deploymentID)
+		ds, err := datasetStore.GetByDeploymentID(deploymentID)
 		if err != nil {
 			log.Error("Failed to get dataset record", "error", err, "deployment_id", deploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dataset"})
@@ -79,7 +79,7 @@ func DownloadEvalDataset(
 			return
 		}
 
-		ds, err := datasetStore.Get(lctx.DeploymentID)
+		ds, err := datasetStore.GetByDeploymentID(lctx.DeploymentID)
 		if err != nil {
 			log.Error("Failed to get dataset record", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dataset"})

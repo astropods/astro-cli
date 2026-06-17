@@ -172,7 +172,7 @@ func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
 // is returned so the deploy itself never fails over dataset state — the
 // next deploy retries.
 func ensureDataset(ctx context.Context, dep *deploymentstore.Deployment, dsStore *datasetstore.Store, client *langfuse.Client) (*datasetstore.EvalDataset, error) {
-	existing, err := dsStore.Get(dep.ID)
+	existing, err := dsStore.GetByDeploymentID(dep.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get dataset row: %w", err)
 	}
@@ -182,7 +182,7 @@ func ensureDataset(ctx context.Context, dep *deploymentstore.Deployment, dsStore
 			if err := client.CreateDataset(ctx, newName, dep.AgentName); err != nil {
 				return existing, nil
 			}
-			if err := dsStore.Repoint(dep.ID, newName); err != nil {
+			if err := dsStore.RepointByDeploymentID(dep.ID, newName); err != nil {
 				return existing, nil
 			}
 			existing.LangfuseDatasetName = newName
@@ -202,7 +202,7 @@ func ensureDataset(ctx context.Context, dep *deploymentstore.Deployment, dsStore
 	if err := dsStore.Create(record); err != nil {
 		return nil, fmt.Errorf("create dataset row: %w", err)
 	}
-	canonical, err := dsStore.Get(dep.ID)
+	canonical, err := dsStore.GetByDeploymentID(dep.ID)
 	if err != nil {
 		return nil, fmt.Errorf("re-read dataset row: %w", err)
 	}

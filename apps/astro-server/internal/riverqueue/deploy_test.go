@@ -15,9 +15,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// datasetColumns is the column list expected by datasetstore.Store.Get.
+// datasetColumns is the column list expected by datasetstore.Store.GetByDeploymentID.
 var datasetColumns = []string{
-	"deployment_id", "account_id", "langfuse_dataset_name", "item_count",
+	"id", "deployment_id", "account_id", "langfuse_dataset_name", "item_count",
 	"created_at", "updated_at",
 }
 
@@ -84,7 +84,7 @@ func expectDatasetExists(mock *sqlmock.Sqlmock, depID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(depID).
 		WillReturnRows(sqlmock.NewRows(datasetColumns).AddRow(
-			depID, "acct-1", "eval-"+depID, 0, time.Now(), time.Now(),
+			"dataset-"+depID, depID, "acct-1", "eval-"+depID, 0, time.Now(), time.Now(),
 		))
 }
 
@@ -98,7 +98,7 @@ func expectDepDatasetExists(mock *sqlmock.Sqlmock, depID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(depID).
 		WillReturnRows(sqlmock.NewRows(datasetColumns).AddRow(
-			depID, "acct-1", "dep-"+depID, 0, time.Now(), time.Now(),
+			"dataset-"+depID, depID, "acct-1", "dep-"+depID, 0, time.Now(), time.Now(),
 		))
 }
 
@@ -136,6 +136,9 @@ func TestEnsureDataset_CreatesWhenNotExists(t *testing.T) {
 	}
 	if record == nil {
 		t.Fatal("expected non-nil record")
+	}
+	if record.ID == "" {
+		t.Error("expected dataset ID to be populated")
 	}
 	if record.LangfuseDatasetName != "eval-dep-1" {
 		t.Errorf("LangfuseDatasetName = %q, want eval-dep-1", record.LangfuseDatasetName)
