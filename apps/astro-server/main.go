@@ -38,10 +38,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
-	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
@@ -1585,7 +1585,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.Observation{}),
 			)
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
-			datasetStore := datasetstore.NewStore(db)
+			datasetStore := evaldatasetstore.NewStore(db)
 			api.GET(protected, "/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),

@@ -120,16 +120,16 @@ When keyword noise starts hurting the reviewer's throughput, the natural follow-
 
 One new table. Its primary job is to let the queue exclude traces that have already been judged; carrying the verdict alongside is cheap and keeps the "re-surface i-don't-knows" extension reachable without a future migration.
 
-**`eval_dataset_judgments`** holds one row per (deployment, trace) that has received any verdict, including `i don't know`.
+**`eval_dataset_judgments`** holds one row per (eval dataset, trace) that has received any verdict, including `i don't know`.
 
 | Column | Type | Notes |
 |---|---|---|
-| `deployment_id` | varchar(11) | PK1, FK → deployments |
+| `eval_dataset_id` | uuid | PK1, FK → eval_datasets |
 | `trace_id` | text | PK2 |
 | `verdict` | text | `good` \| `bad` \| `unknown`. Audit purposes only. |
 | `created_at` | timestamptz | default `now()` |
 
-Index: PK alone is enough. Every lookup is `WHERE deployment_id = ? AND trace_id IN (...)` or `WHERE deployment_id = ?`. A future "show me the unknowns" query is a cheap `WHERE deployment_id = ? AND verdict = 'unknown'`, no extra index needed at the volumes we're targeting.
+Index: PK alone is enough. Every lookup is `WHERE eval_dataset_id = ? AND trace_id IN (...)` or `WHERE eval_dataset_id = ?`. A future "show me the unknowns" query is a cheap `WHERE eval_dataset_id = ? AND verdict = 'unknown'`, no extra index needed at the volumes we're targeting.
 
 **`eval_datasets` column changes.** Drop `last_trace_at`, `last_sync_attempted_at`, `last_synced_at`; add `good_count`, `bad_count`. Other columns unchanged.
 

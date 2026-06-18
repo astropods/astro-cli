@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldataset"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -56,7 +56,7 @@ type DeployWorker struct {
 	river.WorkerDefaults[DeployArgs]
 	deployer        *deployer.Deployer
 	store           *deploymentstore.Store
-	datasetStore    *datasetstore.Store
+	datasetStore    *evaldatasetstore.Store
 	langfuseStore   *langfuse.Store
 	langfuseBaseURL string
 	log             *logger.Logger
@@ -155,58 +155,21 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 
 func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
 	creds, err := w.langfuseStore.Get(dep.AccountID)
-	if err != nil || creds == nil {
+	if err != nil {
+		w.log.Warn("Deploy: failed to load Langfuse credentials for dataset provisioning", "deployment_id", dep.ID, "account_id", dep.AccountID, "error", err)
+		return
+	}
+	if creds == nil {
 		return
 	}
 	client := langfuse.NewClient(w.langfuseBaseURL, creds.PublicKey, creds.SecretKey)
-	if _, err := ensureDataset(context.Background(), dep, w.datasetStore, client); err != nil {
+	if _, err := evaldataset.Ensure(context.Background(), w.datasetStore, client, evaldataset.EnsureOptions{
+		DeploymentID: dep.ID,
+		AccountID:    dep.AccountID,
+		Description:  dep.AgentName,
+	}); err != nil {
 		w.log.Warn("Deploy: provision dataset failed", "deployment_id", dep.ID, "error", err)
 	}
-}
-
-// ensureDataset returns the existing eval_datasets row, creating it in
-// both Langfuse and the DB if it does not yet exist. Pre-flip rows whose
-// Langfuse dataset is still named dep-* are healed in place: the eval-*
-// dataset is created in Langfuse (idempotent) and the row is updated to
-// point at it. Heal failures are swallowed and the unchanged dep-* row
-// is returned so the deploy itself never fails over dataset state — the
-// next deploy retries.
-func ensureDataset(ctx context.Context, dep *deploymentstore.Deployment, dsStore *datasetstore.Store, client *langfuse.Client) (*datasetstore.EvalDataset, error) {
-	existing, err := dsStore.GetByDeploymentID(dep.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get dataset row: %w", err)
-	}
-	if existing != nil {
-		if strings.HasPrefix(existing.LangfuseDatasetName, "dep-") {
-			newName := "eval-" + dep.ID
-			if err := client.CreateDataset(ctx, newName, dep.AgentName); err != nil {
-				return existing, nil
-			}
-			if err := dsStore.RepointByDeploymentID(dep.ID, newName); err != nil {
-				return existing, nil
-			}
-			existing.LangfuseDatasetName = newName
-			existing.ItemCount = 0
-		}
-		return existing, nil
-	}
-	datasetName := "eval-" + dep.ID
-	if err := client.CreateDataset(ctx, datasetName, dep.AgentName); err != nil {
-		return nil, fmt.Errorf("create langfuse dataset: %w", err)
-	}
-	record := &datasetstore.EvalDataset{
-		DeploymentID:        dep.ID,
-		AccountID:           dep.AccountID,
-		LangfuseDatasetName: datasetName,
-	}
-	if err := dsStore.Create(record); err != nil {
-		return nil, fmt.Errorf("create dataset row: %w", err)
-	}
-	canonical, err := dsStore.GetByDeploymentID(dep.ID)
-	if err != nil {
-		return nil, fmt.Errorf("re-read dataset row: %w", err)
-	}
-	return canonical, nil
 }
 
 func statusOrNil(dep *deploymentstore.Deployment) string {

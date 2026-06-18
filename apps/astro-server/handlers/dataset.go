@@ -10,8 +10,8 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -23,7 +23,7 @@ func GetEvalDataset(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
-	datasetStore *datasetstore.Store,
+	datasetStore *evaldatasetstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -70,7 +70,7 @@ func DownloadEvalDataset(
 	cfg *config.Config,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
-	datasetStore *datasetstore.Store,
+	datasetStore *evaldatasetstore.Store,
 	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {

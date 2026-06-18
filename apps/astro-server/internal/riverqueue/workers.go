@@ -10,9 +10,9 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/datasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -193,7 +193,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	addWorkerWithCatalogCheck(log, workers, &DeployWorker{
 		deployer:        dep,
 		store:           store,
-		datasetStore:    datasetstore.NewStore(cfg.DB),
+		datasetStore:    evaldatasetstore.NewStore(cfg.DB),
 		langfuseStore:   cfg.LangfuseStore,
 		langfuseBaseURL: langfuseBaseURL,
 		log:             log,

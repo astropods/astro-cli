@@ -798,12 +798,26 @@ CREATE TABLE public.eval_datasets (
     last_trace_at          timestamptz,
     last_sync_attempted_at timestamptz,
     last_synced_at         timestamptz,
+    good_count             integer     NOT NULL DEFAULT 0,
+    bad_count              integer     NOT NULL DEFAULT 0,
     created_at             timestamptz NOT NULL DEFAULT now(),
     updated_at             timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_datasets_pkey PRIMARY KEY (id),
     CONSTRAINT eval_datasets_deployment_id_key UNIQUE (deployment_id),
+    CONSTRAINT eval_datasets_good_count_check CHECK (good_count >= 0),
+    CONSTRAINT eval_datasets_bad_count_check CHECK (bad_count >= 0),
     CONSTRAINT eval_datasets_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
     CONSTRAINT eval_datasets_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE public.eval_dataset_judgments (
+    eval_dataset_id uuid        NOT NULL,
+    trace_id        text        NOT NULL,
+    verdict         text        NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_judgments_pkey PRIMARY KEY (eval_dataset_id, trace_id),
+    CONSTRAINT eval_dataset_judgments_eval_dataset_id_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_judgments_verdict_check CHECK (verdict IN ('good', 'bad', 'unknown'))
 );
 
 -- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
