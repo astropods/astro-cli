@@ -245,6 +245,114 @@ describe("TopSpendersTable agents mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show 7 more" }));
     expect(onShowMore).toHaveBeenCalledTimes(1);
   });
+
+  it("shows Show top 25 when expanded past the Insights default window", () => {
+    const onShowMore = vi.fn();
+    const onShowLess = vi.fn();
+    const pagination = {
+      totalRows: 50,
+      defaultVisibleRows: 25,
+      pageSize: 10,
+      showLessLabel: "Show top 25",
+      onShowMore,
+      onShowLess,
+    };
+
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={Array.from({ length: 35 }, (_, index) =>
+          agentRow({
+            key: `dep-${index}`,
+            label: `Agent ${index}`,
+            metrics: {
+              requests: index + 1,
+              cost_usd: index + 1,
+              cost_pct: 10,
+              cost_per_request: 1,
+              tok_per_request: 100,
+              p95_latency_ms: 100,
+            },
+          }),
+        )}
+        pagination={pagination}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Show 10 more" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show top 25" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show top 25" }));
+    expect(onShowLess).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show collapse affordance at the default Insights window", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={Array.from({ length: 25 }, (_, index) =>
+          agentRow({
+            key: `dep-${index}`,
+            label: `Agent ${index}`,
+            metrics: {
+              requests: index + 1,
+              cost_usd: index + 1,
+              cost_pct: 10,
+              cost_per_request: 1,
+              tok_per_request: 100,
+              p95_latency_ms: 100,
+            },
+          }),
+        )}
+        pagination={{
+          totalRows: 50,
+          defaultVisibleRows: 25,
+          pageSize: 10,
+          showLessLabel: "Show top 25",
+          onShowMore: vi.fn(),
+          onShowLess: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Show top 25" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 10 more" })).toBeInTheDocument();
+  });
+
+  it("keeps collapse affordance when all rows are loaded past the default window", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={Array.from({ length: 40 }, (_, index) =>
+          agentRow({
+            key: `dep-${index}`,
+            label: `Agent ${index}`,
+            metrics: {
+              requests: index + 1,
+              cost_usd: index + 1,
+              cost_pct: 10,
+              cost_per_request: 1,
+              tok_per_request: 100,
+              p95_latency_ms: 100,
+            },
+          }),
+        )}
+        pagination={{
+          totalRows: 40,
+          defaultVisibleRows: 25,
+          pageSize: 10,
+          showLessLabel: "Show top 25",
+          onShowMore: vi.fn(),
+          onShowLess: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Show top 25" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+  });
 });
 
 describe("TopSpendersTable users mode", () => {

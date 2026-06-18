@@ -381,4 +381,25 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			t.Fatalf("people rows len with skip_ranges = %d, want %d", got, want)
 		}
 	})
+
+	t.Run("default table limit is 25 when limit is missing or invalid", func(t *testing.T) {
+		defaults := normalizeInsightsRequestParams(insightsRequestParams{})
+		if got, want := defaults.Agents.Limit, 25; got != want {
+			t.Fatalf("default agents limit = %d, want %d", got, want)
+		}
+		if got, want := defaults.People.Limit, 25; got != want {
+			t.Fatalf("default people limit = %d, want %d", got, want)
+		}
+
+		fallback := normalizeInsightsRequestParams(insightsRequestParams{
+			Agents: insightsTableParams{Limit: 0},
+			People: insightsTableParams{Limit: -3},
+		})
+		if got, want := fallback.Agents.Limit, 25; got != want {
+			t.Fatalf("fallback agents limit = %d, want %d", got, want)
+		}
+		if got, want := fallback.People.Limit, 25; got != want {
+			t.Fatalf("fallback people limit = %d, want %d", got, want)
+		}
+	})
 }

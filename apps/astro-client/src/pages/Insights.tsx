@@ -37,8 +37,9 @@ const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
 const SLACK_REFRESH_FEEDBACK_MS = 3_500;
 const SEARCH_DEBOUNCE_MS = 300;
-const DEFAULT_TABLE_LIMIT = 5;
+const DEFAULT_TABLE_LIMIT = 25;
 const TABLE_PAGE_SIZE = 10;
+const SHOW_TOP_LABEL = `Show top ${DEFAULT_TABLE_LIMIT}`;
 const DEFAULT_AGENT_SORT: AgentSortKey = "cost_usd";
 const DEFAULT_USER_SORT: UserSortKey = "cost_usd";
 
@@ -80,7 +81,7 @@ async function invalidateInsightsSlackResyncQueries(queryClient: QueryClient, ac
   );
 }
 
-function buildInsightsQueryParams({
+export function buildInsightsQueryParams({
   query = "",
   agentsLimit = DEFAULT_TABLE_LIMIT,
   peopleLimit = DEFAULT_TABLE_LIMIT,
@@ -573,6 +574,9 @@ function InsightsView({
             onSort={handleAgentSort}
             pagination={{
               totalRows: insights?.tables.agents.pagination.filtered_count ?? agentRows.length,
+              defaultVisibleRows: DEFAULT_TABLE_LIMIT,
+              pageSize: TABLE_PAGE_SIZE,
+              showLessLabel: SHOW_TOP_LABEL,
               onShowMore: () => setAgentsLimit((limit) => limit + TABLE_PAGE_SIZE),
               onShowLess: () => setAgentsLimit(DEFAULT_TABLE_LIMIT),
             }}
@@ -588,6 +592,9 @@ function InsightsView({
             onSort={handlePeopleSort}
             pagination={{
               totalRows: insights?.tables.people.pagination.filtered_count ?? peopleRows.length,
+              defaultVisibleRows: DEFAULT_TABLE_LIMIT,
+              pageSize: TABLE_PAGE_SIZE,
+              showLessLabel: SHOW_TOP_LABEL,
               onShowMore: () => setPeopleLimit((limit) => limit + TABLE_PAGE_SIZE),
               onShowLess: () => setPeopleLimit(DEFAULT_TABLE_LIMIT),
             }}

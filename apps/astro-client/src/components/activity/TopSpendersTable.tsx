@@ -40,6 +40,9 @@ const MAX_VISIBLE_AGENTS = 3;
 
 type TopSpendersPagination = {
   totalRows: number;
+  defaultVisibleRows?: number;
+  pageSize?: number;
+  showLessLabel?: string;
   onShowMore: () => void;
   onShowLess: () => void;
 };
@@ -440,14 +443,17 @@ function useVisibleRows<Row extends { key: string }>(rows: Row[], pagination?: T
   }, [rowKeySignal]);
 
   if (pagination) {
+    const defaultVisibleRows = pagination.defaultVisibleRows ?? DEFAULT_VISIBLE_ROWS;
+    const pageSize = pagination.pageSize ?? PAGE_SIZE_ROWS;
     const hiddenCount = Math.max(pagination.totalRows - rows.length, 0);
     return {
       visibleRows: rows,
       hiddenCount,
-      expanded: rows.length > DEFAULT_VISIBLE_ROWS,
+      expanded: rows.length > defaultVisibleRows,
       setExpanded,
-      revealedCount: Math.max(rows.length - DEFAULT_VISIBLE_ROWS, 0),
-      showMoreLabel: hiddenCount > 0 ? `Show ${Math.min(PAGE_SIZE_ROWS, hiddenCount)} more` : undefined,
+      revealedCount: Math.max(rows.length - defaultVisibleRows, 0),
+      showMoreLabel: hiddenCount > 0 ? `Show ${Math.min(pageSize, hiddenCount)} more` : undefined,
+      showLessLabel: pagination.showLessLabel,
       onToggle: pagination.onShowMore,
       onShowLess: pagination.onShowLess,
     };
@@ -462,6 +468,7 @@ function useVisibleRows<Row extends { key: string }>(rows: Row[], pagination?: T
     setExpanded,
     revealedCount: expanded ? hiddenCount : 0,
     showMoreLabel: undefined,
+    showLessLabel: undefined,
     onToggle: () => setExpanded((value) => !value),
     onShowLess: undefined,
   };
@@ -494,7 +501,7 @@ function AgentsTopSpenders({
     },
     [rows, sortKey, asc, onSort],
   );
-  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
+  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, showLessLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
 
   return (
@@ -502,7 +509,7 @@ function AgentsTopSpenders({
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 ? (
+        hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
             expanded={expanded}
@@ -510,6 +517,7 @@ function AgentsTopSpenders({
             showMoreLabel={showMoreLabel}
             revealedCount={revealedCount}
             onShowLess={onShowLess}
+            showLessLabel={showLessLabel}
           />
         ) : undefined
       }
@@ -593,7 +601,7 @@ function UsersTopSpenders({
     },
     [rows, sortKey, asc, onSort],
   );
-  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
+  const { visibleRows, hiddenCount, expanded, revealedCount, showMoreLabel, showLessLabel, onToggle, onShowLess } = useVisibleRows(sorted, pagination);
   const dir = (col: UserSortKey) => sortDirFor(sortKey, asc, col);
 
   return (
@@ -601,7 +609,7 @@ function UsersTopSpenders({
       header={panelHeader}
       containerClassName="bg-card dark:bg-surface"
       footer={
-        hiddenCount > 0 ? (
+        hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
             hiddenCount={hiddenCount}
             expanded={expanded}
@@ -609,6 +617,7 @@ function UsersTopSpenders({
             showMoreLabel={showMoreLabel}
             revealedCount={revealedCount}
             onShowLess={onShowLess}
+            showLessLabel={showLessLabel}
           />
         ) : undefined
       }

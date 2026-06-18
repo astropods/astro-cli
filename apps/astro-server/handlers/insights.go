@@ -36,7 +36,7 @@ var insightsRangeSpecs = []struct {
 }
 
 const (
-	defaultInsightsTableLimit = 5
+	defaultInsightsTableLimit = 25
 	maxInsightsTableLimit     = 5000
 )
 

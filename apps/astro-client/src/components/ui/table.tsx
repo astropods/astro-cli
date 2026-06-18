@@ -68,6 +68,7 @@ function TableShowMore({
   showMoreLabel,
   revealedCount = 0,
   onShowLess,
+  showLessLabel = "Show less",
 }: {
   hiddenCount: number;
   expanded: boolean;
@@ -78,6 +79,8 @@ function TableShowMore({
   /** Rows already revealed past the default window; enables a collapse affordance. */
   revealedCount?: number;
   onShowLess?: () => void;
+  /** Optional label for collapsing back to the default row window. */
+  showLessLabel?: string;
 }) {
   if (hiddenCount <= 0 && revealedCount <= 0) return null;
 
@@ -106,7 +109,7 @@ function TableShowMore({
             className="inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 text-faint-foreground transition-colors hover:text-foreground"
           >
             <ChevronDown aria-hidden className="size-3.5 rotate-180" />
-            Show less
+            {showLessLabel}
           </button>
         )}
       </div>
@@ -127,7 +130,7 @@ function TableShowMore({
         aria-hidden
         className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
       />
-      {expanded ? "Show less" : `Show ${hiddenCount} more`}
+      {expanded ? showLessLabel : `Show ${hiddenCount} more`}
     </button>
   );
 }
