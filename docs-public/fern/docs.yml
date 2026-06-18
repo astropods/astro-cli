@@ -75,6 +75,9 @@ navigation:
             icon: fa-duotone fa-chart-line
           - section: Frameworks
             contents:
+              - page: AI SDK
+                path: docs/pages/monitor-ai-sdk.mdx
+                icon: fa-duotone fa-sparkles
               - page: Mastra
                 path: docs/pages/monitor-mastra.mdx
                 icon: fa-duotone fa-cube

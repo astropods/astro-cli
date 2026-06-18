@@ -86,6 +86,34 @@ Prefer an off-the-shelf instrumentation library for your stack — they emit ric
 
 If your project constructs its own `Mastra` instance, `serve()` registers Astro's OpenTelemetry observability alongside any existing observability instances on that Mastra.
 
+### Vercel AI SDK (`ai`)
+
+`@astropods/adapter-ai-sdk` exports two functions: `astroTelemetry()` for OpenTelemetry routing and `serve()` for messaging. Use them together or apart.
+
+```bash
+bun add @astropods/adapter-ai-sdk
+```
+
+Spread `astroTelemetry()` into the agent's `experimental_telemetry`. The helper returns `{ isEnabled: true, tracer }` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (deployed) and `{ isEnabled: false }` when unset (local). It hands the tracer to the agent and does not modify the OpenTelemetry global.
+
+```typescript
+import { Experimental_Agent as Agent } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { serve, astroTelemetry } from "@astropods/adapter-ai-sdk";
+
+const instructions = "You are a helpful assistant.";
+
+const agent = new Agent({
+  model: openai("gpt-4o"),
+  instructions,
+  experimental_telemetry: astroTelemetry(),
+});
+
+serve(agent, { name: "My Agent", instructions });
+```
+
+Skip `serve()` when your own framework serves the agent. Spans still land in the dashboard. If you use `serve()`, pass `instructions` through so they show up in the playground; the AI SDK `Agent` interface exposes no `instructions` field on the instance.
+
 ### LangChain / LangGraph (Python)
 
 Use Traceloop / OpenLLMetry and point it at the platform endpoint at startup:
