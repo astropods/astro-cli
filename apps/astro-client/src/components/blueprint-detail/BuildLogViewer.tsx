@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown, Loader2, ArrowRight, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { Github } from "@/components/icons/github-icon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { Spinner } from "@/components/ui/spinner";
 import { AstroIcon } from "@/components/ui/astro-icon";
 import { cn } from "@/lib/utils";
@@ -168,7 +168,7 @@ export function BuildLogViewer({ commitSha, buildId, totalDuration, components =
         {commitSha && (
           <div className="flex items-center gap-2 mt-1">
             <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-              <Github className="h-3.5 w-3.5 shrink-0" />
+              <span className="h-3.5 w-3.5 shrink-0">{getIntegrationIcon("github")}</span>
               {commitSha}
             </span>
             <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />

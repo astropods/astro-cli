@@ -3,7 +3,7 @@ import { ConnectedRepoView, type ConnectedRepoViewProps } from "@/components/blu
 import { SidebarSection } from "@/components/blueprint-detail/SidebarSection";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2 } from "lucide-react";
-import { Github } from "@/components/icons/github-icon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { Spinner } from "@/components/ui/spinner";
 import type { GitHubBuild } from "@/lib/api";
 
@@ -84,7 +84,7 @@ export const NotConnected: Story = {
           Connect a GitHub repo to auto-build on every push to main.
         </p>
         <Button size="sm" variant="outline" className="w-full gap-2">
-          <Github className="h-3.5 w-3.5" />
+          <span className="h-3.5 w-3.5">{getIntegrationIcon("github")}</span>
           Connect GitHub repo
         </Button>
       </div>

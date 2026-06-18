@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { toRepoFullName } from "@/lib/github-utils";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown, Search, GitBranch, FolderOpen } from "lucide-react";
-import { Github } from "@/components/icons/github-icon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,7 +117,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
       {/* Repo autocomplete */}
       <div>
         <Label size="md" className="flex items-center gap-1.5 mb-1.5">
-          <Github className="size-3.5" />
+          <span className="size-3.5">{getIntegrationIcon("github")}</span>
           Repository
         </Label>
         <div

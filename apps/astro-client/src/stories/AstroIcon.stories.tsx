@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Github } from "@/components/icons/github-icon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { AstroIcon } from "@/components/ui/astro-icon";
 
 const meta = {
@@ -30,7 +30,7 @@ export const Default: Story = {
       <div>
         <p className="text-xs text-muted-foreground mb-3 font-mono">Alongside GitHub icon (h-3.5)</p>
         <div className="flex items-center gap-3">
-          <Github className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="h-3.5 w-3.5">{getIntegrationIcon("github")}</span>
           <AstroIcon className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
       </div>
@@ -39,7 +39,7 @@ export const Default: Story = {
       <div>
         <p className="text-xs text-muted-foreground mb-3 font-mono">In context</p>
         <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-          <Github className="h-3.5 w-3.5 shrink-0" />
+          <span className="h-3.5 w-3.5 shrink-0">{getIntegrationIcon("github")}</span>
           <span>a1b2c3d</span>
           <span className="mx-0.5">→</span>
           <AstroIcon className="h-3.5 w-3.5 shrink-0" />

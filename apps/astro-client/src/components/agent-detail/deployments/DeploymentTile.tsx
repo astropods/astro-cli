@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Loader2, SquareTerminal } from "lucide-react";
-import { Github } from "@/components/icons/github-icon";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { formatRelativeTime } from "@/lib/deployment-utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
@@ -127,13 +127,13 @@ export function DeploymentTile({
             rel="noopener noreferrer"
             className="flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
           >
-            <Github className="size-3 shrink-0" />
+            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
             <span className="truncate underline decoration-current/20 underline-offset-2">{branch || "GitHub"}</span>
           </a>
         ) : (
           <span className="flex min-w-0 shrink items-center gap-1.5">
             {source === "github" ? (
-              <Github className="size-3 shrink-0" />
+              <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
             ) : (
               <SquareTerminal className="size-3 shrink-0" />
             )}
