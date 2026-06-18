@@ -31,6 +31,40 @@ export function DeploymentChatHistoryScroll() {
     scrollToBottom({ behavior: "instant" });
   }, [conversationId, scrollToBottom]);
 
+  // Keep the viewport pinned while a turn is streaming (including after
+  // switching back to an in-flight conversation).
+  useLayoutEffect(() => {
+    if (!conversationId || !isStreaming || historyLoading) return;
+    scrollToBottom({ behavior: "instant" });
+  }, [
+    conversationId,
+    historyLoading,
+    isStreaming,
+    streamingMessageId,
+    scrollToBottom,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!conversationId || !isStreaming || historyLoading) return;
+    const el = viewportEl;
+    if (!el) return;
+
+    let lastHeight = el.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      if (el.scrollHeight === lastHeight) return;
+      lastHeight = el.scrollHeight;
+      scrollToBottom({ behavior: "instant" });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [
+    conversationId,
+    historyLoading,
+    isStreaming,
+    scrollToBottom,
+    viewportEl,
+  ]);
+
   useLayoutEffect(() => {
     const el = viewportEl;
     if (!el || !conversationId || !hasMoreHistory) return;

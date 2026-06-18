@@ -14,10 +14,10 @@ export type ChatMessage = {
 };
 
 export function mapServerMessages(
-  records: DeploymentChatMessageRecord[],
+  records: DeploymentChatMessageRecord[] | null | undefined,
   streamingMessageId: string | null,
 ): ChatMessage[] {
-  return records.map((m) => ({
+  return (records ?? []).map((m) => ({
     id: m.id,
     role: m.role,
     content: m.content,
@@ -25,62 +25,26 @@ export function mapServerMessages(
   }));
 }
 
-export function streamingAssistantMessageId(
-  records: DeploymentChatMessageRecord[],
-  turnInFlight: boolean,
-): string | null {
-  if (!turnInFlight) return null;
-  const tail = records[records.length - 1];
-  return tail?.role === "assistant" ? tail.id : null;
-}
-
 /**
  * Server-authoritative "assistant turn in flight": the messaging proxy is
- * persisting a reply, or the trailing user message has no reply yet.
+ * persisting a reply (`assistant_streaming`), or an optimistic client patch
+ * marked the thread active before the server flag lands.
  */
 export function serverTurnInFlight(
   thread: GetDeploymentChatConversationResponse,
 ): boolean {
+  if (thread.assistant_streaming === false) return false;
   if (thread.assistant_streaming) return true;
-  return thread.messages.at(-1)?.role === "user";
+  const messages = thread.messages ?? [];
+  return messages.at(-1)?.role === "user";
 }
 
-function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
-  return a.role === b.role && a.content.trim() === b.content.trim();
+/** Streaming assistant row id for an in-flight thread (null while awaiting first chunk). */
+export function inFlightAssistantMessageId(
+  thread: GetDeploymentChatConversationResponse | undefined,
+): string | null {
+  if (!thread || !serverTurnInFlight(thread)) return null;
+  const tail = (thread.messages ?? []).at(-1);
+  return tail?.role === "assistant" ? tail.id : null;
 }
 
-/**
- * Merges persisted server history with optimistic local turns. Streaming
- * assistant rows are kept at the tail; confirmed locals are matched against the
- * server suffix even when a streaming assistant sits above them in local state.
- */
-export function mergeLocalAndServerMessages(
-  serverMessages: ChatMessage[],
-  localMessages: ChatMessage[],
-): ChatMessage[] {
-  if (serverMessages.length === 0) return localMessages;
-  if (localMessages.length === 0) return serverMessages;
-
-  let localIdx = localMessages.length - 1;
-  let serverIdx = serverMessages.length - 1;
-  const streamingTail: ChatMessage[] = [];
-
-  while (localIdx >= 0 && localMessages[localIdx].isStreaming) {
-    streamingTail.unshift(localMessages[localIdx]);
-    localIdx--;
-  }
-
-  while (localIdx >= 0 && serverIdx >= 0) {
-    if (!sameChatMessage(localMessages[localIdx], serverMessages[serverIdx])) {
-      break;
-    }
-    localIdx--;
-    serverIdx--;
-  }
-
-  const pendingLocal = [
-    ...localMessages.slice(0, localIdx + 1),
-    ...streamingTail,
-  ];
-  return [...serverMessages, ...pendingLocal];
-}

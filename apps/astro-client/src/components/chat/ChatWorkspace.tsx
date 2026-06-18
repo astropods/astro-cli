@@ -134,7 +134,7 @@ export function ChatWorkspace({
           </div>
         ) : null}
         <ChatThread
-          key={deploymentId}
+          key={`${deploymentId}:${conversationId ?? "draft"}`}
           deploymentId={deploymentId}
           deployment={deployment}
           conversationId={conversationId}

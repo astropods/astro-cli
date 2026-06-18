@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { ApiRequestError, type GetDeploymentChatConversationResponse } from "@/lib/api";
 import {
-  type ChatMessage,
+  inFlightAssistantMessageId,
   mapServerMessages,
-  mergeLocalAndServerMessages,
+  serverTurnInFlight,
 } from "@/lib/chat/message";
 import { useDeploymentChatConversation } from "@/api/queries/chat";
 import { chatKeys } from "@/api/queries/keys";
 import {
   CHAT_INITIAL_PAGE_LIMIT,
   mergeConversationOlder,
+  patchConversationAssistantChunk,
+  patchConversationUserMessage,
+  removeConversationMessage,
 } from "@/lib/chat/conversation-sync";
 import { openMessagingStream } from "@/lib/messaging/transport";
 
@@ -20,11 +23,9 @@ const IN_FLIGHT_TIMEOUT_MS = 3 * 60 * 1000;
 /**
  * Platform deployment chat.
  *
- * Persisted history is hydrated from astro-server (Langfuse-backed, keyed by
- * conversation id) when a conversation is opened. Live turns are appended to
- * local state and streamed via SSE; a just-sent turn stays local until its
- * Langfuse trace lands, at which point it is de-duplicated against the server
- * snapshot by (role, content).
+ * The TanStack query cache is the only message source. SSE chunks patch the
+ * cache in place during a live turn; on finish the thread is invalidated so
+ * persisted server ids replace temporary streaming ids.
  */
 export function useDeploymentChat(
   deploymentId: string,
@@ -41,78 +42,153 @@ export function useDeploymentChat(
   const [createdConversationId, setCreatedConversationId] = useState<
     string | null
   >(null);
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [streamingAssistantId, setStreamingAssistantId] = useState<
+    string | null
+  >(null);
   const assistantIdRef = useRef<string | null>(null);
   const sendLockRef = useRef(false);
+  const sseActiveRef = useRef(false);
 
   const activeConversationId = conversationIdFromOptions ?? createdConversationId;
+  const useTailPollRef = useRef(false);
 
-  // Persisted history (Postgres + Langfuse). Refetches when stale or while a
-  // turn is in flight (see chat.ts query options).
   const {
     data: serverData,
     isLoading: historyQueryLoading,
     isFetching: historyFetching,
-  } = useDeploymentChatConversation(deploymentId, activeConversationId);
+  } = useDeploymentChatConversation(deploymentId, activeConversationId, {
+    shouldPoll: (data) => {
+      if (sseActiveRef.current) return false;
+      return data ? serverTurnInFlight(data) : false;
+    },
+    useTailPollRef,
+  });
 
-  const serverMessages = useMemo(
-    () => mapServerMessages(serverData?.messages ?? [], null),
-    [serverData?.messages],
+  const conversationKey = useCallback(
+    (conversationId: string) =>
+      chatKeys.conversation(deploymentId, conversationId),
+    [deploymentId],
+  );
+
+  const readCachedThread = useCallback(
+    (conversationId: string) =>
+      queryClient.getQueryData<GetDeploymentChatConversationResponse>(
+        conversationKey(conversationId),
+      ),
+    [conversationKey, queryClient],
+  );
+
+  const applyInFlightState = useCallback(
+    (thread: GetDeploymentChatConversationResponse | undefined) => {
+      if (!thread || !serverTurnInFlight(thread)) {
+        setIsStreaming(false);
+        setStreamingAssistantId(null);
+        assistantIdRef.current = null;
+        sseActiveRef.current = false;
+        useTailPollRef.current = false;
+        return;
+      }
+      setIsStreaming(true);
+      const assistantId = inFlightAssistantMessageId(thread);
+      setStreamingAssistantId(assistantId);
+      assistantIdRef.current = assistantId;
+    },
+    [],
+  );
+
+  const turnInFlight = useMemo(() => {
+    if (serverData) return serverTurnInFlight(serverData);
+    if (activeConversationId) {
+      const cached = readCachedThread(activeConversationId);
+      if (cached) return serverTurnInFlight(cached);
+    }
+    return isStreaming;
+  }, [activeConversationId, isStreaming, readCachedThread, serverData]);
+
+  const activeStreamingMessageId = useMemo(() => {
+    if (streamingAssistantId) return streamingAssistantId;
+    return inFlightAssistantMessageId(serverData ?? undefined);
+  }, [serverData, streamingAssistantId]);
+
+  const messages = useMemo(
+    () =>
+      mapServerMessages(serverData?.messages ?? [], activeStreamingMessageId),
+    [activeStreamingMessageId, serverData?.messages],
   );
 
   const historyLoading =
     !!activeConversationId &&
     (historyQueryLoading ||
-      (historyFetching && serverMessages.length === 0));
+      (historyFetching && messages.length === 0));
 
-  const appendAssistantChunk = useCallback((content: string, chunkType?: string) => {
-    setLocalMessages((prev) => {
-      const next = [...prev];
-      const assistantId = assistantIdRef.current;
-      const idx =
-        assistantId != null
-          ? next.findIndex((m) => m.id === assistantId)
-          : -1;
+  const patchAssistantChunk = useCallback(
+    (
+      conversationId: string,
+      content: string,
+      chunkType?: string,
+    ) => {
+      const key = conversationKey(conversationId);
+      const cached = readCachedThread(conversationId);
 
-      if (chunkType === "replace" || idx < 0) {
-        const id = assistantId ?? `assistant-${Date.now()}`;
-        assistantIdRef.current = id;
-        if (idx >= 0) {
-          next[idx] = { id, role: "assistant", content, isStreaming: true };
-        } else {
-          next.push({ id, role: "assistant", content, isStreaming: true });
+      let assistantId =
+        conversationId === activeConversationId
+          ? assistantIdRef.current
+          : inFlightAssistantMessageId(cached);
+
+      if (!assistantId || chunkType === "replace") {
+        assistantId =
+          inFlightAssistantMessageId(cached) ?? `assistant-${Date.now()}`;
+        if (conversationId === activeConversationId) {
+          assistantIdRef.current = assistantId;
+          setStreamingAssistantId(assistantId);
         }
-        return next;
       }
 
-      const existing = next[idx];
-      next[idx] = {
-        ...existing,
-        content: existing.content + content,
-        isStreaming: true,
-      };
-      return next;
-    });
-  }, []);
-
-  const finalizeAssistant = useCallback(() => {
-    const assistantId = assistantIdRef.current;
-    if (assistantId) {
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId ? { ...m, isStreaming: false } : m,
-        ),
+      queryClient.setQueryData<GetDeploymentChatConversationResponse>(
+        key,
+        (old) => {
+          if (!old) return old;
+          return patchConversationAssistantChunk(
+            old,
+            assistantId,
+            content,
+            chunkType,
+          );
+        },
       );
-    }
-    assistantIdRef.current = null;
-    setIsStreaming(false);
-  }, []);
+    },
+    [
+      activeConversationId,
+      conversationKey,
+      queryClient,
+      readCachedThread,
+    ],
+  );
+
+  const finalizeConversation = useCallback(
+    (conversationId: string) => {
+      if (conversationId === activeConversationId) {
+        assistantIdRef.current = null;
+        setStreamingAssistantId(null);
+        setIsStreaming(false);
+        sseActiveRef.current = false;
+        useTailPollRef.current = false;
+      }
+      const key = conversationKey(conversationId);
+      queryClient.setQueryData<GetDeploymentChatConversationResponse>(
+        key,
+        (old) => (old ? { ...old, assistant_streaming: false } : old),
+      );
+      void queryClient.invalidateQueries({ queryKey: key });
+    },
+    [activeConversationId, conversationKey, queryClient],
+  );
 
   const prevConversationRef = useRef<string | null>(null);
   const prevDeploymentRef = useRef(deploymentId);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const deploymentChanged = prevDeploymentRef.current !== deploymentId;
     prevDeploymentRef.current = deploymentId;
 
@@ -120,7 +196,6 @@ export function useDeploymentChat(
     prevConversationRef.current = activeConversationId;
 
     if (!deploymentChanged && prev === activeConversationId) return;
-    // Lazy-create goes null → new id in one send; keep messages already appended.
     if (
       !deploymentChanged &&
       prev === null &&
@@ -129,89 +204,135 @@ export function useDeploymentChat(
       return;
     }
 
-    setLocalMessages([]);
-    assistantIdRef.current = null;
-    setIsStreaming(false);
-    setStreamError(null);
-  }, [activeConversationId, deploymentId]);
+    if (deploymentChanged || prev !== activeConversationId) {
+      setStreamError(null);
+    }
+
+    if (!activeConversationId) {
+      applyInFlightState(undefined);
+      return;
+    }
+
+    applyInFlightState(readCachedThread(activeConversationId));
+  }, [
+    activeConversationId,
+    applyInFlightState,
+    deploymentId,
+    readCachedThread,
+  ]);
+
+  useEffect(() => {
+    if (!activeConversationId || !serverData) return;
+    if (serverTurnInFlight(serverData)) {
+      applyInFlightState(serverData);
+    } else if (isStreaming) {
+      applyInFlightState(undefined);
+    }
+  }, [activeConversationId, applyInFlightState, isStreaming, serverData]);
 
   useEffect(() => {
     setCreatedConversationId(null);
   }, [conversationIdFromOptions, deploymentId]);
 
   useEffect(() => {
-    if (!isStreaming) return;
-    const timeout = window.setTimeout(() => {
-      setStreamError("Response timed out. You can try sending again.");
-      setIsStreaming(false);
-      assistantIdRef.current = null;
-    }, IN_FLIGHT_TIMEOUT_MS);
-    return () => window.clearTimeout(timeout);
-  }, [isStreaming]);
+    useTailPollRef.current = turnInFlight && !sseActiveRef.current;
+  }, [turnInFlight]);
 
   useEffect(() => {
-    if (!isStreaming || !activeConversationId) return;
+    if (!turnInFlight) return;
+    const timeout = window.setTimeout(() => {
+      setStreamError("Response timed out. You can try sending again.");
+      applyInFlightState(undefined);
+    }, IN_FLIGHT_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [applyInFlightState, turnInFlight]);
 
-    const es = openMessagingStream(api, deploymentId, activeConversationId, {
-      onChunk: appendAssistantChunk,
-      onFinish: finalizeAssistant,
-      onProtocolError: finalizeAssistant,
+  useEffect(() => {
+    if (!activeConversationId || !turnInFlight) return;
+
+    const convId = activeConversationId;
+    sseActiveRef.current = true;
+    useTailPollRef.current = false;
+    const es = openMessagingStream(api, deploymentId, convId, {
+      onChunk: (content, chunkType) =>
+        patchAssistantChunk(convId, content, chunkType),
+      onFinish: () => finalizeConversation(convId),
+      onProtocolError: () => finalizeConversation(convId),
     });
-    return () => es.close();
+    return () => {
+      es.close();
+      sseActiveRef.current = false;
+    };
   }, [
     activeConversationId,
     api,
-    appendAssistantChunk,
     deploymentId,
-    finalizeAssistant,
-    isStreaming,
+    finalizeConversation,
+    patchAssistantChunk,
+    turnInFlight,
   ]);
-
-  // Server history first, then local turns not yet reflected server-side. Once
-  // the server snapshot catches up with the trailing local turns (Langfuse
-  // trace landed + a refetch), those turns are dropped to avoid duplicates.
-  // Matching is anchored to the tail (in order) so a repeated identical message
-  // earlier in history is never mistaken for an unconfirmed local turn.
-  const messages = useMemo(
-    () => mergeLocalAndServerMessages(serverMessages, localMessages),
-    [serverMessages, localMessages],
-  );
 
   const sendMessage = useCallback(
     async (content: string) => {
       const trimmed = content.trim();
-      if (!trimmed || sendLockRef.current || isStreaming) return;
+      if (!trimmed || sendLockRef.current || turnInFlight) return;
       sendLockRef.current = true;
 
       setStreamError(null);
       assistantIdRef.current = null;
+      setStreamingAssistantId(null);
       setIsStreaming(true);
+      sseActiveRef.current = true;
+      useTailPollRef.current = false;
 
       const userId = `user-${Date.now()}`;
-      setLocalMessages((prev) => [
-        ...prev,
-        { id: userId, role: "user", content: trimmed },
-      ]);
+      let convId = activeConversationId;
 
       try {
-        let convId = activeConversationId;
         if (!convId) {
           const created = await api.createMessagingConversation(deploymentId);
           convId = created.conversation_id;
+          queryClient.setQueryData(
+            conversationKey(convId),
+            patchConversationUserMessage(undefined, convId, {
+              id: userId,
+              role: "user",
+              content: trimmed,
+            }),
+          );
           setCreatedConversationId(convId);
+          await api.sendMessagingMessage(deploymentId, convId, trimmed);
+        } else {
+          const key = conversationKey(convId);
+          await queryClient.cancelQueries({ queryKey: key });
+          queryClient.setQueryData<GetDeploymentChatConversationResponse>(
+            key,
+            (old) =>
+              patchConversationUserMessage(old, convId!, {
+                id: userId,
+                role: "user",
+                content: trimmed,
+              }),
+          );
+          await api.sendMessagingMessage(deploymentId, convId, trimmed);
         }
 
-        await api.sendMessagingMessage(deploymentId, convId, trimmed);
         onConversationCreated?.(convId, trimmed);
       } catch (err) {
-        setIsStreaming(false);
-        assistantIdRef.current = null;
+        applyInFlightState(undefined);
+        if (convId) {
+          const key = conversationKey(convId);
+          queryClient.setQueryData<GetDeploymentChatConversationResponse>(
+            key,
+            (old) =>
+              old ? removeConversationMessage(old, userId) : old,
+          );
+        }
         setStreamError(
           err instanceof ApiRequestError
             ? err.message
             : "Failed to send message. Please try again.",
         );
-        setLocalMessages((prev) => prev.filter((m) => m.id !== userId));
       } finally {
         sendLockRef.current = false;
       }
@@ -219,29 +340,27 @@ export function useDeploymentChat(
     [
       activeConversationId,
       api,
+      applyInFlightState,
+      conversationKey,
       deploymentId,
-      isStreaming,
       onConversationCreated,
+      queryClient,
+      turnInFlight,
     ],
   );
 
   const cancelStream = useCallback(() => {
-    setIsStreaming(false);
-    assistantIdRef.current = null;
-    finalizeAssistant();
-  }, [finalizeAssistant]);
-
-  const assistantStreaming = useMemo(() => {
-    if (!isStreaming) return null;
-    const tail = messages[messages.length - 1];
-    return tail?.role === "assistant" ? tail.id : null;
-  }, [isStreaming, messages]);
+    applyInFlightState(undefined);
+    if (activeConversationId) {
+      finalizeConversation(activeConversationId);
+    }
+  }, [activeConversationId, applyInFlightState, finalizeConversation]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!activeConversationId || !serverData?.has_more || !serverData.oldest_seq) {
       return;
     }
-    const key = chatKeys.conversation(deploymentId, activeConversationId);
+    const key = conversationKey(activeConversationId);
     const existing =
       queryClient.getQueryData<GetDeploymentChatConversationResponse>(key) ??
       serverData;
@@ -259,6 +378,7 @@ export function useDeploymentChat(
   }, [
     activeConversationId,
     api,
+    conversationKey,
     deploymentId,
     queryClient,
     serverData,
@@ -267,8 +387,8 @@ export function useDeploymentChat(
   return {
     messages,
     conversationId: activeConversationId,
-    isStreaming,
-    assistantStreaming,
+    isStreaming: turnInFlight,
+    assistantStreaming: activeStreamingMessageId,
     streamError,
     historyLoading: historyLoading && !!activeConversationId,
     hasMoreHistory: !!serverData?.has_more,

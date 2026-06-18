@@ -79,19 +79,19 @@ export function DeploymentChatRuntimeProvider({
       streamingMessageId,
       conversationId: conversationId ?? null,
       historyLoading: historyLoading && !!conversationId,
-      isStreaming: assistantStreaming != null,
+      isStreaming: threadIsRunning,
       streamError,
       hasMoreHistory,
       loadOlderMessages,
     }),
     [
-      assistantStreaming,
       conversationId,
       hasMoreHistory,
       historyLoading,
       loadOlderMessages,
       streamError,
       streamingMessageId,
+      threadIsRunning,
     ],
   );
 

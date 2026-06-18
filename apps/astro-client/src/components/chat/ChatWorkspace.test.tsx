@@ -41,7 +41,7 @@ vi.mock("react-router", async (importOriginal) => {
 });
 
 describe("ChatWorkspace", () => {
-  it("does not remount ChatThread when conversation id appears in the URL", () => {
+  it("remounts ChatThread when conversation id changes so thread state stays isolated", () => {
     conversationId = null;
     mountCounts.length = 0;
 
@@ -66,7 +66,16 @@ describe("ChatWorkspace", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
+    expect(mountCounts).toHaveLength(2);
 
-    expect(mountCounts).toHaveLength(1);
+    conversationId = "34ac809f-9a55-4b57-b92e-00020720c700";
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ChatWorkspace deploymentId="dep-1" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(mountCounts).toHaveLength(3);
   });
 });

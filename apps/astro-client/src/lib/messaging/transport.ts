@@ -1,6 +1,6 @@
 import type { ApiClient } from "@/lib/api";
 
-/** Legacy poll cadence for chat query hooks (unused while history is in-session only). */
+/** Poll cadence while a turn is in flight without an active SSE session (e.g. after reload). */
 export const CHAT_POLL_MS = 500;
 
 export type MessagingStreamHandlers = {
@@ -23,12 +23,7 @@ function parseSsePayload(data: string): SsePayload | null {
   }
 }
 
-/**
- * Open the messaging SSE stream for an in-flight assistant turn.
- *
- * TODO: When Langfuse-backed history lands, clients can recover threads from
- * the server instead of relying on in-session SSE accumulation.
- */
+/** Open the messaging SSE stream; chunks patch the TanStack conversation cache. */
 export function openMessagingStream(
   api: ApiClient,
   deploymentId: string,

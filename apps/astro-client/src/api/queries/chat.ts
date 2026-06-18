@@ -39,7 +39,7 @@ export async function refreshDeploymentChatTail(
   const key = chatKeys.conversation(deploymentId, conversationId);
   const existing =
     queryClient.getQueryData<GetDeploymentChatConversationResponse>(key);
-  if (!existing?.messages.length) return existing;
+  if (!existing || (existing.messages ?? []).length === 0) return existing;
 
   const tail = await api.getDeploymentChatConversation(
     deploymentId,
@@ -88,9 +88,8 @@ export function useDeploymentChatConversation(
       return fetchDeploymentChatConversation(api, deploymentId, conversationId!);
     },
     enabled: !!deploymentId && !!conversationId,
-    staleTime: 30_000,
-    refetchOnMount: (query) =>
-      query.state.data?.assistant_streaming ? "always" : true,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchInterval: (query) =>
       options?.shouldPoll?.(query.state.data) ? CHAT_POLL_MS : false,
   });
