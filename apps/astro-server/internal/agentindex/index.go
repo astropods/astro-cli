@@ -20,6 +20,12 @@ type AgentVersion struct {
 	ValidationWarnings []map[string]any `json:"validation_warnings,omitempty"`
 	PublishedAt        time.Time        `json:"published_at"`
 	UpdatedAt          time.Time        `json:"updated_at"`
+	// CommitMessage, CommitSHA, and RepoFullName describe the git commit that
+	// produced this build. They are populated only for GitHub-sourced builds and
+	// only by list queries that join github_builds. Empty for direct CLI pushes.
+	CommitMessage string `json:"commit_message,omitempty"`
+	CommitSHA     string `json:"commit_sha,omitempty"`
+	RepoFullName  string `json:"repo_full_name,omitempty"`
 }
 
 // Agent represents an agent with all its versions (ordered newest first)

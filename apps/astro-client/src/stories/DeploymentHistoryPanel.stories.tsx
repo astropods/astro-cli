@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   DeploymentHistoryPanelContent,
+  UpgradeNudge,
   type DeploymentHistoryPanelContentProps,
 } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
 import { DeploymentTile } from "@/components/agent-detail/deployments/DeploymentTile";
@@ -97,6 +98,49 @@ export const WithHistory: Story = {
           source="direct"
           buildId="0000abcd1234"
           deployedAt={new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString()}
+        />
+      </>
+    ),
+  },
+};
+
+export const UpgradeAvailable: Story = {
+  args: {
+    children: (
+      <>
+        <UpgradeNudge
+          currentBuildId="f7e8d9c0b1a2"
+          latestBuildId="b4c5d6e7f8a9"
+          commitMessage="Add retries with exponential backoff"
+          commitSha="b4c5d6e7f8a9012345"
+          repoFullName="acme/my-agent"
+        />
+        <DeploymentTile
+          name="Bump model to claude-sonnet-4-6"
+          source="github"
+          branch="main"
+          buildId="f7e8d9c0b1a2"
+          deployedAt={new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()}
+          active
+          deployment={mockDeployment()}
+        />
+      </>
+    ),
+  },
+};
+
+export const UpgradeAvailableDirectPush: Story = {
+  args: {
+    children: (
+      <>
+        <UpgradeNudge currentBuildId="abcdef12" latestBuildId="98765432" />
+        <DeploymentTile
+          name="my-agent"
+          source="direct"
+          buildId="abcdef12"
+          deployedAt={new Date(Date.now() - 1000 * 60 * 60).toISOString()}
+          active
+          deployment={mockDeployment()}
         />
       </>
     ),

@@ -10,6 +10,7 @@ import {
   useWakeUpDeployment,
 } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { isPausedState } from "@/lib/deployment-utils";
 import type { AgentDeployment, DeploymentHistoryRecord } from "@/lib/api";
 import { DeploymentTile } from "./DeploymentTile";
@@ -211,8 +212,26 @@ function HistoryTileMenu({ revision, buildId }: { revision: number; buildId: str
 // Upgrade nudge — shown below active tile when a newer build exists
 // ---------------------------------------------------------------------------
 
-function UpgradeNudge({ currentBuildId, latestBuildId }: { currentBuildId: string; latestBuildId: string }) {
+export function UpgradeNudge({
+  currentBuildId,
+  latestBuildId,
+  commitMessage,
+  commitSha,
+  repoFullName,
+}: {
+  currentBuildId: string;
+  latestBuildId: string;
+  commitMessage?: string;
+  commitSha?: string;
+  repoFullName?: string;
+}) {
   const navigate = useNavigate();
+  // Prefer the target build's commit message (first line) so it's clear what the
+  // upgrade brings; fall back to the build-id transition for direct CLI pushes.
+  const summary = commitMessage?.split("\n")[0].trim();
+  const shortSha = commitSha?.slice(0, 7);
+  const commitUrl =
+    repoFullName && commitSha ? `https://github.com/${repoFullName}/commit/${commitSha}` : undefined;
 
   return (
     <div
@@ -221,11 +240,29 @@ function UpgradeNudge({ currentBuildId, latestBuildId }: { currentBuildId: strin
       <div className="min-w-0">
         <p className="text-mono-sm font-medium text-indigo-950 dark:text-indigo-100">New build available</p>
         <p className="mt-0.5 truncate text-mono-sm text-indigo-950/70 dark:text-indigo-100/60">
-          {currentBuildId.slice(0, 8)} → {latestBuildId.slice(0, 8)}
+          {summary || `${currentBuildId.slice(0, 8)} → ${latestBuildId.slice(0, 8)}`}
         </p>
+        {shortSha && (
+          <div className="mt-1 flex items-center gap-1.5 overflow-hidden text-mono-sm text-muted-foreground">
+            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
+            {commitUrl ? (
+              <a
+                href={commitUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate font-mono underline decoration-current/20 underline-offset-2 hover:text-foreground"
+              >
+                {shortSha}
+              </a>
+            ) : (
+              <span className="truncate font-mono">{shortSha}</span>
+            )}
+          </div>
+        )}
       </div>
       <Button
         size="xs"
+        className="shrink-0"
         onClick={() =>
           navigate(`../configure?build=${encodeURIComponent(latestBuildId)}`, { relative: "path" })
         }
@@ -268,7 +305,7 @@ export function DeploymentHistoryPanel({
   // Upgrade detection — compare deployed build against latest published build
   const sourceAccount = deployment.source_account || account;
   const { data: blueprintsData } = useAccountBlueprints(sourceAccount);
-  const latestBuildId = useMemo(() => {
+  const upgrade = useMemo(() => {
     const blueprint = blueprintsData?.agents?.find((a) => a.name === agentName);
     if (!blueprint?.versions?.length) return null;
     const latest = blueprint.versions.reduce((best, cur) =>
@@ -276,7 +313,13 @@ export function DeploymentHistoryPanel({
     );
     // Only show upgrade if the source account matches or the blueprint is public
     if (sourceAccount !== account && blueprint.visibility === "private") return null;
-    return latest.build_id !== deployment.build_id ? latest.build_id : null;
+    if (latest.build_id === deployment.build_id) return null;
+    return {
+      buildId: latest.build_id,
+      commitMessage: latest.commit_message,
+      commitSha: latest.commit_sha,
+      repoFullName: latest.repo_full_name,
+    };
   }, [blueprintsData, agentName, sourceAccount, account, deployment.build_id]);
 
   return (
@@ -286,8 +329,14 @@ export function DeploymentHistoryPanel({
     >
       {records.map((record) => (
         <Fragment key={`${record.id}-${record.revision}`}>
-          {record.is_current && latestBuildId && (
-            <UpgradeNudge currentBuildId={deployment.build_id} latestBuildId={latestBuildId} />
+          {record.is_current && upgrade && (
+            <UpgradeNudge
+              currentBuildId={deployment.build_id}
+              latestBuildId={upgrade.buildId}
+              commitMessage={upgrade.commitMessage}
+              commitSha={upgrade.commitSha}
+              repoFullName={upgrade.repoFullName}
+            />
           )}
           <DeploymentTile
             name={tileDisplayName(record)}

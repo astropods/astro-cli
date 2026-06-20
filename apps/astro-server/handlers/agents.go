@@ -74,6 +74,12 @@ type AgentVersionResponse struct {
 	AgentCard          *spec.ParsedAgentCard `json:"agent_card,omitempty"`
 	PublishedAt        string                `json:"published_at"`
 	ValidationWarnings []map[string]any      `json:"validation_warnings,omitempty"`
+	// CommitMessage, CommitSHA, and RepoFullName describe the git commit that
+	// produced this build, present only for GitHub-sourced builds returned by
+	// account list queries.
+	CommitMessage string `json:"commit_message,omitempty"`
+	CommitSHA     string `json:"commit_sha,omitempty"`
+	RepoFullName  string `json:"repo_full_name,omitempty"`
 }
 
 // buildVersionResponse converts an agentindex.Version into an AgentVersionResponse.
@@ -82,10 +88,13 @@ type AgentVersionResponse struct {
 // spec fields (meta.description, meta.tags) so existing agents continue to display correctly.
 func buildVersionResponse(v *agentindex.AgentVersion) AgentVersionResponse {
 	resp := AgentVersionResponse{
-		BuildID:     v.BuildID,
-		Spec:        v.Spec,
-		Readme:      v.Readme,
-		PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
+		BuildID:       v.BuildID,
+		Spec:          v.Spec,
+		Readme:        v.Readme,
+		PublishedAt:   v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
+		CommitMessage: v.CommitMessage,
+		CommitSHA:     v.CommitSHA,
+		RepoFullName:  v.RepoFullName,
 	}
 	if v.AgentCardJSON != "" && v.AgentCardJSON != "{}" {
 		var card spec.ParsedAgentCard

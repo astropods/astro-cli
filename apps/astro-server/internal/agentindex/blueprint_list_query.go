@@ -15,6 +15,21 @@ const accountBlueprintLatestVersionJoin = `
 			WHERE v2.account_id = a.account_id AND v2.name = a.name
 		)`
 
+// accountBlueprintLatestCommitJoin pulls the commit metadata of the github build
+// that produced the latest version, when one exists. build_id is not unique in
+// github_builds (retries reuse it), so a LATERAL ... LIMIT 1 keeps this to one row
+// per agent rather than fanning out the list. repo_full_name comes from the build's
+// connection. Direct CLI pushes have no matching build and yield NULL.
+const accountBlueprintLatestCommitJoin = `
+	LEFT JOIN LATERAL (
+		SELECT gb.commit_message, gb.commit_sha, gc.repo_full_name
+		FROM github_builds gb
+		LEFT JOIN github_connections gc ON gc.id = gb.connection_id
+		WHERE gb.account_id = a.account_id AND gb.agent_name = a.name AND gb.build_id = v.build_id
+		ORDER BY gb.enqueued_at DESC
+		LIMIT 1
+	) gbinfo ON true`
+
 const blueprintListTotalColumn = `, COUNT(*) OVER() AS list_total`
 
 func blueprintListPaginated(opts BlueprintListOptions) bool {
@@ -47,7 +62,7 @@ func (idx *Index) buildAccountBlueprintWhere(accountID string, opts BlueprintLis
 
 func scanAccountBlueprintListRow(
 	agent *Agent,
-	buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON sql.NullString,
+	buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON, commitMessage, commitSHA, repoFullName sql.NullString,
 	publishedAt, versionUpdated sql.NullTime,
 ) error {
 	if buildID.Valid {
@@ -58,6 +73,9 @@ func scanAccountBlueprintListRow(
 			AgentCardJSON: agentCard.String,
 			PublishedAt:   publishedAt.Time,
 			UpdatedAt:     versionUpdated.Time,
+			CommitMessage: commitMessage.String,
+			CommitSHA:     commitSHA.String,
+			RepoFullName:  repoFullName.String,
 		}
 		if specJSON.Valid {
 			if err := json.Unmarshal([]byte(specJSON.String), &v.Spec); err != nil {
@@ -88,8 +106,9 @@ func (idx *Index) ListForAccount(accountID string, opts BlueprintListOptions) (*
 	query := `
 		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.created_at, a.updated_at,
 		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.validation_warnings, v.published_at, v.updated_at,
+		       gbinfo.commit_message, gbinfo.commit_sha, gbinfo.repo_full_name,
 		       (SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS version_count` + listTotalSQL + `
-		FROM agents a` + accountBlueprintLatestVersionJoin + `
+		FROM agents a` + accountBlueprintLatestVersionJoin + accountBlueprintLatestCommitJoin + `
 		WHERE ` + strings.Join(where, " AND ") + `
 		` + order // #nosec G202 -- WHERE fragments use $N placeholders; values are parameterized
 	appendBlueprintPagination(&query, &args, &argN, opts)
@@ -103,13 +122,14 @@ func (idx *Index) ListForAccount(accountID string, opts BlueprintListOptions) (*
 	page := &BlueprintListPage{}
 	for rows.Next() {
 		var agent Agent
-		var buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON sql.NullString
+		var buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON, commitMessage, commitSHA, repoFullName sql.NullString
 		var publishedAt, versionUpdated sql.NullTime
 		var listTotal int
 
 		scanDest := []any{
 			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt,
 			&buildID, &ecrNamespace, &specJSON, &readme, &agentCard, &warningsJSON, &publishedAt, &versionUpdated,
+			&commitMessage, &commitSHA, &repoFullName,
 			&agent.VersionCount,
 		}
 		if paginated {
@@ -121,7 +141,7 @@ func (idx *Index) ListForAccount(accountID string, opts BlueprintListOptions) (*
 		if paginated {
 			page.Total = listTotal
 		}
-		if err := scanAccountBlueprintListRow(&agent, buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON, publishedAt, versionUpdated); err != nil {
+		if err := scanAccountBlueprintListRow(&agent, buildID, ecrNamespace, specJSON, readme, agentCard, warningsJSON, commitMessage, commitSHA, repoFullName, publishedAt, versionUpdated); err != nil {
 			return nil, err
 		}
 		page.Agents = append(page.Agents, &agent)

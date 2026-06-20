@@ -288,6 +288,10 @@ export interface BlueprintVersion {
   agent_card?: BlueprintCardData;
   published_at: string;
   validation_warnings?: ValidationError[];
+  /** Git commit that produced this build; present only for GitHub-sourced builds. */
+  commit_message?: string;
+  commit_sha?: string;
+  repo_full_name?: string;
 }
 
 export interface BlueprintMetrics {
