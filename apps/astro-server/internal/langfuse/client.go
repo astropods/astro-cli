@@ -202,6 +202,18 @@ func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime
 	})
 }
 
+// GetQueueTraces returns the trace fields needed to render the judgment queue.
+func (c *Client) GetQueueTraces(ctx context.Context, deploymentID, endTime string, limit, offset int) (*TracesResponse, error) {
+	return c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		endTime:      endTime,
+		limit:        limit,
+		offset:       offset,
+		fields:       "core,io",
+		orderBy:      "timestamp.desc",
+	})
+}
+
 // GetSessionTraces returns every trace in one conversation (Langfuse session),
 // scoped to a single user, ordered oldest-first with trace input/output so the
 // chat history can be reconstructed turn-by-turn. The deployment tag plus the
@@ -476,6 +488,11 @@ func (c *Client) UpsertDatasetItem(ctx context.Context, item DatasetItemInput) e
 	return c.doPost(ctx, "/api/public/dataset-items", item)
 }
 
+// DeleteDatasetItem deletes a single dataset item by ID.
+func (c *Client) DeleteDatasetItem(ctx context.Context, id string) error {
+	return c.doDelete(ctx, "/api/public/dataset-items/"+url.PathEscape(id))
+}
+
 // GetDatasetItems returns a page of items from a Langfuse dataset.
 func (c *Client) GetDatasetItems(ctx context.Context, datasetName string, page, limit int) (*DatasetItemsResponse, error) {
 	params := url.Values{}
@@ -518,6 +535,33 @@ func (c *Client) doPost(ctx context.Context, path string, body any) error {
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
 		return &APIError{StatusCode: resp.StatusCode, Body: string(b)}
+	}
+	return nil
+}
+
+func (c *Client) doDelete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("langfuse: create request: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(c.publicKey + ":" + c.secretKey))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("langfuse: request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode == http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%w: %s", ErrNotFound, string(body))
+	}
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 	return nil
 }

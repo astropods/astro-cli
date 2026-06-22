@@ -141,6 +141,31 @@ func TestGetSessionTraces_QueryParams(t *testing.T) {
 	assertParam(t, gotQuery, "orderBy", "timestamp.desc")
 }
 
+func TestGetQueueTraces_QueryParams(t *testing.T) {
+	var gotQuery map[string][]string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TracesResponse{})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	_, err := c.GetQueueTraces(context.Background(), "dep-1", "2026-01-02T00:00:00Z", 50, 50)
+	if err != nil {
+		t.Fatalf("GetQueueTraces returned error: %v", err)
+	}
+
+	assertParam(t, gotQuery, "tags", "deployment:dep-1")
+	assertParam(t, gotQuery, "fromTimestamp", "")
+	assertParam(t, gotQuery, "toTimestamp", "2026-01-02T00:00:00Z")
+	assertParam(t, gotQuery, "limit", "50")
+	assertParam(t, gotQuery, "page", "2")
+	assertParam(t, gotQuery, "fields", "core,io")
+	assertParam(t, gotQuery, "orderBy", "timestamp.desc")
+}
+
 func TestGetDailyMetrics_QueryParams(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -260,6 +285,38 @@ func TestUpsertDatasetItem_Non2xxStatusIsAPIError(t *testing.T) {
 	}
 	if apiErr.StatusCode != http.StatusBadRequest {
 		t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestDeleteDatasetItem(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method = %s, want DELETE", r.Method)
+		}
+		if r.URL.EscapedPath() != "/api/public/dataset-items/item%2F1" {
+			t.Errorf("path = %q, want escaped dataset item id", r.URL.EscapedPath())
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	if err := c.DeleteDatasetItem(context.Background(), "item/1"); err != nil {
+		t.Fatalf("DeleteDatasetItem: %v", err)
+	}
+}
+
+func TestDeleteDatasetItem_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message":"not found"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "pk", "sk")
+	err := c.DeleteDatasetItem(context.Background(), "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DeleteDatasetItem error = %v, want ErrNotFound", err)
 	}
 }
 

@@ -44,22 +44,23 @@ func ExpectMissing(mock sqlmock.Sqlmock, depID string) {
 		WillReturnRows(sqlmock.NewRows(Columns))
 }
 
-// ExpectExists queues a Get that returns a canonical eval-* row with zero counts.
-func ExpectExists(mock sqlmock.Sqlmock, depID string) {
+// ExpectRow queues a Get that returns one eval_datasets row with explicit values.
+func ExpectRow(mock sqlmock.Sqlmock, depID, datasetName string, itemCount, goodCount, badCount int) {
 	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
 		WithArgs(depID).
 		WillReturnRows(sqlmock.NewRows(Columns).AddRow(
-			ID(depID), depID, "acct-1", "eval-"+depID, 0, 0, 0, time.Now(), time.Now(),
+			ID(depID), depID, "acct-1", datasetName, itemCount, goodCount, badCount, time.Now(), time.Now(),
 		))
+}
+
+// ExpectExists queues a Get that returns a canonical eval-* row with zero counts.
+func ExpectExists(mock sqlmock.Sqlmock, depID string) {
+	ExpectRow(mock, depID, "eval-"+depID, 0, 0, 0)
 }
 
 // ExpectLegacyExists queues a Get that returns a pre-flip dep-* row with non-zero counts.
 func ExpectLegacyExists(mock sqlmock.Sqlmock, depID string) {
-	mock.ExpectQuery("SELECT .+ FROM eval_datasets").
-		WithArgs(depID).
-		WillReturnRows(sqlmock.NewRows(Columns).AddRow(
-			ID(depID), depID, "acct-1", "dep-"+depID, 2, 1, 1, time.Now(), time.Now(),
-		))
+	ExpectRow(mock, depID, "dep-"+depID, 2, 1, 1)
 }
 
 // ExpectCreate queues a Create insert for the canonical eval-* row.

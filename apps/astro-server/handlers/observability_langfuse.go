@@ -33,6 +33,7 @@ import (
 type langfuseContext struct {
 	Client       *langfuse.Client
 	DeploymentID string
+	UserID       string
 }
 
 // resolveLangfuseContext validates auth, looks up the deployment, and returns
@@ -78,7 +79,11 @@ func resolveLangfuseContext(
 		"deployment_id", dep.ID, "user_id", user.ID,
 	)
 
-	return &langfuseContext{Client: client, DeploymentID: dep.ID}, true
+	return &langfuseContext{
+		Client:       client,
+		DeploymentID: dep.ID,
+		UserID:       user.ID,
+	}, true
 }
 
 // GetAccountLangfuseSummary returns aggregate observability data for all deployments
