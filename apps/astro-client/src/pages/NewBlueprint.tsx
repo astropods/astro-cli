@@ -4,7 +4,11 @@ import { useActiveAccount } from "@/hooks/use-active-account";
 import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountStatus, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { repoBase, repoSubPath } from "@/lib/github-utils";
-import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
+import { Link, useNavigate, useSearchParams, type MetaFunction } from "react-router";
+import { ApiRequestError } from "@/lib/api";
+import { accountSettingsPath } from "@/lib/settings-paths";
+import { useAccountUsage } from "@/api/queries/usage";
+import { RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,9 +132,10 @@ function NewBlueprintContent() {
     oauthReturn ? new Set<Step>(["setup"]) : new Set()
   );
   const isAlreadyPublished = completedSteps.has("publishing");
-  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<{ message: string; usageUrl?: string } | null>(null);
   const [isBlueprintCreated, setIsBlueprintCreated] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
 
   // Form state
   const [name, setName] = useState(() => oauthReturn?.savedWizard?.name ?? "");
@@ -157,6 +162,11 @@ function NewBlueprintContent() {
   const githubLink = useGitHubLink(selectedOrg, slug);
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
+
+  // Only load usage once we hit the agents quota, to populate the request dialog.
+  const isQuotaError = !!publishError?.usageUrl;
+  const { data: usageData } = useAccountUsage(selectedOrg, isQuotaError);
+  const agentsMeter = usageData?.meters?.agents ?? { usage: 0, quota: undefined };
 
   // Proactively check whether the selected org is already connected to GitHub.
   // If so, the source step can skip the "Connect GitHub" intermediate click and
@@ -312,7 +322,14 @@ function NewBlueprintContent() {
       setCompletedSteps(prev => { const s = new Set(prev); s.add("publishing"); return s; });
       setActiveStep("review");
     } catch (err) {
-      setPublishError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      // Entitlement quota limits surface as HTTP 402; the entitlement middleware
+      // sets error="Limit reached" (vs "Feature not available" for plan gaps).
+      // Offer a scoped usage link + quota-increase dialog for the agents limit.
+      const isQuotaLimit = err instanceof ApiRequestError && err.status === 402
+        && err.code === "Limit reached";
+      const usageUrl = isQuotaLimit ? accountSettingsPath(accounts, selectedOrg, "usage") : undefined;
+      setPublishError({ message, usageUrl });
     } finally {
       setIsPublishing(false);
     }
@@ -531,6 +548,17 @@ function NewBlueprintContent() {
                         onConfirm={handleConfirmAndPublish}
                       />
 
+                      {publishError?.usageUrl && (
+                        <RequestIncreaseDialog
+                          featureKey="agents"
+                          label="Agents"
+                          meter={agentsMeter}
+                          account={selectedOrg}
+                          open={quotaDialogOpen}
+                          onOpenChange={setQuotaDialogOpen}
+                        />
+                      )}
+
                     </div>
                   )}
 
@@ -569,7 +597,27 @@ function NewBlueprintContent() {
                           <p className="mt-2 font-mono text-xs text-muted-foreground/60">{selectedOrg}/{slug}</p>
                         </div>
                         {publishError ? (
-                          <p className="text-xs text-destructive max-w-[280px] text-center">{publishError}</p>
+                          <div className="flex flex-col items-center gap-1.5 max-w-[280px] text-center">
+                            <p className="text-xs text-destructive">{publishError.message}</p>
+                            {publishError.usageUrl && (
+                              <p className="text-xs text-muted-foreground">
+                                <button
+                                  type="button"
+                                  className="font-medium text-primary underline underline-offset-2 cursor-pointer"
+                                  onClick={() => setQuotaDialogOpen(true)}
+                                >
+                                  Request a quota increase
+                                </button>{" "}
+                                or{" "}
+                                <Link
+                                  to={publishError.usageUrl}
+                                  className="font-medium text-primary underline underline-offset-2"
+                                >
+                                  review your usage in Settings
+                                </Link>.
+                              </p>
+                            )}
+                          </div>
                         ) : (
                           <div className="flex gap-2">
                             {[0, 1, 2].map((j) => (

@@ -198,6 +198,87 @@ describe('NewBlueprint – org scoping', () => {
   });
 });
 
+describe('NewBlueprint – agents-limit quota link', () => {
+  const LIMIT_BODY = {
+    error: 'Limit reached',
+    code: 'ENTITLEMENT_LIMIT_REACHED',
+    feature: 'agents',
+    usage: 5,
+    limit: 5,
+    details:
+      'Agents limit reached: Your account has reached the maximum number of registered agents. To continue, request a quota increase from Settings > Usage.',
+  };
+
+  it('links the agents-limit error to the org-scoped Settings → Usage page', async () => {
+    const auth: AuthContextType = {
+      ...mockAuthContext,
+      organizationId: 'org-id-2',
+      accounts: [
+        { id: 'acct-1', name: 'testuser', type: 'personal' },
+        { id: 'acct-2', name: 'my-org', type: 'organization', organization_id: 'org-id-2' },
+      ],
+    };
+    server.use(
+      http.post('/api/v1/agents/:account', () => HttpResponse.json(LIMIT_BODY, { status: 402 })),
+    );
+
+    renderNewBlueprint({ auth });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('combobox'));
+    await waitFor(() => screen.getByRole('option', { name: /my-org/i }));
+    await user.click(screen.getByRole('option', { name: /my-org/i }));
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up locally'));
+    await user.click(screen.getByRole('button', { name: /create blueprint/i }));
+
+    const link = await screen.findByRole('link', { name: /review your usage in settings/i });
+    expect(link).toHaveAttribute('href', '/settings/org/my-org/usage');
+  });
+
+  it('links to the personal Settings → Usage page for a personal account', async () => {
+    server.use(
+      http.post('/api/v1/agents/:account', () => HttpResponse.json(LIMIT_BODY, { status: 402 })),
+    );
+
+    renderNewBlueprint();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up locally'));
+    await user.click(screen.getByRole('button', { name: /create blueprint/i }));
+
+    const link = await screen.findByRole('link', { name: /review your usage in settings/i });
+    expect(link).toHaveAttribute('href', '/settings/usage');
+  });
+
+  it('opens the request-quota-increase dialog from the agents-limit message', async () => {
+    server.use(
+      http.post('/api/v1/agents/:account', () => HttpResponse.json(LIMIT_BODY, { status: 402 })),
+    );
+
+    renderNewBlueprint();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+    await waitFor(() => expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled());
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up locally'));
+    await user.click(screen.getByRole('button', { name: /create blueprint/i }));
+
+    await user.click(await screen.findByRole('button', { name: /request a quota increase/i }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/request quota increase/i);
+  });
+});
+
 describe('NewBlueprint – GitHub already connected', () => {
   it('skips the Connect GitHub step and shows the repo list when already connected', async () => {
     server.use(

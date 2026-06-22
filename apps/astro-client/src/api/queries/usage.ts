@@ -3,11 +3,11 @@ import { api } from '../../lib/api';
 import { usageKeys } from './keys';
 import type { QuotaIncreaseInput } from '../../lib/api';
 
-export function useAccountUsage(account: string) {
+export function useAccountUsage(account: string, enabled = true) {
   return useQuery({
     queryKey: usageKeys.byAccount(account),
     queryFn: () => api.getAccountUsage(account),
-    enabled: !!account,
+    enabled: enabled && !!account,
     staleTime: 60_000,
     placeholderData: keepPreviousData,
   });

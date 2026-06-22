@@ -5,6 +5,7 @@ import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/bluepri
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateProvisioning, TemplateInterfaces, AuthGrant } from "@/lib/api";
 import { ApiRequestError } from "@/lib/api";
+import { accountSettingsPath } from "@/lib/settings-paths";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
@@ -988,11 +989,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     vaultEntries: accountVarsData?.variables ?? [],
     vaultEntriesLoaded: accountVarsLoaded,
     vaultEntriesLoadError,
-    vaultSettingsUrl: (() => {
-      const acct = accounts.find(a => a.name === targetAccount);
-      if (!acct || acct.type === 'personal') return '/settings/secrets';
-      return `/settings/org/${targetAccount}/secrets`;
-    })(),
+    vaultSettingsUrl: accountSettingsPath(accounts, targetAccount, 'secrets'),
 
     errors,
     invalidVaultRefKeys,

@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { Camera } from "lucide-react";
 import { useAccountUsage } from "@/api/queries/usage";
+import { accountSettingsPath } from "@/lib/settings-paths";
 import { RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +49,10 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const { data: usageData } = useAccountUsage(form.targetAccount);
+  // Settings → Usage lives at a different path for personal vs. organization
+  // accounts. Scope the link to the deploy target (from form.accounts, which
+  // already holds it) rather than the user's personal account.
+  const usageSettingsPath = accountSettingsPath(form.accounts, form.targetAccount, "usage");
   const hasKnowledgeEntries = form.knowledgeEntries && Object.keys(form.knowledgeEntries).length > 0;
   const { data: knowledgeStores } = useKnowledgeStores(form.targetAccount, hasKnowledgeEntries);
   const computeMeter = usageData?.meters?.compute ?? { usage: 0, quota: undefined };
@@ -285,7 +291,14 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
       {showComputeLimit ? (
         <>
           <ErrorPanel title="Compute limit reached">
-            All compute hours for this billing period have been used. To continue,{" "}
+            All compute hours for this billing period have been used. Review your{" "}
+            <Link
+              to={usageSettingsPath}
+              className="underline underline-offset-2 font-medium cursor-pointer"
+            >
+              usage in Settings
+            </Link>{" "}
+            or{" "}
             <button
               type="button"
               className="underline underline-offset-2 font-medium cursor-pointer"
