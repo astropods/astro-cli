@@ -249,39 +249,15 @@ describe('Blueprints – Discover page', () => {
       });
     });
 
-    it('shows category counts in a dropdown and supports multi-category filters', async () => {
+    it('does not show category filter controls', async () => {
       mockSortableBlueprints();
-      const user = userEvent.setup();
 
       renderDiscover();
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /filter categories/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole('button', { name: /filter categories/i }));
-      expect(document.querySelector('[data-slot="multi-select-list"]')).toHaveClass('max-h-72');
-
-      await user.click(await screen.findByRole('button', { name: 'Productivity 2' }));
-
-      await waitFor(() => {
-        expect(cardNames()).toEqual(['gamma-bot', 'alpha-bot']);
-      });
-
-      await user.click(await screen.findByRole('button', { name: 'MCP 1' }));
-
-      await waitFor(() => {
         expect(cardNames()).toEqual(['beta-bot', 'gamma-bot', 'alpha-bot']);
       });
-
-      expect(screen.getByText('Filter (2)')).toBeInTheDocument();
-
-      await user.click(await screen.findByRole('button', { name: 'Remove filters' }));
-
-      await waitFor(() => {
-        expect(screen.queryByText('Filter (2)')).not.toBeInTheDocument();
-        expect(cardNames()).toEqual(['beta-bot', 'gamma-bot', 'alpha-bot']);
-      });
+      expect(screen.queryByRole('button', { name: /filter categories/i })).not.toBeInTheDocument();
     });
   });
 

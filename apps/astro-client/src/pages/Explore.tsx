@@ -5,15 +5,6 @@ import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { FilterInput } from "@/components/FilterInput";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import {
-  MultiSelect,
-  MultiSelectAllItem,
-  MultiSelectClearItem,
-  MultiSelectContent,
-  MultiSelectItem,
-  MultiSelectList,
-  MultiSelectTrigger,
-} from "@/components/ui/multi-select";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -23,7 +14,6 @@ import {
 import { useAuth } from "@/lib/auth";
 import { explorePath } from "@/lib/routes";
 import { getBlueprintCategories, getBlueprintDescription } from "@/lib/blueprint-utils";
-import { Plus } from "lucide-react";
 import type { Blueprint } from "@/lib/api";
 
 type ExploreSort = "deploys" | "hearts" | "updated" | "name";
@@ -34,22 +24,6 @@ const EXPLORE_SORT_OPTIONS: { value: ExploreSort; label: string }[] = [
   { value: "updated", label: "Last updated" },
   { value: "name", label: "Name (A-Z)" },
 ];
-
-const CATEGORY_LABEL_OVERRIDES: Record<string, string> = {
-  ai: "AI",
-  api: "API",
-  github: "GitHub",
-  google: "Google",
-  mcp: "MCP",
-  sdk: "SDK",
-  whatsapp: "WhatsApp",
-};
-
-interface CategoryFilter {
-  key: string;
-  label: string;
-  count: number;
-}
 
 function blueprintName(a: Blueprint) {
   return `${a.name} ${a.account}`;
@@ -74,57 +48,6 @@ function latestPublishedAt(blueprint: Blueprint) {
     (latest, version) => (version.published_at > latest ? version.published_at : latest),
     "",
   );
-}
-
-function categoryKey(category: string) {
-  return category.trim().toLowerCase();
-}
-
-function formatCategoryLabel(category: string) {
-  return category
-    .trim()
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((word) => {
-      const lower = word.toLowerCase();
-      return CATEGORY_LABEL_OVERRIDES[lower] ?? `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
-    })
-    .join(" ");
-}
-
-function blueprintCategoryKeys(blueprint: Blueprint) {
-  return new Set(
-    getBlueprintCategories(blueprint)
-      .map(categoryKey)
-      .filter(Boolean),
-  );
-}
-
-function buildCategoryFilters(blueprints: Blueprint[]): CategoryFilter[] {
-  const filters = new Map<string, CategoryFilter>();
-
-  for (const blueprint of blueprints) {
-    const seen = new Set<string>();
-    for (const category of getBlueprintCategories(blueprint)) {
-      const rawLabel = category.trim();
-      const key = categoryKey(rawLabel);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-
-      const existing = filters.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        filters.set(key, { key, label: formatCategoryLabel(rawLabel), count: 1 });
-      }
-    }
-  }
-
-  return [...filters.values()].sort((a, b) => {
-    const countDelta = b.count - a.count;
-    if (countDelta !== 0) return countDelta;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-  });
 }
 
 function matchesSearch(blueprint: Blueprint, search: string) {
@@ -175,30 +98,20 @@ export function meta() {
 export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType<typeof loader>> }) {
   const [sort, setSort] = useState<ExploreSort>("deploys");
   const [search, setSearch] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const { data, isLoading, isError, error, refetch } = useBlueprints({
     initialData: loaderData?.blueprintsData,
   });
   const { accounts } = useAuth();
   const ownerAccounts = new Set(accounts.map((a) => a.name));
   const allBlueprints = data?.agents ?? [];
-  const categoryFilters = useMemo(() => buildCategoryFilters(allBlueprints), [allBlueprints]);
-  const selectedCategorySet = useMemo(() => new Set(selectedCategories), [selectedCategories]);
   const blueprints = useMemo(
-    () => {
-      const filtered = allBlueprints.filter((blueprint) => {
-        if (!matchesSearch(blueprint, search)) return false;
-        if (selectedCategorySet.size === 0) return true;
-
-        const categories = blueprintCategoryKeys(blueprint);
-        return selectedCategories.some((category) => categories.has(category));
-      });
-
-      return sortExploreBlueprints(filtered, sort);
-    },
-    [allBlueprints, search, selectedCategories, selectedCategorySet, sort],
+    () => sortExploreBlueprints(
+      allBlueprints.filter((blueprint) => matchesSearch(blueprint, search)),
+      sort,
+    ),
+    [allBlueprints, search, sort],
   );
-  const hasFilters = search.trim() !== "" || selectedCategories.length > 0;
+  const hasFilters = search.trim() !== "";
 
   return (
     <PageContainer outerClassName="bg-background">
@@ -215,39 +128,6 @@ export default function Explore({ loaderData }: { loaderData: Awaited<ReturnType
             containerClassName="h-8 w-full bg-card dark:bg-background @[480px]:w-auto @[480px]:max-w-lg @[480px]:flex-1"
           />
           <div className="flex w-full flex-wrap items-center gap-2 @[480px]:w-auto">
-            {categoryFilters.length > 0 && (
-              <MultiSelect value={selectedCategories} onValueChange={setSelectedCategories}>
-                <MultiSelectTrigger
-                  aria-label="Filter categories"
-                  className="h-8 w-full bg-card px-3 text-sm dark:bg-background @[480px]:w-32"
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Plus className="size-3.5 shrink-0" />
-                    <span className="truncate">
-                      {selectedCategories.length > 0 ? `Filter (${selectedCategories.length})` : "Filter"}
-                    </span>
-                  </span>
-                </MultiSelectTrigger>
-                <MultiSelectContent className="w-64">
-                  <MultiSelectAllItem>All categories</MultiSelectAllItem>
-                  <MultiSelectList className="max-h-72">
-                    {categoryFilters.map((category) => (
-                      <MultiSelectItem
-                        key={category.key}
-                        value={category.key}
-                        aria-label={`${category.label} ${category.count}`}
-                      >
-                        <span className="min-w-0 flex-1 truncate text-left">{category.label}</span>
-                        <span className="ml-auto font-mono text-mono-sm tabular-nums text-muted-foreground">
-                          {category.count}
-                        </span>
-                      </MultiSelectItem>
-                    ))}
-                  </MultiSelectList>
-                  <MultiSelectClearItem />
-                </MultiSelectContent>
-              </MultiSelect>
-            )}
             <Select
               value={sort}
               onValueChange={(value) => setSort(value as ExploreSort)}
