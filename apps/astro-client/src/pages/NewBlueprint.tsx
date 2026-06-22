@@ -338,8 +338,8 @@ function NewBlueprintContent() {
   );
 
   return (
-    <div className="dp-blueprint-bg flex flex-1 flex-col overflow-hidden">
-      <div className="mx-auto w-full max-w-[640px] px-6 pt-16 pb-6 flex flex-1 flex-col overflow-hidden">
+    <div className="dp-blueprint-bg flex flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[640px] px-6 pt-16 pb-6 flex flex-1 flex-col">
         <div className="mb-10 text-center">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Setup your agent blueprint</h1>
           <p className="mt-2 text-muted-foreground max-w-[540px] mx-auto">A blueprint is your agent's packaged definition. Once it's pushed to the registry, you can deploy it as a running agent.</p>
