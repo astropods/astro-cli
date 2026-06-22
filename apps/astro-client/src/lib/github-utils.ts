@@ -25,6 +25,22 @@ export function repoLabel(repoFullName: string): string {
   return sub ? `${name}/${sub}` : name;
 }
 
+// repoOwner returns the owner/org portion of a full repo name. e.g. "myorg/my-repo" → "myorg".
+export function repoOwner(repoFullName: string): string {
+  return repoFullName.split("/")[0] ?? "";
+}
+
+// repoPickerLabel returns the label for a repo entry in the connected-repos dropdown.
+// When the repo's owner is the authenticated personal account (githubLogin), only the repo
+// name is shown. For any other owner (e.g. an organization) the owner is prefixed as
+// "owner/repo" so org-owned repos are distinguishable from personal ones at a glance.
+export function repoPickerLabel(repoFullName: string, githubLogin?: string): string {
+  const owner = repoOwner(repoFullName);
+  const name = repoFullName.split("/")[1] ?? "";
+  const isPersonal = !!githubLogin && owner.toLowerCase() === githubLogin.toLowerCase();
+  return isPersonal || !owner ? name : `${owner}/${name}`;
+}
+
 // repoHref returns a GitHub URL for the repo, pointing to the subpath directory when present.
 // A branch must be provided to navigate to the subpath tree; without it the link falls back
 // to the repo root regardless of whether a subpath is configured.

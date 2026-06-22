@@ -15,6 +15,7 @@ const REPOS: GitHubRepo[] = [
   { full_name: "testuser/my-agent", default_branch: "main", private: false },
   { full_name: "testuser/private-repo", default_branch: "main", private: true },
   { full_name: "testuser/another-repo", default_branch: "develop", private: false },
+  { full_name: "acme-org/shared-agent", default_branch: "main", private: false },
 ];
 
 function baseProps() {
@@ -69,6 +70,17 @@ describe("RepoPicker", () => {
     expect(screen.getByRole("button", { name: /my-agent/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /private-repo/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /another-repo/ })).toBeInTheDocument();
+  });
+
+  it("prefixes org-owned repos with the owner in the dropdown", () => {
+    render(<RepoPicker {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    // Org-owned repo (owner !== githubLogin) shows "owner/repo" via repoPickerLabel.
+    const orgRepo = screen.getByRole("button", { name: /acme-org\/shared-agent/ });
+    expect(orgRepo).toBeInTheDocument();
+    expect(orgRepo).toHaveTextContent("acme-org/shared-agent");
+    // Personal repos (owner === githubLogin) stay bare — no "testuser/" prefix.
+    expect(screen.getByRole("button", { name: /^my-agent$/ })).toHaveTextContent("my-agent");
   });
 
   it("calls onChange when a repo is clicked", () => {

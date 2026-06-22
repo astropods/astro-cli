@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { toRepoFullName } from "@/lib/github-utils";
+import { toRepoFullName, repoPickerLabel } from "@/lib/github-utils";
 import { ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown, Search, GitBranch, FolderOpen } from "lucide-react";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
@@ -223,7 +223,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                         usedBy ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
                       )}
                     >
-                      <span className="flex-1 font-medium truncate">{repo.full_name.split("/")[1]}</span>
+                      <span className="flex-1 font-medium truncate">{repoPickerLabel(repo.full_name, githubLogin)}</span>
                       {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
                       {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">Linked to {usedBy.agent_name}</span>}
                       {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}

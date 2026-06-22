@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toRepoFullName, repoBase, repoSubPath, repoLabel, repoHref } from "./github-utils";
+import { toRepoFullName, repoBase, repoSubPath, repoLabel, repoHref, repoOwner, repoPickerLabel } from "./github-utils";
 import type { GitHubRepo } from "./api";
 
 function repo(fullName: string): GitHubRepo {
@@ -62,6 +62,31 @@ describe("repoHref", () => {
 
   it("returns base URL for root connection even when branch is provided", () => {
     expect(repoHref("owner/repo", "main")).toBe("https://github.com/owner/repo");
+  });
+});
+
+describe("repoOwner", () => {
+  it("returns the owner segment", () => {
+    expect(repoOwner("myorg/my-repo")).toBe("myorg");
+    expect(repoOwner("alice/my-repo")).toBe("alice");
+  });
+});
+
+describe("repoPickerLabel", () => {
+  it("shows only the repo name for the personal account", () => {
+    expect(repoPickerLabel("alice/my-repo", "alice")).toBe("my-repo");
+  });
+
+  it("is case-insensitive when matching the personal login", () => {
+    expect(repoPickerLabel("Alice/my-repo", "alice")).toBe("my-repo");
+  });
+
+  it("prefixes the owner for org-owned repos", () => {
+    expect(repoPickerLabel("acme-org/my-repo", "alice")).toBe("acme-org/my-repo");
+  });
+
+  it("prefixes the owner when the personal login is unknown", () => {
+    expect(repoPickerLabel("acme-org/my-repo")).toBe("acme-org/my-repo");
   });
 });
 
