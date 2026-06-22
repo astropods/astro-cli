@@ -50,6 +50,17 @@ describe("RepoPicker", () => {
     expect(screen.getByText(/no repos matching/i)).toBeInTheDocument();
   });
 
+  it("opens the dropdown when the control body is clicked, not just the chevron", () => {
+    render(<RepoPicker {...baseProps()} />);
+    // Collapsed initially: the chevron offers to open the list. (Repo buttons stay
+    // mounted but are hidden via the CSS grid collapse, so assert on open state.)
+    expect(screen.getByRole("button", { name: /browse repositories/i })).toBeInTheDocument();
+    // Click the control body (the search input area), away from the chevron.
+    fireEvent.click(screen.getByPlaceholderText(/search repositories/i));
+    // Now open: the chevron toggles to "close".
+    expect(screen.getByRole("button", { name: /close repository list/i })).toBeInTheDocument();
+  });
+
   it("renders all repos when dropdown is open", () => {
     render(<RepoPicker {...baseProps()} />);
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });

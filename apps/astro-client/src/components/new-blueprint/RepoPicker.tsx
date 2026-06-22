@@ -122,7 +122,11 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
         </Label>
         <div
           className={cn(inputBase, inputFocusWithin, "flex h-9 items-center gap-2 cursor-text px-3")}
-          onClick={() => inputRef.current?.focus()}
+          onClick={() => {
+            if (selectedRepo) return;
+            setRepoOpen(true);
+            inputRef.current?.focus();
+          }}
         >
           {selectedRepo && !repoOpen ? (
             <>
