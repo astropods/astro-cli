@@ -5,7 +5,9 @@ import {
   MultiSelectTrigger,
   MultiSelectValue,
   MultiSelectContent,
+  MultiSelectList,
   MultiSelectAllItem,
+  MultiSelectClearItem,
   MultiSelectItem,
   type MultiSelectOption,
 } from "@/components/ui/multi-select";
@@ -23,14 +25,32 @@ const MODEL_OPTIONS: MultiSelectOption[] = [
   { value: "gpt-4o", label: "GPT-4o" },
 ];
 
+const CATEGORY_OPTIONS: MultiSelectOption[] = [
+  { value: "analytics", label: "Analytics" },
+  { value: "coding", label: "Coding" },
+  { value: "github", label: "GitHub" },
+  { value: "google-workspace", label: "Google Workspace" },
+  { value: "issues", label: "Issues" },
+  { value: "knowledge-graph", label: "Knowledge Graph" },
+  { value: "mcp", label: "MCP" },
+  { value: "productivity", label: "Productivity" },
+  { value: "scheduling", label: "Scheduling" },
+  { value: "workspace", label: "Workspace" },
+  { value: "whatsapp", label: "WhatsApp" },
+];
+
 function MultiSelectDemo({
   options,
   placeholder,
   initialValue = [],
+  contentClassName,
+  listClassName,
 }: {
   options: MultiSelectOption[];
   placeholder?: string;
   initialValue?: string[];
+  contentClassName?: string;
+  listClassName?: string;
 }) {
   const [value, setValue] = useState<string[]>(initialValue);
   return (
@@ -39,13 +59,16 @@ function MultiSelectDemo({
         <MultiSelectTrigger>
           <MultiSelectValue placeholder={placeholder} options={options} />
         </MultiSelectTrigger>
-        <MultiSelectContent>
+        <MultiSelectContent className={contentClassName}>
           <MultiSelectAllItem>{placeholder ?? "All"}</MultiSelectAllItem>
-          {options.map((o) => (
-            <MultiSelectItem key={o.value} value={o.value} color={o.color}>
-              {o.label}
-            </MultiSelectItem>
-          ))}
+          <MultiSelectList className={listClassName}>
+            {options.map((o) => (
+              <MultiSelectItem key={o.value} value={o.value} color={o.color}>
+                {o.label}
+              </MultiSelectItem>
+            ))}
+          </MultiSelectList>
+          <MultiSelectClearItem />
         </MultiSelectContent>
       </MultiSelect>
     </div>
@@ -60,34 +83,39 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const AllStates: Story = {
+export const Default: Story = {
   args: { options: STATUS_OPTIONS, placeholder: "All statuses" },
-  render: () => (
-    <div className="flex flex-col gap-6 max-w-xs">
-      <div className="flex flex-col gap-1">
-        <MultiSelectDemo options={STATUS_OPTIONS} placeholder="All statuses" />
-        <span className="text-mono-sm text-muted-foreground">Empty (all selected)</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <MultiSelectDemo
-          options={STATUS_OPTIONS}
-          placeholder="All statuses"
-          initialValue={["success"]}
-        />
-        <span className="text-mono-sm text-muted-foreground">Single selected</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <MultiSelectDemo
-          options={STATUS_OPTIONS}
-          placeholder="All statuses"
-          initialValue={["success", "error"]}
-        />
-        <span className="text-mono-sm text-muted-foreground">Multiple selected</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <MultiSelectDemo options={MODEL_OPTIONS} placeholder="All models" />
-        <span className="text-mono-sm text-muted-foreground">Without color indicators</span>
-      </div>
-    </div>
-  ),
+};
+
+export const SingleSelected: Story = {
+  args: {
+    options: STATUS_OPTIONS,
+    placeholder: "All statuses",
+    initialValue: ["success"],
+  },
+};
+
+export const MultipleSelected: Story = {
+  args: {
+    options: STATUS_OPTIONS,
+    placeholder: "All statuses",
+    initialValue: ["success", "error"],
+  },
+};
+
+export const ScrollableList: Story = {
+  args: {
+    options: CATEGORY_OPTIONS,
+    placeholder: "Filter",
+    initialValue: ["productivity", "mcp"],
+    contentClassName: "w-64",
+    listClassName: "max-h-40",
+  },
+};
+
+export const WithoutColorIndicators: Story = {
+  args: {
+    options: MODEL_OPTIONS,
+    placeholder: "All models",
+  },
 };

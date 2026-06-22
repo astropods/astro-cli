@@ -38,4 +38,5 @@ describe("BlueprintCard", () => {
       screen.queryByText("This text should not render in this variant."),
     ).not.toBeInTheDocument();
   });
+
 });

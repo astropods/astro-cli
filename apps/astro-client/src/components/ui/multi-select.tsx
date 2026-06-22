@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDownIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { ChevronDownIcon, CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 import { inputBase, inputFocusVisible } from "./input";
@@ -116,6 +116,21 @@ function MultiSelectContent({
   );
 }
 
+// ── List ─────────────────────────────────────────────────────────────────────
+
+function MultiSelectList({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="multi-select-list"
+      className={cn(
+        "max-h-64 overflow-y-auto overscroll-contain py-1 [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 // ── All Item ──────────────────────────────────────────────────────────────────
 
 function MultiSelectAllItem({ children = "All" }: { children?: React.ReactNode }) {
@@ -125,7 +140,7 @@ function MultiSelectAllItem({ children = "All" }: { children?: React.ReactNode }
     <button
       type="button"
       onClick={() => onValueChange([])}
-      className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors"
+      className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted"
     >
       <span
         className={cn(
@@ -140,26 +155,64 @@ function MultiSelectAllItem({ children = "All" }: { children?: React.ReactNode }
   );
 }
 
+// ── Clear Item ────────────────────────────────────────────────────────────────
+
+interface MultiSelectClearItemProps extends Omit<React.ComponentProps<"button">, "type" | "onClick"> {
+  hideWhenEmpty?: boolean;
+}
+
+function MultiSelectClearItem({
+  children,
+  className,
+  hideWhenEmpty = true,
+  ...props
+}: MultiSelectClearItemProps) {
+  const { value, onValueChange } = useMultiSelect();
+  const hasSelection = value.length > 0;
+
+  if (hideWhenEmpty && !hasSelection) {
+    return null;
+  }
+
+  return (
+    <button
+      {...props}
+      type="button"
+      disabled={!hasSelection}
+      onClick={() => onValueChange([])}
+      className={cn(
+        "flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+        className,
+      )}
+    >
+      <XMarkIcon className="size-3.5 shrink-0" />
+      <span className="truncate">
+        {children ?? (value.length === 1 ? "Remove filter" : "Remove filters")}
+      </span>
+    </button>
+  );
+}
+
 // ── Item ──────────────────────────────────────────────────────────────────────
 
-interface MultiSelectItemProps {
+interface MultiSelectItemProps extends Omit<React.ComponentProps<"button">, "value"> {
   value: string;
   color?: string;
   children: React.ReactNode;
-  className?: string;
 }
 
-function MultiSelectItem({ value, color, children, className }: MultiSelectItemProps) {
+function MultiSelectItem({ value, color, children, className, ...props }: MultiSelectItemProps) {
   const { value: selected, onValueChange } = useMultiSelect();
   const checked = selected.includes(value);
   const toggle = () =>
     onValueChange(checked ? selected.filter((s) => s !== value) : [...selected, value]);
   return (
     <button
+      {...props}
       type="button"
       onClick={toggle}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors",
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted transition-colors",
         className,
       )}
     >
@@ -182,6 +235,8 @@ export {
   MultiSelectTrigger,
   MultiSelectValue,
   MultiSelectContent,
+  MultiSelectList,
   MultiSelectAllItem,
+  MultiSelectClearItem,
   MultiSelectItem,
 };
