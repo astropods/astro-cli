@@ -372,8 +372,11 @@ function NewBlueprintContent() {
           ))}
         </div>
 
-        {/* Carousel — sliding flex row, height driven by content */}
-        <div className="overflow-hidden rounded-xl">
+        {/* Carousel — sliding flex row, height driven by content.
+            overflow-clip (not hidden) so the browser can't scroll the off-screen
+            slides into view on focus, which would knock the active slide out of
+            alignment (blank/offset steps). */}
+        <div className="overflow-clip rounded-xl">
           <div
             className="flex"
             style={{
