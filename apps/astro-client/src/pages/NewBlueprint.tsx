@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
 import { useAuth } from "../lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
-import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
+import { useCreateBlueprint, useUploadBlueprintAvatar, useBlueprint, useGitHubAccountConnect, useGitHubAccountStatus, useGitHubLink, useGitHubAccountScan, useGitHubRebuild } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
 import { repoBase, repoSubPath } from "@/lib/github-utils";
 import { useNavigate, useSearchParams, type MetaFunction } from "react-router";
@@ -158,9 +158,23 @@ function NewBlueprintContent() {
   const accountScan = useGitHubAccountScan(selectedOrg);
   const rebuild = useGitHubRebuild(selectedOrg, slug);
 
-  // Restore wizard state when returning from GitHub OAuth
+  // Proactively check whether the selected org is already connected to GitHub.
+  // If so, the source step can skip the "Connect GitHub" intermediate click and
+  // render the repo list directly. Only fetched once the user reaches the source step.
+  const { data: accountStatus, isLoading: isStatusLoading } = useGitHubAccountStatus(selectedOrg, {
+    enabled: activeStep === "source",
+  });
+  // Effective connection state: either the user just connected via OAuth/Pipes
+  // (githubConnected) or the account already has a stored connection.
+  const isGitHubConnected = githubConnected || !!accountStatus?.connected;
+  const effectiveGithubLogin = githubLogin ?? accountStatus?.github_login;
+
+  // Restore wizard state when returning from GitHub OAuth. The account is now
+  // connected, so jump straight to the import path with the repo list visible.
   useEffect(() => {
     if (!oauthReturn) return;
+    if (oauthReturn.login) setGithubLogin(oauthReturn.login);
+    dispatch({ type: "GITHUB_CONNECTED" });
     sessionStorage.removeItem(WIZARD_STATE_KEY);
     setSearchParams({}, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -399,7 +413,14 @@ function NewBlueprintContent() {
                                   </div>
                                 </button>
 
-                                {sourcePath === "import" && !githubConnected && (
+                                {sourcePath === "import" && isStatusLoading && (
+                                  <div className="flex items-center gap-2 border-t border-border px-4 pb-4 pt-3 text-xs text-muted-foreground">
+                                    <ArrowPathIcon className="size-4 animate-spin" />
+                                    Checking GitHub connection…
+                                  </div>
+                                )}
+
+                                {sourcePath === "import" && !isGitHubConnected && !isStatusLoading && (
                                   <div className="border-t border-border px-4 pb-4 pt-3 space-y-2">
                                     <Button
                                       variant="outline"
@@ -423,20 +444,20 @@ function NewBlueprintContent() {
                                 {sourcePath === "import" && (
                                   <div className={cn(
                                     "grid transition-[grid-template-rows] duration-200 ease-out",
-                                    githubConnected ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                                    isGitHubConnected ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
                                   )}>
                                     <div className="overflow-hidden">
                                       <div className="border-t border-border">
                                           <>
                                             <p className="inline-flex items-center gap-1.5 px-4 pt-3 text-xs text-foreground">
                                               <CheckCircleIcon className="size-3.5 text-success" />
-                                              {githubLogin ? `${githubLogin} connected` : "GitHub connected"}
+                                              {effectiveGithubLogin ? `${effectiveGithubLogin} connected` : "GitHub connected"}
                                             </p>
                                             <RepoPicker
                                               account={selectedOrg}
 
-                                              githubLogin={githubLogin}
-                                              enabled={githubConnected}
+                                              githubLogin={effectiveGithubLogin}
+                                              enabled={isGitHubConnected}
                                               onChange={setPickerValue}
                                             />
                                           </>
@@ -482,7 +503,7 @@ function NewBlueprintContent() {
                             disabled={
                               isCreatingBlueprint ||
                               !sourcePath ||
-                              (sourcePath === "import" && (!githubConnected || !pickerValue.repoFullName))
+                              (sourcePath === "import" && (!isGitHubConnected || !pickerValue.repoFullName))
                             }
                           >
                             {isCreatingBlueprint ? (

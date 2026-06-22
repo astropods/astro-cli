@@ -332,6 +332,12 @@ export const handlers = [
     return HttpResponse.json<AccountOrgsResponse>({ orgs: [] });
   }),
 
+  // GET /api/v1/accounts/:account/github (account-level GitHub connection status)
+  // Default to not connected; tests override to simulate an already-connected account.
+  http.get('/api/v1/accounts/:account/github', () => {
+    return HttpResponse.json({ connected: false });
+  }),
+
   // GET /api/v1/accounts/:account/usage
   http.get('/api/v1/accounts/:account/usage', () => {
     return HttpResponse.json<AccountUsageResponse>({

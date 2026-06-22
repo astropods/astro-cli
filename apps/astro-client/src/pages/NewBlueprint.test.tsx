@@ -197,3 +197,33 @@ describe('NewBlueprint – org scoping', () => {
     expect(switchOrg).not.toHaveBeenCalled();
   });
 });
+
+describe('NewBlueprint – GitHub already connected', () => {
+  it('skips the Connect GitHub step and shows the repo list when already connected', async () => {
+    server.use(
+      http.get('/api/v1/accounts/:account/github', () =>
+        HttpResponse.json({ connected: true, github_login: 'gh-user' })),
+      // RepoPicker mounts once connected — satisfy its data requests.
+      http.get('/api/v1/accounts/:account/github/repos', () =>
+        HttpResponse.json({ repos: [], has_more: false })),
+      http.get('/api/v1/accounts/:account/github/connections', () =>
+        HttpResponse.json({ connections: [] })),
+    );
+
+    renderNewBlueprint();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('my-agent'), 'test-agent');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
+    });
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    await user.click(screen.getByText('Set up with GitHub'));
+
+    // Already connected: the repo list is revealed directly, with no extra
+    // "Connect GitHub" click required.
+    expect(await screen.findByText('gh-user connected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /connect github/i })).not.toBeInTheDocument();
+  });
+});
