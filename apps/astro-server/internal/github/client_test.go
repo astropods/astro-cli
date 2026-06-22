@@ -127,6 +127,49 @@ func TestClient_GetBranchHead_HTTPError(t *testing.T) {
 	}
 }
 
+func TestClient_ListBranches(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/branches" {
+			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"name": "main"},
+			{"name": "dev"},
+			{"name": "release/1.0"},
+		})
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	branches, err := c.ListBranches(context.Background(), "owner/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"main", "dev", "release/1.0"}
+	if len(branches) != len(want) {
+		t.Fatalf("branches = %v, want %v", branches, want)
+	}
+	for i, b := range want {
+		if branches[i] != b {
+			t.Errorf("branches[%d] = %q, want %q", i, branches[i], b)
+		}
+	}
+}
+
+func TestClient_ListBranches_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	if _, err := c.ListBranches(context.Background(), "owner/repo"); err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
 func TestClient_GetOrgs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/user/orgs" {

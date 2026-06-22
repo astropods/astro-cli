@@ -6,9 +6,10 @@ import type { GitHubRepo } from "@/lib/api";
 vi.mock("@/api/queries/github", () => ({
   useGitHubAccountRepos: vi.fn(),
   useGitHubAccountConnections: vi.fn(),
+  useGitHubAccountBranches: vi.fn(),
 }));
 
-import { useGitHubAccountRepos, useGitHubAccountConnections } from "@/api/queries/github";
+import { useGitHubAccountRepos, useGitHubAccountConnections, useGitHubAccountBranches } from "@/api/queries/github";
 
 const REPOS: GitHubRepo[] = [
   { full_name: "testuser/my-agent", default_branch: "main", private: false },
@@ -28,6 +29,7 @@ function baseProps() {
 beforeEach(() => {
   vi.mocked(useGitHubAccountRepos).mockReturnValue({ data: { repos: REPOS }, isLoading: false } as any);
   vi.mocked(useGitHubAccountConnections).mockReturnValue({ data: { connections: [] } } as any);
+  vi.mocked(useGitHubAccountBranches).mockReturnValue({ data: { branches: [] }, isLoading: false } as unknown as ReturnType<typeof useGitHubAccountBranches>);
 });
 
 describe("RepoPicker", () => {
@@ -118,6 +120,20 @@ describe("RepoPicker", () => {
     fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
     fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
     expect(screen.getByText("Branch")).toBeInTheDocument();
+  });
+
+  it("lists the repo's real branches from the API, default branch first", () => {
+    vi.mocked(useGitHubAccountBranches).mockReturnValue({
+      data: { branches: ["dev", "main", "release/1.0"] },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useGitHubAccountBranches>);
+    render(<RepoPicker {...baseProps()} />);
+    fireEvent.change(screen.getByPlaceholderText(/search repositories/i), { target: { value: "a" } });
+    fireEvent.click(screen.getByRole("button", { name: /my-agent/ }));
+    const branchOptions = screen.getAllByTestId("branch-option").map(b => b.textContent?.trim());
+    // Real branches from the API are offered, default branch (main) first, and the
+    // old hardcoded "master" is gone.
+    expect(branchOptions).toEqual(["main", "dev", "release/1.0"]);
   });
 
   it("subpath input appears after repo selection", () => {

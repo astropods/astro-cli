@@ -2666,6 +2666,13 @@ class ApiClient {
     );
   }
 
+  async gitHubListAccountBranches(account: string, repo: string): Promise<{ branches: string[] }> {
+    const params = new URLSearchParams({ repo });
+    return this.request<{ branches: string[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/github/branches?${params}`
+    );
+  }
+
   // --------------------------------------------------------------------------
   // Slack
   // --------------------------------------------------------------------------

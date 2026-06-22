@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tag } from "@/components/Tag";
-import { useGitHubAccountRepos, useGitHubAccountConnections } from "@/api/queries/github";
+import { useGitHubAccountRepos, useGitHubAccountConnections, useGitHubAccountBranches } from "@/api/queries/github";
 import type { GitHubRepo } from "@/lib/api";
 
 export type RepoPickerValue = {
@@ -44,13 +44,20 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
   const repos = reposData?.repos ?? [];
   const connections = connectionsData?.connections;
 
-  const branches = [
-    "main",
-    "master",
-    ...(selectedRepo?.default_branch && !["main", "master"].includes(selectedRepo.default_branch)
-      ? [selectedRepo.default_branch]
-      : []),
-  ];
+  // Real branches for the selected repo. While loading (or if the fetch fails),
+  // fall back to the repo's default branch so the selector always has a value.
+  const { data: branchesData, isLoading: isLoadingBranches } = useGitHubAccountBranches(
+    account,
+    selectedRepo?.full_name ?? "",
+    { enabled: enabled && !!selectedRepo },
+  );
+
+  const defaultBranch = selectedRepo?.default_branch ?? "main";
+  const fetchedBranches = branchesData?.branches ?? [];
+  // Surface the default branch first, then the rest (deduped).
+  const branches = fetchedBranches.length
+    ? [defaultBranch, ...fetchedBranches.filter(b => b !== defaultBranch)]
+    : [defaultBranch];
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -247,10 +254,14 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                 className={cn(inputBase, inputFocusWithin, "w-full flex h-9 items-center justify-between px-3 cursor-pointer")}
               >
                 <span className="text-sm">{selectedBranch}</span>
-                <ChevronDown className={cn(
-                  "size-3.5 text-muted-foreground transition-transform duration-200",
-                  branchOpen && "rotate-180",
-                )} />
+                {isLoadingBranches ? (
+                  <ArrowPathIcon className="size-3.5 text-muted-foreground animate-spin" />
+                ) : (
+                  <ChevronDown className={cn(
+                    "size-3.5 text-muted-foreground transition-transform duration-200",
+                    branchOpen && "rotate-180",
+                  )} />
+                )}
               </button>
               <div className={cn(
                 "grid transition-[grid-template-rows] duration-150 ease-out",
@@ -262,6 +273,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                       <button
                         key={branch}
                         type="button"
+                        data-testid="branch-option"
                         onClick={() => handleSelectBranch(branch)}
                         className={cn(
                           "w-full flex items-center justify-between px-3 py-2.5 text-sm text-left transition-colors",

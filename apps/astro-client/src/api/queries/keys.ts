@@ -88,6 +88,7 @@ export const githubKeys = {
   accountRepos: (account: string, q: string) => ['github', account, 'repos', q] as const,
   accountConnections: (account: string) => ['github', account, 'connections'] as const,
   accountOrgs: (account: string) => ['github', account, 'orgs', 'account-scope'] as const,
+  accountBranches: (account: string, repo: string) => ['github', account, 'branches', repo] as const,
 };
 
 export const slackKeys = {

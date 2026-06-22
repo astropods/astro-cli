@@ -148,3 +148,14 @@ export function useGitHubAccountOrgs(account: string, opts?: { enabled?: boolean
     placeholderData: keepPreviousData,
   });
 }
+
+export function useGitHubAccountBranches(account: string, repo: string, opts?: { enabled?: boolean }) {
+  // No keepPreviousData here: when switching repos we want the branch list to
+  // clear (falling back to [defaultBranch]) rather than briefly show the previous
+  // repo's branches. Branch lists are small, so the refetch is cheap.
+  return useQuery({
+    queryKey: githubKeys.accountBranches(account, repo),
+    queryFn: () => api.gitHubListAccountBranches(account, repo),
+    enabled: (opts?.enabled ?? true) && !!account && !!repo,
+  });
+}

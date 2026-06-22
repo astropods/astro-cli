@@ -89,6 +89,23 @@ func (c *Client) GetBranchHead(ctx context.Context, repoFullName, branch string)
 	return result.Commit.SHA, nil
 }
 
+// ListBranches returns the branch names of a repo, newest GitHub page first.
+// Caps at one page (per_page=100); repos with more branches are truncated — the
+// picker only needs the common branches and always seeds the repo's default.
+func (c *Client) ListBranches(ctx context.Context, repoFullName string) ([]string, error) {
+	var branches []struct {
+		Name string `json:"name"`
+	}
+	if err := c.get(ctx, fmt.Sprintf("/repos/%s/branches?per_page=100", repoFullName), &branches); err != nil {
+		return nil, fmt.Errorf("github: list branches: %w", err)
+	}
+	names := make([]string, len(branches))
+	for i, b := range branches {
+		names[i] = b.Name
+	}
+	return names, nil
+}
+
 // GetLogin returns the GitHub login of the authenticated user.
 func (c *Client) GetLogin(ctx context.Context) (string, error) {
 	var user struct {

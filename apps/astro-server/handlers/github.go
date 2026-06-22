@@ -561,6 +561,52 @@ func GitHubAccountListOrgs(log *logger.Logger, pipesClient *pipes.Client) gin.Ha
 	}
 }
 
+// GitHubAccountListBranches handles GET /api/v1/accounts/:account/github/branches?repo=owner/name.
+// Returns the branch names for the given repo so the client can offer the real
+// branches instead of a hardcoded main/master list.
+func GitHubAccountListBranches(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		repo := strings.TrimSpace(c.Query("repo"))
+		if repo == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "repo is required"})
+			return
+		}
+		if err := validateRepoFullName(repo); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		session, ok := middleware.GetSession(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+
+		token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+			Provider:       "github",
+			UserID:         session.UserID,
+			OrganizationID: session.OrganizationID,
+		})
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+			return
+		}
+
+		gh := githubclient.New(token.AccessToken)
+		branches, err := gh.ListBranches(c.Request.Context(), repo)
+		if err != nil {
+			if errors.Is(err, githubclient.ErrUnauthorized) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "github_not_connected"})
+				return
+			}
+			log.Error("github: list branches", "error", err, "repo", repo)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list GitHub branches"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"branches": branches})
+	}
+}
+
 // GitHubAccountDisconnect handles DELETE /api/v1/accounts/:account/github.
 // Removes all agent repo connections and their webhooks for the account.
 func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, cache k8scache.Cache) gin.HandlerFunc {
