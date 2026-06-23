@@ -1349,6 +1349,41 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		}
 	}
 
+	// Policy 4: allow-from-tenant-router. The Contour Envoy fleet lives in
+	// the projectcontour namespace (its pod IPs fall inside podSubnetCIDRs,
+	// which allow-namespace-traffic above explicitly excludes). This NP
+	// carves back ingress from projectcontour so the front-door ALB can
+	// route tenant traffic via Contour. Belt-and-braces with the Kyverno
+	// `generate-allow-from-tenant-router-np` policy in astro-infra, which
+	// covers namespaces created outside astro-server. See astro-infra
+	// docs/plans/tenant-router-migration.md.
+	allowFromTenantRouter := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-from-tenant-router",
+			Namespace: a.namespace,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": "projectcontour",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := a.applyNetworkPolicy(ctx, allowFromTenantRouter); err != nil {
+		return fmt.Errorf("allow-from-tenant-router: %w", err)
+	}
+
 	return nil
 }
 
