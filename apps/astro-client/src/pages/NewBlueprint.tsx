@@ -109,6 +109,27 @@ function sourceReducer(state: SourceState, action: SourceAction): SourceState {
   }
 }
 
+// ─── Validation ────────────────────────────────────────────────────────────────
+
+// Per-step correctness rules: each returns field → message, empty when valid.
+// The submit gate and the setup step's proactive hints share these.
+type FieldErrors = Record<string, string>;
+
+function validateSetup(account: string, slug: string, nameIsTaken: boolean): FieldErrors {
+  if (slug.length === 0) return { name: "Name is required" };
+  if (slug.length < 4) return { name: "Name must be at least 4 characters" };
+  if (!/^[a-z]/.test(slug)) return { name: "Name must start with a letter" };
+  if (nameIsTaken) return { name: `${account}/${slug} already exists` };
+  return {};
+}
+
+function validateSource(sourcePath: SourcePath, isGitHubConnected: boolean, repoFullName: string | null): FieldErrors {
+  if (!sourcePath) return { source: "Choose how you'd like to start" };
+  if (sourcePath === "import" && !isGitHubConnected) return { source: "Connect GitHub to continue" };
+  if (sourcePath === "import" && !repoFullName) return { source: "Select a repository" };
+  return {};
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 function NewBlueprintContent() {
@@ -146,6 +167,22 @@ function NewBlueprintContent() {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [showLinkConfirm, setShowLinkConfirm] = useState(false);
   const slug = useMemo(() => slugify(name), [name]);
+
+  // Submit-gate errors keyed by field — one store for the whole form.
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const clearError = useCallback((field: string) => {
+    setErrors(prev => {
+      if (!(field in prev)) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
+  // Replace the visible errors with a step's result; returns whether it passed.
+  const gate = useCallback((fieldErrors: FieldErrors) => {
+    setErrors(fieldErrors);
+    return Object.keys(fieldErrors).length === 0;
+  }, []);
 
   // Source step state
   const [{ sourcePath, githubConnected, scanResult }, dispatch] = useReducer(sourceReducer, initialSourceState);
@@ -232,18 +269,21 @@ function NewBlueprintContent() {
   const reviewPanelRef = useRef<HTMLDivElement>(null);
 
   const handleContinueToSource = useCallback(() => {
+    if (!gate(validateSetup(selectedOrg, slug, nameIsTaken))) return;
     setCompletedSteps(prev => { const s = new Set(prev); s.add("setup"); return s; });
     setActiveStep("source");
-  }, []);
+  }, [gate, selectedOrg, slug, nameIsTaken]);
 
   const handleSelectGitHub = useCallback(() => {
     dispatch({ type: "SET_SOURCE_PATH", path: "import" });
-  }, []);
+    clearError("source");
+  }, [clearError]);
 
   const handleSelectLocal = useCallback(() => {
     dispatch({ type: "SET_SOURCE_PATH", path: "fresh" });
     setPickerValue({ repoFullName: null, branch: "main" });
-  }, []);
+    clearError("source");
+  }, [clearError]);
 
   const handleBack = useCallback(() => {
     setActiveStep("setup");
@@ -336,12 +376,13 @@ function NewBlueprintContent() {
   }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild, accounts, organizationId, switchOrg]);
 
   const handleCreateOrConfirm = useCallback(() => {
-    if (sourcePath === "import" && pickerValue.repoFullName) {
+    if (!gate(validateSource(sourcePath, isGitHubConnected, pickerValue.repoFullName))) return;
+    if (sourcePath === "import") {
       setShowLinkConfirm(true);
     } else {
       handlePublish();
     }
-  }, [sourcePath, pickerValue.repoFullName, handlePublish]);
+  }, [gate, sourcePath, isGitHubConnected, pickerValue.repoFullName, handlePublish]);
 
   const handleConfirmAndPublish = useCallback(() => {
     setShowLinkConfirm(false);
@@ -353,6 +394,9 @@ function NewBlueprintContent() {
   ) : (
     <BlueprintIdentity account={selectedOrg} name={slug || selectedOrg} size={68} className="size-full" />
   );
+
+  // Proactive name hint while typing, from the same rules the submit gate uses.
+  const setupFieldErrors = validateSetup(selectedOrg, slug, nameIsTaken);
 
   return (
     <div className="dp-blueprint-bg flex flex-1 flex-col overflow-y-auto">
@@ -478,7 +522,7 @@ function NewBlueprintContent() {
 
                                               githubLogin={effectiveGithubLogin}
                                               enabled={isGitHubConnected}
-                                              onChange={setPickerValue}
+                                              onChange={(v) => { setPickerValue(v); clearError("source"); }}
                                             />
                                           </>
                                       </div>
@@ -517,14 +561,13 @@ function NewBlueprintContent() {
                           Back
                         </Button>
                         <div className="flex items-center gap-3">
+                          {errors.source && (
+                            <p className="text-xs text-destructive">{errors.source}</p>
+                          )}
                           <Button
                             size="sm"
                             onClick={handleCreateOrConfirm}
-                            disabled={
-                              isCreatingBlueprint ||
-                              !sourcePath ||
-                              (sourcePath === "import" && (!isGitHubConnected || !pickerValue.repoFullName))
-                            }
+                            disabled={isCreatingBlueprint || isPublishing}
                           >
                             {isCreatingBlueprint ? (
                               <span className="inline-flex items-center gap-1.5">
@@ -675,18 +718,16 @@ function NewBlueprintContent() {
                             />
                             <div className="flex-1">
                               <Label size="md">Name <span className="text-destructive">*</span></Label>
-                              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-agent" autoFocus disabled={isAlreadyPublished} />
+                              <Input value={name} onChange={(e) => { setName(e.target.value); clearError("name"); }} placeholder="my-agent" autoFocus disabled={isAlreadyPublished} />
                               {isAlreadyPublished ? (
                                 <p className="mt-1.5 pl-4 text-xs text-muted-foreground">Published as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
-                              ) : name.trim().length > 0 && slug.length > 0 && (
-                                slug.length < 4
-                                  ? <p className="mt-1.5 pl-4 text-xs text-yellow-700 dark:text-yellow-400">Name must be at least 4 characters</p>
-                                  : !/^[a-z]/.test(slug)
-                                    ? <p className="mt-1.5 pl-4 text-xs text-yellow-700 dark:text-yellow-400">Name must start with a letter</p>
-                                    : nameIsTaken
-                                      ? <p className="mt-1.5 pl-4 text-xs text-destructive"><span className="font-mono">{selectedOrg}/{slug}</span> already exists</p>
-                                      : <p className="mt-1.5 pl-4 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
-                              )}
+                              ) : errors.name ? (
+                                <p className="mt-1.5 pl-4 text-xs text-destructive">{errors.name}</p>
+                              ) : slug.length > 0 ? (
+                                setupFieldErrors.name
+                                  ? <p className="mt-1.5 pl-4 text-xs text-yellow-700 dark:text-yellow-400">{setupFieldErrors.name}</p>
+                                  : <p className="mt-1.5 pl-4 text-xs text-muted-foreground">Will be created as <span className="font-mono text-foreground">{selectedOrg}/{slug}</span></p>
+                              ) : null}
                             </div>
                           </div>
                           <div>
@@ -757,7 +798,7 @@ function NewBlueprintContent() {
                         </div>
                       </div>
                       <div className="border-t border-border px-6 py-4 flex items-center justify-end">
-                        <Button size="sm" onClick={handleContinueToSource} disabled={slug.length < 4 || !/^[a-z]/.test(slug) || nameIsTaken}>
+                        <Button size="sm" onClick={handleContinueToSource}>
                           Continue
                         </Button>
                       </div>

@@ -7,27 +7,38 @@ test.beforeEach(async () => {
   await resetMockBackend();
 });
 
-test("shows min-length hint and disables continue button when name is too short", async ({ page }) => {
+test("blocks continue on submit with a min-length error when the name is too short", async ({ page }) => {
   await page.goto("/new/custom", { waitUntil: "domcontentloaded" });
   await expect(page.getByPlaceholder("my-agent")).toBeVisible();
 
   await page.getByPlaceholder("my-agent").fill("ab");
+  await expect(page.getByText(/at least 4 characters/i)).toBeVisible();
+
+  // The gate runs on submit: the button stays enabled but refuses to advance.
+  const continueBtn = page.getByRole("button", { name: /^continue$/i });
+  await expect(continueBtn).toBeEnabled();
+  await continueBtn.click();
 
   await expect(page.getByText(/at least 4 characters/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toBeDisabled();
+  await expect(page.getByText(/starting point/i)).not.toBeVisible();
 });
 
-test("shows letter-start hint and disables continue button when name begins with a digit", async ({ page }) => {
+test("blocks continue on submit with a letter-start error when the name begins with a digit", async ({ page }) => {
   await page.goto("/new/custom", { waitUntil: "domcontentloaded" });
   await expect(page.getByPlaceholder("my-agent")).toBeVisible();
 
   await page.getByPlaceholder("my-agent").fill("1abc");
+  await expect(page.getByText(/must start with a letter/i)).toBeVisible();
+
+  const continueBtn = page.getByRole("button", { name: /^continue$/i });
+  await expect(continueBtn).toBeEnabled();
+  await continueBtn.click();
 
   await expect(page.getByText(/must start with a letter/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toBeDisabled();
+  await expect(page.getByText(/starting point/i)).not.toBeVisible();
 });
 
-test("shows 'already exists' error and disables continue button for an existing blueprint name", async ({ page }) => {
+test("blocks continue on submit for an existing blueprint name", async ({ page }) => {
   await page.goto("/new/custom", { waitUntil: "domcontentloaded" });
   await expect(page.getByPlaceholder("my-agent")).toBeVisible();
 
@@ -37,8 +48,14 @@ test("shows 'already exists' error and disables continue button for an existing 
   await expectEventually(async () => {
     await expect(page.getByText(/already exists/i)).toBeVisible();
     await expect(page.getByText(`${ACCOUNT}/code-reviewer`)).toBeVisible();
-    await expect(page.getByRole("button", { name: /^continue$/i })).toBeDisabled();
   });
+
+  const continueBtn = page.getByRole("button", { name: /^continue$/i });
+  await expect(continueBtn).toBeEnabled();
+  await continueBtn.click();
+
+  await expect(page.getByText(/already exists/i)).toBeVisible();
+  await expect(page.getByText(/starting point/i)).not.toBeVisible();
 });
 
 test("shows 'will be created as' hint and enables continue button for a valid available name", async ({ page }) => {

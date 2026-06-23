@@ -77,7 +77,8 @@ test("github import flow: connect GitHub, select repo, create blueprint and navi
 
   await goToSourceStep(page, "mygithub");
   await page.getByText(/set up with github/i).click();
-  await expect(page.getByRole("button", { name: /create blueprint/i })).toBeDisabled({ timeout: 5_000 });
+  // Stays enabled; the submit gate requires connect + repo on click, not via disabled.
+  await expect(page.getByRole("button", { name: /create blueprint/i })).toBeEnabled({ timeout: 5_000 });
 
   await connectGitHub(page);
   await openRepoPicker(page);

@@ -87,31 +87,59 @@ describe('NewBlueprint – name availability UI', () => {
   });
 });
 
-// ── Create button disabled state ──────────────────────────────────────────────
+// ── Continue submit gate ──────────────────────────────────────────────────────
 
-describe('NewBlueprint – Create button disabled state', () => {
-  it('disables "Continue" when the name is taken', async () => {
+describe('NewBlueprint – Continue submit gate', () => {
+  it('blocks a blank name on submit instead of disabling the button', async () => {
+    renderNewBlueprint();
+    const user = userEvent.setup();
+
+    const continueBtn = screen.getByRole('button', { name: /^continue$/i });
+    expect(continueBtn).not.toBeDisabled();
+
+    await user.click(continueBtn);
+
+    expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
+    expect(screen.queryByText('Set up locally')).not.toBeInTheDocument();
+  });
+
+  it('blocks a too-short name on submit and does not advance', async () => {
+    renderNewBlueprint();
+    const user = userEvent.setup();
+    await typeNameAndWait('ab');
+
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+
+    expect(await screen.findByText(/at least 4 characters/i)).toBeInTheDocument();
+    expect(screen.queryByText('Set up locally')).not.toBeInTheDocument();
+  });
+
+  it('does not advance when the name is taken', async () => {
     overrideBlueprintGet(base);
     renderNewBlueprint();
+    const user = userEvent.setup();
     await typeNameAndWait(NAME);
 
     await waitFor(() => {
       expect(screen.getByText(/already exists/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    expect(screen.queryByText('Set up locally')).not.toBeInTheDocument();
   });
 
-  it('enables "Continue" when the name is available', async () => {
+  it('advances to the source step when the name is available', async () => {
     // Default handler: 404 → available
     renderNewBlueprint();
+    const user = userEvent.setup();
     await typeNameAndWait(NAME);
 
     await waitFor(() => {
       expect(screen.getByText(/will be created as/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: /^continue$/i })).not.toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /^continue$/i }));
+    expect(await screen.findByText('Set up locally')).toBeInTheDocument();
   });
 });
 
