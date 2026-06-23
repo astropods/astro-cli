@@ -24,9 +24,19 @@ When you handle requests directly, you reproduce these five steps inside your ag
 
 ---
 
+## Where the identity comes from
+
+A frontend agent sits behind the platform's OIDC layer. After a user signs in, every request that reaches your container carries the signed-in user's platform ID in a request header:
+
+| Header | Value |
+|---|---|
+| `x-amzn-oidc-identity` | The platform user ID of the signed-in user. This is exactly the `identity_id` you pass to the authorize endpoint with `identity_type=user`. |
+
+This header is injected by the OIDC layer after sign-in and is the only identity input you need for a web frontend. You read it off the incoming request — you do not mint, decode, or validate it yourself. If it's absent, the request is unauthenticated (treat as anonymous; see the `anyone`-grant note below).
+
 ## Inputs the platform gives you
 
-Every deployed agent — including frontend agents — receives a single environment variable:
+In addition to the per-request header, every deployed agent receives a single environment variable:
 
 | Variable | Description |
 |---|---|
@@ -52,12 +62,20 @@ Substitute the server URL with the `iss` claim from your `ASTRO_AUTHZ_TOKEN`, an
 
 **Query parameters:**
 
+For a web frontend you set just two — `adapter=web` and the identity from the `x-amzn-oidc-identity` header:
+
 | Param | When to set |
 |---|---|
-| `identity_type` | `user` for a signed-in user, `slack` for a Slack user, empty for anonymous (only valid when an `anyone` grant exists). |
-| `identity_id` | The corresponding user id. Must be supplied together with `identity_type` — supplying one without the other is a 400. |
+| `adapter` | `web` for a frontend agent. Required. |
+| `identity_type` | `user` for a signed-in user. Leave empty for anonymous (only valid when an `anyone` grant exists). |
+| `identity_id` | The value of the `x-amzn-oidc-identity` header. Must be supplied together with `identity_type` — supplying one without the other is a 400. |
+
+The remaining two parameters exist only for [custom adapters](/adapters/custom-node) that map a non-web identity (e.g. Slack). Ignore them for a web frontend:
+
+| Param | When to set |
+|---|---|
+| `adapter` | `slack` when mapping a Slack identity. Any value other than `web`/`slack` is a 400. |
 | `identity_scope` | Slack only: the `team_id` (Slack user IDs are only unique per team). Omit for web. |
-| `adapter` | `web` or `slack`. Required. Any other value is a 400. |
 
 **Response (200):**
 
@@ -75,13 +93,15 @@ Treat 4xx as malformed input (don't retry) and 5xx as transient (retry once, the
 
 ---
 
-## Reference implementations
+## Reference implementation
 
-A minimal authorize client you can drop into your agent:
+This is the whole loop for a web frontend: an authorize client, plus a guard that reads `x-amzn-oidc-identity` off the request, calls the client, and allows or denies. Drop the guard in front of every protected route.
 
 <Tabs>
   <Tab title="Node.js">
     ```typescript authz.ts
+    import type { Request, Response, NextFunction } from "express";
+
     type AuthzResult = { allowed: boolean; userId?: string };
 
     const token = process.env.ASTRO_AUTHZ_TOKEN ?? "";
@@ -89,18 +109,14 @@ A minimal authorize client you can drop into your agent:
       ? JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).iss
       : "";
 
-    export async function authorize(
-      identityType: "user" | "slack" | "",
-      identityId: string,
-      adapter: "web" | "slack",
-      identityScope = "",
-    ): Promise<AuthzResult> {
-      if (!token || !issuer) return { allowed: true }; // dev fallback
+    async function authorize(identityId: string): Promise<AuthzResult> {
+      if (!token || !issuer) return { allowed: true }; // dev fallback — no platform token locally
       const url = new URL(`${issuer}/api/v1/deployments/authorize`);
-      url.searchParams.set("adapter", adapter);
-      if (identityType) url.searchParams.set("identity_type", identityType);
-      if (identityId) url.searchParams.set("identity_id", identityId);
-      if (identityScope) url.searchParams.set("identity_scope", identityScope);
+      url.searchParams.set("adapter", "web");
+      if (identityId) {
+        url.searchParams.set("identity_type", "user");
+        url.searchParams.set("identity_id", identityId);
+      } // else: anonymous — only allowed if the deployment has an `anyone` grant
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -110,6 +126,19 @@ A minimal authorize client you can drop into your agent:
       const body = (await res.json()) as { allowed: boolean; user_id?: string };
       return { allowed: body.allowed, userId: body.user_id };
     }
+
+    // Express guard: extract the platform identity header, then authorize.
+    export async function requireAuthz(req: Request, res: Response, next: NextFunction) {
+      const identityId = req.header("x-amzn-oidc-identity") ?? "";
+      try {
+        const { allowed, userId } = await authorize(identityId);
+        if (!allowed) return res.status(403).send("forbidden");
+        res.locals.userId = userId; // forward downstream (telemetry, etc.)
+        next();
+      } catch {
+        res.status(503).send("authz unavailable"); // fail closed
+      }
+    }
     ```
   </Tab>
   <Tab title="Python">
@@ -117,6 +146,7 @@ A minimal authorize client you can drop into your agent:
     import base64, json, os
     from dataclasses import dataclass
     import httpx
+    from fastapi import Request, HTTPException
 
     @dataclass
     class AuthzResult:
@@ -129,19 +159,15 @@ A minimal authorize client you can drop into your agent:
         payload = _token.split(".")[1] + "=="  # pad for base64
         _issuer = json.loads(base64.urlsafe_b64decode(payload)).get("iss", "")
 
-    async def authorize(
-        identity_type: str,           # "user" | "slack" | ""
-        identity_id: str,
-        adapter: str,                 # "web" | "slack"
-        identity_scope: str = "",
-    ) -> AuthzResult:
+    async def _authorize(identity_id: str) -> AuthzResult:
         if not _token or not _issuer:
-            return AuthzResult(allowed=True)  # dev fallback
+            return AuthzResult(allowed=True)  # dev fallback — no platform token locally
 
-        params = {"adapter": adapter}
-        if identity_type: params["identity_type"] = identity_type
-        if identity_id: params["identity_id"] = identity_id
-        if identity_scope: params["identity_scope"] = identity_scope
+        params = {"adapter": "web"}
+        if identity_id:
+            params["identity_type"] = "user"
+            params["identity_id"] = identity_id
+        # else: anonymous — only allowed if the deployment has an `anyone` grant
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
@@ -152,11 +178,22 @@ A minimal authorize client you can drop into your agent:
         r.raise_for_status()
         body = r.json()
         return AuthzResult(allowed=body["allowed"], user_id=body.get("user_id", ""))
+
+    # FastAPI dependency: extract the platform identity header, then authorize.
+    async def require_authz(request: Request) -> str:
+        identity_id = request.headers.get("x-amzn-oidc-identity", "")
+        try:
+            result = await _authorize(identity_id)
+        except Exception:
+            raise HTTPException(status_code=503, detail="authz unavailable")  # fail closed
+        if not result.allowed:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return result.user_id  # forward downstream (telemetry, etc.)
     ```
   </Tab>
 </Tabs>
 
-Source the identity from wherever your front door puts it — OIDC session cookie, signed header from a reverse proxy, custom JWT, etc. — and pass it to `authorize()` before serving the request.
+If you author a [custom adapter](/adapters/custom-node) instead of a web frontend, the identity won't be in `x-amzn-oidc-identity` — source it from your adapter's transport (e.g. a Slack event payload) and pass `adapter`/`identity_scope` accordingly. Everything else about the call is identical.
 
 ---
 
