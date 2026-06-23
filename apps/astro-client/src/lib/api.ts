@@ -814,6 +814,7 @@ export interface DeploymentChatConversationSummary {
   conversation_id: string;
   title: string;
   updated_at: string;
+  assistant_streaming?: boolean;
 }
 
 export interface DeploymentChatMessageRecord {

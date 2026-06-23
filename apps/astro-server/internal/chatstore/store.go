@@ -15,13 +15,14 @@ import (
 
 // Conversation is one row of conversation metadata.
 type Conversation struct {
-	DeploymentID   string
-	ConversationID string
-	AccountID      string
-	UserID         string
-	Title          string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	DeploymentID             string
+	ConversationID           string
+	AccountID                string
+	UserID                   string
+	Title                    string
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	AssistantStreamActiveAt  sql.NullTime
 }
 
 // Store manages the deployment_chat_conversations table.
@@ -74,7 +75,8 @@ func (s *Store) Touch(deploymentID, conversationID, userID string) error {
 // most-recently-updated first.
 func (s *Store) ListByUser(deploymentID, userID string) ([]Conversation, error) {
 	rows, err := s.db.Query(`
-		SELECT deployment_id, conversation_id, account_id, user_id, title, created_at, updated_at
+		SELECT deployment_id, conversation_id, account_id, user_id, title, created_at, updated_at,
+		       assistant_stream_active_at
 		FROM deployment_chat_conversations
 		WHERE deployment_id = $1 AND user_id = $2 AND archived_at IS NULL
 		ORDER BY updated_at DESC
@@ -90,6 +92,7 @@ func (s *Store) ListByUser(deploymentID, userID string) ([]Conversation, error) 
 		if err := rows.Scan(
 			&conv.DeploymentID, &conv.ConversationID, &conv.AccountID,
 			&conv.UserID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt,
+			&conv.AssistantStreamActiveAt,
 		); err != nil {
 			return nil, fmt.Errorf("chatstore list scan: %w", err)
 		}

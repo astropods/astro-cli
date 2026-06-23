@@ -32,6 +32,7 @@ export function useChatSessions(deploymentId: string) {
         deploymentId,
         title: conv.title?.trim() || DEFAULT_TITLE,
         updatedAt: conv.updated_at,
+        assistantStreaming: conv.assistant_streaming,
       })),
     [data?.conversations, deploymentId],
   );

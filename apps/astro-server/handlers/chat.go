@@ -44,9 +44,10 @@ const (
 )
 
 type ChatConversationSummaryResponse struct {
-	ConversationID string    `json:"conversation_id"`
-	Title          string    `json:"title"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ConversationID     string    `json:"conversation_id"`
+	Title              string    `json:"title"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	AssistantStreaming bool      `json:"assistant_streaming,omitempty"`
 }
 
 type ChatMessageResponse struct {
@@ -156,9 +157,10 @@ func ListDeploymentChatConversations(
 		out := make([]ChatConversationSummaryResponse, 0, len(convs))
 		for _, conv := range convs {
 			out = append(out, ChatConversationSummaryResponse{
-				ConversationID: conv.ConversationID,
-				Title:          conv.Title,
-				UpdatedAt:      conv.UpdatedAt,
+				ConversationID:     conv.ConversationID,
+				Title:              conv.Title,
+				UpdatedAt:          conv.UpdatedAt,
+				AssistantStreaming: chatstore.AssistantStreamActiveFrom(conv.AssistantStreamActiveAt),
 			})
 		}
 		c.JSON(http.StatusOK, ListChatConversationsResponse{Conversations: out})

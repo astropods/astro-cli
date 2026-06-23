@@ -56,6 +56,11 @@ func streamWriteBlocked(activeAt sql.NullTime) bool {
 	return time.Since(activeAt.Time) < ActiveAssistantStreamWindow
 }
 
+// AssistantStreamActiveFrom reports whether a stored stream marker is still active.
+func AssistantStreamActiveFrom(activeAt sql.NullTime) bool {
+	return streamWriteBlocked(activeAt)
+}
+
 // ListMessages returns the full ordered thread for one conversation.
 func (s *Store) ListMessages(deploymentID, conversationID string) ([]Message, error) {
 	rows, err := s.db.Query(`

@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("ChatPage", () => {
-  it("lists deployments with messaging_web_configured", async () => {
+  it("shows the agent switcher and conversation history for chat-eligible deployments", async () => {
     server.use(
       http.get("/api/v1/deployments", () =>
         HttpResponse.json({
@@ -36,7 +36,20 @@ describe("ChatPage", () => {
         }),
       ),
       http.get("/api/v1/deployments/summary", () =>
-        HttpResponse.json({ accounts: [] }),
+        HttpResponse.json({
+          accounts: [
+            {
+              id: "acct-1",
+              name: "testuser",
+              type: "user",
+              display_name: "Test User",
+              deployments: [],
+            },
+          ],
+        }),
+      ),
+      http.get("/api/v1/deployments/:id/chat/conversations", () =>
+        HttpResponse.json({ conversations: [] }),
       ),
     );
 
@@ -52,10 +65,13 @@ describe("ChatPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Chat Agent")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Agent menu" }),
+      ).toBeInTheDocument();
     });
+    expect(screen.getAllByText("Chat Agent").length).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "New conversation" }),
+      screen.getByRole("button", { name: "Chat history" }),
     ).toBeInTheDocument();
   });
 });

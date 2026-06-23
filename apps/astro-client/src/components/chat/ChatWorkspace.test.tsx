@@ -24,6 +24,12 @@ vi.mock("@/hooks/use-chat-sessions", () => ({
   }),
 }));
 
+// The agent switcher pulls the cross-account deployment summary; stub it so this
+// test stays focused on thread remounting.
+vi.mock("@/components/agent-detail/AgentDeploymentMenu", () => ({
+  AgentDeploymentMenu: () => <div data-testid="agent-menu-stub" />,
+}));
+
 let conversationId: string | null = null;
 
 vi.mock("react-router", async (importOriginal) => {
@@ -49,10 +55,26 @@ describe("ChatWorkspace", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
+    const deployment = {
+      id: "dep-1",
+      name: "test-agent",
+      display_name: "Test Agent",
+      build_id: "b1",
+      created_at: "2026-01-01T00:00:00Z",
+      messaging_web_configured: true,
+    };
+
+    const eligibleDeploymentIds = new Set(["dep-1"]);
+
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <ChatWorkspace deploymentId="dep-1" />
+          <ChatWorkspace
+            account="testuser"
+            deploymentId="dep-1"
+            deployment={deployment}
+            eligibleDeploymentIds={eligibleDeploymentIds}
+          />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -62,7 +84,12 @@ describe("ChatWorkspace", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <ChatWorkspace deploymentId="dep-1" />
+          <ChatWorkspace
+            account="testuser"
+            deploymentId="dep-1"
+            deployment={deployment}
+            eligibleDeploymentIds={eligibleDeploymentIds}
+          />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -72,7 +99,12 @@ describe("ChatWorkspace", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <ChatWorkspace deploymentId="dep-1" />
+          <ChatWorkspace
+            account="testuser"
+            deploymentId="dep-1"
+            deployment={deployment}
+            eligibleDeploymentIds={eligibleDeploymentIds}
+          />
         </MemoryRouter>
       </QueryClientProvider>,
     );

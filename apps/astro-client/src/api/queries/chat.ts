@@ -1,7 +1,8 @@
 /** TanStack Query bindings for GET/PUT/POST /deployments/:id/chat (web /chat UI). */
-import type { MutableRefObject } from "react";
+import { useMemo, type MutableRefObject } from "react";
 import {
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -16,8 +17,59 @@ import {
   CHAT_LIVE_TAIL_LIMIT,
   mergeConversationTail,
 } from "@/lib/chat/conversation-sync";
+import type { ChatAgent } from "@/lib/chat/types";
+import { isChatListEligible } from "@/lib/deployment-utils";
 import { CHAT_POLL_MS } from "@/lib/messaging/transport";
-import { chatKeys } from "./keys";
+import { useDeploymentsSummary } from "./deployments";
+import { chatKeys, deploymentKeys } from "./keys";
+
+/**
+ * Cross-account chat agents: every chat-eligible agent the user can reach,
+ * regardless of which org/account it is deployed to. The deployments summary is
+ * already membership-scoped server-side, so we use it to enumerate the user's
+ * accounts, then fan out per-account deployment reads and keep the ones with web
+ * messaging. This is why the chat page needs no account switcher.
+ */
+export function useChatAgents(enabled = true): {
+  entries: ChatAgent[];
+  isLoading: boolean;
+} {
+  const api = useApiClient();
+  const summary = useDeploymentsSummary();
+
+  const accountNames = useMemo(
+    () => (summary.data?.accounts ?? []).map((a) => a.name),
+    [summary.data?.accounts],
+  );
+
+  const deploymentQueries = useQueries({
+    queries: accountNames.map((name) => ({
+      queryKey: deploymentKeys.all(name),
+      queryFn: () => api.listDeployments(name),
+      enabled: enabled && !!name,
+      staleTime: 30_000,
+    })),
+  });
+
+  const entries = useMemo<ChatAgent[]>(() => {
+    const result: ChatAgent[] = [];
+    accountNames.forEach((name, index) => {
+      const deployments = deploymentQueries[index]?.data?.deployments ?? [];
+      for (const deployment of deployments) {
+        if (!isChatListEligible(deployment)) continue;
+        result.push({ deployment, account: name });
+      }
+    });
+    return result;
+    // deploymentQueries identity changes per render; the data it carries is the
+    // real input, so recomputing the merge is intentional.
+  }, [accountNames, deploymentQueries]);
+
+  const isLoading =
+    summary.isLoading || deploymentQueries.some((q) => q.isLoading);
+
+  return { entries, isLoading };
+}
 
 export async function fetchDeploymentChatConversation(
   api: ApiClient,
