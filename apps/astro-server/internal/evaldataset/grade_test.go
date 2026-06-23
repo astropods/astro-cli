@@ -12,9 +12,9 @@ func TestGrade(t *testing.T) {
 		{"empty", 0, 0, "—"},
 		{"all bad small", 0, 5, "F"},
 		{"all good tiny", 1, 0, "F"},
-		{"all good small", 10, 0, "E"},
-		{"all good large", 100, 0, "C"},
-		{"mostly good without enough bad coverage", 95, 5, "B"},
+		{"all good small", 10, 0, "F"},
+		{"all good large", 100, 0, "F"},
+		{"mostly good without enough bad coverage", 95, 5, "C"},
 		{"mixed high quality high volume", 90, 10, "A"},
 		{"mixed low quality high volume", 10, 90, "F"},
 	}
@@ -38,14 +38,32 @@ func TestGradeRewardsBadSampleCoverage(t *testing.T) {
 	}
 }
 
-func TestGradeProgress(t *testing.T) {
-	if got := GradeProgress(0, 0); got != 0 {
-		t.Fatalf("GradeProgress(0,0) = %f, want 0", got)
+func TestNextGradeProgress(t *testing.T) {
+	cases := []struct {
+		name        string
+		good, bad   int
+		wantNext    string
+		wantMinProg float64
+		wantMaxProg float64
+	}{
+		{"empty", 0, 0, "", 0, 0},
+		// 90/10 → score 0.9 → already A.
+		{"at A", 90, 10, "", 1, 1},
+		// 100/0 → score ~0.55 → F, ~92% of the way to D (0.55/0.60).
+		{"F most of way to D", 100, 0, "D", 0.91, 0.93},
+		// 80/20 over 100: goodShare 0.8 × volume 1 × fcm 1 = 0.8 → at B,
+		// 0% into the B band (just at threshold).
+		{"B at floor", 80, 20, "A", 0, 0.01},
 	}
-	if got := GradeProgress(90, 10); got != 1 {
-		t.Fatalf("GradeProgress(90,10) = %f, want 1", got)
-	}
-	if got := GradeProgress(100, 0); got >= 1 {
-		t.Fatalf("GradeProgress(100,0) = %f, want less than 1", got)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotNext, gotProg := NextGradeProgress(c.good, c.bad)
+			if gotNext != c.wantNext {
+				t.Fatalf("next = %q, want %q", gotNext, c.wantNext)
+			}
+			if gotProg < c.wantMinProg || gotProg > c.wantMaxProg {
+				t.Fatalf("progress = %f, want in [%f, %f]", gotProg, c.wantMinProg, c.wantMaxProg)
+			}
+		})
 	}
 }

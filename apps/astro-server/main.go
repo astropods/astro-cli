@@ -1598,8 +1598,10 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.QueryParam("page", "Page number (default 1)", false),
+				oapispec.QueryParam("page", "Unfiltered page number (default 1)", false),
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+				oapispec.QueryParam("verdict", "Optional verdict filter: good or bad", false),
+				oapispec.QueryParam("cursor", "Opaque cursor returned as next_cursor for filtered pagination", false),
 				oapispec.Response(200, nil),
 			)
 			api.GET(protected, "/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),

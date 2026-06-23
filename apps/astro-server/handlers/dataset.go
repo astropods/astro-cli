@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,12 +30,13 @@ import (
 
 // evalDatasetSummary is the JSON shape returned by GetEvalDataset.
 type evalDatasetSummary struct {
-	DatasetName   string  `json:"dataset_name"`
-	ItemCount     int     `json:"item_count"`
-	GoodCount     int     `json:"good_count"`
-	BadCount      int     `json:"bad_count"`
-	Grade         string  `json:"grade"`
-	GradeProgress float64 `json:"grade_progress"`
+	DatasetName       string  `json:"dataset_name"`
+	ItemCount         int     `json:"item_count"`
+	GoodCount         int     `json:"good_count"`
+	BadCount          int     `json:"bad_count"`
+	Grade             string  `json:"grade"`
+	NextGrade         string  `json:"next_grade"`
+	NextGradeProgress float64 `json:"next_grade_progress"`
 }
 
 // loadDataset fetches the dataset row for a deployment and writes the matching
@@ -59,16 +62,15 @@ func loadDataset(
 }
 
 func summaryFromRow(ds *evaldatasetstore.EvalDataset) evalDatasetSummary {
+	nextGrade, nextGradeProgress := evaldataset.NextGradeProgress(ds.GoodCount, ds.BadCount)
 	return evalDatasetSummary{
-		DatasetName: ds.LangfuseDatasetName,
-		ItemCount:   ds.Total(),
-		GoodCount:   ds.GoodCount,
-		BadCount:    ds.BadCount,
-		Grade:       evaldataset.Grade(ds.GoodCount, ds.BadCount),
-		GradeProgress: evaldataset.GradeProgress(
-			ds.GoodCount,
-			ds.BadCount,
-		),
+		DatasetName:       ds.LangfuseDatasetName,
+		ItemCount:         ds.Total(),
+		GoodCount:         ds.GoodCount,
+		BadCount:          ds.BadCount,
+		Grade:             evaldataset.Grade(ds.GoodCount, ds.BadCount),
+		NextGrade:         nextGrade,
+		NextGradeProgress: nextGradeProgress,
 	}
 }
 
@@ -364,15 +366,38 @@ type evalDatasetItemsResponse struct {
 	Limit      int                  `json:"limit"`
 	TotalItems int                  `json:"total_items"`
 	TotalPages int                  `json:"total_pages"`
+	NextCursor string               `json:"next_cursor,omitempty"`
 }
 
 const (
 	itemsDefaultLimit = 50
 	itemsMaxLimit     = 100
+	itemsScanSlack    = 2
 )
 
+type evalDatasetItemsVerdict string
+
+const (
+	evalDatasetItemsVerdictGood evalDatasetItemsVerdict = "good"
+	evalDatasetItemsVerdictBad  evalDatasetItemsVerdict = "bad"
+)
+
+const evalDatasetItemsCursorVersion = 1
+
+var errInvalidEvalDatasetItemsCursor = errors.New("invalid dataset items cursor")
+
+type evalDatasetItemsCursor struct {
+	Version     int    `json:"v"`
+	DatasetName string `json:"dataset"`
+	Verdict     string `json:"verdict"`
+	Limit       int    `json:"limit"`
+	RawPage     int    `json:"raw_page"`
+	RawIndex    int    `json:"raw_index"`
+	Matched     int    `json:"matched"`
+}
+
 // GetEvalDatasetItems returns a page of judged items from the Langfuse dataset.
-// GET /api/v1/deployments/:id/dataset/items?page=&limit=
+// GET /api/v1/deployments/:id/dataset/items?page=&limit=&verdict=&cursor=
 func GetEvalDatasetItems(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -404,9 +429,31 @@ func GetEvalDatasetItems(
 				limit = n
 			}
 		}
+		verdict, ok := parseEvalDatasetItemsVerdict(c.Query("verdict"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "verdict must be good or bad"})
+			return
+		}
+		cursor := strings.TrimSpace(c.Query("cursor"))
+		if verdict == "" && cursor != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cursor requires verdict"})
+			return
+		}
+		if verdict != "" && cursor != "" && strings.TrimSpace(c.Query("page")) != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "page cannot be used with cursor"})
+			return
+		}
+		if verdict != "" && cursor == "" && strings.TrimSpace(c.Query("page")) != "" && page != 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "filtered dataset items use cursor pagination"})
+			return
+		}
 
-		resp, err := lctx.Client.GetDatasetItems(c.Request.Context(), ds.LangfuseDatasetName, page, limit)
+		resp, nextCursor, err := getEvalDatasetItemsPage(c.Request.Context(), lctx.Client, ds, page, limit, verdict, cursor)
 		if err != nil {
+			if errors.Is(err, errInvalidEvalDatasetItemsCursor) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
+				return
+			}
 			log.Error("Failed to list dataset items", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch dataset items"})
 			return
@@ -430,7 +477,205 @@ func GetEvalDatasetItems(
 			Limit:      resp.Meta.Limit,
 			TotalItems: resp.Meta.TotalItems,
 			TotalPages: resp.Meta.TotalPages,
+			NextCursor: nextCursor,
 		})
+	}
+}
+
+func parseEvalDatasetItemsVerdict(raw string) (evalDatasetItemsVerdict, bool) {
+	switch evalDatasetItemsVerdict(strings.ToLower(strings.TrimSpace(raw))) {
+	case "":
+		return "", true
+	case evalDatasetItemsVerdictGood:
+		return evalDatasetItemsVerdictGood, true
+	case evalDatasetItemsVerdictBad:
+		return evalDatasetItemsVerdictBad, true
+	default:
+		return "", false
+	}
+}
+
+func getEvalDatasetItemsPage(
+	ctx context.Context,
+	client *langfuse.Client,
+	ds *evaldatasetstore.EvalDataset,
+	page int,
+	limit int,
+	verdict evalDatasetItemsVerdict,
+	cursor string,
+) (*langfuse.DatasetItemsResponse, string, error) {
+	if verdict == "" {
+		resp, err := client.GetDatasetItems(ctx, ds.LangfuseDatasetName, page, limit)
+		return resp, "", err
+	}
+
+	totalItems := ds.GoodCount
+	if verdict == evalDatasetItemsVerdictBad {
+		totalItems = ds.BadCount
+	}
+
+	scanCursor := evalDatasetItemsCursor{
+		Version:     evalDatasetItemsCursorVersion,
+		DatasetName: ds.LangfuseDatasetName,
+		Verdict:     string(verdict),
+		Limit:       limit,
+		RawPage:     1,
+		RawIndex:    0,
+	}
+	if cursor != "" {
+		decoded, err := decodeEvalDatasetItemsCursor(cursor, ds.LangfuseDatasetName, verdict, limit)
+		if err != nil {
+			return nil, "", err
+		}
+		scanCursor = decoded
+	}
+	page = (scanCursor.Matched / limit) + 1
+
+	// Langfuse does not currently support filtering dataset items by metadata.
+	// While eval datasets are small, scan Langfuse pages here so the UI can
+	// offer real Good/Bad pagination. If datasets grow large, replace this with
+	// a local index or a native Langfuse metadata filter.
+	if scanCursor.Matched >= totalItems {
+		return filteredDatasetItemsResponse(nil, page, limit, totalItems), "", nil
+	}
+
+	matched := scanCursor.Matched
+	out := make([]langfuse.DatasetItem, 0, limit)
+	maxScanPages := maxDatasetItemsScanPages(ds, totalItems)
+
+	for upstreamPage, scannedPages := scanCursor.RawPage, 0; scannedPages < maxScanPages; upstreamPage, scannedPages = upstreamPage+1, scannedPages+1 {
+		resp, err := client.GetDatasetItems(ctx, ds.LangfuseDatasetName, upstreamPage, itemsMaxLimit)
+		if err != nil {
+			return nil, "", err
+		}
+		startIndex := 0
+		if upstreamPage == scanCursor.RawPage {
+			startIndex = scanCursor.RawIndex
+		}
+		for i := startIndex; i < len(resp.Data); i++ {
+			item := resp.Data[i]
+			if !datasetItemMatchesVerdict(item, verdict) {
+				continue
+			}
+			out = append(out, item)
+			matched++
+			if len(out) >= limit || matched >= totalItems {
+				nextCursor := ""
+				if matched < totalItems {
+					rawPage, rawIndex := nextDatasetItemsCursorPosition(upstreamPage, i+1, len(resp.Data))
+					nextCursor, err = encodeEvalDatasetItemsCursor(evalDatasetItemsCursor{
+						Version:     evalDatasetItemsCursorVersion,
+						DatasetName: ds.LangfuseDatasetName,
+						Verdict:     string(verdict),
+						Limit:       limit,
+						RawPage:     rawPage,
+						RawIndex:    rawIndex,
+						Matched:     matched,
+					})
+					if err != nil {
+						return nil, "", err
+					}
+				}
+				return filteredDatasetItemsResponse(out, page, limit, totalItems), nextCursor, nil
+			}
+		}
+		if len(resp.Data) == 0 || (resp.Meta.TotalPages > 0 && resp.Meta.Page >= resp.Meta.TotalPages) {
+			return exhaustedFilteredDatasetItemsResponse(out, page, limit, totalItems, matched), "", nil
+		}
+	}
+	return exhaustedFilteredDatasetItemsResponse(out, page, limit, totalItems, matched), "", nil
+}
+
+func exhaustedFilteredDatasetItemsResponse(items []langfuse.DatasetItem, page, limit, totalItems, matched int) *langfuse.DatasetItemsResponse {
+	if matched < totalItems {
+		totalItems = matched
+	}
+	return filteredDatasetItemsResponse(items, page, limit, totalItems)
+}
+
+func maxDatasetItemsScanPages(ds *evaldatasetstore.EvalDataset, filteredTotal int) int {
+	datasetSize := ds.ItemCount
+	if total := ds.Total(); total > datasetSize {
+		datasetSize = total
+	}
+	if filteredTotal > datasetSize {
+		datasetSize = filteredTotal
+	}
+	pages := (datasetSize + itemsMaxLimit - 1) / itemsMaxLimit
+	if pages < 1 {
+		pages = 1
+	}
+	return pages + itemsScanSlack
+}
+
+func nextDatasetItemsCursorPosition(rawPage, nextIndex, pageSize int) (int, int) {
+	if nextIndex >= pageSize {
+		return rawPage + 1, 0
+	}
+	return rawPage, nextIndex
+}
+
+func encodeEvalDatasetItemsCursor(cursor evalDatasetItemsCursor) (string, error) {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return "", fmt.Errorf("encode dataset items cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func decodeEvalDatasetItemsCursor(raw, datasetName string, verdict evalDatasetItemsVerdict, limit int) (evalDatasetItemsCursor, error) {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return evalDatasetItemsCursor{}, fmt.Errorf("%w: decode", errInvalidEvalDatasetItemsCursor)
+	}
+	var cursor evalDatasetItemsCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return evalDatasetItemsCursor{}, fmt.Errorf("%w: unmarshal", errInvalidEvalDatasetItemsCursor)
+	}
+	if cursor.Version != evalDatasetItemsCursorVersion ||
+		cursor.DatasetName != datasetName ||
+		cursor.Verdict != string(verdict) ||
+		cursor.Limit != limit ||
+		cursor.RawPage < 1 ||
+		cursor.RawIndex < 0 ||
+		cursor.RawIndex >= itemsMaxLimit ||
+		cursor.Matched < 0 {
+		return evalDatasetItemsCursor{}, errInvalidEvalDatasetItemsCursor
+	}
+	return cursor, nil
+}
+
+func filteredDatasetItemsResponse(items []langfuse.DatasetItem, page, limit, totalItems int) *langfuse.DatasetItemsResponse {
+	resp := &langfuse.DatasetItemsResponse{Data: items}
+	resp.Meta.Page = page
+	resp.Meta.Limit = limit
+	resp.Meta.TotalItems = totalItems
+	resp.Meta.TotalPages = totalPages(totalItems, limit)
+	return resp
+}
+
+func totalPages(totalItems, limit int) int {
+	if totalItems == 0 {
+		return 0
+	}
+	return (totalItems + limit - 1) / limit
+}
+
+func datasetItemMatchesVerdict(item langfuse.DatasetItem, verdict evalDatasetItemsVerdict) bool {
+	metadata, ok := item.Metadata.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch v := metadata["verdict"].(type) {
+	case float64:
+		if verdict == evalDatasetItemsVerdictGood {
+			return v == 1
+		}
+		return v == -1
+	case string:
+		return strings.EqualFold(v, string(verdict))
+	default:
+		return false
 	}
 }
 
