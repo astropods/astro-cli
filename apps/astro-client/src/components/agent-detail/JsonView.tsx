@@ -1,19 +1,12 @@
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight, oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useResolvedTheme } from "@/lib/theme";
+import { safeStringify } from "@/lib/content-parse";
 import { cn } from "@/lib/utils";
 
 export interface JsonViewProps {
   value: unknown;
   className?: string;
-}
-
-function safeStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
 }
 
 /**

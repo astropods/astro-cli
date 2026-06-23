@@ -349,6 +349,7 @@ body {
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-success: var(--success);
+  --color-warning: var(--warning);
 }
 
 @layer base {

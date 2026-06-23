@@ -2,74 +2,8 @@ import { useMemo, useState } from "react";
 import { Check, ChevronRight, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { StyledMarkdown } from "@/components/StyledMarkdown";
-import { JsonView } from "./JsonView";
-
-interface ParsedContent {
-  /** Parsed JSON (object/array/primitive). Null when not JSON. */
-  json: unknown;
-  /** Plain text fallback when not JSON. */
-  text: string;
-  /** Plain-text representation for the copy button (always populated). */
-  copyText: string;
-  isJson: boolean;
-  isEmpty: boolean;
-}
-
-/**
- * Decide whether the trace content is JSON or plain text.
- * Objects / arrays passed in directly are treated as JSON.
- * Strings get a JSON.parse attempt when they look JSON-shaped.
- */
-function parseContent(value: unknown): ParsedContent {
-  if (value == null) {
-    return { json: null, text: "", copyText: "", isJson: false, isEmpty: true };
-  }
-
-  if (typeof value === "object") {
-    return {
-      json: value,
-      text: "",
-      copyText: safeStringify(value),
-      isJson: true,
-      isEmpty: false,
-    };
-  }
-
-  const str = String(value);
-  if (!str) {
-    return { json: null, text: "", copyText: "", isJson: false, isEmpty: true };
-  }
-
-  const trimmed = str.trim();
-  if (
-    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-    (trimmed.startsWith("[") && trimmed.endsWith("]"))
-  ) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return {
-        json: parsed,
-        text: "",
-        copyText: JSON.stringify(parsed, null, 2),
-        isJson: true,
-        isEmpty: false,
-      };
-    } catch {
-      // fall through to plain text
-    }
-  }
-
-  return { json: null, text: str, copyText: str, isJson: false, isEmpty: false };
-}
-
-function safeStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
+import { parseContent } from "@/lib/content-parse";
+import { ContentValue } from "@/components/agent-detail/ContentValue";
 
 export interface ContentSectionProps {
   label: string;
@@ -136,19 +70,22 @@ export function ContentSection({
         style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
       >
         <div className="overflow-hidden">
-          {parsed.isEmpty ? (
-            <div className="border-t border-border/40 px-4 py-3">
-              <p className="text-body-sm text-muted-foreground">{emptyText}</p>
-            </div>
-          ) : parsed.isJson ? (
-            <div className="border-t border-border/40 p-3">
-              <JsonView value={parsed.json} />
-            </div>
-          ) : (
-            <div className="border-t border-border/40 px-4 py-3 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-sm [&>div>*:first-child]:mt-0 [&>div>*:last-child]:mb-0">
-              <StyledMarkdown>{parsed.text}</StyledMarkdown>
-            </div>
-          )}
+          <div
+            className={cn(
+              "border-t border-border/40",
+              parsed.isJson && !parsed.isEmpty ? "p-3" : "px-4 py-3",
+            )}
+          >
+            <ContentValue
+              parsed={parsed}
+              className={!parsed.isJson ? "[&_pre]:rounded-sm" : undefined}
+              emptyFallback={
+                <p className="text-body-sm text-muted-foreground">
+                  {emptyText}
+                </p>
+              }
+            />
+          </div>
         </div>
       </div>
     </section>

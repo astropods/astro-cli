@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef } from 'react';
 import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { LogEntry } from '@/lib/log-utils';
-import type { AgentDeployment, EvalDatasetResponse, DeploymentsListResponse, PodMetricsRange, UndeployResponse } from '@/lib/api';
+import type {
+  AgentDeployment,
+  DeploymentsListResponse,
+  EvalDatasetItemsResponse,
+  EvalDatasetItemsVerdict,
+  EvalDatasetResponse,
+  PodMetricsRange,
+  UndeployResponse,
+} from '@/lib/api';
 import { deploymentKeys } from './keys';
 
 // Powers the cross-account quick switcher on the agent detail page.
@@ -439,3 +447,34 @@ export function useEvalDataset(deploymentId: string) {
   });
 }
 
+export function useEvalDatasetItems(
+  deploymentId: string,
+  limit = 50,
+  verdict?: EvalDatasetItemsVerdict,
+  enabled = true,
+) {
+  const api = useApiClient();
+  return useInfiniteQuery({
+    queryKey: deploymentKeys.datasetItems(deploymentId, limit, verdict),
+    queryFn: ({
+      pageParam,
+    }: {
+      pageParam: number | string | undefined;
+    }): Promise<EvalDatasetItemsResponse> =>
+      api.getEvalDatasetItems(deploymentId, {
+        page: verdict ? undefined : typeof pageParam === "number" ? pageParam : 1,
+        cursor: verdict && typeof pageParam === "string" ? pageParam : undefined,
+        limit,
+        verdict,
+      }),
+    initialPageParam: undefined as number | string | undefined,
+    getNextPageParam: (last) =>
+      verdict
+        ? last.next_cursor || undefined
+        : last.page < last.total_pages
+          ? last.page + 1
+          : undefined,
+    enabled: !!deploymentId && enabled,
+    staleTime: 60_000,
+  });
+}

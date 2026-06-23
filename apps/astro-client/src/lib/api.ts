@@ -930,6 +930,51 @@ export interface DeploymentEventsResponse {
 export interface EvalDatasetResponse {
   dataset_name: string;
   item_count: number;
+  good_count: number;
+  bad_count: number;
+  /** Server-computed letter grade: A, B, C, D, F, or "—" when empty. */
+  grade: string;
+  /** Letter of the next grade level above the current one. Empty when already at A. */
+  next_grade: string;
+  /** Progress within the current grade band toward `next_grade`, 0..1. */
+  next_grade_progress: number;
+}
+
+/** Per-item metadata persisted on Langfuse dataset items. `verdict` is a
+ *  numeric score: 1 = good, -1 = bad. Skip/unknown verdicts never produce an
+ *  item, so good/bad are the only values that surface here. */
+export interface EvalDatasetItemMetadata {
+  verdict?: number;
+  confidence?: number;
+  judged_by_user_id?: string;
+  judged_at?: string;
+}
+
+export interface EvalDatasetItem {
+  id: string;
+  input: unknown;
+  expected_output: unknown;
+  metadata: EvalDatasetItemMetadata | null;
+  source_trace_id: string;
+  created_at: string;
+}
+
+export interface EvalDatasetItemsResponse {
+  items: EvalDatasetItem[];
+  page: number;
+  limit: number;
+  total_items: number;
+  total_pages: number;
+  next_cursor?: string;
+}
+
+export type EvalDatasetItemsVerdict = "good" | "bad";
+
+export interface EvalDatasetItemsParams {
+  page?: number;
+  cursor?: string;
+  limit: number;
+  verdict?: EvalDatasetItemsVerdict;
 }
 
 // --- Pod metrics (CPU / memory time series) ---
@@ -2306,6 +2351,19 @@ class ApiClient {
   async getEvalDataset(deploymentId: string): Promise<EvalDatasetResponse> {
     return this.request<EvalDatasetResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset`
+    );
+  }
+
+  async getEvalDatasetItems(
+    deploymentId: string,
+    { page, cursor, limit, verdict }: EvalDatasetItemsParams,
+  ): Promise<EvalDatasetItemsResponse> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (page) params.set("page", String(page));
+    if (cursor) params.set("cursor", cursor);
+    if (verdict) params.set("verdict", verdict);
+    return this.request<EvalDatasetItemsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items?${params}`
     );
   }
 

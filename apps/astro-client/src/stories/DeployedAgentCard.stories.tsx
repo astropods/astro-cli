@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DeployedAgentCard, type DeployedAgentCardProps } from "@/components/DeployedAgentCard";
 import type { AvatarColors } from "@/lib/api";
-import chrisbotAvatar from "../../../../assets/avatars/agents/chrisjpatty/chrisbot.jpg";
-import claudeCodeAvatar from "../../../../assets/avatars/agents/chrisjpatty/claude-code.jpg";
-import grapplingHookAvatar from "../../../../assets/avatars/agents/chrisjpatty/grappling-hook.jpg";
-import memoryBoxAvatar from "../../../../assets/avatars/agents/chrisjpatty/memory-box.jpg";
-import slackBotAvatar from "../../../../assets/avatars/agents/chrisjpatty/slack-bot.jpg";
-import dataPipelineAvatar from "../../../../assets/avatars/agents/acme/data-pipeline.jpg";
-import weatherBotAvatar from "../../../../assets/avatars/agents/nova/weather-bot.jpg";
-import emailResponderAvatar from "../../../../assets/avatars/agents/spark/email-responder.jpg";
+
+const chrisbotAvatar = "/assets/avatars/agents/chrisjpatty/chrisbot.jpg";
+const claudeCodeAvatar = "/assets/avatars/agents/chrisjpatty/claude-code.jpg";
+const grapplingHookAvatar = "/assets/avatars/agents/chrisjpatty/grappling-hook.jpg";
+const memoryBoxAvatar = "/assets/avatars/agents/chrisjpatty/memory-box.jpg";
+const slackBotAvatar = "/assets/avatars/agents/chrisjpatty/slack-bot.jpg";
+const dataPipelineAvatar = "/assets/avatars/agents/acme/data-pipeline.jpg";
+const weatherBotAvatar = "/assets/avatars/agents/nova/weather-bot.jpg";
+const emailResponderAvatar = "/assets/avatars/agents/spark/email-responder.jpg";
 
 const meta = {
   title: "Features/Agents/DeployedAgentCard",

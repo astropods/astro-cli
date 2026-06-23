@@ -122,6 +122,8 @@ export const deploymentKeys = {
     ['deployments', deploymentId, 'pods', pod, 'metrics', range] as const,
   dataset: (deploymentId: string) =>
     ['deployments', deploymentId, 'dataset'] as const,
+  datasetItems: (deploymentId: string, limit: number, verdict?: string) =>
+    ['deployments', deploymentId, 'dataset', 'items', limit, verdict ?? 'all'] as const,
 };
 
 export const auditLogKeys = {
