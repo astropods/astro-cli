@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -17,6 +17,7 @@ import AgentDataset from "./AgentDataset";
 
 afterEach(cleanup);
 afterEach(() => server.resetHandlers());
+afterEach(() => vi.restoreAllMocks());
 
 function makeDatasetResponse(
   overrides?: Partial<EvalDatasetResponse>,
@@ -350,6 +351,161 @@ describe("review queue view", () => {
         verdict,
       });
     });
+  });
+
+  it.each([
+    ["g", "good"],
+    ["b", "bad"],
+    ["n", "unknown"],
+  ] as const)("posts %s keyboard shortcut as %s", async (shortcut, verdict) => {
+    let posted: DatasetJudgmentRequest | null = null;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: `${shortcut} prompt`,
+          output: `${shortcut} response`,
+        }),
+      ]),
+    );
+    server.use(
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        posted = (await request.json()) as DatasetJudgmentRequest;
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText(`${shortcut} response`);
+    await user.keyboard(shortcut);
+
+    await waitFor(() => {
+      expect(posted).toEqual({
+        trace_id: "trace_111111",
+        verdict,
+      });
+    });
+  });
+
+  it("does not post keyboard shortcuts from editable fields", async () => {
+    let posted = false;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Editable prompt",
+          output: "Editable response",
+        }),
+      ]),
+    );
+    server.use(
+      http.post("/api/v1/deployments/:id/dataset/judgments", () => {
+        posted = true;
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: "trace_111111",
+            verdict: "good",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Editable response");
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+
+    try {
+      await user.keyboard("g");
+      expect(input).toHaveValue("g");
+      expect(posted).toBe(false);
+    } finally {
+      input.remove();
+    }
+  });
+
+  it("runs the verdict animation from the matching button on keyboard shortcuts", async () => {
+    const hadAnimate = "animate" in HTMLElement.prototype;
+    const originalAnimate = HTMLElement.prototype.animate;
+    const animation = {
+      addEventListener: vi.fn(),
+    } as unknown as Animation;
+    const animate = vi.fn<HTMLElement["animate"]>(() => animation);
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    });
+
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Animated prompt",
+          output: "Animated response",
+        }),
+      ]),
+    );
+    server.use(
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Animated response");
+    animate.mockClear();
+
+    try {
+      await user.keyboard("g");
+
+      await waitFor(() => {
+        expect(animate).toHaveBeenCalled();
+      });
+      expect(animate.mock.calls[0]?.[0]).toEqual(
+        expect.arrayContaining([expect.objectContaining({ offset: 0 })]),
+      );
+    } finally {
+      if (hadAnimate) {
+        Object.defineProperty(HTMLElement.prototype, "animate", {
+          configurable: true,
+          value: originalAnimate,
+        });
+      } else {
+        delete (HTMLElement.prototype as { animate?: HTMLElement["animate"] })
+          .animate;
+      }
+    }
   });
 
   it("keeps a trace in the queue and shows a retry message when judgment fails", async () => {

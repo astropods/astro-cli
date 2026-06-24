@@ -1,5 +1,7 @@
 import {
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -34,7 +36,10 @@ import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
-import { useDatasetReviewQueue, usePostDatasetJudgment } from "@/api/queries/evals";
+import {
+  useDatasetReviewQueue,
+  usePostDatasetJudgment,
+} from "@/api/queries/evals";
 import type {
   DatasetJudgmentVerdict,
   EvalDatasetResponse,
@@ -44,6 +49,44 @@ import type {
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
 import type { RawMode } from "./DatasetItemRow";
 import { flyVerdictToGrade } from "./review-queue-motion";
+
+const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
+  verdict: DatasetJudgmentVerdict;
+  label: string;
+  shortcut: string;
+  Icon: LucideIcon;
+  iconClassName: string;
+}> = [
+  {
+    verdict: "good",
+    label: "Good",
+    shortcut: "G",
+    Icon: Check,
+    iconClassName: "text-success",
+  },
+  {
+    verdict: "bad",
+    label: "Bad",
+    shortcut: "B",
+    Icon: X,
+    iconClassName: "text-destructive",
+  },
+  {
+    verdict: "unknown",
+    label: "Neutral",
+    shortcut: "N",
+    Icon: Minus,
+    iconClassName: "text-muted-foreground",
+  },
+];
+
+const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<string, DatasetJudgmentVerdict> = {
+  g: "good",
+  b: "bad",
+  n: "unknown",
+};
+
+const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 
 export interface ReviewQueueViewProps {
   deploymentId: string;
@@ -68,7 +111,7 @@ export function ReviewQueueView({
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rawMode, setRawMode] = useState<RawMode>("pretty");
-  const items = data?.items ?? [];
+  const items = data?.items ?? EMPTY_REVIEW_QUEUE_ITEMS;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
   const activeSelectedId = selectedItem?.trace_id ?? null;
@@ -189,6 +232,36 @@ function getAdjacentTraceIds(
   };
 }
 
+function getReviewQueueShortcutVerdict(event: KeyboardEvent) {
+  if (
+    event.defaultPrevented ||
+    event.repeat ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    isEditableShortcutTarget(event.target)
+  ) {
+    return null;
+  }
+
+  return REVIEW_QUEUE_VERDICT_SHORTCUTS[event.key.toLowerCase()] ?? null;
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    Boolean(
+      target.closest(
+        "input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']",
+      ),
+    )
+  );
+}
+
 interface ReviewQueueListProps {
   items: ReviewQueueItem[];
   selectedId: string | null;
@@ -303,7 +376,7 @@ function ReviewQueueRow({
         "flex min-h-16 w-full items-center gap-3 border-b border-l-2 border-border px-4 py-3.5 text-left transition-colors",
         selected
           ? "border-l-primary bg-primary/10"
-          : "border-l-transparent hover:bg-black/2 dark:hover:bg-white/3",
+          : "border-l-transparent hover:bg-muted/40",
       )}
     >
       <span
@@ -514,52 +587,91 @@ function ReviewQueueVerdictFooter({
     trigger: HTMLButtonElement | null,
   ) => void;
 }) {
+  const verdictButtonRefs = useRef<
+    Record<DatasetJudgmentVerdict, HTMLButtonElement | null>
+  >({
+    good: null,
+    bad: null,
+    unknown: null,
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const verdict = getReviewQueueShortcutVerdict(event);
+      if (!verdict || isPending) {
+        return;
+      }
+
+      event.preventDefault();
+      onSelect(verdict, verdictButtonRefs.current[verdict]);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPending, onSelect]);
+
   return (
-    <div className="flex flex-none flex-wrap items-center justify-end gap-3 border-t border-border px-6 py-4">
-      {showError && (
-        <div className="min-w-0 text-body-sm text-muted-foreground">
-          Could not save verdict. Try again.
-        </div>
-      )}
+    <div className="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
+      <div className="min-w-0 flex-1 text-body-sm text-muted-foreground">
+        {showError ? (
+          "Could not save verdict. Try again."
+        ) : (
+          <>
+            Select an option or use{" "}
+            <ShortcutKey className="mx-0.5">G</ShortcutKey>
+            {" / "}
+            <ShortcutKey className="mx-0.5">B</ShortcutKey>
+            {" / "}
+            <ShortcutKey className="mx-0.5">N</ShortcutKey>.
+          </>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isPending}
-          onClick={(event: MouseEvent<HTMLButtonElement>) =>
-            onSelect("good", event.currentTarget)
-          }
-        >
-          <Check className="size-4 text-success" />
-          Good
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isPending}
-          onClick={(event: MouseEvent<HTMLButtonElement>) =>
-            onSelect("bad", event.currentTarget)
-          }
-        >
-          <X className="size-4 text-destructive" />
-          Bad
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isPending}
-          onClick={(event: MouseEvent<HTMLButtonElement>) =>
-            onSelect("unknown", event.currentTarget)
-          }
-        >
-          <Minus className="size-4 text-muted-foreground" />
-          Neutral
-        </Button>
+        {REVIEW_QUEUE_VERDICT_OPTIONS.map(
+          ({ verdict, label, shortcut, Icon, iconClassName }) => (
+            <Button
+              key={verdict}
+              ref={(node) => {
+                verdictButtonRefs.current[verdict] = node;
+              }}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={(event: MouseEvent<HTMLButtonElement>) =>
+                onSelect(verdict, event.currentTarget)
+              }
+            >
+              <Icon className={cn("size-4", iconClassName)} />
+              {label}
+              <ShortcutKey ariaHidden>{shortcut}</ShortcutKey>
+            </Button>
+          ),
+        )}
       </div>
     </div>
+  );
+}
+
+function ShortcutKey({
+  children,
+  className,
+  ariaHidden = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  ariaHidden?: boolean;
+}) {
+  return (
+    <kbd
+      aria-hidden={ariaHidden || undefined}
+      className={cn(
+        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-border-strong bg-muted/40 px-1.5 font-mono text-[11px] font-medium leading-none text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
   );
 }
 
