@@ -706,23 +706,27 @@ func TestK8s_NetworkPoliciesApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list network policies: %v", err)
 	}
-	if len(nps.Items) != 2 {
+
+	// Policies astro-server applies as part of the per-deploy NP bundle.
+	// (allow-apiserver-proxy is conditional on cpSubnetCIDRs, not set here.)
+	want := []string{"default-deny-all", "allow-namespace-traffic", "allow-from-tenant-router"}
+
+	if len(nps.Items) != len(want) {
 		names := make([]string, len(nps.Items))
 		for i, np := range nps.Items {
 			names[i] = np.Name
 		}
-		t.Fatalf("expected 2 network policies, got %d: %v", len(nps.Items), names)
+		t.Fatalf("expected %d network policies, got %d: %v", len(want), len(nps.Items), names)
 	}
 
 	npNames := map[string]bool{}
 	for _, np := range nps.Items {
 		npNames[np.Name] = true
 	}
-	if !npNames["default-deny-all"] {
-		t.Error("missing default-deny-all network policy")
-	}
-	if !npNames["allow-namespace-traffic"] {
-		t.Error("missing allow-namespace-traffic network policy")
+	for _, name := range want {
+		if !npNames[name] {
+			t.Errorf("missing %s network policy", name)
+		}
 	}
 }
 

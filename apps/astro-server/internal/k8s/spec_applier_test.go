@@ -877,8 +877,6 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
-	a.acmCertificateARN = "arn:aws:acm:test"
-	a.albGroupName = "test-group"
 	ds := minimalDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
@@ -1046,8 +1044,6 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 func TestApplyDeploymentSpec_WithFrontendExpose(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
-	a.acmCertificateARN = "arn:aws:acm:test"
-	a.albGroupName = "test-group"
 	ds := minimalDeploymentSpec()
 	// Agent exposes its own frontend on port 80
 	ds.Agent.Endpoints = map[string]spec.Endpoint{
@@ -1805,17 +1801,15 @@ func TestApplyCronJob_SuspendedCronJobIsUnsuspendedOnApply(t *testing.T) {
 	}
 }
 
-func TestApplyDeploymentSpec_OIDCAuth_EnabledWhenOptIn(t *testing.T) {
+// TestApplyDeploymentSpec_OIDCAuth_FrontDoorOwnsOIDC verifies that under the
+// tenant-router model, astro-server does not create the per-tenant
+// messaging-oidc Secret and emits no per-Ingress OIDC annotations, even when
+// a deployment opts in via auth.web.type: oidc. The front-door ALB enforces
+// OIDC for host=*.agents.<domain> via a listener rule managed in astro-infra
+// (see docs/plans/tenant-router-migration.md).
+func TestApplyDeploymentSpec_OIDCAuth_FrontDoorOwnsOIDC(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
-	a.messagingOIDCAuth = &OIDCAuthConfig{
-		Issuer:                "https://auth.example.com",
-		AuthorizationEndpoint: "https://auth.example.com/oauth2/authorize",
-		TokenEndpoint:         "https://auth.example.com/oauth2/token",
-		UserInfoEndpoint:      "https://auth.example.com/oauth2/userinfo",
-		ClientID:              "client-id",
-		ClientSecret:          "client-secret",
-	}
 	ds := minimalDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
@@ -1837,18 +1831,14 @@ func TestApplyDeploymentSpec_OIDCAuth_EnabledWhenOptIn(t *testing.T) {
 		t.Errorf("unexpected errors: %v", result.Errors)
 	}
 
-	// OIDC secret should be created
-	hasOIDCSecret := false
+	// No per-tenant messaging-oidc Secret should be created.
 	for _, r := range result.Resources {
-		if r.Kind == "Secret" && r.Name == messagingOIDCSecretName {
-			hasOIDCSecret = true
+		if r.Kind == "Secret" && r.Name == "messaging-oidc" {
+			t.Error("messaging-oidc Secret should not be created under the tenant-router model")
 		}
 	}
-	if !hasOIDCSecret {
-		t.Error("expected messaging-oidc secret to be created when auth.web.type is oidc")
-	}
 
-	// Ingress should have OIDC auth annotations
+	// Ingress should carry no legacy ALB OIDC annotations.
 	fakeClient := a.clientset.(*fake.Clientset)
 	ing, err := fakeClient.NetworkingV1().Ingresses("default").Get(
 		context.Background(), "my-agent-ingress-messaging", metav1.GetOptions{},
@@ -1856,93 +1846,10 @@ func TestApplyDeploymentSpec_OIDCAuth_EnabledWhenOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get ingress: %v", err)
 	}
-	if ing.Annotations["alb.ingress.kubernetes.io/auth-type"] != "oidc" {
-		t.Errorf("expected auth-type oidc annotation, got %q", ing.Annotations["alb.ingress.kubernetes.io/auth-type"])
-	}
-}
-
-func TestApplyDeploymentSpec_OIDCAuth_DisabledWhenNotOptIn(t *testing.T) {
-	a := newTestApplier()
-	a.ingressDomain = "example.com"
-	a.messagingOIDCAuth = &OIDCAuthConfig{
-		Issuer:       "https://auth.example.com",
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-	}
-	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"web"},
-		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
-			"grpc": {Port: 9090, Protocol: "grpc"},
-			"http": {Port: 8080, Protocol: "http"},
-		},
-		// No Auth field — default is no auth
-	}
-
-	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// No OIDC secret should be created
-	for _, r := range result.Resources {
-		if r.Kind == "Secret" && r.Name == messagingOIDCSecretName {
-			t.Error("expected no messaging-oidc secret when auth not opted in")
+	for k := range ing.Annotations {
+		if strings.HasPrefix(k, "alb.ingress.kubernetes.io/auth-") {
+			t.Errorf("legacy OIDC annotation %q should not be emitted", k)
 		}
-	}
-
-	// Ingress should have no OIDC annotations
-	fakeClient := a.clientset.(*fake.Clientset)
-	ing, err := fakeClient.NetworkingV1().Ingresses("default").Get(
-		context.Background(), "my-agent-ingress-messaging", metav1.GetOptions{},
-	)
-	if err != nil {
-		t.Fatalf("failed to get ingress: %v", err)
-	}
-	if _, ok := ing.Annotations["alb.ingress.kubernetes.io/auth-type"]; ok {
-		t.Error("expected no auth-type annotation when auth not opted in")
-	}
-}
-
-func TestApplyDeploymentSpec_OIDCAuth_DisabledWhenServerNotConfigured(t *testing.T) {
-	a := newTestApplier()
-	a.ingressDomain = "example.com"
-	// messagingOIDCAuth is nil — server not configured
-	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"web"},
-		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
-			"grpc": {Port: 9090, Protocol: "grpc"},
-			"http": {Port: 8080, Protocol: "http"},
-		},
-		Auth: &spec.DeploymentInterfacesAuth{
-			Web: &spec.DeploymentWebAuth{Type: "oidc"},
-		},
-	}
-
-	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// No OIDC secret or annotations — server config missing
-	for _, r := range result.Resources {
-		if r.Kind == "Secret" && r.Name == messagingOIDCSecretName {
-			t.Error("expected no messaging-oidc secret when server OIDC not configured")
-		}
-	}
-
-	fakeClient := a.clientset.(*fake.Clientset)
-	ing, err := fakeClient.NetworkingV1().Ingresses("default").Get(
-		context.Background(), "my-agent-ingress-messaging", metav1.GetOptions{},
-	)
-	if err != nil {
-		t.Fatalf("failed to get ingress: %v", err)
-	}
-	if _, ok := ing.Annotations["alb.ingress.kubernetes.io/auth-type"]; ok {
-		t.Error("expected no auth-type annotation when server OIDC not configured")
 	}
 }
 

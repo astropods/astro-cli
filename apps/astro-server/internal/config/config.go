@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -217,14 +216,6 @@ type DeploymentConfig struct {
 	LangfuseBaseURL    string   // LANGFUSE_BASE_URL — Langfuse instance URL
 	LangfuseBaseURLExt string   // LANGFUSE_BASE_URL_EXT — external Langfuse URL for collector (overrides LANGFUSE_BASE_URL)
 	LangfuseVPCEIPs    []string // LANGFUSE_VPCE_IPS — VPC endpoint IPs for NetworkPolicy egress rules
-	// Messaging OIDC authentication — ALB authenticate-oidc action for messaging ingress
-	MessagingOIDCIssuer           string // MESSAGING_OIDC_ISSUER — WorkOS OIDC issuer URL
-	MessagingOIDCAuthEndpoint     string // MESSAGING_OIDC_AUTH_ENDPOINT — authorization endpoint
-	MessagingOIDCTokenEndpoint    string // MESSAGING_OIDC_TOKEN_ENDPOINT — token endpoint
-	MessagingOIDCUserInfoEndpoint string // MESSAGING_OIDC_USERINFO_ENDPOINT — userinfo endpoint
-	MessagingOIDCClientID         string // MESSAGING_OIDC_CLIENT_ID — OIDC client ID
-	MessagingOIDCClientSecret     string // MESSAGING_OIDC_CLIENT_SECRET — OIDC client secret
-	MessagingOIDCSessionTimeout   int    // MESSAGING_OIDC_SESSION_TIMEOUT — session duration in seconds (default 3600)
 	// PrivateLink automation — managed cluster VPC where VPC endpoints are created at runtime
 	PrivateLinkVpcID     string   // PRIVATELINK_VPC_ID — managed cluster VPC ID (empty = PrivateLink disabled)
 	PrivateLinkSubnetIDs []string // PRIVATELINK_SUBNET_IDS — comma-separated private subnet IDs
@@ -288,13 +279,6 @@ func Load() (*Config, error) {
 			LangfuseBaseURL:               getEnv("LANGFUSE_BASE_URL", ""),
 			LangfuseBaseURLExt:            getEnv("LANGFUSE_BASE_URL_EXT", ""),
 			LangfuseVPCEIPs:               getEnvSlice("LANGFUSE_VPCE_IPS", nil),
-			MessagingOIDCIssuer:           getEnv("MESSAGING_OIDC_ISSUER", ""),
-			MessagingOIDCAuthEndpoint:     getEnv("MESSAGING_OIDC_AUTH_ENDPOINT", ""),
-			MessagingOIDCTokenEndpoint:    getEnv("MESSAGING_OIDC_TOKEN_ENDPOINT", ""),
-			MessagingOIDCUserInfoEndpoint: getEnv("MESSAGING_OIDC_USERINFO_ENDPOINT", ""),
-			MessagingOIDCClientID:         getEnv("MESSAGING_OIDC_CLIENT_ID", ""),
-			MessagingOIDCClientSecret:     getEnv("MESSAGING_OIDC_CLIENT_SECRET", ""),
-			MessagingOIDCSessionTimeout:   getEnvInt("MESSAGING_OIDC_SESSION_TIMEOUT", 3600),
 			PrivateLinkVpcID:              getEnv("PRIVATELINK_VPC_ID", ""),
 			PrivateLinkSubnetIDs:          getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
 			PrivateLinkSGID:               getEnv("PRIVATELINK_SG_ID", ""),
@@ -498,15 +482,6 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// getEnvInt gets an integer from an environment variable or returns the default
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if n, err := strconv.Atoi(value); err == nil {
-			return n
-		}
-	}
-	return defaultValue
-}
 
 // getEnvDuration gets a duration from environment variable or returns default
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {

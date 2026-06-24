@@ -178,15 +178,9 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		aigwAPIKey, aigwBaseURL = apiKey, baseURL
 	}
 
-	oidcAuth := messagingOIDCAuthFromConfig(d.Cfg)
-	if oidcAuth == nil {
-		d.Log.Info("Messaging OIDC not configured — MESSAGING_OIDC_ISSUER not set, deployments with auth:oidc will have no auth")
-	} else if oidcAuth.ClientID == "" || oidcAuth.ClientSecret == "" {
-		d.Log.Warn("Messaging OIDC misconfigured — MESSAGING_OIDC_CLIENT_ID or MESSAGING_OIDC_CLIENT_SECRET not set, auth:oidc will have no effect")
-		oidcAuth = nil
-	} else {
-		d.Log.Info("Messaging OIDC configured", "issuer", oidcAuth.Issuer)
-	}
+	// Messaging OIDC is enforced at the front-door ALB listener rule (managed
+	// in astro-infra), not per-deployment. No per-tenant OIDC config to build
+	// here; see docs/plans/tenant-router-migration.md.
 
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
 	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, dep, &ds, k8sForDep)
@@ -203,11 +197,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		ImagePreflighter:       d.ImagePreflighter,
 		TenantImageHosts:       tenantImageHostsFromConfig(d.Cfg),
 		IngressDomain:          clusterCfg.AgentIngressDomain,
-		ACMCertificateARN:      clusterCfg.AgentACMCertARN,
-		ALBGroupName:           clusterCfg.AgentALBGroupName,
 		IngestionIngressDomain: clusterCfg.IngestionIngressDomain,
-		IngestionACMCertARN:    clusterCfg.IngestionACMCertARN,
-		IngestionALBGroupName:  clusterCfg.IngestionALBGroupName,
 		LangfuseAuthToken:      langfuseAuthToken,
 		LangfuseBaseURL:        clusterCfg.LangfuseBaseURL,
 		DeploymentID:           dep.ID,
@@ -217,7 +207,6 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		AstroGatewayAPIKey:     aigwAPIKey,
 		AstroGatewayBaseURL:    aigwBaseURL,
-		MessagingOIDCAuth:      oidcAuth,
 		BoundKnowledge:         boundKnowledge,
 		BoundCredentials:       boundCredentials,
 		DeployTokenSecret:      d.Cfg.Security.DeployTokenSecret,
@@ -639,20 +628,3 @@ func stripScheme(s string) string {
 	return s
 }
 
-// messagingOIDCAuthFromConfig builds an OIDCAuthConfig from server config.
-// Returns nil if the issuer is not set (OIDC disabled).
-func messagingOIDCAuthFromConfig(cfg *config.Config) *k8s.OIDCAuthConfig {
-	d := cfg.Deployment
-	if d.MessagingOIDCIssuer == "" {
-		return nil
-	}
-	return &k8s.OIDCAuthConfig{
-		Issuer:                d.MessagingOIDCIssuer,
-		AuthorizationEndpoint: d.MessagingOIDCAuthEndpoint,
-		TokenEndpoint:         d.MessagingOIDCTokenEndpoint,
-		UserInfoEndpoint:      d.MessagingOIDCUserInfoEndpoint,
-		ClientID:              d.MessagingOIDCClientID,
-		ClientSecret:          d.MessagingOIDCClientSecret,
-		SessionTimeoutSeconds: d.MessagingOIDCSessionTimeout,
-	}
-}

@@ -36,14 +36,12 @@ type ApplierConfig struct {
 	// Typical values: the proxy registry host (registry.localhost) and the
 	// resolved registry URL host (123.dkr.ecr....amazonaws.com).
 	TenantImageHosts []string
-	// Ingress configuration for agent workloads
-	IngressDomain     string
-	ACMCertificateARN string
-	ALBGroupName      string
-	// Ingress configuration for ingestion workloads (separate ALB)
+	// Ingress configuration for agent workloads (front-door ALB owns TLS,
+	// OIDC, and ALB grouping in astro-infra; we just need the domain to
+	// generate per-tenant hostnames).
+	IngressDomain string
+	// Ingress configuration for ingestion workloads
 	IngestionIngressDomain string
-	IngestionACMCertARN    string
-	IngestionALBGroupName  string
 	// Observability (Langfuse) — per-account auth token for collector sidecar
 	LangfuseAuthToken string
 	LangfuseBaseURL   string
@@ -75,10 +73,6 @@ type ApplierConfig struct {
 	// AstroGatewayBaseURL is the gateway endpoint paired with AstroGatewayAPIKey,
 	// surfaced through the resolver-derived *_BASE_URL env vars.
 	AstroGatewayBaseURL string
-	// MessagingOIDCAuth configures ALB OIDC authentication for messaging ingresses.
-	// When non-nil, a K8s secret is created in the agent namespace and auth
-	// annotations are added to the messaging ingress.
-	MessagingOIDCAuth *OIDCAuthConfig
 	// Bound knowledge store resolution info (populated by deployer for specs with bindings)
 	BoundKnowledge   map[string]deployment.BoundKnowledgeInfo
 	BoundCredentials map[string]string // "name.key" → credential value
@@ -122,14 +116,9 @@ type Applier struct {
 	imagePullPolicy  corev1.PullPolicy
 	imagePreflighter *ImagePreflighter
 	tenantImageHosts []string
-	// Ingress configuration for agent workloads
-	ingressDomain     string
-	acmCertificateARN string
-	albGroupName      string
-	// Ingress configuration for ingestion workloads (separate ALB)
+	// Ingress configuration
+	ingressDomain          string
 	ingestionIngressDomain string
-	ingestionACMCertARN    string
-	ingestionALBGroupName  string
 	// Observability
 	langfuseAuthToken string
 	langfuseBaseURL   string
@@ -145,7 +134,6 @@ type Applier struct {
 	localMode            bool
 	astroGatewayAPIKey   string
 	astroGatewayBaseURL  string
-	messagingOIDCAuth    *OIDCAuthConfig
 	boundKnowledge       map[string]deployment.BoundKnowledgeInfo
 	boundCredentials     map[string]string
 	deployTokenSecret    string
@@ -170,11 +158,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		imagePreflighter:       cfg.ImagePreflighter,
 		tenantImageHosts:       cfg.TenantImageHosts,
 		ingressDomain:          cfg.IngressDomain,
-		acmCertificateARN:      cfg.ACMCertificateARN,
-		albGroupName:           cfg.ALBGroupName,
 		ingestionIngressDomain: cfg.IngestionIngressDomain,
-		ingestionACMCertARN:    cfg.IngestionACMCertARN,
-		ingestionALBGroupName:  cfg.IngestionALBGroupName,
 		langfuseAuthToken:      cfg.LangfuseAuthToken,
 		langfuseBaseURL:        cfg.LangfuseBaseURL,
 		deploymentID:           cfg.DeploymentID,
@@ -186,7 +170,6 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		localMode:              cfg.LocalMode,
 		astroGatewayAPIKey:     cfg.AstroGatewayAPIKey,
 		astroGatewayBaseURL:    cfg.AstroGatewayBaseURL,
-		messagingOIDCAuth:      cfg.MessagingOIDCAuth,
 		boundKnowledge:         cfg.BoundKnowledge,
 		boundCredentials:       cfg.BoundCredentials,
 		deployTokenSecret:      cfg.DeployTokenSecret,

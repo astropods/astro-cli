@@ -2,9 +2,7 @@ package k8s
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -12,100 +10,39 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// messagingOIDCSecretName is the Kubernetes secret name created in the agent
-// namespace holding the OIDC client credentials (clientId/clientSecret).
-const messagingOIDCSecretName = "messaging-oidc" //nolint:gosec // G101 false positive: this is a K8s secret name, not a credential
-
-// OIDCAuthConfig holds ALB OIDC authentication configuration for an ingress.
-// When set on IngressConfig, BuildIngress adds the ALB authenticate-oidc annotations.
-type OIDCAuthConfig struct {
-	Issuer                string // OIDC issuer URL
-	AuthorizationEndpoint string // OIDC authorization endpoint
-	TokenEndpoint         string // OIDC token endpoint
-	UserInfoEndpoint      string // OIDC userinfo endpoint
-	ClientID              string // OIDC client ID (used to create the K8s credentials secret)
-	ClientSecret          string // OIDC client secret (used to create the K8s credentials secret)
-	Scope                 string // OAuth scopes (default: "openid email")
-	SessionTimeoutSeconds int    // Session duration in seconds (default: 3600)
-}
-
-// IngressConfig holds configuration for building an Ingress
+// IngressConfig holds configuration for building an Ingress.
 type IngressConfig struct {
-	Name              string
-	Namespace         string
-	AccountID         string
-	AgentName         string
-	BuildID           string
-	Component         string
-	ServiceName       string
-	ServicePort       int32
-	Host              string // Full hostname (e.g., agent-name-namespace.agents.example.com)
-	ACMCertificateARN string
-	ALBGroupName      string
-	OIDCAuth          *OIDCAuthConfig // When non-nil, ALB OIDC auth annotations are added
+	Name        string
+	Namespace   string
+	AccountID   string
+	AgentName   string
+	BuildID     string
+	Component   string
+	ServiceName string
+	ServicePort int32
+	Host        string // Full hostname (e.g., agent-name-namespace.agents.example.com)
 }
 
-// BuildIngress creates a Kubernetes Ingress manifest for AWS ALB
+// BuildIngress creates a Kubernetes Ingress manifest for the tenant-router
+// data plane (Contour + front-door ALB managed in astro-infra).
+//
+// The Ingress carries only the host + backend rule and the tenant-router
+// class. TLS termination, WorkOS OIDC, and DNS (wildcard *.agents.<domain>
+// + *.ingestion.<domain>) are owned by the front-door ALB in astro-infra.
+//
+// See docs/plans/tenant-router-migration.md in astro-infra.
 func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	pathType := networkingv1.PathTypePrefix
 
-	annotations := map[string]string{
-		// ALB Ingress Controller annotations
-		"alb.ingress.kubernetes.io/scheme":       "internet-facing",
-		"alb.ingress.kubernetes.io/target-type":  "ip",
-		"alb.ingress.kubernetes.io/listen-ports": `[{"HTTPS":443}]`,
-		"alb.ingress.kubernetes.io/ssl-redirect": "443",
-		// external-dns annotation for automatic DNS record creation
-		"external-dns.alpha.kubernetes.io/hostname": cfg.Host,
-	}
-
-	// Add certificate ARN if provided
-	if cfg.ACMCertificateARN != "" {
-		annotations["alb.ingress.kubernetes.io/certificate-arn"] = cfg.ACMCertificateARN
-	}
-
-	// Add group name to share ALB across ingresses
-	if cfg.ALBGroupName != "" {
-		annotations["alb.ingress.kubernetes.io/group.name"] = cfg.ALBGroupName
-	}
-
-	// Add ALB OIDC authentication annotations when configured
-	if cfg.OIDCAuth != nil {
-		scope := cfg.OIDCAuth.Scope
-		if scope == "" {
-			scope = "openid email"
-		}
-		timeout := cfg.OIDCAuth.SessionTimeoutSeconds
-		if timeout == 0 {
-			timeout = 3600
-		}
-		oidcJSON, err := json.Marshal(map[string]string{
-			"issuer":                cfg.OIDCAuth.Issuer,
-			"authorizationEndpoint": cfg.OIDCAuth.AuthorizationEndpoint,
-			"tokenEndpoint":         cfg.OIDCAuth.TokenEndpoint,
-			"userInfoEndpoint":      cfg.OIDCAuth.UserInfoEndpoint,
-			"secretName":            messagingOIDCSecretName,
-		})
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal OIDC config: %v", err))
-		}
-		annotations["alb.ingress.kubernetes.io/auth-type"] = "oidc"
-		annotations["alb.ingress.kubernetes.io/auth-idp-oidc"] = string(oidcJSON)
-		annotations["alb.ingress.kubernetes.io/auth-on-unauthenticated-request"] = "authenticate"
-		annotations["alb.ingress.kubernetes.io/auth-scope"] = scope
-		annotations["alb.ingress.kubernetes.io/auth-session-timeout"] = strconv.Itoa(timeout)
-	}
-
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        cfg.Name,
-			Namespace:   cfg.Namespace,
-			Labels:      labels,
-			Annotations: annotations,
+			Name:      cfg.Name,
+			Namespace: cfg.Namespace,
+			Labels:    labels,
 		},
 		Spec: networkingv1.IngressSpec{
-			IngressClassName: stringPtr("alb"),
+			IngressClassName: stringPtr("tenant-router"),
 			Rules: []networkingv1.IngressRule{
 				{
 					Host: cfg.Host,

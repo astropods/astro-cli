@@ -214,8 +214,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: "agent",
 				ServiceName: agentResourceName, ServicePort: int32(ep.Port), //nolint:gosec
-				Host:              host,
-				ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
+				Host: host,
 			})
 			status, err := a.applyIngress(ctx, ingress)
 			result.Resources = append(result.Resources, status)
@@ -730,30 +729,14 @@ func (a *Applier) ApplyDeploymentSpec(
 				host = GenerateMessagingIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
 			if host != "" {
-				// Resolve effective OIDC config: only apply when deployment opts in via auth.web.type: oidc
-				var effectiveOIDCAuth *OIDCAuthConfig
-				if ds.Interfaces.Auth != nil && ds.Interfaces.Auth.Web != nil && ds.Interfaces.Auth.Web.Type == "oidc" {
-					effectiveOIDCAuth = a.messagingOIDCAuth
-				}
-
-				// Create OIDC credentials secret in agent namespace when auth is enabled
-				if effectiveOIDCAuth != nil {
-					oidcSecret := buildMessagingOIDCSecret(a.namespace, effectiveOIDCAuth)
-					secretStatus, secretErr := a.applySecret(ctx, oidcSecret)
-					result.Resources = append(result.Resources, secretStatus)
-					if secretErr != nil {
-						result.Errors = append(result.Errors, deployment.DeploymentError{
-							Resource: oidcSecret.Name, Kind: "Secret", Error: secretErr.Error(),
-						})
-					}
-				}
-
+				// OIDC is enforced at the front-door ALB listener rule
+				// (host=*.agents.<domain>); the per-tenant messaging-oidc
+				// Secret is no longer used. See astro-infra
+				// docs/plans/tenant-router-migration.md.
 				ingress := BuildIngress(IngressConfig{
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
-					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
-					OIDCAuth: effectiveOIDCAuth,
 				})
 				status, err := a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)
@@ -953,7 +936,6 @@ func (a *Applier) ApplyDeploymentSpec(
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: component,
 					ServiceName: resourceName, ServicePort: port, Host: host,
-					ACMCertificateARN: a.ingestionACMCertARN, ALBGroupName: a.ingestionALBGroupName,
 				})
 				status, err = a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)
@@ -1512,22 +1494,6 @@ func (a *Applier) resolveLocalMessagingHost(ctx context.Context, svcName string)
 
 func protocolPtr(p corev1.Protocol) *corev1.Protocol   { return &p }
 func portPtr(p intstr.IntOrString) *intstr.IntOrString { return &p }
-
-// buildMessagingOIDCSecret builds a Kubernetes Secret holding the OIDC client
-// credentials for the ALB controller to use with the messaging ingress.
-func buildMessagingOIDCSecret(namespace string, cfg *OIDCAuthConfig) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      messagingOIDCSecretName,
-			Namespace: namespace,
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"clientId":     []byte(cfg.ClientID),
-			"clientSecret": []byte(cfg.ClientSecret),
-		},
-	}
-}
 
 // knowledgeCredSecretName returns the name of the K8s Secret that holds
 // auto-generated credentials for a self-hosted knowledge store.

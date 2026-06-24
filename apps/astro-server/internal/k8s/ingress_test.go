@@ -172,16 +172,14 @@ func TestGenerateExternalURL(t *testing.T) {
 func TestBuildIngress(t *testing.T) {
 	t.Run("full config", func(t *testing.T) {
 		cfg := IngressConfig{
-			Name:              "my-agent-ingress",
-			Namespace:         "prod-ns",
-			AgentName:         "my-agent",
-			BuildID:           "1.0",
-			Component:         "agent",
-			ServiceName:       "my-agent-agent",
-			ServicePort:       8080,
-			Host:              "my-agent-abc123.agents.example.com",
-			ACMCertificateARN: "arn:aws:acm:us-east-1:123456:certificate/abc",
-			ALBGroupName:      "shared-alb",
+			Name:        "my-agent-ingress",
+			Namespace:   "prod-ns",
+			AgentName:   "my-agent",
+			BuildID:     "1.0",
+			Component:   "agent",
+			ServiceName: "my-agent-agent",
+			ServicePort: 8080,
+			Host:        "my-agent-abc123.agents.example.com",
 		}
 
 		ing := BuildIngress(cfg)
@@ -198,27 +196,22 @@ func TestBuildIngress(t *testing.T) {
 			t.Errorf("agent label: expected %s, got %s", cfg.AgentName, ing.Labels["astro.dev/agent"])
 		}
 
-		// ALB annotations
-		annotations := ing.Annotations
-		if annotations["alb.ingress.kubernetes.io/scheme"] != "internet-facing" {
-			t.Error("expected internet-facing scheme annotation")
-		}
-		if annotations["alb.ingress.kubernetes.io/target-type"] != "ip" {
-			t.Error("expected ip target-type annotation")
-		}
-		if annotations["alb.ingress.kubernetes.io/certificate-arn"] != cfg.ACMCertificateARN {
-			t.Errorf("expected certificate ARN %s", cfg.ACMCertificateARN)
-		}
-		if annotations["alb.ingress.kubernetes.io/group.name"] != cfg.ALBGroupName {
-			t.Errorf("expected group name %s", cfg.ALBGroupName)
-		}
-		if annotations["external-dns.alpha.kubernetes.io/hostname"] != cfg.Host {
-			t.Errorf("expected external-dns hostname %s", cfg.Host)
+		// Under the tenant-router model the front-door ALB owns TLS, OIDC,
+		// and routing. BuildIngress no longer emits the legacy
+		// alb.ingress.kubernetes.io/* or external-dns.alpha.kubernetes.io/*
+		// annotations even when ACMCertificateARN / ALBGroupName are set.
+		for k := range ing.Annotations {
+			if strings.HasPrefix(k, "alb.ingress.kubernetes.io/") ||
+				strings.HasPrefix(k, "external-dns.alpha.kubernetes.io/") {
+				t.Errorf("unexpected legacy annotation %q", k)
+			}
 		}
 
-		// IngressClassName
-		if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != "alb" {
-			t.Error("expected IngressClassName alb")
+		// IngressClassName — tenant-router (Contour picks it up; AWS LB
+		// Controller ignores). Kyverno mutates `alb` to this in-cluster as
+		// a fallback, but we should emit the right class directly.
+		if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != "tenant-router" {
+			t.Error("expected IngressClassName tenant-router")
 		}
 
 		// Rules
@@ -262,109 +255,11 @@ func TestBuildIngress(t *testing.T) {
 
 		ing := BuildIngress(cfg)
 
-		if _, ok := ing.Annotations["alb.ingress.kubernetes.io/certificate-arn"]; ok {
-			t.Error("should not have certificate-arn annotation when not provided")
-		}
-		if _, ok := ing.Annotations["alb.ingress.kubernetes.io/group.name"]; ok {
-			t.Error("should not have group.name annotation when not provided")
-		}
-	})
-}
-
-func TestBuildIngress_OIDCAuth(t *testing.T) {
-	t.Run("OIDC annotations added when OIDCAuth is set", func(t *testing.T) {
-		cfg := IngressConfig{
-			Name:        "my-agent-ingress-messaging",
-			Namespace:   "default",
-			AgentName:   "my-agent",
-			BuildID:     "1.0",
-			Component:   "messaging",
-			ServiceName: "my-agent-messaging",
-			ServicePort: 8080,
-			Host:        "my-agent-abc123.agents.example.com",
-			OIDCAuth: &OIDCAuthConfig{
-				Issuer:                "https://auth.example.com",
-				AuthorizationEndpoint: "https://auth.example.com/oauth2/authorize",
-				TokenEndpoint:         "https://auth.example.com/oauth2/token",
-				UserInfoEndpoint:      "https://auth.example.com/oauth2/userinfo",
-				ClientID:              "client-id",
-				ClientSecret:          "client-secret",
-			},
-		}
-
-		ing := BuildIngress(cfg)
-		annotations := ing.Annotations
-
-		if annotations["alb.ingress.kubernetes.io/auth-type"] != "oidc" {
-			t.Errorf("expected auth-type oidc, got %q", annotations["alb.ingress.kubernetes.io/auth-type"])
-		}
-		if annotations["alb.ingress.kubernetes.io/auth-on-unauthenticated-request"] != "authenticate" {
-			t.Error("expected auth-on-unauthenticated-request: authenticate")
-		}
-		if annotations["alb.ingress.kubernetes.io/auth-scope"] != "openid email" {
-			t.Errorf("expected default scope openid email, got %q", annotations["alb.ingress.kubernetes.io/auth-scope"])
-		}
-		if annotations["alb.ingress.kubernetes.io/auth-session-timeout"] != "3600" {
-			t.Errorf("expected default timeout 3600, got %q", annotations["alb.ingress.kubernetes.io/auth-session-timeout"])
-		}
-		idpOIDC := annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]
-		if !strings.Contains(idpOIDC, "https://auth.example.com") {
-			t.Errorf("expected issuer in auth-idp-oidc, got %q", idpOIDC)
-		}
-		if !strings.Contains(idpOIDC, messagingOIDCSecretName) {
-			t.Errorf("expected secret name %q in auth-idp-oidc, got %q", messagingOIDCSecretName, idpOIDC)
-		}
-	})
-
-	t.Run("no OIDC annotations when OIDCAuth is nil", func(t *testing.T) {
-		cfg := IngressConfig{
-			Name:        "my-agent-ingress-messaging",
-			Namespace:   "default",
-			AgentName:   "my-agent",
-			BuildID:     "1.0",
-			Component:   "messaging",
-			ServiceName: "my-agent-messaging",
-			ServicePort: 8080,
-			Host:        "my-agent-abc123.agents.example.com",
-		}
-
-		ing := BuildIngress(cfg)
-		annotations := ing.Annotations
-
-		if _, ok := annotations["alb.ingress.kubernetes.io/auth-type"]; ok {
-			t.Error("expected no auth-type annotation when OIDCAuth is nil")
-		}
-		if _, ok := annotations["alb.ingress.kubernetes.io/auth-idp-oidc"]; ok {
-			t.Error("expected no auth-idp-oidc annotation when OIDCAuth is nil")
-		}
-	})
-
-	t.Run("custom scope and timeout respected", func(t *testing.T) {
-		cfg := IngressConfig{
-			Name:        "my-agent-ingress-messaging",
-			Namespace:   "default",
-			AgentName:   "my-agent",
-			BuildID:     "1.0",
-			Component:   "messaging",
-			ServiceName: "my-agent-messaging",
-			ServicePort: 8080,
-			Host:        "my-agent-abc123.agents.example.com",
-			OIDCAuth: &OIDCAuthConfig{
-				Issuer:                "https://auth.example.com",
-				AuthorizationEndpoint: "https://auth.example.com/oauth2/authorize",
-				TokenEndpoint:         "https://auth.example.com/oauth2/token",
-				UserInfoEndpoint:      "https://auth.example.com/oauth2/userinfo",
-				Scope:                 "openid email profile",
-				SessionTimeoutSeconds: 7200,
-			},
-		}
-
-		ing := BuildIngress(cfg)
-		if ing.Annotations["alb.ingress.kubernetes.io/auth-scope"] != "openid email profile" {
-			t.Errorf("expected custom scope, got %q", ing.Annotations["alb.ingress.kubernetes.io/auth-scope"])
-		}
-		if ing.Annotations["alb.ingress.kubernetes.io/auth-session-timeout"] != "7200" {
-			t.Errorf("expected timeout 7200, got %q", ing.Annotations["alb.ingress.kubernetes.io/auth-session-timeout"])
+		// No legacy annotations regardless of input.
+		for k := range ing.Annotations {
+			if strings.HasPrefix(k, "alb.ingress.kubernetes.io/") {
+				t.Errorf("unexpected legacy annotation %q", k)
+			}
 		}
 	})
 }
