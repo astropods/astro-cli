@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { Download } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { useAgentDetailContext } from "../AgentDetail";
@@ -22,6 +22,7 @@ export default function AgentDataset() {
   const { deployment, deploymentId, account } = useAgentDetailContext();
   const { data, isLoading, isError } = useEvalDataset(deploymentId);
   const [searchParams, setSearchParams] = useSearchParams();
+  const gradeTargetRef = useRef<HTMLDivElement | null>(null);
   const tab = parseTab(searchParams.get("tab"));
 
   const setTab = useCallback(
@@ -70,7 +71,13 @@ export default function AgentDataset() {
               <div className="flex flex-none items-center gap-2.5 pb-2">
                 <div className="flex items-center gap-2 pr-1.5">
                   <span className="text-body-sm text-muted-foreground">Grade</span>
-                  <DatasetGrade grade={data.grade} />
+                  <div
+                    ref={gradeTargetRef}
+                    data-eval-grade-target
+                    className="inline-flex rounded-sm"
+                  >
+                    <DatasetGrade grade={data.grade} />
+                  </div>
                 </div>
                 <span aria-hidden className="h-5 w-px bg-border" />
                 <Button asChild variant="outline" size="sm">
@@ -104,6 +111,7 @@ export default function AgentDataset() {
               agentLabel={deployment.display_name || deployment.name}
               agentAvatarUrl={deployment.avatar_url}
               summary={data}
+              gradeTargetRef={gradeTargetRef}
             />
           )}
         </div>

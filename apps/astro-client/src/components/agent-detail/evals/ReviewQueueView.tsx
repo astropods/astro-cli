@@ -1,4 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Check,
@@ -37,6 +43,7 @@ import type {
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
 import type { RawMode } from "./DatasetItemRow";
+import { flyVerdictToGrade } from "./review-queue-motion";
 
 export interface ReviewQueueViewProps {
   deploymentId: string;
@@ -45,6 +52,7 @@ export interface ReviewQueueViewProps {
   agentLabel: string;
   agentAvatarUrl?: string;
   summary: EvalDatasetResponse;
+  gradeTargetRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function ReviewQueueView({
@@ -54,6 +62,7 @@ export function ReviewQueueView({
   agentLabel,
   agentAvatarUrl,
   summary,
+  gradeTargetRef,
 }: ReviewQueueViewProps) {
   const { data, isLoading, isError } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
@@ -80,9 +89,18 @@ export function ReviewQueueView({
     postJudgment.reset();
     setSelectedId(traceId);
   };
-  const handleJudgeTrace = (traceId: string, verdict: DatasetJudgmentVerdict) => {
+  const handleJudgeTrace = (
+    traceId: string,
+    verdict: DatasetJudgmentVerdict,
+    trigger: HTMLButtonElement | null,
+  ) => {
     const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
     const nextSelectedTraceId = nextTraceId ?? previousTraceId;
+    flyVerdictToGrade(
+      trigger?.getBoundingClientRect() ?? null,
+      gradeTargetRef?.current,
+      verdict,
+    );
 
     if (activeSelectedId === traceId) {
       setSelectedId((current) => current ?? traceId);
@@ -327,7 +345,11 @@ function ReviewQueueDetail({
   agentLabel: string;
   agentAvatarUrl: string;
   rawMode: RawMode;
-  onJudge: (traceId: string, verdict: DatasetJudgmentVerdict) => void;
+  onJudge: (
+    traceId: string,
+    verdict: DatasetJudgmentVerdict,
+    trigger: HTMLButtonElement | null,
+  ) => void;
   isJudging: boolean;
   showJudgmentError: boolean;
   queueSize: number;
@@ -406,7 +428,7 @@ function ReviewQueueDetail({
       <ReviewQueueVerdictFooter
         isPending={isJudging}
         showError={showJudgmentError}
-        onSelect={(verdict) => onJudge(item.trace_id, verdict)}
+        onSelect={(verdict, trigger) => onJudge(item.trace_id, verdict, trigger)}
       />
     </div>
   );
@@ -487,7 +509,10 @@ function ReviewQueueVerdictFooter({
 }: {
   isPending: boolean;
   showError: boolean;
-  onSelect: (verdict: DatasetJudgmentVerdict) => void;
+  onSelect: (
+    verdict: DatasetJudgmentVerdict,
+    trigger: HTMLButtonElement | null,
+  ) => void;
 }) {
   return (
     <div className="flex flex-none flex-wrap items-center justify-end gap-3 border-t border-border px-6 py-4">
@@ -502,7 +527,9 @@ function ReviewQueueVerdictFooter({
           variant="outline"
           size="sm"
           disabled={isPending}
-          onClick={() => onSelect("good")}
+          onClick={(event: MouseEvent<HTMLButtonElement>) =>
+            onSelect("good", event.currentTarget)
+          }
         >
           <Check className="size-4 text-success" />
           Good
@@ -512,7 +539,9 @@ function ReviewQueueVerdictFooter({
           variant="outline"
           size="sm"
           disabled={isPending}
-          onClick={() => onSelect("bad")}
+          onClick={(event: MouseEvent<HTMLButtonElement>) =>
+            onSelect("bad", event.currentTarget)
+          }
         >
           <X className="size-4 text-destructive" />
           Bad
@@ -522,7 +551,9 @@ function ReviewQueueVerdictFooter({
           variant="outline"
           size="sm"
           disabled={isPending}
-          onClick={() => onSelect("unknown")}
+          onClick={(event: MouseEvent<HTMLButtonElement>) =>
+            onSelect("unknown", event.currentTarget)
+          }
         >
           <Minus className="size-4 text-muted-foreground" />
           Neutral
