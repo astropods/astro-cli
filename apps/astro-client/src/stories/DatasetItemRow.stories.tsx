@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   DatasetItemRow,
-  type RawMode,
   type ResolvedReviewer,
 } from "@/components/agent-detail/evals/DatasetItemRow";
 import {
@@ -39,11 +38,9 @@ const item = (overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem => ({
 
 function DatasetRowStory({
   defaultOpen = false,
-  rawMode = "pretty",
   row = item(),
 }: {
   defaultOpen?: boolean;
-  rawMode?: RawMode;
   row?: EvalDatasetItem;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -72,7 +69,6 @@ function DatasetRowStory({
             isOpen={open}
             onToggle={() => setOpen((current) => !current)}
             reviewer={reviewer}
-            rawMode={rawMode}
           />
         </TableBody>
       </Table>
@@ -92,12 +88,8 @@ export const Collapsed: Story = {
   render: () => <DatasetRowStory />,
 };
 
-export const ExpandedPretty: Story = {
+export const Expanded: Story = {
   render: () => <DatasetRowStory defaultOpen />,
-};
-
-export const ExpandedRaw: Story = {
-  render: () => <DatasetRowStory defaultOpen rawMode="raw" />,
 };
 
 export const BadExample: Story = {

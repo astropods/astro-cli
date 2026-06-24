@@ -26,7 +26,6 @@ const reviewer: ResolvedReviewer = { handle: "alice", name: "Alice" };
 interface RenderOpts {
   item?: EvalDatasetItem;
   isOpen?: boolean;
-  rawMode?: "pretty" | "raw";
   reviewer?: ResolvedReviewer | null;
 }
 
@@ -38,7 +37,6 @@ function renderRow(opts: RenderOpts = {}) {
       isOpen={opts.isOpen ?? false}
       onToggle={onToggle}
       reviewer={opts.reviewer === undefined ? reviewer : opts.reviewer}
-      rawMode={opts.rawMode ?? "pretty"}
     />,
   );
   return { onToggle };
@@ -96,10 +94,9 @@ describe("DatasetItemRow expanded", () => {
 });
 
 describe("DatasetItemRow content rendering", () => {
-  it("Pretty mode renders JSON via syntax-highlighted code block", () => {
+  it("renders JSON via the pretty syntax-highlighted code block", () => {
     renderRow({
       isOpen: true,
-      rawMode: "pretty",
       item: makeItem({
         input: { question: "hi" },
         expected_output: { answer: "hello" },
@@ -109,21 +106,5 @@ describe("DatasetItemRow content rendering", () => {
     const container = screen.getByText("Input").closest("div")?.parentElement;
     expect(container).not.toBeNull();
     expect(within(container!).getAllByText(/question/i).length).toBeGreaterThan(0);
-  });
-
-  it("Raw mode renders JSON content in a plain <pre> block", () => {
-    renderRow({
-      isOpen: true,
-      rawMode: "raw",
-      item: makeItem({
-        input: { question: "hi" },
-        expected_output: { answer: "hello" },
-      }),
-    });
-    const preEls = document.querySelectorAll("pre");
-    expect(preEls.length).toBeGreaterThan(0);
-    const allText = Array.from(preEls).map((p) => p.textContent ?? "").join(" ");
-    expect(allText).toContain('"question"');
-    expect(allText).toContain('"answer"');
   });
 });

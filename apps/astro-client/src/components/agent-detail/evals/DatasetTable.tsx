@@ -21,7 +21,6 @@ import type { FilterKey } from "./DatasetFilterChips";
 import {
   DATASET_ITEM_COLUMN_COUNT,
   DatasetItemRow,
-  type RawMode,
   type ResolvedReviewer,
 } from "./DatasetItemRow";
 
@@ -30,7 +29,6 @@ export interface DatasetTableProps {
   account: string;
   summary: EvalDatasetResponse;
   selected: Set<FilterKey>;
-  rawMode: RawMode;
 }
 
 const PAGE_LIMIT = 50;
@@ -40,7 +38,6 @@ export function DatasetTable({
   account,
   summary,
   selected,
-  rawMode,
 }: DatasetTableProps) {
   const activeVerdict: EvalDatasetItemsVerdict | undefined =
     selected.size === 1 ? (selected.has("good") ? "good" : "bad") : undefined;
@@ -168,7 +165,6 @@ export function DatasetTable({
             isOpen={expandedId === item.id}
             onToggle={toggleExpanded}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
-            rawMode={rawMode}
           />
         ))}
       </TableBody>

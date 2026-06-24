@@ -20,7 +20,6 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { PillToggle } from "@/components/activity/PillToggle";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ContentSection } from "@/components/agent-detail/traces/detail/ContentSection";
@@ -49,7 +48,6 @@ import type {
   TraceEntry,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
-import type { RawMode } from "./DatasetItemRow";
 import { flyVerdictToGrade } from "./review-queue-motion";
 
 const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
@@ -114,7 +112,6 @@ export function ReviewQueueView({
   const { data, isLoading, isError } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [rawMode, setRawMode] = useState<RawMode>("pretty");
   const items = data?.items ?? EMPTY_REVIEW_QUEUE_ITEMS;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
@@ -157,18 +154,7 @@ export function ReviewQueueView({
 
   return (
     <EvalTabCard className="h-[calc(100dvh-20rem)] max-h-[720px] min-h-96">
-      <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name}>
-        <PillToggle<RawMode>
-          layoutId="review-queue-raw-mode"
-          value={rawMode}
-          onChange={setRawMode}
-          size="md"
-          options={[
-            { key: "pretty", label: "Pretty" },
-            { key: "raw", label: "Raw" },
-          ]}
-        />
-      </EvalTabCardHeader>
+      <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name} />
       <EvalTabCardBody>
         <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
           <ReviewQueueList
@@ -201,7 +187,6 @@ export function ReviewQueueView({
               agentName={agentName}
               agentLabel={agentLabel}
               agentAvatarUrl={resolvedAgentAvatarUrl}
-              rawMode={rawMode}
               onJudge={handleJudgeTrace}
               isJudging={postJudgment.isPending}
               showJudgmentError={postJudgment.isError}
@@ -441,7 +426,6 @@ function ReviewQueueDetail({
   agentName,
   agentLabel,
   agentAvatarUrl,
-  rawMode,
   onJudge,
   isJudging,
   showJudgmentError,
@@ -455,7 +439,6 @@ function ReviewQueueDetail({
   agentName: string;
   agentLabel: string;
   agentAvatarUrl: string;
-  rawMode: RawMode;
   onJudge: (
     traceId: string,
     verdict: DatasetJudgmentVerdict,
@@ -519,12 +502,12 @@ function ReviewQueueDetail({
             label="User"
             content={item.input}
             icon={<UserSectionIcon />}
-            mode={rawMode}
+            mode="pretty"
           />
           <ContentSection
             label={agentLabel}
             content={item.output}
-            mode={rawMode}
+            mode="pretty"
             icon={
               <BlueprintIdentity
                 account={account}

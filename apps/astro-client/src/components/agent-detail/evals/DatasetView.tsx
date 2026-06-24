@@ -1,10 +1,8 @@
 import { useCallback, useState } from "react";
-import { PillToggle } from "@/components/activity/PillToggle";
 import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 import { DatasetTable } from "./DatasetTable";
 import { DatasetFilterChips, type FilterKey } from "./DatasetFilterChips";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
-import type { RawMode } from "./DatasetItemRow";
 import type { EvalDatasetResponse } from "@/lib/api";
 
 export interface DatasetViewProps {
@@ -19,7 +17,6 @@ export function DatasetView({
   summary,
 }: DatasetViewProps) {
   const [selected, setSelected] = useState<Set<FilterKey>>(() => new Set());
-  const [rawMode, setRawMode] = useState<RawMode>("pretty");
 
   const toggleFilter = useCallback((key: FilterKey) => {
     setSelected((prev) => {
@@ -38,17 +35,6 @@ export function DatasetView({
           counts={{ good: summary.good_count, bad: summary.bad_count }}
           onToggle={toggleFilter}
         />
-        <span aria-hidden className="h-[22px] w-px bg-border" />
-        <PillToggle<RawMode>
-          layoutId="dataset-raw-mode"
-          value={rawMode}
-          onChange={setRawMode}
-          size="md"
-          options={[
-            { key: "pretty", label: "Pretty" },
-            { key: "raw", label: "Raw" },
-          ]}
-        />
       </EvalTabCardHeader>
       <EvalTabCardBody>
         <DatasetGradeSidebar summary={summary} />
@@ -57,7 +43,6 @@ export function DatasetView({
           account={account}
           summary={summary}
           selected={selected}
-          rawMode={rawMode}
         />
       </EvalTabCardBody>
     </EvalTabCard>

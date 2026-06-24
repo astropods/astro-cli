@@ -274,7 +274,7 @@ describe("review queue view", () => {
     expect(screen.getByText("First response")).toBeInTheDocument();
   });
 
-  it("toggles the queue detail output between pretty and raw", async () => {
+  it("renders queue detail in pretty mode without a raw toggle", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -288,25 +288,16 @@ describe("review queue view", () => {
       ]),
     );
 
-    const user = userEvent.setup();
     renderDataset({ tab: null });
 
     await screen.findByText("No signal");
+    expect(screen.queryByRole("button", { name: /^pretty$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^raw$/i })).not.toBeInTheDocument();
     expect(
       Array.from(document.querySelectorAll("pre")).some((pre) =>
         pre.textContent?.includes("agent **answer**"),
       ),
     ).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: /^raw$/i }));
-
-    await waitFor(() => {
-      expect(
-        Array.from(document.querySelectorAll("pre")).some((pre) =>
-          pre.textContent?.includes("agent **answer**"),
-        ),
-      ).toBe(true);
-    });
     expect(screen.getByText("No signal")).toBeInTheDocument();
   });
 

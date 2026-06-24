@@ -15,7 +15,6 @@ import { formatTimeAgo } from "@/lib/time-format";
 import type { EvalDatasetItem } from "@/lib/api";
 
 export type Verdict = "good" | "bad" | null;
-export type RawMode = "pretty" | "raw";
 
 export const DATASET_ITEM_COLUMN_COUNT = 5;
 
@@ -78,19 +77,17 @@ function ExpandedPreview({
   input,
   output,
   verdict,
-  rawMode,
 }: {
   input: unknown;
   output: unknown;
   verdict: Verdict;
-  rawMode: RawMode;
 }) {
   return (
     <div className="ml-8 mr-3 animate-in fade-in slide-in-from-top-1 border-t border-dashed border-border px-5 py-4 duration-150 ease-out">
       <div className="flex items-start gap-7">
         <div className="min-w-0 flex-1">
           <div className="mb-2 font-mono text-label uppercase text-faint-foreground">Input</div>
-          <ContentValue content={input} mode={rawMode} tone="foreground" />
+          <ContentValue content={input} mode="pretty" tone="foreground" />
         </div>
         <div className="w-px flex-none self-stretch bg-border" />
         <div className="min-w-0 flex-1">
@@ -128,7 +125,7 @@ function ExpandedPreview({
               </span>
             )}
           </div>
-          <ContentValue content={output} mode={rawMode} tone="muted" />
+          <ContentValue content={output} mode="pretty" tone="muted" />
         </div>
       </div>
     </div>
@@ -140,7 +137,6 @@ export interface DatasetItemRowProps {
   isOpen: boolean;
   onToggle: (id: string) => void;
   reviewer: ResolvedReviewer | null;
-  rawMode: RawMode;
 }
 
 export function DatasetItemRow({
@@ -148,7 +144,6 @@ export function DatasetItemRow({
   isOpen,
   onToggle,
   reviewer,
-  rawMode,
 }: DatasetItemRowProps) {
   const verdict = itemVerdict(item);
   const inputSummary = summarize(item.input);
@@ -224,7 +219,6 @@ export function DatasetItemRow({
               input={item.input}
               output={item.expected_output}
               verdict={verdict}
-              rawMode={rawMode}
             />
           </TableCell>
         </TableRow>
