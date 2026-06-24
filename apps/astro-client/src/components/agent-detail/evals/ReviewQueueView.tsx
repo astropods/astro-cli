@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowRight,
   Check,
   ChevronDown,
   ChevronUp,
@@ -45,6 +46,7 @@ import type {
   EvalDatasetResponse,
   ReviewQueueItem,
   ReviewQueueSentiment,
+  TraceEntry,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
 import type { RawMode } from "./DatasetItemRow";
@@ -96,6 +98,7 @@ export interface ReviewQueueViewProps {
   agentAvatarUrl?: string;
   summary: EvalDatasetResponse;
   gradeTargetRef?: RefObject<HTMLDivElement | null>;
+  onOpenTrace?: (trace: TraceEntry) => void;
 }
 
 export function ReviewQueueView({
@@ -106,6 +109,7 @@ export function ReviewQueueView({
   agentAvatarUrl,
   summary,
   gradeTargetRef,
+  onOpenTrace,
 }: ReviewQueueViewProps) {
   const { data, isLoading, isError } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
@@ -202,6 +206,11 @@ export function ReviewQueueView({
               isJudging={postJudgment.isPending}
               showJudgmentError={postJudgment.isError}
               queueSize={items.length}
+              onOpenTrace={
+                onOpenTrace
+                  ? () => onOpenTrace(reviewQueueItemToTraceEntry(selectedItem))
+                  : undefined
+              }
               onPrevious={previousTraceId ? () => handleSelectTrace(previousTraceId) : undefined}
               onNext={nextTraceId ? () => handleSelectTrace(nextTraceId) : undefined}
             />
@@ -212,6 +221,34 @@ export function ReviewQueueView({
       </EvalTabCardBody>
     </EvalTabCard>
   );
+}
+
+function reviewQueueItemToTraceEntry(item: ReviewQueueItem): TraceEntry {
+  return {
+    trace_id: item.trace_id,
+    name: "Review queue trace",
+    status: "success",
+    latency_ms: 0,
+    total_cost: 0,
+    input: traceEntryContent(item.input),
+    output: traceEntryContent(item.output),
+    timestamp: item.timestamp,
+  };
+}
+
+function traceEntryContent(content: unknown) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (content == null) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(content, null, 2);
+  } catch {
+    return String(content);
+  }
 }
 
 function getAdjacentTraceIds(
@@ -409,6 +446,7 @@ function ReviewQueueDetail({
   isJudging,
   showJudgmentError,
   queueSize,
+  onOpenTrace,
   onPrevious,
   onNext,
 }: {
@@ -426,6 +464,7 @@ function ReviewQueueDetail({
   isJudging: boolean;
   showJudgmentError: boolean;
   queueSize: number;
+  onOpenTrace?: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
 }) {
@@ -437,12 +476,11 @@ function ReviewQueueDetail({
       <div className="flex flex-none items-center justify-between gap-4 border-b border-border px-6 py-4">
         <div className="flex min-w-0 items-center">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <span
-              className="font-mono text-mono-sm text-muted-foreground"
-              title={item.trace_id}
-            >
-              {traceLabel}
-            </span>
+            <TraceDetailHoverLink
+              traceId={item.trace_id}
+              traceLabel={traceLabel}
+              onOpenTrace={onOpenTrace}
+            />
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -466,11 +504,13 @@ function ReviewQueueDetail({
             </TooltipProvider>
           </div>
         </div>
-        <ReviewQueueDetailNavigation
-          total={queueSize}
-          onPrevious={onPrevious}
-          onNext={onNext}
-        />
+        <div className="flex flex-none items-center gap-2">
+          <ReviewQueueDetailNavigation
+            total={queueSize}
+            onPrevious={onPrevious}
+            onNext={onNext}
+          />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -504,6 +544,48 @@ function ReviewQueueDetail({
         onSelect={(verdict, trigger) => onJudge(item.trace_id, verdict, trigger)}
       />
     </div>
+  );
+}
+
+function TraceDetailHoverLink({
+  traceId,
+  traceLabel,
+  onOpenTrace,
+}: {
+  traceId: string;
+  traceLabel: string;
+  onOpenTrace?: () => void;
+}) {
+  if (!onOpenTrace) {
+    return (
+      <span
+        className="font-mono text-mono-sm text-muted-foreground"
+        title={traceId}
+      >
+        {traceLabel}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`View ${traceLabel}`}
+      title={traceId}
+      onClick={onOpenTrace}
+      className={cn(
+        "group/trace -ml-1.5 inline-flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-foreground transition-colors",
+        "hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+      )}
+    >
+      <span className="font-sans text-body-sm font-medium">
+        View {traceLabel}
+      </span>
+      <ArrowRight
+        aria-hidden
+        className="size-3.5 transition-transform group-hover/trace:translate-x-0.5 group-focus-visible/trace:translate-x-0.5"
+      />
+    </button>
   );
 }
 

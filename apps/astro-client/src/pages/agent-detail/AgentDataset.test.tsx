@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { screen, cleanup, waitFor } from "@testing-library/react";
+import { screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Outlet } from "react-router";
@@ -201,7 +201,9 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     expect(screen.getAllByText("First prompt").length).toBeGreaterThan(0);
-    expect(screen.getByText("trace_111111")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /view trace_111111/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Likely positive")).toBeInTheDocument();
   });
 
@@ -306,6 +308,43 @@ describe("review queue view", () => {
       ).toBe(true);
     });
     expect(screen.getByText("No signal")).toBeInTheDocument();
+  });
+
+  it("opens the full trace panel from the review queue detail header", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Panel prompt",
+          output: "Panel response",
+          sentiment: "",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("Panel prompt")).toBeInTheDocument();
+    expect(within(panel).getByText("Panel response")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /view trace_111111/i }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: /close trace/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: /view trace_111111/i }),
+    ).toBeInTheDocument();
   });
 
   it.each([
