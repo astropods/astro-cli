@@ -207,6 +207,26 @@ type DeploymentInterfaces struct {
 	Auth        *DeploymentInterfacesAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 }
 
+// WebPublic reports whether the messaging web (chat) surface opts into the
+// open (no-OIDC) cohort. Nil-safe across the interfaces/auth/web chain.
+func (i *DeploymentInterfaces) WebPublic() bool {
+	return i != nil && i.Auth != nil && i.Auth.Web != nil && i.Auth.Web.Public
+}
+
+// CustomPublic reports whether the agent's custom interface opts into the open
+// (no-OIDC) cohort. Nil-safe across the interfaces/auth/custom chain.
+func (i *DeploymentInterfaces) CustomPublic() bool {
+	return i != nil && i.Auth != nil && i.Auth.Custom != nil && i.Auth.Custom.Public
+}
+
+// CustomGrants returns the custom-interface grants, or nil. Nil-safe.
+func (i *DeploymentInterfaces) CustomGrants() []DeploymentAuthorizationGrant {
+	if i == nil || i.Auth == nil || i.Auth.Custom == nil {
+		return nil
+	}
+	return i.Auth.Custom.Grants
+}
+
 // DeploymentInterfacesAuth controls authentication and authorization for the
 // messaging interfaces. Grants live under the adapter they apply to.
 // A request is allowed iff a matching grant exists; there is no default-allow.
@@ -216,6 +236,22 @@ type DeploymentInterfacesAuth struct {
 
 	// Slack controls access for the slack adapter. Nil means no slack grants.
 	Slack *DeploymentSlackAuth `json:"slack,omitempty" yaml:"slack,omitempty"`
+
+	// Custom controls access for the agent's own custom web interface (the UI
+	// it serves itself). Distinct from Web, which is the platform's messaging
+	// web chat. Nil means no custom-interface config.
+	Custom *DeploymentCustomAuth `json:"custom,omitempty" yaml:"custom,omitempty"`
+}
+
+// DeploymentCustomAuth configures the agent's custom web interface.
+type DeploymentCustomAuth struct {
+	// Public routes the custom interface to the open (no-OIDC) ingress cohort
+	// (agents.public.<domain>), so the front-door ALB does not require sign-in.
+	Public bool `json:"public,omitempty" yaml:"public,omitempty"`
+	// Grants enumerate who may use the custom interface. Recorded under the
+	// "custom" adapter but NOT enforced by the platform today — the agent's own
+	// server is responsible for authorization. Stored for visibility/future use.
+	Grants []DeploymentAuthorizationGrant `json:"grants,omitempty" yaml:"grants,omitempty"`
 }
 
 // DeploymentWebAuth configures the web adapter: ingress authentication
@@ -224,6 +260,12 @@ type DeploymentWebAuth struct {
 	// Type of authentication: "oidc" uses server-level OIDC config;
 	// "oidc-custom" is reserved for future per-deployment credentials.
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+
+	// Public routes the messaging web (chat) ingress to the open (no-OIDC)
+	// cohort (agents.public.<domain>), bypassing the front-door ALB sign-in.
+	// The OIDC identity header is then absent, so authorization must rely on
+	// an "anyone" grant — validated at deploy.
+	Public bool `json:"public,omitempty" yaml:"public,omitempty"`
 
 	// Grants enumerate who can talk to the deployment via web. May include
 	// account, user, and anyone subjects.

@@ -139,7 +139,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_APP_TOKEN_ONLY}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     variables: {
       ...baseVariables,
       SLACK_APP_TOKEN: {
@@ -165,7 +165,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_SLACK_FULL}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"], auth: { web: { type: "oidc" } } },
+    interfaces: { image: "messaging:latest", adapters: ["web"], auth: { web: { type: "oidc" } } },
     variables: {
       ...baseVariables,
       SLACK_BOT_TOKEN: {
@@ -212,7 +212,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_SLACK_OVERLAP}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     variables: {
       ...baseVariables,
       SLACK_BOT_TOKEN: {
@@ -245,7 +245,7 @@ const templatesByAgent = {
       image: `registry.example.com/${CROSS_ACCOUNT_PUBLISHER}/${AGENT_CROSS_ACCOUNT}:build-cross-1`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     variables: {
       ...baseVariables,
     },
@@ -264,7 +264,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     ingestion: {
       scheduled: {
         image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
@@ -293,7 +293,7 @@ const templatesByAgent = {
       image: `registry.example.com/testuser/${AGENT_XACCT_COLLISION}:${XACCT_COLLISION_PERSONAL_NEWER}`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     variables: { ...baseVariables },
     editable: ["variables.*.value", "interfaces.adapters"],
   },
@@ -313,7 +313,7 @@ const prefilledTemplatesByDeployment = {
       image: `registry.example.com/testuser/${AGENT_SLACK_FULL}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web", "slack"], auth: { web: { type: "oidc" } } },
+    interfaces: { image: "messaging:latest", adapters: ["web", "slack"], auth: { web: { type: "oidc" } } },
     variables: {
       OPENAI_API_KEY: {
         ...baseVariables.OPENAI_API_KEY,
@@ -365,7 +365,7 @@ const prefilledTemplatesByDeployment = {
       image: `registry.example.com/testuser/${AGENT_SLACK_OVERLAP}:build-123`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web", "slack"] },
+    interfaces: { image: "messaging:latest", adapters: ["web", "slack"] },
     variables: {
       OPENAI_API_KEY: {
         ...baseVariables.OPENAI_API_KEY,
@@ -403,7 +403,7 @@ const prefilledTemplatesByDeployment = {
       image: `registry.example.com/${CROSS_ACCOUNT_PUBLISHER}/${AGENT_CROSS_ACCOUNT}:build-cross-1`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     variables: {
       OPENAI_API_KEY: {
         ...baseVariables.OPENAI_API_KEY,
@@ -425,7 +425,7 @@ const prefilledTemplatesByDeployment = {
       image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
       endpoints: { http: { port: 8080 } },
     },
-    interfaces: { adapters: ["web"] },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
     ingestion: {
       scheduled: {
         image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
@@ -773,7 +773,7 @@ Bun.serve({
             source: { account: ACCOUNT, name: agentName, build: "build-new-1", registry: "registry.example.com" },
             target: { runtime: "kubernetes" },
             agent: { image: `registry.example.com/${ACCOUNT}/${agentName}:build-new-1`, endpoints: { http: { port: 8080 } } },
-            interfaces: { adapters: ["web"] },
+            interfaces: { image: "messaging:latest", adapters: ["web"] },
             variables: { ...baseVariables },
             editable: ["variables.*.value", "interfaces.adapters"],
           };
@@ -929,7 +929,7 @@ Bun.serve({
           source: { account: ACCOUNT, name: agentName, build: "build-new-1", registry: "registry.example.com" },
           target: { runtime: "kubernetes" },
           agent: { image: `registry.example.com/${ACCOUNT}/${agentName}:build-new-1`, endpoints: { http: { port: 8080 } } },
-          interfaces: { adapters: ["web"] },
+          interfaces: { image: "messaging:latest", adapters: ["web"] },
           variables: { ...baseVariables },
           editable: ["variables.*.value", "interfaces.adapters"],
         });

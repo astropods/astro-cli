@@ -491,9 +491,22 @@ export interface AuthGrant {
 export interface WebAuthConfig {
   type?: string;
   grants?: AuthGrant[];
+  /**
+   * Public routes the web chat ingress to the open (no-OIDC) cohort, so it's
+   * reachable without sign-in. Requires an "anyone" grant (the server rejects
+   * org/user grants here, since there's no OIDC identity to authorize against).
+   */
+  public?: boolean;
 }
 
 export interface SlackAuthConfig {
+  grants?: AuthGrant[];
+}
+
+export interface CustomAuthConfig {
+  /** Route the agent's custom interface to the open (no-OIDC) cohort — reachable without sign-in. */
+  public?: boolean;
+  /** Who may use the custom interface. Recorded, but not enforced by the platform today. */
   grants?: AuthGrant[];
 }
 
@@ -502,6 +515,7 @@ export interface TemplateInterfaces {
   auth?: {
     web?: WebAuthConfig;
     slack?: SlackAuthConfig;
+    custom?: CustomAuthConfig;
   };
 }
 

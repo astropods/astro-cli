@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
 import { InterfacesPicker } from "./InterfacesPicker";
+import { CustomInterfacePicker } from "./CustomInterfacePicker";
 import { VariableFields } from "./VariableFields";
 import { FormSection } from "./FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
@@ -169,6 +170,8 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
             webGrants={form.webGrants}
             onWebGrantsChange={form.setWebGrants}
+            webPublic={form.webPublic}
+            onWebPublicChange={form.setWebPublic}
             slackGrants={form.slackGrants}
             onSlackGrantsChange={form.setSlackGrants}
             targetAccount={form.targetAccount}
@@ -177,6 +180,15 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
             bulkSetVariables={form.bulkSetVariables}
+          />
+        </FormSection>
+      )}
+
+      {form.customSupported && (
+        <FormSection title="Custom interface" description="Control access to the web UI your agent serves.">
+          <CustomInterfacePicker
+            isPublic={form.customPublic}
+            onPublicChange={form.setCustomPublic}
           />
         </FormSection>
       )}

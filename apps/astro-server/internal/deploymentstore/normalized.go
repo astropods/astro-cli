@@ -129,6 +129,7 @@ type Variable struct {
 type NormalizedSpecConfig struct {
 	Namespace              string            // K8s namespace (for ingress host generation)
 	IngressDomain          string            // e.g. "agents.astropods.ai"
+	PublicIngressDomain    string            // open (no-OIDC) cohort, e.g. "agents.public.astropods.ai"; empty = disabled
 	IngestionIngressDomain string            // e.g. "ingestion.astropods.ai"
 	VarRefs                map[string]string // variable name → original account variable ref (before resolution)
 	ManagedSecrets         map[string]string // platform-injected secrets (e.g. ANTHROPIC_API_KEY) that bypass user variables
@@ -142,6 +143,20 @@ type NormalizedSpecConfig struct {
 	// ingress row pointing at the host-published NodePort so the Launch
 	// button has a working URL without a real ALB/ingress.
 	LocalMode bool
+}
+
+// webDomain returns the parent ingress domain for a web surface: the open
+// (no-OIDC) cohort when public, else the authenticated domain. Mirrors
+// Applier.webIngressDomain so persisted hostnames match the live ingress.
+// Nil-safe.
+func (c *NormalizedSpecConfig) webDomain(public bool) string {
+	if c == nil {
+		return ""
+	}
+	if public {
+		return c.PublicIngressDomain
+	}
+	return c.IngressDomain
 }
 
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
@@ -385,11 +400,7 @@ func SaveNormalizedSpec(
 	}
 	// Agent ingress — matches spec_applier logic: ExposedEndpoint + ingressDomain fallback
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
-		ingressDomain := ""
-		if nsCfg != nil {
-			ingressDomain = nsCfg.IngressDomain
-		}
-		if host := resolveIngressHost(ep, ingressDomain); host != "" {
+		if host := resolveIngressHost(ep, nsCfg.webDomain(ds.Interfaces.CustomPublic())); host != "" {
 			// Find the service ID for the exposed endpoint's port
 			var svcID int
 			err := tx.QueryRow(`
@@ -644,8 +655,10 @@ func SaveNormalizedSpec(
 				// once kube-proxy assigns a port.
 				host = "localhost"
 				tlsEnabled = false
-			} else if nsCfg != nil && nsCfg.IngressDomain != "" && nsCfg.Namespace != "" {
-				host = k8s.GenerateMessagingIngressHost(agentName, nsCfg.Namespace, nsCfg.IngressDomain)
+			} else if nsCfg != nil && nsCfg.Namespace != "" {
+				if domain := nsCfg.webDomain(ds.Interfaces.WebPublic()); domain != "" {
+					host = k8s.GenerateMessagingIngressHost(agentName, nsCfg.Namespace, domain)
+				}
 			}
 			if host != "" {
 				if err := insertIngress(webSvcID, &Ingress{
@@ -804,8 +817,8 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		if ep.Expose != nil && ep.Expose.Domain != "" {
 			externalAgentHost = ep.Expose.Domain
-		} else if nsCfg != nil && nsCfg.IngressDomain != "" {
-			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, nsCfg.IngressDomain)
+		} else if domain := nsCfg.webDomain(ds.Interfaces.CustomPublic()); domain != "" {
+			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, domain)
 		}
 	}
 	rctx := deployment.ResolveContext{

@@ -37,6 +37,10 @@ const (
 
 	AdapterWeb   = "web"
 	AdapterSlack = "slack"
+	// AdapterCustom records grants for the agent's own custom interface (the
+	// web UI it serves itself). Stored for visibility/future use — not enforced
+	// by the platform today (the agent's server does its own authorization).
+	AdapterCustom = "custom"
 )
 
 // Store is the data-access layer for authorization grants.

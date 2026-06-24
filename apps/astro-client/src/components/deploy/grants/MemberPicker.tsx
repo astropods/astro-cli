@@ -11,7 +11,7 @@ export interface MemberPickerProps {
   account: string;
   /** Adapter this grant is being added for. When "slack", members with no
    *  linked Slack workspaces get a warning badge. */
-  adapter: "web" | "slack";
+  adapter: "web" | "slack" | "custom";
   /** Called with the selected member when the user clicks one. */
   onSelect: (member: AccountMember) => void;
   /** Called when the user dismisses the picker without selecting. */

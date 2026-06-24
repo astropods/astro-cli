@@ -9,11 +9,20 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
+// validateAuth wraps an interfaces.auth block in a minimal deployment spec so
+// these cases can exercise validateAuthorizationSpec, which now takes the full
+// spec (frontend grants live on the exposed endpoint, not under interfaces).
+func validateAuth(auth *spec.DeploymentInterfacesAuth) []string {
+	return validateAuthorizationSpec(&spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Auth: auth},
+	})
+}
+
 // validateAuthorizationSpec — test cases C1..C10.
 
 // C4: a grant with no subject set must be rejected.
 func TestValidateAuth_NoSubject(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{{}},
 		},
@@ -25,7 +34,7 @@ func TestValidateAuth_NoSubject(t *testing.T) {
 
 // C1: org + user_id together → reject.
 func TestValidateAuth_AccountAndUser(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Org: "acct-1", UserID: "alice"},
@@ -39,7 +48,7 @@ func TestValidateAuth_AccountAndUser(t *testing.T) {
 
 // C2: org + anyone together → reject.
 func TestValidateAuth_AccountAndAnyone(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Org: "acct-1", Anyone: true},
@@ -53,7 +62,7 @@ func TestValidateAuth_AccountAndAnyone(t *testing.T) {
 
 // C3: user_id + anyone → reject.
 func TestValidateAuth_UserAndAnyone(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{UserID: "alice", Anyone: true},
@@ -69,7 +78,7 @@ func TestValidateAuth_UserAndAnyone(t *testing.T) {
 // container forwards (team_id, slack_user_id), the resolver looks up the
 // linked WorkOS user, and the user grant matches via the same path as web.
 func TestValidateAuth_UserOnSlack(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Slack: &spec.DeploymentSlackAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{UserID: "alice"},
@@ -85,7 +94,7 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 // for slack since the bot is per-account; this is the seeded fresh-deploy
 // default for slack-enabled deployments).
 func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Slack: &spec.DeploymentSlackAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Anyone: true},
@@ -99,7 +108,7 @@ func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 
 // C8: duplicate grant within an adapter → reject.
 func TestValidateAuth_Duplicate(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Org: "acct-1"},
@@ -114,7 +123,7 @@ func TestValidateAuth_Duplicate(t *testing.T) {
 
 // All valid forms succeed.
 func TestValidateAuth_ValidMix(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{
 			Grants: []spec.DeploymentAuthorizationGrant{
 				{Org: "acct-1"},
@@ -135,7 +144,7 @@ func TestValidateAuth_ValidMix(t *testing.T) {
 
 // C11: nil block (auth omitted) → no errors.
 func TestValidateAuth_NilBlock(t *testing.T) {
-	errs := validateAuthorizationSpec(nil)
+	errs := validateAuth(nil)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
 	}
@@ -143,7 +152,7 @@ func TestValidateAuth_NilBlock(t *testing.T) {
 
 // C12: empty grants → no validation errors (semantics handled by apply path).
 func TestValidateAuth_EmptyGrants(t *testing.T) {
-	errs := validateAuthorizationSpec(&spec.DeploymentInterfacesAuth{
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
 		Web: &spec.DeploymentWebAuth{Grants: []spec.DeploymentAuthorizationGrant{}},
 	})
 	if len(errs) != 0 {
@@ -333,7 +342,9 @@ func TestMergeAuthorizationFromStore(t *testing.T) {
 			Grants: []spec.DeploymentAuthorizationGrant{{Org: "stale"}},
 		},
 	}
-	mergeAuthorizationFromStore(log, store, "dep-1", auth)
+	mergeAuthorizationFromStore(log, store, "dep-1", &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{Auth: auth},
+	})
 
 	// Stored order is (subject_type, subject_id, adapter):
 	// org/acct-1/slack → goes under Slack;

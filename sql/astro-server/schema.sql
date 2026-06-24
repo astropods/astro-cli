@@ -706,7 +706,7 @@ CREATE TABLE public.deployment_authorization_grants (
     CONSTRAINT deployment_authorization_grants_pkey PRIMARY KEY (id),
     CONSTRAINT deployment_authorization_grants_unique UNIQUE (deployment_id, subject_type, subject_id, adapter),
     CONSTRAINT deployment_authorization_grants_subject_check CHECK (subject_type IN ('org', 'user', 'anyone')),
-    CONSTRAINT deployment_authorization_grants_adapter_check CHECK (adapter IN ('web', 'slack')),
+    CONSTRAINT deployment_authorization_grants_adapter_check CHECK (adapter IN ('web', 'slack', 'custom')),
     -- user grants are now allowed on slack too: the messaging container
     -- forwards (team_id, slack_user_id), the server resolves it to a
     -- WorkOS user via slack_identity_mappings, and the user grant lookup

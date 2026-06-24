@@ -189,27 +189,28 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	}
 
 	applier := k8s.NewApplier(k8sForDep, k8s.ApplierConfig{
-		Namespace:              dep.Namespace,
-		RegistryURL:            d.Cfg.Deployment.RegistryURL,
-		ProxyRegistryHost:      d.Cfg.Deployment.ProxyRegistryHost,
-		Environment:            d.Cfg.Deployment.Environment,
-		ImagePullPolicy:        imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
-		ImagePreflighter:       d.ImagePreflighter,
-		TenantImageHosts:       tenantImageHostsFromConfig(d.Cfg),
-		IngressDomain:          clusterCfg.AgentIngressDomain,
-		IngestionIngressDomain: clusterCfg.IngestionIngressDomain,
-		LangfuseAuthToken:      langfuseAuthToken,
-		LangfuseBaseURL:        clusterCfg.LangfuseBaseURL,
-		DeploymentID:           dep.ID,
-		PodSubnetCIDRs:         clusterCfg.PodSubnetCIDRs,
-		CPSubnetCIDRs:          clusterCfg.CPSubnetCIDRs,
-		LangfuseVPCEIPs:        clusterCfg.LangfuseVPCEIPs,
-		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
-		AstroGatewayAPIKey:     aigwAPIKey,
-		AstroGatewayBaseURL:    aigwBaseURL,
-		BoundKnowledge:         boundKnowledge,
-		BoundCredentials:       boundCredentials,
-		DeployTokenSecret:      d.Cfg.Security.DeployTokenSecret,
+		Namespace:                dep.Namespace,
+		RegistryURL:              d.Cfg.Deployment.RegistryURL,
+		ProxyRegistryHost:        d.Cfg.Deployment.ProxyRegistryHost,
+		Environment:              d.Cfg.Deployment.Environment,
+		ImagePullPolicy:          imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
+		ImagePreflighter:         d.ImagePreflighter,
+		TenantImageHosts:         tenantImageHostsFromConfig(d.Cfg),
+		IngressDomain:            clusterCfg.AgentIngressDomain,
+		AgentPublicIngressDomain: clusterCfg.AgentPublicIngressDomain,
+		IngestionIngressDomain:   clusterCfg.IngestionIngressDomain,
+		LangfuseAuthToken:        langfuseAuthToken,
+		LangfuseBaseURL:          clusterCfg.LangfuseBaseURL,
+		DeploymentID:             dep.ID,
+		PodSubnetCIDRs:           clusterCfg.PodSubnetCIDRs,
+		CPSubnetCIDRs:            clusterCfg.CPSubnetCIDRs,
+		LangfuseVPCEIPs:          clusterCfg.LangfuseVPCEIPs,
+		LocalMode:                d.Cfg.Deployment.K8sClientMode == "local",
+		AstroGatewayAPIKey:       aigwAPIKey,
+		AstroGatewayBaseURL:      aigwBaseURL,
+		BoundKnowledge:           boundKnowledge,
+		BoundCredentials:         boundCredentials,
+		DeployTokenSecret:        d.Cfg.Security.DeployTokenSecret,
 		// The deploy token's iss claim carries this URL; the messaging
 		// container reads it to know where to call back for authorize. We
 		// reuse the public-facing frontend URL — the API surface is co-
@@ -627,4 +628,3 @@ func stripScheme(s string) string {
 	}
 	return s
 }
-

@@ -20,17 +20,21 @@ import (
 // mirror public.clusters column names; observability fields drive collector
 // Langfuse export and tenant NetworkPolicy egress.
 type Resolved struct {
-	AgentIngressDomain     string
-	AgentACMCertARN        string
-	AgentALBGroupName      string
-	IngestionIngressDomain string
-	IngestionACMCertARN    string
-	IngestionALBGroupName  string
-	KnowledgeDomain        string
-	LangfuseBaseURL        string   // collector LANGFUSE_BASE_URL
-	LangfuseVPCEIPs        []string // VPCE ENI IPs for netpol :3000 egress
-	PodSubnetCIDRs         []string // pod subnet CIDRs for netpol except list
-	CPSubnetCIDRs          []string // apiserver ENI subnets for service-proxy ingress NP
+	AgentIngressDomain string
+	// AgentPublicIngressDomain is the open (no-OIDC) cohort base for agent web
+	// surfaces. Populated for the primary cluster (env-driven); additional
+	// clusters need a per-cluster column before they can serve public surfaces.
+	AgentPublicIngressDomain string
+	AgentACMCertARN          string
+	AgentALBGroupName        string
+	IngestionIngressDomain   string
+	IngestionACMCertARN      string
+	IngestionALBGroupName    string
+	KnowledgeDomain          string
+	LangfuseBaseURL          string   // collector LANGFUSE_BASE_URL
+	LangfuseVPCEIPs          []string // VPCE ENI IPs for netpol :3000 egress
+	PodSubnetCIDRs           []string // pod subnet CIDRs for netpol except list
+	CPSubnetCIDRs            []string // apiserver ENI subnets for service-proxy ingress NP
 }
 
 // Resolve returns the effective config for a deployment targeting clusterID.
@@ -45,17 +49,18 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 			langfuseURL = dep.LangfuseBaseURL
 		}
 		return Resolved{
-			AgentIngressDomain:     dep.IngressDomain,
-			AgentACMCertARN:        dep.ACMCertificateARN,
-			AgentALBGroupName:      dep.ALBGroupName,
-			IngestionIngressDomain: dep.IngestionIngressDomain,
-			IngestionACMCertARN:    dep.IngestionACMCertARN,
-			IngestionALBGroupName:  dep.IngestionALBGroupName,
-			KnowledgeDomain:        dep.KnowledgeDomain,
-			LangfuseBaseURL:        langfuseURL,
-			LangfuseVPCEIPs:        dep.LangfuseVPCEIPs,
-			PodSubnetCIDRs:         dep.PodSubnetCIDRs,
-			CPSubnetCIDRs:          dep.CPSubnetCIDRs,
+			AgentIngressDomain:       dep.IngressDomain,
+			AgentPublicIngressDomain: dep.AgentPublicIngressDomain,
+			AgentACMCertARN:          dep.ACMCertificateARN,
+			AgentALBGroupName:        dep.ALBGroupName,
+			IngestionIngressDomain:   dep.IngestionIngressDomain,
+			IngestionACMCertARN:      dep.IngestionACMCertARN,
+			IngestionALBGroupName:    dep.IngestionALBGroupName,
+			KnowledgeDomain:          dep.KnowledgeDomain,
+			LangfuseBaseURL:          langfuseURL,
+			LangfuseVPCEIPs:          dep.LangfuseVPCEIPs,
+			PodSubnetCIDRs:           dep.PodSubnetCIDRs,
+			CPSubnetCIDRs:            dep.CPSubnetCIDRs,
 		}, nil
 	}
 

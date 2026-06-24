@@ -10,7 +10,7 @@ import { MemberPicker } from "./grants/MemberPicker";
 import type { AuthGrant } from "@/lib/api";
 
 export interface GrantsEditorProps {
-  adapter: "web" | "slack";
+  adapter: "web" | "slack" | "custom";
   grants: AuthGrant[];
   onChange: (grants: AuthGrant[]) => void;
   /** Account whose members can be granted access via the user picker. */
@@ -48,9 +48,9 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
   const hasAnyone = grants.some((g) => g.anyone);
 
   const emptyHelp =
-    adapter === "web"
-      ? "No one can access this agent yet. Select who has access to this agent."
-      : "Slack defaults to anyone in the workspace if no grants are set.";
+    adapter === "slack"
+      ? "Slack defaults to anyone in the workspace if no grants are set."
+      : "No one can access this agent yet. Select who has access to this agent.";
 
   return (
     <TooltipProvider delayDuration={150}>

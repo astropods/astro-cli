@@ -725,8 +725,10 @@ func (a *Applier) ApplyDeploymentSpec(
 			if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
 				host = ep.Expose.Domain
 			}
-			if host == "" && a.ingressDomain != "" {
-				host = GenerateMessagingIngressHost(agentName, a.namespace, a.ingressDomain)
+			if host == "" {
+				if domain := a.webIngressDomain(ds.Interfaces.WebPublic()); domain != "" {
+					host = GenerateMessagingIngressHost(agentName, a.namespace, domain)
+				}
 			}
 			if host != "" {
 				// OIDC is enforced at the front-door ALB listener rule
@@ -1456,10 +1458,20 @@ func (a *Applier) resolveAgentIngressHost(ds *spec.AstroDeploymentSpec, agentNam
 	if ep.Expose != nil && ep.Expose.Domain != "" {
 		return ep.Expose.Domain
 	}
-	if a.ingressDomain != "" {
-		return GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+	if domain := a.webIngressDomain(ds.Interfaces.CustomPublic()); domain != "" {
+		return GenerateIngressHost(agentName, a.namespace, domain)
 	}
 	return ""
+}
+
+// webIngressDomain selects the parent ingress domain for a browser-facing web
+// surface: the open (no-OIDC) cohort when public, else the authenticated agent
+// domain. Hosts in the public cohort fall through the front-door ALB's OIDC rule.
+func (a *Applier) webIngressDomain(public bool) string {
+	if public {
+		return a.agentPublicIngressDomain
+	}
+	return a.ingressDomain
 }
 
 // applyServiceAndRecord is a helper that applies a service and records the result.

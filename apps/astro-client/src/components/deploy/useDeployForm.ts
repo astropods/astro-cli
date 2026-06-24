@@ -37,7 +37,10 @@ export interface DeployFormInitialValues {
   targetAccount?: string;
   ingestionSchedules?: Record<string, string>;
   webGrants?: AuthGrant[];
+  webPublic?: boolean;
   slackGrants?: AuthGrant[];
+  customPublic?: boolean;
+  customGrants?: AuthGrant[];
   agentCpu?: string;
   agentMemory?: string;
   agentVolumeMount?: string;
@@ -76,6 +79,26 @@ function isObjectVariable(v: DeploymentVariable): boolean {
   return v.datatype === "object" && !!v.fields && Object.keys(v.fields).length > 0;
 }
 
+/** Messaging is supported when the interfaces block carries a messaging sidecar
+ *  image. Keyed off the image — a stable agent capability — rather than the
+ *  presence of an `interfaces` block or the current adapter list: a
+ *  custom-interface-only agent gains an interfaces block (to hold auth.custom)
+ *  but no image, and deselecting every adapter must not unmount the section. */
+function agentHasMessaging(template: DeploymentTemplate | null): boolean {
+  const iface = template?.interfaces as { image?: string } | undefined;
+  return !!iface?.image;
+}
+
+/** The agent ships its own custom web interface when one of its endpoints is
+ *  exposed. Distinct from the platform messaging-web adapter. */
+function agentHasCustomInterface(template: DeploymentTemplate | null): boolean {
+  const endpoints = (template?.agent as {
+    endpoints?: Record<string, { expose?: { enabled?: boolean } }>;
+  } | undefined)?.endpoints;
+  if (!endpoints) return false;
+  return Object.values(endpoints).some((ep) => ep?.expose?.enabled);
+}
+
 /** Compute form-ready initial values from a pre-filled deployment template.
  *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth)
  *  @param respSchedules — top-level `schedules` from TemplateResponse (ingestion name → cron) */
@@ -104,16 +127,20 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     }
   }
 
-  // When the agent declares no messaging interface (custom frontend only), the
-  // server omits the deployment-level `interfaces` block. Default to an empty
-  // adapter selection so the form doesn't pretend "web" is available.
-  const hasMessaging = template.interfaces != null;
+  // Messaging support is keyed off the sidecar image, not the mere presence of
+  // an `interfaces` block: a custom-interface-only agent gains an interfaces
+  // block (to carry auth.custom) but no messaging image, and must not default
+  // to the "web" adapter.
+  const hasMessaging = agentHasMessaging(template);
   const adapters = respInterfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0
     ? adapters
     : hasMessaging ? ["web"] : [];
   const webGrants = respInterfaces?.auth?.web?.grants ?? [];
+  const webPublic = respInterfaces?.auth?.web?.public ?? false;
   const slackGrants = respInterfaces?.auth?.slack?.grants ?? [];
+  const customPublic = respInterfaces?.auth?.custom?.public ?? false;
+  const customGrants = respInterfaces?.auth?.custom?.grants ?? [];
 
   const ingestionSchedules: Record<string, string> = respSchedules ?? {};
   if (!respSchedules && template.ingestion) {
@@ -132,7 +159,10 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     adapterCredentials,
     ingestionSchedules,
     webGrants,
+    webPublic,
     slackGrants,
+    customPublic,
+    customGrants,
   };
 }
 
@@ -370,10 +400,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     return null;
   }, [templateResponse]);
 
-  // Agents that declare only a custom frontend (no messaging) omit the
-  // deployment-level `interfaces` block. The chat-interface picker and its
-  // "at least one adapter" validation are gated on this flag.
-  const messagingSupported = template?.interfaces != null;
+  // The chat-interface picker and its "at least one adapter" validation are
+  // gated on messaging support (keyed off the sidecar image). The custom
+  // interface section is gated independently on whether the agent exposes its
+  // own endpoint — the two can both show, neither, or one.
+  const messagingSupported = agentHasMessaging(template);
+  const customSupported = agentHasCustomInterface(template);
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
@@ -389,7 +421,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [selectedAdapters, setSelectedAdaptersRaw] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
   const [webGrants, setWebGrants] = useState<AuthGrant[]>(computedDefaults.webGrants ?? []);
+  const [webPublic, setWebPublicRaw] = useState<boolean>(computedDefaults.webPublic ?? false);
   const [slackGrants, setSlackGrants] = useState<AuthGrant[]>(computedDefaults.slackGrants ?? []);
+  const [customPublic, setCustomPublic] = useState<boolean>(computedDefaults.customPublic ?? false);
+  const [customGrants, setCustomGrants] = useState<AuthGrant[]>(computedDefaults.customGrants ?? []);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
   const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>({});
   // Advanced provisioning overrides — all optional; empty strings let the
@@ -423,7 +458,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAdapterCredentials(v.adapterCredentials ?? {});
     setIngestionSchedules(v.ingestionSchedules ?? {});
     setWebGrants(v.webGrants ?? []);
+    setWebPublicRaw(v.webPublic ?? false);
     setSlackGrants(v.slackGrants ?? []);
+    setCustomPublic(v.customPublic ?? false);
+    setCustomGrants(v.customGrants ?? []);
     setAgentCpu(v.agentCpu ?? "");
     setAgentMemory(v.agentMemory ?? "");
     setAgentVolumeMount(v.agentVolumeMount ?? "");
@@ -495,7 +533,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       adapterCredentials: { ...extracted.adapterCredentials, ...(iv?.adapterCredentials ?? {}) },
       ingestionSchedules: { ...extracted.ingestionSchedules, ...(iv?.ingestionSchedules ?? {}) },
       webGrants: iv?.webGrants ?? seededWebGrants,
+      webPublic: iv?.webPublic ?? extracted.webPublic ?? false,
       slackGrants: iv?.slackGrants ?? seededSlackGrants,
+      customPublic: iv?.customPublic ?? extracted.customPublic ?? false,
+      customGrants: iv?.customGrants ?? extracted.customGrants ?? [],
       agentCpu: iv?.agentCpu ?? seededAgentCpu,
       agentMemory: iv?.agentMemory ?? seededAgentMemory,
       agentVolumeMount: iv?.agentVolumeMount ?? seededAgentVolumeMount,
@@ -524,16 +565,29 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const buildInterfaces = useCallback((): TemplateInterfaces => {
     const auth: TemplateInterfaces['auth'] = {};
     if (selectedAdapters.includes('web')) {
-      auth.web = { type: 'oidc', grants: webGrants };
+      auth.web = { type: 'oidc', grants: webGrants, public: webPublic };
     }
     if (selectedAdapters.includes('slack')) {
       auth.slack = { grants: slackGrants };
     }
+    // Custom is not a messaging adapter — emit it whenever the agent ships a
+    // custom interface, independent of the selected adapters.
+    if (customSupported) {
+      auth.custom = { public: customPublic, grants: customGrants };
+    }
     return {
       adapters: selectedAdapters,
-      auth: auth.web || auth.slack ? auth : undefined,
+      auth: auth.web || auth.slack || auth.custom ? auth : undefined,
     };
-  }, [selectedAdapters, webGrants, slackGrants]);
+  }, [selectedAdapters, webGrants, webPublic, slackGrants, customSupported, customPublic, customGrants]);
+
+  // Toggle public (no-sign-in) web access. A public web surface bypasses the
+  // ALB OIDC gate, so the server requires an anyone-only grant; force that here
+  // and restore the deploying-user default when public is turned back off.
+  const setWebPublic = useCallback((next: boolean) => {
+    setWebPublicRaw(next);
+    setWebGrants(next ? [{ anyone: true }] : defaultGrantsForAdapter("web", user?.id));
+  }, [user?.id]);
 
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
@@ -562,13 +616,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setSelectedAdaptersRaw(adapters);
     const auth: TemplateInterfaces['auth'] = {};
-    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: nextWebGrants };
+    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: nextWebGrants, public: webPublic };
     if (adapters.includes('slack')) auth.slack = { grants: nextSlackGrants };
+    // Preserve the custom-interface auth across adapter toggles.
+    if (customSupported) auth.custom = { public: customPublic, grants: customGrants };
     reshapeTemplate({
-      interfaces: { adapters, auth: auth.web || auth.slack ? auth : undefined },
+      interfaces: { adapters, auth: auth.web || auth.slack || auth.custom ? auth : undefined },
       bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     });
-  }, [reshapeTemplate, webGrants, slackGrants, knowledgeBindings, selectedAdapters, opts?.deploymentId, iv, user?.id]);
+  }, [reshapeTemplate, webGrants, webPublic, slackGrants, customSupported, customPublic, customGrants, knowledgeBindings, selectedAdapters, opts?.deploymentId, iv, user?.id]);
 
   // Filter empty-string ARNs — an entry with value "" means "not bound".
   const nonEmptyBindings = (b: Record<string, string>): Record<string, string> => {
@@ -915,12 +971,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     // Auth grants — count adds/removes per adapter
     deployCount += diffGrants(webGrants, initialValues.webGrants ?? []);
     deployCount += diffGrants(slackGrants, initialValues.slackGrants ?? []);
+    deployCount += diffGrants(customGrants, initialValues.customGrants ?? []);
+    if (webPublic !== (initialValues.webPublic ?? false)) deployCount++;
+    if (customPublic !== (initialValues.customPublic ?? false)) deployCount++;
 
     const deployChanged = deployCount > 0;
     const changeCount = (nameChanged ? 1 : 0) + deployCount;
 
     return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
-  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, ingestionSchedules, knowledgeBindings]);
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, webPublic, slackGrants, customGrants, customPublic, ingestionSchedules, knowledgeBindings]);
 
   const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
 
@@ -959,8 +1018,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAdapterCredentials,
     webGrants,
     setWebGrants,
+    webPublic,
+    setWebPublic,
     slackGrants,
     setSlackGrants,
+    customSupported,
+    customPublic,
+    setCustomPublic,
+    customGrants,
+    setCustomGrants,
 
     variableValues,
     setVariableValues,

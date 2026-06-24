@@ -706,7 +706,8 @@ describe('computeInitialValues', () => {
   });
 
   it('defaults to ["web"] when no response interfaces provided', () => {
-    const tpl = makeTemplate({ interfaces: { adapters: ['slack'] } });
+    // Messaging support is keyed off the sidecar image, not interfaces presence.
+    const tpl = makeTemplate({ interfaces: { image: 'messaging:latest', adapters: ['slack'] } });
     const result = computeInitialValues(tpl, 'acme');
     expect(result.selectedAdapters).toEqual(['web']);
   });
@@ -718,7 +719,7 @@ describe('computeInitialValues', () => {
   });
 
   it('defaults to ["web"] when response interfaces has empty adapters', () => {
-    const tpl = makeTemplate({ interfaces: { adapters: [] } });
+    const tpl = makeTemplate({ interfaces: { image: 'messaging:latest', adapters: [] } });
     const result = computeInitialValues(tpl, 'acme', { adapters: [] });
     expect(result.selectedAdapters).toEqual(['web']);
   });

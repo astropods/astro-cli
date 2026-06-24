@@ -180,9 +180,13 @@ type DeploymentConfig struct {
 	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
 	KubeContext    string // KUBE_CONTEXT (local mode, defaults to current-context)
 	// Ingress configuration for agent workloads (agents.astropods.ai)
-	IngressDomain     string // Domain for agent ingress (e.g., agents.astropods.ai)
-	ACMCertificateARN string // ACM certificate ARN for HTTPS
-	ALBGroupName      string // ALB group name for agent ALB
+	IngressDomain string // Domain for agent ingress (e.g., agents.astropods.ai)
+	// AgentPublicIngressDomain is the open (no-OIDC) cohort base for agent web
+	// surfaces (e.g., agents.public.astropods.ai). Hosts here fall through the
+	// front-door ALB's *.agents.<domain> OIDC rule to the no-auth default action.
+	AgentPublicIngressDomain string // AGENT_INGRESS_PUBLIC_DOMAIN
+	ACMCertificateARN        string // ACM certificate ARN for HTTPS
+	ALBGroupName             string // ALB group name for agent ALB
 	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
 	// Knowledge store public host domain (e.g., knowledge.astropods.ai)
@@ -250,39 +254,40 @@ func Load() (*Config, error) {
 			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", DevDeployTokenSecret),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:                   getEnv("REGISTRY_URL", ""),
-			ProxyRegistryHost:             getEnv("PROXY_REGISTRY_HOST", ""),
-			Environment:                   getEnv("ENVIRONMENT", ""),
-			EKSClusterName:                getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:                  getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:                     getEnv("AWS_REGION", ""),
-			K8sClientMode:                 getEnv("K8S_CLIENT_MODE", "eks"),
-			KubeconfigPath:                getEnv("KUBECONFIG", ""),
-			KubeContext:                   getEnv("KUBE_CONTEXT", ""),
-			IngressDomain:                 getEnv("INGRESS_DOMAIN", ""),
-			ACMCertificateARN:             getEnv("ACM_CERTIFICATE_ARN", ""),
-			ALBGroupName:                  getEnv("ALB_GROUP_NAME", "astro-agents"),
-			IngestionIngressDomain:        getEnv("INGESTION_INGRESS_DOMAIN", ""),
-			IngestionACMCertARN:           getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
-			IngestionALBGroupName:         getEnv("INGESTION_ALB_GROUP_NAME", ""),
-			KnowledgeDomain:               getEnv("KNOWLEDGE_DOMAIN", ""),
-			KnowledgeAllowManagedCreate:   getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
-			PodSubnetCIDRs:                getEnvSlice("POD_SUBNET_CIDRS", nil),
-			CPSubnetCIDRs:                 getEnvSlice("CP_SUBNET_CIDRS", nil),
-			KMSKeyARN:                     getEnv("KMS_KEY_ARN", ""),
-			AIGatewayURL:                  getEnv("AI_GATEWAY_URL", ""),
-			AIGatewayMasterKey:            getEnv("AI_GATEWAY_MASTER_KEY", ""),
-			MessagingURLOverride:          getEnv("MESSAGING_URL_OVERRIDE", ""),
-			LangfuseDBURL:                 getEnv("LANGFUSE_DB_URL", ""),
-			LangfuseSalt:                  getEnv("LANGFUSE_SALT", ""),
-			LangfuseOrgID:                 getEnv("LANGFUSE_ORG_ID", "astro"),
-			LangfuseBaseURL:               getEnv("LANGFUSE_BASE_URL", ""),
-			LangfuseBaseURLExt:            getEnv("LANGFUSE_BASE_URL_EXT", ""),
-			LangfuseVPCEIPs:               getEnvSlice("LANGFUSE_VPCE_IPS", nil),
-			PrivateLinkVpcID:              getEnv("PRIVATELINK_VPC_ID", ""),
-			PrivateLinkSubnetIDs:          getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
-			PrivateLinkSGID:               getEnv("PRIVATELINK_SG_ID", ""),
-			TemplateSigningKey:            loadSigningKey(),
+			RegistryURL:                 getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost:           getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:                 getEnv("ENVIRONMENT", ""),
+			EKSClusterName:              getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:                getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:                   getEnv("AWS_REGION", ""),
+			K8sClientMode:               getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:              getEnv("KUBECONFIG", ""),
+			KubeContext:                 getEnv("KUBE_CONTEXT", ""),
+			IngressDomain:               getEnv("INGRESS_DOMAIN", ""),
+			AgentPublicIngressDomain:    getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
+			ACMCertificateARN:           getEnv("ACM_CERTIFICATE_ARN", ""),
+			ALBGroupName:                getEnv("ALB_GROUP_NAME", "astro-agents"),
+			IngestionIngressDomain:      getEnv("INGESTION_INGRESS_DOMAIN", ""),
+			IngestionACMCertARN:         getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
+			IngestionALBGroupName:       getEnv("INGESTION_ALB_GROUP_NAME", ""),
+			KnowledgeDomain:             getEnv("KNOWLEDGE_DOMAIN", ""),
+			KnowledgeAllowManagedCreate: getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
+			PodSubnetCIDRs:              getEnvSlice("POD_SUBNET_CIDRS", nil),
+			CPSubnetCIDRs:               getEnvSlice("CP_SUBNET_CIDRS", nil),
+			KMSKeyARN:                   getEnv("KMS_KEY_ARN", ""),
+			AIGatewayURL:                getEnv("AI_GATEWAY_URL", ""),
+			AIGatewayMasterKey:          getEnv("AI_GATEWAY_MASTER_KEY", ""),
+			MessagingURLOverride:        getEnv("MESSAGING_URL_OVERRIDE", ""),
+			LangfuseDBURL:               getEnv("LANGFUSE_DB_URL", ""),
+			LangfuseSalt:                getEnv("LANGFUSE_SALT", ""),
+			LangfuseOrgID:               getEnv("LANGFUSE_ORG_ID", "astro"),
+			LangfuseBaseURL:             getEnv("LANGFUSE_BASE_URL", ""),
+			LangfuseBaseURLExt:          getEnv("LANGFUSE_BASE_URL_EXT", ""),
+			LangfuseVPCEIPs:             getEnvSlice("LANGFUSE_VPCE_IPS", nil),
+			PrivateLinkVpcID:            getEnv("PRIVATELINK_VPC_ID", ""),
+			PrivateLinkSubnetIDs:        getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
+			PrivateLinkSGID:             getEnv("PRIVATELINK_SG_ID", ""),
+			TemplateSigningKey:          loadSigningKey(),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -481,7 +486,6 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
-
 
 // getEnvDuration gets a duration from environment variable or returns default
 func getEnvDuration(key string, defaultValue time.Duration) time.Duration {

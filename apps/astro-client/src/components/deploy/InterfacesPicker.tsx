@@ -6,6 +6,8 @@ import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
 import { GrantsEditor } from "./GrantsEditor";
+import { Switch } from "@/components/ui/switch";
+import { WarningPanel } from "@/components/ui/status-panel";
 import type { AccountVariable, AuthGrant } from "@/lib/api";
 
 /** Brand icons manage their own color; generic icons inherit from parent. */
@@ -28,6 +30,9 @@ export interface InterfacesPickerProps {
   /** Auth grants per adapter — when present, a grants editor renders inside the adapter card. */
   webGrants?: AuthGrant[];
   onWebGrantsChange?: (grants: AuthGrant[]) => void;
+  /** When true, the web chat is reachable without sign-in (open cohort). */
+  webPublic?: boolean;
+  onWebPublicChange?: (next: boolean) => void;
   slackGrants?: AuthGrant[];
   onSlackGrantsChange?: (grants: AuthGrant[]) => void;
   /** Target account name — used by GrantsEditor to scope the user picker to that account's members. */
@@ -51,6 +56,8 @@ export function InterfacesPicker({
   credentialLayoutByAdapter,
   webGrants,
   onWebGrantsChange,
+  webPublic,
+  onWebPublicChange,
   slackGrants,
   onSlackGrantsChange,
   targetAccount,
@@ -158,6 +165,7 @@ export function InterfacesPicker({
                     />
                   </div>
                 ) : null;
+                const showPublicToggle = adapter.id === "web" && onWebPublicChange !== undefined;
                 const grantsBlock = hasGrantsEditor ? (
                   <div
                     key="grants"
@@ -168,12 +176,36 @@ export function InterfacesPicker({
                       grantsFirst && !hasInlineCredentials && "rounded-b-[6px]",
                     )}
                   >
-                    <GrantsEditor
-                      adapter={adapter.id as "web" | "slack"}
-                      grants={grantsForAdapter ?? []}
-                      onChange={onGrantsChangeForAdapter!}
-                      targetAccount={targetAccount}
-                    />
+                    {showPublicToggle && (
+                      <div className="space-y-2 mb-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <span className="text-[13px] font-medium text-foreground">Protected</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Require an Astro account to use the chat.
+                            </span>
+                          </div>
+                          <Switch
+                            checked={!webPublic}
+                            onCheckedChange={(checked) => onWebPublicChange!(!checked)}
+                          />
+                        </div>
+                        {webPublic && (
+                          <WarningPanel variant="inline">
+                            Protection is off — anyone with the link can use this chat without an
+                            Astro account, and access grants no longer apply.
+                          </WarningPanel>
+                        )}
+                      </div>
+                    )}
+                    {!(showPublicToggle && webPublic) && (
+                      <GrantsEditor
+                        adapter={adapter.id as "web" | "slack"}
+                        grants={grantsForAdapter ?? []}
+                        onChange={onGrantsChangeForAdapter!}
+                        targetAccount={targetAccount}
+                      />
+                    )}
                   </div>
                 ) : null;
                 return grantsFirst ? [grantsBlock, credsBlock] : [credsBlock, grantsBlock];

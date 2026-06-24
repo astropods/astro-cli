@@ -500,7 +500,14 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	shaped := deepCopySpec(base)
 
 	// --- Interface shaping ---
-	if req.Interfaces != nil && shaped.Interfaces != nil {
+	// A custom-interface-only agent omits a messaging interfaces block, but its
+	// access config (interfaces.auth.custom) still rides in via the request, so
+	// create the block when the request carries auth. Messaging stays gated on a
+	// non-empty adapter list, so an auth-only block spins up no sidecar.
+	if req.Interfaces != nil && (shaped.Interfaces != nil || len(req.Interfaces.Adapters) > 0 || req.Interfaces.Auth != nil) {
+		if shaped.Interfaces == nil {
+			shaped.Interfaces = &spec.DeploymentInterfaces{}
+		}
 		shaped.Interfaces.Adapters = req.Interfaces.Adapters
 		if req.Interfaces.Auth != nil {
 			shaped.Interfaces.Auth = req.Interfaces.Auth

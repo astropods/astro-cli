@@ -6,7 +6,7 @@ import type { Account, AccountMember, AuthGrant } from "@/lib/api";
 export interface GrantRowProps {
   grant: AuthGrant;
   /** Adapter this grant belongs to. Drives the "no Slack connection" warning. */
-  adapter: "web" | "slack";
+  adapter: "web" | "slack" | "custom";
   /** Map of account ID → account for resolving account-scope grants (handle + display name). */
   accountById: Map<string, Account>;
   /** Map of user ID → member record for resolving user-scope grants. */

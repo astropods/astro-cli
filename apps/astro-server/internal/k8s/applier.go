@@ -40,6 +40,9 @@ type ApplierConfig struct {
 	// OIDC, and ALB grouping in astro-infra; we just need the domain to
 	// generate per-tenant hostnames).
 	IngressDomain string
+	// AgentPublicIngressDomain is the open (no-OIDC) cohort base. Web surfaces
+	// flagged public generate their host here so the front-door ALB skips OIDC.
+	AgentPublicIngressDomain string
 	// Ingress configuration for ingestion workloads
 	IngestionIngressDomain string
 	// Observability (Langfuse) — per-account auth token for collector sidecar
@@ -117,8 +120,9 @@ type Applier struct {
 	imagePreflighter *ImagePreflighter
 	tenantImageHosts []string
 	// Ingress configuration
-	ingressDomain          string
-	ingestionIngressDomain string
+	ingressDomain            string
+	agentPublicIngressDomain string
+	ingestionIngressDomain   string
 	// Observability
 	langfuseAuthToken string
 	langfuseBaseURL   string
@@ -150,33 +154,34 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		pullPolicy = corev1.PullAlways
 	}
 	return &Applier{
-		clientset:              client.Clientset(),
-		namespace:              cfg.Namespace,
-		registryURL:            cfg.RegistryURL,
-		imageResolver:          NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
-		imagePullPolicy:        pullPolicy,
-		imagePreflighter:       cfg.ImagePreflighter,
-		tenantImageHosts:       cfg.TenantImageHosts,
-		ingressDomain:          cfg.IngressDomain,
-		ingestionIngressDomain: cfg.IngestionIngressDomain,
-		langfuseAuthToken:      cfg.LangfuseAuthToken,
-		langfuseBaseURL:        cfg.LangfuseBaseURL,
-		deploymentID:           cfg.DeploymentID,
-		namespaceLabels:        cfg.NamespaceLabels,
-		namespaceAnnotations:   cfg.NamespaceAnnotations,
-		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
-		cpSubnetCIDRs:          cfg.CPSubnetCIDRs,
-		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
-		localMode:              cfg.LocalMode,
-		astroGatewayAPIKey:     cfg.AstroGatewayAPIKey,
-		astroGatewayBaseURL:    cfg.AstroGatewayBaseURL,
-		boundKnowledge:         cfg.BoundKnowledge,
-		boundCredentials:       cfg.BoundCredentials,
-		deployTokenSecret:      cfg.DeployTokenSecret,
-		authzCallbackURL:       cfg.AuthzCallbackURL,
-		authTestUserID:         cfg.AuthTestUserID,
-		persistResolutions:     cfg.PersistResolutions,
-		persistMessagingHost:   cfg.PersistMessagingHost,
+		clientset:                client.Clientset(),
+		namespace:                cfg.Namespace,
+		registryURL:              cfg.RegistryURL,
+		imageResolver:            NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
+		imagePullPolicy:          pullPolicy,
+		imagePreflighter:         cfg.ImagePreflighter,
+		tenantImageHosts:         cfg.TenantImageHosts,
+		ingressDomain:            cfg.IngressDomain,
+		agentPublicIngressDomain: cfg.AgentPublicIngressDomain,
+		ingestionIngressDomain:   cfg.IngestionIngressDomain,
+		langfuseAuthToken:        cfg.LangfuseAuthToken,
+		langfuseBaseURL:          cfg.LangfuseBaseURL,
+		deploymentID:             cfg.DeploymentID,
+		namespaceLabels:          cfg.NamespaceLabels,
+		namespaceAnnotations:     cfg.NamespaceAnnotations,
+		podSubnetCIDRs:           cfg.PodSubnetCIDRs,
+		cpSubnetCIDRs:            cfg.CPSubnetCIDRs,
+		langfuseVPCEIPs:          cfg.LangfuseVPCEIPs,
+		localMode:                cfg.LocalMode,
+		astroGatewayAPIKey:       cfg.AstroGatewayAPIKey,
+		astroGatewayBaseURL:      cfg.AstroGatewayBaseURL,
+		boundKnowledge:           cfg.BoundKnowledge,
+		boundCredentials:         cfg.BoundCredentials,
+		deployTokenSecret:        cfg.DeployTokenSecret,
+		authzCallbackURL:         cfg.AuthzCallbackURL,
+		authTestUserID:           cfg.AuthTestUserID,
+		persistResolutions:       cfg.PersistResolutions,
+		persistMessagingHost:     cfg.PersistMessagingHost,
 	}
 }
 

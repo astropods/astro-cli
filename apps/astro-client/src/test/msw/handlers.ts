@@ -157,7 +157,7 @@ export const mockTemplate: DeploymentTemplate = {
   source: { account: 'testuser', name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
   target: { runtime: 'kubernetes' },
   agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
-  interfaces: { adapters: [], endpoints: { grpc: { port: 9090, protocol: 'grpc' }, http: { port: 8080, protocol: 'http' } }, auth: { web: { type: 'oidc' } } },
+  interfaces: { image: 'registry.example.com/astro/messaging:latest', adapters: [], endpoints: { grpc: { port: 9090, protocol: 'grpc' }, http: { port: 8080, protocol: 'http' } }, auth: { web: { type: 'oidc' } } },
   variables: {
     OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key for the model provider' },
     SENTRY_DSN: { default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN for error tracking' },
