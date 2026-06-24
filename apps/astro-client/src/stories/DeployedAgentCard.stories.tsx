@@ -105,3 +105,19 @@ export const Grid: Story = {
     </div>
   ),
 };
+
+export const Deploying: Story = {
+  args: {
+    account: "chrisjpatty",
+    name: "chrisbot",
+    displayName: "Chrisbot",
+    deploymentId: "dep-01HX5K2P9R",
+    avatarUrl: chrisbotAvatar,
+    avatarColors: chrisbotColors,
+    requestSeries: seededSeries(1, 7, 15, 40),
+    tokenSeries: seededSeries(101, 7, 2000, 8000),
+    canLaunch: true,
+    launchDisabled: true,
+    deploymentStatus: "pending",
+  },
+};

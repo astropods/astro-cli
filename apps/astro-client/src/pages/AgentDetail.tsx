@@ -6,10 +6,13 @@ import { PageStarField } from "@/components/agent-detail/starfield/PageStarField
 import { AgentTabBar } from "@/components/agent-detail/AgentTabBar";
 import { AgentIdentity } from "@/components/agent-detail/AgentIdentity";
 import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
-import { useDeployment, useDeploymentRuntime } from "@/api/queries/deployments";
+import { useDeployment, useDeploymentRuntime, useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentRuntime } from "@/lib/api";
 import { chatDeploymentPath } from "@/lib/routes";
 import { ArrowUpRight } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { getLaunchDisabledMessage } from "@/lib/deployment-utils";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const account = params.account ?? "";
@@ -63,9 +66,12 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       : undefined,
   });
   const { data: runtimeData } = useDeploymentRuntime(deploymentId ?? "");
+  const { data: statusData } = useDeploymentStatus(deploymentId ?? "");
   const deployment = data?.deployment ?? loaderData.deployment;
   const runtime = runtimeData?.runtime;
+  const isActive = statusData?.value === "active";
   const canLaunch = deployment?.messaging_configured === true;
+  const launchDisabled = !isActive;
 
   const context: AgentDetailContext | null = deployment
     ? { deployment, runtime, account: account ?? "", deploymentId: deploymentId ?? "" }
@@ -103,12 +109,32 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           <div className="flex items-center gap-4 rounded-[8px] dark:rounded-md bg-background p-1 pl-3 pr-1 dark:bg-transparent dark:p-0 dark:pl-0 dark:pr-0">
             <AgentStatusToggle deployment={deployment} account={account ?? ""} />
             {canLaunch && deploymentId && (
-              <Link
-                to={chatDeploymentPath(deploymentId)}
-                className="flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity hover:opacity-85"
-              >
-                Launch <ArrowUpRight className="size-3.5" />
-              </Link>
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Link
+                        to={launchDisabled ? "#" : chatDeploymentPath(deploymentId)}
+                        onClick={(e) => launchDisabled && e.preventDefault()}
+                        aria-disabled={launchDisabled}
+                        className={cn(
+                          "flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity",
+                          launchDisabled
+                            ? "pointer-events-none opacity-50"
+                            : "hover:opacity-85"
+                        )}
+                      >
+                        Launch <ArrowUpRight className="size-3.5" />
+                      </Link>
+                    </span>
+                  </TooltipTrigger>
+                  {launchDisabled && (
+                    <TooltipContent side="bottom">
+                      {getLaunchDisabledMessage(statusData?.value)}
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
         </div>

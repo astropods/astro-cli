@@ -21,7 +21,9 @@ export function DeploymentAgentCard({
 }) {
   const bust = useDeploymentAvatarBust(deployment.id);
   const avatarUrl = bust ?? getDeploymentAvatarUrl(deployment.id);
-  const canLaunch = deployment.status === "Running" && isChatListEligible(deployment);
+  const hasMessaging = isChatListEligible(deployment);
+  const canLaunch = hasMessaging;
+  const launchDisabled = deployment.status !== "Running";
   const hasUpdateAvailable =
     !!deployment.latest_build_id && deployment.latest_build_id !== deployment.build_id;
   const hasError = deployment.status === "error";
@@ -37,6 +39,8 @@ export function DeploymentAgentCard({
       requestSeries={requestSeries}
       tokenSeries={tokenSeries}
       canLaunch={canLaunch}
+      launchDisabled={launchDisabled}
+      deploymentStatus={deployment.status}
       hasError={hasError}
       installedAt={deployment.created_at}
       hasUpdateAvailable={hasUpdateAvailable}

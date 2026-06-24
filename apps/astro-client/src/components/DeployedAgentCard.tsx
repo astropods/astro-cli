@@ -26,7 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
-import { formatDate } from "@/lib/deployment-utils";
+import { formatDate, getLaunchDisabledMessage } from "@/lib/deployment-utils";
 import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { DeploymentTab, chatDeploymentPath, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
@@ -69,6 +69,10 @@ export interface DeployedAgentCardProps {
    *  deployment). When false/omitted the action row collapses to a single
    *  full-width "Manage agent" button. Requires `deploymentId` to navigate. */
   canLaunch?: boolean;
+  /** Whether the Launch button should be disabled (e.g., during deployment). */
+  launchDisabled?: boolean;
+  /** Current deployment status for tooltip messaging. */
+  deploymentStatus?: string;
   /** Surfaces an error pill under the subline. */
   hasError?: boolean;
   /** Deployment creation timestamp; surfaced in the badge modal's stats row. */
@@ -483,6 +487,8 @@ export function DeployedAgentCard({
   requestSeries,
   tokenSeries,
   canLaunch,
+  launchDisabled = false,
+  deploymentStatus,
   hasError,
   installedAt,
   hasUpdateAvailable,
@@ -715,12 +721,36 @@ export function DeployedAgentCard({
                 <TooltipContent>Manage agent</TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Button asChild className="flex-1">
-              <Link to={chatDeploymentPath(deploymentId)}>
-                Launch
-                <ArrowUpRightIcon strokeWidth={3} className="size-3.5" />
-              </Link>
-            </Button>
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex-1">
+                    <Button
+                      asChild={!launchDisabled}
+                      disabled={launchDisabled}
+                      className="w-full"
+                    >
+                      {launchDisabled ? (
+                        <span>
+                          Launch
+                          <ArrowUpRightIcon strokeWidth={3} className="size-3.5" />
+                        </span>
+                      ) : (
+                        <Link to={chatDeploymentPath(deploymentId)}>
+                          Launch
+                          <ArrowUpRightIcon strokeWidth={3} className="size-3.5" />
+                        </Link>
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {launchDisabled && (
+                  <TooltipContent>
+                    {getLaunchDisabledMessage(deploymentStatus)}
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </>
         ) : (
           <Button asChild variant="outline" className="flex-1">

@@ -5,6 +5,7 @@ import {
   isLaunchReady,
   isPausedState,
   launchUnavailableMessage,
+  getLaunchDisabledMessage,
 } from "./deployment-utils";
 import type { AgentDeployment, AgentDeploymentSummary } from "./api";
 
@@ -123,5 +124,55 @@ describe("isPausedState", () => {
   });
   it("returns false for empty status", () => {
     expect(isPausedState(make({ status: "" }))).toBe(false);
+  });
+});
+
+describe("getLaunchDisabledMessage", () => {
+  it("returns deploying message for 'deploying' status", () => {
+    expect(getLaunchDisabledMessage("deploying")).toBe(
+      "Agent is still deploying. Launch will be available once deployment is complete.",
+    );
+  });
+
+  it("returns deploying message for 'pending' status", () => {
+    expect(getLaunchDisabledMessage("pending")).toBe(
+      "Agent is still deploying. Launch will be available once deployment is complete.",
+    );
+  });
+
+  it("returns undeploying message for 'undeploying' status", () => {
+    expect(getLaunchDisabledMessage("undeploying")).toBe(
+      "Agent is being undeployed. Launch is temporarily unavailable.",
+    );
+  });
+
+  it("returns error message for 'error' status", () => {
+    expect(getLaunchDisabledMessage("error")).toBe(
+      "Agent is in an error state. Please check the deployment status.",
+    );
+  });
+
+  it("returns paused message for 'Stopped' status", () => {
+    expect(getLaunchDisabledMessage("Stopped")).toBe(
+      "Agent is paused. Resume the agent to launch.",
+    );
+  });
+
+  it("returns paused message for 'inactive' status", () => {
+    expect(getLaunchDisabledMessage("inactive")).toBe(
+      "Agent is paused. Resume the agent to launch.",
+    );
+  });
+
+  it("returns default message for unknown status", () => {
+    expect(getLaunchDisabledMessage("unknown")).toBe(
+      "Agent is not ready. Launch will be available once the agent is active.",
+    );
+  });
+
+  it("returns default message for undefined status", () => {
+    expect(getLaunchDisabledMessage(undefined)).toBe(
+      "Agent is not ready. Launch will be available once the agent is active.",
+    );
   });
 });

@@ -56,6 +56,29 @@ export function isPausedState(deployment: AgentDeployment): boolean {
   return s === "stopped" || s === "scaled_down";
 }
 
+/**
+ * Returns the tooltip message to display when the Launch button is disabled,
+ * based on the current deployment status.
+ */
+export function getLaunchDisabledMessage(
+  statusValue?: DeploymentStatusValue | string,
+): string {
+  switch (statusValue) {
+    case "deploying":
+    case "pending":
+      return "Agent is still deploying. Launch will be available once deployment is complete.";
+    case "undeploying":
+      return "Agent is being undeployed. Launch is temporarily unavailable.";
+    case "error":
+      return "Agent is in an error state. Please check the deployment status.";
+    case "Stopped":
+    case "inactive":
+      return "Agent is paused. Resume the agent to launch.";
+    default:
+      return "Agent is not ready. Launch will be available once the agent is active.";
+  }
+}
+
 export function formatRelativeTime(dateStr: string): string {
   const diffSecs = Math.round((new Date(dateStr).getTime() - Date.now()) / 1000);
   const diffMins = Math.round(diffSecs / 60);
