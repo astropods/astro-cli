@@ -44,14 +44,21 @@ interface VaultPickerProps {
    *  When provided and multiple variables are created in one shot, it's used
    *  to fan the new tokens out to all matching fields. */
   bulkSetVariables?: (imported: Record<string, string>) => void
+  /** Seeds the "New variable" dialog's first row from the field that opened the
+   *  picker — the field's variable name as the key, its typed value as the value,
+   *  and its secret-ness so a plain config field doesn't default to a secret. */
+  newVarName?: string
+  newVarValue?: string
+  newVarSecret?: boolean
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange, bulkSetVariables }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange, bulkSetVariables, newVarName, newVarValue, newVarSecret }: VaultPickerProps) {
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = (o: boolean) => { setLocalOpen(o); controlledOnOpenChange?.(o) }
   const [search, setSearch] = useState('')
   const [newVarOpen, setNewVarOpen] = useState(false)
+  const openNewVar = () => { setOpen(false); setNewVarOpen(true) }
   const createMutation = useCreateAccountVariables(accountName ?? '')
 
   const { accounts, organizationId, switchOrg } = useAuth()
@@ -142,7 +149,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
                   : 'No variables have been added for this account yet.'}
               </p>
               {scopeReady && canCreate && (
-                <Button size="sm" onClick={() => { setOpen(false); setNewVarOpen(true) }}>
+                <Button size="sm" onClick={openNewVar}>
                   <PlusIcon className="size-3.5" />
                   New variable
                 </Button>
@@ -159,7 +166,7 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
                       variant="ghost"
                       size="sm"
                       className="h-6 px-2 text-xs shrink-0"
-                      onClick={() => { setOpen(false); setNewVarOpen(true) }}
+                      onClick={openNewVar}
                     >
                       <PlusIcon className="size-3" />
                       New
@@ -247,11 +254,15 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
       open={newVarOpen}
       isPending={createMutation.isPending}
       accountName={accountName}
+      initialName={newVarName}
+      initialValue={newVarValue}
+      initialSecret={newVarSecret}
       onClose={() => setNewVarOpen(false)}
       onCreate={(inputs) => {
         createMutation.mutate(inputs, {
           onSuccess: (response) => {
             setNewVarOpen(false)
+            setSearch('')
             // Restrict to inputs the server actually created. If the response
             // omits per-name results, treat all inputs as successful.
             const created = response?.results

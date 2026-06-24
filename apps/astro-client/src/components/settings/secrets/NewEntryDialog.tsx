@@ -28,6 +28,10 @@ interface NewEntryDialogProps {
   open: boolean
   isPending?: boolean
   accountName?: string
+  /** Prefills the first row's key/value/secret from the field that opened the dialog. */
+  initialName?: string
+  initialValue?: string
+  initialSecret?: boolean
   onClose: () => void
   onCreate: (data: CreateAccountVariableInput[]) => void
 }
@@ -44,7 +48,7 @@ type EntryRow = {
 const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env$)/i
 const MAX_FILE_SIZE = 256 * 1024
 const MAX_ROWS = 30
-const ROW_GRID = 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+const ROW_GRID = 'grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
 
 function newRow(partial?: Partial<EntryRow>): EntryRow {
   return {
@@ -58,7 +62,10 @@ function newRow(partial?: Partial<EntryRow>): EntryRow {
   }
 }
 
-export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate }: NewEntryDialogProps) {
+export function NewEntryDialog({ open, isPending, accountName, initialName, initialValue, initialSecret, onClose, onCreate }: NewEntryDialogProps) {
+  const seedName = initialName?.trim().replace(/\s+/g, '_') ?? ''
+  const seedValue = initialValue ?? ''
+  const seedSecret = initialSecret ?? true
   const [rows, setRows] = useState<EntryRow[]>([newRow()])
   const [revealedById, setRevealedById] = useState<Record<string, boolean>>({})
   const [importCount, setImportCount] = useState<number | null>(null)
@@ -80,8 +87,13 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
 
   const isTouched = (field: string) => submitAttempted || touched.has(field)
 
+  const prevOpen = useRef(false)
   useEffect(() => {
-    if (!open) {
+    if (open && !prevOpen.current) {
+      // Seed only on the open transition — re-running on seed changes while the
+      // dialog is open would wipe added rows and in-progress edits.
+      setRows([newRow({ name: seedName, value: seedValue, secret: seedSecret })])
+    } else if (!open) {
       setRows([newRow()])
       setRevealedById({})
       setImportCount(null)
@@ -90,7 +102,8 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
       setTouched(new Set())
       setSubmitAttempted(false)
     }
-  }, [open])
+    prevOpen.current = open
+  }, [open, seedName, seedValue, seedSecret])
 
   const activeRows = useMemo(
     () => rows.filter((row) => row.name.trim() !== '' || row.value.trim() !== ''),
@@ -200,7 +213,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
       return next
     })
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     })
   }
 
@@ -237,7 +250,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
 
   return (
     <Dialog open={open} onOpenChange={open => !open && handleClose()}>
-      <DialogContent className="max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-[720px] max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle>New variable</DialogTitle>
@@ -261,7 +274,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
             </DropdownMenu>
           </div>
           {accountName && (
-            <p className="text-xs text-muted-foreground">Saving to <span className="font-medium text-foreground">{accountName}</span></p>
+            <p className="text-left text-xs text-muted-foreground">Saving to <span className="font-medium text-foreground">{accountName}</span></p>
           )}
         </DialogHeader>
 
@@ -279,8 +292,8 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
             const showValueError = valueTouched && emptyValue
             return (
               <div key={row.id} className="space-y-1">
-                <div className={`grid ${ROW_GRID} gap-x-2 gap-y-1 items-start`}>
-                  <div className="space-y-1 min-w-0 col-start-1 row-start-1">
+                <div className={`grid ${ROW_GRID} gap-x-2 gap-y-3 sm:gap-y-1 items-start`}>
+                  <div className="space-y-1 min-w-0 sm:col-start-1 sm:row-start-1">
                     <Label size="md" htmlFor={`key-${row.id}`}>Key</Label>
                     <Input
                       id={`key-${row.id}`}
@@ -297,14 +310,14 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       onBlur={() => markTouched(`${row.id}:key`)}
                       placeholder="CLIENT_KEY..."
                       className="h-10 font-mono text-xs"
-                      autoFocus={index === 0}
+                      autoFocus={index === 0 && !seedName && !seedValue}
                       aria-invalid={showKeyError || undefined}
                     />
                     {showKeyError && emptyKey && <p className="text-[11px] text-destructive">Key is required</p>}
                     {showKeyError && invalidKey && <p className="text-[11px] text-destructive">Invalid key format</p>}
                     {showKeyError && duplicateKey && <p className="text-[11px] text-destructive">Duplicate key</p>}
                   </div>
-                  <div className="space-y-1 min-w-0 col-start-2 row-start-1">
+                  <div className="space-y-1 min-w-0 sm:col-start-2 sm:row-start-1">
                     <Label size="md" htmlFor={`value-${row.id}`}>Value</Label>
                     <div className="relative">
                       <Input
@@ -314,6 +327,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                         onChange={(e) => updateRow(row.id, { value: e.target.value })}
                         onBlur={() => markTouched(`${row.id}:value`)}
                         className={row.secret ? 'h-10 font-mono text-xs pr-8' : 'h-10 font-mono text-xs'}
+                        autoFocus={index === 0 && (!!seedName || !!seedValue)}
                         autoComplete="off"
                         spellCheck={false}
                         aria-invalid={showValueError || undefined}
@@ -331,7 +345,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                     </div>
                     {showValueError && <p className="text-[11px] text-destructive">Value is required</p>}
                   </div>
-                  <div className="flex items-center justify-end gap-2 h-10 mt-6 col-start-3 row-start-1">
+                  <div className="flex items-center justify-between sm:justify-end gap-2 h-10 sm:mt-6 sm:col-start-3 sm:row-start-1">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <label htmlFor={`secret-toggle-${row.id}`} className="text-sm font-medium text-foreground cursor-pointer whitespace-nowrap">Secret</label>
                       <TooltipProvider delayDuration={200}>
@@ -360,7 +374,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                       <Trash2 className="size-3.5 text-muted-foreground" />
                     </Button>
                   </div>
-                  <div className="col-start-1 row-start-2">
+                  <div className="sm:col-start-1 sm:row-start-2">
                     <Button
                       type="button"
                       variant="ghost"
@@ -378,7 +392,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
                 </div>
                 {(row.showDescription || row.description) && (
                   <div className={`grid ${ROW_GRID} gap-2`}>
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <Input
                         value={row.description}
                         onChange={(e) => updateRow(row.id, { description: e.target.value })}
@@ -396,7 +410,7 @@ export function NewEntryDialog({ open, isPending, accountName, onClose, onCreate
             <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => {
               setRows((prev) => [...prev, newRow()])
               requestAnimationFrame(() => {
-                scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
               })
             }}>
               <Plus className="size-3.5" />
@@ -461,7 +475,7 @@ function PasteEnvDialog({ open, onClose, onApply }: { open: boolean; onClose: ()
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-[480px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Paste .env content</DialogTitle>
           <DialogDescription>

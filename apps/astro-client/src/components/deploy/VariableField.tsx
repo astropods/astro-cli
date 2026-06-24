@@ -289,7 +289,7 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
       </div>
     </div>
   );
@@ -361,7 +361,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} />
+        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
       </div>
     </div>
   );

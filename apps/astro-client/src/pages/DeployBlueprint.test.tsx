@@ -561,8 +561,10 @@ describe('DeployBlueprint page', () => {
       const newVariableButton = await screen.findByRole('button', { name: /new variable/i });
       await user.click(newVariableButton);
 
-      // NewEntryDialog opens; fill Key + Value and save.
+      // NewEntryDialog opens with the Key prefilled from the field that launched
+      // the picker; clear it and enter a custom name.
       const keyInput = await screen.findByLabelText('Key');
+      await user.clear(keyInput);
       await user.type(keyInput, 'NEW_SLACK_BOT_TOKEN');
       await user.type(screen.getByLabelText('Value'), 'xoxb-from-test');
       await user.click(screen.getByRole('button', { name: /^save$/i }));
