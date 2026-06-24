@@ -5,9 +5,6 @@ import type { LogEntry } from '@/lib/log-utils';
 import type {
   AgentDeployment,
   DeploymentsListResponse,
-  EvalDatasetItemsResponse,
-  EvalDatasetItemsVerdict,
-  EvalDatasetResponse,
   PodMetricsRange,
   UndeployResponse,
 } from '@/lib/api';
@@ -434,47 +431,5 @@ export function useDeleteDeploymentAvatar(account: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
     },
-  });
-}
-
-export function useEvalDataset(deploymentId: string) {
-  const api = useApiClient();
-  return useQuery({
-    queryKey: deploymentKeys.dataset(deploymentId),
-    queryFn: (): Promise<EvalDatasetResponse> => api.getEvalDataset(deploymentId),
-    enabled: !!deploymentId,
-    staleTime: 60_000,
-  });
-}
-
-export function useEvalDatasetItems(
-  deploymentId: string,
-  limit = 50,
-  verdict?: EvalDatasetItemsVerdict,
-  enabled = true,
-) {
-  const api = useApiClient();
-  return useInfiniteQuery({
-    queryKey: deploymentKeys.datasetItems(deploymentId, limit, verdict),
-    queryFn: ({
-      pageParam,
-    }: {
-      pageParam: number | string | undefined;
-    }): Promise<EvalDatasetItemsResponse> =>
-      api.getEvalDatasetItems(deploymentId, {
-        page: verdict ? undefined : typeof pageParam === "number" ? pageParam : 1,
-        cursor: verdict && typeof pageParam === "string" ? pageParam : undefined,
-        limit,
-        verdict,
-      }),
-    initialPageParam: undefined as number | string | undefined,
-    getNextPageParam: (last) =>
-      verdict
-        ? last.next_cursor || undefined
-        : last.page < last.total_pages
-          ? last.page + 1
-          : undefined,
-    enabled: !!deploymentId && enabled,
-    staleTime: 60_000,
   });
 }

@@ -6,9 +6,12 @@ import { Outlet } from "react-router";
 import { server } from "@/test/msw/server";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import type {
+  DatasetJudgmentRequest,
   EvalDatasetItem,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
+  ReviewQueueItem,
+  ReviewQueueResponse,
 } from "@/lib/api";
 import AgentDataset from "./AgentDataset";
 
@@ -44,6 +47,24 @@ function itemsResponse(items: EvalDatasetItem[]): EvalDatasetItemsResponse {
   };
 }
 
+function reviewQueueResponse(items: ReviewQueueItem[]): ReviewQueueResponse {
+  return {
+    items,
+    end_time: "2026-06-01T12:00:00Z",
+  };
+}
+
+function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
+  return {
+    trace_id: "trace_000001",
+    timestamp: "2026-06-01T12:00:00Z",
+    input: "How do I deploy?",
+    output: "Run ast deploy.",
+    sentiment: "positive",
+    ...overrides,
+  };
+}
+
 function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
   return {
     id: "item-1",
@@ -59,6 +80,7 @@ function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
 function setupDataset(
   response: EvalDatasetResponse | { status: number },
   items: EvalDatasetItemsResponse = emptyItems(),
+  queue: ReviewQueueResponse = reviewQueueResponse([]),
 ) {
   server.use(
     http.get("/api/v1/deployments/:id/dataset", () => {
@@ -70,13 +92,23 @@ function setupDataset(
     http.get("/api/v1/deployments/:id/dataset/items", () =>
       HttpResponse.json(items),
     ),
+    http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+      HttpResponse.json(queue),
+    ),
     http.get("/api/v1/accounts/:account/members", () =>
       HttpResponse.json({ members: [] }),
     ),
   );
 }
 
-function renderDataset(deploymentId = "dep-test") {
+function renderDataset({
+  deploymentId = "dep-test",
+  tab = "dataset",
+}: {
+  deploymentId?: string;
+  tab?: "queue" | "dataset" | null;
+} = {}) {
+  const query = tab ? `?tab=${tab}` : "";
   return renderRoute(
     [
       {
@@ -84,7 +116,11 @@ function renderDataset(deploymentId = "dep-test") {
         Component: () => (
           <Outlet
             context={{
-              deployment: { id: deploymentId },
+              deployment: {
+                id: deploymentId,
+                name: "cruise-line",
+                display_name: "Cruise Line",
+              },
               account: "testuser",
               deploymentId,
             }}
@@ -94,7 +130,7 @@ function renderDataset(deploymentId = "dep-test") {
       },
     ],
     {
-      initialEntries: [`/testuser/agents/${deploymentId}/dataset`],
+      initialEntries: [`/testuser/agents/${deploymentId}/dataset${query}`],
       auth: mockAuthContext,
     },
   );
@@ -120,7 +156,278 @@ describe("error state", () => {
   });
 });
 
-describe("summary view", () => {
+describe("review queue view", () => {
+  it("shows an empty queue message when there are no traces to review", async () => {
+    setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
+
+    renderDataset({ tab: null });
+
+    expect(
+      await screen.findByText("No traces waiting for review."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+  });
+
+  it("shows queue errors independently from the dataset summary", async () => {
+    setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json({ error: "nope" }, { status: 500 }),
+      ),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Queue unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Failed to load the queue.")).toBeInTheDocument();
+  });
+
+  it("defaults the clean dataset URL to the review queue", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "First prompt",
+          output: "First response",
+          sentiment: "positive",
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    expect(screen.getAllByText("First prompt").length).toBeGreaterThan(0);
+    expect(screen.getByText("trace_111111")).toBeInTheDocument();
+    expect(screen.getByText("Likely positive")).toBeInTheDocument();
+  });
+
+  it("switches from the default queue tab to the dataset tab", async () => {
+    setupDataset(
+      makeDatasetResponse({
+        item_count: 0,
+        good_count: 0,
+        bad_count: 0,
+        grade: "—",
+        next_grade: "",
+        next_grade_progress: 0,
+      }),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Queued prompt",
+          output: "Queued response",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Queued response")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^dataset/i }));
+
+    expect(await screen.findByText("No items yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Queued response")).not.toBeInTheDocument();
+  });
+
+  it("navigates between queue traces from the detail header", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "First prompt",
+          output: "First response",
+        }),
+        queueItem({
+          trace_id: "trace_222222",
+          input: "Second prompt",
+          output: "Second response",
+          sentiment: "negative",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^previous$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    expect(screen.getByText("Second response")).toBeInTheDocument();
+    expect(screen.getByText("Likely negative")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^previous$/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /^previous$/i }));
+    expect(screen.getByText("First response")).toBeInTheDocument();
+  });
+
+  it("toggles the queue detail output between pretty and raw", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "plain input",
+          output: "agent **answer**",
+          sentiment: "",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("No signal");
+    expect(
+      Array.from(document.querySelectorAll("pre")).some((pre) =>
+        pre.textContent?.includes("agent **answer**"),
+      ),
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^raw$/i }));
+
+    await waitFor(() => {
+      expect(
+        Array.from(document.querySelectorAll("pre")).some((pre) =>
+          pre.textContent?.includes("agent **answer**"),
+        ),
+      ).toBe(true);
+    });
+    expect(screen.getByText("No signal")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["Good", "good"],
+    ["Bad", "bad"],
+    ["Neutral", "unknown"],
+  ] as const)("posts %s as %s", async (label, verdict) => {
+    let posted: DatasetJudgmentRequest | null = null;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: `${label} prompt`,
+          output: `${label} response`,
+        }),
+      ]),
+    );
+    server.use(
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        posted = (await request.json()) as DatasetJudgmentRequest;
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText(`${label} response`);
+    await user.click(screen.getByRole("button", { name: label }));
+
+    await waitFor(() => {
+      expect(posted).toEqual({
+        trace_id: "trace_111111",
+        verdict,
+      });
+    });
+  });
+
+  it("keeps a trace in the queue and shows a retry message when judgment fails", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Retry prompt",
+          output: "Retry response",
+        }),
+      ]),
+    );
+    server.use(
+      http.post("/api/v1/deployments/:id/dataset/judgments", () =>
+        HttpResponse.json({ error: "failed" }, { status: 500 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Retry response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    expect(
+      await screen.findByText("Could not save verdict. Try again."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Retry prompt").length).toBeGreaterThan(0);
+  });
+
+  it("removes a judged trace from the queue and selects the next trace", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "First prompt",
+      output: "First response",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second prompt",
+      output: "Second response",
+    });
+    let queueItems = [first, second];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(reviewQueueResponse(queueItems)),
+      ),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [second];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
+      expect(screen.getByText("Second response")).toBeInTheDocument();
+    });
+  });
+});
+
+describe("dataset view", () => {
   it("renders the grade letter, dataset name, and counts", async () => {
     setupDataset(makeDatasetResponse());
     renderDataset();

@@ -120,10 +120,20 @@ export const deploymentKeys = {
     ['deployments', deploymentId, 'lastError', workloadName, container] as const,
   podMetrics: (deploymentId: string, pod: string, range: string) =>
     ['deployments', deploymentId, 'pods', pod, 'metrics', range] as const,
-  dataset: (deploymentId: string) =>
-    ['deployments', deploymentId, 'dataset'] as const,
-  datasetItems: (deploymentId: string, limit: number, verdict?: string) =>
-    ['deployments', deploymentId, 'dataset', 'items', limit, verdict ?? 'all'] as const,
+};
+
+export const evalKeys = {
+  /** Prefix that matches every eval query for a deployment. */
+  all: (deploymentId: string) => ['evals', deploymentId] as const,
+  summary: (deploymentId: string) =>
+    ['evals', deploymentId, 'summary'] as const,
+  /** Prefix that matches every paginated items query (across limit/verdict). */
+  itemsAll: (deploymentId: string) =>
+    ['evals', deploymentId, 'items'] as const,
+  items: (deploymentId: string, limit: number, verdict?: string) =>
+    ['evals', deploymentId, 'items', limit, verdict ?? 'all'] as const,
+  reviewQueue: (deploymentId: string) =>
+    ['evals', deploymentId, 'review-queue'] as const,
 };
 
 export const auditLogKeys = {

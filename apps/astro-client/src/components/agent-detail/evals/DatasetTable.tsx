@@ -15,7 +15,7 @@ import type {
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
 } from "@/lib/api";
-import { useEvalDatasetItems } from "@/api/queries/deployments";
+import { useEvalDatasetItems } from "@/api/queries/evals";
 
 import type { FilterKey } from "./DatasetFilterChips";
 import {
@@ -101,10 +101,13 @@ export function DatasetTable({
       footer={
         hasNextPage && !isLoading ? (
           <TableShowMore
-            hiddenCount={Math.min(
-              PAGE_LIMIT,
-              (data?.pages[0]?.total_items ?? summary.item_count) -
-                allItems.length,
+            hiddenCount={Math.max(
+              0,
+              Math.min(
+                PAGE_LIMIT,
+                (data?.pages[0]?.total_items ?? summary.item_count) -
+                  allItems.length,
+              ),
             )}
             expanded={false}
             onToggle={() => void fetchNextPage()}

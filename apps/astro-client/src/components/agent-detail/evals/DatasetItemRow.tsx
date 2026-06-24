@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
 import type { EvalDatasetItem } from "@/lib/api";
 
@@ -29,16 +30,6 @@ function itemVerdict(item: EvalDatasetItem): Verdict {
   if (v === 1) return "good";
   if (v === -1) return "bad";
   return null;
-}
-
-function summarize(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }
 
 function VerdictPill({ verdict }: { verdict: Verdict }) {

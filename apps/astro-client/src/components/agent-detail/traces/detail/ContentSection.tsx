@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { Check, ChevronRight, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,8 @@ import { ContentValue } from "@/components/agent-detail/ContentValue";
 export interface ContentSectionProps {
   label: string;
   content: unknown;
+  icon?: ReactNode;
+  mode?: "pretty" | "raw";
   defaultOpen?: boolean;
   emptyText?: string;
 }
@@ -15,6 +18,8 @@ export interface ContentSectionProps {
 export function ContentSection({
   label,
   content,
+  icon,
+  mode = "pretty",
   defaultOpen = true,
   emptyText = "No content.",
 }: ContentSectionProps) {
@@ -34,7 +39,7 @@ export function ContentSection({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex flex-1 items-center gap-2 px-4 py-2.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left"
         >
           <ChevronRight
             className={cn(
@@ -42,7 +47,8 @@ export function ContentSection({
               open && "rotate-90",
             )}
           />
-          <span className="text-body-sm font-medium text-foreground">{label}</span>
+          {icon && <span className="flex flex-none items-center justify-center">{icon}</span>}
+          <span className="truncate text-body-sm font-medium text-foreground">{label}</span>
         </button>
         {!parsed.isEmpty && (
           <button
@@ -73,11 +79,12 @@ export function ContentSection({
           <div
             className={cn(
               "border-t border-border/40",
-              parsed.isJson && !parsed.isEmpty ? "p-3" : "px-4 py-3",
+              parsed.isJson && !parsed.isEmpty && mode !== "raw" ? "p-3" : "px-4 py-3",
             )}
           >
             <ContentValue
               parsed={parsed}
+              mode={mode}
               className={!parsed.isJson ? "[&_pre]:rounded-sm" : undefined}
               emptyFallback={
                 <p className="text-body-sm text-muted-foreground">

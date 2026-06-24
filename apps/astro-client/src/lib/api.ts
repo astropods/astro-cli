@@ -977,6 +977,45 @@ export interface EvalDatasetItemsParams {
   verdict?: EvalDatasetItemsVerdict;
 }
 
+export type ReviewQueueSentiment = "positive" | "negative" | "";
+
+export interface ReviewQueueItem {
+  trace_id: string;
+  timestamp: string;
+  input: unknown;
+  output: unknown;
+  sentiment: ReviewQueueSentiment;
+}
+
+export interface ReviewQueueResponse {
+  items: ReviewQueueItem[];
+  /** Reserved for TODO(eval-queue-pagination): the preview UI currently loads one page. */
+  next_offset?: number;
+  /** Snapshot token to reuse with next_offset once queue pagination is enabled. */
+  end_time: string;
+}
+
+export interface ReviewQueueParams {
+  limit?: number;
+  /** Reserved for TODO(eval-queue-pagination): request later pages after preview validation. */
+  offset?: number;
+  /** Required with offset once queue pagination is enabled. */
+  endTime?: string;
+}
+
+export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
+
+export interface DatasetJudgmentRequest {
+  trace_id: string;
+  verdict: DatasetJudgmentVerdict;
+}
+
+export interface DatasetJudgmentResponse {
+  eval_dataset_id: string;
+  trace_id: string;
+  verdict: DatasetJudgmentVerdict;
+}
+
 // --- Pod metrics (CPU / memory time series) ---
 
 export type PodMetricsRange = "1h" | "6h" | "24h" | "7d";
@@ -2358,12 +2397,39 @@ class ApiClient {
     deploymentId: string,
     { page, cursor, limit, verdict }: EvalDatasetItemsParams,
   ): Promise<EvalDatasetItemsResponse> {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (page) params.set("page", String(page));
-    if (cursor) params.set("cursor", cursor);
-    if (verdict) params.set("verdict", verdict);
     return this.request<EvalDatasetItemsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items?${params}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items${buildQS({
+        limit: String(limit),
+        page: page != null ? String(page) : undefined,
+        cursor,
+        verdict,
+      })}`
+    );
+  }
+
+  async getDatasetReviewQueue(
+    deploymentId: string,
+    { limit, offset, endTime }: ReviewQueueParams = {},
+  ): Promise<ReviewQueueResponse> {
+    return this.request<ReviewQueueResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue${buildQS({
+        limit: limit != null ? String(limit) : undefined,
+        offset: offset != null ? String(offset) : undefined,
+        end_time: endTime,
+      })}`
+    );
+  }
+
+  async postDatasetJudgment(
+    deploymentId: string,
+    body: DatasetJudgmentRequest,
+  ): Promise<DatasetJudgmentResponse> {
+    return this.request<DatasetJudgmentResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
     );
   }
 

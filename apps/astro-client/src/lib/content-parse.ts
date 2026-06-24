@@ -18,6 +18,21 @@ export function safeStringify(v: unknown): string {
 }
 
 /**
+ * Compact single-line representation of an arbitrary content value, intended
+ * for list cells with line-clamp truncation. Objects/arrays collapse to
+ * compact (un-indented) JSON.
+ */
+export function summarize(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
  * Decide whether the content is JSON or plain text.
  * Objects / arrays passed in directly are treated as JSON.
  * Strings get a JSON.parse attempt when they look JSON-shaped.
