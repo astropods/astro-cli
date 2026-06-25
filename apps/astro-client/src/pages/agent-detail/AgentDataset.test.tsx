@@ -183,6 +183,95 @@ describe("review queue view", () => {
     expect(screen.getByText("Failed to load the queue.")).toBeInTheDocument();
   });
 
+  it.each([
+    {
+      grade: "A",
+      label: "Strong coverage",
+      tooltip:
+        "You've labeled a representative sample. Keep going to capture edge cases and strengthen future evals.",
+      nextGrade: "",
+      nextGradeProgress: 1,
+    },
+    {
+      grade: "B",
+      label: "Good coverage",
+      tooltip:
+        "You've labeled a solid sample of traces. Keep going to capture edge cases and push toward an A.",
+      nextGrade: "A",
+      nextGradeProgress: 0.6,
+    },
+    {
+      grade: "C",
+      label: "Enough coverage",
+      tooltip:
+        "You've labeled enough traces to get started. Keep going to improve coverage and reliability.",
+      nextGrade: "B",
+      nextGradeProgress: 0.4,
+    },
+  ])(
+    "shows $label in the queue header for a $grade grade",
+    async ({ grade, label, tooltip, nextGrade, nextGradeProgress }) => {
+      setupDataset(
+        makeDatasetResponse({
+          item_count: 48,
+          good_count: 38,
+          bad_count: 10,
+          grade,
+          next_grade: nextGrade,
+          next_grade_progress: nextGradeProgress,
+        }),
+        emptyItems(),
+        reviewQueueResponse([
+          queueItem({
+            trace_id: "trace_111111",
+            input: "Ready prompt",
+            output: "Ready response",
+          }),
+        ]),
+      );
+
+      const user = userEvent.setup();
+      renderDataset({ tab: null });
+
+      expect(await screen.findByText("Ready response")).toBeInTheDocument();
+      await user.hover(screen.getByText(label));
+      const tooltipText = await screen.findAllByText(tooltip);
+      expect(tooltipText.length).toBeGreaterThan(0);
+      expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveAttribute(
+        "data-side",
+        "top",
+      );
+    },
+  );
+
+  it("hides the baseline cue before the dataset reaches a C grade", async () => {
+    setupDataset(
+      makeDatasetResponse({
+        item_count: 100,
+        good_count: 58,
+        bad_count: 42,
+        grade: "D",
+        next_grade: "C",
+        next_grade_progress: 0.7,
+      }),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Needs more prompt",
+          output: "Needs more response",
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Needs more response")).toBeInTheDocument();
+    expect(screen.queryByText("Enough coverage")).not.toBeInTheDocument();
+    expect(screen.queryByText("Good coverage")).not.toBeInTheDocument();
+    expect(screen.queryByText("Strong coverage")).not.toBeInTheDocument();
+  });
+
   it("defaults the clean dataset URL to the review queue", async () => {
     setupDataset(
       makeDatasetResponse(),

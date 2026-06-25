@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, type StatusBadgeColor } from "@/components/StatusBadge";
 import { ContentSection } from "@/components/agent-detail/traces/detail/ContentSection";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -95,6 +95,12 @@ type QuickUndoJudgment = {
   item?: ReviewQueueItem;
 };
 
+type BaselineStatus = {
+  label: string;
+  tooltip: string;
+  color: StatusBadgeColor;
+};
+
 export interface ReviewQueueViewProps {
   deploymentId: string;
   account: string;
@@ -123,6 +129,7 @@ export function ReviewQueueView({
   const items = data?.items ?? EMPTY_REVIEW_QUEUE_ITEMS;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
+  const baselineStatus = getBaselineStatus(summary);
   const activeSelectedId = selectedItem?.trace_id ?? null;
   const { previousTraceId, nextTraceId } = getAdjacentTraceIds(
     items,
@@ -205,7 +212,9 @@ export function ReviewQueueView({
   return (
     <>
       <EvalTabCard className="h-[calc(100dvh-20rem)] max-h-[720px] min-h-96">
-        <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name} />
+        <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name}>
+          {baselineStatus && <BaselineStatusBadge status={baselineStatus} />}
+        </EvalTabCardHeader>
         <EvalTabCardBody>
           <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
             <ReviewQueueList
@@ -264,6 +273,61 @@ export function ReviewQueueView({
         onQuickUndo={handleQuickUndo}
       />
     </>
+  );
+}
+
+function getBaselineStatus(summary: EvalDatasetResponse): BaselineStatus | null {
+  switch (summary.grade.toUpperCase()) {
+    case "A":
+      return {
+        label: "Strong coverage",
+        tooltip:
+          "You've labeled a representative sample. Keep going to capture edge cases and strengthen future evals.",
+        color: "success",
+      };
+    case "B":
+      return {
+        label: "Good coverage",
+        tooltip:
+          "You've labeled a solid sample of traces. Keep going to capture edge cases and push toward an A.",
+        color: "success",
+      };
+    case "C":
+      return {
+        label: "Enough coverage",
+        tooltip:
+          "You've labeled enough traces to get started. Keep going to improve coverage and reliability.",
+        color: "success",
+      };
+    default:
+      return null;
+  }
+}
+
+function BaselineStatusBadge({ status }: { status: BaselineStatus }) {
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            tabIndex={0}
+          >
+            <StatusBadge
+              color={status.color}
+              outline
+              className="gap-1.5 px-2.5 py-1 font-sans text-body-sm font-medium normal-case tracking-normal"
+            >
+              <Check aria-hidden className="size-3.5" />
+              {status.label}
+            </StatusBadge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-64 text-left">
+          {status.tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
