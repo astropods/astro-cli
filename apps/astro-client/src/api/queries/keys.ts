@@ -100,6 +100,8 @@ export const chatKeys = {
     ['chat', 'conversations', deploymentId] as const,
   conversation: (deploymentId: string, conversationId: string) =>
     ['chat', 'conversation', deploymentId, conversationId] as const,
+  agentConfig: (deploymentId: string) =>
+    ['chat', 'agent-config', deploymentId] as const,
 };
 
 export const deploymentKeys = {

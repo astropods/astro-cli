@@ -112,6 +112,20 @@ export function useDeploymentChatConversations(deploymentId: string) {
   });
 }
 
+/** Agent self-reported config (system prompt + tools) for the inspector. */
+export function useDeploymentAgentConfig(
+  deploymentId: string,
+  enabled = true,
+) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: chatKeys.agentConfig(deploymentId),
+    queryFn: () => api.getDeploymentAgentConfig(deploymentId),
+    enabled: enabled && !!deploymentId,
+    staleTime: 60_000,
+  });
+}
+
 export function useDeploymentChatConversation(
   deploymentId: string,
   conversationId: string | null | undefined,

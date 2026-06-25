@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { useChatSessions } from "@/hooks/use-chat-sessions";
@@ -6,9 +6,15 @@ import {
   useDeleteDeploymentChatConversation,
   useUpsertDeploymentChatConversation,
 } from "@/api/queries/chat";
+import { useIsMobile } from "@/hooks/use-compact-layout";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { ChatThreadHeader } from "./ChatThreadHeader";
 import { ChatThread } from "./ChatThread";
+import {
+  ChatInspectorPanel,
+  type ChatInspectorTab,
+} from "./ChatInspectorPanel";
 
 export function ChatWorkspace({
   account,
@@ -27,6 +33,24 @@ export function ChatWorkspace({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const conversationId = searchParams.get("conversation");
+  const isMobile = useIsMobile();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<ChatInspectorTab>("overview");
+  // Two-phase mount so the docked panel animates on both open and close: mount
+  // collapsed, expand on the next frame; on close, collapse then unmount after
+  // the transition (which also keeps its queries idle until it is opened).
+  const [inspectorMounted, setInspectorMounted] = useState(false);
+  const [inspectorEntered, setInspectorEntered] = useState(false);
+  useEffect(() => {
+    if (inspectorOpen) {
+      setInspectorMounted(true);
+      const raf = requestAnimationFrame(() => setInspectorEntered(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setInspectorEntered(false);
+    const timer = setTimeout(() => setInspectorMounted(false), 300);
+    return () => clearTimeout(timer);
+  }, [inspectorOpen]);
 
   const { sessions, recordFirstMessage, isLoading: sessionsLoading } =
     useChatSessions(deploymentId);
@@ -93,30 +117,80 @@ export function ChatWorkspace({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+        "flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
         className,
       )}
     >
-      <ChatThreadHeader
-        deployment={deployment}
-        eligibleDeploymentIds={eligibleDeploymentIds}
-        sessions={sessions}
-        activeConversationId={conversationId}
-        onSelectSession={setConversationId}
-        onRenameSession={onRenameSession}
-        onDeleteSession={onDeleteSession}
-        onNewConversation={onNewConversation}
-      />
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <ChatThread
-          key={`${deploymentId}:${conversationId ?? "draft"}`}
-          account={account}
-          deploymentId={deploymentId}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <ChatThreadHeader
           deployment={deployment}
-          conversationId={conversationId}
-          onConversationCreated={onConversationCreated}
+          eligibleDeploymentIds={eligibleDeploymentIds}
+          sessions={sessions}
+          activeConversationId={conversationId}
+          onSelectSession={setConversationId}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
+          onNewConversation={onNewConversation}
+          inspectorOpen={inspectorOpen}
+          onToggleInspector={() => setInspectorOpen((open) => !open)}
         />
-      </section>
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ChatThread
+            key={`${deploymentId}:${conversationId ?? "draft"}`}
+            account={account}
+            deploymentId={deploymentId}
+            deployment={deployment}
+            conversationId={conversationId}
+            onConversationCreated={onConversationCreated}
+          />
+        </section>
+      </div>
+
+      {inspectorMounted && !isMobile ? (
+        <aside
+          aria-hidden={!inspectorOpen}
+          className={cn(
+            "flex shrink-0 flex-col overflow-hidden transition-[width] duration-300 ease-out motion-reduce:transition-none",
+            inspectorEntered ? "w-[368px]" : "w-0",
+          )}
+        >
+          <div
+            className={cn(
+              "m-3.5 flex w-[340px] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none",
+              inspectorEntered ? "translate-x-0 opacity-100" : "translate-x-3 opacity-0",
+            )}
+          >
+            <ChatInspectorPanel
+              account={account}
+              deploymentId={deploymentId}
+              deployment={deployment}
+              tab={inspectorTab}
+              onTabChange={setInspectorTab}
+              onClose={() => setInspectorOpen(false)}
+            />
+          </div>
+        </aside>
+      ) : null}
+
+      {isMobile ? (
+        <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
+          <SheetContent
+            side="right"
+            showCloseButton={false}
+            className="w-[88vw] gap-0 bg-surface p-0 sm:max-w-sm"
+          >
+            <SheetTitle className="sr-only">Agent details</SheetTitle>
+            <ChatInspectorPanel
+              account={account}
+              deploymentId={deploymentId}
+              deployment={deployment}
+              tab={inspectorTab}
+              onTabChange={setInspectorTab}
+              onClose={() => setInspectorOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
     </div>
   );
 }

@@ -828,6 +828,21 @@ export interface MessagingHistoryMessage {
   user?: { id: string; username?: string };
 }
 
+// Agent self-reported config from the messaging web sidecar (GET
+// /api/agent/config), proxied via astro-server. Same shape the playground
+// reads; powers the chat inspector's Settings/config tab.
+export interface DeploymentAgentConfigTool {
+  name: string;
+  title?: string;
+  description?: string;
+  type?: string;
+}
+
+export interface DeploymentAgentConfig {
+  systemPrompt: string;
+  tools: DeploymentAgentConfigTool[];
+}
+
 export interface DeploymentChatConversationSummary {
   conversation_id: string;
   title: string;
@@ -2286,6 +2301,15 @@ class ApiClient {
         deploymentId,
         `conversations/${encodeURIComponent(conversationId)}/history`,
       ),
+    );
+  }
+
+  /** Agent self-reported config (system prompt + tools) via the messaging proxy. */
+  async getDeploymentAgentConfig(
+    deploymentId: string,
+  ): Promise<DeploymentAgentConfig> {
+    return this.request<DeploymentAgentConfig>(
+      this.messagingProxyPath(deploymentId, "agent/config"),
     );
   }
 

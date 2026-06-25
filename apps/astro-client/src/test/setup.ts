@@ -11,6 +11,21 @@ if (typeof window !== 'undefined') {
   window.HTMLElement.prototype.scrollIntoView ??= () => {};
 }
 
+// jsdom does not implement matchMedia — required by useMediaBreakpoint
+// (useIsMobile / useCompactLayout) and any component that reads viewport width.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
 // jsdom does not implement ResizeObserver
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class ResizeObserver {

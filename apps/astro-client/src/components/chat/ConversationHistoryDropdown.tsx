@@ -41,7 +41,7 @@ export function ConversationHistoryDropdown({
           aria-label="Chat history"
         >
           <ClockIcon className="size-4 shrink-0 text-foreground" />
-          <span className="text-foreground">History</span>
+          <span className="hidden text-foreground sm:inline">History</span>
           <span className="font-mono text-mono-sm text-faint-foreground">
             {sessions.length}
           </span>

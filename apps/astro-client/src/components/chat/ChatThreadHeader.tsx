@@ -1,5 +1,6 @@
-import { SquarePen } from "lucide-react";
+import { PanelRight, SquarePen } from "lucide-react";
 import type { AgentDeploymentSummary } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/lib/chat/types";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
 import { chatDeploymentPath } from "@/lib/routes";
@@ -21,6 +22,8 @@ export function ChatThreadHeader({
   onRenameSession,
   onDeleteSession,
   onNewConversation,
+  inspectorOpen,
+  onToggleInspector,
 }: {
   deployment: AgentDeploymentSummary;
   /** Chat-eligible deployments to show in the agent switch list. */
@@ -31,9 +34,11 @@ export function ChatThreadHeader({
   onRenameSession?: (conversationId: string, title: string) => void;
   onDeleteSession?: (conversationId: string) => void;
   onNewConversation?: () => void;
+  inspectorOpen?: boolean;
+  onToggleInspector?: () => void;
 }) {
   return (
-    <header className="relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
+    <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
       <AgentDeploymentMenu
         deployment={deployment}
         variant="detail"
@@ -73,6 +78,31 @@ export function ChatThreadHeader({
           onRenameSession={onRenameSession}
           onDeleteSession={onDeleteSession}
         />
+
+        {onToggleInspector ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 gap-1.5 px-2.5 text-body-sm font-medium",
+                    inspectorOpen && "bg-muted text-foreground",
+                  )}
+                  aria-label="Agent details"
+                  aria-pressed={inspectorOpen}
+                  onClick={onToggleInspector}
+                >
+                  <PanelRight className="size-4 text-foreground" />
+                  <span className="hidden text-foreground sm:inline">Details</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Agent details</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : null}
       </div>
     </header>
   );
