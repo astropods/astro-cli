@@ -47,11 +47,11 @@ const GRADE_CLASS: Record<
 };
 
 const GRADE_HEADLINE: Record<string, string> = {
-  A: "Strong baseline",
-  B: "Solid baseline",
+  A: "Dataset looks healthy",
+  B: "Improve your dataset",
   C: "Needs more coverage",
-  D: "Weak baseline",
-  F: "Weak baseline",
+  D: "Needs more coverage",
+  F: "Needs more coverage",
 };
 
 function datasetGradeTone(grade: string): DatasetGradeTone {
@@ -70,7 +70,7 @@ function datasetGradeTone(grade: string): DatasetGradeTone {
 }
 
 function datasetGradeHeadline(grade: string, itemCount: number): string {
-  if (itemCount === 0) return "No baseline yet";
+  if (itemCount === 0) return "Start grading";
   return GRADE_HEADLINE[grade.toUpperCase()] ?? "";
 }
 
@@ -96,7 +96,7 @@ export function DatasetGrade({
     return (
       <div className={className}>
         <div className="font-mono text-label uppercase text-faint-foreground">
-          Baseline grade
+          Dataset grade
         </div>
         <div
           className={cn(

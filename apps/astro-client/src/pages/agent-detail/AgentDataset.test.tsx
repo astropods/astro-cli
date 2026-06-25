@@ -1004,7 +1004,7 @@ describe("dataset view", () => {
       }),
     );
     renderDataset();
-    expect(await screen.findByText(/no baseline yet/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/start grading/i)).length).toBeGreaterThan(0);
   });
 
   it("uses summary verdict counts in filter chips", async () => {

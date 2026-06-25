@@ -19,19 +19,19 @@ function summary(overrides: Partial<EvalDatasetResponse> = {}): EvalDatasetRespo
 }
 
 describe("DatasetGradeSidebar", () => {
-  it("renders the grade letter and headline for an A baseline", () => {
+  it("renders the grade letter and headline for an A dataset", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
     expect(screen.getByLabelText(/grade a/i)).toBeInTheDocument();
-    expect(screen.getByText(/strong baseline/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/dataset looks healthy/i).length).toBeGreaterThan(0);
   });
 
   it("maps headlines from the grade letter", () => {
     const cases: Array<[string, RegExp]> = [
-      ["A", /strong baseline/i],
-      ["B", /solid baseline/i],
+      ["A", /dataset looks healthy/i],
+      ["B", /improve your dataset/i],
       ["C", /needs more coverage/i],
-      ["D", /weak baseline/i],
-      ["F", /weak baseline/i],
+      ["D", /needs more coverage/i],
+      ["F", /needs more coverage/i],
     ];
     for (const [grade, label] of cases) {
       cleanup();
@@ -40,11 +40,11 @@ describe("DatasetGradeSidebar", () => {
           summary={summary({ grade, next_grade: grade === "A" ? "" : "A" })}
         />,
       );
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
   });
 
-  it("renders empty baseline when there are no items", () => {
+  it("renders empty guidance when there are no items", () => {
     render(
       <DatasetGradeSidebar
         summary={summary({
@@ -57,7 +57,12 @@ describe("DatasetGradeSidebar", () => {
         })}
       />,
     );
-    expect(screen.getByText(/no baseline yet/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/start grading/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        /label recent traces as good or bad\. these labels determine how reliable this dataset is\./i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("hides the progress bar when already at A", () => {
@@ -76,6 +81,72 @@ describe("DatasetGradeSidebar", () => {
       />,
     );
     expect(screen.getByText(/42% to D/)).toBeInTheDocument();
+  });
+
+  it("shows low-volume guidance with the remaining case count", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          item_count: 14,
+          good_count: 11,
+          bad_count: 3,
+          grade: "C",
+          next_grade: "B",
+          next_grade_progress: 0.67,
+        })}
+      />,
+    );
+    expect(screen.getByText(/grade more cases/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /more labels make the dataset score more reliable\. make sure to include some bad cases\./i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows failure-case guidance when the dataset has too few bad cases", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          item_count: 100,
+          good_count: 98,
+          bad_count: 2,
+          grade: "B",
+          next_grade: "A",
+          next_grade_progress: 0.5,
+        })}
+      />,
+    );
+    expect(screen.getAllByText(/add failure cases/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/only 2% of traces are labeled bad/i)).toBeInTheDocument();
+  });
+
+  it("shows healthy dataset guidance for an A with healthy coverage", () => {
+    render(<DatasetGradeSidebar summary={summary()} />);
+    const guidanceTitle = screen.getAllByText(/dataset looks healthy/i)[1];
+    expect(guidanceTitle).toBeInTheDocument();
+    expect(guidanceTitle.closest('[data-slot="card"]')).toBeInTheDocument();
+    expect(screen.getByText(/this dataset is a reliable signal/i)).toBeInTheDocument();
+  });
+
+  it("shows noise-reduction guidance when too many traces are labeled bad", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          item_count: 100,
+          good_count: 60,
+          bad_count: 40,
+          grade: "C",
+          next_grade: "B",
+          next_grade_progress: 0.4,
+        })}
+      />,
+    );
+    expect(screen.getByText(/reduce noise/i)).toBeInTheDocument();
+    expect(screen.getByText(/40% of traces are labeled bad/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/add good examples or remove bad labels that don't reflect real failures/i),
+    ).toBeInTheDocument();
   });
 
   it("shows composition counts in the legend", () => {
