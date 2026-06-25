@@ -379,7 +379,7 @@ export function NewEntryDialog({ open, isPending, accountName, initialName, init
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      className="h-6 px-3.5 text-xs font-medium text-muted-foreground hover:text-foreground"
                       onClick={() =>
                         updateRow(row.id, {
                           showDescription: !row.showDescription,

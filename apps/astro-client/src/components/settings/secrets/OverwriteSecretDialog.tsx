@@ -64,7 +64,7 @@ export function OverwriteSecretDialog({ secretName, description: initialDescript
               type="password"
               value={value}
               onChange={e => setValue(e.target.value)}
-              placeholder="••••••••••••"
+              placeholder="Enter a value"
               autoComplete="off"
               data-1p-ignore
               autoFocus
