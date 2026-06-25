@@ -277,8 +277,12 @@ func (p *eksTokenProvider) refreshLocked(ctx context.Context) error {
 			o.APIOptions = append(o.APIOptions,
 				// Add cluster ID header
 				smithyhttp.SetHeaderValue(clusterIDHeader, p.clusterName),
-				// Add X-Amz-Expires for compatibility
-				smithyhttp.SetHeaderValue("X-Amz-Expires", "60"),
+				// Presigned-URL validity. aws-iam-authenticator caps token
+				// lifetime at 15m; match that so the token stays valid for the
+				// full 14m cache window (tokenExpiry). A short value here (e.g.
+				// 60s) signature-expires the cached token, 401-ing every call
+				// until the next refresh.
+				smithyhttp.SetHeaderValue("X-Amz-Expires", "900"),
 			)
 		})
 	})
@@ -294,6 +298,30 @@ func (p *eksTokenProvider) refreshLocked(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// cloneRequestForRetry clones req for a single retry, rewinding the request
+// body so write requests (POST/PUT) re-send their payload. req.Clone copies the
+// Body reader by reference, not its bytes — and the first attempt already
+// consumed it — so without rewinding via GetBody (which client-go sets on
+// requests) the retry would send the Content-Length header with a 0-byte body,
+// failing with "request declared a Content-Length of N but only wrote 0 bytes".
+// Returns ok=false when a body is present but cannot be rewound; the caller
+// should then not retry.
+func cloneRequestForRetry(req *http.Request) (*http.Request, bool) {
+	clone := req.Clone(req.Context())
+	if req.Body == nil || req.Body == http.NoBody {
+		return clone, true
+	}
+	if req.GetBody == nil {
+		return nil, false
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, false
+	}
+	clone.Body = body
+	return clone, true
 }
 
 // eksTokenTransport injects EKS tokens and handles 401 refresh
@@ -332,10 +360,15 @@ func (t *eksTokenTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 
 		newToken, _ := t.tokenProvider.getToken(req.Context())
-		_ = resp.Body.Close()
 
-		retryCopy := req.Clone(req.Context())
+		retryCopy, ok := cloneRequestForRetry(req)
+		if !ok {
+			// Body can't be rewound; surface the 401 rather than a torn request.
+			return resp, nil
+		}
 		retryCopy.Header.Set("Authorization", "Bearer "+newToken)
+
+		_ = resp.Body.Close()
 		return t.base.RoundTrip(retryCopy)
 	}
 
