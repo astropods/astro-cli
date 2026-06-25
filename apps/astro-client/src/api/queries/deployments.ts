@@ -5,6 +5,7 @@ import type { LogEntry } from '@/lib/log-utils';
 import type {
   AgentDeployment,
   DeploymentsListResponse,
+  DeploymentStatus,
   PodMetricsRange,
   UndeployResponse,
 } from '@/lib/api';
@@ -66,6 +67,47 @@ export function useDeployment(
   });
 }
 
+// Resume status isn't monotonic: after the worker reports "active", the
+// reconcile worker can briefly re-mark a cold-starting deployment scaled_down,
+// which reads back as the terminal "inactive" and would halt status polling.
+// markDeploymentResuming opens a sliding grace window (each transitional read
+// pushes the deadline) so polling survives interim "inactive" reads through a
+// long cold start, module-wide, until status settles on "active".
+const RESUME_GRACE_MS = 30_000;
+const resumeGraceUntil = new Map<string, number>();
+
+export function markDeploymentResuming(id: string) {
+  const now = Date.now();
+  // Sweep lapsed windows so an abandoned resume (no observer re-reading the
+  // status to prune it) can't linger past its deadline.
+  for (const [key, deadline] of resumeGraceUntil) {
+    if (deadline <= now) resumeGraceUntil.delete(key);
+  }
+  resumeGraceUntil.set(id, now + RESUME_GRACE_MS);
+}
+
+// Polling decision for the status query (extracted for unit tests). Poll while
+// transitional, sliding any open resume window forward; otherwise keep polling
+// through interim reads until status hits "active" or the window lapses.
+export function statusRefetchInterval(
+  id: string,
+  value: DeploymentStatus['value'] | undefined,
+): number | false {
+  if (value === "deploying" || value === "undeploying") {
+    if (resumeGraceUntil.has(id)) resumeGraceUntil.set(id, Date.now() + RESUME_GRACE_MS);
+    return 3000;
+  }
+  const graceUntil = resumeGraceUntil.get(id);
+  if (graceUntil !== undefined) {
+    if (value === "active" || Date.now() >= graceUntil) {
+      resumeGraceUntil.delete(id);
+      return false;
+    }
+    return 3000;
+  }
+  return false;
+}
+
 // useDeploymentStatus fetches the coarse, server-derived deployment status
 // the UI renders (toggle label, history badge, deployment tile). The server
 // joins DB status + K8s readiness in one place — the client doesn't have to
@@ -78,10 +120,7 @@ export function useDeploymentStatus(id: string, enabled = true) {
     queryKey: deploymentKeys.status(id),
     queryFn: () => api.getDeploymentStatus(id),
     enabled: !!id && enabled,
-    refetchInterval: (query) => {
-      const s = query.state.data?.value;
-      return s === "deploying" || s === "undeploying" ? 3000 : false;
-    },
+    refetchInterval: (query) => statusRefetchInterval(id, query.state.data?.value),
   });
 }
 
@@ -108,6 +147,9 @@ export function useDeploymentRuntime(id: string, enabled = true) {
   useEffect(() => {
     if (prevStatusRef.current && prevStatusRef.current !== "active" && status === "active") {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(id) });
+      // Resume converged — drop the grace window eagerly (don't wait for
+      // statusRefetchInterval's lazy cleanup).
+      resumeGraceUntil.delete(id);
     }
     prevStatusRef.current = status;
   }, [status, id, queryClient]);
@@ -338,6 +380,10 @@ export function useWakeUpDeployment(account: string) {
   return useMutation<unknown, Error, { deploymentId: string }>({
     mutationFn: api.wakeupDeployment.bind(api),
     onSuccess: (_data, variables) => {
+      // Optimistically mark the deployment in-progress (list + status) so both
+      // queries poll immediately, and open the grace window so a post-resume
+      // "inactive" read doesn't strand the badge (see markDeploymentResuming).
+      markDeploymentResuming(variables.deploymentId);
       queryClient.setQueriesData(
         { queryKey: deploymentKeys.all(account) },
         (old: DeploymentsListResponse | undefined) => {
@@ -350,8 +396,16 @@ export function useWakeUpDeployment(account: string) {
           };
         },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
-      invalidateDeployment(queryClient, variables.deploymentId);
+      // Seed a full object when the status cache is empty so the badge shows
+      // progress immediately instead of waiting for the first poll.
+      queryClient.setQueryData<DeploymentStatus>(
+        deploymentKeys.status(variables.deploymentId),
+        (old) =>
+          old
+            ? { ...old, value: 'deploying', reason: 'provisioning' }
+            : { value: 'deploying', reason: 'provisioning', details: 'Pods are being provisioned' },
+      );
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.runtime(variables.deploymentId) });
     },
   });
 }

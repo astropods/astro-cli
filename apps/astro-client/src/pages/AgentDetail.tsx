@@ -11,7 +11,7 @@ import type { AgentDeployment, DeploymentRuntime } from "@/lib/api";
 import { chatDeploymentPath } from "@/lib/routes";
 import { ArrowUpRight } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { getLaunchDisabledMessage } from "@/lib/deployment-utils";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -113,23 +113,23 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>
-                      <Link
-                        to={launchDisabled ? "#" : chatDeploymentPath(deploymentId)}
-                        onClick={(e) => launchDisabled && e.preventDefault()}
-                        aria-disabled={launchDisabled}
-                        className={cn(
-                          "flex items-center gap-2 rounded-sm bg-primary px-4 py-1.5 text-sm font-medium tracking-wide text-primary-foreground transition-opacity",
-                          launchDisabled
-                            ? "pointer-events-none opacity-50"
-                            : "hover:opacity-85"
+                      <Button asChild={!launchDisabled} disabled={launchDisabled}>
+                        {launchDisabled ? (
+                          <>
+                            Launch
+                            <ArrowUpRight className="size-3.5" />
+                          </>
+                        ) : (
+                          <Link to={chatDeploymentPath(deploymentId)}>
+                            Launch
+                            <ArrowUpRight className="size-3.5" />
+                          </Link>
                         )}
-                      >
-                        Launch <ArrowUpRight className="size-3.5" />
-                      </Link>
+                      </Button>
                     </span>
                   </TooltipTrigger>
                   {launchDisabled && (
-                    <TooltipContent side="bottom">
+                    <TooltipContent side="bottom" className="max-w-[240px] py-1.5" collisionPadding={8}>
                       {getLaunchDisabledMessage(statusData?.value)}
                     </TooltipContent>
                   )}

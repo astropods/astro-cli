@@ -731,10 +731,10 @@ export function DeployedAgentCard({
                       className="w-full"
                     >
                       {launchDisabled ? (
-                        <span>
+                        <>
                           Launch
                           <ArrowUpRightIcon strokeWidth={3} className="size-3.5" />
-                        </span>
+                        </>
                       ) : (
                         <Link to={chatDeploymentPath(deploymentId)}>
                           Launch
@@ -745,7 +745,7 @@ export function DeployedAgentCard({
                   </span>
                 </TooltipTrigger>
                 {launchDisabled && (
-                  <TooltipContent>
+                  <TooltipContent className="max-w-[240px] py-1.5" collisionPadding={8}>
                     {getLaunchDisabledMessage(deploymentStatus)}
                   </TooltipContent>
                 )}
