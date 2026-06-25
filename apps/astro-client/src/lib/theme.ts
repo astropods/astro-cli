@@ -2,6 +2,9 @@ import { useSyncExternalStore, useEffect, createContext, useContext } from "reac
 
 export type Theme = "light" | "dark" | "auto";
 
+/** The resolved theme used whenever no explicit choice has been made. */
+export const DEFAULT_THEME: "light" | "dark" = "dark";
+
 const STORAGE_KEY = "astro:theme";
 const COOKIE_NAME = "astro-theme";
 const COOKIE_MAX_AGE = 31536000; // 1 year
@@ -11,7 +14,7 @@ const COOKIE_MAX_AGE = 31536000; // 1 year
  * Used by useResolvedTheme() for its server snapshot so SSR renders
  * components with the correct theme (e.g. chart colors, starfield).
  */
-export const ServerThemeContext = createContext<"light" | "dark">("dark");
+export const ServerThemeContext = createContext<"light" | "dark">(DEFAULT_THEME);
 
 function writeCookie(resolved: "light" | "dark") {
   if (typeof document === "undefined") return;
@@ -19,13 +22,13 @@ function writeCookie(resolved: "light" | "dark") {
 }
 
 export function parseCookieTheme(cookieHeader: string | null): "light" | "dark" {
-  if (!cookieHeader) return "dark";
+  if (!cookieHeader) return DEFAULT_THEME;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=(light|dark)`));
-  return (match?.[1] as "light" | "dark") ?? "dark";
+  return (match?.[1] as "light" | "dark") ?? DEFAULT_THEME;
 }
 
 function getSystemTheme(): "light" | "dark" {
-  if (typeof window === "undefined" || !window.matchMedia) return "dark";
+  if (typeof window === "undefined" || !window.matchMedia) return DEFAULT_THEME;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -42,7 +45,7 @@ function loadTheme(): Theme {
   } catch {
     // localStorage may be unavailable.
   }
-  return "dark";
+  return DEFAULT_THEME;
 }
 
 // Module-level store shared by every `useTheme()` consumer via

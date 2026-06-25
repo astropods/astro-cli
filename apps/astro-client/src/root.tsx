@@ -20,7 +20,7 @@ import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
 import { QueryAuthSync } from "./lib/QueryAuthSync";
 import { Button } from "./components/ui/button";
-import { parseCookieTheme, ServerThemeContext } from "./lib/theme";
+import { parseCookieTheme, ServerThemeContext, DEFAULT_THEME } from "./lib/theme";
 
 export const meta: Route.MetaFunction = () => [
   { title: "Astro" },
@@ -36,7 +36,7 @@ export const links: Route.LinksFunction = () => [
 export function Layout({ children }: { children: React.ReactNode }) {
   const matches = useMatches();
   const rootData = matches[0]?.data as { serverTheme?: "light" | "dark" } | undefined;
-  const serverTheme = rootData?.serverTheme ?? "light";
+  const serverTheme = rootData?.serverTheme ?? DEFAULT_THEME;
 
   return (
     <html lang="en" className={serverTheme === "dark" ? "dark" : undefined} suppressHydrationWarning>
@@ -45,7 +45,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem("astro:theme")||"light";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark");document.cookie="astro-theme="+t+";path=/;max-age=31536000;SameSite=Lax"})()`,
+            __html: `(function(){var t=localStorage.getItem("astro:theme")||"${DEFAULT_THEME}";if(t==="auto")t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark");document.cookie="astro-theme="+t+";path=/;max-age=31536000;SameSite=Lax"})()`,
           }}
         />
         <Meta />
@@ -112,7 +112,7 @@ export default function Root({ loaderData }: Route.ComponentProps) {
   const [queryClient] = useState(() => new QueryClient(queryClientConfig));
 
   return (
-    <ServerThemeContext.Provider value={loaderData?.serverTheme ?? "light"}>
+    <ServerThemeContext.Provider value={loaderData?.serverTheme ?? DEFAULT_THEME}>
       <AuthProvider serverAuth={loaderData?.serverAuth}>
         <QueryClientProvider client={queryClient}>
           <QueryAuthSync />
