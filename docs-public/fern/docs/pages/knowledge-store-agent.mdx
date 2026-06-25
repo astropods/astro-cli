@@ -1,0 +1,150 @@
+---
+title: Using Knowledge stores
+subtitle: Give your agent a database it can read from and write to
+slug: knowledge-store-agent
+---
+
+A **knowledge store** is a database your agent uses — Postgres, MySQL, Redis, Qdrant, Neo4j, or Pinecone. You declare it in `astropods.yml`; the platform creates it and passes the connection details to your agent as environment variables.
+
+This guide builds an agent with a single Postgres store named `writer`: declare it, run it locally, push a blueprint, and deploy it from the dashboard.
+
+```yaml
+knowledge:
+  writer:
+    provider: postgres
+```
+
+<Note>
+With one store, the variables are simply `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — the entry name (`writer`) is not part of them. That only changes when you add a second store of the same type (see [Adding a second store](#adding-a-second-store)).
+</Note>
+
+---
+
+## Steps
+
+<Steps>
+  <Step title="Create the agent">
+    ```bash
+    ast project create writer-agent --model anthropic
+    cd writer-agent
+    ```
+
+    This generates the starter source and `astropods.yml`.
+  </Step>
+  <Step title="Declare the store">
+    Add a `knowledge` block to `astropods.yml`:
+
+    ```yaml
+    spec: blueprint/v1
+    name: writer-agent
+
+    agent:
+      build:
+        context: .
+        dockerfile: Dockerfile
+
+    knowledge:
+      writer:
+        provider: postgres
+    ```
+
+    You only set the `provider` — no host, port, or password. Supported values: `postgres`, `mysql`, `redis`, `qdrant`, `neo4j`, and `pinecone`.
+  </Step>
+  <Step title="Read the connection in your code">
+    The connection details arrive as environment variables:
+
+    ```python
+    import os
+    import psycopg2  # replace with your database driver
+
+    conn = psycopg2.connect(
+        host=os.environ["POSTGRES_HOST"],
+        port=os.environ["POSTGRES_PORT"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+        dbname=os.environ["POSTGRES_DB"],
+    )
+    ```
+
+    ```typescript
+    import { Pool } from "pg"; // replace with your database driver
+
+    const pool = new Pool({
+      host: process.env.POSTGRES_HOST,
+      port: Number(process.env.POSTGRES_PORT),
+      user: process.env.POSTGRES_USER,
+      password: process.env.POSTGRES_PASSWORD,
+      database: process.env.POSTGRES_DB,
+    });
+    ```
+
+    | Variable | Meaning |
+    |---|---|
+    | `POSTGRES_HOST` | Host |
+    | `POSTGRES_PORT` | Port (default `5432`) |
+    | `POSTGRES_USER` | Username |
+    | `POSTGRES_PASSWORD` | Password |
+    | `POSTGRES_DB` | Database name |
+
+    Postgres gives you separate fields, not a single URL. Redis, Qdrant, and Neo4j also get a `<PREFIX>_URL` variable.
+  </Step>
+  <Step title="Run it locally">
+    ```bash
+    ast project start
+    ```
+
+    The CLI starts a Postgres container next to your agent with the same `POSTGRES_*` variables wired in. Your data persists across restarts. Logs stream in the foreground; Ctrl+C to stop.
+  </Step>
+  <Step title="Push a blueprint">
+    ```bash
+    ast login
+    ast blueprint push writer-agent
+    ```
+
+    The blueprint records that the agent needs a `writer` Postgres store. It does not contain any credentials.
+  </Step>
+  <Step title="Deploy from the dashboard">
+    Go to **Blueprints**, find `writer-agent`, and click **Deploy**. In the form:
+
+    1. **Set variables** — fill in `ANTHROPIC_API_KEY`, either as a value or from your [vault](/secrets).
+    2. **Choose how the store is backed** — each store has a **Local** / **Shared** toggle:
+       - **Local** (default) — the platform creates a managed Postgres database just for this agent.
+       - **Shared** — point the store at a database you've connected to the account. One database can back several agents, so they share the same data. Pick it from the dropdown.
+    3. **Deploy** — submit the form.
+
+    To use **Shared**, connect the database first under **Knowledge → Add store** (host, port, database, credentials — stored encrypted). Only matching, **Ready** stores can be selected. See [Knowledge stores](/knowledge-stores) for connecting a database in a private network.
+
+    The agent then appears under **Agents** with its live status.
+  </Step>
+</Steps>
+
+---
+
+## Adding a second store
+
+When you have two stores of the same type, the entry name is added to the variables so they don't clash:
+
+```yaml
+knowledge:
+  writer:
+    provider: postgres
+  analytics:
+    provider: postgres
+```
+
+One store is the **primary** and keeps the plain `POSTGRES_*` names; the others get the name added. The primary is the entry named after the provider, or — if none is — the first one alphabetically. Here `analytics` comes first:
+
+| Entry | Variables |
+|---|---|
+| `analytics` (primary) | `POSTGRES_HOST`, `POSTGRES_USER`, … **and** `POSTGRES_ANALYTICS_HOST`, `POSTGRES_ANALYTICS_USER`, … |
+| `writer` | `POSTGRES_WRITER_HOST`, `POSTGRES_WRITER_USER`, … |
+
+Each store is backed on its own, so you can leave one **Local** and set another to **Shared**. To make a store the primary, name it after the provider (e.g. `postgres:`).
+
+---
+
+## Next steps
+
+- [Knowledge stores](/knowledge-stores): connect a database to your account and share it across agents
+- [Managing secrets](/secrets): store credentials for deployment
+- [Astropods Spec](/astropods-package-spec): full reference for the `knowledge` block

@@ -1,21 +1,14 @@
 ---
-title: Connect to a private database
-subtitle: Allow agents to reach databases inside your VPN or private network
-slug: private-database
+title: Allowlist Astro's egress IPs
+subtitle: Let agents reach a database behind your firewall over the public network
+slug: ip-allowlisting
 ---
 
-Agents run in Astro's managed cloud infrastructure. To reach a database that lives inside your VPN or private network, you need to do two things:
+Agents run in Astro's managed cloud. If your database sits behind a firewall but is reachable over the public network, you can let agents through by allowlisting Astro's outbound IPs — no AWS account or infrastructure changes needed on your side.
 
-1. Open your network to Astro's outbound IPs so traffic can pass through your firewall.
-2. Pass the connection string to your agent as a secret input in `astropods.yml`.
-
-Both options below satisfy step 1. Choose based on your infrastructure.
-
----
-
-## Option 1: IP allowlisting
-
-Agents egress through a fixed set of NAT Gateway Elastic IPs. Allowlisting these IPs in your firewall or VPN policy is the fastest path, requiring no AWS account or infrastructure changes on your side.
+<Note>
+If your database is in an AWS VPC and you don't want any inbound public access, connect it privately over AWS PrivateLink instead — see [Knowledge stores](/knowledge-stores#connect-a-private-database).
+</Note>
 
 ```mermaid
 flowchart LR
@@ -51,172 +44,13 @@ flowchart LR
 
     Use the port your database listens on. Common defaults: PostgreSQL `5432`, MySQL `3306`, MSSQL `1433`, MongoDB `27017`, Redis `6379`. Check your database's documentation if you're unsure.
   </Step>
-  <Step title="Declare the connection string in astropods.yml">
-    Use `inputs` with `secret: true` so credentials are stored encrypted and never logged. The example below uses PostgreSQL; adjust the variable names and connection logic to match your database:
-
-    ```yaml
-    spec: blueprint/v1
-    name: my-agent
-
-    meta:
-      visibility: private
-
-    agent:
-      build:
-        context: .
-        dockerfile: Dockerfile
-      inputs:
-        - name: DATABASE_URL
-          datatype: string
-          secret: true
-          description: Connection string for your private database
-    ```
-
-    At deploy time, `ast configure` will prompt for the value. For PostgreSQL this looks like:
-
-    ```
-    postgresql://user:password@your-db-host.internal:5432/mydb?sslmode=require
-    ```
-
-    The format and client library will differ for other databases; refer to your database driver's documentation. In your agent code, read the value from the environment:
-
-    ```python
-    import os
-    import psycopg2  # replace with your database driver
-
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
-    ```
-
-    ```typescript
-    import { Pool } from "pg"; // replace with your database driver
-
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    ```
+  <Step title="Connect the database to your agent">
+    Once the IPs are allowlisted, connect the database as a [knowledge store](/knowledge-stores) and bind it to your agent at deploy time — your agent receives the connection details as environment variables. See [Using Knowledge stores](/knowledge-store-agent) for the full walkthrough.
   </Step>
 </Steps>
-
----
-
-## Option 2: AWS PrivateLink
-
-If your database (or a proxy in front of it) runs in an AWS VPC and your security policy does not allow inbound connections from public IPs, connect it over AWS PrivateLink. Traffic flows entirely within the AWS backbone and never touches the public internet.
-
-This is a self-service flow in the Astro dashboard. You register the database as an **external knowledge store** with PrivateLink enabled; Astro provisions an Interface VPC Endpoint into your VPC Endpoint Service, you approve the pending connection in your AWS console, and Astro verifies it automatically.
-
-**How it works:**
-
-```mermaid
-flowchart LR
-    subgraph astro["Astro VPC"]
-        A[Agent pod] --> B[Interface VPC<br/>Endpoint]
-    end
-    subgraph yours["Your VPC / private network"]
-        C[VPC Endpoint<br/>Service<br/>you approve] --> D[Internal NLB] --> E[Your database]
-    end
-    B -- "1. Astro requests<br/>2. you approve" --> C
-```
-
-**Requirements:**
-- Your database is reachable from within an AWS VPC (RDS, Aurora, EC2-hosted, or any service behind an internal NLB).
-- You can create a VPC Endpoint Service in that VPC.
-
-<Steps>
-  <Step title="Expose your database through a VPC Endpoint Service">
-    In your AWS VPC, put an internal Network Load Balancer (NLB) in front of your database, then create a VPC Endpoint Service pointing to that NLB. In the AWS Console go to **VPC → Endpoint Services → Create endpoint service**, select your NLB, and note the generated service name:
-
-    ```
-    com.amazonaws.vpce.us-east-1.vpce-svc-xxxxxxxxxxxxxxxxx
-    ```
-
-    If your database already sits behind an NLB or endpoint service, reuse it.
-  </Step>
-  <Step title="Connect it as an external knowledge store">
-    In the Astro dashboard, go to **Knowledge → Connect external store**. Then:
-
-    - Give the store a name and select your database provider.
-    - Toggle **PrivateLink** on.
-    - In **VPC Endpoint Service Name**, paste the `com.amazonaws.vpce.*` name from step 1.
-    - Fill in the port, database, and credentials. They are encrypted at rest and fetched only on demand.
-    - Click **Connect**.
-
-    Astro registers the store and provisions an Interface VPC Endpoint against your endpoint service. The store moves to **Pending** while it waits for your approval.
-  </Step>
-  <Step title="Approve the endpoint connection in AWS">
-    The store detail page shows the remaining steps and a deep link to the right AWS console page. In **VPC → Endpoints**, approve the pending connection request from Astro.
-  </Step>
-  <Step title="Astro verifies the connection">
-    Once you approve, Astro completes the connection and verifies reachability automatically. No further action is needed — the store turns **Ready** when the path is live.
-  </Step>
-  <Step title="Bind the store to your agent">
-    Declare one `knowledge` entry per store in `astropods.yml`, then bind each one to a connected store at deploy time:
-
-    ```yaml
-    spec: blueprint/v1
-    name: my-agent
-
-    agent:
-      build:
-        context: .
-        dockerfile: Dockerfile
-
-    knowledge:
-      orders:
-        provider: postgres
-      analytics:
-        provider: postgres
-    ```
-
-    In the deploy form, pick a connected store for each entry (`orders`, `analytics`). The platform injects each store's connection details into your agent container as environment variables — you don't put any connection string in `astropods.yml`. With more than one store of the same provider, each store's variables are prefixed with the entry name so they never collide:
-
-    | Variable | Value |
-    |---|---|
-    | `POSTGRES_ORDERS_HOST` | Endpoint hostname for the `orders` store |
-    | `POSTGRES_ORDERS_PORT` | Database port |
-    | `POSTGRES_ORDERS_USER` | Username (secret) |
-    | `POSTGRES_ORDERS_PASSWORD` | Password (secret) |
-    | `POSTGRES_ORDERS_DB` | Database name (secret) |
-    | `POSTGRES_ANALYTICS_HOST` | Endpoint hostname for the `analytics` store |
-    | `POSTGRES_ANALYTICS_PORT` | Database port |
-    | `POSTGRES_ANALYTICS_USER` | Username (secret) |
-    | `POSTGRES_ANALYTICS_PASSWORD` | Password (secret) |
-    | `POSTGRES_ANALYTICS_DB` | Database name (secret) |
-
-    Read them from the environment in your agent:
-
-    ```python
-    import os
-    import psycopg2  # replace with your database driver
-
-    orders = psycopg2.connect(
-        host=os.environ["POSTGRES_ORDERS_HOST"],
-        port=os.environ["POSTGRES_ORDERS_PORT"],
-        user=os.environ["POSTGRES_ORDERS_USER"],
-        password=os.environ["POSTGRES_ORDERS_PASSWORD"],
-        dbname=os.environ["POSTGRES_ORDERS_DB"],
-    )
-    analytics = psycopg2.connect(
-        host=os.environ["POSTGRES_ANALYTICS_HOST"],
-        port=os.environ["POSTGRES_ANALYTICS_PORT"],
-        user=os.environ["POSTGRES_ANALYTICS_USER"],
-        password=os.environ["POSTGRES_ANALYTICS_PASSWORD"],
-        dbname=os.environ["POSTGRES_ANALYTICS_DB"],
-    )
-    ```
-
-    With a single store, the variables are unqualified — `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`.
-  </Step>
-</Steps>
-
-<Note>
-Credentials for a PrivateLink knowledge store are entered once in the dashboard and bound to your agent at deploy time. Unlike IP allowlisting, you do **not** declare a connection-string input in `astropods.yml`.
-</Note>
-
----
 
 ## Verifying the connection
 
-For a **PrivateLink knowledge store**, the store's status on its detail page is the source of truth: it turns **Ready** once Astro verifies the path, or surfaces an event explaining what's blocking it (most often the endpoint connection has not been approved in your cloud console yet).
+The quickest check is to have your agent attempt a connection on startup and log the result before doing any real work; the exact approach depends on your database driver. If the agent starts successfully after deploy, the network path is clear. If it times out, the IPs are not yet allowlisted — double-check the firewall rules.
 
-For **IP allowlisting**, the fastest check is to have your agent attempt a connection on startup and log the result before doing any real work; the exact approach depends on your database driver. If the agent starts successfully after deploy, the network path is clear. If it times out, the IPs are not yet allowlisted; double-check the firewall rules.
-
-If either path stays stuck after you've completed the steps above, reach out to [support@astropods.com](mailto:support@astropods.com).
+If the connection stays stuck after you've completed the steps above, reach out to [support@astropods.com](mailto:support@astropods.com).

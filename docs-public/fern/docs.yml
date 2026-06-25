@@ -65,9 +65,12 @@ navigation:
           - page: AI Gateway
             path: docs/pages/ai-gateway.mdx
             icon: fa-duotone fa-brain-circuit
-          - page: Make your agent discoverable
+          - page: Agent Card
             path: docs/pages/agent-card.mdx
             icon: fa-duotone fa-id-card
+          - page: Knowledge stores
+            path: docs/pages/knowledge-stores.mdx
+            icon: fa-duotone fa-database
       - section: Monitor your agents
         contents:
           - page: Overview
@@ -86,8 +89,8 @@ navigation:
                 icon: fa-duotone fa-robot
       - section: Guides
         contents:
-          - page: Connect to a private database
-            path: docs/pages/private-database.mdx
+          - page: Using Knowledge stores
+            path: docs/pages/knowledge-store-agent.mdx
             icon: fa-duotone fa-database
           - page: Serve a frontend from your agent
             path: docs/pages/frontend-agents.mdx
@@ -133,6 +136,9 @@ navigation:
           - page: Known Integrations
             path: docs/pages/known-integrations.mdx
             icon: fa-duotone fa-plug
+          - page: Allowlist egress IPs
+            path: docs/pages/private-database.mdx
+            icon: fa-duotone fa-shield-halved
       - section: Changelog
         contents:
           - changelog: "docs/changelog"
