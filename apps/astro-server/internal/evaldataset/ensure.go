@@ -72,7 +72,6 @@ func Ensure(
 	}
 
 	existing.LangfuseDatasetName = expected
-	existing.ItemCount = 0
 	existing.GoodCount = 0
 	existing.BadCount = 0
 	return existing, nil

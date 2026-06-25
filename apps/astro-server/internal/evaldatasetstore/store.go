@@ -12,7 +12,6 @@ type EvalDataset struct {
 	DeploymentID        string
 	AccountID           string
 	LangfuseDatasetName string
-	ItemCount           int
 	GoodCount           int
 	BadCount            int
 	CreatedAt           time.Time
@@ -38,12 +37,12 @@ func NewStore(db *sql.DB) *Store {
 func (s *Store) GetByDeploymentID(deploymentID string) (*EvalDataset, error) {
 	var d EvalDataset
 	err := s.db.QueryRow(`
-		SELECT id, deployment_id, account_id, langfuse_dataset_name, item_count,
+		SELECT id, deployment_id, account_id, langfuse_dataset_name,
 		       good_count, bad_count, created_at, updated_at
 		FROM eval_datasets
 		WHERE deployment_id = $1
 	`, deploymentID).Scan(
-		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName, &d.ItemCount,
+		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName,
 		&d.GoodCount, &d.BadCount, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -80,7 +79,6 @@ func (s *Store) RepointByDeploymentID(deploymentID, langfuseDatasetName string) 
 	_, err := s.db.Exec(`
 		UPDATE eval_datasets
 		SET langfuse_dataset_name = $1,
-		    item_count = 0,
 		    good_count = 0,
 		    bad_count = 0,
 		    updated_at = NOW()

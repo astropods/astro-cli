@@ -66,7 +66,7 @@ func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, it
 }
 
 func expectDatasetRowCounts(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount, goodCount, badCount int) {
-	datasetstoretest.ExpectRow(mock, deploymentID, datasetName, itemCount, goodCount, badCount)
+	datasetstoretest.ExpectRow(mock, deploymentID, datasetName, goodCount, badCount)
 }
 
 func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {

@@ -594,10 +594,7 @@ func exhaustedFilteredDatasetItemsResponse(items []langfuse.DatasetItem, page, l
 }
 
 func maxDatasetItemsScanPages(ds *evaldatasetstore.EvalDataset, filteredTotal int) int {
-	datasetSize := ds.ItemCount
-	if total := ds.Total(); total > datasetSize {
-		datasetSize = total
-	}
+	datasetSize := ds.Total()
 	if filteredTotal > datasetSize {
 		datasetSize = filteredTotal
 	}

@@ -131,7 +131,7 @@ One new table. Its primary job is to let the queue exclude traces that have alre
 
 Index: PK alone is enough. Every lookup is `WHERE eval_dataset_id = ? AND trace_id IN (...)` or `WHERE eval_dataset_id = ?`. A future "show me the unknowns" query is a cheap `WHERE eval_dataset_id = ? AND verdict = 'unknown'`, no extra index needed at the volumes we're targeting.
 
-**`eval_datasets` column changes.** Drop `last_trace_at`, `last_sync_attempted_at`, `last_synced_at`; add `good_count`, `bad_count`. Other columns unchanged.
+**`eval_datasets` column changes.** Drop sync-era state (`item_count`, `last_trace_at`, `last_sync_attempted_at`, `last_synced_at`); add `good_count`, `bad_count`. The API still returns `item_count`, derived from `good_count + bad_count`.
 
 ---
 
