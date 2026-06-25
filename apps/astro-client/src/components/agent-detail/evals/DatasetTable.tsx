@@ -15,6 +15,7 @@ import type {
   EvalDatasetItem,
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
+  ReviewQueueItem,
 } from "@/lib/api";
 import {
   useChangeDatasetJudgment,
@@ -66,11 +67,14 @@ export function DatasetTable({
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
   const undoTrace = useCallback(
-    (traceId: string, trigger: HTMLElement | null) => {
+    (item: EvalDatasetItem, trigger: HTMLElement | null) => {
       const sourceRect = trigger?.getBoundingClientRect() ?? null;
       undoJudgment.reset();
       undoJudgment.mutate(
-        { traceId },
+        {
+          traceId: item.source_trace_id,
+          reviewQueueItem: datasetItemToReviewQueueItem(item),
+        },
         {
           onSuccess: () =>
             flyUndoToReviewQueue(sourceRect, reviewQueueTargetRef?.current),
@@ -213,7 +217,7 @@ export function DatasetTable({
             isOpen={expandedId === item.id}
             onToggle={toggleExpanded}
             onChangeVerdict={changeTraceVerdict}
-            onRemoveVerdict={undoTrace}
+            onRemoveVerdict={(_traceId, trigger) => undoTrace(item, trigger)}
             isChanging={changingTraceId === item.source_trace_id}
             isRemoving={undoingTraceId === item.source_trace_id}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
@@ -222,4 +226,14 @@ export function DatasetTable({
       </TableBody>
     </Table>
   );
+}
+
+function datasetItemToReviewQueueItem(item: EvalDatasetItem): ReviewQueueItem {
+  return {
+    trace_id: item.source_trace_id,
+    timestamp: item.created_at,
+    input: item.input,
+    output: item.expected_output,
+    sentiment: "",
+  };
 }

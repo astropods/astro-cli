@@ -48,12 +48,18 @@ function itemsResponse(items: EvalDatasetItem[]): EvalDatasetItemsResponse {
   };
 }
 
-function reviewQueueResponse(items: ReviewQueueItem[]): ReviewQueueResponse {
+function reviewQueueResponse(
+  items: ReviewQueueItem[],
+  overrides: Partial<ReviewQueueResponse> = {},
+): ReviewQueueResponse {
   return {
     items,
     end_time: "2026-06-01T12:00:00Z",
+    ...overrides,
   };
 }
+
+const REVIEW_QUEUE_PAGE_SIZE = "50";
 
 function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
   return {
@@ -329,7 +335,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("navigates between queue traces from the detail header", async () => {
+  it("shows the selected trace position in the detail header", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -352,17 +358,192 @@ describe("review queue view", () => {
     renderDataset({ tab: null });
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^previous$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^next$/i })).toBeEnabled();
+    expect(screen.getByLabelText("Trace 1 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^next$/i }));
+    await user.click(screen.getByRole("button", { name: /second prompt/i }));
     expect(screen.getByText("Second response")).toBeInTheDocument();
     expect(screen.getByText("Likely negative")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^previous$/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /^next$/i })).toBeDisabled();
+    expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: /^previous$/i }));
-    expect(screen.getByText("First response")).toBeInTheDocument();
+  it("loads additional queue pages with the snapshot offset", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "First paged prompt",
+      output: "First paged response",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second paged prompt",
+      output: "Second paged response",
+      sentiment: "negative",
+    });
+    const third = queueItem({
+      trace_id: "trace_333333",
+      input: "Third paged prompt",
+      output: "Third paged response",
+    });
+    const requests: Array<{
+      offset: string | null;
+      endTime: string | null;
+      limit: string | null;
+    }> = [];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = url.searchParams.get("offset");
+        requests.push({
+          offset,
+          endTime: url.searchParams.get("end_time"),
+          limit: url.searchParams.get("limit"),
+        });
+
+        if (offset === "100") {
+          return HttpResponse.json(
+            reviewQueueResponse([third], {
+              end_time: "2026-06-03T12:00:00Z",
+            }),
+          );
+        }
+
+        if (offset === "50") {
+          return HttpResponse.json(
+            reviewQueueResponse([second], {
+              end_time: "2026-06-02T12:00:00Z",
+              next_offset: 100,
+            }),
+          );
+        }
+
+        return HttpResponse.json(
+          reviewQueueResponse([first], {
+            end_time: "2026-06-01T12:00:00Z",
+            next_offset: 50,
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First paged response")).toBeInTheDocument();
+    await user.click(
+      screen.getAllByRole("button", { name: /load more items/i })[0],
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /second paged prompt/i }),
+    );
+
+    expect(screen.getByText("Second paged response")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /load more items/i }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /third paged prompt/i }),
+    );
+
+    expect(screen.getByText("Third paged response")).toBeInTheDocument();
+    expect(requests).toContainEqual({
+      offset: null,
+      endTime: null,
+      limit: REVIEW_QUEUE_PAGE_SIZE,
+    });
+    expect(requests).toContainEqual({
+      offset: "50",
+      endTime: "2026-06-01T12:00:00Z",
+      limit: REVIEW_QUEUE_PAGE_SIZE,
+    });
+    expect(requests).toContainEqual({
+      offset: "100",
+      endTime: "2026-06-01T12:00:00Z",
+      limit: REVIEW_QUEUE_PAGE_SIZE,
+    });
+  });
+
+  it("automatically loads past empty visible queue pages", async () => {
+    const visible = queueItem({
+      trace_id: "trace_222222",
+      input: "Auto loaded prompt",
+      output: "Auto loaded response",
+    });
+    const requests: Array<{
+      offset: string | null;
+      endTime: string | null;
+      limit: string | null;
+    }> = [];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
+        const url = new URL(request.url);
+        const offset = url.searchParams.get("offset");
+        requests.push({
+          offset,
+          endTime: url.searchParams.get("end_time"),
+          limit: url.searchParams.get("limit"),
+        });
+
+        return HttpResponse.json(
+          offset === "50"
+            ? reviewQueueResponse([visible], {
+                end_time: "2026-06-02T12:00:00Z",
+              })
+            : reviewQueueResponse([], {
+                end_time: "2026-06-01T12:00:00Z",
+                next_offset: 50,
+              }),
+        );
+      }),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Auto loaded response")).toBeInTheDocument();
+    expect(requests).toContainEqual({
+      offset: null,
+      endTime: null,
+      limit: REVIEW_QUEUE_PAGE_SIZE,
+    });
+    expect(requests).toContainEqual({
+      offset: "50",
+      endTime: "2026-06-01T12:00:00Z",
+      limit: REVIEW_QUEUE_PAGE_SIZE,
+    });
+  });
+
+  it("offers to load more from the queue list when the current page has no visible traces", async () => {
+    let requestCount = 0;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+    );
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () => {
+        requestCount += 1;
+        return HttpResponse.json(reviewQueueResponse([], { next_offset: 50 }));
+      }),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findAllByText("Ready for more traces")).toHaveLength(2);
+    await waitFor(() => {
+      expect(requestCount).toBe(4);
+    });
+    expect(
+      screen.queryByText("No traces waiting for review."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /load more items/i }).length,
+    ).toBeGreaterThan(1);
   });
 
   it("renders queue detail in pretty mode without a raw toggle", async () => {
@@ -384,6 +565,9 @@ describe("review queue view", () => {
     await screen.findByText("No signal");
     expect(screen.queryByRole("button", { name: /^pretty$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^raw$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 1 of 1")).toBeInTheDocument();
     expect(
       Array.from(document.querySelectorAll("pre")).some((pre) =>
         pre.textContent?.includes("agent **answer**"),
@@ -703,27 +887,83 @@ describe("review queue view", () => {
     });
   });
 
-  it("shows a quick undo after judging and restores the trace", async () => {
-    const trace = queueItem({
+  it("automatically loads more when the loaded queue page is exhausted", async () => {
+    const first = queueItem({
       trace_id: "trace_111111",
-      input: "Undoable prompt",
-      output: "Undoable response",
+      input: "Only loaded prompt",
+      output: "Only loaded response",
     });
-    let queueItems = [trace];
-    let slowNextQueueResponse = false;
-    let deletedTraceId = "";
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Fresh page prompt",
+      output: "Fresh page response",
+    });
 
     setupDataset(makeDatasetResponse(), emptyItems());
     server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", async () => {
-        if (slowNextQueueResponse) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-        }
-        return HttpResponse.json(reviewQueueResponse(queueItems));
+      http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
+        const url = new URL(request.url);
+        return HttpResponse.json(
+          url.searchParams.get("offset") === REVIEW_QUEUE_PAGE_SIZE
+            ? reviewQueueResponse([second])
+            : reviewQueueResponse([first], { next_offset: 50 }),
+        );
       }),
       http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
         const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Only loaded response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    expect(await screen.findByText("Fresh page response")).toBeInTheDocument();
+    expect(screen.queryByText("Ready for more traces")).not.toBeInTheDocument();
+    expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
+  });
+
+  it("shows a quick undo after judging and restores the trace", async () => {
+    const firstPageTrace = queueItem({
+      trace_id: "trace_111111",
+      input: "First page prompt",
+      output: "First page response",
+      timestamp: "2026-06-01T13:00:00Z",
+      sentiment: "",
+    });
+    const secondPageTrace = queueItem({
+      trace_id: "trace_222222",
+      input: "Undoable prompt",
+      output: "Undoable response",
+      timestamp: "2026-06-01T12:00:00Z",
+      sentiment: "positive",
+    });
+    let deletedTraceId = "";
+    let queueFetchCount = 0;
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
+        queueFetchCount += 1;
+        const url = new URL(request.url);
+        return HttpResponse.json(
+          url.searchParams.get("offset") === REVIEW_QUEUE_PAGE_SIZE
+            ? reviewQueueResponse([secondPageTrace])
+            : reviewQueueResponse([firstPageTrace], { next_offset: 50 }),
+        );
+      }),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
         return HttpResponse.json(
           {
             eval_dataset_id: "dataset-1",
@@ -737,7 +977,6 @@ describe("review queue view", () => {
         "/api/v1/deployments/:id/dataset/judgments/:traceId",
         ({ params }) => {
           deletedTraceId = String(params.traceId);
-          slowNextQueueResponse = true;
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: deletedTraceId,
@@ -750,16 +989,27 @@ describe("review queue view", () => {
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    expect(await screen.findByText("Undoable response")).toBeInTheDocument();
+    expect(await screen.findByText("First page response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /load more items/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /undoable prompt/i }),
+    );
+
+    expect(screen.getByText("Undoable response")).toBeInTheDocument();
+    expect(queueFetchCount).toBe(2);
     await user.click(screen.getByRole("button", { name: "Good" }));
 
     expect(await screen.findByText("Marked as good")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^undo$/i }));
 
     await waitFor(() => {
-      expect(deletedTraceId).toBe("trace_111111");
+      expect(deletedTraceId).toBe("trace_222222");
     });
     expect(await screen.findByText("Undoable response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
+    expect(queueFetchCount).toBe(2);
   });
 
   it("clears quick undo when selecting another queue trace", async () => {

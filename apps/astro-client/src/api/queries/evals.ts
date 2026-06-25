@@ -1,4 +1,5 @@
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -21,17 +22,33 @@ type DatasetJudgmentVariables = {
   verdict: DatasetJudgmentVerdict;
   nextTraceId?: string | null;
   reviewQueueItem?: ReviewQueueItem;
+  reviewQueuePageIndex?: number;
 };
 
 type DatasetUndoJudgmentVariables = {
   traceId: string;
   reviewQueueItem?: ReviewQueueItem;
+  reviewQueuePageIndex?: number;
 };
 
 type DatasetChangeJudgmentVariables = {
   traceId: string;
   verdict: DatasetJudgmentVerdict;
 };
+
+type ReviewQueuePageParam =
+  | {
+      offset: number;
+      endTime: string;
+    }
+  | undefined;
+
+type ReviewQueueInfiniteData = InfiniteData<
+  ReviewQueueResponse,
+  ReviewQueuePageParam
+>;
+
+const REVIEW_QUEUE_PAGE_SIZE = 50;
 
 interface UsePostDatasetJudgmentOptions {
   onSuccess?: (
@@ -84,15 +101,29 @@ export function useEvalDatasetItems(
 
 export function useDatasetReviewQueue(deploymentId: string, enabled = true) {
   const api = useApiClient();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: evalKeys.reviewQueue(deploymentId),
-    // TODO(eval-queue-pagination): keep the preview queue to one backend page
-    // while we validate trace flow in preview. Follow-up before wider rollout:
-    // convert this to useInfiniteQuery, pass next_offset with the original
-    // end_time, and let ReviewQueueView fetch more rows when the local list
-    // runs low.
-    queryFn: (): Promise<ReviewQueueResponse> =>
-      api.getDatasetReviewQueue(deploymentId),
+    queryFn: ({
+      pageParam,
+    }: {
+      pageParam: ReviewQueuePageParam;
+    }): Promise<ReviewQueueResponse> =>
+      api.getDatasetReviewQueue(deploymentId, {
+        limit: REVIEW_QUEUE_PAGE_SIZE,
+        offset: pageParam?.offset,
+        endTime: pageParam?.endTime,
+      }),
+    initialPageParam: undefined as ReviewQueuePageParam,
+    getNextPageParam: (last, allPages): ReviewQueuePageParam => {
+      if (last.next_offset == null || last.next_offset <= 0) {
+        return undefined;
+      }
+
+      const snapshotEndTime = allPages[0]?.end_time;
+      return snapshotEndTime
+        ? { offset: last.next_offset, endTime: snapshotEndTime }
+        : undefined;
+    },
     enabled: !!deploymentId && enabled,
     staleTime: 30_000,
   });
@@ -118,17 +149,9 @@ export function usePostDatasetJudgment(
     onSuccess: async (data, variables) => {
       options.onSuccess?.(data, variables);
 
-      queryClient.setQueryData<ReviewQueueResponse>(
+      queryClient.setQueryData<ReviewQueueInfiniteData>(
         evalKeys.reviewQueue(deploymentId),
-        (old) =>
-          old
-            ? {
-                ...old,
-                items: old.items.filter(
-                  (item) => item.trace_id !== variables.traceId,
-                ),
-              }
-            : old,
+        (old) => removeReviewQueueItem(old, variables.traceId),
       );
 
       // Skip the review-queue here — the optimistic update already reflects
@@ -158,6 +181,53 @@ function insertReviewQueueItem(
     });
 }
 
+function removeReviewQueueItem(
+  data: ReviewQueueInfiniteData | undefined,
+  traceId: string,
+) {
+  if (!data) {
+    return data;
+  }
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.filter((item) => item.trace_id !== traceId),
+    })),
+  };
+}
+
+function insertReviewQueueItemPage(
+  data: ReviewQueueInfiniteData | undefined,
+  restored: ReviewQueueItem,
+  pageIndex = 0,
+) {
+  if (!data || data.pages.length === 0) {
+    return data;
+  }
+
+  const targetPageIndex =
+    pageIndex >= 0 && pageIndex < data.pages.length ? pageIndex : 0;
+
+  return {
+    ...data,
+    pages: data.pages.map((page, index) =>
+      index === targetPageIndex
+        ? {
+            ...page,
+            items: insertReviewQueueItem(page.items, restored),
+          }
+        : {
+            ...page,
+            items: page.items.filter(
+              (item) => item.trace_id !== restored.trace_id,
+            ),
+          },
+    ),
+  };
+}
+
 export function useUndoDatasetJudgment(deploymentId: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -172,22 +242,23 @@ export function useUndoDatasetJudgment(deploymentId: string) {
     onSuccess: async (_data, variables) => {
       const restoredItem = variables.reviewQueueItem;
       if (restoredItem) {
-        queryClient.setQueryData<ReviewQueueResponse>(
+        queryClient.setQueryData<ReviewQueueInfiniteData>(
           evalKeys.reviewQueue(deploymentId),
           (old) =>
-            old
-              ? {
-                  ...old,
-                  items: insertReviewQueueItem(old.items, restoredItem),
-                }
-              : old,
+            insertReviewQueueItemPage(
+              old,
+              restoredItem,
+              variables.reviewQueuePageIndex,
+            ),
         );
       }
 
+      // Keep the restored queue item optimistic, matching the judge path.
+      // Refetching an infinite review queue would replay every loaded page's
+      // expensive Langfuse fetch and sentiment annotation for a single undo.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
-        queryClient.invalidateQueries({ queryKey: evalKeys.reviewQueue(deploymentId) }),
       ]);
     },
   });

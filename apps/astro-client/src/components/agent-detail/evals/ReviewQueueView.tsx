@@ -11,8 +11,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   Check,
-  ChevronDown,
-  ChevronUp,
   Frown,
   Meh,
   Minus,
@@ -45,6 +43,7 @@ import type {
   DatasetJudgmentVerdict,
   EvalDatasetResponse,
   ReviewQueueItem,
+  ReviewQueueResponse,
   ReviewQueueSentiment,
   TraceEntry,
 } from "@/lib/api";
@@ -87,12 +86,14 @@ const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<string, DatasetJudgmentVerdict> = {
   n: "unknown",
 };
 
+const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 
 type QuickUndoJudgment = {
   traceId: string;
   verdict: DatasetJudgmentVerdict;
   item?: ReviewQueueItem;
+  pageIndex?: number;
 };
 
 type BaselineStatus = {
@@ -122,25 +123,37 @@ export function ReviewQueueView({
   gradeTargetRef,
   onOpenTrace,
 }: ReviewQueueViewProps) {
-  const { data, isLoading, isError } = useDatasetReviewQueue(deploymentId);
+  const {
+    data,
+    isLoading,
+    isError,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quickUndo, setQuickUndo] = useState<QuickUndoJudgment | null>(null);
-  const items = data?.items ?? EMPTY_REVIEW_QUEUE_ITEMS;
+  const emptyQueueAutoLoadCountRef = useRef(0);
+  const items = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? EMPTY_REVIEW_QUEUE_ITEMS,
+    [data?.pages],
+  );
+  const loadedPageCount = data?.pages.length ?? 0;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
+  const selectedIndex = selectedItem
+    ? items.findIndex((item) => item.trace_id === selectedItem.trace_id)
+    : -1;
   const baselineStatus = getBaselineStatus(summary);
-  const activeSelectedId = selectedItem?.trace_id ?? null;
-  const { previousTraceId, nextTraceId } = getAdjacentTraceIds(
-    items,
-    activeSelectedId,
-  );
+  const canLoadMore = Boolean(hasNextPage);
   const postJudgment = usePostDatasetJudgment(deploymentId, {
     onSuccess: (_data, variables) => {
       setQuickUndo({
         traceId: variables.traceId,
         verdict: variables.verdict,
         item: variables.reviewQueueItem,
+        pageIndex: variables.reviewQueuePageIndex,
       });
       setSelectedId((current) =>
         current === variables.traceId ? variables.nextTraceId ?? null : current,
@@ -160,6 +173,33 @@ export function ReviewQueueView({
     return () => window.clearTimeout(timer);
   }, [quickUndo]);
 
+  useEffect(() => {
+    if (items.length > 0 || !hasNextPage) {
+      emptyQueueAutoLoadCountRef.current = 0;
+      return;
+    }
+
+    if (
+      isLoading ||
+      isError ||
+      isFetchingNextPage ||
+      emptyQueueAutoLoadCountRef.current >= EMPTY_QUEUE_AUTO_LOAD_LIMIT
+    ) {
+      return;
+    }
+
+    emptyQueueAutoLoadCountRef.current += 1;
+    void fetchNextPage();
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isError,
+    isFetchingNextPage,
+    isLoading,
+    items.length,
+    loadedPageCount,
+  ]);
+
   const handleSelectTrace = (traceId: string) => {
     postJudgment.reset();
     undoJudgment.reset();
@@ -174,6 +214,7 @@ export function ReviewQueueView({
     const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
     const nextSelectedTraceId = nextTraceId ?? previousTraceId;
     const reviewQueueItem = items.find((item) => item.trace_id === traceId);
+    const reviewQueuePageIndex = getReviewQueuePageIndex(data?.pages, traceId);
     setQuickUndo(null);
     flyVerdictToGrade(
       trigger?.getBoundingClientRect() ?? null,
@@ -181,7 +222,7 @@ export function ReviewQueueView({
       verdict,
     );
 
-    if (activeSelectedId === traceId) {
+    if (selectedItem?.trace_id === traceId) {
       setSelectedId((current) => current ?? traceId);
     }
     postJudgment.mutate({
@@ -189,6 +230,7 @@ export function ReviewQueueView({
       verdict,
       nextTraceId: nextSelectedTraceId,
       reviewQueueItem,
+      reviewQueuePageIndex,
     });
   };
   const handleQuickUndo = () => {
@@ -199,7 +241,11 @@ export function ReviewQueueView({
     const { traceId } = quickUndo;
     undoJudgment.reset();
     undoJudgment.mutate(
-      { traceId, reviewQueueItem: quickUndo.item },
+      {
+        traceId,
+        reviewQueueItem: quickUndo.item,
+        reviewQueuePageIndex: quickUndo.pageIndex,
+      },
       {
         onSuccess: () => {
           setQuickUndo(null);
@@ -207,6 +253,9 @@ export function ReviewQueueView({
         },
       },
     );
+  };
+  const handleLoadMore = () => {
+    void fetchNextPage();
   };
 
   return (
@@ -219,10 +268,13 @@ export function ReviewQueueView({
           <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
             <ReviewQueueList
               items={items}
-              selectedId={activeSelectedId}
+              selectedId={selectedItem?.trace_id ?? null}
               onSelect={handleSelectTrace}
               isLoading={isLoading}
               isError={isError}
+              canLoadMore={canLoadMore}
+              isLoadingMore={isFetchingNextPage}
+              onLoadMore={handleLoadMore}
             />
           </aside>
 
@@ -250,18 +302,20 @@ export function ReviewQueueView({
                 onJudge={handleJudgeTrace}
                 isJudging={postJudgment.isPending}
                 showJudgmentError={postJudgment.isError || undoJudgment.isError}
+                position={selectedIndex >= 0 ? selectedIndex + 1 : 0}
                 queueSize={items.length}
                 onOpenTrace={
                   onOpenTrace
                     ? () => onOpenTrace(reviewQueueItemToTraceEntry(selectedItem))
                     : undefined
                 }
-                onPrevious={previousTraceId ? () => handleSelectTrace(previousTraceId) : undefined}
-                onNext={nextTraceId ? () => handleSelectTrace(nextTraceId) : undefined}
               />
             ) : (
               <ReviewQueueDetailEmpty
                 showJudgmentError={postJudgment.isError || undoJudgment.isError}
+                canLoadMore={canLoadMore}
+                isLoadingMore={isFetchingNextPage}
+                onLoadMore={handleLoadMore}
               />
             )}
           </div>
@@ -377,6 +431,16 @@ function getAdjacentTraceIds(
   };
 }
 
+function getReviewQueuePageIndex(
+  pages: ReviewQueueResponse[] | undefined,
+  traceId: string,
+) {
+  const index = pages?.findIndex((page) =>
+    page.items.some((item) => item.trace_id === traceId),
+  );
+  return index != null && index >= 0 ? index : undefined;
+}
+
 function getReviewQueueShortcutVerdict(event: KeyboardEvent) {
   if (
     event.defaultPrevented ||
@@ -413,6 +477,9 @@ interface ReviewQueueListProps {
   onSelect: (traceId: string) => void;
   isLoading: boolean;
   isError: boolean;
+  canLoadMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 function ReviewQueueList({
@@ -421,6 +488,9 @@ function ReviewQueueList({
   onSelect,
   isLoading,
   isError,
+  canLoadMore,
+  isLoadingMore,
+  onLoadMore,
 }: ReviewQueueListProps) {
   if (isLoading) {
     return (
@@ -439,6 +509,25 @@ function ReviewQueueList({
   }
 
   if (items.length === 0) {
+    if (canLoadMore) {
+      return (
+        <div className="flex flex-col items-center px-6 py-12 text-center">
+          <div className="text-body-sm font-medium text-foreground">
+            Ready for more traces
+          </div>
+          <p className="mt-1.5 text-body-sm text-muted-foreground">
+            Load the next page of queue items to keep reviewing.
+          </p>
+          <div className="mt-4">
+            <ReviewQueueLoadMoreButton
+              isLoading={isLoadingMore}
+              onLoadMore={onLoadMore}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="px-6 py-12 text-center text-body-sm text-muted-foreground">
         No traces waiting for review.
@@ -446,17 +535,32 @@ function ReviewQueueList({
     );
   }
 
-  return <ReviewQueueListBody items={items} selectedId={selectedId} onSelect={onSelect} />;
+  return (
+    <ReviewQueueListBody
+      items={items}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      canLoadMore={canLoadMore}
+      isLoadingMore={isLoadingMore}
+      onLoadMore={onLoadMore}
+    />
+  );
 }
 
 function ReviewQueueListBody({
   items,
   selectedId,
   onSelect,
+  canLoadMore,
+  isLoadingMore,
+  onLoadMore,
 }: {
   items: ReviewQueueItem[];
   selectedId: string | null;
   onSelect: (traceId: string) => void;
+  canLoadMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   // Freeze relative timestamps to the moment items arrive; otherwise every
   // selection re-render bumps the "12s ago" → "13s ago" for recent rows.
@@ -469,18 +573,28 @@ function ReviewQueueListBody({
   }, [items]);
 
   return (
-    <ul className="flex flex-col">
-      {items.map((item) => (
-        <li key={item.trace_id}>
-          <ReviewQueueRow
-            item={item}
-            ago={agoByTraceId.get(item.trace_id) ?? ""}
-            selected={selectedId === item.trace_id}
-            onSelect={() => onSelect(item.trace_id)}
+    <div className="flex min-h-full flex-col">
+      <ul className="flex flex-col">
+        {items.map((item) => (
+          <li key={item.trace_id}>
+            <ReviewQueueRow
+              item={item}
+              ago={agoByTraceId.get(item.trace_id) ?? ""}
+              selected={selectedId === item.trace_id}
+              onSelect={() => onSelect(item.trace_id)}
+            />
+          </li>
+        ))}
+      </ul>
+      {canLoadMore && (
+        <div className="mt-auto flex justify-center border-t border-border px-4 py-3">
+          <ReviewQueueLoadMoreButton
+            isLoading={isLoadingMore}
+            onLoadMore={onLoadMore}
           />
-        </li>
-      ))}
-    </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -552,10 +666,9 @@ function ReviewQueueDetail({
   onJudge,
   isJudging,
   showJudgmentError,
+  position,
   queueSize,
   onOpenTrace,
-  onPrevious,
-  onNext,
 }: {
   item: ReviewQueueItem;
   account: string;
@@ -569,10 +682,9 @@ function ReviewQueueDetail({
   ) => void;
   isJudging: boolean;
   showJudgmentError: boolean;
+  position: number;
   queueSize: number;
   onOpenTrace?: () => void;
-  onPrevious?: () => void;
-  onNext?: () => void;
 }) {
   const sentiment = SENTIMENT_BADGE[item.sentiment] ?? SENTIMENT_BADGE[""];
   const traceLabel = truncateTraceId(item.trace_id);
@@ -612,9 +724,8 @@ function ReviewQueueDetail({
         </div>
         <div className="flex flex-none items-center gap-2">
           <ReviewQueueDetailNavigation
+            position={position}
             total={queueSize}
-            onPrevious={onPrevious}
-            onNext={onNext}
           />
         </div>
       </div>
@@ -696,70 +807,23 @@ function TraceDetailHoverLink({
 }
 
 function ReviewQueueDetailNavigation({
+  position,
   total,
-  onPrevious,
-  onNext,
 }: {
+  position: number;
   total: number;
-  onPrevious?: () => void;
-  onNext?: () => void;
 }) {
   if (total <= 0) {
     return null;
   }
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="flex flex-none items-center gap-1">
-        <ReviewQueueNavigationButton
-          label="Previous"
-          disabled={!onPrevious}
-          onClick={onPrevious}
-        >
-          <ChevronUp className="size-5" />
-        </ReviewQueueNavigationButton>
-        <ReviewQueueNavigationButton
-          label="Next"
-          disabled={!onNext}
-          onClick={onNext}
-        >
-          <ChevronDown className="size-5" />
-        </ReviewQueueNavigationButton>
-      </div>
-    </TooltipProvider>
-  );
-}
-
-function ReviewQueueNavigationButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick?: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={label}
-            disabled={disabled}
-            onClick={onClick}
-            className="size-[30px] text-muted-foreground"
-          >
-            {children}
-          </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <span
+      className="min-w-12 text-center font-mono text-mono-sm text-muted-foreground tabular-nums"
+      aria-label={`Trace ${position} of ${total}`}
+    >
+      {position} / {total}
+    </span>
   );
 }
 
@@ -920,9 +984,20 @@ function UserSectionIcon() {
 
 function ReviewQueueDetailEmpty({
   showJudgmentError,
+  canLoadMore,
+  isLoadingMore,
+  onLoadMore,
 }: {
   showJudgmentError: boolean;
+  canLoadMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }) {
+  const title = canLoadMore ? "Ready for more traces" : "You're all caught up";
+  const description = canLoadMore
+    ? "Load the next page of queue items to keep reviewing."
+    : "Every trace has a verdict.";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-1 flex-col items-center justify-center gap-3.5 p-12 text-center">
@@ -933,9 +1008,15 @@ function ReviewQueueDetailEmpty({
           <Check className="size-6" />
         </span>
         <div>
-          <div className="text-heading-3 font-semibold text-foreground">You're all caught up</div>
-          <p className="mt-1.5 text-body-sm text-muted-foreground">Every trace has a verdict.</p>
+          <div className="text-heading-3 font-semibold text-foreground">{title}</div>
+          <p className="mt-1.5 text-body-sm text-muted-foreground">{description}</p>
         </div>
+        {canLoadMore && (
+          <ReviewQueueLoadMoreButton
+            isLoading={isLoadingMore}
+            onLoadMore={onLoadMore}
+          />
+        )}
       </div>
       {showJudgmentError && (
         <div className="flex flex-none items-center border-t border-border px-6 py-4 text-body-sm text-muted-foreground">
@@ -943,5 +1024,25 @@ function ReviewQueueDetailEmpty({
         </div>
       )}
     </div>
+  );
+}
+
+function ReviewQueueLoadMoreButton({
+  isLoading,
+  onLoadMore,
+}: {
+  isLoading: boolean;
+  onLoadMore: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={isLoading}
+      onClick={onLoadMore}
+    >
+      {isLoading ? "Loading more..." : "Load more items"}
+    </Button>
   );
 }

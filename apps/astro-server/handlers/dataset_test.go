@@ -131,7 +131,7 @@ func langfuseDatasetItemsPagesHandler(t *testing.T, pages [][]langfuse.DatasetIt
 	}
 }
 
-func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int, wantPage, wantToTimestamp string) http.HandlerFunc {
+func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int, wantLimit, wantPage, wantToTimestamp string) http.HandlerFunc {
 	t.Helper()
 	type meta struct {
 		Page       int `json:"page"`
@@ -146,6 +146,9 @@ func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("fields") != "core,io" {
 			t.Errorf("fields = %q, want core,io", r.URL.Query().Get("fields"))
+		}
+		if r.URL.Query().Get("limit") != wantLimit {
+			t.Errorf("limit = %q, want %q", r.URL.Query().Get("limit"), wantLimit)
 		}
 		if r.URL.Query().Get("page") != wantPage {
 			t.Errorf("page = %q, want %q", r.URL.Query().Get("page"), wantPage)
@@ -1039,7 +1042,7 @@ func TestGetDatasetReviewQueue_FiltersJudgedAndAnnotatesSentiment(t *testing.T) 
 			Output:    "run astro deploy",
 		},
 	}
-	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "", "*"))
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "3", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
 	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
@@ -1092,7 +1095,7 @@ func TestGetDatasetReviewQueue_UsesOffset(t *testing.T) {
 		},
 	}
 	const endTime = "2026-06-18T20:07:29.702000Z"
-	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 5, "2", endTime))
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 5, "2", "2", endTime))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
 	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
@@ -1115,6 +1118,32 @@ func TestGetDatasetReviewQueue_UsesOffset(t *testing.T) {
 	}
 	if resp.EndTime != endTime {
 		t.Fatalf("end_time = %q, want %q", resp.EndTime, endTime)
+	}
+}
+
+func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
+	traces := []langfuse.Trace{
+		{
+			ID:        "trace-1",
+			SessionID: "session-1",
+			CreatedAt: "2026-06-01T12:00:00Z",
+			Input:     "how do I deploy?",
+			Output:    "run astro deploy",
+		},
+	}
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "50", "", "*"))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
+		WithArgs("dataset-dep-1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

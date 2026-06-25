@@ -1007,17 +1007,18 @@ export interface ReviewQueueItem {
 
 export interface ReviewQueueResponse {
   items: ReviewQueueItem[];
-  /** Reserved for TODO(eval-queue-pagination): the preview UI currently loads one page. */
+  /** Offset for the next review queue snapshot page; omitted when no more pages remain. */
   next_offset?: number;
-  /** Snapshot token to reuse with next_offset once queue pagination is enabled. */
+  /** Snapshot token to reuse with next_offset so pagination stays in one trace window. */
   end_time: string;
 }
 
 export interface ReviewQueueParams {
+  /** Page size requested from the review queue endpoint. */
   limit?: number;
-  /** Reserved for TODO(eval-queue-pagination): request later pages after preview validation. */
+  /** Offset returned by the previous page's next_offset. */
   offset?: number;
-  /** Required with offset once queue pagination is enabled. */
+  /** Required with non-zero offset. */
   endTime?: string;
 }
 
