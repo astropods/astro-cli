@@ -37,6 +37,7 @@ export function ChatThreadHeader({
       <AgentDeploymentMenu
         deployment={deployment}
         variant="detail"
+        triggerClassName="dark:mt-0 dark:ml-0"
         eligibleDeploymentIds={eligibleDeploymentIds}
         getDeploymentPath={(_acct, dep) => chatDeploymentPath(dep.id)}
         showAccountLabels

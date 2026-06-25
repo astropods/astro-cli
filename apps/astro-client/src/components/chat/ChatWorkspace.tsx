@@ -108,6 +108,7 @@ export function ChatWorkspace({
       <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <ChatThread
           key={`${deploymentId}:${conversationId ?? "draft"}`}
+          account={account}
           deploymentId={deploymentId}
           deployment={deployment}
           conversationId={conversationId}

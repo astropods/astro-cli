@@ -18,6 +18,10 @@ import { DeploymentChatStreamingIndicator } from "@/components/chat/DeploymentCh
 import { DeploymentChatText } from "@/components/chat/DeploymentChatText";
 import { useDeploymentChatViewport } from "@/components/chat/deployment-chat-streaming-context";
 import { cn } from "@/lib/utils";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { getDeploymentAvatarUrl } from "@/lib/assets";
+import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import type { AgentDeploymentSummary } from "@/lib/api";
 import {
   ActionBarPrimitive,
   AuiIf,
@@ -38,12 +42,16 @@ import {
 import type { FC } from "react";
 
 export function DeploymentChatThreadView({
+  account,
   deploymentId,
+  deployment,
   agentLabel,
   composerDisabled,
   disabledReason,
 }: {
+  account: string;
   deploymentId: string;
+  deployment?: AgentDeploymentSummary;
   agentLabel: string;
   composerDisabled?: boolean;
   disabledReason?: string;
@@ -51,10 +59,12 @@ export function DeploymentChatThreadView({
   const { conversationId, isStreaming, historyLoading, streamError } =
     useDeploymentChatViewport();
   const useTopTurnAnchor = isStreaming && !historyLoading;
+  const avatarBust = useDeploymentAvatarBust(deploymentId);
+  const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deploymentId);
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root bg-background @container flex h-full min-h-0 flex-1 flex-col"
+      className="aui-root aui-thread-root chat-pane-bg @container flex h-full min-h-0 flex-1 flex-col"
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-radius" as string]: "20px",
@@ -71,7 +81,12 @@ export function DeploymentChatThreadView({
         <DeploymentChatHistoryScroll />
         <div className="mx-auto flex w-full max-w-(--thread-max-width) min-h-0 flex-1 flex-col px-3 pt-3 md:px-6 md:pt-4">
           <AuiIf condition={(s) => s.thread.isEmpty}>
-            <ThreadWelcome agentLabel={agentLabel} />
+            <ThreadWelcome
+              account={account}
+              deployment={deployment}
+              avatarUrl={avatarUrl}
+              agentLabel={agentLabel}
+            />
           </AuiIf>
 
           <div className="mb-6 flex flex-col gap-y-6 empty:hidden md:mb-8 md:gap-y-8">
@@ -92,7 +107,7 @@ export function DeploymentChatThreadView({
             {disabledReason ? (
               <p className="px-1 text-xs text-muted-foreground">{disabledReason}</p>
             ) : null}
-            <DeploymentComposer disabled={composerDisabled} />
+            <DeploymentComposer disabled={composerDisabled} agentLabel={agentLabel} />
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -123,34 +138,53 @@ const ThreadScrollToBottom: FC = () => (
   </ThreadPrimitive.ScrollToBottom>
 );
 
-const ThreadWelcome: FC<{ agentLabel: string }> = ({ agentLabel }) => (
+const ThreadWelcome: FC<{
+  account: string;
+  deployment?: AgentDeploymentSummary;
+  avatarUrl?: string;
+  agentLabel: string;
+}> = ({ account, deployment, avatarUrl, agentLabel }) => (
   <div className="aui-thread-welcome-root my-auto flex grow flex-col">
     <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center py-8">
-      <div className="aui-thread-welcome-message flex flex-col items-center gap-1 px-4 text-center">
-        <h1 className="text-xl font-semibold text-foreground md:text-2xl">
-          Chat with {agentLabel}
-        </h1>
-        <p className="text-muted-foreground text-sm md:text-base">
-          Send a message to start the conversation.
-        </p>
+      <div className="aui-thread-welcome-message flex flex-col items-center gap-3 px-4 text-center">
+        {deployment ? (
+          <BlueprintIdentity
+            account={account}
+            name={deployment.name}
+            size={48}
+            url={avatarUrl}
+            className="size-12 rounded-xl"
+          />
+        ) : null}
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+            {agentLabel}
+          </h1>
+          <p className="text-muted-foreground text-sm md:text-base">
+            Send a message below to start a new chat.
+          </p>
+        </div>
       </div>
     </div>
   </div>
 );
 
-const DeploymentComposer: FC<{ disabled?: boolean }> = ({ disabled }) => (
+const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
+  disabled,
+  agentLabel,
+}) => (
   <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
     <div
       data-slot="aui_composer-shell"
       className={cn(
-        "bg-background flex w-full flex-col gap-2 rounded-(--composer-radius) border p-(--composer-padding) transition-shadow",
-        "focus-within:border-ring/75 focus-within:ring-2 focus-within:ring-ring/20",
+        "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
+        "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
         disabled && "pointer-events-none opacity-60",
       )}
     >
       <ComposerPrimitive.Input
         placeholder={
-          disabled ? "Agent is not ready…" : "Message your agent…"
+          disabled ? "Agent is not ready…" : `Send a message to ${agentLabel}…`
         }
         disabled={disabled}
         className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-1.75 py-1 text-sm outline-none disabled:cursor-not-allowed"
@@ -301,7 +335,7 @@ const UserMessage: FC = () => (
     data-role="user"
     className="fade-in slide-in-from-bottom-1 animate-in flex justify-end px-2 duration-150"
   >
-    <div className="bg-primary text-primary-foreground max-w-[min(100%,42rem)] rounded-2xl px-4 py-2.5 text-sm wrap-break-word">
+    <div className="bg-muted text-foreground max-w-[min(100%,42rem)] rounded-2xl px-4 py-2.5 text-sm wrap-break-word">
       <MessagePrimitive.Parts />
     </div>
   </MessagePrimitive.Root>

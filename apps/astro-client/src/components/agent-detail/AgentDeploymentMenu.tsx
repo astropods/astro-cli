@@ -32,6 +32,8 @@ interface AgentDeploymentMenuProps {
   menuPrefix?: ReactNode;
   /** `detail` matches the agent detail page trigger; `header` is the chat bar. */
   variant?: "detail" | "header";
+  /** Extra classes merged onto the trigger button (e.g. to tune alignment per host). */
+  triggerClassName?: string;
   /**
    * Always render the org/account label per group. Defaults to only showing it
    * when more than one account has agents (the detail-page behavior). Chat sets
@@ -46,6 +48,7 @@ export function AgentDeploymentMenu({
   eligibleDeploymentIds,
   menuPrefix,
   variant = "header",
+  triggerClassName,
   showAccountLabels = false,
 }: AgentDeploymentMenuProps) {
   const displayName = deployment.display_name || deployment.name;
@@ -73,7 +76,10 @@ export function AgentDeploymentMenu({
           <button
             type="button"
             aria-label="Agent menu"
-            className="flex cursor-pointer items-center gap-3 rounded-[8px] bg-background p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5"
+            className={cn(
+              "flex cursor-pointer items-center gap-3 rounded-[8px] bg-background p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5",
+              triggerClassName,
+            )}
           >
             <DeploymentAvatar
               deployment={deployment}

@@ -40,7 +40,7 @@ export function ConversationHistoryDropdown({
           className="h-8 shrink-0 gap-1.5 px-2.5 text-body-sm font-medium"
           aria-label="Chat history"
         >
-          <ClockIcon className="size-4 shrink-0 text-muted-foreground" />
+          <ClockIcon className="size-4 shrink-0 text-foreground" />
           <span className="text-foreground">History</span>
           <span className="font-mono text-mono-sm text-faint-foreground">
             {sessions.length}

@@ -276,6 +276,17 @@ body {
   background: color-mix(in oklch, var(--border) 85%, transparent);
 }
 
+/* Conversation pane backdrop — a restrained brand wash echoing the design
+   prototype: a faint primary glow off the top edge plus a softer wash from the
+   bottom-right, over the page background. Theme-aware via semantic tokens. */
+.chat-pane-bg {
+  background:
+    radial-gradient(115% 70% at 50% -8%, color-mix(in oklch, var(--primary) 7%, transparent) 0%, transparent 55%),
+    radial-gradient(90% 60% at 88% 108%, color-mix(in oklch, var(--color-indigo-300) 5%, transparent) 0%, transparent 60%),
+    var(--background);
+  background-repeat: no-repeat;
+}
+
 .dp-blueprint-bg {
   background:
     radial-gradient(ellipse at 50% 0%, hsla(40, 50%, 90%, 0.8) 0%, hsla(40, 30%, 96%, 0.4) 60%),

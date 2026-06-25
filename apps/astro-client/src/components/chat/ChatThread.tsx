@@ -8,11 +8,13 @@ import { isChatEligible } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
 export function ChatThread({
+  account,
   deploymentId,
   deployment,
   conversationId,
   onConversationCreated,
 }: {
+  account: string;
   deploymentId: string;
   deployment?: AgentDeploymentSummary;
   conversationId?: string | null;
@@ -54,7 +56,9 @@ export function ChatThread({
       onConversationCreated={onConversationCreated}
     >
       <DeploymentChatThreadView
+        account={account}
         deploymentId={deploymentId}
+        deployment={deployment}
         agentLabel={agentLabel}
         composerDisabled={!canSend}
         disabledReason={disabledReason}
