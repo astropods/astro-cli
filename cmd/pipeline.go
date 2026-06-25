@@ -249,12 +249,28 @@ func (p *PushPipeline) StripSecrets() *PushPipeline {
 func (p *PushPipeline) LoadReadme() *PushPipeline {
 	return p.step(func() error {
 		workingDir := filepath.Dir(p.cfg.SpecPath)
-		readmePath := filepath.Join(workingDir, "AGENT.md")
-		if data, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
-			p.readme = string(data)
+		if readmePath := findAgentReadme(workingDir); readmePath != "" {
+			if data, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
+				p.readme = string(data)
+			}
 		}
 		return nil
 	})
+}
+
+// findAgentReadme returns the path to the agent README in dir, matching
+// spec.AgentReadmeFilename case-insensitively, or "" if none exists.
+func findAgentReadme(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(e.Name(), spec.AgentReadmeFilename) {
+			return filepath.Join(dir, e.Name())
+		}
+	}
+	return ""
 }
 
 // ResolveVisibility queries the server for the current agent state and resolves

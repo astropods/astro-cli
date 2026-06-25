@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -363,8 +362,8 @@ func warnDeprecatedMetaFields(specPath, workingDir string) {
 		fmt.Fprintf(os.Stderr, "%s⚠%s  %s\n", colorYellow, colorReset, msg)
 	}
 
-	agentMdPath := filepath.Join(workingDir, "AGENT.md")
-	if _, err := os.Stat(agentMdPath); os.IsNotExist(err) {
+	agentMdPath := findAgentReadme(workingDir)
+	if agentMdPath == "" {
 		fmt.Fprintf(os.Stderr, "%s⚠%s  No AGENT.md found — create one next to your astropods.yml to make your agent more discoverable\n", colorYellow, colorReset)
 		return
 	}
