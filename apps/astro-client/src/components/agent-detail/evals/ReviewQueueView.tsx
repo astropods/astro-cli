@@ -260,12 +260,12 @@ export function ReviewQueueView({
 
   return (
     <>
-      <EvalTabCard className="h-[calc(100dvh-20rem)] max-h-[720px] min-h-96">
+      <EvalTabCard className="@container/review-card min-h-0 md:h-[calc(100dvh-20rem)] md:max-h-[720px] md:min-h-96">
         <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name}>
           {baselineStatus && <BaselineStatusBadge status={baselineStatus} />}
         </EvalTabCardHeader>
-        <EvalTabCardBody>
-          <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
+        <EvalTabCardBody className="flex-col @[760px]/review-card:flex-row">
+          <aside className="flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card dark:bg-surface @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
             <ReviewQueueList
               items={items}
               selectedId={selectedItem?.trace_id ?? null}
@@ -691,7 +691,7 @@ function ReviewQueueDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-none items-center justify-between gap-4 border-b border-border px-6 py-4">
+      <div className="flex flex-none flex-col items-start justify-between gap-3 border-b border-border px-4 py-4 @[520px]/review-card:px-6 @[640px]/review-card:flex-row @[640px]/review-card:items-center @[640px]/review-card:gap-4">
         <div className="flex min-w-0 items-center">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <TraceDetailHoverLink
@@ -730,7 +730,7 @@ function ReviewQueueDetail({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 @[520px]/review-card:p-6">
         <div className="mx-auto flex max-w-3xl flex-col gap-5">
           <ContentSection
             label="User"
@@ -863,8 +863,8 @@ function ReviewQueueVerdictFooter({
   }, [isPending, onSelect]);
 
   return (
-    <div className="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
-      <div className="min-w-0 flex-1 text-body-sm text-muted-foreground">
+    <div className="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 @[520px]/review-card:px-6 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
+      <div className="min-w-0 flex-1 text-body-sm text-muted-foreground @max-[520px]/review-card:flex-none">
         {showError ? (
           "Could not save verdict. Try again."
         ) : (
@@ -878,7 +878,7 @@ function ReviewQueueVerdictFooter({
           </>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 @max-[520px]/review-card:grid @max-[520px]/review-card:grid-cols-1">
         {REVIEW_QUEUE_VERDICT_OPTIONS.map(
           ({ verdict, label, shortcut, Icon, iconClassName }) => (
             <Button
@@ -893,6 +893,7 @@ function ReviewQueueVerdictFooter({
               onClick={(event: MouseEvent<HTMLButtonElement>) =>
                 onSelect(verdict, event.currentTarget)
               }
+              className="@max-[520px]/review-card:w-full"
             >
               <Icon className={cn("size-4", iconClassName)} />
               {label}
@@ -928,7 +929,7 @@ function ReviewQueueQuickUndoToast({
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-6 left-1/2 z-50 flex min-w-[300px] max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 dark:bg-surface"
+      className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 dark:bg-surface sm:w-auto sm:min-w-[300px]"
     >
       <span className="min-w-0 truncate">{quickUndoLabel(quickUndo.verdict)}</span>
       <Button
@@ -1000,7 +1001,7 @@ function ReviewQueueDetailEmpty({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center gap-3.5 p-12 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3.5 p-6 text-center @[520px]/review-card:p-12">
         <span
           aria-hidden
           className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success"

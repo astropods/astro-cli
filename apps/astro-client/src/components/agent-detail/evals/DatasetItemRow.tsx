@@ -101,15 +101,15 @@ function ExpandedPreview({
   verdict: Verdict;
 }) {
   return (
-    <div className="ml-8 mr-3 animate-in fade-in slide-in-from-top-1 border-t border-dashed border-border px-5 py-4 duration-150 ease-out">
-      <div className="flex items-start gap-7">
+    <div className="mx-0 animate-in fade-in slide-in-from-top-1 border-t border-dashed border-border px-4 py-4 duration-150 ease-out @[760px]/dataset-table:ml-8 @[760px]/dataset-table:mr-3 @[760px]/dataset-table:px-5">
+      <div className="flex flex-col gap-5 @[760px]/dataset-table:flex-row @[760px]/dataset-table:items-start @[760px]/dataset-table:gap-7">
         <div className="min-w-0 flex-1">
           <div className="mb-2 font-mono text-label uppercase text-faint-foreground">Input</div>
           <ContentValue content={input} mode="pretty" tone="foreground" />
         </div>
-        <div className="w-px flex-none self-stretch bg-border" />
+        <div className="hidden w-px flex-none self-stretch bg-border @[760px]/dataset-table:block" />
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="font-mono text-label uppercase text-faint-foreground">
               Expected output
             </span>
@@ -192,13 +192,13 @@ export function DatasetItemRow({
         tabIndex={0}
         aria-expanded={isOpen}
         className={cn(
-          "cursor-pointer align-top transition-colors hover:bg-muted/40",
+          "relative flex cursor-pointer flex-col align-top transition-colors hover:bg-muted/40 @[760px]/dataset-table:table-row",
           isOpen && "border-b-0",
         )}
       >
         <TableCell
           className={cn(
-            "py-3.5 pl-5 pr-0",
+            "absolute left-4 top-4 block p-0 @[760px]/dataset-table:static @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:pl-5 @[760px]/dataset-table:pr-0",
             isOpen && "shadow-[inset_3px_0_0_var(--color-primary)]",
           )}
         >
@@ -210,15 +210,21 @@ export function DatasetItemRow({
             )}
           />
         </TableCell>
-        <TableCell className="py-3.5">
+        <TableCell className="order-1 block pb-2 pl-10 pr-12 pt-4 @[760px]/dataset-table:table-cell @[760px]/dataset-table:px-4 @[760px]/dataset-table:py-3.5">
           <VerdictPill verdict={verdict} />
         </TableCell>
-        <TableCell className="py-3.5">
+        <TableCell
+          data-label="Input"
+          className="order-3 block px-4 py-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
+        >
           <div className="line-clamp-2 text-body text-foreground" title={inputSummary}>
             {inputSummary}
           </div>
         </TableCell>
-        <TableCell className="py-3.5">
+        <TableCell
+          data-label="Expected output"
+          className="order-4 block px-4 pb-4 pt-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
+        >
           <div
             className="line-clamp-2 text-body text-muted-foreground"
             title={outputSummary}
@@ -226,7 +232,7 @@ export function DatasetItemRow({
             {outputSummary}
           </div>
         </TableCell>
-        <TableCell className="py-3.5 pr-5">
+        <TableCell className="order-2 block px-4 pb-2 pt-1 @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:pr-5">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <ReviewerCell reviewer={reviewer} judgedAt={item.metadata?.judged_at} />
             <div
@@ -247,10 +253,10 @@ export function DatasetItemRow({
         </TableCell>
       </TableRow>
       {isOpen && (
-        <TableRow>
+        <TableRow className="block @[760px]/dataset-table:table-row">
           <TableCell
             colSpan={DATASET_ITEM_COLUMN_COUNT}
-            className="p-0 shadow-[inset_3px_0_0_var(--color-primary)]"
+            className="block p-0 shadow-[inset_3px_0_0_var(--color-primary)] @[760px]/dataset-table:table-cell"
           >
             <ExpandedPreview
               input={item.input}

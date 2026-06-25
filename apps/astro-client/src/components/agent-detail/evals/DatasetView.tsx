@@ -30,7 +30,7 @@ export function DatasetView({
   }, []);
 
   return (
-    <EvalTabCard>
+    <EvalTabCard className="@container/dataset-card">
       <EvalTabCardHeader label="Dataset" datasetName={summary.dataset_name}>
         <DatasetFilterChips
           selected={selected}
@@ -38,7 +38,7 @@ export function DatasetView({
           onToggle={toggleFilter}
         />
       </EvalTabCardHeader>
-      <EvalTabCardBody>
+      <EvalTabCardBody className="flex-col @[780px]/dataset-card:flex-row">
         <DatasetGradeSidebar summary={summary} />
         <DatasetTable
           deploymentId={deploymentId}

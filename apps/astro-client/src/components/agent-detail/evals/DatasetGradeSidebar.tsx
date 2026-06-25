@@ -99,7 +99,7 @@ export function DatasetGradeSidebar({
   const badPct = totalJudged > 0 ? (bad_count / totalJudged) * 100 : 0;
 
   return (
-    <aside className="flex w-[268px] flex-none flex-col gap-6 border-r border-border bg-card p-5 pt-5.5 dark:bg-surface">
+    <aside className="flex w-full flex-none flex-col gap-5 border-b border-border bg-card p-4 dark:bg-surface @[780px]/dataset-card:w-[268px] @[780px]/dataset-card:border-b-0 @[780px]/dataset-card:border-r @[780px]/dataset-card:p-5 @[780px]/dataset-card:pt-5.5">
       <DatasetGrade
         grade={grade}
         variant="label"
@@ -119,7 +119,7 @@ export function DatasetGradeSidebar({
             <div className="bg-destructive" style={{ width: `${badPct}%` }} />
           )}
         </div>
-        <div className="mt-2.5 flex gap-4 text-body-sm text-muted-foreground">
+        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-body-sm text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-[2px] bg-success" aria-hidden />
             {good_count.toLocaleString()} good

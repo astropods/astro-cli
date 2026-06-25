@@ -135,8 +135,8 @@ export function DatasetTable({
   return (
     <Table
       bare
-      className="table-fixed"
-      containerClassName="flex min-w-0 flex-1 flex-col bg-background"
+      className="block w-full @[760px]/dataset-table:table @[760px]/dataset-table:table-fixed"
+      containerClassName="@container/dataset-table flex min-w-0 flex-1 flex-col bg-background"
       footer={
         hasNextPage && !isLoading ? (
           <TableShowMore
@@ -154,7 +154,7 @@ export function DatasetTable({
         ) : null
       }
     >
-      <TableHeader className="bg-black/2 dark:bg-white/3">
+      <TableHeader className="hidden bg-black/2 dark:bg-white/3 @[760px]/dataset-table:table-header-group">
         <TableRow>
           <TableHead className="w-10 pl-5 pr-0 text-faint-foreground" />
           <TableHead className="w-[112px] text-faint-foreground">
@@ -169,7 +169,7 @@ export function DatasetTable({
           </TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody className="block @[760px]/dataset-table:table-row-group">
         {(undoJudgment.isError || changeJudgment.isError) && (
           <TableRow>
             <TableCell

@@ -24,7 +24,7 @@ export function DatasetFilterChips({ selected, counts, onToggle }: DatasetFilter
   ];
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {chips.map((chip) => {
         const active = selected.has(chip.key);
         return (

@@ -10,7 +10,7 @@ export function EvalTabCard({ className, children }: EvalTabCardProps) {
   return (
     <div
       className={cn(
-        "flex flex-col overflow-hidden rounded-lg border border-border",
+        "flex min-w-0 flex-col overflow-hidden rounded-lg border border-border",
         className,
       )}
     >
@@ -36,17 +36,21 @@ export function EvalTabCardHeader({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 border-b border-border bg-card px-5 py-3 dark:bg-surface",
+        "flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card px-5 py-3 dark:bg-surface",
         className,
       )}
     >
-      <div className="flex min-w-0 items-baseline gap-2">
+      <div className="flex min-w-0 max-w-full items-baseline gap-2">
         <span className="flex-none text-body font-semibold text-foreground">
           {label}
         </span>
         <span className="truncate text-body text-muted-foreground">{datasetName}</span>
       </div>
-      {children && <div className="flex flex-none items-center gap-3">{children}</div>}
+      {children && (
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

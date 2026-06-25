@@ -74,11 +74,13 @@ export default function AgentDataset() {
         className="relative z-10 min-h-0 flex-1 overflow-y-auto transition-[padding] duration-300 ease-out"
         style={{
           paddingRight: panelOpen && !isFullWidth ? `${PANEL_WIDTH_REM}rem` : undefined,
+          maskImage: "linear-gradient(to bottom, transparent, black 2rem)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
       >
         <motion.div
           className={cn(
-            "mx-auto flex w-full max-w-6xl flex-col px-6 pt-8",
+            "@container/eval-page mx-auto flex w-full max-w-6xl flex-col px-6 pt-8",
             isReviewQueue ? "pb-6" : "pb-16",
           )}
           initial={{ opacity: 0, y: 12 }}
@@ -92,8 +94,8 @@ export default function AgentDataset() {
             </p>
           </div>
 
-          <div className="mb-5 flex items-end justify-between gap-4 border-b border-border">
-            <div className="flex items-center gap-6">
+          <div className="mb-5 flex flex-col gap-3 border-b border-border @[680px]/eval-page:flex-row @[680px]/eval-page:items-end @[680px]/eval-page:justify-between">
+            <div className="-mb-px flex min-w-0 items-end gap-6 overflow-x-auto">
               <span
                 ref={reviewQueueTargetRef}
                 data-eval-review-queue-target
@@ -113,8 +115,8 @@ export default function AgentDataset() {
               </TabButton>
             </div>
             {data && (
-              <div className="flex flex-none items-center gap-2.5 pb-2">
-                <div className="flex items-center gap-2 pr-1.5">
+              <div className="flex flex-wrap items-center gap-2.5 pb-3 @[680px]/eval-page:flex-none @[680px]/eval-page:justify-end @[680px]/eval-page:pb-2">
+                <div className="flex min-w-0 items-center gap-2 pr-1.5">
                   <span className="text-body-sm text-muted-foreground">Grade</span>
                   <div
                     ref={gradeTargetRef}
@@ -124,8 +126,8 @@ export default function AgentDataset() {
                     <DatasetGrade grade={data.grade} />
                   </div>
                 </div>
-                <span aria-hidden className="h-5 w-px bg-border" />
-                <Button asChild variant="outline" size="sm">
+                <span aria-hidden className="hidden h-5 w-px bg-border @[460px]/eval-page:block" />
+                <Button asChild variant="outline" size="sm" className="shrink-0">
                   <a href={downloadUrl} download>
                     <Download className="size-4" />
                     Download
