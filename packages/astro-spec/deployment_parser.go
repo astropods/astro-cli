@@ -186,8 +186,12 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 
 	// Interfaces
 	if ds.Interfaces != nil {
-		// Rule 11 (fulfilled only): adapters non-empty, image non-empty
-		if isFulfilled {
+		// A messaging interfaces block declares adapters and/or a sidecar image.
+		// An auth-only block (e.g. interfaces.auth.custom for a frontend-only
+		// agent) carries neither and must not be held to the messaging rules.
+		isMessaging := len(ds.Interfaces.Adapters) > 0 || ds.Interfaces.Image != ""
+		// Rule 11 (fulfilled only): a messaging block needs adapters + image.
+		if isFulfilled && isMessaging {
 			if len(ds.Interfaces.Adapters) == 0 {
 				return fmt.Errorf("interfaces.adapters must not be empty when interfaces is present")
 			}

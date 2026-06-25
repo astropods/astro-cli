@@ -1517,3 +1517,81 @@ agent:
 		})
 	}
 }
+
+// A custom-interface-only agent carries interfaces.auth.custom with no adapters
+// and no messaging image. That auth-only block must be accepted on a fulfilled
+// deployment/v1 spec — the messaging rules (adapters/image required) apply only
+// to messaging blocks.
+func TestParseDeploymentSpec_AuthOnlyInterfacesAllowed(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  account: acme
+  name: my-agent
+  build: abc123
+  registry: registry.example.com
+target:
+  runtime: kubernetes
+agent:
+  image: registry.example.com/my-agent:abc123
+  endpoints:
+    http:
+      port: 8080
+      expose:
+        enabled: true
+  replicas: 1
+  resources:
+    cpu: "100m"
+    memory: "256Mi"
+  update:
+    strategy: rolling
+interfaces:
+  auth:
+    custom:
+      public: true
+observability:
+  enabled: true
+  provider: langfuse
+`
+	if _, err := ParseDeploymentSpec([]byte(yaml)); err != nil {
+		t.Fatalf("auth-only interfaces should be valid, got: %v", err)
+	}
+}
+
+// A messaging interfaces block (declares adapters) still requires an image.
+func TestParseDeploymentSpec_MessagingInterfacesRequiresImage(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  account: acme
+  name: my-agent
+  build: abc123
+  registry: registry.example.com
+target:
+  runtime: kubernetes
+agent:
+  image: registry.example.com/my-agent:abc123
+  endpoints:
+    http:
+      port: 8080
+  replicas: 1
+  resources:
+    cpu: "100m"
+    memory: "256Mi"
+  update:
+    strategy: rolling
+interfaces:
+  adapters: ["web"]
+  endpoints:
+    http:
+      port: 8090
+      expose:
+        enabled: true
+observability:
+  enabled: true
+  provider: langfuse
+`
+	if _, err := ParseDeploymentSpec([]byte(yaml)); err == nil {
+		t.Fatal("messaging interfaces without image should error")
+	}
+}
