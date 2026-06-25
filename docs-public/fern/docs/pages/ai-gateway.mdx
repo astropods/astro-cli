@@ -57,7 +57,7 @@ const response = await client.chat.completions.create({
 ```
 
 ```typescript title="Mastra"
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";   // v2 or later (see note below)
 import { Agent } from "@mastra/core/agent";
 
 const gateway = createOpenAI({
@@ -103,6 +103,10 @@ const response = await llm.invoke("Hello");
 
 For Mastra: the AI-SDK provider returned by `createOpenAI` is what `Agent.model:` accepts, so the rest of your `Agent` / `Workflow` / `Tool` definitions stay the same.
 
+<Callout intent="warning">
+**Mastra needs an AI SDK v5+ model.** Add `@ai-sdk/openai` at **v2 or later** to your own `package.json`. Version 1.x produces an AI SDK v4 model (`specificationVersion: "v1"`) that Mastra's `stream()` rejects with `AGENT_STREAM_V1_MODEL_NOT_SUPPORTED`. This can be newer than the `@ai-sdk/openai` version Mastra pins internally, so install it explicitly rather than relying on the transitive one.
+</Callout>
+
 ## Supported models
 
 Pass any of these strings as `model` on the SDK call:
@@ -113,6 +117,10 @@ Pass any of these strings as `model` on the SDK call:
 | `claude-sonnet-4-6`  | Workhorse; balanced cost / quality. Good default.       |
 | `claude-haiku-4-5`   | Fast and cheap; tool-use loops, classification.         |
 | `titan-embed-text-v2`| Text embeddings (RAG, vector search).                   |
+
+<Callout intent="tip">
+**Structured output.** Prompting for a JSON object and parsing it (with a fallback for the occasional non-JSON reply) is a portable way to get structured output that works regardless of which structured-output features a given model exposes through the gateway.
+</Callout>
 
 ## Local development
 
@@ -146,6 +154,6 @@ Your agent code reads `ASTRO_GATEWAY_API_KEY` for gateway calls and `OPENAI_API_
 
 ## What it doesn't cover
 
-- **Anthropic-native SDK.** Use the OpenAI SDK (or one of the frameworks above) pointed at `ASTRO_GATEWAY_URL`. Calling Anthropic's native `messages` endpoint isn't supported.
+- **The native Anthropic SDK (`@anthropic-ai/sdk`).** The gateway's models are Anthropic's Claude, but you call them through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with an `anthropic/` provider prefix and not via Anthropic's native `messages` endpoint.
 - **Vision / image generation.** The supported model list is text-only.
 - **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; reach out to support.
