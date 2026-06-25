@@ -27,7 +27,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -624,6 +626,148 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sCli
 
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// RecheckKnowledgeStore re-resolves a PrivateLink store's VPC endpoint and
+// rewrites its HOST credential to the live endpoint DNS. It exists to repair
+// stores whose HOST still holds the original "com.amazonaws.vpce.*" service
+// name — the reconciler only rewrites HOST on the available transition, so
+// stores that became ready before that logic existed never get corrected.
+//
+// newEC2 and kmsClient are injectable for tests; nil falls back to the real
+// AWS-backed clients.
+func RecheckKnowledgeStore(
+	log *logger.Logger,
+	ksStore *knowledgestore.Store,
+	newEC2 func(context.Context) (knowledgestore.EC2Client, error),
+	kmsClient envelope.KMSClient,
+) gin.HandlerFunc {
+	if newEC2 == nil {
+		newEC2 = knowledgestore.NewEC2Client
+	}
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil {
+			log.Error("Failed to get knowledge store", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
+			return
+		}
+		if ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+		if ks.Mode != knowledgestore.ModeExternal {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "recheck only applies to connected (external) knowledge stores"})
+			return
+		}
+
+		ep, err := ksStore.GetEndpoint(ks.ID)
+		if err != nil {
+			log.Error("Failed to get endpoint", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get endpoint"})
+			return
+		}
+		if ep == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "store has no PrivateLink endpoint to recheck"})
+			return
+		}
+		if ep.EndpointID == nil || *ep.EndpointID == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "PrivateLink endpoint is still being provisioned; try again shortly"})
+			return
+		}
+
+		// Re-resolve the live endpoint DNS from AWS; fall back to the
+		// reconciler-stored DNS if the AWS lookup is unavailable.
+		dns := resolveEndpointDNS(c.Request.Context(), log, newEC2, *ep.EndpointID)
+		if dns == "" && ep.EndpointDNS != nil {
+			dns = *ep.EndpointDNS
+		}
+		if dns == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "endpoint DNS is not available yet; try again shortly"})
+			return
+		}
+
+		// Persist the resolved DNS on the endpoint record and rewrite the
+		// HOST credential to it.
+		if err := ksStore.SetEndpointReady(ks.ID, *ep.EndpointID, dns); err != nil {
+			log.Error("Failed to record endpoint DNS", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update endpoint"})
+			return
+		}
+		kc, err := recheckKMSClient(c.Request.Context(), kmsClient)
+		if err != nil {
+			log.Error("Failed to build KMS client", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host"})
+			return
+		}
+		if err := ksStore.RewriteHostCredential(c.Request.Context(), kc, ks, dns); err != nil {
+			log.Error("Failed to rewrite host credential", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host"})
+			return
+		}
+		if ks.Status != knowledgestore.StatusReady {
+			if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
+				log.Error("Failed to mark store ready", "error", err, "store_id", ks.ID)
+			}
+			ks.Status = knowledgestore.StatusReady
+		}
+
+		resp := toKnowledgeResponse(ks)
+		ep.EndpointDNS = &dns
+		ep.Status = knowledgestore.StatusReady
+		resp.Endpoint = &KnowledgeEndpointResponse{
+			CloudProvider:   ep.CloudProvider,
+			EndpointService: ep.EndpointService,
+			Region:          ep.Region,
+			EndpointID:      ep.EndpointID,
+			EndpointDNS:     ep.EndpointDNS,
+			Status:          ep.Status,
+			Error:           ep.Error,
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// resolveEndpointDNS returns the live primary DNS name for a VPC endpoint, or
+// "" if it can't be resolved (endpoint not available, no DNS yet, AWS error —
+// all non-fatal; the caller falls back to the stored value).
+func resolveEndpointDNS(ctx context.Context, log *logger.Logger, newEC2 func(context.Context) (knowledgestore.EC2Client, error), endpointID string) string {
+	ec2Client, err := newEC2(ctx)
+	if err != nil {
+		log.Warn("recheck: failed to create EC2 client, using stored DNS", "error", err)
+		return ""
+	}
+	out, err := ec2Client.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
+		VpcEndpointIds: []string{endpointID},
+	})
+	if err != nil || out == nil || len(out.VpcEndpoints) == 0 {
+		log.Warn("recheck: failed to describe VPC endpoint, using stored DNS", "error", err, "vpce_id", endpointID)
+		return ""
+	}
+	vpce := out.VpcEndpoints[0]
+	if strings.ToLower(string(vpce.State)) != "available" || len(vpce.DnsEntries) == 0 {
+		return ""
+	}
+	return aws.ToString(vpce.DnsEntries[0].DnsName)
+}
+
+// recheckKMSClient returns the injected client or builds one from the default
+// AWS config.
+func recheckKMSClient(ctx context.Context, injected envelope.KMSClient) (envelope.KMSClient, error) {
+	if injected != nil {
+		return injected, nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load aws config: %w", err)
+	}
+	return kms.NewFromConfig(awsCfg), nil
 }
 
 func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB, billing *openmeter.BillingStateManager) gin.HandlerFunc {

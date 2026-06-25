@@ -128,6 +128,18 @@ func (d *Decryptor) Decrypt(ciphertext, nonce []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// DecryptDataKey returns the plaintext data key behind an encrypted data key.
+// Pair it with NewEncryptorFromPlaintext to encrypt new values under a store's
+// existing data key (so they decrypt alongside its other values) without
+// re-keying. The caller is responsible for zeroing the returned slice after use.
+func DecryptDataKey(ctx context.Context, client KMSClient, encryptedDataKey []byte) ([]byte, error) {
+	out, err := client.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: encryptedDataKey})
+	if err != nil {
+		return nil, fmt.Errorf("kms Decrypt: %w", err)
+	}
+	return out.Plaintext, nil
+}
+
 // NewEncryptorFromPlaintext creates an Encryptor from an already-decrypted data key.
 // Use this when you already have the plaintext key (e.g. from a KMS Decrypt call)
 // and the corresponding encrypted data key stored in the DB.

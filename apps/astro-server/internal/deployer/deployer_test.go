@@ -11,6 +11,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
@@ -315,6 +316,120 @@ func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 	}
 	if bk != nil || bc != nil {
 		t.Error("expected nil maps when no bound entries")
+	}
+}
+
+func strptr(s string) *string { return &s }
+
+// TestBoundKnowledgeHost_PrivateLink is the case the agent-injection path
+// hinges on: a PrivateLink-backed external store must resolve to its
+// provisioned VPC endpoint DNS, NOT the in-cluster service DNS and NOT the
+// unconnectable "com.amazonaws.vpce.*" service name the user supplied.
+func TestBoundKnowledgeHost_PrivateLink(t *testing.T) {
+	const vpceDNS = "vpce-0abc123.vpce-svc-0def456.us-east-1.vpce.amazonaws.com"
+	store := &knowledgestore.KnowledgeStore{
+		ID: "store1", AccountID: "acct1", Provider: "postgres", Mode: knowledgestore.ModeExternal,
+	}
+	ep := &knowledgestore.Endpoint{
+		KnowledgeStoreID: "store1",
+		EndpointDNS:      strptr(vpceDNS),
+		Status:           knowledgestore.StatusReady,
+	}
+	// The user-supplied HOST credential is the vpce-svc service name — not
+	// itself dialable. The endpoint DNS must win.
+	creds := map[string]string{"HOST": "com.amazonaws.vpce.us-east-1.vpce-svc-0def456"}
+
+	host, err := boundKnowledgeHost(store, ep, creds)
+	if err != nil {
+		t.Fatalf("boundKnowledgeHost: %v", err)
+	}
+	if host != vpceDNS {
+		t.Errorf("host: got %q, want endpoint DNS %q", host, vpceDNS)
+	}
+}
+
+// TestBoundKnowledgeHost_PlainExternal: an external store without a PrivateLink
+// endpoint connects directly to its user-supplied HOST credential.
+func TestBoundKnowledgeHost_PlainExternal(t *testing.T) {
+	store := &knowledgestore.KnowledgeStore{
+		ID: "store1", AccountID: "acct1", Provider: "postgres", Mode: knowledgestore.ModeExternal,
+	}
+	creds := map[string]string{"HOST": "db.example.com", "PORT": "5432"}
+
+	host, err := boundKnowledgeHost(store, nil, creds)
+	if err != nil {
+		t.Fatalf("boundKnowledgeHost: %v", err)
+	}
+	if host != "db.example.com" {
+		t.Errorf("host: got %q, want %q", host, "db.example.com")
+	}
+}
+
+// TestBoundKnowledgeHost_ExternalNoHost: an external store with neither a
+// PrivateLink endpoint nor a HOST credential has no usable host — surface an
+// error rather than silently emitting an empty/bogus host.
+func TestBoundKnowledgeHost_ExternalNoHost(t *testing.T) {
+	store := &knowledgestore.KnowledgeStore{
+		ID: "store1", AccountID: "acct1", Provider: "postgres", Mode: knowledgestore.ModeExternal, Name: "ext",
+	}
+	if _, err := boundKnowledgeHost(store, nil, map[string]string{}); err == nil {
+		t.Error("expected error for external store with no host")
+	}
+}
+
+// TestBoundKnowledgeHost_Managed: a managed store resolves to its in-cluster
+// StatefulSet service DNS (endpoint/creds are irrelevant).
+func TestBoundKnowledgeHost_Managed(t *testing.T) {
+	store := &knowledgestore.KnowledgeStore{
+		ID: "store1", AccountID: "acct1", Provider: "postgres", Mode: knowledgestore.ModeManaged,
+	}
+	want := deployment.GenerateServiceDNS(
+		k8s.KnowledgeResourceName("store1"), k8s.KnowledgeNamespace("acct1"),
+	)
+
+	host, err := boundKnowledgeHost(store, nil, nil)
+	if err != nil {
+		t.Fatalf("boundKnowledgeHost: %v", err)
+	}
+	if host != want {
+		t.Errorf("host: got %q, want in-cluster DNS %q", host, want)
+	}
+}
+
+// TestMapBoundCredentials covers both credential key shapes: external stores
+// store generic keys (USERNAME/PASSWORD/DATABASE) while managed stores store
+// provider-specific keys (POSTGRES_USER/...). Both must map to the same bind
+// attrs, and connection coords (HOST/PORT) must be dropped.
+func TestMapBoundCredentials(t *testing.T) {
+	external := mapBoundCredentials("postgres", map[string]string{
+		"HOST":     "db.example.com",
+		"PORT":     "5432",
+		"USERNAME": "astro",
+		"PASSWORD": "secret123",
+		"DATABASE": "mydb",
+	})
+	wantExternal := map[string]string{"user": "astro", "password": "secret123", "database": "mydb"}
+	for attr, want := range wantExternal {
+		if external[attr] != want {
+			t.Errorf("external %q: got %q, want %q", attr, external[attr], want)
+		}
+	}
+	if _, ok := external["HOST"]; ok {
+		t.Error("HOST must not be mapped as a credential")
+	}
+	if len(external) != len(wantExternal) {
+		t.Errorf("external: got %d creds, want %d (%v)", len(external), len(wantExternal), external)
+	}
+
+	managed := mapBoundCredentials("postgres", map[string]string{
+		"POSTGRES_USER":     "astro",
+		"POSTGRES_PASSWORD": "secret123",
+		"POSTGRES_DB":       "mydb",
+	})
+	for attr, want := range wantExternal {
+		if managed[attr] != want {
+			t.Errorf("managed %q: got %q, want %q", attr, managed[attr], want)
+		}
 	}
 }
 

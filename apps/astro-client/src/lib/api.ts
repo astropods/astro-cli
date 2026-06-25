@@ -2715,6 +2715,13 @@ class ApiClient {
     );
   }
 
+  async recheckKnowledgeStore(account: string, name: string): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/recheck`,
+      { method: 'POST' }
+    );
+  }
+
   async getKnowledgeCredentials(account: string, name: string): Promise<KnowledgeCredentials> {
     return this.request<KnowledgeCredentials>(
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`

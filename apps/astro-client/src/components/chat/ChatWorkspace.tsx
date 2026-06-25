@@ -11,12 +11,14 @@ import { ChatThreadHeader } from "./ChatThreadHeader";
 import { ChatThread } from "./ChatThread";
 
 export function ChatWorkspace({
+  account,
   deploymentId,
   deployment,
   eligibleDeploymentIds,
   onNewConversation,
   className,
 }: {
+  account: string;
   deploymentId: string;
   deployment: AgentDeploymentSummary;
   eligibleDeploymentIds: ReadonlySet<string>;

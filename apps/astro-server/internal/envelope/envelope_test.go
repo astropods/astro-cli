@@ -117,3 +117,45 @@ func TestUniqueNonces(t *testing.T) {
 		t.Error("nonces should be unique per encryption")
 	}
 }
+
+// TestDecryptDataKey_ReEncryptUnderExistingKey verifies the rewrite-in-place
+// pattern: a value encrypted via an encryptor rebuilt from DecryptDataKey
+// decrypts under the same encrypted data key, alongside the original values.
+func TestDecryptDataKey_ReEncryptUnderExistingKey(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockKMS{dataKey: key}
+	ctx := context.Background()
+
+	// Original encryptor produces the store's encrypted data key + a value.
+	enc, err := NewEncryptor(ctx, mock, "arn:aws:kms:us-east-1:123:key/test")
+	if err != nil {
+		t.Fatalf("NewEncryptor: %v", err)
+	}
+	origCT, origNonce, _ := enc.Encrypt([]byte("original-secret"))
+
+	// Rebuild an encryptor from the decrypted data key and encrypt a new value.
+	plaintextKey, err := DecryptDataKey(ctx, mock, enc.EncryptedDataKey)
+	if err != nil {
+		t.Fatalf("DecryptDataKey: %v", err)
+	}
+	enc2, err := NewEncryptorFromPlaintext(plaintextKey, enc.EncryptedDataKey, "")
+	if err != nil {
+		t.Fatalf("NewEncryptorFromPlaintext: %v", err)
+	}
+	newCT, newNonce, _ := enc2.Encrypt([]byte("rewritten-host"))
+
+	// A single decryptor (the store's data key) decrypts both old and new.
+	dec, err := NewDecryptor(ctx, mock, enc.EncryptedDataKey)
+	if err != nil {
+		t.Fatalf("NewDecryptor: %v", err)
+	}
+	if got, _ := dec.Decrypt(origCT, origNonce); string(got) != "original-secret" {
+		t.Errorf("original value: got %q", got)
+	}
+	if got, _ := dec.Decrypt(newCT, newNonce); string(got) != "rewritten-host" {
+		t.Errorf("rewritten value: got %q", got)
+	}
+}

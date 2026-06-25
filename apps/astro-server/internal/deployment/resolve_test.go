@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -180,6 +181,123 @@ func TestResolve_KnowledgePostgresPerStoreRenaming(t *testing.T) {
 		if got := findResolution(rs, role, "POSTGRES_USERS_USER"); got != nil {
 			t.Errorf("%s should not have POSTGRES_USERS_USER (renamed name belongs only on agent); got %+v", role, got)
 		}
+	}
+}
+
+func TestResolve_ExternalKnowledgeStoreInjectsAllVars(t *testing.T) {
+	// An external (bound) knowledge store is managed outside this deployment:
+	// we run no container for it, but the agent still needs the COMPLETE set
+	// of connection coords + credentials for its provider. The host comes from
+	// the binding (BoundKnowledge), credentials from the resolved store secret
+	// (BoundCredentials).
+	//
+	// This pins the full keyset per provider — every expected var present with
+	// the right secret/source classification, and NO unexpected provider vars.
+	// postgres has no URLScheme (no *_URL); redis does (REDIS_URL must appear).
+	type wantVar struct {
+		value  string
+		secret bool
+		source EnvSource
+	}
+	cases := []struct {
+		name     string
+		provider string
+		host     string
+		creds    map[string]string // attr → value (as the deployer emits)
+		want     map[string]wantVar
+	}{
+		{
+			name:     "postgres (no URL scheme)",
+			provider: "postgres",
+			host:     "vpce-0abc.vpce-svc-0def.us-east-1.vpce.amazonaws.com", // PrivateLink endpoint DNS
+			creds: map[string]string{
+				"user":     "astro",
+				"password": "secret123",
+				"database": "mydb",
+			},
+			want: map[string]wantVar{
+				"POSTGRES_HOST":     {"vpce-0abc.vpce-svc-0def.us-east-1.vpce.amazonaws.com", false, EnvSourceServiceURL},
+				"POSTGRES_PORT":     {"5432", false, EnvSourceServiceURL},
+				"POSTGRES_USER":     {"astro", true, EnvSourceKnowledgeCred},
+				"POSTGRES_PASSWORD": {"secret123", true, EnvSourceKnowledgeCred},
+				"POSTGRES_DB":       {"mydb", true, EnvSourceKnowledgeCred},
+			},
+		},
+		{
+			name:     "redis (URL scheme + single cred)",
+			provider: "redis",
+			host:     "cache.internal",
+			creds: map[string]string{
+				"password": "rpw",
+			},
+			want: map[string]wantVar{
+				"REDIS_HOST":     {"cache.internal", false, EnvSourceServiceURL},
+				"REDIS_PORT":     {"6379", false, EnvSourceServiceURL},
+				"REDIS_URL":      {"redis://cache.internal:6379", false, EnvSourceServiceURL},
+				"REDIS_PASSWORD": {"rpw", true, EnvSourceKnowledgeCred},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prefixed := map[string]string{}
+			for attr, v := range tc.creds {
+				prefixed["db."+attr] = v
+			}
+			ds := &spec.AstroDeploymentSpec{
+				Source: spec.DeploymentSource{Name: "a", Build: "b"},
+				Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+				Knowledge: map[string]spec.DeploymentKnowledge{
+					"db": {Provider: tc.provider, Binding: "arn:knowledge:acct:shared"},
+				},
+			}
+			rs, err := Resolve(ds, ResolveOptions{
+				Namespace:        "ns",
+				BoundKnowledge:   map[string]BoundKnowledgeInfo{"db": {Host: tc.host, Provider: tc.provider}},
+				BoundCredentials: prefixed,
+			})
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+
+			// Every expected var is present with the right value/classification.
+			prefix := strings.ToUpper(tc.provider) + "_"
+			for name, w := range tc.want {
+				got := findResolution(rs, RoleAgent, name)
+				if got == nil {
+					t.Errorf("agent missing %s", name)
+					continue
+				}
+				if got.Value != w.value {
+					t.Errorf("%s value: got %q, want %q", name, got.Value, w.value)
+				}
+				if got.IsSecret != w.secret {
+					t.Errorf("%s IsSecret: got %v, want %v", name, got.IsSecret, w.secret)
+				}
+				if got.Source != w.source {
+					t.Errorf("%s source: got %q, want %q", name, got.Source, w.source)
+				}
+			}
+
+			// No EXTRA provider vars leaked onto the agent (catches a stray
+			// *_URL for postgres, a misnamed cred, etc.).
+			for _, r := range rs {
+				if r.Role != RoleAgent || !strings.HasPrefix(r.EnvName, prefix) {
+					continue
+				}
+				if _, ok := tc.want[r.EnvName]; !ok {
+					t.Errorf("unexpected agent var %s=%q (source %s)", r.EnvName, r.Value, r.Source)
+				}
+			}
+
+			// Bound store is not deployed by us — no knowledge-container rows.
+			for _, r := range rs {
+				if r.Role == KnowledgeRole("db") {
+					t.Errorf("bound store should have no knowledge:db rows; got %+v", r)
+				}
+			}
+		})
 	}
 }
 

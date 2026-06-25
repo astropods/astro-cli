@@ -394,11 +394,6 @@ func (d *Deployer) resolveBoundKnowledge(
 			boundCredentials = make(map[string]string)
 		}
 		storeNS := k8s.KnowledgeNamespace(store.AccountID)
-		serviceName := k8s.KnowledgeResourceName(store.ID)
-		boundKnowledge[name] = deployment.BoundKnowledgeInfo{
-			Host:     deployment.GenerateServiceDNS(serviceName, storeNS),
-			Provider: store.Provider,
-		}
 
 		// Resolve store credentials via unified resolver (KMS or k8s Secret fallback).
 		creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
@@ -412,15 +407,88 @@ func (d *Deployer) resolveBoundKnowledge(
 		if resolveErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to resolve credentials for store %q: %w", name, store.ID, resolveErr)
 		}
-		storageKeyMap := spec.CredentialStorageKeyMap(store.Provider)
-		for storageKey, val := range plainCreds {
-			if attr, ok := storageKeyMap[storageKey]; ok {
-				boundCredentials[name+"."+attr] = val
+
+		// External stores reached over PrivateLink must dial the provisioned VPC
+		// endpoint's DNS — the user-supplied host is a vpce-svc service name that
+		// isn't itself connectable. Fetch the endpoint record so the host
+		// resolver can pick it up.
+		var ep *knowledgestore.Endpoint
+		if store.Mode == knowledgestore.ModeExternal {
+			ep, err = d.KnowledgeStore.GetEndpoint(store.ID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("knowledge %q: failed to look up endpoint for store %q: %w", name, store.ID, err)
 			}
+		}
+
+		host, hostErr := boundKnowledgeHost(store, ep, plainCreds)
+		if hostErr != nil {
+			return nil, nil, fmt.Errorf("knowledge %q: %w", name, hostErr)
+		}
+		boundKnowledge[name] = deployment.BoundKnowledgeInfo{
+			Host:     host,
+			Provider: store.Provider,
+		}
+
+		for attr, val := range mapBoundCredentials(store.Provider, plainCreds) {
+			boundCredentials[name+"."+attr] = val
 		}
 	}
 
 	return boundKnowledge, boundCredentials, nil
+}
+
+// boundKnowledgeHost returns the host the agent should use to reach a bound
+// knowledge store.
+//
+//   - Managed stores: their in-cluster StatefulSet service DNS.
+//   - External stores over PrivateLink: the provisioned VPC endpoint DNS. The
+//     user-supplied host is a "com.amazonaws.vpce.*" service name that is not
+//     itself connectable, so the endpoint's resolved DNS is the only usable host.
+//   - Plain external stores: the user-supplied HOST credential (directly reachable).
+func boundKnowledgeHost(store *knowledgestore.KnowledgeStore, ep *knowledgestore.Endpoint, creds map[string]string) (string, error) {
+	if store.Mode == knowledgestore.ModeExternal {
+		if ep != nil && ep.EndpointDNS != nil && *ep.EndpointDNS != "" {
+			return *ep.EndpointDNS, nil
+		}
+		if host := creds["HOST"]; host != "" {
+			return host, nil
+		}
+		return "", fmt.Errorf("external store %q has no resolvable host: no PrivateLink endpoint DNS and no HOST credential", store.Name)
+	}
+	return deployment.GenerateServiceDNS(
+		k8s.KnowledgeResourceName(store.ID), k8s.KnowledgeNamespace(store.AccountID),
+	), nil
+}
+
+// externalCredKeyToAttr maps the generic credential keys external stores are
+// stored under (set at connect time) to bind attribute names. Managed stores
+// instead use provider-specific storage keys (POSTGRES_USER, ...), handled by
+// spec.CredentialStorageKeyMap.
+var externalCredKeyToAttr = map[string]string{
+	"USERNAME": "user",
+	"PASSWORD": "password",
+	"DATABASE": "database",
+	"API_KEY":  "api_key",
+}
+
+// mapBoundCredentials translates a store's plaintext credentials into the
+// attr→value form the resolver consumes ("name.attr"). It handles both
+// credential key shapes: managed stores' provider-specific storage keys and
+// external stores' generic keys. HOST/PORT are connection coords, not
+// credentials, and are intentionally dropped here.
+func mapBoundCredentials(provider string, plainCreds map[string]string) map[string]string {
+	storageKeyMap := spec.CredentialStorageKeyMap(provider)
+	out := make(map[string]string, len(plainCreds))
+	for key, val := range plainCreds {
+		if attr, ok := storageKeyMap[key]; ok {
+			out[attr] = val
+			continue
+		}
+		if attr, ok := externalCredKeyToAttr[key]; ok {
+			out[attr] = val
+		}
+	}
+	return out
 }
 
 // kmsClient returns the deployer's KMS client, or creates one from the default AWS config.

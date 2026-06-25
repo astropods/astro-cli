@@ -124,3 +124,17 @@ export function useDeleteKnowledgeStore(account: string) {
     },
   });
 }
+
+// useRecheckKnowledgeStore re-resolves a connected store's endpoint and fixes
+// its host. Refreshes both the list and the affected store's detail.
+export function useRecheckKnowledgeStore(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation<KnowledgeStore, Error, { name: string }>({
+    mutationFn: ({ name }) => api.recheckKnowledgeStore(account, name),
+    onSuccess: (store) => {
+      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: knowledgeKeys.detail(account, store.name) });
+    },
+  });
+}

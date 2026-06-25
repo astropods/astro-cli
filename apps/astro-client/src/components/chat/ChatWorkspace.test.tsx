@@ -70,6 +70,7 @@ describe("ChatWorkspace", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ChatWorkspace
+            account="acme"
             deploymentId="dep-1"
             deployment={deployment}
             eligibleDeploymentIds={eligibleDeploymentIds}
@@ -84,6 +85,7 @@ describe("ChatWorkspace", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ChatWorkspace
+            account="acme"
             deploymentId="dep-1"
             deployment={deployment}
             eligibleDeploymentIds={eligibleDeploymentIds}
@@ -98,6 +100,7 @@ describe("ChatWorkspace", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <ChatWorkspace
+            account="acme"
             deploymentId="dep-1"
             deployment={deployment}
             eligibleDeploymentIds={eligibleDeploymentIds}

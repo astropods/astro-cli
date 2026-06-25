@@ -28,7 +28,7 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
         <ErrorPanel>{store.error}</ErrorPanel>
       )}
 
-      {store.endpoint && <PrivateLinkSection store={store} />}
+      {store.endpoint && <PrivateLinkSection store={store} account={account} />}
 
       {store.status !== "pending-acceptance" && <>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -1075,6 +1075,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
+				api.POST(accountMember, "/knowledge/:name/recheck", "Recheck a connected knowledge store and fix its host", handlers.RecheckKnowledgeStore(log, ksStore, nil, nil),
+					oapispec.Tags("Knowledge"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Store name"),
+					oapispec.Response(200, &handlers.KnowledgeResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
+				)
 				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue, omClient, db, billing),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),

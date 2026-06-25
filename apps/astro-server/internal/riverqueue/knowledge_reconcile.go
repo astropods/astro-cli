@@ -11,6 +11,7 @@ import (
 	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -38,6 +39,23 @@ type KnowledgeReconcileWorker struct {
 	registry *k8s.Registry
 	log      *logger.Logger
 	billing  *openmeter.BillingStateManager
+
+	// kmsClient is optional; when nil it's built from the default AWS config.
+	// Tests inject a fake to exercise credential rewriting without real KMS.
+	kmsClient envelope.KMSClient
+}
+
+// kmsClientFor returns the worker's injected KMS client, or builds one from the
+// default AWS config.
+func (w *KnowledgeReconcileWorker) kmsClientFor(ctx context.Context) (envelope.KMSClient, error) {
+	if w.kmsClient != nil {
+		return w.kmsClient, nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load aws config: %w", err)
+	}
+	return awskms.NewFromConfig(awsCfg), nil
 }
 
 // Knowledge rows do not yet carry per-cluster routing; StatefulSet, LB, and
@@ -246,6 +264,16 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 					"error", err, "store_id", ep.KnowledgeStoreID)
 				continue
 			}
+			// The user-supplied host was the "com.amazonaws.vpce.*" service name,
+			// which isn't connectable. Now that the VPC endpoint has resolved,
+			// rewrite the store's HOST credential to the real endpoint DNS so the
+			// stored value is the address agents actually dial. Done before the
+			// store flips to ready so a deploy never observes the stale host.
+			if err := w.persistResolvedHost(ctx, ep.KnowledgeStoreID, dns); err != nil {
+				w.log.Error("KnowledgeReconcile: failed to persist resolved host",
+					"error", err, "store_id", ep.KnowledgeStoreID)
+				continue
+			}
 			if err := w.ksStore.SetStatus(ep.KnowledgeStoreID, knowledgestore.StatusReady); err != nil {
 				w.log.Error("KnowledgeReconcile: failed to mark store ready",
 					"error", err, "store_id", ep.KnowledgeStoreID)
@@ -263,6 +291,30 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "state", string(vpce.State))
 		}
 	}
+}
+
+// persistResolvedHost rewrites a store's HOST credential to the resolved
+// PrivateLink endpoint DNS. The new value is encrypted under the store's
+// existing data key so it decrypts alongside the store's other credentials;
+// SaveCredentials upserts only the HOST row, leaving the rest untouched.
+//
+// External-store credentials require KMS (they have no k8s Secret fallback), so
+// a store without an encrypted data key has no persisted credentials to update
+// and is skipped.
+func (w *KnowledgeReconcileWorker) persistResolvedHost(ctx context.Context, storeID, dns string) error {
+	store, err := w.ksStore.GetByID(storeID)
+	if err != nil {
+		return fmt.Errorf("get store: %w", err)
+	}
+	if store == nil || len(store.EncryptedDataKey) == 0 {
+		return nil
+	}
+
+	kmsClient, err := w.kmsClientFor(ctx)
+	if err != nil {
+		return err
+	}
+	return w.ksStore.RewriteHostCredential(ctx, kmsClient, store, dns)
 }
 
 func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg string) {

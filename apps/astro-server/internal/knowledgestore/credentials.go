@@ -146,6 +146,50 @@ func ResolveCredentials(
 	return nil, fmt.Errorf("store %q: no credentials available (no KMS and no k8s Secret reader configured)", store.Name)
 }
 
+// HostCredentialKey is the credential key holding an external store's
+// connection host.
+const HostCredentialKey = "HOST"
+
+// EncryptHostCredential builds the HOST credential row for a store, encrypting
+// host under the store's existing data key (no re-key) so it decrypts alongside
+// the store's other credentials.
+func EncryptHostCredential(ctx context.Context, kmsClient envelope.KMSClient, store *KnowledgeStore, host string) (Credential, error) {
+	plaintextKey, err := envelope.DecryptDataKey(ctx, kmsClient, store.EncryptedDataKey)
+	if err != nil {
+		return Credential{}, fmt.Errorf("decrypt data key: %w", err)
+	}
+	defer func() {
+		for i := range plaintextKey {
+			plaintextKey[i] = 0
+		}
+	}()
+
+	enc, err := envelope.NewEncryptorFromPlaintext(plaintextKey, store.EncryptedDataKey, "")
+	if err != nil {
+		return Credential{}, fmt.Errorf("build encryptor: %w", err)
+	}
+	ciphertext, nonce, err := enc.Encrypt([]byte(host))
+	if err != nil {
+		return Credential{}, fmt.Errorf("encrypt host: %w", err)
+	}
+	return Credential{Key: HostCredentialKey, ValueEncrypted: ciphertext, Nonce: nonce}, nil
+}
+
+// RewriteHostCredential re-encrypts a store's HOST credential to host and
+// upserts only that row, leaving the store's other credentials untouched.
+// It is a no-op for a store with no encrypted data key (KMS off — such stores
+// have no persisted external credentials to update).
+func (s *Store) RewriteHostCredential(ctx context.Context, kmsClient envelope.KMSClient, store *KnowledgeStore, host string) error {
+	if store == nil || len(store.EncryptedDataKey) == 0 {
+		return nil
+	}
+	cred, err := EncryptHostCredential(ctx, kmsClient, store, host)
+	if err != nil {
+		return err
+	}
+	return s.SaveCredentials(store.ID, []Credential{cred})
+}
+
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

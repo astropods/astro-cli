@@ -63,6 +63,7 @@ export default function ChatPage() {
       ) : (
         <ChatWorkspace
           className="flex-1"
+          account={activeAccount}
           deploymentId={deployment!.id}
           deployment={deployment!}
           eligibleDeploymentIds={eligibleDeploymentIds}

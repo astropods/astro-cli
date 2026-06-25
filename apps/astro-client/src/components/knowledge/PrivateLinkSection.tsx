@@ -1,5 +1,8 @@
-import { CheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, CheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { ErrorPanel } from "@/components/ui/status-panel";
+import { useRecheckKnowledgeStore } from "@/api/queries/knowledge";
 import { cn } from "@/lib/utils";
 import type { KnowledgeStore, KnowledgeEvent } from "@/lib/api";
 
@@ -30,7 +33,17 @@ const CLOUD_CONSOLE: Record<string, {
   },
 };
 
-export function PrivateLinkSection({ store, showBanner = true }: { store: KnowledgeStore; showBanner?: boolean }) {
+export function PrivateLinkSection({
+  store,
+  account,
+  showBanner = true,
+}: {
+  store: KnowledgeStore;
+  account?: string;
+  showBanner?: boolean;
+}) {
+  const recheck = useRecheckKnowledgeStore(account ?? "");
+
   if (!store.endpoint) return null;
 
   const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
@@ -115,6 +128,30 @@ export function PrivateLinkSection({ store, showBanner = true }: { store: Knowle
           </div>
         </div>
       </div>
+
+      {/* Recheck action — re-resolves the endpoint and repairs the stored host.
+          Useful for stores connected before host auto-resolution, or to re-poll
+          a pending endpoint after approving it in the cloud console. */}
+      {account && (
+        <div className="space-y-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => recheck.mutate({ name: store.name })}
+            disabled={recheck.isPending}
+          >
+            {recheck.isPending
+              ? <Spinner size={14} className="mr-2" />
+              : <ArrowPathIcon className="size-3.5 mr-1.5" />}
+            Recheck connection
+          </Button>
+          {recheck.isError && (
+            <ErrorPanel variant="inline">
+              {recheck.error instanceof Error ? recheck.error.message : "Recheck failed"}
+            </ErrorPanel>
+          )}
+        </div>
+      )}
 
       {/* Event cards */}
       {events.length > 0 && (
