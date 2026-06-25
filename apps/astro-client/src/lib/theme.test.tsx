@@ -12,7 +12,7 @@ function clearCookie(name: string) {
 }
 
 function resetTheme() {
-  setTheme("light");
+  setTheme("dark");
   localStorage.clear();
   clearCookie("astro-theme");
   document.documentElement.classList.remove("dark");
@@ -47,43 +47,45 @@ describe("useTheme", () => {
       </>,
     );
 
-    expect(screen.getByTestId("a-theme")).toHaveTextContent("light");
-    expect(screen.getByTestId("b-theme")).toHaveTextContent("light");
-
-    fireEvent.click(screen.getByTestId("a-dark"));
-
     expect(screen.getByTestId("a-theme")).toHaveTextContent("dark");
     expect(screen.getByTestId("b-theme")).toHaveTextContent("dark");
+
+    fireEvent.click(screen.getByTestId("a-light"));
+
+    expect(screen.getByTestId("a-theme")).toHaveTextContent("light");
+    expect(screen.getByTestId("b-theme")).toHaveTextContent("light");
   });
 
   it("toggles the `dark` class on documentElement", () => {
     render(<ThemeProbe id="a" />);
 
-    fireEvent.click(screen.getByTestId("a-dark"));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
 
     fireEvent.click(screen.getByTestId("a-light"));
     expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    fireEvent.click(screen.getByTestId("a-dark"));
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 
   it("persists across remount via localStorage", () => {
     const first = render(<ThemeProbe id="a" />);
-    fireEvent.click(screen.getByTestId("a-dark"));
+    fireEvent.click(screen.getByTestId("a-light"));
     first.unmount();
 
     render(<ThemeProbe id="b" />);
-    expect(screen.getByTestId("b-theme")).toHaveTextContent("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(screen.getByTestId("b-theme")).toHaveTextContent("light");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 
   it("writes a cookie when setTheme is called", () => {
     render(<ThemeProbe id="a" />);
 
-    fireEvent.click(screen.getByTestId("a-dark"));
-    expect(getCookie("astro-theme")).toBe("dark");
-
     fireEvent.click(screen.getByTestId("a-light"));
     expect(getCookie("astro-theme")).toBe("light");
+
+    fireEvent.click(screen.getByTestId("a-dark"));
+    expect(getCookie("astro-theme")).toBe("dark");
   });
 });
 
@@ -97,13 +99,13 @@ describe("parseCookieTheme", () => {
     expect(parseCookieTheme("session=abc; astro-theme=dark; other=xyz")).toBe("dark");
   });
 
-  it("returns light for null or missing cookie", () => {
-    expect(parseCookieTheme(null)).toBe("light");
-    expect(parseCookieTheme("session=abc")).toBe("light");
+  it("returns dark for null or missing cookie", () => {
+    expect(parseCookieTheme(null)).toBe("dark");
+    expect(parseCookieTheme("session=abc")).toBe("dark");
   });
 
-  it("returns light for invalid cookie values", () => {
-    expect(parseCookieTheme("astro-theme=invalid")).toBe("light");
-    expect(parseCookieTheme("astro-theme=auto")).toBe("light");
+  it("returns dark for invalid cookie values", () => {
+    expect(parseCookieTheme("astro-theme=invalid")).toBe("dark");
+    expect(parseCookieTheme("astro-theme=auto")).toBe("dark");
   });
 });

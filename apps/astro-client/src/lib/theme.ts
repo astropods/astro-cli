@@ -11,7 +11,7 @@ const COOKIE_MAX_AGE = 31536000; // 1 year
  * Used by useResolvedTheme() for its server snapshot so SSR renders
  * components with the correct theme (e.g. chart colors, starfield).
  */
-export const ServerThemeContext = createContext<"light" | "dark">("light");
+export const ServerThemeContext = createContext<"light" | "dark">("dark");
 
 function writeCookie(resolved: "light" | "dark") {
   if (typeof document === "undefined") return;
@@ -19,13 +19,13 @@ function writeCookie(resolved: "light" | "dark") {
 }
 
 export function parseCookieTheme(cookieHeader: string | null): "light" | "dark" {
-  if (!cookieHeader) return "light";
+  if (!cookieHeader) return "dark";
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=(light|dark)`));
-  return (match?.[1] as "light" | "dark") ?? "light";
+  return (match?.[1] as "light" | "dark") ?? "dark";
 }
 
 function getSystemTheme(): "light" | "dark" {
-  if (typeof window === "undefined" || !window.matchMedia) return "light";
+  if (typeof window === "undefined" || !window.matchMedia) return "dark";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -42,7 +42,7 @@ function loadTheme(): Theme {
   } catch {
     // localStorage may be unavailable.
   }
-  return "light";
+  return "dark";
 }
 
 // Module-level store shared by every `useTheme()` consumer via

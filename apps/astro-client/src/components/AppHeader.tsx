@@ -98,7 +98,7 @@ function ThemeSwitcher() {
                 className={cn(
                   "rounded p-1.5 transition-colors",
                   theme === value
-                    ? "bg-muted text-foreground"
+                    ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 )}
               >
