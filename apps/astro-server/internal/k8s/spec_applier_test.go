@@ -2343,3 +2343,183 @@ func TestResolveAgentIngressHost_Cohort(t *testing.T) {
 		}
 	})
 }
+
+// TestEnsureKnowledgeCredentialSecrets_BoundStore covers the bug where bound
+// (external/PrivateLink) stores got HOST/PORT injected but no credentials: the
+// applier skipped creating their cred Secret, so knowledgeCredEnvVars had
+// nothing to reference. The fix materialises boundCredentials into the Secret.
+func TestEnsureKnowledgeCredentialSecrets_BoundStore(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset: fakeClient,
+		namespace: "test-ns",
+		boundCredentials: map[string]string{
+			"pg.user":     "astro",
+			"pg.password": "secret123",
+			"pg.database": "mydb",
+		},
+	}
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "my-agent", Build: "b1"},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
+		},
+	}
+	ctx := context.Background()
+
+	res := a.ensureKnowledgeCredentialSecrets(ctx, ds, "acme", "my-agent", "b1")
+
+	secretName := knowledgeCredSecretName("my-agent", "pg")
+	sec, err := fakeClient.CoreV1().Secrets("test-ns").Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("bound cred secret not created: %v", err)
+	}
+	for k, want := range map[string]string{"POSTGRES_USER": "astro", "POSTGRES_PASSWORD": "secret123", "POSTGRES_DB": "mydb"} {
+		if got := string(sec.Data[k]); got != want {
+			t.Errorf("secret[%s] = %q, want %q", k, got, want)
+		}
+	}
+
+	found := false
+	for _, n := range res.SecretNames {
+		if n == secretName {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("SecretNames missing %q: %v", secretName, res.SecretNames)
+	}
+
+	// The agent must now wire POSTGRES_USER/_PASSWORD/_DB via secretKeyRef.
+	env := knowledgeCredEnvVars(ds, "my-agent", res.SecretNames)
+	got := map[string]string{}
+	for _, e := range env {
+		if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+			got[e.Name] = e.ValueFrom.SecretKeyRef.Name
+		}
+	}
+	for _, name := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} {
+		if got[name] != secretName {
+			t.Errorf("agent env %s should secretKeyRef %q, got %q (all: %v)", name, secretName, got[name], got)
+		}
+	}
+}
+
+// TestEnsureKnowledgeCredentialSecrets_BoundStoreNoCreds: a bound store with no
+// resolved credentials creates no Secret (nothing to reference) and is skipped
+// rather than producing an empty/broken Secret.
+func TestEnsureKnowledgeCredentialSecrets_BoundStoreNoCreds(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{clientset: fakeClient, namespace: "test-ns"} // no boundCredentials
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "my-agent", Build: "b1"},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
+		},
+	}
+	res := a.ensureKnowledgeCredentialSecrets(context.Background(), ds, "acme", "my-agent", "b1")
+	if len(res.SecretNames) != 0 {
+		t.Errorf("expected no secrets for bound store without creds, got %v", res.SecretNames)
+	}
+}
+
+// TestApplyDeploymentSpec_BoundStoreEndToEnd is the integration coverage that
+// was missing: it runs the REAL applier (ApplyDeploymentSpec) for a bound
+// PrivateLink postgres store and asserts the actual agent pod spec — not the
+// parallel deployment.Resolve model. It pins all three injection mechanisms:
+//   - credentials  → agent container env via secretKeyRef to a cred Secret
+//   - cred Secret  → materialised from boundCredentials with literal keys
+//   - host/port    → resolved from boundKnowledge into the agent ConfigMap
+//
+// This is the path that feeds the running container; the earlier bug (bound
+// stores skipped in ensureKnowledgeCredentialSecrets) lived here and slipped
+// past the Resolve-model tests.
+func TestApplyDeploymentSpec_BoundStoreEndToEnd(t *testing.T) {
+	const vpceDNS = "vpce-0350df4aa3b16c4eb-wojpm0n7.vpce-svc-00de0131e9ddea043.us-east-1.vpce.amazonaws.com"
+
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:       fakeClient,
+		namespace:       "default",
+		registryURL:     "test-registry.example.com",
+		imageResolver:   NewImageResolver("", "test-registry.example.com", "test"),
+		imagePullPolicy: corev1.PullNever,
+		boundKnowledge: map[string]deployment.BoundKnowledgeInfo{
+			"pg": {Host: vpceDNS, Provider: "postgres"},
+		},
+		boundCredentials: map[string]string{
+			"pg.user":     "astro",
+			"pg.password": "secret123",
+			"pg.database": "mydb",
+		},
+	}
+
+	ds := minimalDeploymentSpec()
+	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+		"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
+	}
+	// Mirror template.go's auto-injected coord ref (credentials are NOT injected
+	// here — they flow only via the applier's secretKeyRef path under test).
+	ds.Agent.Environment = map[string]string{"POSTGRES_HOST": "${knowledge.pg.host}"}
+
+	ctx := context.Background()
+	result, err := a.ApplyDeploymentSpec(ctx, ds)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("apply errors: %v", result.Errors)
+	}
+
+	// (1) Bound cred Secret materialised with literal provider keys.
+	credSecretName := knowledgeCredSecretName("my-agent", "pg")
+	credSecret, err := fakeClient.CoreV1().Secrets("default").Get(ctx, credSecretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("bound cred secret %q not created: %v", credSecretName, err)
+	}
+	for k, want := range map[string]string{"POSTGRES_USER": "astro", "POSTGRES_PASSWORD": "secret123", "POSTGRES_DB": "mydb"} {
+		if got := string(credSecret.Data[k]); got != want {
+			t.Errorf("cred secret[%s] = %q, want %q", k, got, want)
+		}
+	}
+
+	// (2) Agent container wires the credentials via secretKeyRef to that Secret.
+	deplName := deployment.GenerateAgentResourceName("my-agent", "agent")
+	depl, err := fakeClient.AppsV1().Deployments("default").Get(ctx, deplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get agent deployment %q: %v", deplName, err)
+	}
+	var agentC *corev1.Container
+	for i := range depl.Spec.Template.Spec.Containers {
+		c := &depl.Spec.Template.Spec.Containers[i]
+		if c.Name != "messaging" && !strings.HasPrefix(c.Name, "collector") {
+			agentC = c
+			break
+		}
+	}
+	if agentC == nil {
+		t.Fatal("agent container not found in deployment")
+	}
+	credRef := map[string]string{}
+	for _, e := range agentC.Env {
+		if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+			credRef[e.Name] = e.ValueFrom.SecretKeyRef.Name + ":" + e.ValueFrom.SecretKeyRef.Key
+		}
+	}
+	for _, key := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} {
+		want := credSecretName + ":" + key
+		if credRef[key] != want {
+			t.Errorf("agent env %s: secretKeyRef = %q, want %q (all secretKeyRefs: %v)", key, credRef[key], want, credRef)
+		}
+	}
+
+	// (3) HOST resolves to the bound VPC endpoint DNS in the agent ConfigMap.
+	cmName := deployment.GenerateConfigMapName("my-agent", "build-123")
+	cm, err := fakeClient.CoreV1().ConfigMaps("default").Get(ctx, cmName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get agent configmap %q: %v", cmName, err)
+	}
+	if got := cm.Data["POSTGRES_HOST"]; got != vpceDNS {
+		t.Errorf("POSTGRES_HOST = %q, want bound endpoint DNS %q", got, vpceDNS)
+	}
+}

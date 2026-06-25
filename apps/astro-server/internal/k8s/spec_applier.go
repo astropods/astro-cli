@@ -1670,6 +1670,15 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 
 	for name, knowledge := range ds.Knowledge {
 		if knowledge.IsBound() {
+			// Bound/external stores have no auto-generated password, but the
+			// agent still needs the store's credentials. Materialise the
+			// externally-resolved boundCredentials into a cred Secret so
+			// knowledgeCredEnvVars references them via secretKeyRef exactly
+			// like a self-hosted store. Without this the agent gets HOST/PORT
+			// (from the ConfigMap) but no USER/PASSWORD/DB.
+			if secretName, ok := a.ensureBoundCredentialSecret(ctx, ds, name, accountName, agentName, buildID); ok {
+				result.SecretNames = append(result.SecretNames, secretName)
+			}
 			continue
 		}
 		creds := generateKnowledgeCredentials(knowledge.Provider, agentName)
@@ -1716,6 +1725,63 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 	}
 
 	return result
+}
+
+// ensureBoundCredentialSecret materialises a bound/external store's resolved
+// credentials into a k8s Secret, keyed by the provider's literal storage keys
+// (e.g. POSTGRES_USER/_PASSWORD/_DB), so knowledgeCredEnvVars can reference them
+// via secretKeyRef just like a self-hosted store's Secret. The values come from
+// boundCredentials ("name.attr"), populated by the deployer from the external
+// store's decrypted credentials.
+//
+// Unlike self-hosted secrets — whose generated password must stay stable across
+// deploys — this Secret is refreshed each deploy so it tracks the current
+// external credentials. Returns ("", false) when no bound credentials exist for
+// the store (nothing to reference).
+func (a *Applier) ensureBoundCredentialSecret(
+	ctx context.Context, ds *spec.AstroDeploymentSpec, name, accountName, agentName, buildID string,
+) (string, bool) {
+	storageKeyMap := spec.CredentialStorageKeyMap(ds.Knowledge[name].Provider) // storageKey -> attr
+	if len(storageKeyMap) == 0 {
+		return "", false
+	}
+	data := make(map[string][]byte, len(storageKeyMap))
+	for storageKey, attr := range storageKeyMap {
+		if v, ok := a.boundCredentials[name+"."+attr]; ok && v != "" {
+			data[storageKey] = []byte(v)
+		}
+	}
+	if len(data) == 0 {
+		return "", false
+	}
+
+	secretName := knowledgeCredSecretName(agentName, name)
+	labels := deployment.GenerateLabels(accountName, agentName, buildID, "knowledge-creds")
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: a.namespace, Labels: labels},
+		Type:       corev1.SecretTypeOpaque,
+		Data:       data,
+	}
+
+	_, err := a.clientset.CoreV1().Secrets(a.namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if errors.IsAlreadyExists(err) {
+		// Refresh in place — external credentials may have rotated since the
+		// last deploy.
+		existing, getErr := a.clientset.CoreV1().Secrets(a.namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if getErr != nil {
+			return "", false
+		}
+		existing.Data = data
+		existing.Labels = labels
+		if _, updErr := a.clientset.CoreV1().Secrets(a.namespace).Update(ctx, existing, metav1.UpdateOptions{}); updErr != nil {
+			return "", false
+		}
+		return secretName, true
+	}
+	if err != nil {
+		return "", false
+	}
+	return secretName, true
 }
 
 // scopeAgentEnv returns the (ConfigMap, Secret) data the agent and ingestion
