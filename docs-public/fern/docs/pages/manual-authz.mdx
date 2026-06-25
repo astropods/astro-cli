@@ -4,7 +4,7 @@ subtitle: Reproduce the access checks that the messaging sidecar runs for you
 slug: manual-authz
 ---
 
-When you deploy with the default `web` or `slack` adapter, the messaging sidecar handles authorization automatically: every incoming request is checked against the deployment's grants table before it reaches your agent. If you're running a [frontend agent](/frontend-agents) or a custom HTTP server inside the messaging container, there's no sidecar to do this for you — but the platform still issues the same credentials, and you can call the same endpoint yourself.
+When you deploy with the default `web` or `slack` adapter, the messaging sidecar handles authorization automatically: every incoming request is checked against the deployment's grants table before it reaches your agent. If you're running a [frontend agent](/frontend-agents) or a custom HTTP server inside the messaging container, there's no sidecar to do this for you, but the platform still issues the same credentials, and you can call the same endpoint yourself.
 
 This guide explains the contract and shows how to replicate it.
 
@@ -36,7 +36,7 @@ This header is injected by the OIDC layer after sign-in and is the only identity
 
 ## Inputs the platform gives you
 
-In addition to the per-request header, every deployed agent receives a single environment variable:
+Every deployed agent receives the following environment variable:
 
 | Variable | Description |
 |---|---|
@@ -46,11 +46,59 @@ The token is opaque to you, but two claims inside it are useful:
 
 | Claim | Meaning |
 |---|---|
-| `iss` | astro-server's base URL — the host you call. No separate `ASTRO_AUTHZ_URL` env var is needed. |
+| `iss` | astro-server's base URL, which is the host you call. No separate `ASTRO_AUTHZ_URL` env var is needed. |
 | `sub` | This deployment's ID. You don't pass it explicitly; the server reads it from the token. |
 | `anyone_adapters` | Adapters with an `anyone` grant at deploy time. Used only as a degraded-mode fallback. |
 
-Decode the JWT once at startup to read `iss`. Don't bother validating the signature — the server re-validates on every call.
+Decode the token once at startup to read `iss`. You do not need to validate its signature, because astro-server validates the token again on every authorize call.
+
+---
+
+## Where the web identity comes from
+
+For a `web` agent, the Application Load Balancer (ALB) that sits in front of your container runs the OIDC login and forwards the result as request headers. Two headers carry the identity.
+
+`x-amzn-oidc-identity` holds the OIDC subject, which is the platform user id. Pass this value to the authorize call as `identity_id`, together with `identity_type=user`. It contains the subject only, with no email or any other profile field.
+
+`x-amzn-oidc-data` holds a signed JWT with the full set of claims for the authenticated user, including `sub`, `email`, and `email_verified`. The authorize endpoint never returns the email, so this header is the only place to get it or any other profile field. Which claims are present depends on the scopes your identity provider returns. To read the email, decode the payload segment (the middle of the three parts separated by dots) and read the claim:
+
+<Tabs>
+  <Tab title="Node.js">
+    ```typescript
+    function userEmail(req: Request): string {
+      const data = req.headers.get("x-amzn-oidc-data");
+      if (!data) return ""; // local dev, or a request that did not pass through the ALB
+      const claims = JSON.parse(
+        Buffer.from(data.split(".")[1], "base64url").toString("utf8"),
+      );
+      return claims.email_verified ? (claims.email ?? "") : "";
+    }
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import base64, json
+
+    def user_email(headers) -> str:
+        data = headers.get("x-amzn-oidc-data", "")
+        if not data:
+            return ""  # local dev, or a request that did not pass through the ALB
+        payload = data.split(".")[1] + "=="  # pad for base64
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return claims.get("email", "") if claims.get("email_verified") else ""
+    ```
+  </Tab>
+</Tabs>
+
+The ALB also injects `x-amzn-oidc-accesstoken`, the raw access token from the identity provider. Most agents do not need it.
+
+These headers carry tokens that expire quickly and that the ALB refreshes, so read them on every request rather than persisting or caching the decoded identity beyond the request.
+
+Keep the two JWTs distinct. `ASTRO_AUTHZ_TOKEN` is the deploy token that you present to astro-server, and its `sub` is the deployment id. `x-amzn-oidc-data` is the identity token that the ALB presents to you, and its `sub` is the user id. They are separate tokens with separate subjects, so do not assume that a `sub` means the same thing in both.
+
+You can read the claims in `x-amzn-oidc-data` without verifying its signature only because the ALB strips any copy of these headers sent by the client and sets its own. Nothing downstream can forge them as long as every request reaches your container through the ALB. If your container can be reached directly, so that a request can arrive without passing through the ALB, verify the signature before you trust any claim. Fetch the public key from `https://public-keys.auth.elb.<region>.amazonaws.com/<kid>`, where the region comes from the `signer` ARN in the JWT header and `kid` comes from that same header, then verify with the ES256 algorithm.
+
+When you bring up a frontend agent, a temporary diagnostic route that echoes these headers and their decoded claims helps confirm that the ALB is forwarding identity as expected. Remove or gate such a route before production, because it is unauthenticated and exposes token claims.
 
 ---
 
@@ -62,7 +110,7 @@ Substitute the server URL with the `iss` claim from your `ASTRO_AUTHZ_TOKEN`, an
 
 **Query parameters:**
 
-For a web frontend you set just two — `adapter=web` and the identity from the `x-amzn-oidc-identity` header:
+For a web frontend you only set `adapter=web` and the identity from the `x-amzn-oidc-identity` header:
 
 | Param | When to set |
 |---|---|
@@ -75,6 +123,8 @@ The remaining two parameters exist only for [custom adapters](/adapters/custom-n
 | Param | When to set |
 |---|---|
 | `adapter` | `slack` when mapping a Slack identity. Any value other than `web`/`slack` is a 400. |
+| `identity_type` | `user` for a signed-in user, `slack` for a Slack user, empty for anonymous (only valid when an `anyone` grant exists). |
+| `identity_id` | The corresponding user id. Must be supplied together with `identity_type`. Supplying one without the other is a 400. |
 | `identity_scope` | Slack only: the `team_id` (Slack user IDs are only unique per team). Omit for web. |
 
 **Response (200):**
@@ -86,8 +136,8 @@ The remaining two parameters exist only for [custom adapters](/adapters/custom-n
 }
 ```
 
-- `allowed` — the final decision.
-- `user_id` — the resolved platform user id when the server could resolve one (for `identity_type=user` it's the input echoed back; for `slack` it's the linked platform user, empty when no mapping exists). Only present when `allowed: true`.
+- `allowed` is the final decision.
+- `user_id` is the resolved platform user id when the server could resolve one (for `identity_type=user` it's the input echoed back; for `slack` it's the linked platform user, empty when no mapping exists). Only present when `allowed: true`.
 
 Treat 4xx as malformed input (don't retry) and 5xx as transient (retry once, then fail-closed).
 
@@ -200,10 +250,10 @@ If you author a [custom adapter](/adapters/custom-node) instead of a web fronten
 ## Caveats worth knowing
 
 - **Cache for ~60s.** Without a cache, every page navigation pays a round-trip to astro-server. The sidecar caches per `(identity_type, identity_id, adapter, identity_scope)` for 60 seconds; do the same. Grant edits take up to a minute to propagate, which is acceptable.
-- **Fail-closed on timeouts.** A 5s timeout is the platform default. Treat any error as a denial unless the adapter is in the token's `anyone_adapters` claim — in which case a server outage should not lock everyone out of an open deployment. Cap the degraded-mode TTL low (10s or so) so recovery is reflected promptly.
+- **Fail-closed on timeouts.** A 5s timeout is the platform default. Treat any error as a denial unless the adapter is in the token's `anyone_adapters` claim. In that case a server outage should not lock everyone out of an open deployment. Cap the degraded-mode TTL low (10s or so) so recovery is reflected promptly.
 - **Anonymous is only valid with an `anyone` grant.** Sending empty `identity_type` + empty `identity_id` is allowed by the server only when the adapter is publicly granted. If your UI has a public route, route it through the same authorize call with empty identity instead of branching around it.
 - **Use the resolved `user_id` downstream.** For Slack, the linked platform user id is what trace attribution and observability buckets are keyed on. For web, it's just the input echoed back. Either way, forward `result.user_id` to your downstream telemetry rather than the raw input.
-- **No token, no platform.** In local dev (`ast project start`), `ASTRO_AUTHZ_TOKEN` is not set. Return `allowed: true` so devs aren't blocked. The platform only injects the token in deployed builds.
+- **No token, no platform.** In local dev (`ast project start`), `ASTRO_AUTHZ_TOKEN` is not set and the ALB identity headers (`x-amzn-oidc-identity` and `x-amzn-oidc-data`) are absent. Return `allowed: true` so devs aren't blocked. The platform only injects the token and the identity headers in deployed builds.
 
 ---
 

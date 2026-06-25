@@ -1,0 +1,15 @@
+---
+title: "June 23, 2026: Manual authorization identity headers"
+slug: 2026-06-23-manual-authz-identity
+tags: ["docs", "astro"]
+---
+
+## Documentation
+
+The [Manually authorize requests](https://docs.astropods.com/manual-authz) guide now explains where the web identity actually comes from, so frontend agents no longer have to reverse engineer it.
+
+A new section, "Where the web identity comes from," documents the headers that the Application Load Balancer (ALB) injects for `web` agents. The header `x-amzn-oidc-identity` carries the OIDC subject, which is the platform user id you pass to the authorize call. The header `x-amzn-oidc-data` carries a signed JWT with the full claim set, including `email` and `email_verified`, and the guide now includes Node and Python snippets for reading the user's email from it. This matters because the authorize endpoint never returns the email, so that header is the only source.
+
+The guide also clarifies that two distinct JWTs are in play, which is easy to confuse. `ASTRO_AUTHZ_TOKEN` is the deploy token that you present to astro-server, and its `sub` is the deployment id. `x-amzn-oidc-data` is the identity token that the ALB presents to you, and its `sub` is the user id.
+
+Finally, it documents the trust boundary. The identity headers are safe to read because the ALB removes any copy supplied by the client, and the guide explains how to verify the `x-amzn-oidc-data` signature against the regional ELB public key for cases where your container can be reached without passing through the ALB. It also notes that none of the `x-amzn-oidc-*` headers are present in local development, alongside the existing note about `ASTRO_AUTHZ_TOKEN`.
