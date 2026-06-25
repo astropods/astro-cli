@@ -137,5 +137,16 @@ export default defineConfig({
         storageState: authFile,
       },
     },
+
+    // 11. New blueprint — verifies the setup screen scrolls so the action buttons are reachable.
+    {
+      name: "app.new-blueprint",
+      testMatch: "**/app.new-blueprint.spec.ts",
+      dependencies: ["auth"],
+      use: {
+        browserName: "chromium",
+        storageState: authFile,
+      },
+    },
   ],
 });
