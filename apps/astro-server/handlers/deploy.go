@@ -4194,7 +4194,15 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 	if existing.DeploymentSpecJSON != "" {
 		var storedSpec spec.AstroDeploymentSpec
 		if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
-			if storedSpec.Interfaces != nil && template.Interfaces != nil {
+			// Restore stored adapters + auth (incl. web/custom public flags). A
+			// custom-interface-only agent's freshly generated base has no
+			// interfaces block, so create one rather than dropping the stored
+			// auth — otherwise the custom interface's public state is lost on
+			// redeploy.
+			if storedSpec.Interfaces != nil {
+				if template.Interfaces == nil {
+					template.Interfaces = &spec.DeploymentInterfaces{}
+				}
 				template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
 				template.Interfaces.Auth = storedSpec.Interfaces.Auth
 			}
