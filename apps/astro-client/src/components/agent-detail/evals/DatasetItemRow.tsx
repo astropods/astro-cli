@@ -183,8 +183,6 @@ export function DatasetItemRow({
     }
   };
 
-  const rowTint = isOpen ? "bg-primary/10" : "hover:bg-muted/40";
-
   return (
     <>
       <TableRow
@@ -194,8 +192,7 @@ export function DatasetItemRow({
         tabIndex={0}
         aria-expanded={isOpen}
         className={cn(
-          "cursor-pointer align-top transition-colors",
-          rowTint,
+          "cursor-pointer align-top transition-colors hover:bg-muted/40",
           isOpen && "border-b-0",
         )}
       >
@@ -250,7 +247,7 @@ export function DatasetItemRow({
         </TableCell>
       </TableRow>
       {isOpen && (
-        <TableRow className="bg-primary/10">
+        <TableRow>
           <TableCell
             colSpan={DATASET_ITEM_COLUMN_COUNT}
             className="p-0 shadow-[inset_3px_0_0_var(--color-primary)]"

@@ -126,6 +126,16 @@ describe("DatasetItemRow expanded", () => {
     renderRow({ isOpen: true });
     expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
   });
+
+  it("keeps the expanded row unfilled while preserving the left accent", () => {
+    renderRow({ isOpen: true });
+    const row = screen.getByRole("button", { expanded: true });
+    expect(row).not.toHaveClass("bg-primary/10");
+    expect(row).toHaveClass("border-b-0");
+    expect(row.querySelector("td")).toHaveClass(
+      "shadow-[inset_3px_0_0_var(--color-primary)]",
+    );
+  });
 });
 
 describe("DatasetItemRow content rendering", () => {

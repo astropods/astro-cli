@@ -28,7 +28,7 @@ export function ContentSection({
   const parsed = useMemo(() => parseContent(content), [content]);
 
   return (
-    <section className="overflow-hidden rounded-md border border-border/40">
+    <section className="overflow-hidden rounded-md border border-border/70">
       <div
         className={cn(
           "flex items-center gap-2 transition-colors hover:bg-muted/40",
@@ -78,7 +78,7 @@ export function ContentSection({
         <div className="overflow-hidden">
           <div
             className={cn(
-              "border-t border-border/40",
+              "border-t border-border/70",
               parsed.isJson && !parsed.isEmpty && mode !== "raw" ? "p-3" : "px-4 py-3",
             )}
           >

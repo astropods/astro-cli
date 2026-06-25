@@ -131,6 +131,7 @@ export function DatasetTable({
   return (
     <Table
       bare
+      className="table-fixed"
       containerClassName="flex min-w-0 flex-1 flex-col bg-background"
       footer={
         hasNextPage && !isLoading ? (
@@ -151,12 +152,12 @@ export function DatasetTable({
     >
       <TableHeader className="bg-black/2 dark:bg-white/3">
         <TableRow>
-          <TableHead className="w-4 pl-5 pr-0 text-faint-foreground" />
-          <TableHead className="w-[78px] text-faint-foreground">
+          <TableHead className="w-10 pl-5 pr-0 text-faint-foreground" />
+          <TableHead className="w-[112px] text-faint-foreground">
             Verdict
           </TableHead>
-          <TableHead className="text-faint-foreground">Input</TableHead>
-          <TableHead className="text-faint-foreground">
+          <TableHead className="w-[30%] text-faint-foreground">Input</TableHead>
+          <TableHead className="w-[38%] text-faint-foreground">
             Expected output
           </TableHead>
           <TableHead className="w-[220px] pr-5 text-faint-foreground">

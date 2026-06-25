@@ -235,7 +235,9 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("button", { name: /^dataset/i }));
 
     expect(await screen.findByText("No items yet.")).toBeInTheDocument();
-    expect(screen.queryByText("Queued response")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Queued response")).not.toBeInTheDocument();
+    });
   });
 
   it("navigates between queue traces from the detail header", async () => {

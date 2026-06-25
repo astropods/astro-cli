@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { Download } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useSearchParams } from "react-router";
 import { useAgentDetailContext } from "../AgentDetail";
 import { useEvalDataset } from "@/api/queries/evals";
@@ -75,11 +76,14 @@ export default function AgentDataset() {
           paddingRight: panelOpen && !isFullWidth ? `${PANEL_WIDTH_REM}rem` : undefined,
         }}
       >
-        <div
+        <motion.div
           className={cn(
             "mx-auto flex w-full max-w-6xl flex-col px-6 pt-8",
             isReviewQueue ? "pb-6" : "pb-16",
           )}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
         >
           <div className="mb-5 min-w-0">
             <h1 className="text-heading-1 text-foreground">Eval</h1>
@@ -141,27 +145,39 @@ export default function AgentDataset() {
             <p className="text-body-sm text-muted-foreground">Dataset not available.</p>
           )}
 
-          {data && tab === "dataset" && (
-            <DatasetView
-              deploymentId={deploymentId}
-              account={account}
-              summary={data}
-              reviewQueueTargetRef={reviewQueueTargetRef}
-            />
-          )}
-          {data && tab === "queue" && (
-            <ReviewQueueView
-              deploymentId={deploymentId}
-              account={account}
-              agentName={deployment.name}
-              agentLabel={deployment.display_name || deployment.name}
-              agentAvatarUrl={deployment.avatar_url}
-              summary={data}
-              gradeTargetRef={gradeTargetRef}
-              onOpenTrace={panelOpen ? undefined : openTracePanel}
-            />
-          )}
-        </div>
+          <AnimatePresence mode="wait" initial={false}>
+            {data && (
+              <motion.div
+                key={tab}
+                className="min-h-0 w-full"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                {tab === "dataset" ? (
+                  <DatasetView
+                    deploymentId={deploymentId}
+                    account={account}
+                    summary={data}
+                    reviewQueueTargetRef={reviewQueueTargetRef}
+                  />
+                ) : (
+                  <ReviewQueueView
+                    deploymentId={deploymentId}
+                    account={account}
+                    agentName={deployment.name}
+                    agentLabel={deployment.display_name || deployment.name}
+                    agentAvatarUrl={deployment.avatar_url}
+                    summary={data}
+                    gradeTargetRef={gradeTargetRef}
+                    onOpenTrace={panelOpen ? undefined : openTracePanel}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       </div>
 
       <div
