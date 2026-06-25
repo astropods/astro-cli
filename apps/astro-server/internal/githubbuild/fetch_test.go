@@ -163,6 +163,85 @@ func TestFetchAstroSpec_SubPath(t *testing.T) {
 	}
 }
 
+// agentReadmeListServer returns a test server that answers the directory
+// listing with the given JSON array and serves any file fetch (raw Accept)
+// with content, recording the fetched path into *fetchedPath.
+func agentReadmeListServer(listing, content string, fetchedPath *string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept"), "raw") {
+			if fetchedPath != nil {
+				*fetchedPath = r.URL.Path
+			}
+			fmt.Fprint(w, content)
+			return
+		}
+		fmt.Fprint(w, listing)
+	}))
+}
+
+func TestFetchAgentReadme_CaseInsensitive(t *testing.T) {
+	const content = "# My Agent\n"
+	var fetchedPath string
+	// Repo stores the readme lowercase; the directory listing reveals the real name.
+	listing := `[{"name":"README.md","type":"file"},{"name":"agent.md","type":"file"}]`
+	srv := agentReadmeListServer(listing, content, &fetchedPath)
+	defer srv.Close()
+	withTestHTTPClient(t, srv)
+
+	got, err := FetchAgentReadme(context.Background(), "tok", "owner/repo", "sha")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != content {
+		t.Errorf("content = %q, want %q", got, content)
+	}
+	if want := "/repos/owner/repo/contents/agent.md"; fetchedPath != want {
+		t.Errorf("fetched path = %q, want %q", fetchedPath, want)
+	}
+}
+
+func TestFetchAgentReadme_Missing(t *testing.T) {
+	// A directory matching the name (type "dir") must not count as the readme.
+	listing := `[{"name":"agent.md","type":"dir"},{"name":"README.md","type":"file"}]`
+	srv := agentReadmeListServer(listing, "unused", nil)
+	defer srv.Close()
+	withTestHTTPClient(t, srv)
+
+	got, err := FetchAgentReadme(context.Background(), "tok", "owner/repo", "sha")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "" {
+		t.Errorf("expected empty content, got %q", got)
+	}
+}
+
+func TestFetchAgentReadme_SubPath(t *testing.T) {
+	var listPath, fetchedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept"), "raw") {
+			fetchedPath = r.URL.Path
+			fmt.Fprint(w, "content")
+			return
+		}
+		listPath = r.URL.Path
+		fmt.Fprint(w, `[{"name":"AGENT.md","type":"file"}]`)
+	}))
+	defer srv.Close()
+	withTestHTTPClient(t, srv)
+
+	_, err := FetchAgentReadme(context.Background(), "tok", "owner/repo/services/my-agent", "sha")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "/repos/owner/repo/contents/services/my-agent"; listPath != want {
+		t.Errorf("listing path = %q, want %q", listPath, want)
+	}
+	if want := "/repos/owner/repo/contents/services/my-agent/AGENT.md"; fetchedPath != want {
+		t.Errorf("fetched path = %q, want %q", fetchedPath, want)
+	}
+}
+
 func TestCollectComponentBuilds_AgentOnly(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name: "my-agent",

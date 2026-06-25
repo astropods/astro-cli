@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
@@ -53,22 +54,19 @@ func FetchAstroSpec(ctx context.Context, token, repoFullName, commitSHA string) 
 	return &s, content, nil
 }
 
-// FetchFileContent fetches a file's raw content from GitHub at a specific ref.
-// repoFullName may be "owner/repo" or "owner/repo/sub/path"; the subpath is
-// prepended to filePath and the base repo is used for the API URL.
-// Returns ("", nil) when the file does not exist at that ref.
-func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath string) (string, error) {
-	base := githubconnection.RepoBase(repoFullName)
-	if sub := githubconnection.RepoSubPath(repoFullName); sub != "" {
-		filePath = sub + "/" + filePath
-	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", base, filePath, ref)
+// githubContentsGet performs a GitHub contents API GET for repoRelPath (a path
+// relative to the repo root) at ref, using the given Accept media type, and
+// returns the raw response body. accept selects the representation: the raw
+// media type for a file's bytes, or JSON for a directory listing. Returns
+// ("", nil) when the path does not exist at that ref.
+func githubContentsGet(ctx context.Context, token, repoBase, ref, repoRelPath, accept string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", repoBase, repoRelPath, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github.raw+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 
 	resp, err := httpClient.Do(req)
@@ -87,6 +85,58 @@ func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath st
 		return "", err
 	}
 	return string(body), nil
+}
+
+// FetchFileContent fetches a file's raw content from GitHub at a specific ref.
+// repoFullName may be "owner/repo" or "owner/repo/sub/path"; the subpath is
+// prepended to filePath and the base repo is used for the API URL.
+// Returns ("", nil) when the file does not exist at that ref.
+func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath string) (string, error) {
+	base := githubconnection.RepoBase(repoFullName)
+	if sub := githubconnection.RepoSubPath(repoFullName); sub != "" {
+		filePath = sub + "/" + filePath
+	}
+	return githubContentsGet(ctx, token, base, ref, filePath, "application/vnd.github.raw+json")
+}
+
+// FetchAgentReadme fetches the agent README (AGENT.md) from GitHub at a specific
+// ref, matching the filename case-insensitively. It lists the containing
+// directory, finds the entry matching spec.AgentReadmeFilename, and fetches it.
+// Returns ("", nil) when no such file exists.
+func FetchAgentReadme(ctx context.Context, token, repoFullName, ref string) (string, error) {
+	name, err := findAgentReadmeName(ctx, token, repoFullName, ref)
+	if err != nil || name == "" {
+		return "", err
+	}
+	return FetchFileContent(ctx, token, repoFullName, ref, name)
+}
+
+// ghContentEntry is one entry in a GitHub contents API directory listing.
+type ghContentEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// findAgentReadmeName lists the agent's directory on GitHub and returns the
+// actual filename matching spec.AgentReadmeFilename case-insensitively, or ""
+// if none exists.
+func findAgentReadmeName(ctx context.Context, token, repoFullName, ref string) (string, error) {
+	base := githubconnection.RepoBase(repoFullName)
+	dir := githubconnection.RepoSubPath(repoFullName)
+	body, err := githubContentsGet(ctx, token, base, ref, dir, "application/vnd.github+json")
+	if err != nil || body == "" {
+		return "", err
+	}
+	var entries []ghContentEntry
+	if err := json.Unmarshal([]byte(body), &entries); err != nil {
+		return "", fmt.Errorf("parse contents listing for %s: %w", repoFullName, err)
+	}
+	for _, e := range entries {
+		if e.Type == "file" && strings.EqualFold(e.Name, spec.AgentReadmeFilename) {
+			return e.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // BuildAgentCardJSON mirrors the agent card generation logic in handlers/agents.go.

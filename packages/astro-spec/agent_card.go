@@ -23,6 +23,11 @@ const MaxDescriptionLength = 200
 // MaxCapabilityLength is the maximum character length for a single capability entry.
 const MaxCapabilityLength = 100
 
+// AgentReadmeFilename is the canonical filename for an agent's README/card.
+// Creation writes this exact name; readers match it case-insensitively so
+// agent.md / Agent.md also resolve on case-sensitive sources.
+const AgentReadmeFilename = "AGENT.md"
+
 // AgentCard represents the structured frontmatter metadata from an AGENT.md file.
 type AgentCard struct {
 	Description  string            `json:"description,omitempty" yaml:"description,omitempty"`

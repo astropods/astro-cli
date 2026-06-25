@@ -248,7 +248,7 @@ func (p *GitHubBuildPipeline) RunBuildJobs() *GitHubBuildPipeline {
 // FetchReadme downloads AGENT.md from GitHub.
 func (p *GitHubBuildPipeline) FetchReadme() *GitHubBuildPipeline {
 	return p.step("fetching-readme", func() error {
-		readme, _ := FetchFileContent(p.ctx, p.cfg.Token, p.cfg.RepoName, p.cfg.CommitSHA, "AGENT.md")
+		readme, _ := FetchAgentReadme(p.ctx, p.cfg.Token, p.cfg.RepoName, p.cfg.CommitSHA)
 		p.readme = readme
 		return nil
 	})

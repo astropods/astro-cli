@@ -795,7 +795,7 @@ func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store, pipesClie
 				OrganizationID: session.OrganizationID,
 			})
 			if tokenErr == nil {
-				if content, fetchErr := githubbuild.FetchFileContent(c.Request.Context(), token.AccessToken, conn.RepoFullName, conn.Branch, "AGENT.md"); fetchErr == nil && content != "" {
+				if content, fetchErr := githubbuild.FetchAgentReadme(c.Request.Context(), token.AccessToken, conn.RepoFullName, conn.Branch); fetchErr == nil && content != "" {
 					card := spec.ParseAgentCard(content)
 					draftCard = card
 					if b, marshalErr := json.Marshal(card); marshalErr == nil {

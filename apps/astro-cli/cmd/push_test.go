@@ -509,9 +509,9 @@ func TestRegisterAgent_UsesFreshAccountToken(t *testing.T) {
 		CurrentProfile: "default",
 		Profiles: map[string]*auth.Profile{
 			"default": {
-				AccessToken:  authTestJWT(time.Now().Add(-10 * time.Minute)),
-				RefreshToken: "valid_refresh_token",
-				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				AccessToken:    authTestJWT(time.Now().Add(-10 * time.Minute)),
+				RefreshToken:   "valid_refresh_token",
+				ExpiresAt:      time.Now().Add(1 * time.Hour),
 				CurrentAccount: "my-org",
 				User: &auth.StoredUser{
 					ID:          "user-1",
@@ -1108,6 +1108,42 @@ func TestRunBlueprintPush(t *testing.T) {
 			}
 			if tt.wantRegistered != "" {
 				assert.Equal(t, tt.wantRegistered, registeredName)
+			}
+		})
+	}
+}
+
+func TestFindAgentReadme(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string // readme file to create; "" means none
+		mkdir    string // directory to create (to verify dirs are skipped)
+		want     bool   // whether a match is expected
+	}{
+		{name: "canonical uppercase", filename: "AGENT.md", want: true},
+		{name: "all lowercase", filename: "agent.md", want: true},
+		{name: "mixed case", filename: "Agent.md", want: true},
+		{name: "uppercase extension", filename: "agent.MD", want: true},
+		{name: "missing", want: false},
+		{name: "unrelated file", filename: "README.md", want: false},
+		{name: "directory matching name is ignored", mkdir: "AGENT.md", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.filename != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, tt.filename), []byte("body"), 0o600))
+			}
+			if tt.mkdir != "" {
+				require.NoError(t, os.Mkdir(filepath.Join(dir, tt.mkdir), 0o755))
+			}
+
+			got := findAgentReadme(dir)
+			if tt.want {
+				require.NotEmpty(t, got)
+				assert.Equal(t, tt.filename, filepath.Base(got))
+			} else {
+				assert.Empty(t, got)
 			}
 		})
 	}

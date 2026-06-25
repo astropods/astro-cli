@@ -245,7 +245,7 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateNam
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
 		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
-		{filepath.Join(targetDir, "AGENT.md"), paths.AgentMd},
+		{filepath.Join(targetDir, spec.AgentReadmeFilename), paths.AgentMd},
 		{filepath.Join(targetDir, "README.md"), paths.Readme},
 	}
 
