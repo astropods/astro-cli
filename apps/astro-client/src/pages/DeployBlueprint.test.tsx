@@ -1139,3 +1139,44 @@ describe('DeployBlueprint page', () => {
     });
   });
 });
+
+// ── Regression: interface-section gating (open-cohort feature) ────────────────
+//
+// Messaging support is keyed off the interfaces sidecar image, and the custom
+// interface section off an exposed agent endpoint — independently. A custom-only
+// agent (no image) must NOT show the Chat section, and a messaging agent must
+// not show the Custom interface section. This guards the gate that previously
+// regressed when keyed off mere `interfaces` presence.
+describe('interface section gating', () => {
+  it('shows Chat interface (not Custom) for a messaging agent', async () => {
+    renderInstall();
+    await waitFor(() => {
+      expect(screen.getByText('Chat interface')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Custom interface')).not.toBeInTheDocument();
+  });
+
+  it('shows Custom interface (not Chat) for a custom-interface-only agent', async () => {
+    const customTemplate = {
+      ...mockTemplate,
+      // No messaging sidecar image → chat section is gated out.
+      interfaces: { auth: { custom: { public: false } } },
+      // Agent exposes its own endpoint → custom interface section is shown.
+      agent: { ...mockTemplate.agent, endpoints: { http: { port: 8080, expose: { enabled: true } } } },
+    };
+    server.use(
+      http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
+        return HttpResponse.json(wrapTemplateResponse(customTemplate, body));
+      }),
+    );
+    renderInstall();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: /Deploy/ })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Custom interface')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Chat interface')).not.toBeInTheDocument();
+  });
+});

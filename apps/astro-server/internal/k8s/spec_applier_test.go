@@ -2255,3 +2255,91 @@ func TestApplyDeploymentSpec_K10_SecretValueNotInConfigMap(t *testing.T) {
 		t.Errorf("K10: non-secret LOG_LEVEL missing from ConfigMap, got %v", cm.Data)
 	}
 }
+
+// ── Regression: open (no-OIDC) cohort host selection ──────────────────────────
+
+// webIngressDomain selects the open cohort when public, else the authenticated
+// domain. When public is requested but no public domain is configured it yields
+// "" (the surface stays unrouted rather than silently authenticated).
+func TestWebIngressDomain(t *testing.T) {
+	a := newTestApplier()
+	a.ingressDomain = "agents.example.com"
+	a.agentPublicIngressDomain = "agents.public.example.com"
+
+	if got := a.webIngressDomain(false); got != "agents.example.com" {
+		t.Errorf("protected: got %q", got)
+	}
+	if got := a.webIngressDomain(true); got != "agents.public.example.com" {
+		t.Errorf("public: got %q", got)
+	}
+
+	a.agentPublicIngressDomain = ""
+	if got := a.webIngressDomain(true); got != "" {
+		t.Errorf("public requested with no public domain: got %q, want \"\"", got)
+	}
+}
+
+// resolveAgentIngressHost routes the agent frontend to the cohort chosen by
+// interfaces.auth.custom.public, with an explicit expose.domain overriding both.
+func TestResolveAgentIngressHost_Cohort(t *testing.T) {
+	const agent = "my-agent"
+	exposed := func(domain string) map[string]spec.Endpoint {
+		return map[string]spec.Endpoint{
+			"http": {Port: 80, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true, Domain: domain}},
+		}
+	}
+	customAuth := func(public bool) *spec.DeploymentInterfaces {
+		return &spec.DeploymentInterfaces{
+			Auth: &spec.DeploymentInterfacesAuth{Custom: &spec.DeploymentCustomAuth{Public: public}},
+		}
+	}
+	newApplier := func() *Applier {
+		a := newTestApplier()
+		a.ingressDomain = "agents.example.com"
+		a.agentPublicIngressDomain = "agents.public.example.com"
+		return a
+	}
+
+	t.Run("protected frontend uses authenticated domain", func(t *testing.T) {
+		a := newApplier()
+		ds := minimalDeploymentSpec()
+		ds.Agent.Endpoints = exposed("")
+		ds.Interfaces = customAuth(false)
+		got := a.resolveAgentIngressHost(ds, agent)
+		if want := GenerateIngressHost(agent, a.namespace, "agents.example.com"); got != want {
+			t.Errorf("got %q want %q", got, want)
+		}
+	})
+
+	t.Run("public frontend uses open cohort domain", func(t *testing.T) {
+		a := newApplier()
+		ds := minimalDeploymentSpec()
+		ds.Agent.Endpoints = exposed("")
+		ds.Interfaces = customAuth(true)
+		got := a.resolveAgentIngressHost(ds, agent)
+		if want := GenerateIngressHost(agent, a.namespace, "agents.public.example.com"); got != want {
+			t.Errorf("got %q want %q", got, want)
+		}
+	})
+
+	t.Run("nil interfaces is treated as protected", func(t *testing.T) {
+		a := newApplier()
+		ds := minimalDeploymentSpec()
+		ds.Agent.Endpoints = exposed("")
+		ds.Interfaces = nil
+		got := a.resolveAgentIngressHost(ds, agent)
+		if want := GenerateIngressHost(agent, a.namespace, "agents.example.com"); got != want {
+			t.Errorf("got %q want %q", got, want)
+		}
+	})
+
+	t.Run("explicit expose.domain overrides cohort", func(t *testing.T) {
+		a := newApplier()
+		ds := minimalDeploymentSpec()
+		ds.Agent.Endpoints = exposed("custom.example.com")
+		ds.Interfaces = customAuth(true)
+		if got := a.resolveAgentIngressHost(ds, agent); got != "custom.example.com" {
+			t.Errorf("got %q want custom.example.com", got)
+		}
+	})
+}

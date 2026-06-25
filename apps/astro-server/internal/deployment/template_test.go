@@ -3920,3 +3920,50 @@ func TestApplyStoredBindingsToRequest_MixedExplicit_Unbind(t *testing.T) {
 		t.Errorf("users: got %q, want empty (unbind)", got)
 	}
 }
+
+// Regression: a frontend-only agent (astropods.yml interfaces.frontend: true)
+// must deploy. The deploy form sends interfaces.auth.custom for the custom
+// interface; shaping synthesizes an auth-only interfaces block (no adapters, no
+// image). Previously the deploy parser rejected that with "interfaces.adapters
+// must not be empty when interfaces is present".
+func TestShapeTemplate_FrontendOnlyWithCustomAuthDeploys(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Frontend: true}
+	base := mustGenerate(t, input)
+
+	// Precondition: a frontend-only agent has no messaging interfaces block but
+	// does expose its own http endpoint.
+	if base.Interfaces != nil {
+		t.Fatalf("frontend-only base should have no interfaces block, got %+v", base.Interfaces)
+	}
+	if spec.ExposedEndpoint(base.Agent.Endpoints) == nil {
+		t.Fatal("frontend-only agent should expose its http endpoint")
+	}
+
+	// Deploy form sends interfaces.auth.custom (no messaging adapters).
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+		Interfaces: &spec.TemplateInterfaces{
+			Adapters: []string{},
+			Auth:     &spec.DeploymentInterfacesAuth{Custom: &spec.DeploymentCustomAuth{Public: true}},
+		},
+	}, nil)
+
+	if resp.Template.Interfaces == nil || resp.Template.Interfaces.Auth == nil || resp.Template.Interfaces.Auth.Custom == nil {
+		t.Fatalf("expected interfaces.auth.custom on shaped template, got %+v", resp.Template.Interfaces)
+	}
+	if !resp.Template.Interfaces.Auth.Custom.Public {
+		t.Error("custom.public should be true")
+	}
+	if len(resp.Template.Interfaces.Adapters) != 0 {
+		t.Errorf("no messaging adapters expected, got %v", resp.Template.Interfaces.Adapters)
+	}
+
+	// The shaped deployment spec must parse — this is the regression guard.
+	raw, err := spec.SerializeDeploymentSpec(&resp.Template)
+	if err != nil {
+		t.Fatalf("serialize shaped template: %v", err)
+	}
+	if _, err := spec.ParseDeploymentSpec(raw); err != nil {
+		t.Fatalf("frontend-only agent with custom auth should deploy, got: %v", err)
+	}
+}

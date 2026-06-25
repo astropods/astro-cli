@@ -407,3 +407,120 @@ func TestSpecGrantToStore(t *testing.T) {
 		})
 	}
 }
+
+// ── Regression: open (no-OIDC) cohort — public web + custom interface ──────────
+
+// A public messaging-web surface bypasses ALB OIDC, so org/user grants have no
+// identity to authorize against. Only an "anyone" grant is allowed.
+func TestValidateAuth_PublicWeb_OrgGrantRejected(t *testing.T) {
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
+		Web: &spec.DeploymentWebAuth{
+			Public: true,
+			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected error: public web with a non-anyone grant")
+	}
+}
+
+func TestValidateAuth_PublicWeb_AnyoneAllowed(t *testing.T) {
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
+		Web: &spec.DeploymentWebAuth{
+			Public: true,
+			Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+		},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// Public web with no grants is rejected — there's nothing to authorize against.
+func TestValidateAuth_PublicWeb_NoGrantsRejected(t *testing.T) {
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
+		Web: &spec.DeploymentWebAuth{Public: true},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected error: public web requires an anyone grant")
+	}
+}
+
+// Custom-interface grants are validated for shape...
+func TestValidateAuth_CustomGrantShapeValidated(t *testing.T) {
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
+		Custom: &spec.DeploymentCustomAuth{
+			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1", UserID: "alice"}},
+		},
+	})
+	if len(errs) == 0 {
+		t.Fatal("expected error: custom grant with two subjects")
+	}
+}
+
+// ...but custom has NO public-requires-anyone rule (it's unenforced — the
+// agent's own server authorizes), so public + an org grant is accepted.
+func TestValidateAuth_CustomPublicWithOrgGrantAllowed(t *testing.T) {
+	errs := validateAuth(&spec.DeploymentInterfacesAuth{
+		Custom: &spec.DeploymentCustomAuth{
+			Public: true,
+			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
+		},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+// buildAuthorizationGrants flattens custom grants under the "custom" adapter.
+func TestBuildAuthorizationGrants_Custom(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Interfaces: &spec.DeploymentInterfaces{
+			Auth: &spec.DeploymentInterfacesAuth{
+				Web:    &spec.DeploymentWebAuth{Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}}},
+				Custom: &spec.DeploymentCustomAuth{Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}}},
+			},
+		},
+	}
+	grants := buildAuthorizationGrants("dep-1", ds)
+
+	var customRows, webRows int
+	for _, g := range grants {
+		switch g.Adapter {
+		case authorizationstore.AdapterCustom:
+			customRows++
+			if g.SubjectType != authorizationstore.SubjectTypeOrg || g.SubjectID != "acct-1" {
+				t.Errorf("custom grant wrong subject: %+v", g)
+			}
+		case authorizationstore.AdapterWeb:
+			webRows++
+		}
+	}
+	if customRows != 1 || webRows != 1 {
+		t.Fatalf("expected 1 custom + 1 web grant, got %d custom %d web (%+v)", customRows, webRows, grants)
+	}
+}
+
+// mergeAuthorizationFromStore dispatches a stored "custom" adapter row back into
+// interfaces.auth.custom so redeploys reflect the live grants.
+func TestMergeAuthorizationFromStore_Custom(t *testing.T) {
+	db, mock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	defer db.Close()
+	store := authorizationstore.NewStore(db)
+	log := logger.New("error", "text")
+
+	mock.ExpectQuery("\n\t\tSELECT deployment_id, subject_type, subject_id, adapter\n\t\tFROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\tORDER BY subject_type, subject_id, adapter\n\t").
+		WithArgs("dep-1").
+		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "subject_type", "subject_id", "adapter"}).
+			AddRow("dep-1", "org", "acct-1", "custom"))
+
+	template := &spec.AstroDeploymentSpec{}
+	mergeAuthorizationFromStore(log, store, "dep-1", template)
+
+	if template.Interfaces == nil || template.Interfaces.Auth == nil || template.Interfaces.Auth.Custom == nil {
+		t.Fatalf("expected interfaces.auth.custom populated, got %+v", template.Interfaces)
+	}
+	if len(template.Interfaces.Auth.Custom.Grants) != 1 || template.Interfaces.Auth.Custom.Grants[0].Org != "acct-1" {
+		t.Fatalf("expected one custom org grant, got %+v", template.Interfaces.Auth.Custom.Grants)
+	}
+}
