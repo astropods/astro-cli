@@ -58,7 +58,7 @@ function DatasetRowStory({
             <TableHead className="text-faint-foreground">
               Expected output
             </TableHead>
-            <TableHead className="w-[178px] pr-5 text-faint-foreground">
+            <TableHead className="w-[220px] pr-5 text-faint-foreground">
               Judged by
             </TableHead>
           </TableRow>
@@ -68,6 +68,10 @@ function DatasetRowStory({
             item={row}
             isOpen={open}
             onToggle={() => setOpen((current) => !current)}
+            onChangeVerdict={() => undefined}
+            onRemoveVerdict={() => undefined}
+            isChanging={false}
+            isRemoving={false}
             reviewer={reviewer}
           />
         </TableBody>

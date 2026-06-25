@@ -68,6 +68,65 @@ func (s *Store) Delete(evalDatasetID, traceID string) error {
 	return nil
 }
 
+// DeleteReturningVerdict removes a judgment row and returns the verdict that
+// was stored on it. The boolean is false when the trace was not judged for the
+// dataset, which lets callers avoid double-applying undo side effects.
+func (s *Store) DeleteReturningVerdict(evalDatasetID, traceID string) (Verdict, bool, error) {
+	var raw string
+	err := s.db.QueryRow(`
+		DELETE FROM eval_dataset_judgments
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+		RETURNING verdict
+	`, evalDatasetID, traceID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("judgmentstore delete returning verdict: %w", err)
+	}
+	verdict := Verdict(raw)
+	if !verdict.Valid() {
+		return "", false, fmt.Errorf("judgmentstore delete returning verdict: invalid verdict %q", raw)
+	}
+	return verdict, true, nil
+}
+
+// UpdateReturningPrevious changes a judged trace's verdict and returns the
+// previous verdict. The boolean is false when the trace has no judgment row.
+func (s *Store) UpdateReturningPrevious(evalDatasetID, traceID string, verdict Verdict) (Verdict, bool, error) {
+	if !verdict.Valid() {
+		return "", false, fmt.Errorf("judgmentstore update: invalid verdict %q", verdict)
+	}
+
+	var raw string
+	err := s.db.QueryRow(`
+		WITH previous AS (
+			SELECT verdict
+			FROM eval_dataset_judgments
+			WHERE eval_dataset_id = $1 AND trace_id = $2
+		),
+		updated AS (
+			UPDATE eval_dataset_judgments
+			SET verdict = $3
+			WHERE eval_dataset_id = $1 AND trace_id = $2
+			RETURNING 1
+		)
+		SELECT previous.verdict
+		FROM previous, updated
+	`, evalDatasetID, traceID, string(verdict)).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("judgmentstore update: %w", err)
+	}
+	previous := Verdict(raw)
+	if !previous.Valid() {
+		return "", false, fmt.Errorf("judgmentstore update: invalid previous verdict %q", raw)
+	}
+	return previous, true, nil
+}
+
 // JudgedTraceIDs returns the subset of the input trace_ids that already have a judgment row.
 func (s *Store) JudgedTraceIDs(evalDatasetID string, traceIDs []string) (map[string]bool, error) {
 	if len(traceIDs) == 0 {

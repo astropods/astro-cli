@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type RefObject } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
@@ -11,11 +11,16 @@ import {
 } from "@/components/ui/table";
 import { useAccountMembers } from "@/api/queries/accounts";
 import type {
+  DatasetJudgmentVerdict,
   EvalDatasetItem,
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
 } from "@/lib/api";
-import { useEvalDatasetItems } from "@/api/queries/evals";
+import {
+  useChangeDatasetJudgment,
+  useEvalDatasetItems,
+  useUndoDatasetJudgment,
+} from "@/api/queries/evals";
 
 import type { FilterKey } from "./DatasetFilterChips";
 import {
@@ -23,12 +28,14 @@ import {
   DatasetItemRow,
   type ResolvedReviewer,
 } from "./DatasetItemRow";
+import { flyUndoToReviewQueue } from "./review-queue-motion";
 
 export interface DatasetTableProps {
   deploymentId: string;
   account: string;
   summary: EvalDatasetResponse;
   selected: Set<FilterKey>;
+  reviewQueueTargetRef?: RefObject<HTMLElement | null>;
 }
 
 const PAGE_LIMIT = 50;
@@ -38,17 +45,47 @@ export function DatasetTable({
   account,
   summary,
   selected,
+  reviewQueueTargetRef,
 }: DatasetTableProps) {
   const activeVerdict: EvalDatasetItemsVerdict | undefined =
     selected.size === 1 ? (selected.has("good") ? "good" : "bad") : undefined;
 
   const { data, isLoading, isError, fetchNextPage, hasNextPage } =
     useEvalDatasetItems(deploymentId, PAGE_LIMIT, activeVerdict);
+  const undoJudgment = useUndoDatasetJudgment(deploymentId);
+  const changeJudgment = useChangeDatasetJudgment(deploymentId);
+  const undoingTraceId = undoJudgment.isPending
+    ? undoJudgment.variables?.traceId ?? null
+    : null;
+  const changingTraceId = changeJudgment.isPending
+    ? changeJudgment.variables?.traceId ?? null
+    : null;
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const toggleExpanded = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
+  const undoTrace = useCallback(
+    (traceId: string, trigger: HTMLElement | null) => {
+      const sourceRect = trigger?.getBoundingClientRect() ?? null;
+      undoJudgment.reset();
+      undoJudgment.mutate(
+        { traceId },
+        {
+          onSuccess: () =>
+            flyUndoToReviewQueue(sourceRect, reviewQueueTargetRef?.current),
+        },
+      );
+    },
+    [reviewQueueTargetRef, undoJudgment],
+  );
+  const changeTraceVerdict = useCallback(
+    (traceId: string, verdict: DatasetJudgmentVerdict) => {
+      changeJudgment.reset();
+      changeJudgment.mutate({ traceId, verdict });
+    },
+    [changeJudgment],
+  );
 
   const { data: membersData, isLoading: membersLoading } = useAccountMembers(
     account,
@@ -122,12 +159,22 @@ export function DatasetTable({
           <TableHead className="text-faint-foreground">
             Expected output
           </TableHead>
-          <TableHead className="w-[178px] pr-5 text-faint-foreground">
+          <TableHead className="w-[220px] pr-5 text-faint-foreground">
             Judged by
           </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
+        {(undoJudgment.isError || changeJudgment.isError) && (
+          <TableRow>
+            <TableCell
+              colSpan={DATASET_ITEM_COLUMN_COUNT}
+              className="py-3 text-center text-body-sm text-muted-foreground"
+            >
+              Could not update trace. Try again.
+            </TableCell>
+          </TableRow>
+        )}
         {isLoading && (
           <TableRow>
             <TableCell
@@ -164,6 +211,10 @@ export function DatasetTable({
             item={item}
             isOpen={expandedId === item.id}
             onToggle={toggleExpanded}
+            onChangeVerdict={changeTraceVerdict}
+            onRemoveVerdict={undoTrace}
+            isChanging={changingTraceId === item.source_trace_id}
+            isRemoving={undoingTraceId === item.source_trace_id}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
           />
         ))}

@@ -1,7 +1,9 @@
 import type { DatasetJudgmentVerdict } from "@/lib/api";
 
-const VERDICT_FLIGHT_META: Record<
-  DatasetJudgmentVerdict,
+type EvalFlightCue = DatasetJudgmentVerdict | "undo";
+
+const EVAL_FLIGHT_META: Record<
+  EvalFlightCue,
   { color: string; iconPath: string; rotation: number }
 > = {
   good: {
@@ -18,6 +20,11 @@ const VERDICT_FLIGHT_META: Record<
     color: "var(--muted-foreground)",
     iconPath: "M5 12h14",
     rotation: 0,
+  },
+  undo: {
+    color: "var(--primary)",
+    iconPath: "M3 7v6h6M21 17a9 9 0 0 0-15-6.7L3 13",
+    rotation: -24,
   },
 };
 
@@ -38,7 +45,7 @@ function createFlightIcon(pathData: string) {
   return svg;
 }
 
-function pulseGradeTarget(
+function pulseTarget(
   target: HTMLElement,
   color: string,
   reducedMotion = false,
@@ -80,10 +87,10 @@ function pulseGradeTarget(
   });
 }
 
-export function flyVerdictToGrade(
+function flyEvalCueToTarget(
   originRect: DOMRect | null,
   target: HTMLElement | null | undefined,
-  verdict: DatasetJudgmentVerdict,
+  cue: EvalFlightCue,
 ) {
   if (
     typeof document === "undefined" ||
@@ -94,12 +101,12 @@ export function flyVerdictToGrade(
     return;
   }
 
-  const meta = VERDICT_FLIGHT_META[verdict];
+  const meta = EVAL_FLIGHT_META[cue];
   const reducedMotion =
     window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
   if (reducedMotion) {
-    pulseGradeTarget(target, meta.color, true);
+    pulseTarget(target, meta.color, true);
     return;
   }
 
@@ -136,7 +143,7 @@ export function flyVerdictToGrade(
 
   if (typeof fly.animate !== "function") {
     fly.remove();
-    pulseGradeTarget(target, meta.color);
+    pulseTarget(target, meta.color);
     return;
   }
 
@@ -174,8 +181,23 @@ export function flyVerdictToGrade(
   });
   const finish = () => {
     fly.remove();
-    pulseGradeTarget(target, meta.color);
+    pulseTarget(target, meta.color);
   };
   animation.addEventListener("finish", finish, { once: true });
   animation.addEventListener("cancel", () => fly.remove(), { once: true });
+}
+
+export function flyVerdictToGrade(
+  originRect: DOMRect | null,
+  target: HTMLElement | null | undefined,
+  verdict: DatasetJudgmentVerdict,
+) {
+  flyEvalCueToTarget(originRect, target, verdict);
+}
+
+export function flyUndoToReviewQueue(
+  originRect: DOMRect | null,
+  target: HTMLElement | null | undefined,
+) {
+  flyEvalCueToTarget(originRect, target, "undo");
 }

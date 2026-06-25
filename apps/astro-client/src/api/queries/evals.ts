@@ -11,6 +11,7 @@ import type {
   EvalDatasetItemsResponse,
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
+  ReviewQueueItem,
   ReviewQueueResponse,
 } from "@/lib/api";
 import { evalKeys } from "./keys";
@@ -19,6 +20,17 @@ type DatasetJudgmentVariables = {
   traceId: string;
   verdict: DatasetJudgmentVerdict;
   nextTraceId?: string | null;
+  reviewQueueItem?: ReviewQueueItem;
+};
+
+type DatasetUndoJudgmentVariables = {
+  traceId: string;
+  reviewQueueItem?: ReviewQueueItem;
+};
+
+type DatasetChangeJudgmentVariables = {
+  traceId: string;
+  verdict: DatasetJudgmentVerdict;
 };
 
 interface UsePostDatasetJudgmentOptions {
@@ -123,6 +135,76 @@ export function usePostDatasetJudgment(
       // the removal, and refetching forces an expensive Langfuse round trip
       // plus sentiment annotation per click. The query's staleTime picks
       // up new traces on the next remount.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
+        queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
+      ]);
+    },
+  });
+}
+
+function insertReviewQueueItem(
+  items: ReviewQueueItem[],
+  restored: ReviewQueueItem,
+) {
+  return [restored, ...items.filter((item) => item.trace_id !== restored.trace_id)]
+    .sort((a, b) => {
+      const aHasSentiment = a.sentiment !== "";
+      const bHasSentiment = b.sentiment !== "";
+      if (aHasSentiment !== bHasSentiment) {
+        return aHasSentiment ? -1 : 1;
+      }
+      return b.timestamp.localeCompare(a.timestamp);
+    });
+}
+
+export function useUndoDatasetJudgment(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    DatasetJudgmentResponse,
+    Error,
+    DatasetUndoJudgmentVariables
+  >({
+    mutationFn: ({ traceId }) =>
+      api.deleteDatasetJudgment(deploymentId, traceId),
+    onSuccess: async (_data, variables) => {
+      const restoredItem = variables.reviewQueueItem;
+      if (restoredItem) {
+        queryClient.setQueryData<ReviewQueueResponse>(
+          evalKeys.reviewQueue(deploymentId),
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  items: insertReviewQueueItem(old.items, restoredItem),
+                }
+              : old,
+        );
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
+        queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
+        queryClient.invalidateQueries({ queryKey: evalKeys.reviewQueue(deploymentId) }),
+      ]);
+    },
+  });
+}
+
+export function useChangeDatasetJudgment(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    DatasetJudgmentResponse,
+    Error,
+    DatasetChangeJudgmentVariables
+  >({
+    mutationFn: ({ traceId, verdict }) =>
+      api.patchDatasetJudgment(deploymentId, traceId, { verdict }),
+    onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),

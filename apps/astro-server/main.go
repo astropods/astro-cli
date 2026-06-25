@@ -1626,6 +1626,21 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
 				oapispec.Response(201, &handlers.DatasetJudgmentResponse{}),
 			)
+			api.PATCH(protected, "/deployments/:id/dataset/judgments/:trace_id", "Change dataset judgment", handlers.PatchDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
+				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
+			)
+			api.DELETE(protected, "/deployments/:id/dataset/judgments/:trace_id", "Undo dataset judgment", handlers.DeleteDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
+			)
 			// Account-scoped observability (aggregates across all account deployments)
 			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
 				oapispec.Tags("Observability"),

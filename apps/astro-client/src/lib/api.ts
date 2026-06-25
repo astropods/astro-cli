@@ -2447,6 +2447,30 @@ class ApiClient {
     );
   }
 
+  async patchDatasetJudgment(
+    deploymentId: string,
+    traceId: string,
+    body: Pick<DatasetJudgmentRequest, "verdict">,
+  ): Promise<DatasetJudgmentResponse> {
+    return this.request<DatasetJudgmentResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  async deleteDatasetJudgment(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<DatasetJudgmentResponse> {
+    return this.request<DatasetJudgmentResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   async getPodMetrics(
     deploymentId: string,
     pod: string,

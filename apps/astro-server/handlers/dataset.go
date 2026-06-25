@@ -708,6 +708,47 @@ func effectForVerdict(v judgmentstore.Verdict) judgmentEffect {
 	}
 }
 
+func reverseJudgmentEffect(effect judgmentEffect) judgmentEffect {
+	return judgmentEffect{
+		writeDatasetItem: effect.writeDatasetItem,
+		langfuseScore:    -effect.langfuseScore,
+		goodDelta:        -effect.goodDelta,
+		badDelta:         -effect.badDelta,
+	}
+}
+
+func upsertJudgmentDatasetItem(
+	ctx context.Context,
+	lctx *langfuseContext,
+	ds *evaldatasetstore.EvalDataset,
+	trace *langfuse.TraceDetail,
+	traceID string,
+	effect judgmentEffect,
+) (string, error) {
+	if !effect.writeDatasetItem {
+		return "", nil
+	}
+
+	datasetItemID := hashID(ds.LangfuseDatasetName, traceID)
+	if err := lctx.Client.UpsertDatasetItem(ctx, langfuse.DatasetItemInput{
+		ID:             datasetItemID,
+		DatasetName:    ds.LangfuseDatasetName,
+		Input:          trace.Input,
+		ExpectedOutput: trace.Output,
+		SourceTraceID:  traceID,
+		Metadata: map[string]any{
+			"verdict":           effect.langfuseScore,
+			"confidence":        100,
+			"judged_by_user_id": lctx.UserID,
+			"judged_at":         time.Now().UTC().Format(time.RFC3339),
+		},
+	}); err != nil {
+		return "", err
+	}
+
+	return datasetItemID, nil
+}
+
 // PostDatasetJudgment records a verdict for a trace and, for good/bad, writes the
 // corresponding Langfuse dataset item and bumps the local counters.
 // POST /api/v1/deployments/:id/dataset/judgments
@@ -795,21 +836,9 @@ func PostDatasetJudgment(
 		effect := effectForVerdict(verdict)
 		var datasetItemID string
 		if effect.writeDatasetItem {
-			datasetItemID = hashID(ds.LangfuseDatasetName, body.TraceID)
-
-			if err := lctx.Client.UpsertDatasetItem(c.Request.Context(), langfuse.DatasetItemInput{
-				ID:             datasetItemID,
-				DatasetName:    ds.LangfuseDatasetName,
-				Input:          trace.Input,
-				ExpectedOutput: trace.Output,
-				SourceTraceID:  body.TraceID,
-				Metadata: map[string]any{
-					"verdict":           effect.langfuseScore,
-					"confidence":        100,
-					"judged_by_user_id": lctx.UserID,
-					"judged_at":         time.Now().UTC().Format(time.RFC3339),
-				},
-			}); err != nil {
+			var err error
+			datasetItemID, err = upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, body.TraceID, effect)
+			if err != nil {
 				rollbackJudgment("dataset item write failed")
 				log.Error("Failed to upsert dataset item", "error", err, "trace_id", body.TraceID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
@@ -838,6 +867,209 @@ func PostDatasetJudgment(
 		c.JSON(http.StatusCreated, DatasetJudgmentResponse{
 			EvalDatasetID: ds.ID,
 			TraceID:       body.TraceID,
+			Verdict:       string(verdict),
+		})
+	}
+}
+
+// PatchDatasetJudgment changes an existing judged trace's verdict without
+// returning the trace to the review queue.
+// PATCH /api/v1/deployments/:id/dataset/judgments/:trace_id
+func PatchDatasetJudgment(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	langfuseStore *langfuse.Store,
+	judgmentStore *judgmentstore.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		traceID := strings.TrimSpace(c.Param("trace_id"))
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+			return
+		}
+
+		var body DatasetJudgmentRequest
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		verdict := judgmentstore.Verdict(strings.ToLower(strings.TrimSpace(body.Verdict)))
+		if !verdict.Valid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid verdict %q", body.Verdict)})
+			return
+		}
+
+		trace, err := lctx.Client.GetTrace(c.Request.Context(), traceID)
+		if err != nil {
+			if errors.Is(err, langfuse.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
+				return
+			}
+			log.Error("Failed to fetch trace for judgment change", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
+			return
+		}
+
+		if !traceHasDeploymentTag(trace.Tags, lctx.DeploymentID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "trace does not belong to this deployment"})
+			return
+		}
+
+		ds, ok := loadDataset(c, log, datasetStore, lctx.DeploymentID)
+		if !ok {
+			return
+		}
+
+		previous, found, err := judgmentStore.UpdateReturningPrevious(ds.ID, traceID, verdict)
+		if err != nil {
+			log.Error("Failed to update dataset judgment", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update judgment"})
+			return
+		}
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "judgment not found"})
+			return
+		}
+
+		restoreJudgment := func(reason string) {
+			if _, _, err := judgmentStore.UpdateReturningPrevious(ds.ID, traceID, previous); err != nil {
+				log.Warn("Failed to restore judgment row after verdict change failure", "error", err, "trace_id", traceID, "reason", reason)
+			}
+		}
+
+		previousEffect := effectForVerdict(previous)
+		nextEffect := effectForVerdict(verdict)
+		datasetItemID := hashID(ds.LangfuseDatasetName, traceID)
+
+		if nextEffect.writeDatasetItem {
+			if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, nextEffect); err != nil {
+				restoreJudgment("dataset item upsert failed")
+				log.Error("Failed to upsert changed dataset item", "error", err, "trace_id", traceID)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
+				return
+			}
+		} else if previousEffect.writeDatasetItem {
+			if err := lctx.Client.DeleteDatasetItem(c.Request.Context(), datasetItemID); err != nil && !errors.Is(err, langfuse.ErrNotFound) {
+				restoreJudgment("dataset item delete failed")
+				log.Error("Failed to delete changed dataset item", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
+				return
+			}
+		}
+
+		goodDelta := nextEffect.goodDelta - previousEffect.goodDelta
+		badDelta := nextEffect.badDelta - previousEffect.badDelta
+		if goodDelta != 0 || badDelta != 0 {
+			if err := datasetStore.BumpCountsByID(ds.ID, goodDelta, badDelta); err != nil {
+				if previousEffect.writeDatasetItem {
+					if _, rollbackErr := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, previousEffect); rollbackErr != nil {
+						log.Warn("Failed to restore dataset item after verdict count failure", "error", rollbackErr, "trace_id", traceID)
+					}
+				} else if nextEffect.writeDatasetItem {
+					if deleteErr := lctx.Client.DeleteDatasetItem(c.Request.Context(), datasetItemID); deleteErr != nil && !errors.Is(deleteErr, langfuse.ErrNotFound) {
+						log.Warn("Failed to delete dataset item after verdict count failure", "error", deleteErr, "trace_id", traceID)
+					}
+				}
+				restoreJudgment("dataset count update failed")
+				log.Error("Failed to update dataset counts for verdict change", "error", err, "deployment_id", lctx.DeploymentID,
+					"good_delta", goodDelta, "bad_delta", badDelta)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dataset counts"})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, DatasetJudgmentResponse{
+			EvalDatasetID: ds.ID,
+			TraceID:       traceID,
+			Verdict:       string(verdict),
+		})
+	}
+}
+
+// DeleteDatasetJudgment removes a prior verdict so its trace can re-enter the
+// review queue. Good/bad judgments also remove the deterministic Langfuse
+// dataset item and decrement the local grade counts.
+// DELETE /api/v1/deployments/:id/dataset/judgments/:trace_id
+func DeleteDatasetJudgment(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	langfuseStore *langfuse.Store,
+	judgmentStore *judgmentstore.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		traceID := strings.TrimSpace(c.Param("trace_id"))
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+			return
+		}
+
+		ds, ok := loadDataset(c, log, datasetStore, lctx.DeploymentID)
+		if !ok {
+			return
+		}
+
+		verdict, found, err := judgmentStore.DeleteReturningVerdict(ds.ID, traceID)
+		if err != nil {
+			log.Error("Failed to remove dataset judgment", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove judgment"})
+			return
+		}
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "judgment not found"})
+			return
+		}
+
+		restoreJudgment := func(reason string) {
+			if err := judgmentStore.Insert(ds.ID, traceID, verdict); err != nil && !errors.Is(err, judgmentstore.ErrAlreadyJudged) {
+				log.Warn("Failed to restore judgment row after undo failure", "error", err, "trace_id", traceID, "reason", reason)
+			}
+		}
+
+		effect := reverseJudgmentEffect(effectForVerdict(verdict))
+		if effect.goodDelta != 0 || effect.badDelta != 0 {
+			if err := datasetStore.BumpCountsByID(ds.ID, effect.goodDelta, effect.badDelta); err != nil {
+				restoreJudgment("dataset count decrement failed")
+				log.Error("Failed to decrement dataset counts", "error", err, "deployment_id", lctx.DeploymentID,
+					"good_delta", effect.goodDelta, "bad_delta", effect.badDelta)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dataset counts"})
+				return
+			}
+		}
+
+		if effect.writeDatasetItem {
+			datasetItemID := hashID(ds.LangfuseDatasetName, traceID)
+			if err := lctx.Client.DeleteDatasetItem(c.Request.Context(), datasetItemID); err != nil && !errors.Is(err, langfuse.ErrNotFound) {
+				if effect.goodDelta != 0 || effect.badDelta != 0 {
+					if bumpErr := datasetStore.BumpCountsByID(ds.ID, -effect.goodDelta, -effect.badDelta); bumpErr != nil {
+						log.Warn("Failed to restore dataset counts after undo failure", "error", bumpErr, "trace_id", traceID)
+					}
+				}
+				restoreJudgment("dataset item delete failed")
+				log.Error("Failed to delete dataset item", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, DatasetJudgmentResponse{
+			EvalDatasetID: ds.ID,
+			TraceID:       traceID,
 			Verdict:       string(verdict),
 		})
 	}

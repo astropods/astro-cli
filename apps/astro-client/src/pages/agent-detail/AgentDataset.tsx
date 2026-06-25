@@ -32,6 +32,7 @@ export default function AgentDataset() {
   const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
   const [panelExpanded, setPanelExpanded] = useState(false);
   const { ref: outerRef, width: outerWidth } = useContainerSize();
+  const reviewQueueTargetRef = useRef<HTMLSpanElement | null>(null);
   const tab = parseTab(searchParams.get("tab"));
   const isReviewQueue = tab === "queue";
   const panelOpen = selectedTrace !== null;
@@ -89,9 +90,15 @@ export default function AgentDataset() {
 
           <div className="mb-5 flex items-end justify-between gap-4 border-b border-border">
             <div className="flex items-center gap-6">
-              <TabButton active={tab === "queue"} onClick={() => setTab("queue")}>
-                Review queue
-              </TabButton>
+              <span
+                ref={reviewQueueTargetRef}
+                data-eval-review-queue-target
+                className="inline-flex"
+              >
+                <TabButton active={tab === "queue"} onClick={() => setTab("queue")}>
+                  Review queue
+                </TabButton>
+              </span>
               <TabButton active={tab === "dataset"} onClick={() => setTab("dataset")}>
                 Dataset
                 {data && (
@@ -135,7 +142,12 @@ export default function AgentDataset() {
           )}
 
           {data && tab === "dataset" && (
-            <DatasetView deploymentId={deploymentId} account={account} summary={data} />
+            <DatasetView
+              deploymentId={deploymentId}
+              account={account}
+              summary={data}
+              reviewQueueTargetRef={reviewQueueTargetRef}
+            />
           )}
           {data && tab === "queue" && (
             <ReviewQueueView

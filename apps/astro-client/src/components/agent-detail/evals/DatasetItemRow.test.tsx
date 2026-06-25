@@ -1,4 +1,11 @@
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatasetItemRow, type ResolvedReviewer } from "./DatasetItemRow";
 import type { EvalDatasetItem } from "@/lib/api";
@@ -31,15 +38,21 @@ interface RenderOpts {
 
 function renderRow(opts: RenderOpts = {}) {
   const onToggle = vi.fn();
+  const onChangeVerdict = vi.fn();
+  const onRemoveVerdict = vi.fn();
   render(
     <DatasetItemRow
       item={opts.item ?? makeItem()}
       isOpen={opts.isOpen ?? false}
       onToggle={onToggle}
+      onChangeVerdict={onChangeVerdict}
+      onRemoveVerdict={onRemoveVerdict}
+      isChanging={false}
+      isRemoving={false}
       reviewer={opts.reviewer === undefined ? reviewer : opts.reviewer}
     />,
   );
-  return { onToggle };
+  return { onToggle, onChangeVerdict, onRemoveVerdict };
 }
 
 describe("DatasetItemRow collapsed", () => {
@@ -57,8 +70,30 @@ describe("DatasetItemRow collapsed", () => {
 
   it("clicking the row toggles via onToggle with its id", () => {
     const { onToggle } = renderRow({ item: makeItem({ id: "abc" }) });
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    const row = screen.getByText("What is the capital of France?").closest("tr");
+    expect(row).not.toBeNull();
+    fireEvent.click(row!);
     expect(onToggle).toHaveBeenCalledWith("abc");
+  });
+
+  it("removing a trace from the actions menu does not toggle the row", async () => {
+    const { onToggle, onRemoveVerdict } = renderRow({
+      item: makeItem({ source_trace_id: "trace-undo" }),
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: /remove from dataset/i,
+      }),
+    );
+
+    expect(onRemoveVerdict).toHaveBeenCalledWith(
+      "trace-undo",
+      expect.any(HTMLElement),
+    );
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   it("renders dash when reviewer is null", () => {

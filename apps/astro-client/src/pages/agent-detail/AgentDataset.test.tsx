@@ -611,6 +611,111 @@ describe("review queue view", () => {
       expect(screen.getByText("Second response")).toBeInTheDocument();
     });
   });
+
+  it("shows a quick undo after judging and restores the trace", async () => {
+    const trace = queueItem({
+      trace_id: "trace_111111",
+      input: "Undoable prompt",
+      output: "Undoable response",
+    });
+    let queueItems = [trace];
+    let slowNextQueueResponse = false;
+    let deletedTraceId = "";
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", async () => {
+        if (slowNextQueueResponse) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return HttpResponse.json(reviewQueueResponse(queueItems));
+      }),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+      http.delete(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        ({ params }) => {
+          deletedTraceId = String(params.traceId);
+          slowNextQueueResponse = true;
+          return HttpResponse.json({
+            eval_dataset_id: "dataset-1",
+            trace_id: deletedTraceId,
+            verdict: "good",
+          });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Undoable response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    expect(await screen.findByText("Marked as good")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+    await waitFor(() => {
+      expect(deletedTraceId).toBe("trace_111111");
+    });
+    expect(await screen.findByText("Undoable response")).toBeInTheDocument();
+  });
+
+  it("clears quick undo when selecting another queue trace", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "First prompt",
+      output: "First response",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second prompt",
+      output: "Second response",
+    });
+    let queueItems = [first, second];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(reviewQueueResponse(queueItems)),
+      ),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [second];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+    expect(await screen.findByText("Marked as good")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /second prompt/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Marked as good")).not.toBeInTheDocument();
+    });
+  });
 });
 
 describe("dataset view", () => {
@@ -657,6 +762,231 @@ describe("dataset view", () => {
     renderDataset();
     await waitFor(() => {
       expect(screen.getByText(/composition · 12,345/i)).toBeInTheDocument();
+    });
+  });
+
+  it("undoes a judged dataset item and refreshes the table", async () => {
+    const hadAnimate = "animate" in HTMLElement.prototype;
+    const originalAnimate = HTMLElement.prototype.animate;
+    const animation = {
+      addEventListener: vi.fn((event: string, listener: EventListener) => {
+        if (event === "finish") {
+          listener(new Event("finish"));
+        }
+      }),
+    } as unknown as Animation;
+    const animate = vi.fn<HTMLElement["animate"]>(() => animation);
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    });
+
+    const item = datasetItem({
+      id: "dataset-item-undo",
+      input: "Undo prompt",
+      expected_output: "Undo response",
+      source_trace_id: "trace-undo",
+      metadata: { verdict: 1 },
+    });
+    let items = [item];
+    let deletedTraceId = "";
+
+    setupDataset(
+      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      itemsResponse(items),
+    );
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/items", () =>
+        HttpResponse.json(itemsResponse(items)),
+      ),
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(
+          reviewQueueResponse(
+            deletedTraceId
+              ? [
+                  queueItem({
+                    trace_id: deletedTraceId,
+                    input: "Undo prompt",
+                    output: "Undo response",
+                  }),
+                ]
+              : [],
+          ),
+        ),
+      ),
+      http.delete(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        ({ params }) => {
+          deletedTraceId = String(params.traceId);
+          items = [];
+          return HttpResponse.json({
+            eval_dataset_id: "dataset-1",
+            trace_id: deletedTraceId,
+            verdict: "good",
+          });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    try {
+      renderDataset();
+
+      expect(await screen.findByText("Undo prompt")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+      await user.click(
+        await screen.findByRole("menuitem", {
+          name: /remove from dataset/i,
+        }),
+      );
+
+      await waitFor(() => {
+        expect(deletedTraceId).toBe("trace-undo");
+      });
+      await waitFor(() => {
+        expect(animate).toHaveBeenCalled();
+        expect(screen.queryByText("Undo prompt")).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /^review queue$/i }));
+
+      expect(await screen.findByText("Undo response")).toBeInTheDocument();
+    } finally {
+      if (hadAnimate) {
+        Object.defineProperty(HTMLElement.prototype, "animate", {
+          configurable: true,
+          value: originalAnimate,
+        });
+      } else {
+        delete (HTMLElement.prototype as { animate?: HTMLElement["animate"] })
+          .animate;
+      }
+    }
+  });
+
+  it("changes a judged dataset item verdict in place", async () => {
+    const item = datasetItem({
+      id: "dataset-item-change",
+      input: "Change prompt",
+      expected_output: "Change response",
+      source_trace_id: "trace-change",
+      metadata: { verdict: 1 },
+    });
+    let items = [item];
+    let patched:
+      | { traceId: string; body: Pick<DatasetJudgmentRequest, "verdict"> }
+      | null = null;
+
+    setupDataset(
+      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      itemsResponse(items),
+    );
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/items", () =>
+        HttpResponse.json(itemsResponse(items)),
+      ),
+      http.patch(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        async ({ params, request }) => {
+          const traceId = String(params.traceId);
+          const body = (await request.json()) as Pick<
+            DatasetJudgmentRequest,
+            "verdict"
+          >;
+          patched = { traceId, body };
+          items = [
+            {
+              ...item,
+              metadata: { ...item.metadata, verdict: -1 },
+            },
+          ];
+          return HttpResponse.json({
+            eval_dataset_id: "dataset-1",
+            trace_id: traceId,
+            verdict: body.verdict,
+          });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset();
+
+    expect(await screen.findByText("Change prompt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /^bad$/i }));
+
+    await waitFor(() => {
+      expect(patched).toEqual({
+        traceId: "trace-change",
+        body: { verdict: "bad" },
+      });
+    });
+    await waitFor(() => {
+      const row = screen.getByText("Change prompt").closest("tr");
+      expect(row).not.toBeNull();
+      expect(within(row!).getByText("Bad")).toBeInTheDocument();
+    });
+  });
+
+  it("changes a judged dataset item to neutral and removes it from the dataset", async () => {
+    const item = datasetItem({
+      id: "dataset-item-neutral",
+      input: "Neutral prompt",
+      expected_output: "Neutral response",
+      source_trace_id: "trace-neutral",
+      metadata: { verdict: 1 },
+    });
+    let items = [item];
+    let patched:
+      | { traceId: string; body: Pick<DatasetJudgmentRequest, "verdict"> }
+      | null = null;
+
+    setupDataset(
+      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      itemsResponse(items),
+    );
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/items", () =>
+        HttpResponse.json(itemsResponse(items)),
+      ),
+      http.patch(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        async ({ params, request }) => {
+          const traceId = String(params.traceId);
+          const body = (await request.json()) as Pick<
+            DatasetJudgmentRequest,
+            "verdict"
+          >;
+          patched = { traceId, body };
+          items = [];
+          return HttpResponse.json({
+            eval_dataset_id: "dataset-1",
+            trace_id: traceId,
+            verdict: body.verdict,
+          });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset();
+
+    expect(await screen.findByText("Neutral prompt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /^neutral$/i }),
+    );
+
+    await waitFor(() => {
+      expect(patched).toEqual({
+        traceId: "trace-neutral",
+        body: { verdict: "unknown" },
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Neutral prompt")).not.toBeInTheDocument();
     });
   });
 

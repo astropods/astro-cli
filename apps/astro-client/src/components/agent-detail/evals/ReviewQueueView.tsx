@@ -39,6 +39,7 @@ import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
   useDatasetReviewQueue,
   usePostDatasetJudgment,
+  useUndoDatasetJudgment,
 } from "@/api/queries/evals";
 import type {
   DatasetJudgmentVerdict,
@@ -88,6 +89,12 @@ const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<string, DatasetJudgmentVerdict> = {
 
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 
+type QuickUndoJudgment = {
+  traceId: string;
+  verdict: DatasetJudgmentVerdict;
+  item?: ReviewQueueItem;
+};
+
 export interface ReviewQueueViewProps {
   deploymentId: string;
   account: string;
@@ -112,6 +119,7 @@ export function ReviewQueueView({
   const { data, isLoading, isError } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [quickUndo, setQuickUndo] = useState<QuickUndoJudgment | null>(null);
   const items = data?.items ?? EMPTY_REVIEW_QUEUE_ITEMS;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
@@ -122,15 +130,33 @@ export function ReviewQueueView({
   );
   const postJudgment = usePostDatasetJudgment(deploymentId, {
     onSuccess: (_data, variables) => {
+      setQuickUndo({
+        traceId: variables.traceId,
+        verdict: variables.verdict,
+        item: variables.reviewQueueItem,
+      });
       setSelectedId((current) =>
         current === variables.traceId ? variables.nextTraceId ?? null : current,
       );
     },
   });
+  const undoJudgment = useUndoDatasetJudgment(deploymentId);
   const resolvedAgentAvatarUrl =
     avatarBust ?? agentAvatarUrl ?? getDeploymentAvatarUrl(deploymentId);
+
+  useEffect(() => {
+    if (!quickUndo) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setQuickUndo(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [quickUndo]);
+
   const handleSelectTrace = (traceId: string) => {
     postJudgment.reset();
+    undoJudgment.reset();
+    setQuickUndo(null);
     setSelectedId(traceId);
   };
   const handleJudgeTrace = (
@@ -140,6 +166,8 @@ export function ReviewQueueView({
   ) => {
     const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
     const nextSelectedTraceId = nextTraceId ?? previousTraceId;
+    const reviewQueueItem = items.find((item) => item.trace_id === traceId);
+    setQuickUndo(null);
     flyVerdictToGrade(
       trigger?.getBoundingClientRect() ?? null,
       gradeTargetRef?.current,
@@ -149,62 +177,93 @@ export function ReviewQueueView({
     if (activeSelectedId === traceId) {
       setSelectedId((current) => current ?? traceId);
     }
-    postJudgment.mutate({ traceId, verdict, nextTraceId: nextSelectedTraceId });
+    postJudgment.mutate({
+      traceId,
+      verdict,
+      nextTraceId: nextSelectedTraceId,
+      reviewQueueItem,
+    });
+  };
+  const handleQuickUndo = () => {
+    if (!quickUndo) {
+      return;
+    }
+
+    const { traceId } = quickUndo;
+    undoJudgment.reset();
+    undoJudgment.mutate(
+      { traceId, reviewQueueItem: quickUndo.item },
+      {
+        onSuccess: () => {
+          setQuickUndo(null);
+          setSelectedId(traceId);
+        },
+      },
+    );
   };
 
   return (
-    <EvalTabCard className="h-[calc(100dvh-20rem)] max-h-[720px] min-h-96">
-      <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name} />
-      <EvalTabCardBody>
-        <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
-          <ReviewQueueList
-            items={items}
-            selectedId={activeSelectedId}
-            onSelect={handleSelectTrace}
-            isLoading={isLoading}
-            isError={isError}
-          />
-        </aside>
-
-        <div className="flex min-w-0 flex-1 flex-col bg-background">
-          {isLoading ? (
-            <div className="flex flex-1 items-center justify-center">
-              <Spinner delay={300} />
-            </div>
-          ) : isError ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-12 text-center">
-              <div className="text-heading-3 font-semibold text-foreground">
-                Queue unavailable
-              </div>
-              <p className="mt-1.5 text-body-sm text-muted-foreground">
-                Failed to load the trace review queue.
-              </p>
-            </div>
-          ) : selectedItem ? (
-            <ReviewQueueDetail
-              item={selectedItem}
-              account={account}
-              agentName={agentName}
-              agentLabel={agentLabel}
-              agentAvatarUrl={resolvedAgentAvatarUrl}
-              onJudge={handleJudgeTrace}
-              isJudging={postJudgment.isPending}
-              showJudgmentError={postJudgment.isError}
-              queueSize={items.length}
-              onOpenTrace={
-                onOpenTrace
-                  ? () => onOpenTrace(reviewQueueItemToTraceEntry(selectedItem))
-                  : undefined
-              }
-              onPrevious={previousTraceId ? () => handleSelectTrace(previousTraceId) : undefined}
-              onNext={nextTraceId ? () => handleSelectTrace(nextTraceId) : undefined}
+    <>
+      <EvalTabCard className="h-[calc(100dvh-20rem)] max-h-[720px] min-h-96">
+        <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name} />
+        <EvalTabCardBody>
+          <aside className="flex w-[392px] flex-none flex-col overflow-y-auto border-r border-border bg-card dark:bg-surface">
+            <ReviewQueueList
+              items={items}
+              selectedId={activeSelectedId}
+              onSelect={handleSelectTrace}
+              isLoading={isLoading}
+              isError={isError}
             />
-          ) : (
-            <ReviewQueueDetailEmpty />
-          )}
-        </div>
-      </EvalTabCardBody>
-    </EvalTabCard>
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col bg-background">
+            {isLoading ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Spinner delay={300} />
+              </div>
+            ) : isError ? (
+              <div className="flex flex-1 flex-col items-center justify-center p-12 text-center">
+                <div className="text-heading-3 font-semibold text-foreground">
+                  Queue unavailable
+                </div>
+                <p className="mt-1.5 text-body-sm text-muted-foreground">
+                  Failed to load the trace review queue.
+                </p>
+              </div>
+            ) : selectedItem ? (
+              <ReviewQueueDetail
+                item={selectedItem}
+                account={account}
+                agentName={agentName}
+                agentLabel={agentLabel}
+                agentAvatarUrl={resolvedAgentAvatarUrl}
+                onJudge={handleJudgeTrace}
+                isJudging={postJudgment.isPending}
+                showJudgmentError={postJudgment.isError || undoJudgment.isError}
+                queueSize={items.length}
+                onOpenTrace={
+                  onOpenTrace
+                    ? () => onOpenTrace(reviewQueueItemToTraceEntry(selectedItem))
+                    : undefined
+                }
+                onPrevious={previousTraceId ? () => handleSelectTrace(previousTraceId) : undefined}
+                onNext={nextTraceId ? () => handleSelectTrace(nextTraceId) : undefined}
+              />
+            ) : (
+              <ReviewQueueDetailEmpty
+                showJudgmentError={postJudgment.isError || undoJudgment.isError}
+              />
+            )}
+          </div>
+        </EvalTabCardBody>
+      </EvalTabCard>
+      <ReviewQueueQuickUndoToast
+        quickUndo={quickUndo}
+        isUndoing={undoJudgment.isPending}
+        onQuickUndo={handleQuickUndo}
+      />
+    </>
   );
 }
 
@@ -718,6 +777,46 @@ function ReviewQueueVerdictFooter({
   );
 }
 
+function quickUndoLabel(verdict: DatasetJudgmentVerdict) {
+  const label =
+    REVIEW_QUEUE_VERDICT_OPTIONS.find((option) => option.verdict === verdict)
+      ?.label ?? "verdict";
+  return `Marked as ${label.toLowerCase()}`;
+}
+
+function ReviewQueueQuickUndoToast({
+  quickUndo,
+  isUndoing,
+  onQuickUndo,
+}: {
+  quickUndo: QuickUndoJudgment | null;
+  isUndoing: boolean;
+  onQuickUndo: () => void;
+}) {
+  if (!quickUndo) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-live="polite"
+      className="fixed bottom-6 left-1/2 z-50 flex min-w-[300px] max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 dark:bg-surface"
+    >
+      <span className="min-w-0 truncate">{quickUndoLabel(quickUndo.verdict)}</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={isUndoing}
+        onClick={onQuickUndo}
+        className="h-7 flex-none px-3 font-semibold"
+      >
+        {isUndoing ? "Undoing..." : "Undo"}
+      </Button>
+    </div>
+  );
+}
+
 function ShortcutKey({
   children,
   className,
@@ -755,19 +854,30 @@ function UserSectionIcon() {
   );
 }
 
-function ReviewQueueDetailEmpty() {
+function ReviewQueueDetailEmpty({
+  showJudgmentError,
+}: {
+  showJudgmentError: boolean;
+}) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3.5 p-12 text-center">
-      <span
-        aria-hidden
-        className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success"
-      >
-        <Check className="size-6" />
-      </span>
-      <div>
-        <div className="text-heading-3 font-semibold text-foreground">You're all caught up</div>
-        <p className="mt-1.5 text-body-sm text-muted-foreground">Every trace has a verdict.</p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3.5 p-12 text-center">
+        <span
+          aria-hidden
+          className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success"
+        >
+          <Check className="size-6" />
+        </span>
+        <div>
+          <div className="text-heading-3 font-semibold text-foreground">You're all caught up</div>
+          <p className="mt-1.5 text-body-sm text-muted-foreground">Every trace has a verdict.</p>
+        </div>
       </div>
+      {showJudgmentError && (
+        <div className="flex flex-none items-center border-t border-border px-6 py-4 text-body-sm text-muted-foreground">
+          Could not save verdict. Try again.
+        </div>
+      )}
     </div>
   );
 }

@@ -53,6 +53,10 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 	f.router.POST("/api/v1/deployments/:id/dataset/judgments",
 		PostDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
+	f.router.PATCH("/api/v1/deployments/:id/dataset/judgments/:trace_id",
+		PatchDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
+	f.router.DELETE("/api/v1/deployments/:id/dataset/judgments/:trace_id",
+		DeleteDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 
 	return &datasetFixture{traceDetailFixture: f, datasetMock: datasetMock, judgmentMock: judgmentMock}
 }
@@ -243,6 +247,22 @@ func langfuseJudgeHandlerExpectDelete(t *testing.T, itemID string, deleteCalled 
 			_, _ = w.Write([]byte(`{}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/public/dataset-items/"+itemID:
 			deleteCalled.Store(true)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Errorf("unexpected Langfuse request: %s %s", r.Method, r.URL.String())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}
+}
+
+func langfuseJudgeHandlerExpectDeleteStatus(t *testing.T, itemID string, status int, deleteCalled *atomic.Bool) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/public/dataset-items/"+itemID:
+			deleteCalled.Store(true)
+			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{}`))
 		default:
 			t.Errorf("unexpected Langfuse request: %s %s", r.Method, r.URL.String())
@@ -1479,6 +1499,312 @@ func TestPostDatasetJudgment_DeletesDatasetItemWhenCountBumpFails(t *testing.T) 
 	}
 	if !deleteCalled.Load() {
 		t.Fatal("expected Langfuse dataset item compensation delete")
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_GoodToBadUpdatesItemAndCounts(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		wantMetadataVerdict: -1,
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-dep-1", "trace-1", "bad").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(-1, 1, "dataset-dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		strings.NewReader(`{"verdict":"bad"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert")
+	}
+	var resp DatasetJudgmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-1" || resp.Verdict != "bad" {
+		t.Fatalf("judgment response = %+v, want dataset id / trace id / bad verdict", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_RestoresJudgmentWhenDatasetItemUpsertFails(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		datasetItemStatus:   http.StatusInternalServerError,
+		wantMetadataVerdict: -1,
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-dep-1", "trace-1", "bad").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	f.judgmentMock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-dep-1", "trace-1", "good").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("bad"))
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		strings.NewReader(`{"verdict":"bad"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert attempt")
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_GoodToUnknownDeletesItemAndDecrementsCount(t *testing.T) {
+	itemID := hashID("eval-dep-1", "trace-1")
+	var deleteCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerExpectDelete(t, itemID, &deleteCalled))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-dep-1", "trace-1", "unknown").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(-1, 0, "dataset-dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		strings.NewReader(`{"verdict":"unknown"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !deleteCalled.Load() {
+		t.Fatal("expected Langfuse dataset item delete")
+	}
+	var resp DatasetJudgmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-1" || resp.Verdict != "unknown" {
+		t.Fatalf("judgment response = %+v, want dataset id / trace id / unknown verdict", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_MissingJudgmentReturnsNotFound(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-missing",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-dep-1", "trace-missing", "bad").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}))
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-missing",
+		strings.NewReader(`{"verdict":"bad"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestDeleteDatasetJudgment_GoodDeletesDatasetItemAndDecrementsCount(t *testing.T) {
+	itemID := hashID("eval-dep-1", "trace-1")
+	var deleteCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerExpectDelete(t, itemID, &deleteCalled))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("DELETE FROM eval_dataset_judgments").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(-1, 0, "dataset-dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !deleteCalled.Load() {
+		t.Fatal("expected Langfuse dataset item delete")
+	}
+	var resp DatasetJudgmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-1" || resp.Verdict != "good" {
+		t.Fatalf("judgment response = %+v, want dataset id / trace id / good verdict", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestDeleteDatasetJudgment_RestoresCountsAndJudgmentWhenDatasetItemDeleteFails(t *testing.T) {
+	itemID := hashID("eval-dep-1", "trace-1")
+	var deleteCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerExpectDeleteStatus(t, itemID, http.StatusInternalServerError, &deleteCalled))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("DELETE FROM eval_dataset_judgments").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(-1, 0, "dataset-dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(1, 0, "dataset-dep-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	f.judgmentMock.ExpectExec("INSERT INTO eval_dataset_judgments").
+		WithArgs("dataset-dep-1", "trace-1", "good").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !deleteCalled.Load() {
+		t.Fatal("expected Langfuse dataset item delete attempt")
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestDeleteDatasetJudgment_UnknownOnlyDeletesLocalJudgment(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("DELETE FROM eval_dataset_judgments").
+		WithArgs("dataset-dep-1", "trace-unknown").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("unknown"))
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-unknown",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetJudgmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-unknown" || resp.Verdict != "unknown" {
+		t.Fatalf("judgment response = %+v, want unknown verdict", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestDeleteDatasetJudgment_MissingJudgmentReturnsNotFound(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	f.judgmentMock.ExpectQuery("DELETE FROM eval_dataset_judgments").
+		WithArgs("dataset-dep-1", "trace-missing").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}))
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-missing",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet dataset expectations: %v", err)

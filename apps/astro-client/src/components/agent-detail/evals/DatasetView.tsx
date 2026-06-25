@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type RefObject } from "react";
 import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 import { DatasetTable } from "./DatasetTable";
 import { DatasetFilterChips, type FilterKey } from "./DatasetFilterChips";
@@ -9,12 +9,14 @@ export interface DatasetViewProps {
   deploymentId: string;
   account: string;
   summary: EvalDatasetResponse;
+  reviewQueueTargetRef?: RefObject<HTMLElement | null>;
 }
 
 export function DatasetView({
   deploymentId,
   account,
   summary,
+  reviewQueueTargetRef,
 }: DatasetViewProps) {
   const [selected, setSelected] = useState<Set<FilterKey>>(() => new Set());
 
@@ -43,6 +45,7 @@ export function DatasetView({
           account={account}
           summary={summary}
           selected={selected}
+          reviewQueueTargetRef={reviewQueueTargetRef}
         />
       </EvalTabCardBody>
     </EvalTabCard>
