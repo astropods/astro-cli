@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
@@ -88,6 +89,7 @@ type MemberResponse struct {
 	Status          string              `json:"status"`
 	Username        string              `json:"username"`
 	DisplayName     string              `json:"display_name"`
+	AvatarURL       string              `json:"avatar_url,omitempty"`
 	CreatedAt       string              `json:"created_at"`
 	SlackWorkspaces []SlackWorkspaceRef `json:"slack_workspaces"`
 }
@@ -119,7 +121,7 @@ func toSlackWorkspaceRefs(ms []slackidentity.Mapping) []SlackWorkspaceRef {
 }
 
 // ListMembers handles GET /api/v1/accounts/:account/members
-func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, slackStore *slackidentity.Store) gin.HandlerFunc {
+func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, orgClient *org.Client, slackStore *slackidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -204,7 +206,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 				status = "active"
 			}
 			p := profileByUserID[m.UserID]
-			result = append(result, MemberResponse{
+			mr := MemberResponse{
 				AccountID:       m.AccountID,
 				UserID:          m.UserID,
 				Role:            role,
@@ -213,7 +215,11 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 				DisplayName:     p.DisplayName,
 				CreatedAt:       m.CreatedAt.Format("2006-01-02T15:04:05Z"),
 				SlackWorkspaces: toSlackWorkspaceRefs(slackByUserID[m.UserID]),
-			})
+			}
+			if avatarStore != nil && p.Name != "" {
+				mr.AvatarURL = avatarStore.AvatarURL(p.Name, p.AvatarUpdatedAt)
+			}
+			result = append(result, mr)
 		}
 
 		// When include_pending is set, append WorkOS memberships that have no
@@ -234,7 +240,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 			for _, uid := range pendingUIDs {
 				info := infoByUserID[uid]
 				p := pendingProfiles[uid]
-				result = append(result, MemberResponse{
+				mr := MemberResponse{
 					AccountID:       acct.ID,
 					UserID:          uid,
 					Role:            info.Role,
@@ -243,7 +249,11 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, orgClie
 					DisplayName:     p.DisplayName,
 					CreatedAt:       info.CreatedAt,
 					SlackWorkspaces: []SlackWorkspaceRef{},
-				})
+				}
+				if avatarStore != nil && p.Name != "" {
+					mr.AvatarURL = avatarStore.AvatarURL(p.Name, p.AvatarUpdatedAt)
+				}
+				result = append(result, mr)
 			}
 		}
 

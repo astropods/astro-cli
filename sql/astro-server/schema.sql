@@ -58,6 +58,10 @@ CREATE TABLE public.accounts (
     updated_at timestamp NOT NULL DEFAULT now(),
     display_name varchar(64) NOT NULL DEFAULT '',
     avatar_colors jsonb,
+    -- Stamps when this account's avatar image last changed; drives the `?v=`
+    -- cache-busting token appended to its CDN avatar URL. NULL means unknown
+    -- (no token emitted); set to now() on the next avatar write.
+    avatar_updated_at timestamptz,
     cluster_id varchar(64),
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name),
@@ -116,6 +120,10 @@ CREATE TABLE public.agents (
     archived_at timestamp,
     name_reserved bool NOT NULL DEFAULT false,
     avatar_colors jsonb,
+    -- Stamps when this agent's avatar image last changed; drives the `?v=`
+    -- cache-busting token appended to its CDN avatar URL. NULL means unknown
+    -- (no token emitted); set to now() on the next avatar write.
+    avatar_updated_at timestamptz,
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
     CONSTRAINT agents_pkey PRIMARY KEY (account_id, name),
@@ -183,6 +191,10 @@ CREATE TABLE public.deployments (
     drift_report jsonb,
     drift_checked_at timestamptz,
     avatar_colors jsonb,
+    -- Stamps when this deployment's avatar image last changed; drives the `?v=`
+    -- cache-busting token appended to its CDN avatar URL. NULL means unknown
+    -- (no token emitted); set to now() on the next avatar write.
+    avatar_updated_at timestamptz,
     cluster_id varchar(64),
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
     CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,

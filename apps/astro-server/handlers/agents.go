@@ -322,7 +322,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				Metrics:    agentMetrics(msgCounts[agent.AccountID][agent.Name], deployCounts[agent.AccountID][agent.Name]),
 			}
 			if avatarStore != nil {
-				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarUpdatedAt)
 				var existing json.RawMessage
 				if agent.AvatarColors != nil {
 					existing = *agent.AvatarColors
@@ -436,7 +436,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
 			}
 			if avatarStore != nil {
-				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name)
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarUpdatedAt)
 				var existing json.RawMessage
 				if agent.AvatarColors != nil {
 					existing = *agent.AvatarColors
@@ -587,7 +587,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			Metrics:      agentMetrics(mc[name], dc[name]),
 		}
 		if avatarStore != nil {
-			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name)
+			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name, agent.AvatarUpdatedAt)
 			var existing json.RawMessage
 			if agent.AvatarColors != nil {
 				existing = *agent.AvatarColors
@@ -811,6 +811,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 				} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, agentName, jpegBytes); err != nil {
 					log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", agentName, "error", err)
 				} else {
+					_ = touchAgentAvatar(log, index, accountID, accountName, agentName)
 					extractAndStoreColors(c.Request.Context(), log,
 						func(context.Context) ([]byte, error) { return jpegBytes, nil },
 						func(j []byte) error { return index.SetAvatarColors(accountID, agentName, j) },
@@ -916,6 +917,7 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, req.Name, jpegBytes); err != nil {
 				log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", req.Name, "error", err)
 			} else {
+				_ = touchAgentAvatar(log, index, acct.ID, accountName, req.Name)
 				extractAndStoreColors(c.Request.Context(), log,
 					func(context.Context) ([]byte, error) { return jpegBytes, nil },
 					func(j []byte) error { return index.SetAvatarColors(acct.ID, req.Name, j) },

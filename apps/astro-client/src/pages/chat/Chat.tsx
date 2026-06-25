@@ -31,7 +31,6 @@ export default function ChatPage() {
 
   const activeEntry = entries.find((e) => e.deployment.id === deploymentId);
   const deployment = activeEntry?.deployment;
-  const deploymentAccount = activeEntry?.account ?? activeAccount;
 
   const upsertConversation = useUpsertDeploymentChatConversation(
     deployment?.id ?? "",
@@ -64,7 +63,6 @@ export default function ChatPage() {
       ) : (
         <ChatWorkspace
           className="flex-1"
-          account={deploymentAccount}
           deploymentId={deployment!.id}
           deployment={deployment!}
           eligibleDeploymentIds={eligibleDeploymentIds}

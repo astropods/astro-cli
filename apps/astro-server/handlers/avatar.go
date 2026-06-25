@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
@@ -19,6 +20,49 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
+
+// touchAccountAvatar stamps the account's avatar_updated_at and returns the
+// DB-persisted timestamp to embed in the avatar URL's cache-busting token. The
+// database clock is used (not the app clock) so the immediate response token
+// matches what later reads compute from the column — otherwise the same image
+// is cached under two `?v=` keys. On a stamp failure it returns nil: the
+// response URL is then unversioned, consistent with the still-NULL column, and
+// the uploader still sees their new image via the local blob override. A
+// persistent stamp failure therefore leaves the avatar unversioned — served
+// from the edge cache for up to its max-age for every viewer but the uploader —
+// until a later write succeeds.
+func touchAccountAvatar(log *logger.Logger, accountStore *account.AccountStore, accountID, accountName string) *time.Time {
+	ts, err := accountStore.TouchAvatarUpdatedAt(accountID)
+	if err != nil {
+		log.Warn("Failed to stamp account avatar_updated_at", "error", err, "account", accountName)
+		return nil
+	}
+	return &ts
+}
+
+// touchAgentAvatar stamps the agent's avatar_updated_at and returns the
+// DB-persisted token timestamp (nil on failure). See touchAccountAvatar for the
+// clock and failure semantics.
+func touchAgentAvatar(log *logger.Logger, index *agentindex.Index, accountID, accountName, agentName string) *time.Time {
+	ts, err := index.TouchAvatarUpdatedAt(accountID, agentName)
+	if err != nil {
+		log.Warn("Failed to stamp agent avatar_updated_at", "error", err, "account", accountName, "agent", agentName)
+		return nil
+	}
+	return &ts
+}
+
+// touchDeploymentAvatar stamps the deployment's avatar_updated_at and returns
+// the DB-persisted token timestamp (nil on failure). See touchAccountAvatar for
+// the clock and failure semantics.
+func touchDeploymentAvatar(log *logger.Logger, deployStore *deploymentstore.Store, deploymentID string) *time.Time {
+	ts, err := deployStore.TouchAvatarUpdatedAt(deploymentID)
+	if err != nil {
+		log.Warn("Failed to stamp deployment avatar_updated_at", "error", err, "deployment", deploymentID)
+		return nil
+	}
+	return &ts
+}
 
 // extractAndStoreColors reads an avatar via readFn, extracts its color palette,
 // persists the result via storeFn, and returns the raw JSON for inclusion in
@@ -87,6 +131,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		avatarTS := touchAccountAvatar(log, accountStore, acct.ID, acct.Name)
 
 		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
@@ -103,7 +148,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name, avatarTS),
 			AvatarColors: colorsJSON,
 		})
 	}
@@ -129,6 +174,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set preset"})
 			return
 		}
+		avatarTS := touchAccountAvatar(log, accountStore, acct.ID, acct.Name)
 
 		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
@@ -145,7 +191,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name, avatarTS),
 			AvatarColors: colorsJSON,
 		})
 	}
@@ -165,6 +211,7 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
+		avatarTS := touchAccountAvatar(log, accountStore, acct.ID, acct.Name)
 
 		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadAvatar(ctx, acct.Name) },
@@ -181,7 +228,7 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:    avatarStore.AvatarURL(acct.Name),
+			AvatarURL:    avatarStore.AvatarURL(acct.Name, avatarTS),
 			AvatarColors: colorsJSON,
 		})
 	}
@@ -223,6 +270,7 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index 
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		avatarTS := touchAgentAvatar(log, index, acct.ID, acct.Name, agentName)
 
 		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) {
@@ -241,7 +289,7 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index 
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:    avatarStore.AgentAvatarURL(acct.Name, agentName),
+			AvatarURL:    avatarStore.AgentAvatarURL(acct.Name, agentName, avatarTS),
 			AvatarColors: colorsJSON,
 		})
 	}
@@ -262,6 +310,7 @@ func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index *
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
+		_ = touchAgentAvatar(log, index, acct.ID, acct.Name, agentName)
 
 		// Clear colors — the backfill worker will regenerate the placeholder and re-extract.
 		_ = index.SetAvatarColors(acct.ID, agentName, nil)
@@ -300,6 +349,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		avatarTS := touchDeploymentAvatar(log, deployStore, dep.ID)
 
 		colorsJSON := extractAndStoreColors(c.Request.Context(), log,
 			func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dep.ID) },
@@ -317,7 +367,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:    avatarStore.DeploymentAvatarURL(dep.ID),
+			AvatarURL:    avatarStore.DeploymentAvatarURL(dep.ID, avatarTS),
 			AvatarColors: colorsJSON,
 		})
 	}
@@ -337,6 +387,7 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
+		_ = touchDeploymentAvatar(log, deployStore, dep.ID)
 
 		// Clear colors — the backfill worker will re-copy from the blueprint and re-extract.
 		_ = deployStore.SetAvatarColors(dep.ID, nil)

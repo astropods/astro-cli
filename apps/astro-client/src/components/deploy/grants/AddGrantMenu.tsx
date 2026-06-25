@@ -60,6 +60,7 @@ export function AddGrantMenu({ accounts, isAlreadyGranted, onPick, onPickUser }:
                   <UserAvatar
                     handle={a.name}
                     name={a.display_name ?? a.name}
+                    avatarUrl={a.avatar_url}
                     className="size-5 rounded-sm"
                   />
                   <span className="flex flex-col min-w-0">

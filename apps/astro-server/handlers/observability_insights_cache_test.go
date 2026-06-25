@@ -37,7 +37,7 @@ var depCols = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
 // expectStandardAccountAndCreds wires the three sqlmock expectations every
@@ -56,7 +56,7 @@ func expectStandardAccountAndCreds(t *testing.T) (
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
 			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "",
-				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -79,7 +79,7 @@ func expectOneDeployment(t *testing.T) (*deploymentstore.Store, sqlmock.Sqlmock)
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(depCols).
 			AddRow("dep-1", "acct-1", nil, "code-reviewer", "b1", "ns-1", "Code Reviewer",
-				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil))
+				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil, nil))
 	return deploymentstore.NewStore(depDB), depMock
 }
 

@@ -170,6 +170,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
             <BlueprintIdentity
               account={agent.account}
               name={agent.name}
+              url={agent.avatar_url}
               size={32}
               className="size-8 shrink-0 rounded-sm overflow-hidden"
             />

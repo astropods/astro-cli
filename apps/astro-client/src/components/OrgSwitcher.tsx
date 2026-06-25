@@ -29,6 +29,7 @@ function AccountIcon({ account }: { account: Account }) {
     <UserAvatar
       handle={account.name}
       name={account.display_name || account.name}
+      avatarUrl={account.avatar_url}
       className="size-[18px] shrink-0"
     />
   );

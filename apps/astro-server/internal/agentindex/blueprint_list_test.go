@@ -9,7 +9,7 @@ import (
 
 func accountListRowColumns(paginated bool) []string {
 	cols := []string{
-		"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at",
+		"account_id", "name", "registry", "visibility", "avatar_colors", "avatar_updated_at", "created_at", "updated_at",
 		"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at",
 		"commit_message", "commit_sha", "repo_full_name",
 		"version_count",
@@ -22,7 +22,7 @@ func accountListRowColumns(paginated bool) []string {
 
 func publicListRowColumns(paginated bool) []string {
 	cols := []string{
-		"account_id", "name", "registry", "visibility", "avatar_colors", "created_at", "updated_at",
+		"account_id", "name", "registry", "visibility", "avatar_colors", "avatar_updated_at", "created_at", "updated_at",
 		"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "published_at", "updated_at",
 	}
 	if paginated {
@@ -44,7 +44,7 @@ func TestListForAccount_WithQueryFilter(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1", "%review%").
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(false)).
-			AddRow("acct-1", "code-reviewer", "reg", "public", nil, now, now,
+			AddRow("acct-1", "code-reviewer", "reg", "public", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, "", "", "", 1))
 
 	page, err := idx.ListForAccount("acct-1", BlueprintListOptions{Query: "review", Sort: "name"})
@@ -75,7 +75,7 @@ func TestListForAccount_QueryDoesNotMatchSiblingAgent(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1", "%retail%").
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(false)).
-			AddRow("acct-1", "northstar-sales", "reg", "private", nil, now, now,
+			AddRow("acct-1", "northstar-sales", "reg", "private", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, "", "", "", 2))
 
 	page, err := idx.ListForAccount("acct-1", BlueprintListOptions{Query: "retail", Sort: "name"})
@@ -106,7 +106,7 @@ func TestListForAccount_QueryMatchesTags(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1", "%northstar%").
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(false)).
-			AddRow("acct-1", "northstar-support", "reg", "private", nil, now, now,
+			AddRow("acct-1", "northstar-support", "reg", "private", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, "", "", "", 1))
 
 	page, err := idx.ListForAccount("acct-1", BlueprintListOptions{Query: "northstar", Sort: "name"})
@@ -155,7 +155,7 @@ func TestListForAccount_Pagination(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1", 2, 1).
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(true)).
-			AddRow("acct-1", "agent-b", "reg", "public", nil, now, now,
+			AddRow("acct-1", "agent-b", "reg", "public", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now, "", "", "", 3, 5))
 
 	page, err := idx.ListForAccount("acct-1", BlueprintListOptions{Sort: "name", Limit: 2, Offset: 1})
@@ -186,7 +186,7 @@ func TestListForAccount_PopulatesCommitMetadata(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(false)).
-			AddRow("acct-1", "code-reviewer", "reg", "public", nil, now, now,
+			AddRow("acct-1", "code-reviewer", "reg", "public", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", "[]", now, now,
 				"Fix retry logic (#42)\n\ndetails", "abc1234def", "acme/code-reviewer", 1))
 
@@ -225,7 +225,7 @@ func TestListForAccount_DraftWithNoVersions(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(accountListRowColumns(false)).
-			AddRow("acct-1", "draft-agent", "reg", "private", nil, now, now,
+			AddRow("acct-1", "draft-agent", "reg", "private", nil, nil, now, now,
 				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0))
 
 	page, err := idx.ListForAccount("acct-1", BlueprintListOptions{Sort: "name"})
@@ -256,7 +256,7 @@ func TestListPublicAgents_WithQueryFilter(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("%analytics%").
 		WillReturnRows(sqlmock.NewRows(publicListRowColumns(false)).
-			AddRow("acct-1", "analytics-bot", "reg", "public", nil, now, now,
+			AddRow("acct-1", "analytics-bot", "reg", "public", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", now, now))
 
 	page, err := idx.ListPublicAgents(BlueprintListOptions{Query: "analytics", Sort: "name"})
@@ -284,7 +284,7 @@ func TestListPublicAgents_Pagination(t *testing.T) {
 	mock.ExpectQuery("SELECT a.account_id, a.name, a.registry").
 		WithArgs("%bot%", 10, 0).
 		WillReturnRows(sqlmock.NewRows(publicListRowColumns(true)).
-			AddRow("acct-1", "bot-one", "reg", "public", nil, now, now,
+			AddRow("acct-1", "bot-one", "reg", "public", nil, nil, now, now,
 				"build-1", "ns", `{"name":"test"}`, "", "", now, now, 12))
 
 	page, err := idx.ListPublicAgents(BlueprintListOptions{Query: "bot", Sort: "name", Limit: 10, Offset: 0})

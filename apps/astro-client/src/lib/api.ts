@@ -137,6 +137,7 @@ export interface AccountPublic {
   website?: string;
   social_links?: string[];
   blueprint_order?: string[];
+  avatar_url?: string;
   avatar_colors?: AvatarColors;
 }
 
@@ -145,6 +146,7 @@ export interface Account {
   name: string;
   type: string;
   display_name?: string;
+  avatar_url?: string;
   role?: string;
   organization_id?: string; // WorkOS org ID, present on organization accounts
   /** Placement cluster (e.g. "eu"); empty = primary US cluster */
@@ -189,6 +191,7 @@ export interface AccountMember {
   username: string;
   display_name: string;
   created_at: string;
+  avatar_url?: string;
   /** Slack workspaces this member has linked. Empty = not connected, in
    *  which case a Slack-typed grant for this user won't resolve and the
    *  grants UI surfaces a warning. */
@@ -791,6 +794,7 @@ export interface AgentDeploymentSummary {
   id: string;
   name: string;
   display_name?: string;
+  avatar_url?: string;
   avatar_colors?: AvatarColors;
   build_id: string;
   latest_build_id?: string;

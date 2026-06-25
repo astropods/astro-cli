@@ -1,12 +1,14 @@
-import { cn } from "@/lib/utils";
-import { getAgentAvatarUrl, getFallbackAvatarUrl } from "@/lib/assets";
+import { AvatarImage } from "@/components/AvatarImage";
+import { getAgentAvatarUrl } from "@/lib/assets";
 import { useAgentAvatarBust } from "@/lib/avatar-bust";
 
 interface BlueprintIdentityProps {
   account: string;
   name: string;
   size?: number;
-  /** Override the default agent avatar URL (e.g. deployment avatar). */
+  /** Server-emitted versioned blueprint avatar URL. Preferred over the
+   *  deterministic fallback, but the local upload override still wins so a
+   *  just-uploaded image shows instantly. */
   url?: string;
   className?: string;
 }
@@ -20,17 +22,11 @@ export function BlueprintIdentity({
 }: BlueprintIdentityProps) {
   const bust = useAgentAvatarBust(account, name);
   return (
-    <img
-      src={url ?? bust ?? getAgentAvatarUrl(account, name)}
+    <AvatarImage
+      src={bust ?? url ?? getAgentAvatarUrl(account, name)}
       alt={name}
-      width={size}
-      height={size}
-      decoding="async"
-      onError={(e) => {
-        const fallback = getFallbackAvatarUrl();
-        if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
-      }}
-      className={cn("object-cover", className)}
+      size={size}
+      className={className}
     />
   );
 }

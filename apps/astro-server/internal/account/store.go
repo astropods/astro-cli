@@ -115,16 +115,20 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var workosOrgID sql.NullString
 	var clusterID sql.NullString
 	var deletedAt sql.NullTime
+	var avatarUpdatedAt sql.NullTime
 	var accountNumber sql.NullInt32
 	var bio, location, email, localTimezone, pronouns, website sql.NullString
 	var socialLinks, blueprintOrder pq.StringArray
 	err := row.Scan(
 		&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt,
-		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &clusterID,
+		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &avatarUpdatedAt, &clusterID,
 		&accountNumber, &bio, &location, &email, &localTimezone, &pronouns, &website, &socialLinks, &blueprintOrder,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if avatarUpdatedAt.Valid {
+		acct.AvatarUpdatedAt = &avatarUpdatedAt.Time
 	}
 	if workosOrgID.Valid {
 		acct.WorkOSOrganizationID = workosOrgID.String
@@ -162,7 +166,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -181,7 +185,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -200,7 +204,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
@@ -256,7 +260,7 @@ func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 // GetAccountsForUser returns all accounts a user is a member of
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), COALESCE(a.cluster_id, ''), a.created_at, a.updated_at, a.display_name
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), COALESCE(a.cluster_id, ''), a.created_at, a.updated_at, a.display_name, a.avatar_updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -271,8 +275,12 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	var accounts []AccountWithRole
 	for rows.Next() {
 		var a AccountWithRole
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.DisplayName); err != nil {
+		var avatarUpdatedAt sql.NullTime
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.DisplayName, &avatarUpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		if avatarUpdatedAt.Valid {
+			a.AvatarUpdatedAt = &avatarUpdatedAt.Time
 		}
 		accounts = append(accounts, a)
 	}
@@ -280,21 +288,23 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	return accounts, nil
 }
 
-// PersonalProfile holds the name and display name from a user's personal account.
+// PersonalProfile holds the name, display name, and avatar version stamp from a
+// user's personal account.
 type PersonalProfile struct {
-	UserID      string
-	Name        string
-	DisplayName string
+	UserID          string
+	Name            string
+	DisplayName     string
+	AvatarUpdatedAt *time.Time
 }
 
-// GetPersonalProfiles returns the personal-account name and display name for
-// each of the given user IDs in a single query.
+// GetPersonalProfiles returns the personal-account name, display name, and
+// avatar version stamp for each of the given user IDs in a single query.
 func (s *AccountStore) GetPersonalProfiles(userIDs []string) (map[string]PersonalProfile, error) {
 	if len(userIDs) == 0 {
 		return map[string]PersonalProfile{}, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT am.user_id, a.name, a.display_name
+		SELECT am.user_id, a.name, a.display_name, a.avatar_updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		WHERE am.user_id = ANY($1) AND a.type = 'personal' AND a.deleted_at IS NULL
@@ -306,9 +316,15 @@ func (s *AccountStore) GetPersonalProfiles(userIDs []string) (map[string]Persona
 
 	profiles := make(map[string]PersonalProfile, len(userIDs))
 	for rows.Next() {
-		var p PersonalProfile
-		if err := rows.Scan(&p.UserID, &p.Name, &p.DisplayName); err != nil {
+		var (
+			p               PersonalProfile
+			avatarUpdatedAt sql.NullTime
+		)
+		if err := rows.Scan(&p.UserID, &p.Name, &p.DisplayName, &avatarUpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan personal profile: %w", err)
+		}
+		if avatarUpdatedAt.Valid {
+			p.AvatarUpdatedAt = &avatarUpdatedAt.Time
 		}
 		profiles[p.UserID] = p
 	}
@@ -471,7 +487,7 @@ func nullablePtrStr(s *string) sql.NullString {
 // GetOrgAccountsForUser returns all organization accounts the given user belongs to.
 func (s *AccountStore) GetOrgAccountsForUser(userID string) ([]Account, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.cluster_id,
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
 		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_members am ON am.account_id = a.id
@@ -503,6 +519,33 @@ func (s *AccountStore) SetAvatarColors(accountID string, colorsJSON []byte) erro
 		WHERE id = $2
 	`, colorsJSON, accountID)
 	return err
+}
+
+// TouchAvatarUpdatedAt stamps avatar_updated_at = now() for an account, bumping
+// the cache-busting token on its avatar URL, and returns the persisted value so
+// callers embed the DB clock (not the app clock) in the immediate response.
+// Called after every avatar write.
+func (s *AccountStore) TouchAvatarUpdatedAt(accountID string) (time.Time, error) {
+	var ts time.Time
+	err := s.db.QueryRow(`
+		UPDATE accounts SET avatar_updated_at = now()
+		WHERE id = $1
+		RETURNING avatar_updated_at
+	`, accountID).Scan(&ts)
+	return ts, err
+}
+
+// TouchAvatarUpdatedAtByName stamps avatar_updated_at = now() for an account by
+// name and returns the persisted value. Used by avatar writes that only carry
+// the account handle.
+func (s *AccountStore) TouchAvatarUpdatedAtByName(name string) (time.Time, error) {
+	var ts time.Time
+	err := s.db.QueryRow(`
+		UPDATE accounts SET avatar_updated_at = now()
+		WHERE name = $1
+		RETURNING avatar_updated_at
+	`, name).Scan(&ts)
+	return ts, err
 }
 
 // GetFirstMemberUserID returns the user ID of the first member of an account.
@@ -688,7 +731,7 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 
 	if accountType != "" {
 		rows, err = s.db.Query(`
-			SELECT a.id, a.name, a.type, a.created_at, a.updated_at
+			SELECT a.id, a.name, a.type, a.created_at, a.updated_at, a.avatar_updated_at
 			FROM accounts a
 			WHERE a.name LIKE $1 AND a.type = $2
 			ORDER BY a.name
@@ -696,7 +739,7 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 		`, pattern, accountType, limit)
 	} else {
 		rows, err = s.db.Query(`
-			SELECT a.id, a.name, a.type, a.created_at, a.updated_at
+			SELECT a.id, a.name, a.type, a.created_at, a.updated_at, a.avatar_updated_at
 			FROM accounts a
 			WHERE a.name LIKE $1
 			ORDER BY a.name
@@ -710,9 +753,15 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 
 	var accounts []Account
 	for rows.Next() {
-		var a Account
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		var (
+			a               Account
+			avatarUpdatedAt sql.NullTime
+		)
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt, &avatarUpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		if avatarUpdatedAt.Valid {
+			a.AvatarUpdatedAt = &avatarUpdatedAt.Time
 		}
 		accounts = append(accounts, a)
 	}

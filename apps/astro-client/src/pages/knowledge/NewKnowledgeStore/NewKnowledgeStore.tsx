@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Route } from "./+types/NewKnowledgeStore";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { useAuth } from "@/lib/auth";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -13,6 +14,8 @@ export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge S
 
 function NewKnowledgeStoreContent() {
   const { activeAccount: account } = useActiveAccount();
+  const { accounts } = useAuth();
+  const avatarUrl = accounts.find((a) => a.name === account)?.avatar_url;
   const [provider, setProvider] = useState<KnowledgeProvider | null>(null);
 
   return (
@@ -27,7 +30,7 @@ function NewKnowledgeStoreContent() {
           {
             label: (
               <span className="inline-flex items-center gap-2">
-                <UserAvatar handle={account} name={account} className="size-5" />
+                <UserAvatar handle={account} name={account} avatarUrl={avatarUrl} className="size-5" />
                 {account}
               </span>
             ),

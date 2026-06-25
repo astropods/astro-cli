@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { ChevronDown } from "lucide-react";
-import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { getDeploymentAvatarUrl } from "@/lib/assets";
-import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { useDeploymentsSummary } from "@/api/queries/deployments";
 import {
   DropdownMenu,
@@ -25,7 +23,6 @@ export interface AgentDeploymentMenuTarget {
 }
 
 interface AgentDeploymentMenuProps {
-  account: string;
   deployment: AgentDeploymentMenuTarget;
   /** Build the route when the user picks another deployment. */
   getDeploymentPath: (account: string, deployment: AgentDeploymentMenuTarget) => string;
@@ -44,7 +41,6 @@ interface AgentDeploymentMenuProps {
 }
 
 export function AgentDeploymentMenu({
-  account,
   deployment,
   getDeploymentPath,
   eligibleDeploymentIds,
@@ -52,9 +48,6 @@ export function AgentDeploymentMenu({
   variant = "header",
   showAccountLabels = false,
 }: AgentDeploymentMenuProps) {
-  const avatarBust = useDeploymentAvatarBust(deployment.id);
-  const avatarUrl =
-    avatarBust ?? deployment.avatar_url ?? getDeploymentAvatarUrl(deployment.id);
   const displayName = deployment.display_name || deployment.name;
 
   const { data: summaryData } = useDeploymentsSummary();
@@ -82,11 +75,9 @@ export function AgentDeploymentMenu({
             aria-label="Agent menu"
             className="flex cursor-pointer items-center gap-3 rounded-[8px] bg-background p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5"
           >
-            <BlueprintIdentity
-              account={account}
-              name={deployment.name}
+            <DeploymentAvatar
+              deployment={deployment}
               size={32}
-              url={avatarUrl}
               className="rounded-sm"
             />
             <span
@@ -113,11 +104,9 @@ export function AgentDeploymentMenu({
             )}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <BlueprintIdentity
-                account={account}
-                name={deployment.name}
+              <DeploymentAvatar
+                deployment={deployment}
                 size={18}
-                url={avatarUrl}
                 className="size-[18px] shrink-0 rounded-sm"
               />
               <span className="truncate">{displayName}</span>
@@ -140,11 +129,9 @@ export function AgentDeploymentMenu({
               {acct.deployments.map((dep) => (
                 <DropdownMenuItem key={dep.id} asChild>
                   <Link to={getDeploymentPath(acct.name, dep)}>
-                    <BlueprintIdentity
-                      account={acct.name}
-                      name={dep.name}
+                    <DeploymentAvatar
+                      deployment={dep}
                       size={20}
-                      url={dep.avatar_url}
                       className="size-5 shrink-0 rounded-sm"
                     />
                     <span className="truncate">

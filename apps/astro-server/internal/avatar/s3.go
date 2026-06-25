@@ -36,10 +36,14 @@ func (b *S3Backend) Read(ctx context.Context, key string) ([]byte, error) {
 }
 
 // avatarCacheControl is the Cache-Control header set on all avatar objects.
-// Browsers serve the cached copy for 60 s, then revalidate in the background
-// (stale-while-revalidate) for up to 24 h.  S3 automatically generates ETags
-// so conditional requests return 304 when the content hasn't changed.
-const avatarCacheControl = "public, max-age=60, stale-while-revalidate=86400"
+// Browsers and the CDN treat a cached copy as fresh for 1 day, then serve it
+// while revalidating in the background (stale-while-revalidate) for up to 7
+// days. S3 automatically generates ETags so conditional revalidation returns
+// 304 when the content hasn't changed. On the versioned hot paths freshness
+// comes from the changing `?v` token rather than the TTL — a new image gets a
+// new URL and is fetched immediately — while any unversioned surface
+// self-heals within a day.
+const avatarCacheControl = "public, max-age=86400, stale-while-revalidate=604800"
 
 func (b *S3Backend) Write(ctx context.Context, key string, data []byte, contentType string) error {
 	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{

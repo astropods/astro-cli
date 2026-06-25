@@ -110,7 +110,7 @@ func TestListMembers_Success(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -159,9 +159,9 @@ func TestListMembers_PopulatesSlackWorkspaces(t *testing.T) {
 	// whitespace/argument formatting.
 	mock.ExpectQuery("SELECT am.user_id, a.name, a.display_name").
 		WithArgs(pq.Array([]string{"user-1", "user-2"})).
-		WillReturnRows(sqlmock.NewRows([]string{"user_id", "name", "display_name"}).
-			AddRow("user-1", "alice", "Alice").
-			AddRow("user-2", "bob", "Bob"))
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "name", "display_name", "avatar_updated_at"}).
+			AddRow("user-1", "alice", "Alice", nil).
+			AddRow("user-2", "bob", "Bob", nil))
 
 	// Slack identities batch — user-1 has two linked workspaces, user-2 none.
 	now := time.Now()
@@ -180,7 +180,7 @@ func TestListMembers_PopulatesSlackWorkspaces(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, slackStore))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, slackStore))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -223,7 +223,7 @@ func TestListMembers_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil, nil))
+	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -251,7 +251,7 @@ func TestListMembers_DBError(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -607,8 +607,8 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	// ResolveAccount: return org-b
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("org-b").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// RequireAccountMember: IsMember returns 0 (user-a is not a member of org-b)
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -625,7 +625,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	memberRoutes.Use(middleware.ResolveAccount(store))
 	// Match main.go: memberRoutes uses RequireAccountMember, not RequireAccountPermission
 	memberRoutes.Use(middleware.RequireAccountMember(store))
-	memberRoutes.GET("", ListMembers(log, store, nil, nil))
+	memberRoutes.GET("", ListMembers(log, store, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
 	rec := httptest.NewRecorder()
@@ -652,7 +652,7 @@ func TestListMembers_NonMember_Denied(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -971,7 +971,7 @@ func TestFullChain_AddMember_MemberWithoutOrgManage_Denied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1010,7 +1010,7 @@ func TestFullChain_UpdateMemberRole_MemberWithoutOrgManage_Denied(t *testing.T) 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1050,7 +1050,7 @@ func TestFullChain_RemoveMember_OtherRemoval_MemberDenied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// RequireAccountMember: IsMember
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -1087,7 +1087,7 @@ func TestFullChain_OrgManage_WrongOrgScope_Denied(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(orgAccountCols).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// RequireAccountMember: IsMember returns true so request reaches RequireAccountPermission
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").

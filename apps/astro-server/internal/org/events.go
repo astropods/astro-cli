@@ -284,6 +284,17 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 				agentNames, _ := ec.agentIdx.AgentNames(acct.ID)
 				if err := ec.avatarStore.MoveAllForAccount(ctx, oldName, newName, agentNames); err != nil {
 					ec.log.Warn("Failed to move avatars during org rename", "error", err, "account_id", acct.ID)
+				} else {
+					// Stamp the moved avatars so their cache-busting tokens advance
+					// past the old key's cached copy.
+					if _, err := ec.accountStore.TouchAvatarUpdatedAt(acct.ID); err != nil {
+						ec.log.Warn("Failed to stamp account avatar_updated_at after org rename", "error", err, "account_id", acct.ID)
+					}
+					for _, name := range agentNames {
+						if _, err := ec.agentIdx.TouchAvatarUpdatedAt(acct.ID, name); err != nil {
+							ec.log.Warn("Failed to stamp agent avatar_updated_at after org rename", "error", err, "account_id", acct.ID, "agent", name)
+						}
+					}
 				}
 			}
 		}

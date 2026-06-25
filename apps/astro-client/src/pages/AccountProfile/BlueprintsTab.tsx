@@ -86,6 +86,7 @@ function SortableBlueprintCard({
           name={agent.name}
           description={getBlueprintDescription(agent)}
           visibility={agent.visibility}
+          avatarUrl={agent.avatar_url}
           avatarColors={agent.avatar_colors}
           deployCount={agent.metrics?.deploy_count}
           isDraft={agent.versions.length === 0}
@@ -246,6 +247,7 @@ export function BlueprintsTab({
                 name={agent.name}
                 description={getBlueprintDescription(agent)}
                 visibility={agent.visibility}
+                avatarUrl={agent.avatar_url}
                 avatarColors={agent.avatar_colors}
                 deployCount={agent.metrics?.deploy_count}
                 isDraft={agent.versions.length === 0}

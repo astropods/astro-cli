@@ -128,6 +128,9 @@ func main() {
 				totalFailed++
 				continue
 			}
+			if _, err := db.ExecContext(ctx, `UPDATE accounts SET avatar_updated_at = now() WHERE id = $1::uuid`, id); err != nil {
+				log.Printf("WARN: failed to stamp avatar_updated_at for %s (%s): %v", name, id, err)
+			}
 			totalProcessed++
 		}
 		_ = rows.Close()

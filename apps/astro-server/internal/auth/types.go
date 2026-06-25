@@ -47,6 +47,7 @@ type AuthAccountResponse struct {
 	WorkOSOrganizationID string `json:"organization_id,omitempty"`
 	Role                 string `json:"role,omitempty"`
 	ClusterID            string `json:"cluster_id,omitempty"`
+	AvatarURL            string `json:"avatar_url,omitempty"`
 }
 
 // AuthResponse is returned to the client after successful authentication

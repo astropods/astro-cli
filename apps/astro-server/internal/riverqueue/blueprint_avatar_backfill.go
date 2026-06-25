@@ -115,6 +115,9 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 				failed++
 				continue
 			}
+			if _, err := w.db.ExecContext(ctx, `UPDATE agents SET avatar_updated_at = now() WHERE account_id = $1::uuid AND name = $2`, accountID, agentName); err != nil {
+				w.log.Warn("Blueprint avatar backfill: stamp avatar_updated_at", "account", accountName, "name", agentName, "error", err)
+			}
 			// Extract colors immediately while we have the JPEG bytes.
 			if colors, err := colorextract.ExtractFromJPEG(jpegBytes); err != nil {
 				w.log.Warn("Blueprint avatar backfill: extract colors", "account", accountName, "name", agentName, "error", err)
@@ -187,6 +190,9 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 				w.log.Warn("Blueprint avatar backfill: blueprint avatar missing for deployment", "deployment", id, "account", accountName, "name", agentName)
 				failed++
 				continue
+			}
+			if _, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_updated_at = now() WHERE id = $1`, id); err != nil {
+				w.log.Warn("Blueprint avatar backfill: stamp deployment avatar_updated_at", "deployment", id, "error", err)
 			}
 			// Extract colors from the newly-copied avatar.
 			if jpegBytes, err := w.avatarStore.ReadDeploymentAvatar(ctx, id); err != nil {

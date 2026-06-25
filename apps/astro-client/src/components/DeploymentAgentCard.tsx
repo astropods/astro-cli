@@ -1,6 +1,5 @@
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
-import { getDeploymentAvatarUrl } from "@/lib/assets";
-import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
 import { isChatListEligible } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
@@ -19,8 +18,7 @@ export function DeploymentAgentCard({
   requestSeries?: number[];
   tokenSeries?: number[];
 }) {
-  const bust = useDeploymentAvatarBust(deployment.id);
-  const avatarUrl = bust ?? getDeploymentAvatarUrl(deployment.id);
+  const avatarUrl = useDeploymentAvatarUrl(deployment);
   const hasMessaging = isChatListEligible(deployment);
   const canLaunch = hasMessaging;
   const launchDisabled = deployment.status !== "Running";

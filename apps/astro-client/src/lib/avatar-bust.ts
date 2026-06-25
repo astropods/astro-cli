@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { deploymentAvatarSrc } from "@/lib/assets";
 
 /**
  * Session-local avatar override store.
@@ -92,6 +93,16 @@ export function bustDeploymentAvatar(id: string, blob: Blob): void {
 /** React hook — returns a local blob URL override for a deployment avatar, or `undefined`. */
 export function useDeploymentAvatarBust(id: string): string | undefined {
   return useAvatarBust(`deployment:${id}`);
+}
+
+/**
+ * React hook — resolves a deployment's avatar URL: a session-local upload
+ * override when present, then the server's versioned `avatar_url`, then the
+ * deterministic deployment key. Bundles the upload override with the
+ * server-first resolver so call sites don't repeat the fallback chain.
+ */
+export function useDeploymentAvatarUrl(deployment: { id: string; avatar_url?: string }): string {
+  return useDeploymentAvatarBust(deployment.id) ?? deploymentAvatarSrc(deployment);
 }
 
 /** React hook — returns a local blob URL override for `handle`, or `undefined`. */

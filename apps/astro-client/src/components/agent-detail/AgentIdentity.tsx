@@ -3,8 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router";
 import { BookOpen, RotateCw, Share2, Trash2 } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
 import type { CardData } from "astro-trading-card";
-import { getDeploymentAvatarUrl } from "@/lib/assets";
-import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
 import { useRestartDeployment } from "@/api/queries/deployments";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
 import { useBlueprint } from "@/api/queries/blueprints";
@@ -25,8 +24,7 @@ interface AgentIdentityProps {
 }
 
 export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
-  const avatarBust = useDeploymentAvatarBust(deployment.id);
-  const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deployment.id);
+  const avatarUrl = useDeploymentAvatarUrl(deployment);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -58,8 +56,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
   return (
     <div className="absolute top-4 left-0 z-20 pl-5">
       <AgentDeploymentMenu
-        account={account}
-        deployment={{ ...deployment, avatar_url: avatarUrl }}
+        deployment={deployment}
         variant="detail"
         getDeploymentPath={(acct, dep) =>
           `/${acct}/agents/${dep.id}/${activeTab}`

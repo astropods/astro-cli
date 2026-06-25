@@ -13,7 +13,6 @@ import {
 import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
 
 export function ChatThreadHeader({
-  account,
   deployment,
   eligibleDeploymentIds,
   sessions,
@@ -23,7 +22,6 @@ export function ChatThreadHeader({
   onDeleteSession,
   onNewConversation,
 }: {
-  account: string;
   deployment: AgentDeploymentSummary;
   /** Chat-eligible deployments to show in the agent switch list. */
   eligibleDeploymentIds: ReadonlySet<string>;
@@ -37,7 +35,6 @@ export function ChatThreadHeader({
   return (
     <header className="relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
       <AgentDeploymentMenu
-        account={account}
         deployment={deployment}
         variant="detail"
         eligibleDeploymentIds={eligibleDeploymentIds}

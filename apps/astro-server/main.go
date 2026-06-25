@@ -803,7 +803,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		}
 
 		// Account endpoints (public read)
-		api.GET(v1, "/accounts/:account", "Get account details", handlers.GetAccount(log, accountStore, authHandler.GetWorkOSClient()),
+		api.GET(v1, "/accounts/:account", "Get account details", handlers.GetAccount(log, accountStore, avatarStore, authHandler.GetWorkOSClient()),
 			oapispec.Tags("Accounts"),
 			oapispec.PathParam("account", "Account name"),
 			oapispec.Response(200, &handlers.AccountResponse{}),
@@ -847,7 +847,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 
 			// Account management
-			api.GET(protected, "/accounts/search", "Search accounts", handlers.SearchAccounts(log, accountStore),
+			api.GET(protected, "/accounts/search", "Search accounts", handlers.SearchAccounts(log, accountStore, avatarStore),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("q", "Search query (min 3 chars)", true),
@@ -1126,7 +1126,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			memberRoutes.Use(middleware.ResolveAccount(accountStore))
 			memberRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, orgClient, slackIdentityStore),
+				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, avatarStore, orgClient, slackIdentityStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

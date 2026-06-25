@@ -226,7 +226,7 @@ export function AppHeader() {
                 ) : isAuthenticated && user ? (
                   <>
                     <div className="flex items-center gap-3 py-2">
-                      <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
+                      <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
                       <div className="flex min-w-0 flex-col leading-tight">
                         <span className="truncate text-sm font-semibold">{displayName}</span>
                         <span className="truncate text-xs text-muted-foreground">{user.email}</span>
@@ -391,12 +391,12 @@ export function AppHeader() {
                 className="rounded-full"
                 aria-label={`User menu for ${displayName}`}
               >
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 p-3">
               <div className="flex items-center gap-3 pb-3">
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
                 <div className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-sm font-semibold">
                     {displayName}

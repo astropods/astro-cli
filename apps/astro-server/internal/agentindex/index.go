@@ -36,12 +36,13 @@ type Agent struct {
 	Visibility string          `json:"visibility"`
 	Versions   []*AgentVersion `json:"versions"`
 	// VersionCount is set by list queries (total builds); use instead of len(Versions) when only the latest version is loaded.
-	VersionCount int              `json:"-"`
-	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
-	NameReserved bool             `json:"name_reserved"`
-	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
-	CreatedAt    time.Time        `json:"created_at"`
-	UpdatedAt    time.Time        `json:"updated_at"`
+	VersionCount    int              `json:"-"`
+	ArchivedAt      *time.Time       `json:"archived_at,omitempty"`
+	NameReserved    bool             `json:"name_reserved"`
+	AvatarColors    *json.RawMessage `json:"avatar_colors,omitempty"`
+	AvatarUpdatedAt *time.Time       `json:"avatar_updated_at,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -184,10 +185,10 @@ func (idx *Index) Create(accountID, name string) error {
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, visibility, archived_at, name_reserved, avatar_colors, created_at, updated_at
+		SELECT account_id, name, registry, visibility, archived_at, name_reserved, avatar_colors, avatar_updated_at, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.NameReserved, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.NameReserved, &agent.AvatarColors, &agent.AvatarUpdatedAt, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -280,7 +281,7 @@ func (idx *Index) ValidateLineage(accountID, name, buildID string) error {
 // List returns all agents in the index (global browse), excluding archived
 func (idx *Index) List() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, avatar_colors, created_at, updated_at
+		SELECT account_id, name, registry, visibility, avatar_colors, avatar_updated_at, created_at, updated_at
 		FROM agents
 		WHERE archived_at IS NULL
 		ORDER BY name
@@ -293,7 +294,7 @@ func (idx *Index) List() ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.AvatarUpdatedAt, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -465,6 +466,20 @@ func (idx *Index) SetAvatarColors(accountID, name string, colorsJSON []byte) err
 		WHERE account_id = $2 AND name = $3
 	`, colorsJSON, accountID, name)
 	return err
+}
+
+// TouchAvatarUpdatedAt stamps avatar_updated_at = now() for an agent, bumping
+// the cache-busting token on its avatar URL, and returns the persisted value so
+// callers embed the DB clock (not the app clock) in the immediate response.
+// Called after every avatar write.
+func (idx *Index) TouchAvatarUpdatedAt(accountID, name string) (time.Time, error) {
+	var ts time.Time
+	err := idx.db.QueryRow(`
+		UPDATE agents SET avatar_updated_at = now()
+		WHERE account_id = $1 AND name = $2
+		RETURNING avatar_updated_at
+	`, accountID, name).Scan(&ts)
+	return ts, err
 }
 
 // GetLatestVersion returns the most recently registered build for an agent

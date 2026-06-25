@@ -822,8 +822,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Copy the blueprint's avatar and colors to the new deployment (best-effort).
 		if avatarStore != nil && !dctx.isUpdate {
-			if _, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.sourceAccountName, dctx.agentName, dctx.deploymentID); copyErr != nil {
+			if copied, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.sourceAccountName, dctx.agentName, dctx.deploymentID); copyErr != nil {
 				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
+			} else if copied {
+				if _, err := deployStore.TouchAvatarUpdatedAt(dctx.deploymentID); err != nil {
+					log.Warn("Failed to stamp deployment avatar_updated_at after copy", "error", err, "deployment_id", dctx.deploymentID)
+				}
 			}
 			if agent, err := agentIndex.Get(dctx.sourceAccountID, dctx.agentName); err == nil && agent.AvatarColors != nil {
 				_ = deployStore.SetAvatarColors(dctx.deploymentID, *agent.AvatarColors)
@@ -1433,7 +1437,7 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 				Status:      d.Status,
 			}
 			if avatarStore != nil {
-				item.AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
+				item.AvatarURL = avatarStore.DeploymentAvatarURL(d.ID, d.AvatarUpdatedAt)
 			}
 			if d.AvatarColors != nil {
 				item.AvatarColors = *d.AvatarColors
@@ -1537,8 +1541,8 @@ func enrichDeploymentsForAccount(
 	}
 
 	if avatarStore != nil {
-		for i, d := range allDeployments {
-			allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(d.ID)
+		for i := range allDeployments {
+			allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dbDeps[i].ID, dbDeps[i].AvatarUpdatedAt)
 		}
 	}
 	for i, d := range allDeployments {
@@ -1933,7 +1937,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		}
 
 		if avatarStore != nil {
-			record.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID)
+			record.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID, dbDep.AvatarUpdatedAt)
 			record.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), record.AvatarColors,
 				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, dbDep.ID) },
 				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(dbDep.ID, j) },

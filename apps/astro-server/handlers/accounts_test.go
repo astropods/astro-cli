@@ -27,20 +27,20 @@ func setupAccountTestRouter() (*gin.Engine, *account.AccountStore, sqlmock.Sqlmo
 	return router, store, mock
 }
 
-var accountColumns = []string{"id", "name", "type", "created_at", "updated_at"}
+var accountColumns = []string{"id", "name", "type", "created_at", "updated_at", "avatar_updated_at"}
 
 func TestSearchAccounts_Success(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("foo%", 10).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "foobar", "personal", now, now).
-			AddRow("id-2", "foocorp", "organization", now, now))
+			AddRow("id-1", "foobar", "personal", now, now, nil).
+			AddRow("id-2", "foocorp", "organization", now, now, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=foo", nil)
 	rec := httptest.NewRecorder()
@@ -76,13 +76,13 @@ func TestSearchAccounts_WithTypeFilter(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts .+ AND a\\.type").
 		WithArgs("bar%", "personal", 10).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "barry", "personal", now, now))
+			AddRow("id-1", "barry", "personal", now, now, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=bar&type=personal", nil)
 	rec := httptest.NewRecorder()
@@ -115,13 +115,13 @@ func TestSearchAccounts_CustomLimit(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("abc%", 5).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "abcdef", "personal", now, now))
+			AddRow("id-1", "abcdef", "personal", now, now, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=abc&limit=5", nil)
 	rec := httptest.NewRecorder()
@@ -140,7 +140,7 @@ func TestSearchAccounts_LimitCappedAt10(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	// Even though limit=50 is requested, store caps at 10
 	mock.ExpectQuery("SELECT .+ FROM accounts").
@@ -164,7 +164,7 @@ func TestSearchAccounts_MissingQuery(t *testing.T) {
 	router, store, _ := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search", nil)
 	rec := httptest.NewRecorder()
@@ -190,7 +190,7 @@ func TestSearchAccounts_QueryTooShort(t *testing.T) {
 			router, store, _ := setupAccountTestRouter()
 			log := logger.New("error", "json")
 
-			router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+			router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q="+tt.q, nil)
 			rec := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestSearchAccounts_InvalidType(t *testing.T) {
 	router, store, _ := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=foo&type=invalid", nil)
 	rec := httptest.NewRecorder()
@@ -230,7 +230,7 @@ func TestSearchAccounts_QueryLowercased(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("foo%", 10).
@@ -253,7 +253,7 @@ func TestSearchAccounts_WildcardsEscaped(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	// % and _ in query should be escaped so they match literally
 	mock.ExpectQuery("SELECT .+ FROM accounts").
@@ -277,7 +277,7 @@ func TestSearchAccounts_EmptyResults(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("zzz%", 10).
@@ -311,7 +311,7 @@ func TestSearchAccounts_DBError(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
 	log := logger.New("error", "json")
 
-	router.GET("/api/v1/accounts/search", SearchAccounts(log, store))
+	router.GET("/api/v1/accounts/search", SearchAccounts(log, store, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("foo%", 10).
@@ -425,7 +425,7 @@ var deleteAccountDeploymentColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
 // deleteAccountMockQueue tracks calls to InsertUndeployJob.
@@ -482,7 +482,7 @@ func TestDeleteAccount_Success(t *testing.T) {
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil, nil,
 			"active", nil, nil, now, &rev,
-			now, nil, nil,
+			now, nil, nil, nil,
 		))
 
 	// EnqueueUndeploy: UpdateStatus + InsertUndeployJob
@@ -660,7 +660,7 @@ func TestGetAccountOrgs_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows(orgColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -757,7 +757,7 @@ func TestGetAccountOrgs_OrgAccountReturns404(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("astro-inc").
 		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -782,7 +782,7 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
 			"My Agent", `{}`, nil, nil, nil,
 			"active", nil, nil, now, &rev,
-			now, nil, nil,
+			now, nil, nil, nil,
 		))
 
 	deployMock.ExpectBegin()

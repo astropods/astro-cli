@@ -34,7 +34,7 @@ func TestReapplyDeployment_EnqueuesMigrationOnPlacementMismatch(t *testing.T) {
 				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 	mock.ExpectQuery("SELECT COALESCE\\(cluster_id").
 		WithArgs("acct-1").

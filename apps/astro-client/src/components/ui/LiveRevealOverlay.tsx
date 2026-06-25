@@ -13,8 +13,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
 import type { CardData } from "astro-trading-card";
 import { generateCard } from "astro-trading-card";
-import { getDeploymentAvatarUrl } from "@/lib/assets";
-import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
 
 export function LiveRevealOverlay({
   deployment,
@@ -39,8 +38,7 @@ export function LiveRevealOverlay({
     return () => window.cancelAnimationFrame(raf);
   }, []);
 
-  const avatarBust = useDeploymentAvatarBust(deployment.id);
-  const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deployment.id);
+  const avatarUrl = useDeploymentAvatarUrl(deployment);
 
   const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";

@@ -71,6 +71,8 @@ export interface BlueprintDetailContentProps {
   onArchive?: () => void;
   hasBuild?: boolean;
   githubRepoName?: string;
+  /** Server-emitted versioned avatar URL, threaded to the header. */
+  avatarUrl?: string;
 }
 
 export function BlueprintDetailContent({
@@ -85,6 +87,7 @@ export function BlueprintDetailContent({
   onArchive,
   hasBuild = false,
   githubRepoName,
+  avatarUrl,
 }: BlueprintDetailContentProps) {
   const astropodsYml = generateAstropodsYml(name);
   return (
@@ -96,6 +99,7 @@ export function BlueprintDetailContent({
         canEdit={canEdit}
         isDraft={isDraft}
         onArchive={onArchive}
+        avatarUrl={avatarUrl}
       />
 
       {/* Sidebar content inlined on mobile */}

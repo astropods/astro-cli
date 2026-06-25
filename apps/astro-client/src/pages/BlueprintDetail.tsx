@@ -139,6 +139,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getBlueprintDescription(a),
+        avatarUrl: a.avatar_url,
         avatarColors: a.avatar_colors,
         deployCount: a.metrics?.deploy_count,
       }));
@@ -244,6 +245,7 @@ function BlueprintDetailInner({
           categories={categories}
           canEdit={canEdit}
           readme={readme}
+          avatarUrl={blueprint.avatar_url}
 
           isDraft={isDraft}
           onArchive={canEdit ? () => navigate(`/${blueprint.account}`) : undefined}

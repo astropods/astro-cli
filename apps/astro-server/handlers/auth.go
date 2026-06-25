@@ -30,6 +30,7 @@ type orgSyncer interface {
 // accountGetter is satisfied by *account.AccountStore; extracted for unit testing.
 type accountGetter interface {
 	GetAccountsForUser(userID string) ([]account.AccountWithRole, error)
+	TouchAvatarUpdatedAtByName(name string) (time.Time, error)
 }
 
 // orgTokenRefresher is the subset of WorkOSClient used by SwitchOrg.
@@ -287,6 +288,8 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 							if exists, _ := avatarStore.AvatarExists(ctx, acctName); !exists {
 								if err := avatarStore.Ingest(ctx, acctName, profileURL); err != nil {
 									h.log.Warn("Failed to ingest profile picture", "error", err, "account", acctName)
+								} else if _, err := h.accountStore.TouchAvatarUpdatedAtByName(acctName); err != nil {
+									h.log.Warn("Failed to stamp account avatar_updated_at after ingest", "error", err, "account", acctName)
 								}
 							}
 						}()
@@ -671,6 +674,10 @@ func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.A
 				if orgRoles != nil && a.WorkOSOrganizationID != "" {
 					role = orgRoles[a.WorkOSOrganizationID]
 				}
+				avatarURL := ""
+				if h.avatarStore != nil {
+					avatarURL = h.avatarStore.AvatarURL(a.Name, a.AvatarUpdatedAt)
+				}
 				accounts = append(accounts, auth.AuthAccountResponse{
 					ID:                   a.ID,
 					Name:                 a.Name,
@@ -679,6 +686,7 @@ func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.A
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
 					Role:                 role,
 					ClusterID:            a.ClusterID,
+					AvatarURL:            avatarURL,
 				})
 			}
 		}

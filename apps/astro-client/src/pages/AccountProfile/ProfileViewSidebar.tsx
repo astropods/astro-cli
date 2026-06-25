@@ -90,6 +90,7 @@ export function ProfileViewSidebar({
                         <UserAvatar
                           handle={member.username}
                           name={member.display_name || member.username}
+                          avatarUrl={member.avatar_url}
                           className="size-8 transition-opacity hover:opacity-80"
                         />
                       </Link>
@@ -145,6 +146,7 @@ export function ProfileViewSidebar({
                   <UserAvatar
                     handle={member.username}
                     name={member.display_name || member.username}
+                    avatarUrl={member.avatar_url}
                     className="size-8 shrink-0"
                   />
                   <div className="min-w-0">

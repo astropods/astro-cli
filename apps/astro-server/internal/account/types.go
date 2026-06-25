@@ -17,6 +17,7 @@ type Account struct {
 	DisplayName          string           `json:"display_name"`
 	ClusterID            *string          `json:"cluster_id,omitempty"`
 	AvatarColors         *json.RawMessage `json:"avatar_colors,omitempty"`
+	AvatarUpdatedAt      *time.Time       `json:"avatar_updated_at,omitempty"`
 	AccountNumber        *int             `json:"account_number,omitempty"`
 	Bio                  string           `json:"bio,omitempty"`
 	Location             string           `json:"location,omitempty"`
@@ -38,12 +39,13 @@ type AccountMember struct {
 
 // AccountWithRole is returned when listing accounts for a user
 type AccountWithRole struct {
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Type                 string    `json:"type"`
-	WorkOSOrganizationID string    `json:"workos_org_id,omitempty"`
-	ClusterID            string    `json:"cluster_id,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
-	DisplayName          string    `json:"display_name"`
+	ID                   string     `json:"id"`
+	Name                 string     `json:"name"`
+	Type                 string     `json:"type"`
+	WorkOSOrganizationID string     `json:"workos_org_id,omitempty"`
+	ClusterID            string     `json:"cluster_id,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	DisplayName          string     `json:"display_name"`
+	AvatarUpdatedAt      *time.Time `json:"avatar_updated_at,omitempty"`
 }

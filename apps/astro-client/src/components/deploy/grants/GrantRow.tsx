@@ -68,12 +68,12 @@ function GrantBadge({
   }
   if (grant.org) {
     const a = accountById.get(grant.org);
-    if (a) return <UserAvatar handle={a.name} name={a.display_name ?? a.name} className="size-6 rounded-sm" />;
+    if (a) return <UserAvatar handle={a.name} name={a.display_name ?? a.name} avatarUrl={a.avatar_url} className="size-6 rounded-sm" />;
     return <FallbackIcon />;
   }
   if (grant.user_id) {
     const m = memberByUserId.get(grant.user_id);
-    if (m) return <UserAvatar handle={m.username} name={m.display_name || m.username} className="size-6" />;
+    if (m) return <UserAvatar handle={m.username} name={m.display_name || m.username} avatarUrl={m.avatar_url} className="size-6" />;
     return <FallbackIcon />;
   }
   return <FallbackIcon />;

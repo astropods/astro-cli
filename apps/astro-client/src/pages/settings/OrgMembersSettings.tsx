@@ -113,6 +113,7 @@ function MemberRow({
           <UserAvatar
             handle={member.username || member.user_id}
             name={displayName}
+            avatarUrl={member.avatar_url}
             className="size-8 shrink-0"
           />
           <div className="min-w-0">

@@ -60,6 +60,7 @@ type AccountResponse struct {
 	Website        string             `json:"website,omitempty"`
 	SocialLinks    []string           `json:"social_links"`
 	BlueprintOrder []string           `json:"blueprint_order,omitempty"`
+	AvatarURL      string             `json:"avatar_url,omitempty"`
 }
 
 // AccountOrgResponse represents an org account in the profile orgs list.
@@ -286,7 +287,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 }
 
 // GetAccount handles GET /api/v1/accounts/:account (public)
-func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *auth.WorkOSClient) gin.HandlerFunc {
+func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, workos *auth.WorkOSClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -317,6 +318,10 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 			Website:        acct.Website,
 			SocialLinks:    socialLinks,
 			BlueprintOrder: acct.BlueprintOrder,
+		}
+
+		if avatarStore != nil {
+			resp.AvatarURL = avatarStore.AvatarURL(acct.Name, acct.AvatarUpdatedAt)
 		}
 
 		// Best-effort: look up owner profile for personal accounts
@@ -555,6 +560,17 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 			agentNames, _ := agentIdx.AgentNames(acct.ID)
 			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, agentNames); err != nil {
 				log.Warn("Failed to move avatars during rename", "error", err, "account_id", acct.ID)
+			} else {
+				// Stamp the moved avatars so their cache-busting tokens advance past
+				// the old key's cached copy.
+				if _, err := accountStore.TouchAvatarUpdatedAt(acct.ID); err != nil {
+					log.Warn("Failed to stamp account avatar_updated_at after rename", "error", err, "account_id", acct.ID)
+				}
+				for _, name := range agentNames {
+					if _, err := agentIdx.TouchAvatarUpdatedAt(acct.ID, name); err != nil {
+						log.Warn("Failed to stamp agent avatar_updated_at after rename", "error", err, "account_id", acct.ID, "agent", name)
+					}
+				}
 			}
 		}
 
@@ -766,11 +782,12 @@ type SearchAccountResult struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name"`
 	Type        string `json:"type"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 // SearchAccounts handles GET /api/v1/accounts/search (protected)
 // Query params: q (required), type (optional: personal|organization), limit (optional, default 10, max 10)
-func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q := strings.ToLower(strings.TrimSpace(c.Query("q")))
 		if len(q) < 3 {
@@ -800,12 +817,16 @@ func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.
 
 		results := make([]SearchAccountResult, 0, len(accounts))
 		for _, a := range accounts {
-			results = append(results, SearchAccountResult{
+			result := SearchAccountResult{
 				ID:          a.ID,
 				Name:        a.Name,
 				DisplayName: a.DisplayName,
 				Type:        a.Type,
-			})
+			}
+			if avatarStore != nil {
+				result.AvatarURL = avatarStore.AvatarURL(a.Name, a.AvatarUpdatedAt)
+			}
+			results = append(results, result)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"results": results})

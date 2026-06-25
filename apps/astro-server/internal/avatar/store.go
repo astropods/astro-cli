@@ -9,6 +9,7 @@ import (
 	_ "image/png" // register PNG decoder
 	"io"
 	"net/http"
+	"time"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register WebP decoder
@@ -59,9 +60,18 @@ func NewStore(backend Backend, assetsURL string) *Store {
 	}
 }
 
+// versionQuery returns the cache-busting query suffix ("?v=<unix>") for an
+// avatar whose image was last written at t, or "" when t is nil/zero.
+func versionQuery(updatedAt *time.Time) string {
+	if updatedAt == nil || updatedAt.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("?v=%d", updatedAt.Unix())
+}
+
 // AvatarURL returns the CDN URL for an account's avatar.
-func (s *Store) AvatarURL(handle string) string {
-	return fmt.Sprintf("%s/avatars/%s.jpg", s.assetsURL, handle)
+func (s *Store) AvatarURL(handle string, updatedAt *time.Time) string {
+	return fmt.Sprintf("%s/avatars/%s.jpg%s", s.assetsURL, handle, versionQuery(updatedAt))
 }
 
 // PresetIndex returns the deterministic preset index (1-25) for a handle.
@@ -236,8 +246,8 @@ func (s *Store) DeleteAgent(ctx context.Context, account, name string) error {
 }
 
 // AgentAvatarURL returns the CDN URL for an agent blueprint's avatar.
-func (s *Store) AgentAvatarURL(account, name string) string {
-	return fmt.Sprintf("%s/%s", s.assetsURL, agentAvatarKey(account, name))
+func (s *Store) AgentAvatarURL(account, name string, updatedAt *time.Time) string {
+	return fmt.Sprintf("%s/%s%s", s.assetsURL, agentAvatarKey(account, name), versionQuery(updatedAt))
 }
 
 // CopyAgentToDeployment copies a blueprint's avatar to a deployment.
@@ -269,8 +279,8 @@ func (s *Store) DeleteDeployment(ctx context.Context, id string) error {
 }
 
 // DeploymentAvatarURL returns the CDN URL for a deployment's avatar.
-func (s *Store) DeploymentAvatarURL(id string) string {
-	return fmt.Sprintf("%s/%s", s.assetsURL, deploymentAvatarKey(id))
+func (s *Store) DeploymentAvatarURL(id string, updatedAt *time.Time) string {
+	return fmt.Sprintf("%s/%s%s", s.assetsURL, deploymentAvatarKey(id), versionQuery(updatedAt))
 }
 
 // Ingest fetches an image from an external URL and uploads it as the account's avatar.

@@ -8,7 +8,7 @@ import (
 // SQLMockScanColumns matches SELECT column order for AccountStore lookups that call scanAccount.
 var SQLMockScanColumns = []string{
 	"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
-	"display_name", "avatar_colors", "cluster_id",
+	"display_name", "avatar_colors", "avatar_updated_at", "cluster_id",
 	"account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
 }
 
@@ -25,7 +25,7 @@ func SQLMockScanRowWithCluster(id, name, accountType string, workosOrgID interfa
 	}
 	return []driver.Value{
 		id, name, accountType, workosOrgID, deleted, createdAt, updatedAt,
-		"", nil, cid,
+		"", nil, nil, cid,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	}
 }

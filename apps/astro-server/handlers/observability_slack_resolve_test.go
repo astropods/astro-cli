@@ -87,13 +87,14 @@ func expectSlackDirectoryQuery(mock sqlmock.Sqlmock, ids []string, addRows func(
 }
 
 // expectPersonalProfilesQuery wires the GetPersonalProfiles expectation.
-// The query scans (user_id, name, display_name) for each WorkOS id.
+// The query scans (user_id, name, display_name, avatar_updated_at) for each
+// WorkOS id.
 func expectPersonalProfilesQuery(mock sqlmock.Sqlmock, ids []string, addRows func(rows *sqlmock.Rows)) {
-	r := sqlmock.NewRows([]string{"user_id", "name", "display_name"})
+	r := sqlmock.NewRows([]string{"user_id", "name", "display_name", "avatar_updated_at"})
 	if addRows != nil {
 		addRows(r)
 	}
-	mock.ExpectQuery(`(?s)SELECT am.user_id, a.name, a.display_name\s+FROM accounts a\s+JOIN account_members am`).
+	mock.ExpectQuery(`(?s)SELECT am.user_id, a.name, a.display_name, a.avatar_updated_at\s+FROM accounts a\s+JOIN account_members am`).
 		WithArgs(pq.Array(ids)).
 		WillReturnRows(r)
 }
@@ -116,7 +117,7 @@ func TestUserDetailsHydrator_StampsAllKinds(t *testing.T) {
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	h := newUserDetailsHydrator(
@@ -366,8 +367,8 @@ func TestResolveUsersSummaryIdentities_StampsAllKinds(t *testing.T) {
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob", "user_01HXX_alice"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
-		r.AddRow("user_01HXX_alice", "alice", "Alice Chen")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
+		r.AddRow("user_01HXX_alice", "alice", "Alice Chen", nil)
 	})
 
 	resp := &AccountUsersSummaryResponse{
@@ -445,7 +446,7 @@ func TestResolveAccountSummaryIdentities_StampsCostOverTimeUsers(t *testing.T) {
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	resp := &AccountObservabilitySummaryResponse{
@@ -496,7 +497,7 @@ func TestResolveDeploymentsSummaryIdentities_StampsUsersUsedDetails(t *testing.T
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	resp := &AccountDeploymentsSummaryResponse{
@@ -574,7 +575,7 @@ func TestUserDetailsHydrator_Stamp_BackfillsEmptyKindByUserIDShape(t *testing.T)
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	h := newUserDetailsHydrator(
@@ -711,7 +712,7 @@ func TestResolveUsersSummaryIdentities_BackfillsKindForLegacyCacheEntries(t *tes
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	ResolveUsersSummaryIdentities(noopLogger(), slackStore, accountStore, &resp)
@@ -784,7 +785,7 @@ func TestResolveAccountSummaryIdentities_BackfillsKindForLegacyCacheEntries(t *t
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	ResolveAccountSummaryIdentities(noopLogger(), slackStore, accountStore, &resp)
@@ -854,7 +855,7 @@ func TestResolveDeploymentsSummaryIdentities_BackfillsKindForLegacyCacheEntries(
 			false, false, "Postman", "postman", "https://slack-edge.com/postman.png")
 	})
 	expectPersonalProfilesQuery(accountMock, []string{"user_01HXX_bob"}, func(r *sqlmock.Rows) {
-		r.AddRow("user_01HXX_bob", "bob", "Bob Smith")
+		r.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
 	})
 
 	ResolveDeploymentsSummaryIdentities(noopLogger(), slackStore, accountStore, &resp)

@@ -74,6 +74,7 @@ export function MemberPicker({ account, adapter, onSelect, onCancel, isAlreadyGr
                       <UserAvatar
                         handle={m.username}
                         name={m.display_name || m.username}
+                        avatarUrl={m.avatar_url}
                         className="size-6"
                       />
                       <span className="flex flex-col min-w-0">

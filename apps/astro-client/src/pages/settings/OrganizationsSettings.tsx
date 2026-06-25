@@ -49,6 +49,7 @@ export default function OrganizationsSettings() {
               <UserAvatar
                 handle={org.name}
                 name={org.display_name || org.name}
+                avatarUrl={org.avatar_url}
                 className="size-9 shrink-0 ring-1 ring-border"
               />
 

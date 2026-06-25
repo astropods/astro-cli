@@ -72,6 +72,9 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 				totalFailed++
 				continue
 			}
+			if _, err := w.db.ExecContext(ctx, `UPDATE accounts SET avatar_updated_at = now() WHERE id = $1::uuid`, id); err != nil {
+				w.log.Warn("Avatar backfill: failed to stamp avatar_updated_at", "account", name, "error", err)
+			}
 			totalProcessed++
 		}
 		_ = rows.Close()

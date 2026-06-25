@@ -20,7 +20,7 @@ var deploymentFullColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
 func TestListDeploymentsNeedingMigration(t *testing.T) {
@@ -38,13 +38,13 @@ func TestListDeploymentsNeedingMigration(t *testing.T) {
 				"dep-primary", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			).
 			AddRow(
 				"dep-eu", "acct-1", nil, "agent-b", "build-2", "astro-dep2-0", "Agent B",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, eu,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 
 	got, err := ListDeploymentsNeedingMigration(store, "acct-1", "eu")
@@ -121,7 +121,7 @@ func TestMigrateDeployment_Success(t *testing.T) {
 				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE deployments").
@@ -180,7 +180,7 @@ func TestMigrateDeployment_RecoveryWhenPendingAndAligned(t *testing.T) {
 				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, eu,
 				"pending", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 
 	q := &recordingDeployQueue{}
@@ -215,7 +215,7 @@ func TestMigrateDeployment_ContinuesWhenSourceClusterUnavailable(t *testing.T) {
 				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, missing,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE deployments").
@@ -276,7 +276,7 @@ func TestMigrateDeployment_SkipsWhenStatusChangedDuringMigration(t *testing.T) {
 				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
 				`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil,
+				time.Now(), nil, nil, nil,
 			))
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE deployments").

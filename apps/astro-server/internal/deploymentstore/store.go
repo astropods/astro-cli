@@ -103,6 +103,7 @@ type Deployment struct {
 	DeployedAt         time.Time        `json:"deployed_at"`
 	UndeployedAt       *time.Time       `json:"undeployed_at,omitempty"`
 	AvatarColors       *json.RawMessage `json:"avatar_colors,omitempty"`
+	AvatarUpdatedAt    *time.Time       `json:"avatar_updated_at,omitempty"`
 	// ClusterID is set when the deployment targets an additional cluster row
 	// in `public.clusters`. Nil or empty means the primary cluster (env-configured).
 	ClusterID *string `json:"cluster_id,omitempty"`
@@ -137,7 +138,7 @@ func nilIfEmpty(s string) interface{} {
 const deploymentColumns = `id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
        deployment_spec_json, encrypted_data_key, kms_key_arn, cluster_id,
        status, error_message, error_details, status_changed_at, current_revision,
-       deployed_at, undeployed_at, avatar_colors`
+       deployed_at, undeployed_at, avatar_colors, avatar_updated_at`
 
 // scanDeployment scans a full deployment row into a Deployment struct.
 func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
@@ -148,7 +149,7 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN, &clusterID,
 		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
-		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors,
+		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors, &d.AvatarUpdatedAt,
 	)
 	if clusterID.Valid && clusterID.String != "" {
 		s := clusterID.String
@@ -192,6 +193,16 @@ func (s *Store) CountActiveAgentsDuringPeriod(accountID string, from, to time.Ti
 func (s *Store) SetAvatarColors(deploymentID string, colorsJSON []byte) error {
 	_, err := s.db.Exec(`UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, colorsJSON, deploymentID)
 	return err
+}
+
+// TouchAvatarUpdatedAt stamps avatar_updated_at = now() for a deployment,
+// bumping the cache-busting token on its avatar URL, and returns the persisted
+// value so callers embed the DB clock (not the app clock) in the immediate
+// response. Called after every avatar write.
+func (s *Store) TouchAvatarUpdatedAt(deploymentID string) (time.Time, error) {
+	var ts time.Time
+	err := s.db.QueryRow(`UPDATE deployments SET avatar_updated_at = now() WHERE id = $1 RETURNING avatar_updated_at`, deploymentID).Scan(&ts)
+	return ts, err
 }
 
 // BulkDeploymentCounts returns the total deployment count per agent name for the given account.
@@ -1115,20 +1126,21 @@ func (s *Store) IsScaledDown(namespace string) (bool, error) {
 
 // DeploymentSummary is a lightweight projection of a deployment for listing UIs.
 type DeploymentSummary struct {
-	ID           string           `json:"id"`
-	AccountID    string           `json:"account_id"`
-	AgentName    string           `json:"agent_name"`
-	DisplayName  string           `json:"display_name,omitempty"`
-	Status       string           `json:"status"`
-	AvatarColors *json.RawMessage `json:"avatar_colors,omitempty"`
-	DeployedAt   time.Time        `json:"deployed_at"`
+	ID              string           `json:"id"`
+	AccountID       string           `json:"account_id"`
+	AgentName       string           `json:"agent_name"`
+	DisplayName     string           `json:"display_name,omitempty"`
+	Status          string           `json:"status"`
+	AvatarColors    *json.RawMessage `json:"avatar_colors,omitempty"`
+	AvatarUpdatedAt *time.Time       `json:"avatar_updated_at,omitempty"`
+	DeployedAt      time.Time        `json:"deployed_at"`
 }
 
 // GetSummariesForAccounts returns lightweight deployment summaries for all
 // visible deployments across the given account IDs in a single query.
 func (s *Store) GetSummariesForAccounts(accountIDs []string) ([]*DeploymentSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT id, account_id, agent_name, display_name, status, avatar_colors, deployed_at
+		SELECT id, account_id, agent_name, display_name, status, avatar_colors, avatar_updated_at, deployed_at
 		FROM deployments
 		WHERE account_id = ANY($1) AND status != 'undeployed'
 		ORDER BY deployed_at DESC
@@ -1141,7 +1153,7 @@ func (s *Store) GetSummariesForAccounts(accountIDs []string) ([]*DeploymentSumma
 	var summaries []*DeploymentSummary
 	for rows.Next() {
 		var d DeploymentSummary
-		if err := rows.Scan(&d.ID, &d.AccountID, &d.AgentName, &d.DisplayName, &d.Status, &d.AvatarColors, &d.DeployedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.AccountID, &d.AgentName, &d.DisplayName, &d.Status, &d.AvatarColors, &d.AvatarUpdatedAt, &d.DeployedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment summary: %w", err)
 		}
 		summaries = append(summaries, &d)

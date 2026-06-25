@@ -23,6 +23,8 @@ export interface BlueprintDetailHeaderProps {
   canEdit?: boolean;
   isDraft?: boolean;
   onArchive?: () => void;
+  /** Server-emitted versioned avatar URL; falls back to BlueprintIdentity's chain when absent. */
+  avatarUrl?: string;
 }
 
 export function BlueprintDetailHeader({
@@ -32,6 +34,7 @@ export function BlueprintDetailHeader({
   canEdit = false,
   isDraft = false,
   onArchive,
+  avatarUrl,
 }: BlueprintDetailHeaderProps) {
   const hasCategories = categories.length > 0;
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
@@ -44,6 +47,7 @@ export function BlueprintDetailHeader({
       account={account}
       name={name}
       size={56}
+      url={avatarUrl}
       className="size-14 shrink-0 rounded-sm overflow-hidden border border-stone-200 dark:border-border"
     />
   );

@@ -468,7 +468,7 @@ func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -520,7 +520,7 @@ func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -583,7 +583,7 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -596,13 +596,13 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at", "avatar_colors",
+		"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 	}
 	depMock.ExpectQuery("SELECT .+ FROM deployments").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(depCols).
 			AddRow("dep-1", "acct-1", nil, "code-reviewer", "b1", "ns-1", "Code Reviewer",
-				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil))
+				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil, nil))
 
 	cfg := &config.Config{}
 	cfg.Deployment.LangfuseBaseURL = langfuseSrv.URL

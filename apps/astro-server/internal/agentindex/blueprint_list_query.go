@@ -104,7 +104,7 @@ func (idx *Index) ListForAccount(accountID string, opts BlueprintListOptions) (*
 		listTotalSQL = blueprintListTotalColumn
 	}
 	query := `
-		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.created_at, a.updated_at,
+		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.avatar_updated_at, a.created_at, a.updated_at,
 		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.validation_warnings, v.published_at, v.updated_at,
 		       gbinfo.commit_message, gbinfo.commit_sha, gbinfo.repo_full_name,
 		       (SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS version_count` + listTotalSQL + `
@@ -127,7 +127,7 @@ func (idx *Index) ListForAccount(accountID string, opts BlueprintListOptions) (*
 		var listTotal int
 
 		scanDest := []any{
-			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt,
+			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.AvatarUpdatedAt, &agent.CreatedAt, &agent.UpdatedAt,
 			&buildID, &ecrNamespace, &specJSON, &readme, &agentCard, &warningsJSON, &publishedAt, &versionUpdated,
 			&commitMessage, &commitSHA, &repoFullName,
 			&agent.VersionCount,
@@ -183,7 +183,7 @@ func (idx *Index) ListPublicAgents(opts BlueprintListOptions) (*BlueprintListPag
 		listTotalSQL = blueprintListTotalColumn
 	}
 	query := `
-		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.created_at, a.updated_at,
+		SELECT a.account_id, a.name, a.registry, a.visibility, a.avatar_colors, a.avatar_updated_at, a.created_at, a.updated_at,
 		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.published_at, v.updated_at` + listTotalSQL + `
 		FROM agents a
 		INNER JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
@@ -205,7 +205,7 @@ func (idx *Index) ListPublicAgents(opts BlueprintListOptions) (*BlueprintListPag
 		var listTotal int
 
 		scanDest := []any{
-			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.CreatedAt, &agent.UpdatedAt,
+			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.AvatarUpdatedAt, &agent.CreatedAt, &agent.UpdatedAt,
 			&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.AgentCardJSON, &v.PublishedAt, &v.UpdatedAt,
 		}
 		if paginated {

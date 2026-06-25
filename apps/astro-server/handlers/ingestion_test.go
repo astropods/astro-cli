@@ -86,7 +86,7 @@ var testDeploymentColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
 // expectDeploymentLookup sets up sqlmock to return a deployment for GetDeploymentByID.
@@ -97,7 +97,7 @@ func expectDeploymentLookup(mock sqlmock.Sqlmock, deploymentID, accountID, agent
 			AddRow(deploymentID, accountID, nil, agentName, buildID, namespace, agentName,
 				"{}", nil, nil, nil,
 				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil))
+				time.Now(), nil, nil, nil))
 }
 
 // expectDeploymentNotFound sets up sqlmock to return no rows for GetDeploymentByID.

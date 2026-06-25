@@ -23,7 +23,7 @@ var deploymentFullColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
 func expectEnabledClusterGet(mock sqlmock.Sqlmock, clusterID string) {
@@ -201,7 +201,7 @@ func TestSetAccountCluster_MigrationRequiresQueue(t *testing.T) {
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 	)
 
@@ -253,13 +253,13 @@ func TestSetAccountCluster_EnqueuesBeforeAccountUpdate(t *testing.T) {
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 		[]any{
 			"dep-2", "acct-1", nil, "agent-b", "build-2", "astro-dep2-0", "Agent B",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"failed", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 	)
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
@@ -305,7 +305,7 @@ func TestSetAccountCluster_SetClusterIDFailureAfterEnqueue(t *testing.T) {
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 	)
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
@@ -356,13 +356,13 @@ func TestSetAccountCluster_EnqueueFailureLeavesAccountUnchanged(t *testing.T) {
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 		[]any{
 			"dep-2", "acct-1", nil, "agent-b", "build-2", "astro-dep2-0", "Agent B",
 			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
 			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil,
+			time.Now(), nil, nil, nil,
 		},
 	)
 

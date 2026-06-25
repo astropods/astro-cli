@@ -13,7 +13,8 @@ import {
   ShareIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
-import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { AvatarImage } from "@/components/AvatarImage";
+import { getAgentAvatarUrl } from "@/lib/assets";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -650,10 +651,9 @@ export function DeployedAgentCard({
         </DropdownMenu>
       </div>
       <div className="relative z-[1] h-16 w-16 rounded-md shadow-[0_6px_16px_-4px_rgb(0_0_0_/_0.26),0_2px_4px_-1px_rgb(0_0_0_/_0.12)]">
-        <BlueprintIdentity
-          account={account}
-          name={name}
-          url={avatarUrl}
+        <AvatarImage
+          src={avatarUrl ?? getAgentAvatarUrl(account, name)}
+          alt={name}
           size={64}
           className="block h-16 w-16 rounded-md"
         />

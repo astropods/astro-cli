@@ -40,6 +40,10 @@ func (s *stubAccountGetter) GetAccountsForUser(_ string) ([]account.AccountWithR
 	return s.accounts, s.err
 }
 
+func (s *stubAccountGetter) TouchAvatarUpdatedAtByName(_ string) (time.Time, error) {
+	return time.Time{}, nil
+}
+
 func init() {
 	gin.SetMode(gin.TestMode)
 }

@@ -84,7 +84,7 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
         className="group relative self-start cursor-pointer"
         onClick={() => setAvatarDialogOpen(true)}
       >
-        <UserAvatar handle={data.name} name={displayName || data.name} className="size-16" />
+        <UserAvatar handle={data.name} name={displayName || data.name} avatarUrl={data.avatar_url} className="size-16" />
         <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
           <Camera className="size-4 text-white" />
         </div>

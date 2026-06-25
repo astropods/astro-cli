@@ -65,6 +65,7 @@ export function UserBadge({ userId, account, displayName: displayNameProp, usern
       <UserAvatar
         handle={handle}
         name={displayName}
+        avatarUrl={member?.avatar_url}
         className={cn("size-5", className)}
       />
     );
@@ -77,7 +78,7 @@ export function UserBadge({ userId, account, displayName: displayNameProp, usern
 
   return (
     <IdentityBadge
-      avatar={<UserAvatar handle={handle} name={displayName} className="size-5" />}
+      avatar={<UserAvatar handle={handle} name={displayName} avatarUrl={member?.avatar_url} className="size-5" />}
       label={displayName}
       link={linkToProfile ? { type: "internal", to: `/${handle}` } : undefined}
       display="flex"

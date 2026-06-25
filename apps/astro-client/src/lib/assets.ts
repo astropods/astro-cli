@@ -45,6 +45,17 @@ export function getDeploymentAvatarUrl(id: string): string {
 }
 
 /**
+ * Resolve a deployment's avatar URL: the server's versioned `avatar_url` when
+ * present, otherwise the deterministic deployment key. Prefer this (or the
+ * `useDeploymentAvatarUrl` hook / `DeploymentAvatar` component) over calling
+ * `getDeploymentAvatarUrl` directly so the long-lived cache stays correct after
+ * an avatar change.
+ */
+export function deploymentAvatarSrc(deployment: { id: string; avatar_url?: string }): string {
+  return deployment.avatar_url ?? getDeploymentAvatarUrl(deployment.id);
+}
+
+/**
  * URL for the shared default avatar placeholder.
  * Used as the ultimate fallback if the CDN image fails to load.
  */

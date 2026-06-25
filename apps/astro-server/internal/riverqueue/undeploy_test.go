@@ -46,12 +46,12 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at", "avatar_colors",
+			"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 		}).AddRow(
 			depID, "acct-1", nil, "test-agent", "build-1", "astro-test-0",
 			"test-agent", `{}`, []byte(nil), (*string)(nil), clusterID,
 			deploymentstore.StatusUndeploying, (*string)(nil), json.RawMessage(nil), now, 1,
-			now, nil, nil,
+			now, nil, nil, nil,
 		))
 
 	mock.ExpectExec(`DELETE FROM scaled_namespaces`).

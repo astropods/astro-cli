@@ -125,6 +125,9 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 						"target", req.TargetAccount,
 						"error", err,
 					)
+				} else if _, err := index.TouchAvatarUpdatedAt(targetAcct.ID, agentName); err != nil {
+					log.Warn("Failed to stamp agent avatar_updated_at after transfer",
+						"agent", agentName, "target", req.TargetAccount, "error", err)
 				}
 			}
 		}
