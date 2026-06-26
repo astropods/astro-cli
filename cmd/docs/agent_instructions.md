@@ -78,17 +78,27 @@ The platform also auto-injects three variables into the agent container that you
 
 Astropods agents send OpenTelemetry traces to `OTEL_EXPORTER_OTLP_ENDPOINT`, which the platform routes to a per-account observability backend. Tracing the LLM calls, tools, and agent steps lets you see token usage, costs, and tool behavior in one place.
 
-Prefer an off-the-shelf instrumentation library for your stack — they emit richer spans (tool calls, agent steps, cost) than hand-written code and stay in sync with upstream SDK changes. When no library exists for your stack, emit manual spans using the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) or [OpenInference conventions](https://github.com/Arize-ai/openinference).
+Prefer a first-party adapter for your framework: `serve()` auto-wires OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so the same code traces in production and stays silent in local dev. When no adapter fits your stack, emit manual spans using the [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) or [OpenInference conventions](https://github.com/Arize-ai/openinference).
+
+### Available adapters
+
+- `@astropods/adapter-mastra` (TypeScript) — Mastra. Tracing auto-wired by `serve()`.
+- `@astropods/adapter-ai-sdk` (TypeScript) — Vercel AI SDK (`ai >= 6.0.0`). `astroTelemetry()` + `serve()`.
+- `@astropods/adapter-claude-agent-sdk` (TypeScript) — Claude Agent SDK drop-in; `query()` instrumented.
+- `@astropods/adapter-core` (TypeScript) — any framework without a first-party adapter. Manual OTEL (see below).
+- `astropods-adapter-core` (Python 3.10+) — any framework without a first-party adapter. Manual OTEL (see below).
+
+Each framework adapter also connects your agent to Astropods messaging — the same `serve()` call registers the agent and wires observability. The `*-core` packages are for frameworks without a first-party adapter; pair them with the manual OpenTelemetry setup below.
 
 ### Mastra
 
-`@astropods/adapter-mastra` — the same package used in the Quick Start above — auto-wires OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Calling `serve(agent)` registers the agent and configures observability in the same step. The agent's `name` is sent as `service.name`; no additional setup is required.
+`@astropods/adapter-mastra` — the same package used in the Quick Start above — auto-wires OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Calling `serve(agent)` registers the agent and configures observability in the same step. The agent's `name` is sent as `service.name`; no additional setup is required. Requires `@mastra/core >= 1.14.0`.
 
 If your project constructs its own `Mastra` instance, `serve()` registers Astro's OpenTelemetry observability alongside any existing observability instances on that Mastra.
 
 ### Vercel AI SDK (`ai`)
 
-`@astropods/adapter-ai-sdk` exports two functions: `astroTelemetry()` for OpenTelemetry routing and `serve()` for messaging. Use them together or apart.
+`@astropods/adapter-ai-sdk` exports two functions: `astroTelemetry()` for OpenTelemetry routing and `serve()` for messaging. Use them together or apart. Targets `ai >= 6.0.0`.
 
 ```bash
 bun add @astropods/adapter-ai-sdk
@@ -113,22 +123,6 @@ serve(agent, { name: "My Agent", instructions });
 ```
 
 Skip `serve()` when your own framework serves the agent. Spans still land in the dashboard. If you use `serve()`, pass `instructions` through so they show up in the playground; the AI SDK `Agent` interface exposes no `instructions` field on the instance.
-
-### LangChain / LangGraph (Python)
-
-Use Traceloop / OpenLLMetry and point it at the platform endpoint at startup:
-
-```python
-import os
-from traceloop.sdk import Traceloop
-
-endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-if endpoint:
-    Traceloop.init(
-        app_name=os.environ.get("ASTRO_AGENT_NAME", "agent"),
-        api_endpoint=endpoint,
-    )
-```
 
 ### Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
 
