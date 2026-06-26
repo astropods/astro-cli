@@ -54,6 +54,76 @@ const agent = new Agent({
 serve(agent);
 ```
 
+## Connecting to OAuth-protected MCP servers
+
+Mastra's `MCPClient` can pull tools from remote MCP servers. Most hosted MCP servers require **OAuth 2.1** (dynamic client registration + PKCE), which `@mastra/mcp` handles via `MCPOAuthClientProvider`.
+
+The one piece you must get right on a deployed agent is the **redirect URI**: the OAuth provider sends the user's browser there with the authorization code, so it has to be a URL that resolves back to *your* agent. Locally that's `http://localhost:<port>`; in production it's your agent's public URL — which the platform injects as `ASTRO_EXTERNAL_AGENT_URL`.
+
+```typescript
+import { MCPClient, MCPOAuthClientProvider } from "@mastra/mcp";
+
+// Forge the redirect from the platform-injected public URL when deployed,
+// and fall back to localhost in dev. ASTRO_EXTERNAL_AGENT_URL is only present
+// when the agent exposes an endpoint (see below).
+const CALLBACK_PATH = "/oauth/callback";
+const redirectUrl =
+  process.env.OAUTH_REDIRECT_URL ??
+  (process.env.ASTRO_EXTERNAL_AGENT_URL
+    ? `${process.env.ASTRO_EXTERNAL_AGENT_URL.replace(/\/+$/, "")}${CALLBACK_PATH}`
+    : `http://localhost:${process.env.PORT ?? 8808}${CALLBACK_PATH}`);
+
+const provider = new MCPOAuthClientProvider({
+  redirectUrl,
+  clientMetadata: {
+    client_name: "My Agent",
+    redirect_uris: [redirectUrl],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none", // public client + PKCE
+  },
+  // Persist tokens so they survive restarts (the prod FS is read-only — back
+  // this with Redis from a `knowledge` store; use a file only in local dev).
+  storage: myOAuthStorage,
+});
+
+const mcp = new MCPClient({
+  servers: {
+    myServer: { url: new URL("https://mcp.example.com/mcp"), authProvider: provider },
+  },
+});
+
+const agent = new Agent({
+  name: "My Agent",
+  model: "anthropic/claude-sonnet-4-5",
+  instructions: "Answer questions using the connected tools.",
+  tools: await mcp.listTools(),
+});
+
+serve(agent);
+```
+
+**To make the redirect reachable on a deployed agent**, the agent must serve the callback on its public ingress:
+
+1. Declare a frontend so the platform provisions a public host and injects `ASTRO_EXTERNAL_AGENT_URL`:
+
+   ```yaml
+   agent:
+     interfaces:
+       frontend: true    # gets a public host + injects ASTRO_EXTERNAL_AGENT_URL, sets PORT=80
+       messaging: true   # keep the chat interface
+   ```
+
+2. Serve the callback path on the injected `PORT` (80 in production). Binding `:80` needs root, so do **not** drop to a non-root `USER` in your Dockerfile, and `EXPOSE 80`.
+3. Persist OAuth tokens in a writable store (Redis via a `knowledge` entry) — the production filesystem is read-only, so a file-based token store is lost on restart.
+
+Without an exposed endpoint, `ASTRO_EXTERNAL_AGENT_URL` is unset and the redirect falls back to localhost; the browser still shows the `?code=...`, so you can complete the flow by pasting the code back to the agent instead of relying on an automatic redirect.
+
+Gotchas with hosted MCP servers:
+
+- **Resource indicator (RFC 8707).** Some authorization servers reject the path-form resource their own metadata advertises and only accept the origin. If you hit `invalid_target`, pin the origin via the provider's `validateResourceURL` hook.
+- **Stale client registration.** A client registered under one `redirect_uri` (e.g. localhost) is rejected with `Invalid redirect_uri` if reused under another. Clear stored OAuth data before a fresh connect so a new registration uses the current `redirect_uri`.
+
 ## Environment Variables
 
 Variables you need to run your agent, such as your API keys:
@@ -64,15 +134,20 @@ Variables you need to run your agent, such as your API keys:
 
 Run `ast project configure` to set them. `ast project start` injects them into the agent container.
 
-The platform also auto-injects three variables into the agent container that you don't configure yourself:
+The platform also auto-injects these variables into the agent container that you don't configure yourself:
 
 | Variable                      | Purpose                                                                                        |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP endpoint for agent telemetry (see below). Present in deployed environments only.    |
-| `ASTRO_AGENT_NAME`            | Agent name; use as OpenTelemetry `service.name`                                                |
-| `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version`                                             |
+| `ASTRO_AGENT_NAME`            | Agent name; use as OpenTelemetry `service.name`.                                               |
+| `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version`.                                            |
+| `ASTRO_AGENT_ID`              | Deployment ID of the running agent.                                                            |
+| `ASTRO_EXTERNAL_AGENT_URL`    | The agent's **public** HTTPS URL, e.g. `https://<host>`. Injected only when the agent exposes an endpoint (`agent.interfaces.frontend: true`) and a public host resolves. Use it to build absolute callback/webhook URLs that point back at your agent — see [OAuth-protected MCP servers](#connecting-to-oauth-protected-mcp-servers). |
+| `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host. Reachable from other components in the deployment, **not** from the public internet. |
 
 > `ast project start` does not run a collector locally, so `OTEL_EXPORTER_OTLP_ENDPOINT` is absent during local dev. Guard your instrumentation setup on the env var so your agent boots cleanly in both environments.
+
+> `ASTRO_EXTERNAL_AGENT_URL` is likewise absent during local dev and on messaging-only agents (no exposed endpoint). Always provide a localhost fallback.
 
 ## Instrumentation
 
