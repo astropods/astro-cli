@@ -97,10 +97,29 @@ function sortDirFor<K extends string>(active: K, asc: boolean, col: K) {
   return active === col ? (asc ? "asc" : "desc") : undefined;
 }
 
-function RankCell({ rank }: { rank: number }) {
+function RankMarker({ rank }: { rank: number }) {
   return (
-    <TableCell className="w-14 pr-2 text-right text-mono-sm tabular-nums text-faint-foreground">
+    <span className="w-5 shrink-0 text-mono-sm tabular-nums text-faint-foreground" aria-label={`Rank ${rank}`}>
       {rank}
+    </span>
+  );
+}
+
+function IdentityTableCell({
+  rank,
+  children,
+}: {
+  rank: number;
+  children: ReactNode;
+}) {
+  return (
+    <TableCell className="pl-3 pr-4">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <RankMarker rank={rank} />
+        <div className="min-w-0 flex-1">
+          {children}
+        </div>
+      </div>
     </TableCell>
   );
 }
@@ -109,7 +128,7 @@ function GhostRow({ columns }: { columns: number }) {
   return (
     <TableRow>
       {Array.from({ length: columns }).map((_, i) => (
-        <TableCell key={i} className={i === 0 ? "pr-4" : ""}>
+        <TableCell key={i} className={i === 0 ? "pl-3 pr-4" : ""}>
           <div className={cn("h-3.5 animate-pulse rounded bg-muted", i === 0 ? "w-[70%]" : "w-1/2")} />
         </TableCell>
       ))}
@@ -205,7 +224,7 @@ function IdentityAvatar({
   if (identity.kind === "system") {
     return (
       <span
-        className={cn(baseClassName, "flex items-center justify-center bg-muted text-muted-foreground")}
+        className={cn(baseClassName, "flex items-center justify-center text-muted-foreground")}
         aria-hidden
       >
         <Server className="size-3.5" strokeWidth={1.75} />
@@ -240,7 +259,7 @@ function IdentityLabel({
     </>
   );
   const bodyClassName = cn(
-    "inline-flex min-w-0 items-center gap-2 text-body-sm text-foreground",
+    "inline-flex min-w-0 items-center gap-2 text-body text-foreground",
     identity.kind === "unidentified" && "font-mono",
     className,
   );
@@ -524,8 +543,7 @@ function AgentsTopSpenders({
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
-          <TableHead>{groupLabel}</TableHead>
+          <TableHead className="pl-3">{groupLabel}</TableHead>
           <TableHead>Used by</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
@@ -537,23 +555,22 @@ function AgentsTopSpenders({
       </TableHeader>
       <TableBody>
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={9} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
         ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={9} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
               No deployment activity in this period
             </TableCell>
           </TableRow>
         ) : (
           visibleRows.map((row, index) => (
             <TableRow key={row.key}>
-              <RankCell rank={index + 1} />
-              <TableCell className="pr-4">
+              <IdentityTableCell rank={index + 1}>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <AgentRowIdentity identity={row.identity} />
                   {row.not_instrumented && <NotInstrumentedMarker />}
                 </span>
-              </TableCell>
+              </IdentityTableCell>
               <TableCell>
                 <IdentityAvatarStack identities={row.used_by} />
               </TableCell>
@@ -624,8 +641,7 @@ function UsersTopSpenders({
     >
       <TableHeader>
         <TableRow>
-          <TableHead className="w-14 pr-2 text-right">Rank</TableHead>
-          <TableHead>Name</TableHead>
+          <TableHead className="pl-3">Name</TableHead>
           <TableHead>Agents Used</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
@@ -636,20 +652,19 @@ function UsersTopSpenders({
       </TableHeader>
       <TableBody>
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
         ) : sorted.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
+            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
               No activity from people in this period
             </TableCell>
           </TableRow>
         ) : (
           visibleRows.map((row, index) => (
             <TableRow key={row.key}>
-              <RankCell rank={index + 1} />
-              <TableCell className="pr-4">
+              <IdentityTableCell rank={index + 1}>
                 <IdentityRow identity={row.identity} />
-              </TableCell>
+              </IdentityTableCell>
               <TableCell>
                 <AgentChips agents={row.agents_used} />
               </TableCell>

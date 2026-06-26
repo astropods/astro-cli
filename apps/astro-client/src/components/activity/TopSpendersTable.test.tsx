@@ -62,6 +62,10 @@ function bodyRows() {
     .filter((row) => within(row).queryAllByRole("cell").length > 0);
 }
 
+function firstCellText(row: HTMLElement): string {
+  return within(row).getAllByRole("cell")[0]?.textContent?.trim() ?? "";
+}
+
 describe("TopSpendersTable agents mode", () => {
   it("shows ghost rows when loading", () => {
     const { container } = renderWithProviders(
@@ -112,6 +116,24 @@ describe("TopSpendersTable agents mode", () => {
       "/acme/agents/dep-alpha/monitor",
     );
     expect(within(row).getAllByRole("img")).toHaveLength(2);
+  });
+
+  it("renders rank inside the agent identity cell", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={[
+          agentRow({ key: "dep-alpha", label: "Alpha Agent" }),
+          agentRow({ key: "dep-beta", label: "Beta Agent", metrics: { requests: 1, cost_usd: 5, cost_pct: 5, cost_per_request: 1, tok_per_request: 100, p95_latency_ms: 100 } }),
+        ]}
+      />,
+    );
+
+    expect(screen.queryByRole("columnheader", { name: "Rank" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
+    expect(firstCellText(bodyRows()[0])).toMatch(/^1Alpha Agent/);
+    expect(firstCellText(bodyRows()[1])).toMatch(/^2Beta Agent/);
   });
 
   it("renders a not-instrumented marker for uninstrumented agent rows", async () => {
@@ -422,6 +444,24 @@ describe("TopSpendersTable users mode", () => {
       "slack://user?team=T07XYZ&id=U07ABCDEF",
     );
     expect(screen.getByText("System spend")).toBeInTheDocument();
+  });
+
+  it("renders rank inside the people identity cell", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        loading={false}
+        rows={[
+          personRow({ key: "member:alice", label: "Alice Chen", metrics: { requests: 1, cost_usd: 10, cost_pct: 10, tokens: 100 } }),
+          personRow({ key: "member:bob", label: "Bob Smith", metrics: { requests: 1, cost_usd: 5, cost_pct: 5, tokens: 100 } }),
+        ]}
+      />,
+    );
+
+    expect(screen.queryByRole("columnheader", { name: "Rank" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
+    expect(firstCellText(bodyRows()[0])).toMatch(/^1Alice Chen/);
+    expect(firstCellText(bodyRows()[1])).toMatch(/^2Bob Smith/);
   });
 
   it("renders unidentified users as mono text without a link", () => {
