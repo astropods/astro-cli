@@ -145,7 +145,7 @@ test.describe("configure page", () => {
       { waitUntil: "domcontentloaded" },
     );
 
-    await expect(page.getByRole("heading", { name: "Chat interface" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "Messaging interface" })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Manual Triggers")).not.toBeVisible();
   });
 

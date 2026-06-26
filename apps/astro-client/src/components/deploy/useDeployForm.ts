@@ -37,7 +37,6 @@ export interface DeployFormInitialValues {
   targetAccount?: string;
   ingestionSchedules?: Record<string, string>;
   webGrants?: AuthGrant[];
-  webPublic?: boolean;
   slackGrants?: AuthGrant[];
   customPublic?: boolean;
   customGrants?: AuthGrant[];
@@ -71,7 +70,7 @@ export interface Adapter {
 
 export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "slack", label: "Slack", description: "Post messages and respond in channels" },
-  { id: "web", label: "Web", description: "Browser-based chat interface" },
+  { id: "web", label: "Astro Chat", description: "Chat directly in the browser" },
 ];
 
 /** Check whether a variable is an object with sub-field schema. */
@@ -137,7 +136,6 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     ? adapters
     : hasMessaging ? ["web"] : [];
   const webGrants = respInterfaces?.auth?.web?.grants ?? [];
-  const webPublic = respInterfaces?.auth?.web?.public ?? false;
   const slackGrants = respInterfaces?.auth?.slack?.grants ?? [];
   const customPublic = respInterfaces?.auth?.custom?.public ?? false;
   const customGrants = respInterfaces?.auth?.custom?.grants ?? [];
@@ -159,7 +157,6 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     adapterCredentials,
     ingestionSchedules,
     webGrants,
-    webPublic,
     slackGrants,
     customPublic,
     customGrants,
@@ -421,7 +418,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [selectedAdapters, setSelectedAdaptersRaw] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
   const [webGrants, setWebGrants] = useState<AuthGrant[]>(computedDefaults.webGrants ?? []);
-  const [webPublic, setWebPublicRaw] = useState<boolean>(computedDefaults.webPublic ?? false);
   const [slackGrants, setSlackGrants] = useState<AuthGrant[]>(computedDefaults.slackGrants ?? []);
   const [customPublic, setCustomPublic] = useState<boolean>(computedDefaults.customPublic ?? false);
   const [customGrants, setCustomGrants] = useState<AuthGrant[]>(computedDefaults.customGrants ?? []);
@@ -458,7 +454,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAdapterCredentials(v.adapterCredentials ?? {});
     setIngestionSchedules(v.ingestionSchedules ?? {});
     setWebGrants(v.webGrants ?? []);
-    setWebPublicRaw(v.webPublic ?? false);
     setSlackGrants(v.slackGrants ?? []);
     setCustomPublic(v.customPublic ?? false);
     setCustomGrants(v.customGrants ?? []);
@@ -533,7 +528,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       adapterCredentials: { ...extracted.adapterCredentials, ...(iv?.adapterCredentials ?? {}) },
       ingestionSchedules: { ...extracted.ingestionSchedules, ...(iv?.ingestionSchedules ?? {}) },
       webGrants: iv?.webGrants ?? seededWebGrants,
-      webPublic: iv?.webPublic ?? extracted.webPublic ?? false,
       slackGrants: iv?.slackGrants ?? seededSlackGrants,
       customPublic: iv?.customPublic ?? extracted.customPublic ?? false,
       customGrants: iv?.customGrants ?? extracted.customGrants ?? [],
@@ -565,7 +559,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const buildInterfaces = useCallback((): TemplateInterfaces => {
     const auth: TemplateInterfaces['auth'] = {};
     if (selectedAdapters.includes('web')) {
-      auth.web = { type: 'oidc', grants: webGrants, public: webPublic };
+      auth.web = { type: 'oidc', grants: webGrants };
     }
     if (selectedAdapters.includes('slack')) {
       auth.slack = { grants: slackGrants };
@@ -579,15 +573,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       adapters: selectedAdapters,
       auth: auth.web || auth.slack || auth.custom ? auth : undefined,
     };
-  }, [selectedAdapters, webGrants, webPublic, slackGrants, customSupported, customPublic, customGrants]);
-
-  // Toggle public (no-sign-in) web access. A public web surface bypasses the
-  // ALB OIDC gate, so the server requires an anyone-only grant; force that here
-  // and restore the deploying-user default when public is turned back off.
-  const setWebPublic = useCallback((next: boolean) => {
-    setWebPublicRaw(next);
-    setWebGrants(next ? [{ anyone: true }] : defaultGrantsForAdapter("web", user?.id));
-  }, [user?.id]);
+  }, [selectedAdapters, webGrants, slackGrants, customSupported, customPublic, customGrants]);
 
   // Exposed adapter setter: updates local state AND re-triggers template shaping
   // so the server can flip variable optionality (e.g. Slack tokens become required).
@@ -616,7 +602,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setSelectedAdaptersRaw(adapters);
     const auth: TemplateInterfaces['auth'] = {};
-    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: nextWebGrants, public: webPublic };
+    if (adapters.includes('web')) auth.web = { type: 'oidc', grants: nextWebGrants };
     if (adapters.includes('slack')) auth.slack = { grants: nextSlackGrants };
     // Preserve the custom-interface auth across adapter toggles.
     if (customSupported) auth.custom = { public: customPublic, grants: customGrants };
@@ -624,7 +610,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       interfaces: { adapters, auth: auth.web || auth.slack || auth.custom ? auth : undefined },
       bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     });
-  }, [reshapeTemplate, webGrants, webPublic, slackGrants, customSupported, customPublic, customGrants, knowledgeBindings, selectedAdapters, opts?.deploymentId, iv, user?.id]);
+  }, [reshapeTemplate, webGrants, slackGrants, customSupported, customPublic, customGrants, knowledgeBindings, selectedAdapters, opts?.deploymentId, iv, user?.id]);
 
   // Filter empty-string ARNs — an entry with value "" means "not bound".
   const nonEmptyBindings = (b: Record<string, string>): Record<string, string> => {
@@ -972,14 +958,13 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     deployCount += diffGrants(webGrants, initialValues.webGrants ?? []);
     deployCount += diffGrants(slackGrants, initialValues.slackGrants ?? []);
     deployCount += diffGrants(customGrants, initialValues.customGrants ?? []);
-    if (webPublic !== (initialValues.webPublic ?? false)) deployCount++;
     if (customPublic !== (initialValues.customPublic ?? false)) deployCount++;
 
     const deployChanged = deployCount > 0;
     const changeCount = (nameChanged ? 1 : 0) + deployCount;
 
     return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
-  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, webPublic, slackGrants, customGrants, customPublic, ingestionSchedules, knowledgeBindings]);
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, customGrants, customPublic, ingestionSchedules, knowledgeBindings]);
 
   const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
 
@@ -1018,8 +1003,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAdapterCredentials,
     webGrants,
     setWebGrants,
-    webPublic,
-    setWebPublic,
     slackGrants,
     setSlackGrants,
     customSupported,

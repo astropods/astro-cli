@@ -1,18 +1,17 @@
 import type { ReactNode } from "react";
-import { AlertCircle, Check, Globe } from "lucide-react";
+import { AlertCircle, Check } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
+import { AstroMark } from "@/components/ui/svgs/astroMark";
 import { cn } from "@/lib/utils";
 import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
 import { GrantsEditor } from "./GrantsEditor";
-import { Switch } from "@/components/ui/switch";
-import { WarningPanel } from "@/components/ui/status-panel";
 import type { AccountVariable, AuthGrant } from "@/lib/api";
 
 /** Brand icons manage their own color; generic icons inherit from parent. */
 const ADAPTER_ICONS: Record<string, { icon: ReactNode; isBrand?: boolean }> = {
-  web: { icon: <Globe className="h-5 w-5" strokeWidth={1.5} /> },
+  web: { icon: <AstroMark mono className="h-5 w-5" /> },
   slack: { icon: <Slack className="h-5 w-5" />, isBrand: true },
 };
 
@@ -30,9 +29,6 @@ export interface InterfacesPickerProps {
   /** Auth grants per adapter — when present, a grants editor renders inside the adapter card. */
   webGrants?: AuthGrant[];
   onWebGrantsChange?: (grants: AuthGrant[]) => void;
-  /** When true, the web chat is reachable without sign-in (open cohort). */
-  webPublic?: boolean;
-  onWebPublicChange?: (next: boolean) => void;
   slackGrants?: AuthGrant[];
   onSlackGrantsChange?: (grants: AuthGrant[]) => void;
   /** Target account name — used by GrantsEditor to scope the user picker to that account's members. */
@@ -56,8 +52,6 @@ export function InterfacesPicker({
   credentialLayoutByAdapter,
   webGrants,
   onWebGrantsChange,
-  webPublic,
-  onWebPublicChange,
   slackGrants,
   onSlackGrantsChange,
   targetAccount,
@@ -165,7 +159,6 @@ export function InterfacesPicker({
                     />
                   </div>
                 ) : null;
-                const showPublicToggle = adapter.id === "web" && onWebPublicChange !== undefined;
                 const grantsBlock = hasGrantsEditor ? (
                   <div
                     key="grants"
@@ -176,36 +169,12 @@ export function InterfacesPicker({
                       grantsFirst && !hasInlineCredentials && "rounded-b-[6px]",
                     )}
                   >
-                    {showPublicToggle && (
-                      <div className="space-y-2 mb-3">
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col gap-0.5 min-w-0">
-                            <span className="text-[13px] font-medium text-foreground">Protected</span>
-                            <span className="text-[11px] text-muted-foreground">
-                              Require an Astro account to use the chat.
-                            </span>
-                          </div>
-                          <Switch
-                            checked={!webPublic}
-                            onCheckedChange={(checked) => onWebPublicChange!(!checked)}
-                          />
-                        </div>
-                        {webPublic && (
-                          <WarningPanel variant="inline">
-                            Protection is off — anyone with the link can use this chat without an
-                            Astro account, and access grants no longer apply.
-                          </WarningPanel>
-                        )}
-                      </div>
-                    )}
-                    {!(showPublicToggle && webPublic) && (
-                      <GrantsEditor
-                        adapter={adapter.id as "web" | "slack"}
-                        grants={grantsForAdapter ?? []}
-                        onChange={onGrantsChangeForAdapter!}
-                        targetAccount={targetAccount}
-                      />
-                    )}
+                    <GrantsEditor
+                      adapter={adapter.id as "web" | "slack"}
+                      grants={grantsForAdapter ?? []}
+                      onChange={onGrantsChangeForAdapter!}
+                      targetAccount={targetAccount}
+                    />
                   </div>
                 ) : null;
                 return grantsFirst ? [grantsBlock, credsBlock] : [credsBlock, grantsBlock];

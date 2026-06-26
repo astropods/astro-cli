@@ -158,7 +158,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
       {/* Interfaces — hidden when the agent declares only a custom frontend
           (no messaging adapters to pick from). */}
       {form.messagingSupported && (
-        <FormSection title="Chat interface" description="Choose how you want to interact with the agent.">
+        <FormSection title="Messaging interface" description="Choose how you want to interact with the agent.">
           <InterfacesPicker
             selected={form.selectedAdapters}
             onChange={form.setSelectedAdapters}
@@ -170,8 +170,6 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
             credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
             webGrants={form.webGrants}
             onWebGrantsChange={form.setWebGrants}
-            webPublic={form.webPublic}
-            onWebPublicChange={form.setWebPublic}
             slackGrants={form.slackGrants}
             onSlackGrantsChange={form.setSlackGrants}
             targetAccount={form.targetAccount}

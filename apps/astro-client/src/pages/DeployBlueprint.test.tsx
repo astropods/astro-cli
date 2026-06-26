@@ -54,7 +54,7 @@ async function waitForForm() {
   });
   // Also wait for template-driven sections to appear
   await waitFor(() => {
-    expect(screen.getByText('Chat interface')).toBeInTheDocument();
+    expect(screen.getByText('Messaging interface')).toBeInTheDocument();
   });
 }
 
@@ -375,7 +375,7 @@ describe('DeployBlueprint page', () => {
       renderInstall();
       await waitForForm();
 
-      const webButton = screen.getByRole('button', { name: /web/i });
+      const webButton = screen.getByRole('button', { name: /chat/i });
       expect(webButton).toHaveAttribute('aria-pressed', 'true');
 
       const slackButton = screen.getByRole('button', { name: /slack/i });
@@ -790,7 +790,7 @@ describe('DeployBlueprint page', () => {
       await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
 
       // Deselect Web
-      await user.click(screen.getByRole('button', { name: /web/i }));
+      await user.click(screen.getByRole('button', { name: /chat/i }));
 
       // No error yet (haven't submitted)
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -809,7 +809,7 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       await user.type(screen.getByLabelText('OpenAI API Key'), 'sk-test123');
-      await user.click(screen.getByRole('button', { name: /web/i }));
+      await user.click(screen.getByRole('button', { name: /chat/i }));
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
@@ -817,7 +817,7 @@ describe('DeployBlueprint page', () => {
       });
 
       // Reselect Web
-      await user.click(screen.getByRole('button', { name: /web/i }));
+      await user.click(screen.getByRole('button', { name: /chat/i }));
 
       await waitFor(() => {
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -1148,15 +1148,15 @@ describe('DeployBlueprint page', () => {
 // not show the Custom interface section. This guards the gate that previously
 // regressed when keyed off mere `interfaces` presence.
 describe('interface section gating', () => {
-  it('shows Chat interface (not Custom) for a messaging agent', async () => {
+  it('shows Messaging interface (not Custom) for a messaging agent', async () => {
     renderInstall();
     await waitFor(() => {
-      expect(screen.getByText('Chat interface')).toBeInTheDocument();
+      expect(screen.getByText('Messaging interface')).toBeInTheDocument();
     });
     expect(screen.queryByText('Custom interface')).not.toBeInTheDocument();
   });
 
-  it('shows Custom interface (not Chat) for a custom-interface-only agent', async () => {
+  it('shows Custom interface (not Messaging) for a custom-interface-only agent', async () => {
     const customTemplate = {
       ...mockTemplate,
       // No messaging sidecar image → chat section is gated out.
@@ -1177,6 +1177,6 @@ describe('interface section gating', () => {
     await waitFor(() => {
       expect(screen.getByText('Custom interface')).toBeInTheDocument();
     });
-    expect(screen.queryByText('Chat interface')).not.toBeInTheDocument();
+    expect(screen.queryByText('Messaging interface')).not.toBeInTheDocument();
   });
 });

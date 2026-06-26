@@ -106,8 +106,8 @@ test.describe("auth grants UX", () => {
 
     await expect(page.getByText("Grant access")).toBeVisible();
 
-    // Deselect web, select only Slack.
-    await page.locator("button[aria-pressed]", { hasText: /web/i }).click();
+    // Deselect chat (web adapter), select only Slack.
+    await page.locator("button[aria-pressed]", { hasText: /chat/i }).click();
     await page.locator("button[aria-pressed]", { hasText: /slack/i }).click();
 
     // Grants editor still visible (slack has its own).

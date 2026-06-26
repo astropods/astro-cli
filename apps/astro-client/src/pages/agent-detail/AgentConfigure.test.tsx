@@ -91,7 +91,7 @@ function renderConfigure(
 /** Wait for the template-driven form to fully load. */
 async function waitForForm() {
   await waitFor(() => {
-    expect(screen.getByText("Chat interface")).toBeInTheDocument();
+    expect(screen.getByText("Messaging interface")).toBeInTheDocument();
   });
 }
 
@@ -106,7 +106,7 @@ describe("page loads and shows the configuration form", () => {
 
     // All four section headings exist
     expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Chat interface")).toBeInTheDocument();
+    expect(screen.getByText("Messaging interface")).toBeInTheDocument();
     expect(screen.getByText("Configuration")).toBeInTheDocument();
     expect(screen.getByText("Optional credentials")).toBeInTheDocument();
 
