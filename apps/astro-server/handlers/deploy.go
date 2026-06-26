@@ -1269,7 +1269,12 @@ const (
 type DeploymentRuntime struct {
 	Ready              int32 `json:"ready"`    // observed ready replicas across the deployment
 	Replicas           int32 `json:"replicas"` // observed total replicas (may differ from desired during scale events)
-	MessagingReachable bool  `json:"messaging_reachable"`
+	// MessagingReachable is true when the messaging Service object exists AND
+	// (when it surfaces in the live pod view) the messaging sidecar container is
+	// Ready. It is NOT a bare Service-presence check — a crashed/wedged sidecar
+	// reads as unreachable so chat-readiness reflects the sidecar, not just the
+	// Service object. See messagingSidecarReadiness.
+	MessagingReachable bool `json:"messaging_reachable"`
 	// ManualIngestions is currently sourced from a namespace annotation.
 	// See DeploymentRecord note — this field should move to the record once
 	// the spec-side list is persisted in the DB.
@@ -2042,15 +2047,24 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 			}
 		}
 
-		// Messaging Service liveness probe — distinct from the spec-level
-		// "messaging is configured" flag on the record, which only tells you
-		// the sidecar is part of the intent. This is the in-cluster reachability
-		// check ("the Service object exists right now").
+		// Messaging reachability — distinct from the spec-level "messaging is
+		// configured" flag on the record, which only tells you the sidecar is
+		// part of the intent. Two in-cluster signals, both required:
+		//   1. The Service object exists right now.
+		//   2. The messaging sidecar container is Ready (when it surfaces in the
+		//      live pod view). Service presence alone is too weak: the Service
+		//      can exist while the sidecar is crashed/wedged, which is exactly
+		//      the case that hangs the messaging proxy and 5xxs. Requiring the
+		//      sidecar container's pod readiness is the closest proxy for "it can
+		//      serve" without issuing our own (potentially hanging) HTTP probe.
 		messagingServiceName := deployment.GenerateAgentResourceName(dbDep.AgentName, "messaging")
 		_, svcErr := k8sClient.Clientset().CoreV1().Services(dbDep.Namespace).Get(
 			c.Request.Context(), messagingServiceName, metav1.GetOptions{},
 		)
 		messagingReachable := svcErr == nil
+		if found, ready := messagingSidecarReadiness(picked.Workloads); found {
+			messagingReachable = messagingReachable && ready
+		}
 		if override := cfg.Deployment.MessagingURLOverride; override != "" {
 			messagingReachable = true
 		}
@@ -2218,6 +2232,28 @@ func probeAgentReadiness(ctx context.Context, k8sClient k8s.ClusterClient, names
 	// Both NotFound — workload genuinely absent (namespace deleted / never
 	// applied). Caller decides how to report this against DB-status=active.
 	return 0, 0, false, nil
+}
+
+// messagingContainerName is the K8s container name of the messaging sidecar.
+// It runs as a native sidecar (init container with Always restart policy) in
+// the agent pod, so its readiness surfaces in the agent workload's container
+// statuses (buildContainerStatuses merges InitContainerStatuses).
+const messagingContainerName = "messaging"
+
+// messagingSidecarReadiness reports whether the messaging sidecar container is
+// present in the enriched workloads and, if so, whether it is Ready. found is
+// false when no messaging container surfaced (older snapshots, pod not yet
+// scheduled, no sidecar) — callers should fall back to Service presence then,
+// rather than treating "not found" as "not ready" and regressing.
+func messagingSidecarReadiness(workloads []WorkloadDetail) (found, ready bool) {
+	for _, w := range workloads {
+		for _, ctr := range w.Containers {
+			if ctr.Name == messagingContainerName {
+				return true, ctr.Ready
+			}
+		}
+	}
+	return false, false
 }
 
 // workloadRuntimesFromDetails projects the K8s-enriched WorkloadDetail

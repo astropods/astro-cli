@@ -2304,12 +2304,16 @@ class ApiClient {
     );
   }
 
-  /** Agent self-reported config (system prompt + tools) via the messaging proxy. */
+  /** Agent self-reported config (system prompt + tools) via the messaging proxy.
+   *  Accepts an AbortSignal so callers can bound the request — the sidecar can
+   *  hang (the proxy upstream client has no timeout), so the inspector caps it. */
   async getDeploymentAgentConfig(
     deploymentId: string,
+    signal?: AbortSignal,
   ): Promise<DeploymentAgentConfig> {
     return this.request<DeploymentAgentConfig>(
       this.messagingProxyPath(deploymentId, "agent/config"),
+      { signal },
     );
   }
 

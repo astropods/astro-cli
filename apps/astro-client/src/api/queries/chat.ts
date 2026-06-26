@@ -112,7 +112,14 @@ export function useDeploymentChatConversations(deploymentId: string) {
   });
 }
 
-/** Agent self-reported config (system prompt + tools) for the inspector. */
+/** Bound on the agent/config request: the messaging proxy has no upstream
+ *  timeout, so an unresponsive sidecar would otherwise hang ~60s and 5xx. */
+const AGENT_CONFIG_TIMEOUT_MS = 10_000;
+
+/** Agent self-reported config (system prompt + tools) for the inspector.
+ *  Only runs when `enabled` (the caller gates on a ready agent), never retries
+ *  (a hung sidecar would just multiply 5xx), and fails fast via an abort
+ *  timeout so the proxy route doesn't accumulate long-hanging errors. */
 export function useDeploymentAgentConfig(
   deploymentId: string,
   enabled = true,
@@ -120,9 +127,15 @@ export function useDeploymentAgentConfig(
   const api = useApiClient();
   return useQuery({
     queryKey: chatKeys.agentConfig(deploymentId),
-    queryFn: () => api.getDeploymentAgentConfig(deploymentId),
+    queryFn: ({ signal }) =>
+      api.getDeploymentAgentConfig(
+        deploymentId,
+        AbortSignal.any([signal, AbortSignal.timeout(AGENT_CONFIG_TIMEOUT_MS)]),
+      ),
     enabled: enabled && !!deploymentId,
     staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 }
 

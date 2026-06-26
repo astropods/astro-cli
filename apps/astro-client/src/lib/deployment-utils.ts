@@ -1,6 +1,8 @@
 import type {
   AgentDeployment,
   AgentDeploymentSummary,
+  DeploymentRuntime,
+  DeploymentStatus,
   DeploymentStatusValue,
 } from "./api";
 
@@ -30,16 +32,62 @@ export function isChatListEligible(
 }
 
 /**
- * Whether the user can send messages in chat for this deployment.
- * Requires web messaging in spec and coarse status `active` when provided.
+ * The chat composer's high-level state, derived from the deployment's coarse
+ * status, its reason code, and the live messaging reachability. Drives both the
+ * composer UI (enabled / paused banner / etc.) and whether dependent reads like
+ * the inspector's agent/config fetch should run at all.
+ *
+ * - unknown: status hasn't loaded yet; we don't know if the agent is reachable.
+ * - ready: active + messaging reachable; the user can chat.
+ * - paused: intentionally stopped by the user.
+ * - error: deployment is in an error state.
+ * - starting: deploying / provisioning.
+ * - stopped: inactive / undeploying (not paused).
+ * - unreachable: cluster or messaging endpoint not reachable right now.
+ *
+ * Note on readiness layering: `starting` is derived from the deployment's
+ * coarse status (primary agent-workload readiness), whereas chat actually also
+ * needs the messaging sidecar. The messaging dependency is captured separately
+ * via `runtime.messaging_reachable` (active → unreachable when the sidecar
+ * isn't ready), so the two readiness signals don't silently collapse into one.
  */
-export function isChatEligible(
-  summary: AgentDeploymentSummary | null | undefined,
-  statusValue?: DeploymentStatusValue,
-): boolean {
-  if (!isChatListEligible(summary)) return false;
-  if (statusValue !== undefined && statusValue !== "active") return false;
-  return true;
+export type ChatComposerState =
+  | "unknown"
+  | "ready"
+  | "paused"
+  | "error"
+  | "starting"
+  | "stopped"
+  | "unreachable";
+
+export function deriveChatComposerState(
+  status: DeploymentStatus | null | undefined,
+  runtime: DeploymentRuntime | null | undefined,
+): ChatComposerState {
+  // Status not loaded yet — this is genuinely unknown. The composer treats it
+  // optimistically (renders enabled, no flicker), but dependent reads that must
+  // not fire against a possibly-unreachable agent (e.g. the inspector's
+  // agent/config) gate on a concrete state instead of this one.
+  if (!status) return "unknown";
+  if (status.reason === "cluster_unreachable") return "unreachable";
+
+  switch (status.value) {
+    case "active":
+      // The Service can exist (status active) while the messaging sidecar isn't
+      // actually ready; messaging_reachable is the live signal we have (Service
+      // present AND messaging sidecar container ready — see DeploymentRuntime).
+      return runtime?.messaging_reachable === false ? "unreachable" : "ready";
+    case "deploying":
+      return "starting";
+    case "error":
+      return "error";
+    case "inactive":
+      return status.reason === "paused" ? "paused" : "stopped";
+    case "undeploying":
+      return "stopped";
+    default:
+      return "ready";
+  }
 }
 
 export function isLaunchReady(deployment: AgentDeployment | null | undefined): boolean {

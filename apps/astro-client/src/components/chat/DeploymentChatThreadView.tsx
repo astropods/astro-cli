@@ -17,10 +17,14 @@ import { DeploymentChatHistoryScroll } from "@/components/chat/DeploymentChatHis
 import { DeploymentChatStreamingIndicator } from "@/components/chat/DeploymentChatStreamingIndicator";
 import { DeploymentChatText } from "@/components/chat/DeploymentChatText";
 import { useDeploymentChatViewport } from "@/components/chat/deployment-chat-streaming-context";
+import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { Button } from "@/components/ui/button";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import { deploymentPath } from "@/lib/routes";
+import type { ChatComposerState } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import {
   ActionBarPrimitive,
@@ -33,10 +37,15 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import {
+  AlertTriangle,
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
   CopyIcon,
+  ExternalLink,
+  Loader2,
+  Pause,
+  Power,
   SquareIcon,
 } from "lucide-react";
 import type { FC } from "react";
@@ -46,21 +55,24 @@ export function DeploymentChatThreadView({
   deploymentId,
   deployment,
   agentLabel,
-  composerDisabled,
-  disabledReason,
+  composerState,
 }: {
   account: string;
   deploymentId: string;
   deployment?: AgentDeploymentSummary;
   agentLabel: string;
-  composerDisabled?: boolean;
-  disabledReason?: string;
+  composerState: ChatComposerState;
 }) {
   const { conversationId, isStreaming, historyLoading, streamError } =
     useDeploymentChatViewport();
   const useTopTurnAnchor = isStreaming && !historyLoading;
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deploymentId);
+  // States where the agent is off / broken: dim the thread to signal it.
+  const dimThread =
+    composerState === "paused" ||
+    composerState === "stopped" ||
+    composerState === "error";
 
   return (
     <ThreadPrimitive.Root
@@ -89,7 +101,12 @@ export function DeploymentChatThreadView({
             />
           </AuiIf>
 
-          <div className="mb-6 flex flex-col gap-y-6 empty:hidden md:mb-8 md:gap-y-8">
+          <div
+            className={cn(
+              "mb-6 flex flex-col gap-y-6 empty:hidden md:mb-8 md:gap-y-8",
+              dimThread && "pointer-events-none opacity-60 saturate-50",
+            )}
+          >
             <ThreadPrimitive.Messages>
               {() => (
                 <ThreadMessage deploymentId={deploymentId} agentLabel={agentLabel} />
@@ -104,10 +121,12 @@ export function DeploymentChatThreadView({
                 {streamError}
               </p>
             ) : null}
-            {disabledReason ? (
-              <p className="px-1 text-xs text-muted-foreground">{disabledReason}</p>
-            ) : null}
-            <DeploymentComposer disabled={composerDisabled} agentLabel={agentLabel} />
+            <ComposerArea
+              state={composerState}
+              agentLabel={agentLabel}
+              account={account}
+              deploymentId={deploymentId}
+            />
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -168,6 +187,99 @@ const ThreadWelcome: FC<{
     </div>
   </div>
 );
+
+const TRANSIENT_NOTICE: Record<"starting" | "unreachable", string> = {
+  starting: "Agent is starting…",
+  unreachable: "The agent's messaging endpoint isn't reachable right now.",
+};
+
+const STATE_BANNER: Record<
+  "paused" | "error" | "stopped",
+  { Icon: typeof Pause; titleSuffix: string; body: string }
+> = {
+  paused: {
+    Icon: Pause,
+    titleSuffix: "is paused",
+    body: "You can't send messages until it's resumed.",
+  },
+  stopped: {
+    Icon: Power,
+    titleSuffix: "isn't running",
+    body: "Start the agent to chat.",
+  },
+  error: {
+    Icon: AlertTriangle,
+    titleSuffix: "is in an error state",
+    body: "Check the agent page for details.",
+  },
+};
+
+const ComposerArea: FC<{
+  state: ChatComposerState;
+  agentLabel: string;
+  account: string;
+  deploymentId: string;
+}> = ({ state, agentLabel, account, deploymentId }) => {
+  // "unknown" = status not loaded yet; stay optimistic so the composer doesn't
+  // flicker disabled on first paint for a healthy agent.
+  if (state === "ready" || state === "unknown") {
+    return <DeploymentComposer agentLabel={agentLabel} />;
+  }
+  if (state === "starting" || state === "unreachable") {
+    return (
+      <>
+        <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+          {state === "starting" ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : null}
+          {TRANSIENT_NOTICE[state]}
+        </p>
+        <DeploymentComposer disabled agentLabel={agentLabel} />
+      </>
+    );
+  }
+  return (
+    <ChatStateBanner
+      state={state}
+      agentLabel={agentLabel}
+      account={account}
+      deploymentId={deploymentId}
+    />
+  );
+};
+
+const ChatStateBanner: FC<{
+  state: "paused" | "error" | "stopped";
+  agentLabel: string;
+  account: string;
+  deploymentId: string;
+}> = ({ state, agentLabel, account, deploymentId }) => {
+  const { Icon, titleSuffix, body } = STATE_BANNER[state];
+  return (
+    <div className="flex items-center gap-3 rounded-(--composer-radius) border border-border bg-surface/70 p-3 pl-4">
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border",
+          state === "error" ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-foreground">
+          {agentLabel} {titleSuffix}
+        </p>
+        <p className="text-xs text-muted-foreground">{body}</p>
+      </div>
+      <Button asChild variant="outline" size="sm" className="shrink-0">
+        <Link to={deploymentPath(account, deploymentId)}>
+          <ExternalLink className="size-3.5" />
+          Open agent
+        </Link>
+      </Button>
+    </div>
+  );
+};
 
 const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
   disabled,

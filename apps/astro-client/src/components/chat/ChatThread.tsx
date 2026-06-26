@@ -4,7 +4,7 @@ import {
 } from "@/api/queries/deployments";
 import { DeploymentChatRuntimeProvider } from "@/components/chat/DeploymentChatRuntimeProvider";
 import { DeploymentChatThreadView } from "@/components/chat/DeploymentChatThreadView";
-import { isChatEligible } from "@/lib/deployment-utils";
+import { deriveChatComposerState } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
 export function ChatThread({
@@ -23,26 +23,7 @@ export function ChatThread({
   const { data: status } = useDeploymentStatus(deploymentId);
   const { data: runtimeData } = useDeploymentRuntime(deploymentId);
 
-  const statusValue = status?.value;
-  const messagingReachable = runtimeData?.runtime?.messaging_reachable ?? true;
-  const canSend =
-    isChatEligible(
-      deployment ?? {
-        id: deploymentId,
-        name: "",
-        build_id: "",
-        created_at: "",
-        messaging_web_configured: true,
-      },
-      statusValue,
-    ) && messagingReachable;
-
-  let disabledReason: string | undefined;
-  if (statusValue && statusValue !== "active") {
-    disabledReason = "Agent is not active yet.";
-  } else if (!messagingReachable) {
-    disabledReason = "Messaging endpoint is not reachable.";
-  }
+  const composerState = deriveChatComposerState(status, runtimeData?.runtime);
 
   const agentLabel =
     deployment?.display_name?.trim() ||
@@ -60,8 +41,7 @@ export function ChatThread({
         deploymentId={deploymentId}
         deployment={deployment}
         agentLabel={agentLabel}
-        composerDisabled={!canSend}
-        disabledReason={disabledReason}
+        composerState={composerState}
       />
     </DeploymentChatRuntimeProvider>
   );

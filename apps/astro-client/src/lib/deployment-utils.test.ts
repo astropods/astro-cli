@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  isChatEligible,
+  deriveChatComposerState,
   isChatListEligible,
   isLaunchReady,
   isPausedState,
   launchUnavailableMessage,
   getLaunchDisabledMessage,
 } from "./deployment-utils";
-import type { AgentDeployment, AgentDeploymentSummary } from "./api";
+import type {
+  AgentDeployment,
+  AgentDeploymentSummary,
+  DeploymentRuntime,
+  DeploymentStatus,
+  DeploymentStatusReason,
+  DeploymentStatusValue,
+} from "./api";
 
 // Most of the status-derivation logic that used to live in this module (the
 // fat mapDeploymentStatus / hasContainerMismatch helpers) moved server-side
@@ -43,14 +50,6 @@ describe("isChatListEligible", () => {
     expect(
       isChatListEligible({ ...baseSummary, messaging_web_configured: true }),
     ).toBe(true);
-  });
-});
-
-describe("isChatEligible", () => {
-  it("requires active status when provided", () => {
-    const summary = { ...baseSummary, messaging_web_configured: true };
-    expect(isChatEligible(summary, "deploying")).toBe(false);
-    expect(isChatEligible(summary, "active")).toBe(true);
   });
 });
 
@@ -124,6 +123,77 @@ describe("isPausedState", () => {
   });
   it("returns false for empty status", () => {
     expect(isPausedState(make({ status: "" }))).toBe(false);
+  });
+});
+
+describe("deriveChatComposerState", () => {
+  const status = (
+    value: DeploymentStatusValue,
+    reason: DeploymentStatusReason = "ready",
+  ): DeploymentStatus => ({ value, reason, details: "" });
+  const runtime = (messaging_reachable: boolean): DeploymentRuntime => ({
+    ready: 1,
+    replicas: 1,
+    messaging_reachable,
+  });
+
+  it("is 'unknown' while status has not loaded (not optimistic 'ready')", () => {
+    // Regression: returning 'ready' here let the inspector fire agent/config
+    // before we knew whether the agent was paused/unreachable.
+    expect(deriveChatComposerState(undefined, undefined)).toBe("unknown");
+    expect(deriveChatComposerState(null, runtime(true))).toBe("unknown");
+  });
+
+  it("is 'ready' when active and messaging is reachable", () => {
+    expect(deriveChatComposerState(status("active"), runtime(true))).toBe(
+      "ready",
+    );
+  });
+
+  it("is 'ready' when active and runtime has not loaded yet (optimistic only once status is known)", () => {
+    expect(deriveChatComposerState(status("active"), undefined)).toBe("ready");
+  });
+
+  it("is 'unreachable' when active but the messaging sidecar isn't reachable", () => {
+    expect(deriveChatComposerState(status("active"), runtime(false))).toBe(
+      "unreachable",
+    );
+  });
+
+  it("is 'unreachable' when the cluster is unreachable regardless of value", () => {
+    expect(
+      deriveChatComposerState(
+        status("active", "cluster_unreachable"),
+        runtime(true),
+      ),
+    ).toBe("unreachable");
+  });
+
+  it("is 'starting' while deploying", () => {
+    expect(
+      deriveChatComposerState(status("deploying", "provisioning"), undefined),
+    ).toBe("starting");
+  });
+
+  it("is 'error' on error", () => {
+    expect(deriveChatComposerState(status("error", "failed"), undefined)).toBe(
+      "error",
+    );
+  });
+
+  it("distinguishes paused from stopped on inactive via reason", () => {
+    expect(
+      deriveChatComposerState(status("inactive", "paused"), undefined),
+    ).toBe("paused");
+    expect(
+      deriveChatComposerState(status("inactive", "undeploying"), undefined),
+    ).toBe("stopped");
+  });
+
+  it("is 'stopped' while undeploying", () => {
+    expect(
+      deriveChatComposerState(status("undeploying", "undeploying"), undefined),
+    ).toBe("stopped");
   });
 });
 

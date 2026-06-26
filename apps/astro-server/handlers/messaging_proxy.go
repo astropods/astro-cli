@@ -35,6 +35,12 @@ const (
 	chatTitleMaxRunes          = 80
 	streamPersistMinInterval   = 500 * time.Millisecond
 	messagingProxyMaxSendBody  = 1 << 20
+	// Upstream deadline for non-stream messaging proxy requests (agent/config,
+	// conversation CRUD, history, sends). The proxy's upstream http.Client has
+	// no timeout of its own (it also carries long-lived SSE streams), so an
+	// unresponsive sidecar would otherwise hang until the client disconnects.
+	// Streaming requests are exempt — they keep the unbounded context.
+	messagingProxyUpstreamTimeout = 15 * time.Second
 )
 
 // ProxyDeploymentMessaging forwards deployment-scoped messaging API calls to the
@@ -124,6 +130,21 @@ func ProxyDeploymentMessaging(
 			detached, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), streamPersistTimeout)
 			defer cancel()
 			reqCtx = detached
+		} else if !isChatStream {
+			// Bound non-stream upstream calls so a stuck sidecar fails fast
+			// (504) instead of holding the connection open. Streams are exempt.
+			//
+			// NOTE: this exemption is keyed on the request *path* (isChatStream
+			// = conversations/{id}/stream), decided before the response is seen,
+			// whereas SSE responses are actually detected generically downstream
+			// via isEventStream(resp). Today that path is the only streamed one
+			// the client hits (sends are plain JSON POSTs), so the two agree. If
+			// the messaging sidecar ever exposes another long-lived SSE endpoint
+			// on a different path, this 15s deadline would truncate it — make the
+			// bound response-aware (or widen isChatStream) at that point.
+			timed, cancel := context.WithTimeout(reqCtx, messagingProxyUpstreamTimeout)
+			defer cancel()
+			reqCtx = timed
 		}
 
 		upstreamURL := target + upstreamPath
@@ -139,7 +160,11 @@ func ProxyDeploymentMessaging(
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Warn("messaging proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "upstream request failed"})
+			status := http.StatusBadGateway
+			if errors.Is(err, context.DeadlineExceeded) {
+				status = http.StatusGatewayTimeout
+			}
+			c.JSON(status, gin.H{"error": "upstream request failed"})
 			return
 		}
 		defer func() { _ = resp.Body.Close() }()

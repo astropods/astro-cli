@@ -22,6 +22,10 @@ import {
 } from "@/components/agent-detail/pods/PodTile";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
+import {
+  deriveChatComposerState,
+  type ChatComposerState,
+} from "@/lib/deployment-utils";
 import { deploymentPath } from "@/lib/routes";
 import { formatCompact, formatLatency } from "@/lib/format-utils";
 import { cn } from "@/lib/utils";
@@ -298,10 +302,52 @@ function OverviewTab({
   );
 }
 
+const SETTINGS_UNAVAILABLE_NOTICE: Record<
+  Exclude<ChatComposerState, "ready">,
+  string
+> = {
+  unknown: "Checking agent status…",
+  paused: "Agent is paused — resume it to view its configuration.",
+  stopped: "Agent isn't running.",
+  starting: "Agent is starting…",
+  error: "Agent is in an error state.",
+  unreachable: "Agent isn't reachable right now.",
+};
+
 function SettingsTab({ deploymentId }: { deploymentId: string }) {
-  const { data: config, isLoading, isError } = useDeploymentAgentConfig(deploymentId);
+  const { data: status } = useDeploymentStatus(deploymentId);
+  const { data: runtimeData, isError: runtimeError } =
+    useDeploymentRuntime(deploymentId);
+  const state = deriveChatComposerState(status, runtimeData?.runtime);
+  // Pessimistic gate: only fetch once BOTH the status and the runtime
+  // (messaging reachability) have *settled* AND the agent is ready. Deriving
+  // `ready` while either is still loading would fire agent/config against a
+  // possibly-paused/unreachable sidecar — the exact request this view exists to
+  // avoid. While loading, `state` is "ready" optimistically but `resolved` is
+  // false, so we surface the "unknown" notice rather than issuing the request.
+  //
+  // A runtime *error* counts as settled (not still-loading): the runtime read
+  // can persistently 503 (e.g. K8s briefly unreachable) while the agent itself
+  // is healthy, and pinning the tab on "Checking…" forever would be worse than
+  // attempting the (hardened, fail-fast) request as the old code always did.
+  const resolved = !!status && (!!runtimeData || runtimeError);
+  const ready = resolved && state === "ready";
+  // Only hit the messaging proxy (agent/config) when the agent is actually
+  // reachable — otherwise the proxy hangs and 5xxs on an unresponsive sidecar.
+  const { data: config, isLoading, isError } = useDeploymentAgentConfig(
+    deploymentId,
+    ready,
+  );
   const [expanded, setExpanded] = useState(false);
 
+  if (!ready) {
+    const noticeKey = state === "ready" ? "unknown" : state;
+    return (
+      <p className="text-body-sm text-muted-foreground">
+        {SETTINGS_UNAVAILABLE_NOTICE[noticeKey]}
+      </p>
+    );
+  }
   if (isLoading) {
     return <p className="text-body-sm text-muted-foreground">Loading configuration…</p>;
   }
