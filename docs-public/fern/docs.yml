@@ -95,6 +95,9 @@ navigation:
           - page: Serve a frontend from your agent
             path: docs/pages/frontend-agents.mdx
             icon: fa-duotone fa-window
+          - page: Connect to OAuth-protected MCP servers
+            path: docs/pages/mcp-oauth.mdx
+            icon: fa-duotone fa-plug-circle-bolt
           - page: Manually authorize requests
             path: docs/pages/manual-authz.mdx
             icon: fa-duotone fa-shield-check

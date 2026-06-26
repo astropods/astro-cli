@@ -1,0 +1,164 @@
+---
+title: Connect to OAuth-protected MCP servers
+subtitle: Give a Mastra agent tools from hosted MCP servers and complete the OAuth flow on deploy using your agent's public URL
+slug: mcp-oauth
+---
+
+Hosted [MCP](https://modelcontextprotocol.io) servers expose their tools over **OAuth 2.1**. A Mastra agent can use them directly: `MCPClient` pulls the tools, and `@mastra/mcp`'s `MCPOAuthClientProvider` handles dynamic client registration (RFC 7591) and PKCE for you.
+
+The one part that trips people up on a deployed agent is the **redirect URI**. After a user approves access, the OAuth provider sends their browser to that URL with an authorization code, so it has to resolve back to *your* agent. Locally that's `http://localhost`, but in production it needs to be your agent's public hostname. Astro injects exactly that as [`ASTRO_EXTERNAL_AGENT_URL`](#the-astro_external_agent_url-variable), so you can forge the redirect at runtime and complete the flow hands-free.
+
+This guide shows the full setup end to end.
+
+<Note>
+Examples use [`@mastra/mcp`](https://mastra.ai/reference/tools/mcp-client). The same principles apply to any MCP client, only the provider API differs.
+</Note>
+
+## 1. Connect the MCP client
+
+Point `MCPClient` at the hosted server's URL and give it an OAuth provider:
+
+```typescript agent/index.ts
+import { Agent } from "@mastra/core/agent";
+import { MCPClient, MCPOAuthClientProvider } from "@mastra/mcp";
+import { serve } from "@astropods/adapter-mastra";
+
+const provider = new MCPOAuthClientProvider({
+  redirectUrl, // resolved in step 2
+  clientMetadata: {
+    client_name: "My Agent",
+    redirect_uris: [redirectUrl],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none", // public client + PKCE
+  },
+  storage: tokenStore, // step 3
+});
+
+const mcp = new MCPClient({
+  servers: {
+    myServer: { url: new URL("https://mcp.example.com/mcp"), authProvider: provider },
+  },
+});
+
+const agent = new Agent({
+  name: "My Agent",
+  model: "anthropic/claude-sonnet-4-5",
+  instructions: "Answer questions using the connected tools.",
+  tools: await mcp.listTools(), // namespaced as <server>_<tool>
+});
+
+serve(agent);
+```
+
+`listTools()` skips servers that aren't authorized yet (it logs and moves on), so your agent still boots before any OAuth has happened.
+
+## 2. Forge the redirect from your agent's public URL
+
+The redirect URI must be a URL the browser can reach that lands back on your agent. Resolve it in priority order, explicit override, then the platform-injected public URL, then localhost for dev:
+
+```typescript
+const CALLBACK_PATH = "/oauth/callback";
+
+const redirectUrl =
+  process.env.OAUTH_REDIRECT_URL ??
+  (process.env.ASTRO_EXTERNAL_AGENT_URL
+    ? `${process.env.ASTRO_EXTERNAL_AGENT_URL.replace(/\/+$/, "")}${CALLBACK_PATH}`
+    : `http://localhost:${process.env.PORT ?? 8808}${CALLBACK_PATH}`);
+```
+
+`ASTRO_EXTERNAL_AGENT_URL` is injected **only when your agent exposes a public endpoint**. To get one, and to actually receive the redirect, declare a frontend interface and serve the callback path:
+
+```yaml astropods.yml
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    frontend: true    # public host + ASTRO_EXTERNAL_AGENT_URL, routes :443 -> :80
+    messaging: true   # keep the chat interface
+```
+
+Declaring `frontend: true` provisions a public HTTPS host, injects `ASTRO_EXTERNAL_AGENT_URL`, sets `PORT=80`, and routes the public host to your container on port 80. See [Serve a frontend from your agent](/frontend-agents) for the full topology.
+
+Serve the callback on `PORT` (80 in production) — the same process that runs `serve(agent)` can host a tiny HTTP listener:
+
+```typescript
+Bun.serve({
+  port: Number(process.env.PORT ?? 8808),
+  fetch: async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname !== CALLBACK_PATH) {
+      return new Response("ok", { status: 200 }); // 200 so ingress health checks pass
+    }
+    const code = url.searchParams.get("code");
+    // hand `code` to your provider/transport to finish the exchange, then 200
+    return new Response("Connected — you can close this tab.");
+  },
+});
+```
+
+<Warning>
+Binding `:80` requires root. In your `Dockerfile`, `EXPOSE 80` and do **not** switch to a non-root `USER`, a non-root process can't bind privileged ports and the bind will fail with `EACCES`.
+</Warning>
+
+```dockerfile Dockerfile
+# ... build ...
+EXPOSE 80
+CMD ["bun", "run", "agent/index.ts"]
+```
+
+With this in place, the OAuth redirect lands on `https://<your-host>/oauth/callback`, the ingress routes it to your container, and the flow completes **without a manual step**.
+
+<Note>
+On a messaging-only agent (no exposed endpoint), `ASTRO_EXTERNAL_AGENT_URL` is unset and the redirect falls back to localhost. The browser still shows the `?code=...` in its address bar, so you can complete the flow by pasting that code back to the agent — handy as a fallback, but the frontend setup above is what makes it automatic.
+</Note>
+
+## 3. Persist tokens in a writable store
+
+The production container filesystem is **read-only**, so a file-based token store is wiped on every restart. Persist OAuth tokens (and the dynamic client registration) in a writable store — a `redis` [knowledge](/get-started) entry is the simplest:
+
+```yaml astropods.yml
+knowledge:
+  cache:
+    provider: redis   # injects REDIS_URL
+```
+
+Implement `@mastra/mcp`'s `OAuthStorage` interface (`get` / `set` / `delete`) against Redis when `REDIS_URL` is present, and fall back to a local file in dev. Tokens then survive restarts, and the MCP SDK refreshes expired access tokens from the stored refresh token automatically.
+
+## 4. Drive consent from the conversation
+
+Because a deployed agent is headless, let it hand the user the authorization URL in chat. Expose a Mastra tool that starts the flow and returns the URL:
+
+```typescript
+import { createTool } from "@mastra/core/tools";
+import { z } from "zod";
+
+const connectService = createTool({
+  id: "connect_service",
+  description: "Begin connecting a tool provider via OAuth; returns a URL to open.",
+  inputSchema: z.object({ service: z.string() }),
+  execute: async ({ service }) => {
+    const authorizationUrl = await startAuthorization(service); // triggers provider redirect
+    return { authorizationUrl };
+  },
+});
+```
+
+The user opens the URL and approves; with the frontend callback from step 2 the connection completes on its own, and the agent re-lists that server's tools so they're immediately usable.
+
+## Gotchas with hosted MCP servers
+
+- **Resource indicator mismatch (`invalid_target`).** Per RFC 8707 the client sends a `resource` indicator. Some authorization servers reject the path-form resource their own Protected Resource Metadata advertises (e.g. `https://host/mcp`) and only accept the **origin** (`https://host`). If you hit `invalid_target`, pin the origin via the provider's `validateResourceURL` hook.
+- **Stale client registration (`Invalid redirect_uri`).** A client registered under one `redirect_uri` (say, localhost during dev) is rejected if reused under a different one (your public URL after you expose a frontend). Clear stored OAuth data before a fresh connect so a new registration uses the current `redirect_uri`.
+- **Instance restarts mid-flow.** If consent state lives only in memory, a restart between issuing the URL and receiving the code breaks completion. Rebuild it from the persisted PKCE verifier + client registration so the paste/redirect still works.
+
+## The `ASTRO_EXTERNAL_AGENT_URL` variable
+
+| Variable                   | Value                                  | When injected |
+| -------------------------- | -------------------------------------- | ------------- |
+| `ASTRO_EXTERNAL_AGENT_URL` | Public HTTPS URL, e.g. `https://<host>` | Only when the agent exposes a public endpoint (`agent.interfaces.frontend: true`) and a public host resolves. |
+| `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host | Always (deployed). Reachable from other components in the deployment, not the public internet. |
+| `PORT`                     | `80` on a frontend agent               | When `frontend: true`. |
+
+Use `ASTRO_EXTERNAL_AGENT_URL` whenever you need an absolute URL that points back at your agent from the outsidel, OAuth redirects, webhook callbacks, share links. It's absent in local dev and on messaging-only agents, so always provide a localhost fallback.
