@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 import { useDeploymentChat } from "@/hooks/use-deployment-chat";
 import { chatMessagesToThreadMessages } from "@/lib/messaging/chat-message-adapter";
+import { dictationAdapter } from "@/lib/chat/dictation";
 
 const convertMessage = (message: ThreadMessageLike) => message;
 
@@ -63,6 +64,10 @@ export function DeploymentChatRuntimeProvider({
     [sendMessage],
   );
 
+  // Browser-native dictation (Web Speech API) transcribes mic input into the
+  // composer as text; the agent receives a normal text message. The shared
+  // singleton is the same gate the composer uses to show the mic button, so the
+  // two can't diverge; undefined (e.g. unsupported / SSR) registers no adapter.
   const runtime = useExternalStoreRuntime({
     messages: threadMessages,
     isRunning: threadIsRunning,
@@ -72,6 +77,7 @@ export function DeploymentChatRuntimeProvider({
       cancelStream();
     },
     convertMessage,
+    adapters: dictationAdapter ? { dictation: dictationAdapter } : undefined,
   });
 
   const viewportState = useMemo(

@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentPath } from "@/lib/routes";
+import { isDictationActive, useDictationSupported } from "@/lib/chat/dictation";
 import type { ChatComposerState } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import {
@@ -35,6 +36,8 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
+  useComposer,
+  useComposerRuntime,
 } from "@assistant-ui/react";
 import {
   AlertTriangle,
@@ -44,11 +47,12 @@ import {
   CopyIcon,
   ExternalLink,
   Loader2,
+  Mic,
   Pause,
   Power,
   SquareIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import { useEffect, type FC } from "react";
 
 export function DeploymentChatThreadView({
   account,
@@ -308,39 +312,95 @@ const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
   </ComposerPrimitive.Root>
 );
 
-const ComposerAction: FC<{ disabled?: boolean }> = ({ disabled }) => (
-  <div className="aui-composer-action-wrapper relative flex items-center justify-end">
-    <AuiIf condition={(s) => !s.thread.isRunning}>
-      <ComposerPrimitive.Send asChild>
-        <TooltipIconButton
-          tooltip="Send message"
-          side="bottom"
-          type="button"
-          variant="default"
-          size="icon"
-          disabled={disabled}
-          className="aui-composer-send size-8 rounded-full"
-          aria-label="Send message"
-        >
-          <ArrowUpIcon className="aui-composer-send-icon size-4" />
-        </TooltipIconButton>
-      </ComposerPrimitive.Send>
-    </AuiIf>
-    <AuiIf condition={(s) => s.thread.isRunning}>
-      <ComposerPrimitive.Cancel asChild>
-        <ChatButton
-          type="button"
-          variant="default"
-          size="icon"
-          className="aui-composer-cancel size-8 rounded-full"
-          aria-label="Stop generating"
-        >
-          <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-        </ChatButton>
-      </ComposerPrimitive.Cancel>
-    </AuiIf>
-  </div>
-);
+// Mic button driven by assistant-ui's dictation adapter: clicking toggles
+// browser-native speech-to-text, which streams the transcript into the composer
+// input. No client-side model/VAD — the browser handles capture + recognition.
+const DictationButton: FC<{ disabled?: boolean }> = ({ disabled }) => {
+  const composer = useComposerRuntime();
+  const dictation = useComposer((c) => c.dictation);
+  const active = isDictationActive(dictation);
+  // Stop capturing if the button unmounts (agent goes paused/stopped/error,
+  // conversation/agent switch, panel close) — otherwise the dictation session
+  // lives on the still-mounted runtime with no UI to stop it, leaving the mic
+  // live and streaming audio to the browser's speech service.
+  useEffect(
+    () => () => {
+      composer.stopDictation();
+    },
+    [composer],
+  );
+  // Same hazard via a different path: in starting/unreachable the composer is
+  // disabled but the button stays mounted (no unmount cleanup), so the user
+  // can't click to stop. Stop the live session as soon as it goes disabled.
+  useEffect(() => {
+    if (disabled && active) composer.stopDictation();
+  }, [disabled, active, composer]);
+  return (
+    <TooltipIconButton
+      // Privacy disclosure: the Web Speech API may send captured audio to the
+      // browser vendor's speech service (e.g. Chrome → Google) for transcription.
+      tooltip={
+        active
+          ? "Stop dictation"
+          : "Dictate — audio is transcribed by your browser's speech service"
+      }
+      side="bottom"
+      type="button"
+      variant="ghost"
+      size="icon"
+      disabled={disabled}
+      className={cn(
+        "aui-composer-mic size-8 rounded-full",
+        active && "text-primary",
+      )}
+      aria-label="Dictate"
+      aria-pressed={active}
+      onClick={() =>
+        active ? composer.stopDictation() : composer.startDictation()
+      }
+    >
+      <Mic className={cn("size-4", active && "animate-pulse")} />
+    </TooltipIconButton>
+  );
+};
+
+const ComposerAction: FC<{ disabled?: boolean }> = ({ disabled }) => {
+  const dictationSupported = useDictationSupported();
+  return (
+    <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-1">
+      {dictationSupported ? <DictationButton disabled={disabled} /> : null}
+      <AuiIf condition={(s) => !s.thread.isRunning}>
+        <ComposerPrimitive.Send asChild>
+          <TooltipIconButton
+            tooltip="Send message"
+            side="bottom"
+            type="button"
+            variant="default"
+            size="icon"
+            disabled={disabled}
+            className="aui-composer-send size-8 rounded-full"
+            aria-label="Send message"
+          >
+            <ArrowUpIcon className="aui-composer-send-icon size-4" />
+          </TooltipIconButton>
+        </ComposerPrimitive.Send>
+      </AuiIf>
+      <AuiIf condition={(s) => s.thread.isRunning}>
+        <ComposerPrimitive.Cancel asChild>
+          <ChatButton
+            type="button"
+            variant="default"
+            size="icon"
+            className="aui-composer-cancel size-8 rounded-full"
+            aria-label="Stop generating"
+          >
+            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+          </ChatButton>
+        </ComposerPrimitive.Cancel>
+      </AuiIf>
+    </div>
+  );
+};
 
 const MessageError: FC = () => (
   <MessagePrimitive.Error>
