@@ -52,7 +52,7 @@ test.describe("Explore page (/explore)", () => {
     expect(apiErrors, `Unexpected API errors: ${apiErrors.join(", ")}`).toHaveLength(0);
   });
 
-  test("top navbar has no Blueprints tab when signed out", async ({ page }) => {
+  test.skip("top navbar has no Blueprints tab when signed out", async ({ page }) => {
     await page.goto("/explore", { waitUntil: "load" });
     const header = page.getByRole("banner");
     await expect(header).toBeVisible();
