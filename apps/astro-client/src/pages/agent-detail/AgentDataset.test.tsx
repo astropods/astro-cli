@@ -31,6 +31,7 @@ function makeDatasetResponse(
     grade: "B",
     next_grade: "A",
     next_grade_progress: 0.6,
+    cases_to_next_grade: 100,
     ...overrides,
   };
 }
@@ -572,12 +573,47 @@ describe("review queue view", () => {
     expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Trace 1 of 1")).toBeInTheDocument();
+    expect(screen.getAllByText("plain input").length).toBeGreaterThan(0);
+    expect(screen.getByText("answer")).toBeInTheDocument();
     expect(
       Array.from(document.querySelectorAll("pre")).some((pre) =>
         pre.textContent?.includes("agent **answer**"),
       ),
     ).toBe(false);
+    expect(screen.getByText("answer").closest(".dp-scroll")).toHaveClass(
+      "dp-scroll",
+      "overflow-y-auto",
+    );
+    expect(
+      screen.getByRole("button", { name: /resize user content/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /resize cruise line content/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText("No signal")).toBeInTheDocument();
+  });
+
+  it("lets the dataset page own review detail scrolling", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "plain input",
+          output: "agent answer",
+          sentiment: "",
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    await screen.findByText("agent answer");
+    const detail = document.querySelector("[data-review-queue-detail]");
+    expect(detail).toBeInTheDocument();
+    expect(detail).not.toHaveClass("dp-scroll", "overflow-y-auto");
+    expect(document.querySelector("[data-review-queue-trace-scroll]")).toBeNull();
   });
 
   it("opens the full trace panel from the review queue detail header", async () => {
@@ -1293,9 +1329,9 @@ describe("dataset view", () => {
     await waitFor(() => {
       expect(screen.getAllByLabelText(/grade b/i).length).toBeGreaterThan(0);
     });
-    expect(screen.getAllByText("dep-test-deployment").length).toBeGreaterThan(
-      0,
-    );
+    const datasetName = screen.getAllByText("dep-test-deployment")[0];
+    expect(datasetName).toBeInTheDocument();
+    expect(datasetName).toHaveClass("font-mono", "text-mono-xs");
     expect(screen.getByText(/composition · 42/i)).toBeInTheDocument();
     expect(screen.getByText(/30 good/)).toBeInTheDocument();
     expect(screen.getByText(/12 bad/)).toBeInTheDocument();

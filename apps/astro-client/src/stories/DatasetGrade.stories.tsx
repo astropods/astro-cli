@@ -29,6 +29,7 @@ export const LabelWithProgress: Story = {
     itemCount: 24,
     nextGrade: "B",
     nextGradeProgress: 0.68,
+    casesToNextGrade: 12,
   },
 };
 

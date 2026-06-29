@@ -15,6 +15,7 @@ const twMerge = extendTailwindMerge({
         "text-label",
         "text-mono-md",
         "text-mono-sm",
+        "text-mono-xs",
       ],
     },
   },

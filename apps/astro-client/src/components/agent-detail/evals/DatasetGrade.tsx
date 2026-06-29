@@ -8,6 +8,7 @@ type DatasetGradeProps = {
   itemCount?: number;
   nextGrade?: string;
   nextGradeProgress?: number;
+  casesToNextGrade?: number | null;
   className?: string;
 };
 
@@ -70,12 +71,20 @@ function datasetGradeTone(grade: string): DatasetGradeTone {
 }
 
 function datasetGradeHeadline(grade: string, itemCount: number): string {
-  if (itemCount === 0) return "Start grading";
+  if (itemCount === 0) return "";
   return GRADE_HEADLINE[grade.toUpperCase()] ?? "";
 }
 
 function clampProgress(progress: number): number {
   return Math.max(0, Math.min(1, progress));
+}
+
+function nextGradeLabel(
+  casesToNextGrade: number | null | undefined,
+  nextGrade: string,
+): string {
+  if (casesToNextGrade == null) return `Keep grading to ${nextGrade}`;
+  return `at least ${casesToNextGrade.toLocaleString()} mixed labels to ${nextGrade}`;
 }
 
 export function DatasetGrade({
@@ -84,6 +93,7 @@ export function DatasetGrade({
   itemCount = 0,
   nextGrade = "",
   nextGradeProgress = 0,
+  casesToNextGrade,
   className,
 }: DatasetGradeProps) {
   const toneClass = GRADE_CLASS[datasetGradeTone(grade)];
@@ -96,7 +106,7 @@ export function DatasetGrade({
     return (
       <div className={className}>
         <div className="font-mono text-label uppercase text-faint-foreground">
-          Dataset grade
+          Dataset reliability
         </div>
         <div
           className={cn(
@@ -107,11 +117,13 @@ export function DatasetGrade({
         >
           {grade}
         </div>
-        <div
-          className={cn("mt-2.5 text-body font-semibold", toneClass.foreground)}
-        >
-          {headline}
-        </div>
+        {headline && (
+          <div
+            className={cn("mt-2.5 text-body font-semibold", toneClass.foreground)}
+          >
+            {headline}
+          </div>
+        )}
         {showProgress && (
           <div className="mt-3 flex items-center gap-2">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
@@ -124,7 +136,7 @@ export function DatasetGrade({
               />
             </div>
             <span className="whitespace-nowrap font-mono text-mono-sm text-muted-foreground">
-              {Math.round(progress * 100)}% to {nextGrade}
+              {nextGradeLabel(casesToNextGrade, nextGrade)}
             </span>
           </div>
         )}

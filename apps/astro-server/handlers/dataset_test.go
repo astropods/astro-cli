@@ -458,6 +458,7 @@ func TestGetEvalDataset_OK(t *testing.T) {
 		Grade             string  `json:"grade"`
 		NextGrade         string  `json:"next_grade"`
 		NextGradeProgress float64 `json:"next_grade_progress"`
+		CasesToNextGrade  *int    `json:"cases_to_next_grade"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -477,6 +478,9 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	}
 	if resp.NextGradeProgress != 1 {
 		t.Errorf("next_grade_progress = %f, want 1", resp.NextGradeProgress)
+	}
+	if resp.CasesToNextGrade != nil {
+		t.Errorf("cases_to_next_grade = %v, want nil", *resp.CasesToNextGrade)
 	}
 }
 
@@ -498,6 +502,7 @@ func TestGetEvalDataset_BelowA(t *testing.T) {
 		Grade             string  `json:"grade"`
 		NextGrade         string  `json:"next_grade"`
 		NextGradeProgress float64 `json:"next_grade_progress"`
+		CasesToNextGrade  *int    `json:"cases_to_next_grade"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -510,6 +515,9 @@ func TestGetEvalDataset_BelowA(t *testing.T) {
 	}
 	if resp.NextGradeProgress <= 0 || resp.NextGradeProgress >= 1 {
 		t.Errorf("next_grade_progress = %f, want strictly between 0 and 1", resp.NextGradeProgress)
+	}
+	if resp.CasesToNextGrade == nil || *resp.CasesToNextGrade != 2 {
+		t.Fatalf("cases_to_next_grade = %v, want 2", resp.CasesToNextGrade)
 	}
 }
 

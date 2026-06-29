@@ -234,6 +234,7 @@ body {
 
 .dp-scroll::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 .dp-scroll::-webkit-scrollbar-track {

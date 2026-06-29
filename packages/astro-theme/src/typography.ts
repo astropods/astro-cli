@@ -70,6 +70,11 @@ export const typography = {
     lineHeight: "1",
     letterSpacing: "0.07em",
   },
+  "mono-xs": {
+    size: "0.6875rem",
+    lineHeight: "1rem",
+    letterSpacing: "0",
+  },
 } as const satisfies Record<string, TypeVariant>;
 
 export type TypeVariantName = keyof typeof typography;

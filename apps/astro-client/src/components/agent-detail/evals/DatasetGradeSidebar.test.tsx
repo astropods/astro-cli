@@ -14,6 +14,7 @@ function summary(overrides: Partial<EvalDatasetResponse> = {}): EvalDatasetRespo
     grade: "A",
     next_grade: "",
     next_grade_progress: 1,
+    cases_to_next_grade: null,
     ...overrides,
   };
 }
@@ -21,6 +22,7 @@ function summary(overrides: Partial<EvalDatasetResponse> = {}): EvalDatasetRespo
 describe("DatasetGradeSidebar", () => {
   it("renders the grade letter and headline for an A dataset", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
+    expect(screen.getByText(/dataset reliability/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/grade a/i)).toBeInTheDocument();
     expect(screen.getAllByText(/dataset looks healthy/i).length).toBeGreaterThan(0);
   });
@@ -57,7 +59,7 @@ describe("DatasetGradeSidebar", () => {
         })}
       />,
     );
-    expect(screen.getAllByText(/start grading/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/start grading/i)).toHaveLength(1);
     expect(
       screen.getByText(
         /label recent traces as good or bad\. these labels determine how reliable this dataset is\./i,
@@ -67,20 +69,25 @@ describe("DatasetGradeSidebar", () => {
 
   it("hides the progress bar when already at A", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
-    expect(screen.queryByText(/% to /i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/more to/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/keep grading to/i)).not.toBeInTheDocument();
   });
 
-  it("shows '{N}% to {next_grade}' when there is a next grade", () => {
+  it("shows how many more judged cases are needed for the next grade", () => {
     render(
       <DatasetGradeSidebar
         summary={summary({
+          item_count: 3,
+          good_count: 3,
+          bad_count: 0,
           grade: "F",
           next_grade: "D",
-          next_grade_progress: 0.42,
+          next_grade_progress: 0.28,
+          cases_to_next_grade: 21,
         })}
       />,
     );
-    expect(screen.getByText(/42% to D/)).toBeInTheDocument();
+    expect(screen.getByText(/at least 21 mixed labels to D/)).toBeInTheDocument();
   });
 
   it("shows low-volume guidance with the remaining case count", () => {
@@ -129,6 +136,17 @@ describe("DatasetGradeSidebar", () => {
     expect(screen.getByText(/this dataset is a reliable signal/i)).toBeInTheDocument();
   });
 
+  it("places guidance after the composition summary", () => {
+    render(<DatasetGradeSidebar summary={summary()} />);
+    const composition = screen.getByText(/composition · 100/i);
+    const guidanceTitle = screen.getAllByText(/dataset looks healthy/i)[1];
+
+    expect(
+      composition.compareDocumentPosition(guidanceTitle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("shows noise-reduction guidance when too many traces are labeled bad", () => {
     render(
       <DatasetGradeSidebar
@@ -145,7 +163,7 @@ describe("DatasetGradeSidebar", () => {
     expect(screen.getByText(/reduce noise/i)).toBeInTheDocument();
     expect(screen.getByText(/40% of traces are labeled bad/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/add good examples or remove bad labels that don't reflect real failures/i),
+      screen.getByText(/add good responses or remove bad labels that don't reflect real failures/i),
     ).toBeInTheDocument();
   });
 

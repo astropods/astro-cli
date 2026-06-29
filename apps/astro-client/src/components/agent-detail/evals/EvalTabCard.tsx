@@ -44,7 +44,9 @@ export function EvalTabCardHeader({
         <span className="flex-none text-body font-semibold text-foreground">
           {label}
         </span>
-        <span className="truncate text-body text-muted-foreground">{datasetName}</span>
+        <span className="truncate font-mono text-mono-xs text-muted-foreground">
+          {datasetName}
+        </span>
       </div>
       {children && (
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">

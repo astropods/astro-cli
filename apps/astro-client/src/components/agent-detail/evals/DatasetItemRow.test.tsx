@@ -109,17 +109,17 @@ describe("DatasetItemRow expanded", () => {
     expect(screen.getByText("Expected output")).toBeInTheDocument();
   });
 
-  it("shows the Good example label with verdict = good", () => {
+  it("shows the Good response label with verdict = good", () => {
     renderRow({ isOpen: true });
-    expect(screen.getByText("Good example")).toBeInTheDocument();
+    expect(screen.getByText("Good response")).toBeInTheDocument();
   });
 
-  it("shows the Bad example label with verdict = bad", () => {
+  it("shows the Bad response label with verdict = bad", () => {
     renderRow({
       isOpen: true,
       item: makeItem({ metadata: { verdict: -1 } }),
     });
-    expect(screen.getByText("Bad example")).toBeInTheDocument();
+    expect(screen.getByText("Bad response")).toBeInTheDocument();
   });
 
   it("aria-expanded reflects open state", () => {
@@ -152,4 +152,5 @@ describe("DatasetItemRow content rendering", () => {
     expect(container).not.toBeNull();
     expect(within(container!).getAllByText(/question/i).length).toBeGreaterThan(0);
   });
+
 });

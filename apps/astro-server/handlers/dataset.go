@@ -37,6 +37,7 @@ type evalDatasetSummary struct {
 	Grade             string  `json:"grade"`
 	NextGrade         string  `json:"next_grade"`
 	NextGradeProgress float64 `json:"next_grade_progress"`
+	CasesToNextGrade  *int    `json:"cases_to_next_grade"`
 }
 
 // loadDataset fetches the dataset row for a deployment and writes the matching
@@ -71,6 +72,7 @@ func summaryFromRow(ds *evaldatasetstore.EvalDataset) evalDatasetSummary {
 		Grade:             evaldataset.Grade(ds.GoodCount, ds.BadCount),
 		NextGrade:         nextGrade,
 		NextGradeProgress: nextGradeProgress,
+		CasesToNextGrade:  evaldataset.CasesToNextGrade(ds.GoodCount, ds.BadCount),
 	}
 }
 

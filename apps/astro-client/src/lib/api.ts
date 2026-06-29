@@ -977,6 +977,8 @@ export interface EvalDatasetResponse {
   next_grade: string;
   /** Progress within the current grade band toward `next_grade`, 0..1. */
   next_grade_progress: number;
+  /** Additional judged cases needed for `next_grade`; null when there is no next grade. */
+  cases_to_next_grade: number | null;
 }
 
 /** Per-item metadata persisted on Langfuse dataset items. `verdict` is a

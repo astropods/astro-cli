@@ -41,7 +41,7 @@ function gradeGuidance(summary: EvalDatasetResponse) {
     case badShare > HIGH_BAD_SHARE:
       return {
         title: "Reduce noise",
-        body: `${badPct}% of traces are labeled bad. Add good examples or remove bad labels that don't reflect real failures.`,
+        body: `${badPct}% of traces are labeled bad. Add good responses or remove bad labels that don't reflect real failures.`,
       };
     case summary.grade.toUpperCase() === "A":
       return {
@@ -62,21 +62,19 @@ function GradeGuidanceCard({ summary }: { summary: EvalDatasetResponse }) {
   const guidance = gradeGuidance(summary);
 
   return (
-    <Card className="rounded-md border-primary/35 bg-primary/10 p-4 text-foreground shadow-sm">
-      <div className="flex items-start gap-3">
+    <Card className="rounded-md border-primary/35 bg-primary/10 p-3 text-foreground shadow-sm">
+      <div className="flex items-center gap-2">
         <Lightbulb
           aria-hidden
-          className="mt-0.5 size-4 flex-none text-primary"
+          className="size-3.5 flex-none text-primary"
         />
-        <div className="min-w-0">
-          <div className="text-body-sm font-semibold text-foreground">
-            {guidance.title}
-          </div>
-          <p className="mt-2 text-body-sm leading-6 text-foreground">
-            {guidance.body}
-          </p>
+        <div className="min-w-0 text-body-sm font-semibold leading-5 text-foreground">
+          {guidance.title}
         </div>
       </div>
+      <p className="mt-1.5 text-body-sm leading-5 text-foreground">
+        {guidance.body}
+      </p>
     </Card>
   );
 }
@@ -93,6 +91,7 @@ export function DatasetGradeSidebar({
     grade,
     next_grade,
     next_grade_progress,
+    cases_to_next_grade,
   } = summary;
   const totalJudged = good_count + bad_count;
   const goodPct = totalJudged > 0 ? (good_count / totalJudged) * 100 : 0;
@@ -106,8 +105,8 @@ export function DatasetGradeSidebar({
         itemCount={item_count}
         nextGrade={next_grade}
         nextGradeProgress={next_grade_progress}
+        casesToNextGrade={cases_to_next_grade}
       />
-      <GradeGuidanceCard summary={summary} />
 
       <div>
         <SectionLabel>Composition · {item_count.toLocaleString()}</SectionLabel>
@@ -130,6 +129,8 @@ export function DatasetGradeSidebar({
           </span>
         </div>
       </div>
+
+      <GradeGuidanceCard summary={summary} />
     </aside>
   );
 }

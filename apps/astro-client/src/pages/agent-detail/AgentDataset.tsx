@@ -75,7 +75,7 @@ export default function AgentDataset() {
   return (
     <div ref={outerRef} className="relative z-10 flex flex-1 overflow-hidden pt-16">
       <div
-        className="relative z-10 min-h-0 flex-1 overflow-y-auto transition-[padding] duration-300 ease-out"
+        className="dp-scroll relative z-10 min-h-0 flex-1 overflow-y-auto transition-[padding] duration-300 ease-out"
         style={{
           paddingRight: panelOpen && !isFullWidth ? `${PANEL_WIDTH_REM}rem` : undefined,
           maskImage: "linear-gradient(to bottom, transparent, black 2rem)",
@@ -99,7 +99,7 @@ export default function AgentDataset() {
           </div>
 
           <div className="mb-5 flex flex-col gap-3 border-b border-border @[680px]/eval-page:flex-row @[680px]/eval-page:items-end @[680px]/eval-page:justify-between">
-            <div className="-mb-px flex min-w-0 items-end gap-6 overflow-x-auto">
+            <div className="dp-scroll -mb-px flex min-w-0 items-end gap-6 overflow-x-auto">
               <span
                 ref={reviewQueueTargetRef}
                 data-eval-review-queue-target

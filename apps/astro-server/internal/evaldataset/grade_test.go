@@ -67,3 +67,35 @@ func TestNextGradeProgress(t *testing.T) {
 		})
 	}
 }
+
+func TestCasesToNextGrade(t *testing.T) {
+	cases := []struct {
+		name      string
+		good, bad int
+		want      *int
+	}{
+		{"empty", 0, 0, nil},
+		{"at A", 90, 10, nil},
+		{"tiny all good to D", 3, 0, intPtr(21)},
+		{"large all good to D", 100, 0, intPtr(2)},
+		{"rounding dip before stable reach", 33, 4, intPtr(23)},
+		{"B floor to A", 80, 20, intPtr(100)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := CasesToNextGrade(c.good, c.bad)
+			switch {
+			case got == nil && c.want == nil:
+				return
+			case got == nil || c.want == nil:
+				t.Fatalf("CasesToNextGrade(%d,%d) = %v, want %v", c.good, c.bad, got, c.want)
+			case *got != *c.want:
+				t.Fatalf("CasesToNextGrade(%d,%d) = %d, want %d", c.good, c.bad, *got, *c.want)
+			}
+		})
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}

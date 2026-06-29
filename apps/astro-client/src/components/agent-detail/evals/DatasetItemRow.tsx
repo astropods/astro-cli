@@ -121,7 +121,7 @@ function ExpandedPreview({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  The agent output captured with this example, kept as the reference for
+                  The agent output captured with this response, kept as the reference for
                   evaluations. Its verdict marks whether it's a good answer to reward or a bad
                   one to catch. Future agent responses are scored against it.
                 </TooltipContent>
@@ -134,7 +134,7 @@ function ExpandedPreview({
                   verdict === "good" ? "text-success" : "text-destructive",
                 )}
               >
-                {verdict === "good" ? "Good example" : "Bad example"}
+                {verdict === "good" ? "Good response" : "Bad response"}
                 {verdict === "good" ? (
                   <ThumbsUp aria-hidden className="size-3.5" />
                 ) : (

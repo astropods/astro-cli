@@ -89,6 +89,10 @@ const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<string, DatasetJudgmentVerdict> = {
 
 const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
+// Let the dataset page own vertical scrolling; resized sections still scroll
+// once the user gives them an explicit height.
+const REVIEW_QUEUE_CONTENT_CLASS =
+  "dp-scroll overflow-y-auto overscroll-contain";
 
 type QuickUndoJudgment = {
   traceId: string;
@@ -354,12 +358,12 @@ export function ReviewQueueView({
 
   return (
     <>
-      <EvalTabCard className="@container/review-card min-h-0 md:h-[calc(100dvh-20rem)] md:max-h-[720px] md:min-h-96">
+      <EvalTabCard className="@container/review-card min-h-0">
         <EvalTabCardHeader label="Review queue" datasetName={summary.dataset_name}>
           {baselineStatus && <BaselineStatusBadge status={baselineStatus} />}
         </EvalTabCardHeader>
         <EvalTabCardBody className="flex-col @[760px]/review-card:flex-row">
-          <aside className="flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card dark:bg-surface @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
+          <aside className="dp-scroll flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card dark:bg-surface @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
             <ReviewQueueList
               items={items}
               selectedId={selectedItem?.trace_id ?? null}
@@ -824,18 +828,25 @@ function ReviewQueueDetail({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 @[520px]/review-card:p-6">
+      <div
+        data-review-queue-detail
+        className="min-h-0 flex-1 p-4 @[520px]/review-card:p-6"
+      >
         <div className="mx-auto flex max-w-3xl flex-col gap-5">
           <ContentSection
             label="User"
             content={item.input}
             icon={<UserSectionIcon />}
             mode="pretty"
+            contentClassName={REVIEW_QUEUE_CONTENT_CLASS}
+            resizableContent
           />
           <ContentSection
             label={agentLabel}
             content={item.output}
             mode="pretty"
+            contentClassName={REVIEW_QUEUE_CONTENT_CLASS}
+            resizableContent
             icon={
               <BlueprintIdentity
                 account={account}
