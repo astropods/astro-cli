@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { formatTimeAgo } from "@/lib/time-format";
@@ -352,11 +352,48 @@ function EventRow({ event, isLast }: { event: K8sEvent; isLast: boolean }) {
           {event.count > 1 && ` ×${event.count}`}
         </span>
         {event.guidance && <p className="text-body-sm text-foreground/80">{event.guidance}</p>}
-        {/* Show the full K8s message for warnings (the scheduling detail is the
-            useful part and is often longer than two lines); clamp the noisier
-            Normal lifecycle events. */}
-        <p className={cn("text-body-sm text-muted-foreground", !isWarning && "line-clamp-2")}>{event.message}</p>
+        <EventMessage message={event.message} />
       </div>
+    </div>
+  );
+}
+
+// Event messages (especially K8s scheduling/error detail) can run long. Clamp to
+// a few lines and reveal a "Show more" toggle only when the text actually
+// overflows, so a long error is fully readable without a permanently expanded list.
+function EventMessage({ message }: { message: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Measured while clamped (initial render), so scrollHeight > clientHeight
+    // means the message is truncated and worth offering a toggle for.
+    setOverflowing(el.scrollHeight > el.clientHeight + 1);
+  }, [message]);
+
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <p
+        ref={ref}
+        className={cn(
+          "text-body-sm text-muted-foreground",
+          !expanded && "line-clamp-1",
+        )}
+      >
+        {message}
+      </p>
+      {(overflowing || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-mono-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
     </div>
   );
 }

@@ -3239,7 +3239,7 @@ func humanizeDeploymentEvent(reason string) (title, guidance string, ok bool) {
 
 	// Stuck / error states.
 	case "FailedScheduling":
-		return "Deployment stuck — needs action",
+		return "Action required. Deployment stuck",
 			"This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure → Advanced sizing and redeploy.",
 			true
 	case "FailedMount", "FailedAttachVolume":

@@ -40,7 +40,7 @@ describe("PodDetailPanel — Events tab", () => {
         count: 9,
         first_timestamp: "2026-06-29T00:00:00Z",
         last_timestamp: "2026-06-29T00:05:00Z",
-        title: "Deployment stuck — needs action",
+        title: "Action required. Deployment stuck",
         guidance:
           "This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure → Advanced sizing and redeploy.",
       },
@@ -52,7 +52,7 @@ describe("PodDetailPanel — Events tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Events" }));
 
     // Server title leads as the headline…
-    expect(await screen.findByText("Deployment stuck — needs action")).toBeInTheDocument();
+    expect(await screen.findByText("Action required. Deployment stuck")).toBeInTheDocument();
     // …the raw reason is still shown (as a secondary tag)…
     expect(screen.getByText(/FailedScheduling/)).toBeInTheDocument();
     // …the server guidance is rendered…
@@ -83,7 +83,7 @@ describe("PodDetailPanel — Events tab", () => {
     // Unmapped reason is the headline, verbatim…
     expect(await screen.findByText("Unhealthy")).toBeInTheDocument();
     // …and no humanized guidance is shown.
-    expect(screen.queryByText("Deployment stuck — needs action")).not.toBeInTheDocument();
+    expect(screen.queryByText("Action required. Deployment stuck")).not.toBeInTheDocument();
     expect(screen.queryByText(/Advanced sizing/)).not.toBeInTheDocument();
   });
 });
