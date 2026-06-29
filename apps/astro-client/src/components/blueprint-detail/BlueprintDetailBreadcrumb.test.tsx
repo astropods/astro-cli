@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { screen, cleanup } from "@testing-library/react";
-import { renderWithProviders } from "@/test/test-utils";
+import { renderRoute, renderWithProviders, mockAuthContext } from "@/test/test-utils";
 import { BlueprintDetailBreadcrumb } from "./BlueprintDetailBreadcrumb";
 
 afterEach(cleanup);
@@ -35,5 +35,17 @@ describe("BlueprintDetailBreadcrumb", () => {
     const exploreLink = screen.getByRole("link", { name: /explore/i });
     expect(exploreLink).toHaveAttribute("href", "/explore");
     expect(screen.queryByText("Blueprints")).not.toBeInTheDocument();
+  });
+
+  it("links signed-out direct visits back to public discovery", () => {
+    renderRoute(
+      [{ path: "*", Component: () => <BlueprintDetailBreadcrumb account="acme" blueprintName="signal-watcher" /> }],
+      {
+        initialEntries: ["/acme/signal-watcher"],
+        auth: { ...mockAuthContext, isAuthenticated: false, user: null, accounts: [] },
+      },
+    );
+
+    expect(screen.getByRole("link", { name: "Blueprints" })).toHaveAttribute("href", "/explore");
   });
 });

@@ -14,6 +14,7 @@ import { useBlueprint, useBlueprints } from "@/api/queries/blueprints";
 import { useGitHubStatus } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
+import { blueprintsPathForAuth } from "@/lib/routes";
 import {
   getBlueprintDescription,
   getBlueprintIntegrations,
@@ -106,6 +107,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
 export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
   const { isAuthenticated, accounts } = useAuth();
+  const blueprintsHref = blueprintsPathForAuth(isAuthenticated);
 
   // Poll every 10s while draft so the page auto-updates once `ast push` completes.
   const { data: blueprint, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
@@ -153,7 +155,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           {error instanceof Error ? error.message : "Failed to load agent details."}
         </p>
         <Button asChild>
-          <Link to="/blueprints">Blueprints</Link>
+          <Link to={blueprintsHref}>Blueprints</Link>
         </Button>
       </div>
     );
@@ -167,7 +169,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
           The agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
-          <Link to="/blueprints">Blueprints</Link>
+          <Link to={blueprintsHref}>Blueprints</Link>
         </Button>
       </div>
     );

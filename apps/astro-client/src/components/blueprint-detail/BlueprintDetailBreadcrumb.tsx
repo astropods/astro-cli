@@ -13,7 +13,8 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { accountProfilePath } from "@/lib/routes";
+import { accountProfilePath, blueprintsPathForAuth, explorePath } from "@/lib/routes";
+import { useAuth } from "@/lib/auth";
 import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
 import { XIcon } from "@/components/ui/svgs/xIcon";
 import { LinkedInIcon } from "@/components/ui/svgs/linkedinIcon";
@@ -121,10 +122,11 @@ export function BlueprintDetailBreadcrumb({
   const { copy, copied } = useCopyToClipboard(2000);
   const toggleHeart = useToggleHeart(account, blueprintName);
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
   const from = (location.state as { from?: string } | null)?.from;
   const rootCrumb = from?.startsWith("/explore")
-    ? { label: "Explore", to: "/explore" }
-    : { label: "Blueprints", to: "/blueprints" };
+    ? { label: "Explore", to: explorePath }
+    : { label: "Blueprints", to: blueprintsPathForAuth(isAuthenticated) };
 
   const handleCopy = async () => {
     await copy(shareUrl || window.location.href);

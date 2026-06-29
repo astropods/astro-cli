@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { explorePath } from "@/lib/routes";
 
 export const meta: MetaFunction = () => [{ title: "Request Agent | Astro" }];
 
@@ -15,7 +16,7 @@ export default function RequestBlueprint() {
   return (
     <div className="max-w-[600px] p-6 md:p-8">
       <Link
-        to="/blueprints"
+        to={explorePath}
         className="inline-flex items-center gap-1 text-sm text-stone-700 mb-6"
       >
         <ArrowLeft size={16} />

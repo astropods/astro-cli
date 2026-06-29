@@ -13,7 +13,7 @@ import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { useAccountUsage } from "@/api/queries/usage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { dashboardPath } from "@/lib/routes";
+import { accountBlueprintsPath, dashboardPath } from "@/lib/routes";
 
 // --- Loader & Meta ---
 
@@ -91,7 +91,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
             The agent you're looking for doesn't exist or has been removed.
           </p>
           <Button asChild>
-            <Link to="/blueprints">Blueprints</Link>
+            <Link to={accountBlueprintsPath}>Blueprints</Link>
           </Button>
         </div>
       </div>

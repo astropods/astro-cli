@@ -52,6 +52,16 @@ test.describe("Explore page (/explore)", () => {
     expect(apiErrors, `Unexpected API errors: ${apiErrors.join(", ")}`).toHaveLength(0);
   });
 
+  test("top navbar has no Blueprints tab when signed out", async ({ page }) => {
+    await page.goto("/explore", { waitUntil: "load" });
+    const header = page.getByRole("banner");
+    await expect(header).toBeVisible();
+    // Signed-out visitors must not see a Blueprints nav tab; the explorer is
+    // reached via the Explore action instead.
+    await expect(header.getByRole("link", { name: "Blueprints" })).toHaveCount(0);
+    await expect(header.getByRole("link", { name: "Explore" }).first()).toBeVisible();
+  });
+
   test("shows at least 7 agent cards", async ({ page }) => {
     await page.goto("/explore", { waitUntil: "load" });
     const cards = page.locator("[class*='card'], article").filter({ hasText: /deploy/i });

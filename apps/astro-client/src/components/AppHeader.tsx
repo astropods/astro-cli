@@ -41,8 +41,14 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
-import { chatPath, insightsPath, dashboardPath, explorePath, knowledgePath } from "@/lib/routes";
+import {
+  accountBlueprintsPath,
+  chatPath,
+  insightsPath,
+  dashboardPath,
+  explorePath,
+  knowledgePath,
+} from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -50,9 +56,11 @@ interface NavItem {
   external?: boolean;
 }
 
-const publicNav: NavItem[] = [
-  { label: "Blueprints", to: "/blueprints" },
-];
+// Signed-out visitors reach the public explorer via the "Explore" link in the
+// header actions, so no nav tabs are shown until they authenticate.
+const publicNav: NavItem[] = [];
+
+const authenticatedBlueprintsNav: NavItem = { label: "Blueprints", to: accountBlueprintsPath };
 
 const externalNav: NavItem[] = [
   { label: "Docs", to: "https://docs.astropods.com", external: true },
@@ -114,7 +122,7 @@ function ThemeSwitcher() {
 }
 
 export function AppHeader() {
-  const { user, isLoading, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
+  const { user, isAuthenticated, logout, hasPermission, personalAccount } = useAuth();
   const location = useLocation();
   const isMobile = useMediaBreakpoint(1024);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -126,17 +134,19 @@ export function AppHeader() {
     setSheetOpen(false);
   }, [location.pathname]);
 
-  // Include authenticated nav items during loading too — WaitlistGuard ensures
-  // only logged-in users reach the app, so isLoading just means auth hasn't
-  // resolved client-side yet. This prevents "My Agents" from popping in.
+  // Public visitors can render this header while the client auth check is
+  // pending, so only confirmed auth unlocks app chrome. If the SSR auth probe
+  // fails for a valid session, the user may see public chrome until the client
+  // check succeeds; SSR-hydrated sessions still render app nav on first paint.
+  const showAuthenticatedChrome = isAuthenticated;
   const authenticatedNav: NavItem[] = [
-    ...publicNav,
+    authenticatedBlueprintsNav,
     { label: "Agents", to: dashboardPath },
     { label: "Chat", to: chatPath },
     { label: "Insights", to: insightsPath },
     { label: "Knowledge", to: knowledgePath },
   ];
-  const navItems: NavItem[] = isAuthenticated || isLoading ? authenticatedNav : [...publicNav];
+  const navItems: NavItem[] = showAuthenticatedChrome ? authenticatedNav : publicNav;
 
   if (isMobile) {
     return (
@@ -150,7 +160,7 @@ export function AppHeader() {
           </div>
 
           <div className="ml-auto flex items-center gap-4">
-            {(isAuthenticated || isLoading) && (
+            {showAuthenticatedChrome ? (
               <>
                 <RRNavLink to={explorePath} className="group hidden min-[700px]:flex items-center gap-1.5 whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground">
                   <Telescope className="size-4 transition-transform duration-300 group-hover:rotate-12" strokeWidth={1.5} />
@@ -175,8 +185,7 @@ export function AppHeader() {
                 </button>
                 <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
               </>
-            )}
-            {!isAuthenticated && !isLoading && (
+            ) : (
               <>
                 {/* Explore + Docs + Blog: visible at 700px+, in sheet below that */}
                 <RRNavLink to={explorePath} className="group hidden min-[700px]:flex items-center gap-1.5 whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground">
@@ -210,7 +219,7 @@ export function AppHeader() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={(!isAuthenticated && !isLoading) ? "min-[700px]:hidden" : ""}
+                className={!showAuthenticatedChrome ? "min-[700px]:hidden" : ""}
               >
                 <Bars3Icon className="size-5" />
                 <span className="sr-only">Open menu</span>
@@ -221,9 +230,7 @@ export function AppHeader() {
                 <SheetTitle>Menu</SheetTitle>
               </SheetHeader>
               <div className="flex flex-col gap-1 px-4">
-                {isLoading ? (
-                  <Skeleton className="h-12 w-full" />
-                ) : isAuthenticated && user ? (
+                {showAuthenticatedChrome && user ? (
                   <>
                     <div className="flex items-center gap-3 py-2">
                       <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
@@ -298,7 +305,8 @@ export function AppHeader() {
           </Sheet>
         </div>
 
-        {/* Row 2: nav tabs */}
+        {/* Row 2: nav tabs (omitted when there are none, e.g. signed-out) */}
+        {navItems.length > 0 && (
         <nav className="flex items-center overflow-x-auto px-4 scrollbar-none">
           {navItems.map((item) => (
             <ExternalOrNavLink
@@ -318,6 +326,7 @@ export function AppHeader() {
             </ExternalOrNavLink>
           ))}
         </nav>
+        )}
       </header>
     );
   }
@@ -366,13 +375,12 @@ export function AppHeader() {
             {item.label}
           </ExternalOrNavLink>
         ))}
-        {(isAuthenticated || isLoading) && (
+        {showAuthenticatedChrome && (
           <>
             <button
               type="button"
               className="cursor-pointer whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
               onClick={() => setFeedbackOpen(true)}
-              disabled={isLoading}
             >
               Feedback
             </button>
@@ -380,78 +388,76 @@ export function AppHeader() {
           </>
         )}
         <div className="flex items-center gap-2">
-        {isLoading ? (
-          <Skeleton className="size-8 rounded-full" />
-        ) : isAuthenticated && user ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-                aria-label={`User menu for ${displayName}`}
-              >
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64 p-3">
-              <div className="flex items-center gap-3 pb-3">
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
-                <div className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-sm font-semibold">
-                    {displayName}
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {user.email}
-                  </span>
+          {showAuthenticatedChrome && user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  aria-label={`User menu for ${displayName}`}
+                >
+                  <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-3">
+                <div className="flex items-center gap-3 pb-3">
+                  <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarUrl={personalAccount?.avatar_url} />
+                  <div className="flex min-w-0 flex-col leading-tight">
+                    <span className="truncate text-sm font-semibold">
+                      {displayName}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {user.email}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <DropdownMenuSeparator />
-              {personalAccount && (
-                <>
+                <DropdownMenuSeparator />
+                {personalAccount && (
+                  <>
+                    <DropdownMenuItem asChild className="gap-2">
+                      <Link to={`/${personalAccount.name}`}>
+                        <UserCircleIcon className="size-4" />
+                        Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild className="gap-2">
+                      <Link to="/settings">
+                        <Cog6ToothIcon className="size-4" />
+                        Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {hasPermission('admin:view') && (
                   <DropdownMenuItem asChild className="gap-2">
-                    <Link to={`/${personalAccount.name}`}>
-                      <UserCircleIcon className="size-4" />
-                      Profile
+                    <Link to="/admin">
+                      <WrenchScrewdriverIcon className="size-4" />
+                      Admin
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild className="gap-2">
-                    <Link to="/settings">
-                      <Cog6ToothIcon className="size-4" />
-                      Settings
-                    </Link>
+                )}
+                <div className="flex items-center justify-between">
+                  <DropdownMenuItem onClick={logout} className="gap-2">
+                    <ArrowRightStartOnRectangleIcon className="size-4" />
+                    Sign out
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              {hasPermission('admin:view') && (
-                <DropdownMenuItem asChild className="gap-2">
-                  <Link to="/admin">
-                    <WrenchScrewdriverIcon className="size-4" />
-                    Admin
-                  </Link>
-                </DropdownMenuItem>
-              )}
-              <div className="flex items-center justify-between">
-                <DropdownMenuItem onClick={logout} className="gap-2">
-                  <ArrowRightStartOnRectangleIcon className="size-4" />
-                  Sign out
-                </DropdownMenuItem>
-                <div className="w-px h-5 bg-border shrink-0" />
-                <ThemeSwitcher />
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <>
-            <Button variant="ghost" size="sm" asChild className="text-[13px] font-normal">
-              <Link to="/login">Log in</Link>
-            </Button>
-            <Button size="sm" asChild>
-              <Link to="/signup">Get started</Link>
-            </Button>
-          </>
-        )}
+                  <div className="w-px h-5 bg-border shrink-0" />
+                  <ThemeSwitcher />
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild className="text-[13px] font-normal">
+                <Link to="/login">Log in</Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link to="/signup">Get started</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>

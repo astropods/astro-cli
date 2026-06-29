@@ -1,5 +1,10 @@
 export const dashboardPath = "/agents";
 export const explorePath = "/explore";
+export const accountBlueprintsPath = "/blueprints";
+
+export function blueprintsPathForAuth(isAuthenticated: boolean) {
+  return isAuthenticated ? accountBlueprintsPath : explorePath;
+}
 
 export function accountProfilePath(account: string) {
   return `/${account}`;
