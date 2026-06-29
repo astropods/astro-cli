@@ -15,7 +15,6 @@ import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
 import { KnowledgeBindingPicker } from "./KnowledgeBindingPicker";
-import { VolumePicker } from "./VolumePicker";
 import { AdvancedProvisioningFields } from "./AdvancedProvisioningFields";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
@@ -249,24 +248,19 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
         </FormSection>
       )}
 
-      {/* Volume */}
-      <FormSection title="Volume" description="Attach a persistent volume to your agent.">
-        <VolumePicker
-          volumeMount={form.agentVolumeMount}
-          onVolumeMountChange={form.setAgentVolumeMount}
-        />
-      </FormSection>
-
-      {/* Advanced provisioning (collapsed by default) */}
+      {/* Advanced provisioning (collapsed by default) — every agent gets a
+          persistent disk by default, so storage is always shown here rather
+          than behind an enable/disable toggle. */}
       <FormSection title="Resources" description="Override the default compute and storage allocations.">
         <AdvancedProvisioningFields
           cpu={form.agentCpu}
           memory={form.agentMemory}
-          volumeEnabled={!!form.agentVolumeMount.trim()}
+          mountPath={form.agentVolumeMount}
           storageSize={form.agentStorageSize}
           storageLocked={form.volumeAlreadyProvisioned}
           onCpuChange={form.setAgentCpu}
           onMemoryChange={form.setAgentMemory}
+          onMountPathChange={form.setAgentVolumeMount}
           onStorageSizeChange={form.setAgentStorageSize}
         />
       </FormSection>

@@ -9,9 +9,11 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -556,11 +558,12 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	if counts["Service"] < 5 {
 		t.Errorf("expected at least 5 Services (model, knowledge, tool, agent, collector), got %d", counts["Service"])
 	}
-	if counts["Deployment"] < 4 {
-		t.Errorf("expected at least 4 Deployments (model, tool, agent, collector), got %d", counts["Deployment"])
+	if counts["Deployment"] < 3 {
+		t.Errorf("expected at least 3 Deployments (model, tool, collector), got %d", counts["Deployment"])
 	}
-	if counts["StatefulSet"] != 1 {
-		t.Errorf("expected 1 StatefulSet, got %d", counts["StatefulSet"])
+	// agent (default disk) + knowledge each run as StatefulSets.
+	if counts["StatefulSet"] != 2 {
+		t.Errorf("expected 2 StatefulSets (agent + knowledge), got %d", counts["StatefulSet"])
 	}
 	if counts["CronJob"] != 1 {
 		t.Errorf("expected 1 CronJob, got %d", counts["CronJob"])
@@ -739,6 +742,215 @@ func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 	}
 }
 
+// TestApplyDeploymentSpec_DefaultsPersistentDisk verifies that a spec with no
+// volume (e.g. a legacy stored spec that never went through the volume-defaulting
+// template generator) is still given a persistent disk at apply time: it becomes
+// a StatefulSet with a PVC sized at the default, not an ephemeral Deployment.
+func TestApplyDeploymentSpec_DefaultsPersistentDisk(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec() // Agent.Volume == "" — the legacy case
+	ctx := context.Background()
+
+	if _, err := a.ApplyDeploymentSpec(ctx, ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Must NOT be an ephemeral Deployment.
+	if _, err := a.clientset.AppsV1().Deployments("default").Get(ctx, "my-agent-agent", metav1.GetOptions{}); err == nil {
+		t.Fatal("agent should be a StatefulSet, not a Deployment, when no volume is set")
+	}
+
+	ss, err := a.clientset.AppsV1().StatefulSets("default").Get(ctx, "my-agent-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected agent StatefulSet: %v", err)
+	}
+	if len(ss.Spec.VolumeClaimTemplates) != 1 {
+		t.Fatalf("expected 1 volumeClaimTemplate, got %d", len(ss.Spec.VolumeClaimTemplates))
+	}
+	pvc := ss.Spec.VolumeClaimTemplates[0]
+	if pvc.Name != "data" {
+		t.Errorf("expected PVC name 'data', got %q", pvc.Name)
+	}
+	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != spec.DefaultAgentStorageSize {
+		t.Errorf("expected default storage %s, got %s", spec.DefaultAgentStorageSize, got.String())
+	}
+	app := containerByName(ss.Spec.Template.Spec.Containers, "app")
+	if app == nil {
+		t.Fatal("agent app container not found")
+	}
+	if !hasVolumeMount(app.VolumeMounts, "data", spec.DefaultAgentVolumeMount) {
+		t.Errorf("expected app to mount 'data' at %s, got %+v", spec.DefaultAgentVolumeMount, app.VolumeMounts)
+	}
+}
+
+// TestApplyDeploymentSpec_PreservesExplicitVolume verifies the apply-time default
+// only fills the gap — an explicitly requested mount path and storage size are
+// left untouched.
+func TestApplyDeploymentSpec_PreservesExplicitVolume(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+	ds.Agent.Volume = "/custom"
+	ds.Agent.Storage = &spec.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"}
+	ctx := context.Background()
+
+	if _, err := a.ApplyDeploymentSpec(ctx, ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ss, err := a.clientset.AppsV1().StatefulSets("default").Get(ctx, "my-agent-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected agent StatefulSet: %v", err)
+	}
+	if got := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != "20Gi" {
+		t.Errorf("expected explicit storage 20Gi, got %s", got.String())
+	}
+	app := containerByName(ss.Spec.Template.Spec.Containers, "app")
+	if app == nil || !hasVolumeMount(app.VolumeMounts, "data", "/custom") {
+		t.Errorf("expected app to mount 'data' at /custom, got %+v", ss.Spec.Template.Spec.Containers)
+	}
+}
+
+// TestApplyDeploymentSpec_MessagingSharesDefaultDisk verifies the messaging
+// sidecar mounts the same default disk under its isolated subPath.
+func TestApplyDeploymentSpec_MessagingSharesDefaultDisk(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec() // no volume — defaulted at apply time
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters:  []string{"web"},
+		Image:     "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090, Protocol: "grpc"}},
+		Resources: spec.MessagingResources,
+	}
+	ctx := context.Background()
+
+	if _, err := a.ApplyDeploymentSpec(ctx, ds); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ss, err := a.clientset.AppsV1().StatefulSets("default").Get(ctx, "my-agent-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected agent StatefulSet: %v", err)
+	}
+
+	// Exactly one volume claim template — guards against a future change
+	// quietly provisioning a second disk for the agent.
+	if len(ss.Spec.VolumeClaimTemplates) != 1 {
+		t.Fatalf("expected exactly 1 volumeClaimTemplate, got %d", len(ss.Spec.VolumeClaimTemplates))
+	}
+	dataVol := ss.Spec.VolumeClaimTemplates[0].Name
+
+	// The agent app and the messaging sidecar must mount that same one volume.
+	app := containerByName(ss.Spec.Template.Spec.Containers, "app")
+	if app == nil || volumeMountByName(app.VolumeMounts, dataVol) == nil {
+		t.Fatalf("agent app should mount the %q volume, got %+v", dataVol, app)
+	}
+	msg := containerByName(ss.Spec.Template.Spec.InitContainers, "messaging")
+	if msg == nil {
+		t.Fatal("messaging sidecar not found in StatefulSet pod")
+	}
+	mount := volumeMountByName(msg.VolumeMounts, dataVol)
+	if mount == nil {
+		t.Fatalf("messaging should mount the same %q volume, got %+v", dataVol, msg.VolumeMounts)
+	}
+	if mount.SubPath != "messaging" {
+		t.Errorf("expected messaging subPath 'messaging', got %q", mount.SubPath)
+	}
+	if mount.MountPath != spec.DefaultAgentVolumeMount {
+		t.Errorf("expected messaging mountPath %s, got %q", spec.DefaultAgentVolumeMount, mount.MountPath)
+	}
+}
+
+// TestApplyDeploymentSpec_AgentPVCRetentionPolicy pins the intentional flip from
+// the old delete-on-both policy: the agent's disk is retained when the
+// StatefulSet is deleted (survives a redeploy that recreates it) but a
+// scaled-down replica's PVC is removed (no orphan disks).
+func TestApplyDeploymentSpec_AgentPVCRetentionPolicy(t *testing.T) {
+	a := newTestApplier()
+	ctx := context.Background()
+	if _, err := a.ApplyDeploymentSpec(ctx, minimalDeploymentSpec()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ss, err := a.clientset.AppsV1().StatefulSets("default").Get(ctx, "my-agent-agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected agent StatefulSet: %v", err)
+	}
+	pol := ss.Spec.PersistentVolumeClaimRetentionPolicy
+	if pol == nil {
+		t.Fatal("expected a PersistentVolumeClaimRetentionPolicy")
+	}
+	if pol.WhenDeleted != appsv1.RetainPersistentVolumeClaimRetentionPolicyType {
+		t.Errorf("WhenDeleted: expected Retain, got %s", pol.WhenDeleted)
+	}
+	if pol.WhenScaled != appsv1.DeletePersistentVolumeClaimRetentionPolicyType {
+		t.Errorf("WhenScaled: expected Delete, got %s", pol.WhenScaled)
+	}
+}
+
+// TestApplyDeploymentSpec_MigrationReplacesStaleDeployment proves the real
+// migration teardown: an agent previously deployed as a Deployment (no volume)
+// is replaced by a StatefulSet on the next apply, and orphan cleanup actually
+// removes the stale Deployment from the cluster — not just from the expected set.
+func TestApplyDeploymentSpec_MigrationReplacesStaleDeployment(t *testing.T) {
+	a := newTestApplier()
+	ctx := context.Background()
+
+	// Seed a stale agent Deployment as a prior (pre-disk) deploy would have left.
+	// Labels must carry the spec's account ("acme") so the account-scoped orphan
+	// cleanup selector matches it.
+	staleLabels := deployment.GenerateLabels("acme", "my-agent", "old-build", "agent")
+	_, err := a.clientset.AppsV1().Deployments("default").Create(ctx, &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-agent", Namespace: "default", Labels: staleLabels},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "stale"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "stale"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "old"}}},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("seed stale deployment: %v", err)
+	}
+
+	// Apply a spec with no volume — normalized to a StatefulSet at apply time.
+	if _, err := a.ApplyDeploymentSpec(ctx, minimalDeploymentSpec()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The StatefulSet now exists...
+	if _, err := a.clientset.AppsV1().StatefulSets("default").Get(ctx, "my-agent-agent", metav1.GetOptions{}); err != nil {
+		t.Fatalf("expected agent StatefulSet after apply: %v", err)
+	}
+	// ...and the stale Deployment was torn down by orphan cleanup.
+	if _, err := a.clientset.AppsV1().Deployments("default").Get(ctx, "my-agent-agent", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected stale agent Deployment to be removed, got err=%v", err)
+	}
+}
+
+func containerByName(containers []corev1.Container, name string) *corev1.Container {
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
+}
+
+func volumeMountByName(mounts []corev1.VolumeMount, name string) *corev1.VolumeMount {
+	for i := range mounts {
+		if mounts[i].Name == name {
+			return &mounts[i]
+		}
+	}
+	return nil
+}
+
+func hasVolumeMount(mounts []corev1.VolumeMount, name, path string) bool {
+	m := volumeMountByName(mounts, name)
+	return m != nil && m.MountPath == path
+}
+
 func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
@@ -766,7 +978,7 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
-	agentDepl, err := a.clientset.AppsV1().Deployments("default").Get(
+	agentDepl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
@@ -844,11 +1056,11 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
-	agentDepl, err := a.clientset.AppsV1().Deployments("default").Get(
+	agentDepl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
-		t.Fatalf("failed to get agent Deployment: %v", err)
+		t.Fatalf("failed to get agent StatefulSet: %v", err)
 	}
 
 	var msgContainer *corev1.Container
@@ -1609,7 +1821,7 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		// Verify the agent deployment's messaging container envFrom points at
 		// the messaging-only Secret, NOT the agent secret.
 		deplName := deployment.GenerateAgentResourceName("my-agent", "agent")
-		depl, err := a.clientset.AppsV1().Deployments("default").Get(
+		depl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 			context.Background(), deplName, metav1.GetOptions{},
 		)
 		if err != nil {
@@ -1875,7 +2087,7 @@ func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testi
 		t.Fatalf("apply: %v", err)
 	}
 
-	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+	depl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
@@ -1955,7 +2167,7 @@ func TestApplyDeploymentSpec_SlackAnyoneGrantInToken(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+	depl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
@@ -2045,7 +2257,7 @@ func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	depl, _ := a.clientset.AppsV1().Deployments("default").Get(
+	depl, _ := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	for _, c := range depl.Spec.Template.Spec.Containers {
@@ -2081,7 +2293,7 @@ func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Agent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	depl, err := a.clientset.AppsV1().Deployments("default").Get(
+	depl, err := a.clientset.AppsV1().StatefulSets("default").Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
@@ -2485,7 +2697,7 @@ func TestApplyDeploymentSpec_BoundStoreEndToEnd(t *testing.T) {
 
 	// (2) Agent container wires the credentials via secretKeyRef to that Secret.
 	deplName := deployment.GenerateAgentResourceName("my-agent", "agent")
-	depl, err := fakeClient.AppsV1().Deployments("default").Get(ctx, deplName, metav1.GetOptions{})
+	depl, err := fakeClient.AppsV1().StatefulSets("default").Get(ctx, deplName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get agent deployment %q: %v", deplName, err)
 	}

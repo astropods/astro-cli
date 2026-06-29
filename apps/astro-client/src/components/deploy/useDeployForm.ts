@@ -12,6 +12,7 @@ import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
 import { serializeObjectVariable, deserializeObjectVariable } from "./slackConfig";
 import { computeFormDefaults } from "./computeFormDefaults";
+import { DEFAULT_AGENT_VOLUME_MOUNT } from "./constants";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
@@ -198,8 +199,10 @@ const hasTextValue = (value: string | undefined): boolean => !!value?.trim();
 /**
  * Builds the provisioning block from the form's advanced inputs. Returns
  * undefined when every field is empty so the server falls back to defaults.
- * Mount + size are only sent together — size alone is meaningless without
- * a mount path.
+ * Every agent gets a persistent disk by default (mounted at
+ * DEFAULT_AGENT_VOLUME_MOUNT server-side), so there is no enable/disable toggle.
+ * A volume override is sent when the user customizes the mount path or the
+ * storage size; the mount falls back to the default path when left blank.
  */
 function buildAgentProvisioning(input: {
   cpu: string;
@@ -212,7 +215,9 @@ function buildAgentProvisioning(input: {
   const mount = input.mount.trim();
   const size = input.size.trim();
   const compute = (cpu || memory) ? { ...(cpu && { cpu }), ...(memory && { memory }) } : undefined;
-  const volume = mount ? { mount, ...(size && { storage: { size } }) } : undefined;
+  const volume = (mount || size)
+    ? { mount: mount || DEFAULT_AGENT_VOLUME_MOUNT, ...(size && { storage: { size } }) }
+    : undefined;
   if (!compute && !volume) return undefined;
   return { agent: { ...(compute && { compute }), ...(volume && { volume }) } };
 }

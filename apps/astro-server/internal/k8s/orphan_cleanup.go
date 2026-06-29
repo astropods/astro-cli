@@ -30,17 +30,13 @@ func computeExpectedResourceNames(
 		"Job":         {},
 	}
 
-	// Agent service + workload. When the agent declares a persistent volume
-	// the applier runs it as a StatefulSet + PVC; otherwise a stateless
-	// Deployment. Mirror that decision here so orphan cleanup doesn't tear
-	// down the agent on its own normal reconcile.
+	// Agent service + workload. Every agent runs as a StatefulSet + PVC (the
+	// applier guarantees a volume via normalizeAgentStorageDefaults), so mirror
+	// that here — and expecting only the StatefulSet means a legacy agent's
+	// stale Deployment is correctly torn down as an orphan on reconcile.
 	agentResourceName := deployment.GenerateAgentResourceName(agentName, "agent")
 	expected["Service"][agentResourceName] = true
-	if ds.Agent.Volume != "" {
-		expected["StatefulSet"][agentResourceName] = true
-	} else {
-		expected["Deployment"][agentResourceName] = true
-	}
+	expected["StatefulSet"][agentResourceName] = true
 
 	// Agent ingress
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {

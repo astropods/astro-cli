@@ -34,6 +34,14 @@ func (a *Applier) ApplyDeploymentSpec(
 		Errors:           []deployment.DeploymentError{},
 	}
 
+	// Guarantee every agent a persistent disk. The template generator defaults
+	// the volume for fresh specs, but redeploys load the stored spec verbatim —
+	// legacy specs (and any spec not produced by the generator) arrive with no
+	// volume. Defaulting here, at the single choke point all deploys pass
+	// through, makes the disk universal and keeps orphan cleanup (which keys off
+	// Agent.Volume) consistent with what we actually apply.
+	normalizeAgentStorageDefaults(ds)
+
 	accountName := ds.Source.Account
 	agentName := ds.Source.Name
 	buildID := ds.Source.Build
@@ -666,6 +674,14 @@ func (a *Applier) ApplyDeploymentSpec(
 			AuthTestUserID:  a.authTestUserID,
 		}
 
+		// Share the agent's persistent disk with the messaging sidecar. Every
+		// agent runs as a StatefulSet with the "data" volume, so the sidecar can
+		// always mount it — under its own subPath so its files never collide
+		// with the agent's.
+		msgSidecar.VolumeName = agentDataVolumeName
+		msgSidecar.VolumeMountPath = spec.DefaultAgentVolumeMount
+		msgSidecar.VolumeSubPath = messagingVolumeSubPath
+
 		// Service — selects the agent pod (messaging is a sidecar container).
 		// In local mode we promote it to NodePort on the http port so the
 		// Launch button can reach the messaging UI at http://localhost:<port>
@@ -1025,6 +1041,22 @@ func primaryPort(endpoints map[string]spec.Endpoint) int32 {
 
 // pvcConfigFromSpec unpacks a spec.StorageConfig into the size/class/access-mode
 // triple BuildStatefulSet expects. Defaults match DefaultStorageConfig().
+// normalizeAgentStorageDefaults ensures the agent has a persistent volume.
+// When no mount path is set it applies the platform defaults (mount path +
+// modest storage size); an explicitly requested volume or storage config is
+// left untouched. Idempotent — re-applying a defaulted spec is a no-op.
+func normalizeAgentStorageDefaults(ds *spec.AstroDeploymentSpec) {
+	if ds.Agent.Volume != "" {
+		return
+	}
+	ds.Agent.Volume = spec.DefaultAgentVolumeMount
+	if ds.Agent.Storage == nil {
+		s := spec.DefaultStorageConfig()
+		s.Size = spec.DefaultAgentStorageSize
+		ds.Agent.Storage = &s
+	}
+}
+
 func pvcConfigFromSpec(s *spec.StorageConfig) (size, class string, mode corev1.PersistentVolumeAccessMode) {
 	size, mode = "10Gi", corev1.ReadWriteOnce
 	if s == nil {
@@ -1060,7 +1092,7 @@ func (a *Applier) applyAgentWorkload(ctx context.Context, in agentWorkloadInput,
 	resolvedContainer, err := a.resolveContainerImage(ctx, agentContainer)
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
-			Resource: in.resourceName, Kind: "Deployment",
+			Resource: in.resourceName, Kind: "StatefulSet",
 			Error: fmt.Sprintf("failed to resolve image: %v", err),
 		})
 		return
@@ -1078,66 +1110,46 @@ func (a *Applier) applyAgentWorkload(ctx context.Context, in agentWorkloadInput,
 	// per RFC §8.2 and avoid the collision entirely.
 	extraEnv = append(extraEnv, knowledgeCredEnvVars(in.ds, in.agentName, in.knowledgeCredSecrets)...)
 
-	if in.ds.Agent.Volume != "" {
-		size, class, mode := pvcConfigFromSpec(in.ds.Agent.Storage)
-		ss, ssErr := BuildStatefulSet(StatefulSetConfig{
-			Name: in.resourceName, Namespace: a.namespace, AccountID: in.accountName, AgentName: in.agentName,
-			BuildID: in.buildID, Component: "agent",
-			Container: resolvedContainer, Port: in.port,
-			SecretName: in.secretName, ConfigMapName: in.configMapName,
-			StorageSize: size, StorageClass: class, AccessMode: mode,
-			Healthcheck:     in.ds.Agent.Healthcheck,
-			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:        int32(in.ds.Agent.Replicas), //nolint:gosec
-			Resources:       BuildResourceRequirements(in.ds.Agent.Resources),
-			Strategy:        BuildStatefulSetUpdateStrategy(in.ds.Agent.Update),
-			LocalMode:       a.localMode,
-			EnvHash:         in.envHash,
-			ExtraEnv:        extraEnv,
-			Messaging:       in.msgSidecar,
-		})
-		if ssErr != nil {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: in.resourceName, Kind: "StatefulSet", Error: ssErr.Error(),
-			})
-			return
-		}
-		// Delete the PVC when the agent StatefulSet is removed (e.g. the user
-		// toggles the persistent volume off on redeploy) so we don't leave
-		// orphan disks billing in the namespace. Knowledge stores opt out of
-		// this and retain on delete; see knowledge_provisioner.go.
-		ss.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
-			WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
-			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
-		}
-		status, applyErr := a.applyStatefulSet(ctx, ss)
-		result.Resources = append(result.Resources, status)
-		if applyErr != nil {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: ss.Name, Kind: "StatefulSet", Error: applyErr.Error(),
-			})
-		}
-		return
-	}
-
-	depl := BuildDeployment(DeploymentConfig{
+	// Every agent runs as a StatefulSet with a PVC. normalizeAgentStorageDefaults
+	// (in ApplyDeploymentSpec) guarantees a volume, so there is no stateless
+	// Deployment path for agents — the disk is always present.
+	size, class, mode := pvcConfigFromSpec(in.ds.Agent.Storage)
+	ss, ssErr := BuildStatefulSet(StatefulSetConfig{
 		Name: in.resourceName, Namespace: a.namespace, AccountID: in.accountName, AgentName: in.agentName,
 		BuildID: in.buildID, Component: "agent",
 		Container: resolvedContainer, Port: in.port,
 		SecretName: in.secretName, ConfigMapName: in.configMapName,
-		EnvHash:     in.envHash,
-		ExtraEnv:    extraEnv,
-		Healthcheck: in.ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-		Replicas:  int32(in.ds.Agent.Replicas), //nolint:gosec
-		Resources: BuildResourceRequirements(in.ds.Agent.Resources),
-		Strategy:  BuildDeploymentStrategy(in.ds.Agent.Update),
-		Messaging: in.msgSidecar,
+		StorageSize: size, StorageClass: class, AccessMode: mode,
+		Healthcheck:     in.ds.Agent.Healthcheck,
+		ImagePullPolicy: a.imagePullPolicy,
+		Replicas:        int32(in.ds.Agent.Replicas), //nolint:gosec
+		Resources:       BuildResourceRequirements(in.ds.Agent.Resources),
+		Strategy:        BuildStatefulSetUpdateStrategy(in.ds.Agent.Update),
+		LocalMode:       a.localMode,
+		EnvHash:         in.envHash,
+		ExtraEnv:        extraEnv,
+		Messaging:       in.msgSidecar,
 	})
-	status, applyErr := a.applyDeployment(ctx, depl)
+	if ssErr != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: in.resourceName, Kind: "StatefulSet", Error: ssErr.Error(),
+		})
+		return
+	}
+	// Retain the PVC when the StatefulSet is deleted so persistent data (e.g.
+	// messaging history) survives a redeploy that recreates the StatefulSet.
+	// Undeploy still removes the disk: the deleter explicitly deletes PVCs and
+	// then the namespace (which cascades), independent of this policy — see
+	// deleter.go. Scaled-down replicas delete their PVCs to avoid orphan disks.
+	ss.Spec.PersistentVolumeClaimRetentionPolicy = &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+		WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+		WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+	}
+	status, applyErr := a.applyStatefulSet(ctx, ss)
 	result.Resources = append(result.Resources, status)
 	if applyErr != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
-			Resource: depl.Name, Kind: "Deployment", Error: applyErr.Error(),
+			Resource: ss.Name, Kind: "StatefulSet", Error: applyErr.Error(),
 		})
 	}
 }

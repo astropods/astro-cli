@@ -378,11 +378,19 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			Expose: &spec.EndpointExpose{Enabled: true},
 		}
 	}
+	// Every deployment gets a persistent disk by default. Defaulting the volume
+	// mount routes the agent through the StatefulSet + PVC path; the messaging
+	// sidecar shares this volume (see spec_applier.go). Users may override size,
+	// class, or mount path via provisioning (applyVolume).
+	agentStorage := spec.DefaultStorageConfig()
+	agentStorage.Size = spec.DefaultAgentStorageSize
 	ds.Agent = spec.DeploymentAgent{
 		Image:       agentImage,
 		Endpoints:   agentEndpoints,
 		Replicas:    1,
 		Resources:   spec.StandardResources,
+		Volume:      spec.DefaultAgentVolumeMount,
+		Storage:     &agentStorage,
 		Environment: agentEnv,
 		Healthcheck: astroSpec.Agent.Healthcheck,
 		Update:      spec.DefaultUpdateStrategy(),

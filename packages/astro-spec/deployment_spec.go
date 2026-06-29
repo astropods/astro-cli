@@ -348,6 +348,18 @@ func DefaultUpdateStrategy() UpdateStrategy {
 	}
 }
 
+// DefaultAgentVolumeMount is the mount path for the disk every agent gets by
+// default. Setting agent.volume routes the agent through the StatefulSet + PVC
+// path, so this makes persistent disk a guaranteed default. The messaging
+// sidecar mounts the same volume under a subPath (see buildMessagingContainer).
+const DefaultAgentVolumeMount = "/data"
+
+// DefaultAgentStorageSize is the disk size every agent gets by default. Disk is
+// always provisioned (no opt-in), so this is a modest baseline rather than the
+// larger DefaultStorageConfig size used for explicitly-requested volumes. 5Gi
+// aligns with the smallest tier offered in the deploy UI's storage slider.
+const DefaultAgentStorageSize = "5Gi"
+
 // DefaultStorageConfig returns the default PVC configuration.
 func DefaultStorageConfig() StorageConfig {
 	return StorageConfig{

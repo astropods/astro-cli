@@ -210,6 +210,37 @@ func TestDeleter_DeleteAll(t *testing.T) {
 	}
 }
 
+// TestDeleter_RemovesAgentPVCDespiteRetain proves the invariant the Retain
+// retention policy leans on: even though the agent StatefulSet retains its PVC
+// on its own deletion, a full undeploy still reclaims the disk — the deleter
+// explicitly lists and deletes PVCs, independent of any retention policy.
+func TestDeleter_RemovesAgentPVCDespiteRetain(t *testing.T) {
+	client := fake.NewClientset()
+	ctx := context.Background()
+
+	_, _ = client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: testNS},
+	}, metav1.CreateOptions{})
+
+	// The agent's data PVC, as a StatefulSet volumeClaimTemplate would create it.
+	agentLabels := deployment.GenerateLabels("", testAgent, testBuild, "agent")
+	_, err := client.CoreV1().PersistentVolumeClaims(testNS).Create(ctx, &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-my-agent-agent-0", Namespace: testNS, Labels: agentLabels},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create agent pvc: %v", err)
+	}
+
+	if _, err := NewDeleter(client, testNS).Delete(ctx, testAgent, testBuild); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	pvcs, _ := client.CoreV1().PersistentVolumeClaims(testNS).List(ctx, metav1.ListOptions{})
+	if len(pvcs.Items) != 0 {
+		t.Errorf("expected agent PVC removed on undeploy, got %d remaining", len(pvcs.Items))
+	}
+}
+
 func TestDeleter_DeleteIngresses(t *testing.T) {
 	client := fake.NewClientset()
 	ctx := context.Background()

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, Lock, RotateCcw } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { DEFAULT_AGENT_VOLUME_MOUNT } from "./constants";
 
 // Placeholder unit prices — replace with real billing data when the API is
 // available. Modeled loosely on managed-container pricing.
@@ -61,7 +63,8 @@ export interface AdvancedProvisioningFieldsProps {
   cpu: string;
   memory: string;
   /** Whether persistent volume is enabled — gates the storage slider. */
-  volumeEnabled: boolean;
+  /** Mount path for the persistent disk. Empty falls back to the default. */
+  mountPath: string;
   storageSize: string;
   /**
    * When true, the storage slider is locked. Storage on a live PVC cannot be
@@ -71,8 +74,10 @@ export interface AdvancedProvisioningFieldsProps {
   storageLocked?: boolean;
   onCpuChange: (value: string) => void;
   onMemoryChange: (value: string) => void;
+  onMountPathChange: (value: string) => void;
   onStorageSizeChange: (value: string) => void;
 }
+
 
 const CPU_TIERS = ["25m", "50m", "100m", "250m", "500m", "1"];
 
@@ -82,7 +87,7 @@ const STORAGE_TIERS = ["5Gi", "10Gi", "20Gi", "30Gi", "50Gi"];
 
 const DEFAULT_CPU_INDEX = 2;     // "100m"
 const DEFAULT_MEMORY_INDEX = 2;  // "1Gi"
-const DEFAULT_STORAGE_INDEX = 1; // "10Gi"
+const DEFAULT_STORAGE_INDEX = 0; // "5Gi" — matches the server-side default disk
 
 function indexOf(value: string, tiers: string[], fallback: number): number {
   const i = tiers.indexOf(value);
@@ -99,11 +104,12 @@ function indexOf(value: string, tiers: string[], fallback: number): number {
 export function AdvancedProvisioningFields({
   cpu,
   memory,
-  volumeEnabled,
+  mountPath,
   storageSize,
   storageLocked,
   onCpuChange,
   onMemoryChange,
+  onMountPathChange,
   onStorageSizeChange,
 }: AdvancedProvisioningFieldsProps) {
   const [open, setOpen] = useState(false);
@@ -115,9 +121,7 @@ export function AdvancedProvisioningFields({
   // Live cost estimate based on the currently displayed tier values.
   const effectiveCpu = parseCpu(cpu || CPU_TIERS[cpuIndex]);
   const effectiveMemoryGi = parseMemoryGi(memory || MEMORY_TIERS[memoryIndex]);
-  const effectiveStorageGi = volumeEnabled
-    ? parseMemoryGi(storageSize || STORAGE_TIERS[storageIndex])
-    : 0;
+  const effectiveStorageGi = parseMemoryGi(storageSize || STORAGE_TIERS[storageIndex]);
   const cpuMonthly = effectiveCpu * PRICE_PER_VCPU_HOUR * HOURS_PER_MONTH;
   const ramMonthly = effectiveMemoryGi * PRICE_PER_GI_RAM_HOUR * HOURS_PER_MONTH;
   const storageMonthly = effectiveStorageGi * PRICE_PER_GI_STORAGE_MONTH;
@@ -165,26 +169,37 @@ export function AdvancedProvisioningFields({
               onChange={onMemoryChange}
             />
 
-            {volumeEnabled && (
-              <div className="border-t border-border pt-5">
-                <TierSlider
-                  label="Storage"
-                  description="Persistent disk for the agent. Can grow later, but never shrink."
-                  tiers={STORAGE_TIERS}
-                  displayLabels={STORAGE_TIERS}
-                  value={storageSize}
-                  index={storageIndex}
-                  isOverridden={!!storageSize}
-                  disabled={storageLocked}
-                  disabledHint={
-                    storageLocked
-                      ? "Disk size is locked after first deploy."
-                      : undefined
-                  }
-                  onChange={onStorageSizeChange}
+            <div className="space-y-5 border-t border-border pt-5">
+              <div className="space-y-1.5">
+                <Label size="md" htmlFor="agent-volume-mount">Mount path</Label>
+                <Input
+                  id="agent-volume-mount"
+                  value={mountPath}
+                  onChange={(e) => onMountPathChange(e.target.value)}
+                  placeholder={DEFAULT_AGENT_VOLUME_MOUNT}
                 />
+                <p className="text-body-sm text-muted-foreground">
+                  Absolute path where the persistent disk is mounted in the agent
+                  container. Defaults to {DEFAULT_AGENT_VOLUME_MOUNT}.
+                </p>
               </div>
-            )}
+              <TierSlider
+                label="Storage"
+                description="Persistent disk for the agent. Set the size now — it's fixed once the agent is deployed."
+                tiers={STORAGE_TIERS}
+                displayLabels={STORAGE_TIERS}
+                value={storageSize}
+                index={storageIndex}
+                isOverridden={!!storageSize}
+                disabled={storageLocked}
+                disabledHint={
+                  storageLocked
+                    ? "Disk size is locked after first deploy."
+                    : undefined
+                }
+                onChange={onStorageSizeChange}
+              />
+            </div>
           </div>
         </CollapsibleContent>
 

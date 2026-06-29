@@ -622,15 +622,26 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		agentService.Image = s.Agent.Image
 	}
 
+	// Persistent disk: every agent gets a /data volume, matching the default
+	// persistent disk provisioned in production. Keeps local state (e.g. a
+	// SQLite database under /data) across `ast dev` restarts.
+	const agentDataVolume = "agent-data"
+	project.Volumes[agentDataVolume] = types.VolumeConfig{Name: agentDataVolume}
+	agentService.Volumes = []types.ServiceVolumeConfig{
+		{
+			Type:   types.VolumeTypeVolume,
+			Source: agentDataVolume,
+			Target: spec.DefaultAgentVolumeMount,
+		},
+	}
+
 	// Volume mount for hot reload
 	if s.Agent.Build != nil {
-		agentService.Volumes = []types.ServiceVolumeConfig{
-			{
-				Type:   types.VolumeTypeBind,
-				Source: filepath.Join(workingDir, "agent"),
-				Target: "/app/agent",
-			},
-		}
+		agentService.Volumes = append(agentService.Volumes, types.ServiceVolumeConfig{
+			Type:   types.VolumeTypeBind,
+			Source: filepath.Join(workingDir, "agent"),
+			Target: "/app/agent",
+		})
 	}
 
 	// Override container command from dev.command

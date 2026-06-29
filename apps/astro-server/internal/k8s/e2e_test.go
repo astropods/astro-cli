@@ -187,9 +187,9 @@ agent:
 
 	requireNoErrors(t, r)
 
-	// Should have agent Deployment + Service
-	if !r.hasResource("Deployment", "my-agent-agent") {
-		t.Error("expected agent Deployment")
+	// Should have agent StatefulSet + Service
+	if !r.hasResource("StatefulSet", "my-agent-agent") {
+		t.Error("expected agent StatefulSet")
 	}
 	if !r.hasResource("Service", "my-agent-agent") {
 		t.Error("expected agent Service")
@@ -548,8 +548,8 @@ ingestion:
 	requireNoErrors(t, r)
 
 	// Agent
-	if !r.hasResource("Deployment", "my-agent-agent") {
-		t.Error("expected agent Deployment")
+	if !r.hasResource("StatefulSet", "my-agent-agent") {
+		t.Error("expected agent StatefulSet")
 	}
 	if !r.hasResource("Service", "my-agent-agent") {
 		t.Error("expected agent Service")
@@ -651,8 +651,8 @@ ingestion:
 	if got := r.resourceCount("Service"); got < 4 {
 		t.Errorf("expected at least 4 Services, got %d", got)
 	}
-	if got := r.resourceCount("StatefulSet"); got != 3 {
-		t.Errorf("expected 3 StatefulSets (ollama + qdrant + redis), got %d", got)
+	if got := r.resourceCount("StatefulSet"); got != 4 {
+		t.Errorf("expected 4 StatefulSets (agent + ollama + qdrant + redis), got %d", got)
 	}
 }
 
@@ -731,9 +731,9 @@ func effectiveAgentEnv(t *testing.T, r *e2eResult) map[string]string {
 	ns := r.Namespace
 	agentName := r.DeploymentSpec.Source.Name
 	deplName := deployment.GenerateAgentResourceName(agentName, "agent")
-	depl, err := r.Clientset.AppsV1().Deployments(ns).Get(context.Background(), deplName, metav1.GetOptions{})
+	depl, err := r.Clientset.AppsV1().StatefulSets(ns).Get(context.Background(), deplName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get agent deployment %q: %v", deplName, err)
+		t.Fatalf("get agent statefulset %q: %v", deplName, err)
 	}
 	var app *corev1.Container
 	for i := range depl.Spec.Template.Spec.Containers {
@@ -1924,12 +1924,12 @@ knowledge:
 
 	requireNoErrors(t, r)
 
-	// Fetch the agent Deployment and locate the "app" container.
-	depl, err := r.Clientset.AppsV1().Deployments(r.Namespace).Get(
+	// Fetch the agent StatefulSet and locate the "app" container.
+	depl, err := r.Clientset.AppsV1().StatefulSets(r.Namespace).Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{},
 	)
 	if err != nil {
-		t.Fatalf("get agent Deployment: %v", err)
+		t.Fatalf("get agent StatefulSet: %v", err)
 	}
 	var app *corev1.Container
 	for i := range depl.Spec.Template.Spec.Containers {
@@ -2272,12 +2272,12 @@ knowledge:
 		"POSTGRES_USERS_PORT":     "5432",
 	})
 
-	// --- Agent Deployment: no duplicate envFrom for knowledge secrets ---
+	// --- Agent StatefulSet: no duplicate envFrom for knowledge secrets ---
 
-	agentDepl, err := r.Clientset.AppsV1().Deployments(ns).Get(
+	agentDepl, err := r.Clientset.AppsV1().StatefulSets(ns).Get(
 		context.Background(), "my-agent-agent", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get agent deployment: %v", err)
+		t.Fatalf("get agent statefulset: %v", err)
 	}
 	agentContainer := agentDepl.Spec.Template.Spec.Containers[0]
 	for _, envFrom := range agentContainer.EnvFrom {

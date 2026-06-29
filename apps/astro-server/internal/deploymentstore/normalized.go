@@ -384,11 +384,17 @@ func SaveNormalizedSpec(
 	if agentReplicas == 0 {
 		agentReplicas = 1
 	}
+	// Every agent runs as a StatefulSet with a persistent disk (the applier
+	// guarantees a volume via normalizeAgentStorageDefaults), so the agent is
+	// always persistent here — regardless of whether ds.Agent.Volume has been
+	// defaulted yet on the spec we were handed. Drift detection keys off this
+	// WorkloadType to query the right Kubernetes kind.
 	w := buildWorkload(componentInput{
 		kind: "agent", image: ds.Agent.Image,
 		replicas: agentReplicas, resources: ds.Agent.Resources,
 		update: ds.Agent.Update, hc: ds.Agent.Healthcheck,
-		endpoints: ds.Agent.Endpoints,
+		endpoints:  ds.Agent.Endpoints,
+		persistent: true,
 	})
 	w.Distributed = ds.Agent.Distributed
 	agentWID, err := insertWorkload(w)
@@ -397,6 +403,36 @@ func SaveNormalizedSpec(
 	}
 	if err := saveEndpoints(agentWID, ds.Agent.Endpoints); err != nil {
 		return fmt.Errorf("agent endpoints: %w", err)
+	}
+	// Persist the agent's PVC, applying the same defaults the applier uses when
+	// the spec hasn't been normalized yet (empty mount → /data, nil storage → 5Gi).
+	agentMount := ds.Agent.Volume
+	if agentMount == "" {
+		agentMount = spec.DefaultAgentVolumeMount
+	}
+	agentStorageSize := spec.DefaultAgentStorageSize
+	agentStorageClass := ""
+	agentAccessMode := "ReadWriteOnce"
+	if ds.Agent.Storage != nil {
+		if ds.Agent.Storage.Size != "" {
+			agentStorageSize = ds.Agent.Storage.Size
+		}
+		agentStorageClass = ds.Agent.Storage.Class
+		if ds.Agent.Storage.AccessMode != "" {
+			agentAccessMode = ds.Agent.Storage.AccessMode
+		}
+	}
+	var agentSC *string
+	if agentStorageClass != "" {
+		agentSC = &agentStorageClass
+	}
+	if err := insertVolume(agentWID, &Volume{
+		MountPath:    agentMount,
+		Size:         agentStorageSize,
+		StorageClass: agentSC,
+		AccessMode:   agentAccessMode,
+	}); err != nil {
+		return fmt.Errorf("agent volume: %w", err)
 	}
 	// Agent ingress — matches spec_applier logic: ExposedEndpoint + ingressDomain fallback
 	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {

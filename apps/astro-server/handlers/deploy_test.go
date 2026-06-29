@@ -2801,11 +2801,13 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	// Event insert
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Normalized spec inserts (agent workload + service + collector workload + services + variables)
+	// Normalized spec inserts (agent workload + service + volume + collector workload + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectExec(`INSERT INTO deployment_volumes`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
@@ -2872,11 +2874,13 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	// Event insert
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Normalized spec re-inserts (agent workload + service + collector workload + services + variables)
+	// Normalized spec re-inserts (agent workload + service + volume + collector workload + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectExec(`INSERT INTO deployment_volumes`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
@@ -3678,12 +3682,14 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Normalized insert order: agent workload → agent service → ingestion workload
-	// → collector workload → collector services → variables → resolved keys
+	// Normalized insert order: agent workload → agent service → agent volume →
+	// ingestion workload → collector workload → collector services → variables → resolved keys
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectExec(`INSERT INTO deployment_volumes`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).

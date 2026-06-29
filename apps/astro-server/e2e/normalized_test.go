@@ -111,7 +111,7 @@ func TestSasbot_Workloads(t *testing.T) {
 	}
 
 	expect := map[string]struct{ kind, wtype string }{
-		"sasbot-agent":             {"agent", "deployment"},
+		"sasbot-agent":             {"agent", "statefulset"},
 		"sasbot-model-ollama":      {"model", "statefulset"},
 		"sasbot-knowledge-cache":   {"knowledge", "deployment"},
 		"sasbot-knowledge-docs":    {"knowledge", "statefulset"},
@@ -240,13 +240,18 @@ func TestSasbot_Volumes(t *testing.T) {
 		vols = append(vols, v)
 	}
 
-	// Only persistent: ollama (/root/.ollama, 50Gi) + qdrant (/qdrant/storage, 10Gi)
-	if len(vols) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(vols))
+	// Persistent volumes: agent default disk (/data, 5Gi) + ollama
+	// (/root/.ollama, 50Gi) + qdrant (/qdrant/storage, 10Gi). Every agent now
+	// runs as a StatefulSet with a default shared disk.
+	if len(vols) != 3 {
+		t.Fatalf("expected 3 volumes, got %d", len(vols))
 	}
 	byWL := map[string]vol{}
 	for _, v := range vols {
 		byWL[v.workload] = v
+	}
+	if v := byWL["sasbot-agent"]; v.mountPath != "/data" || v.size != "5Gi" {
+		t.Errorf("agent volume: mount=%q size=%q", v.mountPath, v.size)
 	}
 	if v := byWL["sasbot-model-ollama"]; v.mountPath != "/root/.ollama" || v.size != "50Gi" {
 		t.Errorf("ollama volume: mount=%q size=%q", v.mountPath, v.size)

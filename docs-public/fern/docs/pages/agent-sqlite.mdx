@@ -1,0 +1,212 @@
+---
+title: Store data with SQLite
+subtitle: Give your agent a place to save data that sticks around
+slug: agent-sqlite
+---
+
+Every agent gets its own storage space at `/data` — a folder that keeps its contents even after your agent restarts. Anything you save there is still there next time.
+
+[SQLite](https://www.sqlite.org/) is the easiest way to use that space. It's a small database that lives in a single file, with no separate server to run. Save the file under `/data` and your agent can remember things: past conversations, user preferences, notes, counters — whatever you need.
+
+<Note>
+You don't have to set anything up. The `/data` folder is always there, with **5&nbsp;GB** of space by default. Want more space or a different location? See [Change the size or location](#change-the-size-or-location).
+</Note>
+
+## Save data with SQLite
+
+Open a database file inside `/data` and use it like any other database. The folder is already there and ready to write to. The examples below use Python and Node, but the same idea works in any language with a SQLite library — just point the file at `/data`.
+
+<Steps>
+  <Step title="Add a SQLite library">
+    <Tabs>
+      <Tab title="Python">
+        Nothing to install — Python's `sqlite3` module is built in.
+      </Tab>
+      <Tab title="Node.js">
+        Install [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3):
+
+        ```bash
+        npm install better-sqlite3
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Create a small storage helper">
+    Put all your database code in one file. It opens the database in `/data`, creates the table the first time it runs, and gives the rest of your agent two simple functions: `remember()` and `recent()`.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python store.py
+        import sqlite3
+
+        # Open (or create) the database in the persistent /data folder.
+        # check_same_thread=False lets you reuse the connection across requests.
+        conn = sqlite3.connect("/data/app.db", check_same_thread=False)
+        conn.row_factory = sqlite3.Row  # rows you can read by column name
+
+        # Create the table the first time the agent runs. Safe to run every start.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+
+
+        def remember(role: str, content: str) -> None:
+            """Save one message."""
+            conn.execute(
+                "INSERT INTO messages (role, content) VALUES (?, ?)",
+                (role, content),
+            )
+            conn.commit()
+
+
+        def recent(limit: int = 20) -> list[sqlite3.Row]:
+            """Return the most recent messages, oldest first."""
+            rows = conn.execute(
+                "SELECT role, content FROM messages ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return list(reversed(rows))
+        ```
+      </Tab>
+      <Tab title="Node.js">
+        ```javascript store.js
+        import Database from "better-sqlite3";
+
+        // Open (or create) the database in the persistent /data folder.
+        const db = new Database("/data/app.db");
+
+        // Create the table the first time the agent runs. Safe to run every start.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS messages (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            role       TEXT NOT NULL,
+            content    TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        // Prepared statements are reusable and fast.
+        const insertStmt = db.prepare(
+          "INSERT INTO messages (role, content) VALUES (?, ?)"
+        );
+        const recentStmt = db.prepare(
+          "SELECT role, content FROM messages ORDER BY id DESC LIMIT ?"
+        );
+
+        // Save one message.
+        export function remember(role, content) {
+          insertStmt.run(role, content);
+        }
+
+        // Return the most recent messages, oldest first.
+        export function recent(limit = 20) {
+          return recentStmt.all(limit).reverse();
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Use it in your agent">
+    Import the helper and call `remember()` and `recent()` wherever your agent handles a message.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python app.py
+        from store import remember, recent
+
+
+        def handle_message(user_text: str) -> str:
+            # Look at what was said before.
+            history = recent(limit=10)
+
+            # ... generate a reply using `history` and `user_text` ...
+            reply = generate_reply(history, user_text)
+
+            # Save both sides of the exchange for next time.
+            remember("user", user_text)
+            remember("assistant", reply)
+            return reply
+        ```
+      </Tab>
+      <Tab title="Node.js">
+        ```javascript app.js
+        import { remember, recent } from "./store.js";
+
+        function handleMessage(userText) {
+          // Look at what was said before.
+          const history = recent(10);
+
+          // ... generate a reply using `history` and `userText` ...
+          const reply = generateReply(history, userText);
+
+          // Save both sides of the exchange for next time.
+          remember("user", userText);
+          remember("assistant", reply);
+          return reply;
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Deploy">
+    Deploy your agent the usual way — nothing extra to configure. The first time it runs, the database file is created. Every time after that, your data is already waiting.
+
+    ```bash
+    ast deploy
+    ```
+  </Step>
+</Steps>
+
+## What sticks around, and what doesn't
+
+Only the `/data` folder is saved:
+
+- **Inside `/data`** — kept across restarts, crashes, and new deploys. Put your database here.
+- **Anywhere else** — wiped clean each time your agent restarts. A file saved outside `/data` won't be there next time.
+
+<Warning>
+Always use a path that starts with `/data`. If you open a database with just a name like `app.db`, it's saved outside `/data` and disappears when your agent restarts.
+</Warning>
+
+Your data is only deleted when you remove the agent completely. Deploying a new version keeps everything.
+
+## Change the size or location
+
+The storage is **5&nbsp;GB** at `/data` by default. To change it, open **Advanced sizing** when you deploy or configure your agent:
+
+- **Storage** — choose how much space your agent gets. Pick this before your first deploy: once the agent is running, the size is locked and can't be changed.
+- **Mount path** — change the folder if you prefer something other than `/data`. If you do, update the path in your code to match.
+
+## Good to know
+
+<Warning>
+If you run more than one copy of your agent at the same time, each copy gets its **own separate storage** — they don't share data. SQLite is best when you run a single copy.
+</Warning>
+
+If you need several copies of your agent to share the same data, use a [knowledge store](/docs/pages/knowledge-stores) (like Postgres or Redis) instead of a SQLite file. Otherwise, keep your agent at one copy.
+
+A couple of habits that help:
+
+- **Set up your tables on startup** using `CREATE TABLE IF NOT EXISTS …` so a brand-new agent starts clean and an existing one keeps its data.
+- **Back up by making a copy of the file**, not by copying it while the agent is writing to it.
+
+### Going further
+
+As your agent grows, these SQLite features are worth a look (all standard SQLite — nothing platform-specific):
+
+- **Turn on WAL mode** with `PRAGMA journal_mode=WAL;` right after opening the database. It lets reads and writes happen at the same time, which helps when your agent handles several requests at once.
+- **Add indexes** on columns you search or sort by often (`CREATE INDEX …`) to keep queries fast as your tables grow.
+- **Search text** with SQLite's built-in full-text search ([FTS5](https://www.sqlite.org/fts5.html)) — handy for finding past messages or notes by keyword.
+- **Version your schema** with a small migration step at startup (for example, track a version number with [`PRAGMA user_version`](https://www.sqlite.org/pragma.html#pragma_user_version)) so you can safely change tables in a later release.
+- **Store large files as files.** For big attachments, save the file directly in `/data` and keep just its path in the database — databases are happiest with small rows.

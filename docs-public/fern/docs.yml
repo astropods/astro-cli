@@ -92,6 +92,9 @@ navigation:
           - page: Using Knowledge stores
             path: docs/pages/knowledge-store-agent.mdx
             icon: fa-duotone fa-database
+          - page: Store data with SQLite
+            path: docs/pages/agent-sqlite.mdx
+            icon: fa-duotone fa-hard-drive
           - page: Serve a frontend from your agent
             path: docs/pages/frontend-agents.mdx
             icon: fa-duotone fa-window

@@ -39,10 +39,8 @@ type DeploymentConfig struct {
 	ExtraEnv         []corev1.EnvVar              // Additional env vars to inject
 	ExtraSecretNames []string                     // Additional Secrets to mount as envFrom (e.g., knowledge credentials)
 	PostStartCommand []string                     // Lifecycle postStart exec command (e.g., model pull)
-	// Sidecar containers colocated in the same pod
-	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
-	LocalMode bool                       // Skip security hardening for provider containers (local K8s only)
-	EnvHash   string                     // Content hash of ConfigMap+Secret data; triggers rolling restart on env-only changes
+	LocalMode        bool                         // Skip security hardening for provider containers (local K8s only)
+	EnvHash          string                       // Content hash of ConfigMap+Secret data; triggers rolling restart on env-only changes
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -66,6 +64,14 @@ type MessagingDeploymentConfig struct {
 	Environment     map[string]string            // Resolved env from interfaces.environment
 	DeployToken     string                       // Signed token injected as ASTRO_AUTHZ_TOKEN. The token's iss claim carries astro-server's base URL, so no separate URL env var is needed.
 	AuthTestUserID  string                       // When set, surfaced as AUTH_TEST_USER_ID — messaging treats every web request as this user. Local mode only.
+
+	// Shared volume mounted into the messaging sidecar. When VolumeName is set,
+	// the sidecar mounts the named pod volume (the agent's "data" PVC) at
+	// VolumeMountPath, isolated under VolumeSubPath. Empty VolumeName means no
+	// mount (e.g. the Deployment fallback path, which has no "data" volume).
+	VolumeName      string
+	VolumeMountPath string
+	VolumeSubPath   string
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest.
@@ -86,15 +92,6 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	// Build pod spec
 	podSpec := corev1.PodSpec{
 		Containers: []corev1.Container{container},
-	}
-
-	// Messaging runs as a native sidecar (init container with restartPolicy Always)
-	// so it is guaranteed to be running before the agent container starts.
-	if cfg.Messaging != nil {
-		msgContainer := buildMessagingContainer(*cfg.Messaging)
-		restartAlways := corev1.ContainerRestartPolicyAlways
-		msgContainer.RestartPolicy = &restartAlways
-		podSpec.InitContainers = append(podSpec.InitContainers, msgContainer)
 	}
 
 	// Add node selector: explicit config takes precedence over GPU auto-detection
@@ -189,6 +186,17 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 			},
 		},
 		ImagePullPolicy: msgPullPolicy,
+	}
+
+	// Mount the shared agent volume so messaging can persist data (e.g. sqlite
+	// history) on the same PVC. Isolated under a subPath so it never collides
+	// with the agent's own files. Only set when the agent runs with a volume.
+	if cfg.VolumeName != "" {
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      cfg.VolumeName,
+			MountPath: cfg.VolumeMountPath,
+			SubPath:   cfg.VolumeSubPath,
+		})
 	}
 
 	// Add messaging-specific environment variables

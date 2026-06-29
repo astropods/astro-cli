@@ -102,21 +102,23 @@ func TestDeploymentSecurityHardening(t *testing.T) {
 }
 
 func TestDeploymentSecurityHardening_AllSidecars(t *testing.T) {
-	cfg := DeploymentConfig{
+	ss, err := BuildStatefulSet(StatefulSetConfig{
 		Name:      "full-agent",
 		Namespace: "default",
 		AgentName: "my-agent",
 		BuildID:   "1.0",
 		Component: "agent",
-		Container: spec.ContainerConfig{Image: "agent:latest"},
+		Container: spec.ContainerConfig{Image: "agent:latest", Volume: "/data"},
+		Port:      8080,
 		Messaging: &MessagingDeploymentConfig{
 			Image:        "messaging:latest",
 			SlackEnabled: true,
 		},
+	})
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
 	}
-
-	d := BuildDeployment(cfg)
-	ps := d.Spec.Template.Spec
+	ps := ss.Spec.Template.Spec
 
 	assertHardenedPodSpec(t, ps)
 	for _, c := range ps.Containers {
@@ -409,19 +411,21 @@ func TestLocalModeIsolation_Deployment(t *testing.T) {
 // with a provider present. This catches regressions where local-mode relaxation
 // accidentally leaks to non-provider containers in the same pod.
 func TestLocalMode_SidecarsAlwaysHardened(t *testing.T) {
-	cfg := DeploymentConfig{
+	ss, err := BuildStatefulSet(StatefulSetConfig{
 		Name: "agent-with-sidecars", Namespace: "default",
 		AgentName: "a", BuildID: "1", Component: "agent",
-		Container: spec.ContainerConfig{Image: "agent:latest"},
+		Container: spec.ContainerConfig{Image: "agent:latest", Volume: "/data"},
+		Port:      8080,
 		LocalMode: true,
 		Messaging: &MessagingDeploymentConfig{
 			Image:        "messaging:latest",
 			SlackEnabled: true,
 		},
+	})
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
 	}
-
-	d := BuildDeployment(cfg)
-	ps := d.Spec.Template.Spec
+	ps := ss.Spec.Template.Spec
 
 	assertHardenedPodSpec(t, ps)
 	for _, c := range ps.Containers {

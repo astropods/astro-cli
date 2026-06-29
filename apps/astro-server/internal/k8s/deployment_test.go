@@ -493,35 +493,48 @@ func TestBuildDeployment(t *testing.T) {
 	})
 }
 
-// TestBuildDeploymentWithMessagingSidecar verifies that BuildDeployment with a
-// messaging sidecar config produces a pod with both the app and messaging containers.
-func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
+// buildMessagingSidecarPod builds the agent StatefulSet's pod spec with a
+// messaging sidecar. Messaging rides on the agent StatefulSet now that every
+// agent gets a persistent disk, so sidecar tests exercise BuildStatefulSet.
+func buildMessagingSidecarPod(t *testing.T, msg *MessagingDeploymentConfig, localMode bool) corev1.PodSpec {
+	t.Helper()
+	ss, err := BuildStatefulSet(StatefulSetConfig{
+		Name:      "test-agent-agent",
+		Namespace: "default",
+		AgentName: "my-agent",
+		BuildID:   "1.0",
+		Component: "agent",
+		Container: spec.ContainerConfig{Image: "agent:latest", Volume: "/data"},
+		Port:      8080,
+		LocalMode: localMode,
+		Messaging: msg,
+	})
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
+	}
+	return ss.Spec.Template.Spec
+}
+
+// TestBuildStatefulSetWithMessagingSidecar verifies that the agent StatefulSet
+// with a messaging sidecar config produces a pod with both the app and
+// messaging containers.
+func TestBuildStatefulSetWithMessagingSidecar(t *testing.T) {
 	t.Run("slack messaging sidecar", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "my-agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Messaging: &MessagingDeploymentConfig{
-				Image:        "messaging:latest",
-				SlackEnabled: true,
-				SecretName:   "my-secret",
-			},
+		ps := buildMessagingSidecarPod(t, &MessagingDeploymentConfig{
+			Image:        "messaging:latest",
+			SlackEnabled: true,
+			SecretName:   "my-secret",
+		}, false)
+
+		if len(ps.Containers) != 1 {
+			t.Fatalf("expected 1 container, got %d", len(ps.Containers))
+		}
+		if len(ps.InitContainers) != 1 {
+			t.Fatalf("expected 1 init container, got %d", len(ps.InitContainers))
 		}
 
-		d := BuildDeployment(cfg)
-
-		if len(d.Spec.Template.Spec.Containers) != 1 {
-			t.Fatalf("expected 1 container, got %d", len(d.Spec.Template.Spec.Containers))
-		}
-		if len(d.Spec.Template.Spec.InitContainers) != 1 {
-			t.Fatalf("expected 1 init container, got %d", len(d.Spec.Template.Spec.InitContainers))
-		}
-
-		app := d.Spec.Template.Spec.Containers[0]
-		msg := d.Spec.Template.Spec.InitContainers[0]
+		app := ps.Containers[0]
+		msg := ps.InitContainers[0]
 
 		if app.Name != "app" {
 			t.Errorf("first container: expected app, got %s", app.Name)
@@ -561,22 +574,12 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 	})
 
 	t.Run("web enabled adds http port", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "my-agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Messaging: &MessagingDeploymentConfig{
-				Image:        "messaging:latest",
-				SlackEnabled: true,
-				WebEnabled:   true,
-			},
-		}
-
-		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.InitContainers[0]
+		ps := buildMessagingSidecarPod(t, &MessagingDeploymentConfig{
+			Image:        "messaging:latest",
+			SlackEnabled: true,
+			WebEnabled:   true,
+		}, false)
+		msg := ps.InitContainers[0]
 
 		if len(msg.Ports) != 3 {
 			t.Fatalf("expected 3 ports (grpc + metrics + http), got %d", len(msg.Ports))
@@ -605,20 +608,10 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 	})
 
 	t.Run("metrics port always present", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "my-agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Messaging: &MessagingDeploymentConfig{
-				Image: "messaging:latest",
-			},
-		}
-
-		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.InitContainers[0]
+		ps := buildMessagingSidecarPod(t, &MessagingDeploymentConfig{
+			Image: "messaging:latest",
+		}, false)
+		msg := ps.InitContainers[0]
 
 		portMap := make(map[string]int32)
 		for _, p := range msg.Ports {
@@ -630,21 +623,11 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 	})
 
 	t.Run("without secret - no envFrom", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "my-agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Messaging: &MessagingDeploymentConfig{
-				Image:        "messaging:latest",
-				SlackEnabled: true,
-			},
-		}
-
-		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.InitContainers[0]
+		ps := buildMessagingSidecarPod(t, &MessagingDeploymentConfig{
+			Image:        "messaging:latest",
+			SlackEnabled: true,
+		}, false)
+		msg := ps.InitContainers[0]
 
 		if len(msg.EnvFrom) != 0 {
 			t.Errorf("expected no envFrom without secret, got %d", len(msg.EnvFrom))
@@ -812,38 +795,28 @@ func TestBuildCollectorDeployment(t *testing.T) {
 	})
 }
 
-// TestBuildDeploymentMessagingOnly verifies that BuildDeployment with
-// messaging sidecar produces a pod with the agent container and messaging
-// as a native sidecar init container. Collector is a separate deployment.
-func TestBuildDeploymentMessagingOnly(t *testing.T) {
-	cfg := DeploymentConfig{
-		Name:      "full-agent-agent",
-		Namespace: "astro-ns",
-		AgentName: "full-agent",
-		BuildID:   "build-99",
-		Component: "agent",
-		Container: spec.ContainerConfig{Image: "agent:latest"},
-		Messaging: &MessagingDeploymentConfig{
-			Image:        "messaging:latest",
-			SlackEnabled: true,
-			WebEnabled:   true,
-		},
+// TestBuildStatefulSetMessagingOnly verifies that the agent StatefulSet with a
+// messaging sidecar produces a pod with the agent container and messaging as a
+// native sidecar init container. Collector is a separate deployment.
+func TestBuildStatefulSetMessagingOnly(t *testing.T) {
+	ps := buildMessagingSidecarPod(t, &MessagingDeploymentConfig{
+		Image:        "messaging:latest",
+		SlackEnabled: true,
+		WebEnabled:   true,
+	}, false)
+
+	if len(ps.Containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(ps.Containers))
+	}
+	if len(ps.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(ps.InitContainers))
 	}
 
-	d := BuildDeployment(cfg)
-
-	if len(d.Spec.Template.Spec.Containers) != 1 {
-		t.Fatalf("expected 1 container, got %d", len(d.Spec.Template.Spec.Containers))
+	if ps.Containers[0].Name != "app" {
+		t.Errorf("expected container name app, got %s", ps.Containers[0].Name)
 	}
-	if len(d.Spec.Template.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(d.Spec.Template.Spec.InitContainers))
-	}
-
-	if d.Spec.Template.Spec.Containers[0].Name != "app" {
-		t.Errorf("expected container name app, got %s", d.Spec.Template.Spec.Containers[0].Name)
-	}
-	if d.Spec.Template.Spec.InitContainers[0].Name != "messaging" {
-		t.Errorf("expected init container name messaging, got %s", d.Spec.Template.Spec.InitContainers[0].Name)
+	if ps.InitContainers[0].Name != "messaging" {
+		t.Errorf("expected init container name messaging, got %s", ps.InitContainers[0].Name)
 	}
 }
 

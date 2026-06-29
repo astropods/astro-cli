@@ -421,7 +421,7 @@ export const handlers = [
       build_id: buildId,
       k8s_namespace: 'user-abc123',
       deployed_at: new Date().toISOString(),
-      resources: [{ kind: 'Deployment', name, status: 'created' }],
+      resources: [{ kind: 'StatefulSet', name, status: 'created' }],
     });
   }),
 
@@ -500,7 +500,7 @@ export const handlers = [
       build_id: 'a1b2c3d4e5f6',
       k8s_namespace: 'user-abc123',
       undeployed_at: new Date().toISOString(),
-      resources: [{ kind: 'Deployment', name: body.deployment_id, status: 'deleted' }],
+      resources: [{ kind: 'StatefulSet', name: body.deployment_id, status: 'deleted' }],
     });
   }),
 

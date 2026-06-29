@@ -21,34 +21,17 @@ func TestComputeExpectedResourceNames_MinimalAgent(t *testing.T) {
 	if !expected["Service"][agentName] {
 		t.Errorf("expected agent service %s", agentName)
 	}
-	if !expected["Deployment"][agentName] {
-		t.Errorf("expected agent deployment %s", agentName)
-	}
-
-	// No ingresses, statefulsets, cronjobs, jobs
-	if len(expected["Ingress"]) != 0 {
-		t.Errorf("expected no ingresses, got %v", expected["Ingress"])
-	}
-	if len(expected["StatefulSet"]) != 0 {
-		t.Errorf("expected no statefulsets, got %v", expected["StatefulSet"])
-	}
-}
-
-func TestComputeExpectedResourceNames_AgentWithVolume_IsStatefulSet(t *testing.T) {
-	// When ds.Agent.Volume is set the applier creates a StatefulSet (+PVC).
-	// computeExpectedResourceNames must mirror that, otherwise orphan
-	// cleanup deletes the agent on every reconcile.
-	ds := minimalDeploymentSpec()
-	ds.Agent.Volume = "/data"
-
-	expected := computeExpectedResourceNames(ds, "", "")
-
-	agentName := deployment.GenerateAgentResourceName("my-agent", "agent")
+	// Every agent runs as a StatefulSet (+PVC), never a stateless Deployment.
 	if !expected["StatefulSet"][agentName] {
 		t.Errorf("expected agent StatefulSet %s", agentName)
 	}
 	if expected["Deployment"][agentName] {
-		t.Errorf("agent must not be in Deployment set when Volume is set")
+		t.Errorf("agent must not be in the Deployment set")
+	}
+
+	// No ingresses, cronjobs, jobs for a bare agent.
+	if len(expected["Ingress"]) != 0 {
+		t.Errorf("expected no ingresses, got %v", expected["Ingress"])
 	}
 }
 

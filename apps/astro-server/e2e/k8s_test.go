@@ -210,38 +210,8 @@ func cleanupNamespace(t *testing.T, clientset kubernetes.Interface, ns string) {
 	})
 }
 
-// waitForDeployments polls until exactly count managed Deployments exist in ns.
-// Needed because vcluster controller sync can lag behind the API server on slow CI.
-func waitForDeployments(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.Deployment {
-	t.Helper()
-	var result []appsv1.Deployment
-	var lastSeen int
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	err := wait.PollUntilContextCancel(ctx, 500*time.Millisecond, true, func(ctx context.Context) (bool, error) {
-		depls, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
-			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-		})
-		if err != nil {
-			return false, nil
-		}
-		lastSeen = len(depls.Items)
-		if lastSeen == count {
-			result = depls.Items
-			return true, nil
-		}
-		return false, nil
-	})
-	if err != nil {
-		// List what we actually found for debugging
-		names := listResourceNames(clientset, ns, "deployments")
-		t.Fatalf("timed out waiting for %d deployments in %s (saw %d): %v\n  found: %v", count, ns, lastSeen, err, names)
-	}
-	return result
-}
-
 // waitForStatefulSets polls until exactly count managed StatefulSets exist in ns.
-// Same vcluster sync concern as waitForDeployments.
+// Needed because vcluster controller sync can lag behind the API server on slow CI.
 func waitForStatefulSets(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.StatefulSet {
 	t.Helper()
 	var result []appsv1.StatefulSet
@@ -447,16 +417,18 @@ func TestK8s_ApplyCreatesDeployments(t *testing.T) {
 
 	applyMinimalSpec(t, client, ns)
 
-	// Poll until the vcluster controller syncs the Deployment objects
-	waitForDeployments(t, client.Clientset(), ns, 2)
+	// Poll until the vcluster controller syncs the workloads. The agent now runs
+	// as a StatefulSet (every agent gets a persistent disk), alongside the
+	// qdrant knowledge StatefulSet — redis knowledge stays a Deployment.
+	waitForStatefulSets(t, client.Clientset(), ns, 2)
 
 	ctx := context.Background()
 
-	// Verify agent deployment
+	// Verify agent StatefulSet
 	agentDeplName := deployment.GenerateAgentResourceName("k8s-e2e", "agent")
-	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	agentDepl, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+		t.Fatalf("agent statefulset %q not found: %v", agentDeplName, err)
 	}
 	if *agentDepl.Spec.Replicas != 1 {
 		t.Errorf("agent replicas: got %d, want 1", *agentDepl.Spec.Replicas)
@@ -473,13 +445,13 @@ func TestK8s_SlackReactionsEnvOnMessagingSidecar(t *testing.T) {
 
 	applySlackSpec(t, client, ns)
 
-	waitForDeployments(t, client.Clientset(), ns, 1)
+	waitForStatefulSets(t, client.Clientset(), ns, 1)
 
 	ctx := context.Background()
 	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
-	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	agentDepl, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+		t.Fatalf("agent statefulset %q not found: %v", agentDeplName, err)
 	}
 
 	var messaging *corev1.Container
@@ -510,13 +482,13 @@ func TestK8s_SlackAllowlistEmptyDefaultsOnMessagingSidecar(t *testing.T) {
 
 	applySlackSpecWithEmptyAllowlist(t, client, ns)
 
-	waitForDeployments(t, client.Clientset(), ns, 1)
+	waitForStatefulSets(t, client.Clientset(), ns, 1)
 
 	ctx := context.Background()
 	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
-	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	agentDepl, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+		t.Fatalf("agent statefulset %q not found: %v", agentDeplName, err)
 	}
 
 	var messaging *corev1.Container
@@ -548,13 +520,13 @@ func TestK8s_SlackSecretsStayInSecretRef(t *testing.T) {
 
 	applySlackSpec(t, client, ns)
 
-	waitForDeployments(t, client.Clientset(), ns, 1)
+	waitForStatefulSets(t, client.Clientset(), ns, 1)
 
 	ctx := context.Background()
 	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
-	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	agentDepl, err := client.Clientset().AppsV1().StatefulSets(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+		t.Fatalf("agent statefulset %q not found: %v", agentDeplName, err)
 	}
 
 	var messaging *corev1.Container
@@ -621,14 +593,26 @@ func TestK8s_ApplyCreatesStatefulSets(t *testing.T) {
 
 	applyMinimalSpec(t, client, ns)
 
-	// Poll until the vcluster controller syncs the StatefulSet objects
-	items := waitForStatefulSets(t, client.Clientset(), ns, 1)
+	// Poll until the vcluster controller syncs the StatefulSets: the qdrant
+	// knowledge store plus the agent (every agent gets a persistent disk).
+	items := waitForStatefulSets(t, client.Clientset(), ns, 2)
 
-	ss := items[0]
-	if len(ss.Spec.VolumeClaimTemplates) == 0 {
+	// Assert the qdrant knowledge store's volume is sized per its spec (1Gi).
+	knowledgeName := deployment.GenerateAgentResourceName("k8s-e2e", "knowledge-docs")
+	var knowledge *appsv1.StatefulSet
+	for i := range items {
+		if items[i].Name == knowledgeName {
+			knowledge = &items[i]
+			break
+		}
+	}
+	if knowledge == nil {
+		t.Fatalf("knowledge StatefulSet %q not found among synced sets", knowledgeName)
+	}
+	if len(knowledge.Spec.VolumeClaimTemplates) == 0 {
 		t.Error("statefulset missing volume claim templates")
 	} else {
-		storage := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage]
+		storage := knowledge.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage]
 		if storage.String() != "1Gi" {
 			t.Errorf("storage size: got %s, want 1Gi", storage.String())
 		}
@@ -652,13 +636,21 @@ func TestK8s_ReapplyIsIdempotent(t *testing.T) {
 		t.Fatalf("second apply had errors: %v", result2.Errors)
 	}
 
-	// Resources should be updated, not duplicated
+	// Resources should be updated, not duplicated. The minimal spec yields one
+	// Deployment (redis knowledge) and two StatefulSets (the agent's default
+	// disk + the qdrant knowledge store).
 	ctx := context.Background()
 	depls, _ := client.Clientset().AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
 	})
-	if len(depls.Items) != 2 {
-		t.Errorf("expected 2 deployments after reapply, got %d", len(depls.Items))
+	if len(depls.Items) != 1 {
+		t.Errorf("expected 1 deployment after reapply, got %d", len(depls.Items))
+	}
+	stss, _ := client.Clientset().AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+	})
+	if len(stss.Items) != 2 {
+		t.Errorf("expected 2 statefulsets after reapply, got %d", len(stss.Items))
 	}
 }
 

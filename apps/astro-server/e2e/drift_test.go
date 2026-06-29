@@ -337,23 +337,24 @@ func TestDrift_ExtraDeployment(t *testing.T) {
 func TestDrift_ScaledReplicas(t *testing.T) {
 	env := setupDriftEnv(t)
 
-	// Scale agent deployment to 2 replicas (DB expects 1)
+	// Scale agent StatefulSet to 2 replicas (DB expects 1). The agent runs as a
+	// StatefulSet now that every agent gets a persistent disk.
 	agentName := deployment.GenerateAgentResourceName("drift-agent", "agent")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		agentDepl, getErr := env.client.Clientset().AppsV1().Deployments(env.ns).Get(ctx, agentName, metav1.GetOptions{})
+		agentSS, getErr := env.client.Clientset().AppsV1().StatefulSets(env.ns).Get(ctx, agentName, metav1.GetOptions{})
 		if getErr != nil {
 			return getErr
 		}
 		two := int32(2)
-		agentDepl.Spec.Replicas = &two
-		_, updateErr := env.client.Clientset().AppsV1().Deployments(env.ns).Update(ctx, agentDepl, metav1.UpdateOptions{})
+		agentSS.Spec.Replicas = &two
+		_, updateErr := env.client.Clientset().AppsV1().StatefulSets(env.ns).Update(ctx, agentSS, metav1.UpdateOptions{})
 		return updateErr
 	})
 	if err != nil {
-		t.Fatalf("scale agent deployment: %v", err)
+		t.Fatalf("scale agent statefulset: %v", err)
 	}
 
 	report := env.buildReport()

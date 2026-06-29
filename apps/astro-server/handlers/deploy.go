@@ -2087,8 +2087,9 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 // two queries across timing windows. The status badge / pause toggle / tile
 // each call this directly and read `status` verbatim.
 //
-// Lightweight: at most one K8s Deployment.Get on the agent workload (skipped
-// entirely for non-active DB statuses). Polls cheaply.
+// Lightweight: at most one K8s Get (StatefulSet, or Deployment for legacy
+// agents) on the agent workload — skipped entirely for non-active DB statuses.
+// Polls cheaply.
 // GET /api/v1/deployments/:id/status
 func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

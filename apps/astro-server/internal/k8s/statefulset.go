@@ -11,6 +11,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// agentDataVolumeName is the name of the StatefulSet's persistent volume
+// (volumeClaimTemplate). The messaging sidecar mounts the same pod volume by
+// this name to share the disk; keep both sides in sync via this constant.
+const agentDataVolumeName = "data"
+
+// messagingVolumeSubPath isolates the messaging sidecar's files under a subtree
+// of the shared volume so they never collide with the agent's own data.
+const messagingVolumeSubPath = "messaging"
+
 // StatefulSetConfig holds configuration for building a StatefulSet
 type StatefulSetConfig struct {
 	Name            string
@@ -49,6 +58,12 @@ type StatefulSetConfig struct {
 // Returns an error if the provider is missing required fields (port, mount path).
 func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 	prov, _ := spec.LookupBuiltin(cfg.ProviderSection, cfg.Provider)
+
+	// LocalMode relaxes security hardening only for third-party provider
+	// containers (e.g. redis, qdrant) that need it on local kind clusters. Our
+	// own workloads — notably the agent, which now always runs as a StatefulSet
+	// — stay hardened even locally. Mirrors deployment.go's isProvider gate.
+	isProvider := cfg.Provider != ""
 
 	port := cfg.Port
 	if port == 0 {
@@ -96,7 +111,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 
 	volumeMounts := []corev1.VolumeMount{
 		{
-			Name:      "data",
+			Name:      agentDataVolumeName,
 			MountPath: mountPath,
 		},
 	}
@@ -183,7 +198,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		}
 	}
 
-	if !cfg.LocalMode {
+	if !cfg.LocalMode || !isProvider {
 		hardenContainer(&container)
 
 		// Some providers (e.g. qdrant) write to paths outside their data mount
@@ -221,7 +236,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 
 	volumeClaimTemplate := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "data",
+			Name:   agentDataVolumeName,
 			Labels: labels,
 		},
 		Spec: pvcSpec,
@@ -280,7 +295,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 						msgContainer.RestartPolicy = &restartAlways
 						ps.InitContainers = append(ps.InitContainers, msgContainer)
 					}
-					if !cfg.LocalMode {
+					if !cfg.LocalMode || !isProvider {
 						hardenPodSpec(&ps)
 						if cfg.FsGroup != 0 && ps.SecurityContext != nil {
 							uid := cfg.FsGroup
