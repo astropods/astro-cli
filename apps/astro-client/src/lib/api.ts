@@ -952,6 +952,12 @@ export interface K8sEvent {
   count: number;
   first_timestamp: string;
   last_timestamp: string;
+  // Server-populated, action-oriented copy for events that mean "the
+  // deployment is stuck and the user must act" (e.g. FailedScheduling).
+  // Absent for events the server has no copy for; the UI then renders the
+  // raw reason/message.
+  title?: string;
+  guidance?: string;
 }
 
 export interface DeploymentEventsResponse {

@@ -5144,6 +5144,190 @@ func TestGetDeploymentEvents_CacheBypassDuringDeploy(t *testing.T) {
 	}
 }
 
+// --- humanizeDeploymentEvent + stuck-deployment surfacing ---
+
+func TestHumanizeDeploymentEvent(t *testing.T) {
+	t.Run("FailedScheduling is humanized as a stuck/needs-action event", func(t *testing.T) {
+		title, guidance, ok := humanizeDeploymentEvent("FailedScheduling")
+		if !ok {
+			t.Fatal("expected FailedScheduling to be recognized")
+		}
+		if title == "" {
+			t.Error("expected a non-empty title")
+		}
+		if !strings.Contains(guidance, "Advanced sizing") {
+			t.Errorf("expected guidance to mention Configure → Advanced sizing, got %q", guidance)
+		}
+		if strings.Contains(strings.ToLower(guidance), "contact support") {
+			t.Errorf("expected guidance for a clear error to be self-serviceable (no contact-support), got %q", guidance)
+		}
+	})
+
+	// Working, transient, and error/stuck states all get a title + guidance.
+	for _, reason := range []string{
+		"Scheduled", "Pulling", "Pulled", "Created", "Started", // working
+		"Unhealthy", "BackOff", // transient
+		"FailedScheduling", "FailedMount", "FailedAttachVolume", // error/stuck
+	} {
+		t.Run("mapped reason "+reason+" is humanized", func(t *testing.T) {
+			title, guidance, ok := humanizeDeploymentEvent(reason)
+			if !ok || title == "" || guidance == "" {
+				t.Errorf("expected %q humanized, got ok=%v title=%q guidance=%q", reason, ok, title, guidance)
+			}
+		})
+	}
+
+	// Reasons we have no copy for pass through raw (UI shows reason/message).
+	for _, reason := range []string{"Killing", "Preempted", "SandboxChanged", ""} {
+		t.Run("unmapped reason "+reason+" is left raw", func(t *testing.T) {
+			title, guidance, ok := humanizeDeploymentEvent(reason)
+			if ok || title != "" || guidance != "" {
+				t.Errorf("expected no humanization for %q, got ok=%v title=%q guidance=%q", reason, ok, title, guidance)
+			}
+		})
+	}
+}
+
+// A FailedScheduling event is annotated with title+guidance while its raw K8s
+// message is preserved, and unmapped events in the same list are left untouched.
+func TestGetDeploymentEvents_FailedSchedulingHumanized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	namespace := "astro-stuck"
+
+	schedMsg := "0/14 nodes are available: 11 Insufficient memory, 4 Insufficient cpu."
+	// A FailedScheduling Warning (newer) plus an unmapped Normal event (older).
+	eventsJSON := `
+		{
+			"metadata":{"name":"evt-sched","namespace":"astro-stuck","creationTimestamp":"2026-04-16T10:00:00Z"},
+			"involvedObject":{"kind":"Pod","name":"shipmate-agent-abc"},
+			"reason":"FailedScheduling",
+			"message":"` + schedMsg + `",
+			"type":"Warning",
+			"count":9,
+			"firstTimestamp":"2026-04-16T09:00:00Z",
+			"lastTimestamp":"2026-04-16T10:00:00Z"
+		},
+		{
+			"metadata":{"name":"evt-other","namespace":"astro-stuck","creationTimestamp":"2026-04-16T08:00:00Z"},
+			"involvedObject":{"kind":"Pod","name":"shipmate-agent-abc"},
+			"reason":"Killing",
+			"message":"Stopping container app",
+			"type":"Normal",
+			"count":1,
+			"firstTimestamp":"2026-04-16T08:00:00Z",
+			"lastTimestamp":"2026-04-16T08:00:00Z"
+		}`
+
+	var callCount int
+	k8sClient := newMockK8sClient(k8sEventsHandler(namespace, eventsJSON, &callCount))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, accountStore, testK8sRegistry(k8sClient), deployStore, k8scache.NoopCache{}))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace,
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp DeploymentEventsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if len(resp.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(resp.Events))
+	}
+
+	// Sorted by last_timestamp desc → FailedScheduling (10:00) comes first.
+	sched := resp.Events[0]
+	if sched.Reason != "FailedScheduling" {
+		t.Fatalf("expected first event to be FailedScheduling, got %q", sched.Reason)
+	}
+	if sched.Title == "" || sched.Guidance == "" {
+		t.Errorf("expected FailedScheduling annotated with title+guidance, got title=%q guidance=%q", sched.Title, sched.Guidance)
+	}
+	// Raw K8s detail must be preserved so the user still sees the specifics.
+	if sched.Message != schedMsg {
+		t.Errorf("expected raw scheduling message preserved, got %q", sched.Message)
+	}
+
+	// The unmapped event must NOT get title/guidance copy.
+	other := resp.Events[1]
+	if other.Reason != "Killing" {
+		t.Fatalf("expected second event to be Killing, got %q", other.Reason)
+	}
+	if other.Title != "" || other.Guidance != "" {
+		t.Errorf("expected unmapped event to have no title/guidance, got title=%q guidance=%q", other.Title, other.Guidance)
+	}
+}
+
+// A failure listing events surfaces a 500 and must not panic on the
+// humanization path.
+func TestGetDeploymentEvents_ListError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	namespace := "astro-listerr"
+
+	// K8s API returns 500 for every request → the events List errors out.
+	k8sClient := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/events",
+		GetDeploymentEvents(log, accountStore, testK8sRegistry(k8sClient), deployStore, k8scache.NoopCache{}))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace,
+			"My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/events", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on events list error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- Shared test helpers for template handler tests ---
 
 func expectAccountLookup(mock sqlmock.Sqlmock) {

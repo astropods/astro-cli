@@ -1267,8 +1267,8 @@ const (
 // May return empty/zero fields if the cluster is briefly unreachable;
 // renderers must tolerate that without breaking the record-driven UI.
 type DeploymentRuntime struct {
-	Ready              int32 `json:"ready"`    // observed ready replicas across the deployment
-	Replicas           int32 `json:"replicas"` // observed total replicas (may differ from desired during scale events)
+	Ready    int32 `json:"ready"`    // observed ready replicas across the deployment
+	Replicas int32 `json:"replicas"` // observed total replicas (may differ from desired during scale events)
 	// MessagingReachable is true when the messaging Service object exists AND
 	// (when it surfaces in the live pod view) the messaging sidecar container is
 	// Ready. It is NOT a bare Service-presence check — a crashed/wedged sidecar
@@ -3212,6 +3212,42 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 	}
 }
 
+// humanizeDeploymentEvent maps a Kubernetes pod event reason to a
+// plain-language title and guidance for the deployment Events tab, covering the
+// common working, transient, and error/stuck states. ok is false for reasons we
+// have no copy for, in which case the UI falls back to the raw reason/message.
+// Mirrors humanizeKnowledgeEvent.
+func humanizeDeploymentEvent(reason string) (title, guidance string, ok bool) {
+	switch reason {
+	// Working — normal progress toward a running agent.
+	case "Scheduled":
+		return "Scheduled", "Your agent has been assigned to a node.", true
+	case "Pulling":
+		return "Downloading image", "Fetching your agent's container image — this may take a moment.", true
+	case "Pulled":
+		return "Image ready", "Your agent's container image is downloaded and ready.", true
+	case "Created":
+		return "Preparing agent", "Your agent's container has been created.", true
+	case "Started":
+		return "Starting up", "Your agent is booting and will be ready shortly.", true
+
+	// Transient — self-recovering, no user action needed.
+	case "Unhealthy":
+		return "Health check pending", "Your agent is still initializing — waiting for it to pass health checks.", true
+	case "BackOff":
+		return "Retrying", "A transient issue occurred; the system is retrying automatically.", true
+
+	// Stuck / error states.
+	case "FailedScheduling":
+		return "Deployment stuck — needs action",
+			"This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure → Advanced sizing and redeploy.",
+			true
+	case "FailedMount", "FailedAttachVolume":
+		return "Storage issue", "There was a problem attaching storage; the system will retry.", true
+	}
+	return "", "", false
+}
+
 // GetDeploymentEvents returns Kubernetes events for a deployment's namespace.
 func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
 	const cachePrefix = "astro:k8s:events:"
@@ -3274,6 +3310,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 			if firstTS.IsZero() {
 				firstTS = lastTS
 			}
+			title, guidance, _ := humanizeDeploymentEvent(evt.Reason)
 			items = append(items, K8sEventItem{
 				Type:           evt.Type,
 				Reason:         evt.Reason,
@@ -3283,6 +3320,8 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 				Count:          evt.Count,
 				FirstTimestamp: firstTS.UTC().Format(time.RFC3339),
 				LastTimestamp:  lastTS.UTC().Format(time.RFC3339),
+				Title:          title,
+				Guidance:       guidance,
 			})
 		}
 

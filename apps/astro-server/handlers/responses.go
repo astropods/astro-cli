@@ -813,6 +813,11 @@ type NetworkTimeseriesResponse struct {
 // --- Deployment Events ---
 
 // K8sEventItem represents a single Kubernetes event for API responses.
+//
+// Title and Guidance are server-populated, action-oriented copy for event
+// reasons we recognize as "the deployment is stuck and the user must act"
+// (see humanizeDeploymentEvent). They are empty for events we don't have copy
+// for, in which case the UI falls back to the raw Reason/Message.
 type K8sEventItem struct {
 	Type           string `json:"type"`
 	Reason         string `json:"reason"`
@@ -822,6 +827,8 @@ type K8sEventItem struct {
 	Count          int32  `json:"count"`
 	FirstTimestamp string `json:"first_timestamp"`
 	LastTimestamp  string `json:"last_timestamp"`
+	Title          string `json:"title,omitempty"`
+	Guidance       string `json:"guidance,omitempty"`
 }
 
 // DeploymentEventsResponse wraps Kubernetes events for a deployment namespace.

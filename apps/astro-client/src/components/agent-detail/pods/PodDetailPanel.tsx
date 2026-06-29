@@ -323,6 +323,10 @@ function EventsTab({ deploymentId }: { deploymentId: string }) {
 
 function EventRow({ event, isLast }: { event: K8sEvent; isLast: boolean }) {
   const isWarning = event.type === "Warning";
+  // The server humanizes events that mean "stuck — needs action" (e.g.
+  // FailedScheduling) into a plain-language title + guidance. When present we
+  // lead with that and still show the raw reason + full K8s message below.
+  const humanized = !!event.title;
 
   return (
     <div className={cn(
@@ -338,18 +342,20 @@ function EventRow({ event, isLast }: { event: K8sEvent; isLast: boolean }) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
-          <div className="flex items-baseline gap-2">
-            <span className="text-mono-sm font-medium text-foreground">{event.reason}</span>
-            <span className="text-mono-sm text-muted-foreground break-all">
-              {event.object_kind}/{event.object_name}
-              {event.count > 1 && ` ×${event.count}`}
-            </span>
-          </div>
+          <span className="text-mono-sm font-medium text-foreground">{humanized ? event.title : event.reason}</span>
           <span className="shrink-0 text-mono-sm text-faint-foreground">
             {formatTimeAgo(event.last_timestamp)}
           </span>
         </div>
-        <p className="line-clamp-2 text-body-sm text-muted-foreground">{event.message}</p>
+        <span className="text-mono-sm text-muted-foreground break-all">
+          {humanized ? `${event.reason} · ` : ""}{event.object_kind}/{event.object_name}
+          {event.count > 1 && ` ×${event.count}`}
+        </span>
+        {event.guidance && <p className="text-body-sm text-foreground/80">{event.guidance}</p>}
+        {/* Show the full K8s message for warnings (the scheduling detail is the
+            useful part and is often longer than two lines); clamp the noisier
+            Normal lifecycle events. */}
+        <p className={cn("text-body-sm text-muted-foreground", !isWarning && "line-clamp-2")}>{event.message}</p>
       </div>
     </div>
   );
