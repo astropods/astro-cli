@@ -268,7 +268,14 @@ func GetDatasetReviewQueue(
 		annotated := annotateQueue(traces.Data, judged)
 
 		resp := datasetReviewQueueResponse{Items: annotated, EndTime: endTime}
-		resp.NextOffset = nextReviewQueueOffset(len(traces.Data), traces.Meta.TotalItems, offset)
+		resp.NextOffset = nextReviewQueueOffset(
+			limit,
+			len(traces.Data),
+			traces.Meta.TotalItems,
+			traces.Meta.TotalPages,
+			traces.Meta.Page,
+			offset,
+		)
 		c.JSON(http.StatusOK, resp)
 	}
 }
@@ -289,11 +296,20 @@ func reviewQueueEndTime(c *gin.Context, offset int) (string, bool) {
 	return raw, true
 }
 
-func nextReviewQueueOffset(pageSize, totalItems, offset int) int {
-	if pageSize == 0 {
+func nextReviewQueueOffset(limit, pageSize, totalItems, totalPages, currentPage, offset int) int {
+	if limit <= 0 || pageSize == 0 {
 		return 0
 	}
-	nextOffset := offset + pageSize
+	nextOffset := offset + limit
+	if totalPages > 0 {
+		if currentPage <= 0 {
+			currentPage = offset/limit + 1
+		}
+		if currentPage >= totalPages {
+			return 0
+		}
+		return nextOffset
+	}
 	if totalItems <= nextOffset {
 		return 0
 	}

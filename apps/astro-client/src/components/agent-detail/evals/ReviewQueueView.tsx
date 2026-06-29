@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -96,6 +97,8 @@ type QuickUndoJudgment = {
   pageIndex?: number;
 };
 
+type ReviewQueuePanelAction = "none" | "open" | "sync";
+
 type BaselineStatus = {
   label: string;
   tooltip: string;
@@ -111,6 +114,8 @@ export interface ReviewQueueViewProps {
   summary: EvalDatasetResponse;
   gradeTargetRef?: RefObject<HTMLDivElement | null>;
   onOpenTrace?: (trace: TraceEntry) => void;
+  onSelectedTraceChange?: (trace: TraceEntry) => void;
+  onSelectedTraceCleared?: () => void;
 }
 
 export function ReviewQueueView({
@@ -122,6 +127,8 @@ export function ReviewQueueView({
   summary,
   gradeTargetRef,
   onOpenTrace,
+  onSelectedTraceChange,
+  onSelectedTraceCleared,
 }: ReviewQueueViewProps) {
   const {
     data,
@@ -134,6 +141,10 @@ export function ReviewQueueView({
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quickUndo, setQuickUndo] = useState<QuickUndoJudgment | null>(null);
+  // Mirrors selectedId for synchronous reads inside mutation callbacks.
+  const selectedIdRef = useRef<string | null>(null);
+  // Tracks the trace currently shown in the open detail panel.
+  const syncedPanelTraceIdRef = useRef<string | null>(null);
   const emptyQueueAutoLoadCountRef = useRef(0);
   const items = useMemo(
     () => data?.pages.flatMap((page) => page.items) ?? EMPTY_REVIEW_QUEUE_ITEMS,
@@ -147,6 +158,43 @@ export function ReviewQueueView({
     : -1;
   const baselineStatus = getBaselineStatus(summary);
   const canLoadMore = Boolean(hasNextPage);
+  const selectTraceId = useCallback((traceId: string | null) => {
+    selectedIdRef.current = traceId;
+    setSelectedId(traceId);
+  }, []);
+  // Single adapter for queue selection plus optional panel open/sync work.
+  const applyReviewQueueSelection = useCallback(
+    (item: ReviewQueueItem, panelAction: ReviewQueuePanelAction = "none") => {
+      selectTraceId(item.trace_id);
+      if (panelAction === "none") {
+        return;
+      }
+
+      let panelCallback: ((trace: TraceEntry) => void) | undefined;
+      if (panelAction === "open") {
+        panelCallback = onOpenTrace;
+      }
+      if (panelAction === "sync") {
+        panelCallback = onSelectedTraceChange;
+      }
+
+      // Without a panel callback, sync remains row-only and never opens the panel.
+      if (!panelCallback) {
+        return;
+      }
+
+      syncedPanelTraceIdRef.current = item.trace_id;
+      panelCallback(reviewQueueItemToTraceEntry(item));
+    },
+    [onOpenTrace, onSelectedTraceChange, selectTraceId],
+  );
+  const clearSyncedTracePanel = useCallback((clearSelection = false) => {
+    if (clearSelection) {
+      selectTraceId(null);
+    }
+    syncedPanelTraceIdRef.current = null;
+    onSelectedTraceCleared?.();
+  }, [onSelectedTraceCleared, selectTraceId]);
   const postJudgment = usePostDatasetJudgment(deploymentId, {
     onSuccess: (_data, variables) => {
       setQuickUndo({
@@ -155,9 +203,16 @@ export function ReviewQueueView({
         item: variables.reviewQueueItem,
         pageIndex: variables.reviewQueuePageIndex,
       });
-      setSelectedId((current) =>
-        current === variables.traceId ? variables.nextTraceId ?? null : current,
-      );
+      if (selectedIdRef.current !== variables.traceId) {
+        return;
+      }
+
+      selectTraceId(variables.nextTraceId ?? null);
+      if (variables.nextReviewQueueItem) {
+        applyReviewQueueSelection(variables.nextReviewQueueItem, "sync");
+      } else {
+        clearSyncedTracePanel();
+      }
     },
   });
   const undoJudgment = useUndoDatasetJudgment(deploymentId);
@@ -200,11 +255,42 @@ export function ReviewQueueView({
     loadedPageCount,
   ]);
 
+  // While the panel is open, reconcile cache changes only when the selected
+  // trace is removed or replaced; reorders keep the explicit selection pinned.
+  useEffect(() => {
+    if (!onSelectedTraceChange) {
+      return;
+    }
+
+    if (!selectedItem) {
+      if (syncedPanelTraceIdRef.current !== null) {
+        clearSyncedTracePanel(true);
+      }
+      return;
+    }
+
+    if (syncedPanelTraceIdRef.current === selectedItem.trace_id) {
+      return;
+    }
+
+    applyReviewQueueSelection(selectedItem, "sync");
+  }, [
+    applyReviewQueueSelection,
+    clearSyncedTracePanel,
+    onSelectedTraceChange,
+    selectedItem,
+  ]);
+
   const handleSelectTrace = (traceId: string) => {
     postJudgment.reset();
     undoJudgment.reset();
     setQuickUndo(null);
-    setSelectedId(traceId);
+    const item = items.find((candidate) => candidate.trace_id === traceId);
+    if (item) {
+      applyReviewQueueSelection(item, "sync");
+    } else {
+      selectTraceId(traceId);
+    }
   };
   const handleJudgeTrace = (
     traceId: string,
@@ -214,6 +300,9 @@ export function ReviewQueueView({
     const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
     const nextSelectedTraceId = nextTraceId ?? previousTraceId;
     const reviewQueueItem = items.find((item) => item.trace_id === traceId);
+    const nextReviewQueueItem = nextSelectedTraceId
+      ? items.find((item) => item.trace_id === nextSelectedTraceId)
+      : undefined;
     const reviewQueuePageIndex = getReviewQueuePageIndex(data?.pages, traceId);
     setQuickUndo(null);
     flyVerdictToGrade(
@@ -223,13 +312,14 @@ export function ReviewQueueView({
     );
 
     if (selectedItem?.trace_id === traceId) {
-      setSelectedId((current) => current ?? traceId);
+      selectTraceId(selectedIdRef.current ?? traceId);
     }
     postJudgment.mutate({
       traceId,
       verdict,
       nextTraceId: nextSelectedTraceId,
       reviewQueueItem,
+      nextReviewQueueItem,
       reviewQueuePageIndex,
     });
   };
@@ -249,7 +339,11 @@ export function ReviewQueueView({
       {
         onSuccess: () => {
           setQuickUndo(null);
-          setSelectedId(traceId);
+          if (quickUndo.item) {
+            applyReviewQueueSelection(quickUndo.item, "sync");
+          } else {
+            selectTraceId(traceId);
+          }
         },
       },
     );
@@ -306,7 +400,7 @@ export function ReviewQueueView({
                 queueSize={items.length}
                 onOpenTrace={
                   onOpenTrace
-                    ? () => onOpenTrace(reviewQueueItemToTraceEntry(selectedItem))
+                    ? () => applyReviewQueueSelection(selectedItem, "open")
                     : undefined
                 }
               />

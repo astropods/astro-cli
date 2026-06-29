@@ -45,6 +45,10 @@ export default function AgentDataset() {
     setPanelExpanded(false);
   }, []);
 
+  const syncOpenTracePanel = useCallback((trace: TraceEntry) => {
+    setSelectedTrace(trace);
+  }, []);
+
   const closeTracePanel = useCallback(() => {
     setSelectedTrace(null);
   }, []);
@@ -174,6 +178,12 @@ export default function AgentDataset() {
                     summary={data}
                     gradeTargetRef={gradeTargetRef}
                     onOpenTrace={panelOpen ? undefined : openTracePanel}
+                    onSelectedTraceChange={
+                      panelOpen ? syncOpenTracePanel : undefined
+                    }
+                    onSelectedTraceCleared={
+                      panelOpen ? closeTracePanel : undefined
+                    }
                   />
                 )}
               </motion.div>

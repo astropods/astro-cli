@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { screen, cleanup, waitFor, within } from "@testing-library/react";
+import { act, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Outlet } from "react-router";
 import { server } from "@/test/msw/server";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
+import { evalKeys } from "@/api/queries/keys";
 import type {
   DatasetJudgmentRequest,
   EvalDatasetItem,
@@ -173,6 +174,9 @@ describe("review queue view", () => {
       await screen.findByText("No traces waiting for review."),
     ).toBeInTheDocument();
     expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /load more items/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows queue errors independently from the dataset summary", async () => {
@@ -611,6 +615,229 @@ describe("review queue view", () => {
     expect(
       screen.getByRole("button", { name: /view trace_111111/i }),
     ).toBeInTheDocument();
+  });
+
+  it("updates the open trace panel when selecting another review queue trace", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "First panel prompt",
+          output: "First panel response",
+          sentiment: "",
+        }),
+        queueItem({
+          trace_id: "trace_222222",
+          input: "Second panel prompt",
+          output: "Second panel response",
+          sentiment: "negative",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("First panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("First panel prompt")).toBeInTheDocument();
+    expect(within(panel).getByText("First panel response")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /second panel prompt/i }));
+
+    await waitFor(() => {
+      expect(within(panel).getByText("Second panel prompt")).toBeInTheDocument();
+      expect(within(panel).getByText("Second panel response")).toBeInTheDocument();
+      expect(within(panel).queryByText("First panel prompt")).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: /view trace_222222/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("advances the open trace panel after judging the selected queue trace", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "First judged panel prompt",
+      output: "First judged panel response",
+      sentiment: "",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second judged panel prompt",
+      output: "Second judged panel response",
+      sentiment: "negative",
+    });
+    let queueItems = [first, second];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(reviewQueueResponse(queueItems)),
+      ),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [second];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("First judged panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("First judged panel prompt")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    await waitFor(() => {
+      expect(within(panel).getByText("Second judged panel prompt")).toBeInTheDocument();
+      expect(within(panel).getByText("Second judged panel response")).toBeInTheDocument();
+      expect(within(panel).queryByText("First judged panel prompt")).not.toBeInTheDocument();
+    });
+  });
+
+  it("closes the open trace panel after judging the final queue trace", async () => {
+    const only = queueItem({
+      trace_id: "trace_111111",
+      input: "Final panel prompt",
+      output: "Final panel response",
+      sentiment: "",
+    });
+    let queueItems = [only];
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(reviewQueueResponse(queueItems)),
+      ),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Final panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+    expect(await screen.findByRole("dialog", { name: /trace details/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Good" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText("You're all caught up")).toBeInTheDocument();
+  });
+
+  it("updates the open trace panel when cached queue data removes the selected trace", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "Refetched first panel prompt",
+      output: "Refetched first panel response",
+      sentiment: "",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Refetched second panel prompt",
+      output: "Refetched second panel response",
+      sentiment: "negative",
+    });
+
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([first, second]),
+    );
+
+    const user = userEvent.setup();
+    const { queryClient } = renderDataset({ tab: null });
+
+    await screen.findByText("Refetched first panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("Refetched first panel prompt")).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(evalKeys.reviewQueue("dep-test"), {
+        pages: [reviewQueueResponse([second])],
+        pageParams: [undefined],
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(panel).getByText("Refetched second panel prompt")).toBeInTheDocument();
+      expect(within(panel).getByText("Refetched second panel response")).toBeInTheDocument();
+      expect(within(panel).queryByText("Refetched first panel prompt")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the open trace panel pinned when cached queue data reorders", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "Pinned first panel prompt",
+      output: "Pinned first panel response",
+      sentiment: "",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Reordered second panel prompt",
+      output: "Reordered second panel response",
+      sentiment: "negative",
+    });
+
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([first, second]),
+    );
+
+    const user = userEvent.setup();
+    const { queryClient } = renderDataset({ tab: null });
+
+    await screen.findByText("Pinned first panel response");
+    await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("Pinned first panel prompt")).toBeInTheDocument();
+
+    act(() => {
+      queryClient.setQueryData(evalKeys.reviewQueue("dep-test"), {
+        pages: [reviewQueueResponse([second, first])],
+        pageParams: [undefined],
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(panel).getByText("Pinned first panel prompt")).toBeInTheDocument();
+      expect(within(panel).getByText("Pinned first panel response")).toBeInTheDocument();
+      expect(within(panel).queryByText("Reordered second panel prompt")).not.toBeInTheDocument();
+    });
   });
 
   it.each([

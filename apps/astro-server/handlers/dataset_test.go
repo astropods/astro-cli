@@ -163,10 +163,32 @@ func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int
 		} else if gotToTimestamp != wantToTimestamp {
 			t.Errorf("toTimestamp = %q, want %q", gotToTimestamp, wantToTimestamp)
 		}
+		page := 1
+		if raw := r.URL.Query().Get("page"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				t.Errorf("page = %q, want integer", raw)
+			} else {
+				page = parsed
+			}
+		}
+		limit := len(traces)
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				t.Errorf("limit = %q, want integer", raw)
+			} else {
+				limit = parsed
+			}
+		}
+		totalPages := 0
+		if limit > 0 && totalItems > 0 {
+			totalPages = (totalItems + limit - 1) / limit
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp{
 			Data: traces,
-			Meta: meta{Page: 1, Limit: len(traces), TotalItems: totalItems, TotalPages: 1},
+			Meta: meta{Page: page, Limit: limit, TotalItems: totalItems, TotalPages: totalPages},
 		})
 	}
 }
@@ -1118,6 +1140,78 @@ func TestGetDatasetReviewQueue_UsesOffset(t *testing.T) {
 	}
 	if resp.EndTime != endTime {
 		t.Fatalf("end_time = %q, want %q", resp.EndTime, endTime)
+	}
+}
+
+func TestNextReviewQueueOffsetUsesPageBoundaries(t *testing.T) {
+	tests := []struct {
+		name        string
+		limit       int
+		pageSize    int
+		totalItems  int
+		totalPages  int
+		currentPage int
+		offset      int
+		want        int
+	}{
+		{
+			name:        "partial page with more pages advances by limit",
+			limit:       50,
+			pageSize:    7,
+			totalItems:  108,
+			totalPages:  3,
+			currentPage: 2,
+			offset:      50,
+			want:        100,
+		},
+		{
+			name:        "last reported page has no next offset",
+			limit:       50,
+			pageSize:    7,
+			totalItems:  108,
+			totalPages:  2,
+			currentPage: 2,
+			offset:      50,
+			want:        0,
+		},
+		{
+			name:        "missing total pages falls back to limit boundary",
+			limit:       50,
+			pageSize:    7,
+			totalItems:  108,
+			currentPage: 0,
+			offset:      50,
+			want:        100,
+		},
+		{
+			name:        "empty page has no next offset",
+			limit:       50,
+			pageSize:    0,
+			totalItems:  108,
+			totalPages:  3,
+			currentPage: 2,
+			offset:      50,
+			want:        0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nextReviewQueueOffset(
+				tt.limit,
+				tt.pageSize,
+				tt.totalItems,
+				tt.totalPages,
+				tt.currentPage,
+				tt.offset,
+			)
+			if got != tt.want {
+				t.Fatalf("next offset = %d, want %d", got, tt.want)
+			}
+			if got != 0 && got%tt.limit != 0 {
+				t.Fatalf("next offset = %d, want multiple of limit %d", got, tt.limit)
+			}
+		})
 	}
 }
 

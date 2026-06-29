@@ -22,6 +22,7 @@ type DatasetJudgmentVariables = {
   verdict: DatasetJudgmentVerdict;
   nextTraceId?: string | null;
   reviewQueueItem?: ReviewQueueItem;
+  nextReviewQueueItem?: ReviewQueueItem;
   reviewQueuePageIndex?: number;
 };
 
