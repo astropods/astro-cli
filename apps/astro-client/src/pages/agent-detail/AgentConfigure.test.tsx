@@ -253,18 +253,22 @@ describe("user edits configuration variables", () => {
     expect(screen.getByRole("button", { name: /redeploy/i })).toBeInTheDocument();
   });
 
-  it("clearing a changed variable back to initial hides the footer", async () => {
+  it("clearing a changed variable back to initial keeps the Redeploy button but drops the change message", async () => {
     const { user } = renderConfigure();
     await waitForForm();
 
     const input = screen.getByLabelText("OpenAI API Key");
     await user.type(input, "sk-temp");
-    expect(await screen.findByRole("button", { name: /redeploy/i })).toBeInTheDocument();
+    expect(await screen.findByText(/redeploy to apply/i)).toBeInTheDocument();
 
     await user.clear(input);
+    // The footer stays mounted with a persistent Redeploy button; only the
+    // pending-change message reverts to the clean-state copy.
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /redeploy/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/redeploy to apply/i)).not.toBeInTheDocument();
     });
+    expect(screen.getByText(/redeploy the current configuration/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /redeploy/i })).toBeInTheDocument();
   });
 });
 

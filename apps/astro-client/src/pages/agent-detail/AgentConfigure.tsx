@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Loader2, Rocket, Save, History, ArrowUp, X, Play, Check } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useAgentDetailContext } from "../AgentDetail";
@@ -54,10 +54,19 @@ export default function AgentConfigure() {
 
   const isBusy = form.isDeploying || renameMutation.isPending;
 
+  const isNameOnly = form.nameChanged && !form.deployChanged && !hasOverride;
+
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isBusy) return;
-    if (form.deployChanged || hasOverride) {
+    if (isNameOnly) {
+      try {
+        await renameMutation.mutateAsync(form.deployName);
+        form.reset({ ...form.initialValues!, deployName: form.deployName });
+      } catch {
+        // mutation error available via renameMutation.error
+      }
+    } else {
       if (!form.trySubmit()) return;
       try {
         const result = await form.deploy();
@@ -65,13 +74,6 @@ export default function AgentConfigure() {
         handleRedeploy();
       } catch {
         // captured in form.deployError
-      }
-    } else if (form.nameChanged) {
-      try {
-        await renameMutation.mutateAsync(form.deployName);
-        form.reset({ ...form.initialValues!, deployName: form.deployName });
-      } catch {
-        // mutation error available via renameMutation.error
       }
     }
   };
@@ -178,41 +180,36 @@ export default function AgentConfigure() {
         </motion.form>
       </div>
 
-      {/* Footer gradient mask — fades in/out with dirty state */}
-      <AnimatePresence>
-        {(form.isDirty || hasOverride) && (
-          <motion.div
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-[linear-gradient(to_bottom,transparent_0%,var(--color-surface)_50%)] dark:bg-[linear-gradient(to_bottom,transparent_0%,var(--color-background)_50%)]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-          />
-        )}
-      </AnimatePresence>
+      {/* Footer gradient mask */}
+      <motion.div
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-[linear-gradient(to_bottom,transparent_0%,var(--color-surface)_50%)] dark:bg-[linear-gradient(to_bottom,transparent_0%,var(--color-background)_50%)]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+      />
 
-      {/* Floating footer — slides up from bottom when dirty */}
-      <AnimatePresence>
-        {(form.isDirty || hasOverride) && (
-          <motion.div
-            className="pointer-events-none absolute inset-x-3 bottom-4 z-20 flex justify-center"
-            initial={{ y: "calc(100% + 1rem)" }}
-            animate={{ y: 0 }}
-            exit={{ y: "calc(100% + 1rem)" }}
-            transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
-          >
-            <div className="@container/footer pointer-events-auto w-full max-w-[52rem] rounded-lg border border-border bg-surface/95 py-3 pl-5 pr-3 shadow-lg backdrop-blur @max-[600px]/footer:px-5 supports-[backdrop-filter]:bg-surface/90">
-              <div className="flex items-center gap-3 @max-[600px]/footer:flex-col @max-[600px]/footer:gap-3">
-                <p className="text-body text-muted-foreground @max-[600px]/footer:text-center">
-                  {isRollback
-                    ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
-                    : isUpgrade
-                    ? "Upgrade to new build. Review and redeploy."
-                    : form.deployChanged
-                    ? `Redeploy to apply ${form.changeCount} ${form.changeCount === 1 ? "change" : "changes"}.`
-                    : "Save to update the agent name."}
-                </p>
-                <div className="ml-auto flex shrink-0 items-center gap-1.5 @max-[600px]/footer:ml-0 @max-[600px]/footer:w-full @max-[400px]/footer:flex-col">
+      {/* Floating footer — always visible action bar */}
+      <motion.div
+        className="pointer-events-none absolute inset-x-3 bottom-4 z-20 flex justify-center"
+        initial={{ y: "calc(100% + 1rem)" }}
+        animate={{ y: 0 }}
+        transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
+      >
+        <div className="@container/footer pointer-events-auto w-full max-w-[52rem] rounded-lg border border-border bg-surface/95 py-3 pl-5 pr-3 shadow-lg backdrop-blur @max-[600px]/footer:px-5 supports-[backdrop-filter]:bg-surface/90">
+          <div className="flex items-center gap-3 @max-[600px]/footer:flex-col @max-[600px]/footer:gap-3">
+            <p className="text-body text-muted-foreground @max-[600px]/footer:text-center">
+              {isRollback
+                ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
+                : isUpgrade
+                ? "Upgrade to new build. Review and redeploy."
+                : form.deployChanged
+                ? `Redeploy to apply ${form.changeCount} ${form.changeCount === 1 ? "change" : "changes"}.`
+                : isNameOnly
+                ? "Save to update the agent name."
+                : "Redeploy the current configuration."}
+            </p>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 @max-[600px]/footer:ml-0 @max-[600px]/footer:w-full @max-[400px]/footer:flex-col">
+              {(form.isDirty || hasOverride) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -222,35 +219,34 @@ export default function AgentConfigure() {
                 >
                   Discard
                 </Button>
-                {form.deployChanged || hasOverride ? (
-                  <Button
-                    type="submit"
-                    form={FORM_ID}
-                    variant="default"
-                    className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
-                    disabled={isBusy}
-                  >
-                    {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
-                    {form.isDeploying ? "Redeploying…" : "Redeploy"}
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    form={FORM_ID}
-                    variant="default"
-                    className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
-                    disabled={isBusy}
-                  >
-                    {renameMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-                    {renameMutation.isPending ? "Saving…" : "Save"}
-                  </Button>
-                )}
-              </div>
-              </div>
+              )}
+              {isNameOnly ? (
+                <Button
+                  type="submit"
+                  form={FORM_ID}
+                  variant="default"
+                  className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
+                  disabled={isBusy}
+                >
+                  {renameMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                  {renameMutation.isPending ? "Saving…" : "Save"}
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  form={FORM_ID}
+                  variant="default"
+                  className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
+                  disabled={isBusy}
+                >
+                  {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
+                  {form.isDeploying ? "Redeploying…" : "Redeploy"}
+                </Button>
+              )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
