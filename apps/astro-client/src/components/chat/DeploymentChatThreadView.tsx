@@ -24,7 +24,11 @@ import { Button } from "@/components/ui/button";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentPath } from "@/lib/routes";
-import { isDictationActive, useDictationSupported } from "@/lib/chat/dictation";
+import {
+  isDictationActive,
+  useDictationSupported,
+} from "@/lib/chat/dictation";
+import { DictationWaveform } from "@/components/chat/DictationWaveform";
 import type { ChatComposerState } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import {
@@ -52,7 +56,7 @@ import {
   Power,
   SquareIcon,
 } from "lucide-react";
-import { useEffect, type FC } from "react";
+import { useCallback, useEffect, useRef, type FC } from "react";
 
 export function DeploymentChatThreadView({
   account,
@@ -288,87 +292,115 @@ const ChatStateBanner: FC<{
 const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
   disabled,
   agentLabel,
-}) => (
-  <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
-    <div
-      data-slot="aui_composer-shell"
-      className={cn(
-        "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
-        "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
-        disabled && "pointer-events-none opacity-60",
-      )}
-    >
-      <ComposerPrimitive.Input
-        placeholder={
-          disabled ? "Agent is not ready…" : `Send a message to ${agentLabel}…`
-        }
-        disabled={disabled}
-        className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-1.75 py-1 text-sm outline-none disabled:cursor-not-allowed"
-        rows={1}
-        aria-label="Message input"
-      />
-      <ComposerAction disabled={disabled} />
-    </div>
-  </ComposerPrimitive.Root>
-);
-
-// Mic button driven by assistant-ui's dictation adapter: clicking toggles
-// browser-native speech-to-text, which streams the transcript into the composer
-// input. No client-side model/VAD — the browser handles capture + recognition.
-const DictationButton: FC<{ disabled?: boolean }> = ({ disabled }) => {
+}) => {
   const composer = useComposerRuntime();
   const dictation = useComposer((c) => c.dictation);
-  const active = isDictationActive(dictation);
-  // Stop capturing if the button unmounts (agent goes paused/stopped/error,
-  // conversation/agent switch, panel close) — otherwise the dictation session
-  // lives on the still-mounted runtime with no UI to stop it, leaving the mic
-  // live and streaming audio to the browser's speech service.
-  useEffect(
-    () => () => {
-      composer.stopDictation();
-    },
-    [composer],
-  );
-  // Same hazard via a different path: in starting/unreachable the composer is
-  // disabled but the button stays mounted (no unmount cleanup), so the user
-  // can't click to stop. Stop the live session as soon as it goes disabled.
+  const listening = isDictationActive(dictation);
+
+  // Text typed before dictation started, captured at the moment we start so
+  // Cancel can restore it (the runtime overwrites the composer text live as it
+  // transcribes). Recorded in startDictation, not an effect, to avoid racing
+  // the first interim result.
+  const preDictationText = useRef("");
+
+  const startDictation = useCallback(() => {
+    preDictationText.current = composer.getState().text;
+    composer.startDictation();
+  }, [composer]);
+
+  // Confirm keeps the transcript in the input for review/send; Cancel discards
+  // it and restores whatever was there before.
+  const confirmDictation = useCallback(() => {
+    composer.stopDictation();
+  }, [composer]);
+  const cancelDictation = useCallback(() => {
+    composer.stopDictation();
+    composer.setText(preDictationText.current);
+  }, [composer]);
+
+  // Safety nets that used to live on the mic button: stop a live session when
+  // the composer goes disabled (agent paused/stopped) or unmounts (panel close,
+  // agent switch), otherwise the mic keeps streaming with no way to stop it.
   useEffect(() => {
-    if (disabled && active) composer.stopDictation();
-  }, [disabled, active, composer]);
+    if (disabled && listening) composer.stopDictation();
+  }, [disabled, listening, composer]);
+  useEffect(() => () => composer.stopDictation(), [composer]);
+
+  return (
+    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+      <div
+        data-slot="aui_composer-shell"
+        className={cn(
+          "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
+          "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
+          disabled && "pointer-events-none opacity-60",
+        )}
+      >
+        {listening ? (
+          <DictationWaveform
+            onCancel={cancelDictation}
+            onConfirm={confirmDictation}
+          />
+        ) : (
+          <div className="flex w-full items-end gap-2">
+            <ComposerPrimitive.Input
+              placeholder={
+                disabled
+                  ? "Agent is not ready…"
+                  : `Send a message to ${agentLabel}…`
+              }
+              disabled={disabled}
+              className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent px-1.75 py-1.5 text-sm outline-none disabled:cursor-not-allowed"
+              rows={1}
+              aria-label="Message input"
+            />
+            <ComposerAction disabled={disabled} onStartDictation={startDictation} />
+          </div>
+        )}
+      </div>
+    </ComposerPrimitive.Root>
+  );
+};
+
+// Mic button: starts browser-native dictation, which replaces the input with a
+// live audio-reactive waveform until the user confirms or cancels. No
+// client-side model/VAD — the browser handles capture + recognition. The
+// session's stop/cancel controls live on the waveform; lifecycle safety (stop
+// on disable/unmount) lives on DeploymentComposer, which stays mounted while
+// the mic button is swapped out for the waveform.
+const DictationButton: FC<{ disabled?: boolean; onStart: () => void }> = ({
+  disabled,
+  onStart,
+}) => {
   return (
     <TooltipIconButton
       // Privacy disclosure: the Web Speech API may send captured audio to the
       // browser vendor's speech service (e.g. Chrome → Google) for transcription.
-      tooltip={
-        active
-          ? "Stop dictation"
-          : "Dictate — audio is transcribed by your browser's speech service"
-      }
+      tooltip="Dictate — audio is transcribed by your browser's speech service"
       side="bottom"
       type="button"
       variant="ghost"
       size="icon"
       disabled={disabled}
-      className={cn(
-        "aui-composer-mic size-8 rounded-full",
-        active && "text-primary",
-      )}
+      className="aui-composer-mic size-8 rounded-full"
       aria-label="Dictate"
-      aria-pressed={active}
-      onClick={() =>
-        active ? composer.stopDictation() : composer.startDictation()
-      }
+      onClick={onStart}
     >
-      <Mic className={cn("size-4", active && "animate-pulse")} />
+      <Mic className="size-4" />
     </TooltipIconButton>
   );
 };
 
-const ComposerAction: FC<{ disabled?: boolean }> = ({ disabled }) => {
+const ComposerAction: FC<{
+  disabled?: boolean;
+  onStartDictation: () => void;
+}> = ({ disabled, onStartDictation }) => {
   const dictationSupported = useDictationSupported();
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-1">
-      {dictationSupported ? <DictationButton disabled={disabled} /> : null}
+      {dictationSupported ? (
+        <DictationButton disabled={disabled} onStart={onStartDictation} />
+      ) : null}
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton

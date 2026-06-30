@@ -25,11 +25,14 @@ export const DICTATION_SUPPORTED =
  * instance is safe to share and gives the chat runtime a stable identity
  * without a per-render `useMemo`. `undefined` when unsupported (e.g. SSR).
  *
+ * The composer no longer shows the live transcript as text — it shows an
+ * audio-reactive waveform while listening (see DictationWaveform) and the
+ * finalized words land in the input when dictation stops. So we register the
+ * library adapter as-is; no interim-caption wrapper.
+ *
  * Assumes at most one composer dictates at a time — true today (chat is a single
  * side panel). If multiple chat composers can ever be mounted and dictate
- * simultaneously (split view / multiple panels), they'd share this one adapter
- * (and the single underlying `SpeechRecognition`), which could interleave
- * sessions; give each runtime its own adapter instance at that point.
+ * simultaneously, give each runtime its own adapter instance at that point.
  */
 export const dictationAdapter = DICTATION_SUPPORTED
   ? new WebSpeechDictationAdapter()
