@@ -18,7 +18,7 @@ import { SavedIndicator } from "@/components/settings/SettingsShared";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 
-const PERMISSION_TOOLTIP = "You do not have permission to edit this";
+const PERMISSION_TOOLTIP = "You need admin or owner access to edit this";
 
 interface ProfileEditorProps {
   /** Account slug used for avatar upload */
@@ -81,8 +81,10 @@ export function ProfileEditor({
   }, [isDirty]);
 
   const handleSave = () => {
-    onSave(displayName).then(() => {
-      setSavedName(displayName);
+    const trimmed = displayName.trim();
+    onSave(trimmed).then(() => {
+      setDisplayName(trimmed);
+      setSavedName(trimmed);
       flash();
     });
   };
@@ -142,40 +144,35 @@ export function ProfileEditor({
           }}
         />
 
-        <div className="max-w-sm">
+        <div>
           <Label size="md">Display name</Label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Input
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  maxLength={DISPLAY_NAME_MAX_LENGTH}
-                  disabled={readOnly}
-                />
-              </div>
-            </TooltipTrigger>
-            {permissionTip}
-          </Tooltip>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button
-                  disabled={readOnly || !isDirty || !displayName.trim() || isSaving}
-                  onClick={handleSave}
-                  className="self-start"
-                >
-                  {isSaving && <Loader2 size={14} className="spinner-delayed" />}
-                  Save changes
-                </Button>
-              </span>
-            </TooltipTrigger>
-            {permissionTip}
-          </Tooltip>
-          <SavedIndicator visible={showSaved} />
+          <div className="flex flex-wrap items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="min-w-[200px] max-w-sm flex-1">
+                  <Input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    maxLength={DISPLAY_NAME_MAX_LENGTH}
+                    placeholder="Add a display name"
+                    disabled={readOnly}
+                  />
+                </div>
+              </TooltipTrigger>
+              {permissionTip}
+            </Tooltip>
+            {isDirty && (
+              <Button
+                className="shrink-0"
+                disabled={isSaving}
+                onClick={handleSave}
+              >
+                {isSaving && <Loader2 size={14} className="spinner-delayed" />}
+                Save changes
+              </Button>
+            )}
+            <SavedIndicator visible={showSaved} />
+          </div>
         </div>
       </div>
     </TooltipProvider>

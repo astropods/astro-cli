@@ -9,7 +9,8 @@ interface ChangeUsernameDialogProps {
   currentName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (newName: string) => void;
+  variant?: "personal" | "organization";
 }
 
 export function ChangeUsernameDialog({
@@ -17,6 +18,7 @@ export function ChangeUsernameDialog({
   open,
   onOpenChange,
   onSuccess,
+  variant = "personal",
 }: ChangeUsernameDialogProps) {
   const [newUsername, setNewUsername] = useState("");
   const renameAccount = useRenameAccount();
@@ -24,34 +26,54 @@ export function ChangeUsernameDialog({
     open ? newUsername : "",
   );
 
+  const isOrg = variant === "organization";
+
   return (
     <ConfirmationDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Change username"
+      title={isOrg ? "Change organization username" : "Change username"}
       description={
-        <>
-          Changing your username will break any existing links or CLI
-          configurations that reference your current name.
-        </>
+        isOrg ? (
+          <>
+            Changing the username will break any existing links or CLI
+            configurations that reference the current name.
+          </>
+        ) : (
+          <>
+            Changing your username will break any existing links or CLI
+            configurations that reference your current name.
+          </>
+        )
       }
       checkboxLabel={
-        <>
-          I understand that changing my username is a destructive action
-          and any existing links to my content on Astro will no longer
-          function.
-        </>
+        isOrg ? (
+          <>
+            I understand that changing the username is a destructive action
+            and any existing links to this organization on Astro will no
+            longer function.
+          </>
+        ) : (
+          <>
+            I understand that changing my username is a destructive action
+            and any existing links to my content on Astro will no longer
+            function.
+          </>
+        )
       }
       actionLabel="Change username"
       pendingLabel="Changing…"
       error={renameAccount.isError ? (renameAccount.error as Error) : null}
-      defaultErrorMessage="Failed to rename account."
+      defaultErrorMessage={
+        isOrg ? "Failed to rename organization." : "Failed to rename account."
+      }
       isPending={renameAccount.isPending}
       canConfirm={isAvailable}
       onConfirm={() => {
+        const trimmed = newUsername.trim();
         renameAccount.mutate(
-          { account: currentName, newName: newUsername.trim() },
-          { onSuccess },
+          { account: currentName, newName: trimmed },
+          { onSuccess: () => onSuccess(trimmed) },
         );
       }}
       onReset={() => {

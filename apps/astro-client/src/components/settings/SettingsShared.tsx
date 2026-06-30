@@ -23,7 +23,7 @@ export function SectionHeader({
 }) {
   return (
     <div className={cn("pb-4 mb-4 border-b border-border", className)}>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="space-y-1 min-w-0">
           <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
           <p className="text-[13px] text-muted-foreground">{subtitle}</p>

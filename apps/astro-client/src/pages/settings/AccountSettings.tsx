@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { MetaFunction } from "react-router";
-import { Pencil, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,45 +46,30 @@ function AccountSection() {
           </TooltipProvider>
         </div>
       )}
-      <div className="max-w-sm">
-        <Label size="md">Username</Label>
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <Input
-              value={personalAccount ? `@${personalAccount.name}` : ""}
-              disabled
-              className="font-mono pr-10"
-            />
-            {personalAccount && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Change username"
-                      onClick={() => setOpen(true)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Change username</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+      {personalAccount && (
+        <div>
+          <Label size="md">Username</Label>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="font-mono text-body text-foreground">
+              @{personalAccount.name}
+            </span>
+            <Button
+              variant="link"
+              className="h-auto p-0 text-body-sm"
+              onClick={() => setOpen(true)}
+            >
+              Change username
+            </Button>
+            <SavedIndicator visible={usernameSaved} />
           </div>
-          <SavedIndicator visible={usernameSaved} />
-        </div>
-        {personalAccount && (
           <ChangeUsernameDialog
             currentName={personalAccount.name}
             open={open}
             onOpenChange={setOpen}
             onSuccess={handleUsernameSuccess}
           />
-        )}
-      </div>
+        </div>
+      )}
       <div className="flex flex-col gap-2 max-w-sm">
         <Label size="md">Timezone</Label>
         <div className="flex items-center gap-3">

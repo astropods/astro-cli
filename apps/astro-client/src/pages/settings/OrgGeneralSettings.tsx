@@ -10,12 +10,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
-import { useUpdateAccountDisplayName, useRenameAccount } from "@/api/queries";
-import { useAccountNameValidation } from "@/hooks/use-account-name";
+import { useUpdateAccountDisplayName } from "@/api/queries";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
-import { AccountNameInput } from "@/components/AccountNameInput";
-import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { SectionHeader, SavedIndicator } from "@/components/settings/SettingsShared";
+import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { LeaveOrganizationDialog } from "@/components/settings/LeaveOrganizationDialog";
@@ -51,11 +49,6 @@ function AccountSection({ readOnly }: { readOnly?: boolean }) {
   const { refresh } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [newUsername, setNewUsername] = useState("");
-  const renameAccount = useRenameAccount();
-  const { isChecking, isAvailable, displayError } = useAccountNameValidation(
-    open ? newUsername : "",
-  );
   const { showSaved, flash } = useSavedFlash();
 
   const handleSuccess = (newName: string) => {
@@ -66,84 +59,46 @@ function AccountSection({ readOnly }: { readOnly?: boolean }) {
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div>
         <Label size="md">Username</Label>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[13px] text-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="font-mono text-body text-foreground">
             @{orgSlug}
           </span>
-          <ConfirmationDialog
-            open={open}
-            onOpenChange={setOpen}
-            title="Change organization username"
-            description={
-              <>
-                Changing the username will break any existing links or CLI
-                configurations that reference the current name.
-              </>
-            }
-            checkboxLabel={
-              <>
-                I understand that changing the username is a destructive action
-                and any existing links to this organization on Astro will no
-                longer function.
-              </>
-            }
-            actionLabel="Change username"
-            pendingLabel="Changing..."
-            error={
-              renameAccount.isError ? (renameAccount.error as Error) : null
-            }
-            defaultErrorMessage="Failed to rename organization."
-            isPending={renameAccount.isPending}
-            canConfirm={isAvailable}
-            onConfirm={() => {
-              const trimmed = newUsername.trim();
-              renameAccount.mutate(
-                { account: orgSlug, newName: trimmed },
-                { onSuccess: () => handleSuccess(trimmed) },
-              );
-            }}
-            onReset={() => {
-              setNewUsername("");
-              renameAccount.reset();
-            }}
-            trigger={
-              readOnly ? (
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Button variant="link" className="h-auto p-0 text-[13px]" disabled>
-                          Change username
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>You do not have permission to edit this</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <Button variant="link" className="h-auto p-0 text-[13px]">
-                  Change username
-                </Button>
-              )
-            }
-          >
-            <div>
-              <Label size="md">New username</Label>
-              <AccountNameInput
-                value={newUsername}
-                onChange={setNewUsername}
-                placeholder={orgSlug}
-                isChecking={isChecking}
-                isAvailable={isAvailable}
-                displayError={displayError}
-              />
-            </div>
-          </ConfirmationDialog>
+          {readOnly ? (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button variant="link" className="h-auto p-0 text-body-sm" disabled>
+                      Change username
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  You need admin or owner access to edit this
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              variant="link"
+              className="h-auto p-0 text-body-sm"
+              onClick={() => setOpen(true)}
+            >
+              Change username
+            </Button>
+          )}
           <SavedIndicator visible={showSaved} />
         </div>
+        <ChangeUsernameDialog
+          currentName={orgSlug}
+          open={open}
+          onOpenChange={setOpen}
+          onSuccess={handleSuccess}
+          variant="organization"
+        />
       </div>
     </div>
   );
@@ -173,7 +128,7 @@ function DangerZone({ isAdmin }: { isAdmin: boolean }) {
         actionLabel="Delete"
         onAction={() => setDeleteOpen(true)}
         disabled={!isAdmin}
-        disabledReason="You do not have permission to delete this organization"
+        disabledReason="You need admin or owner access to delete this organization"
       />
       <DeleteOrganizationDialog
         orgSlug={orgSlug}
@@ -191,16 +146,13 @@ export default function OrgGeneralSettings() {
   return (
     <>
       <SectionHeader
-        title="Profile"
-        subtitle="Your organization's public identity on Astro"
-      />
-      <ProfileSection readOnly={!isAdmin} />
-      <hr className="my-2 border-border" />
-      <SectionHeader
         title="Account"
-        subtitle="Organization username and identity"
+        subtitle="Manage your organization's profile and identity"
       />
-      <AccountSection readOnly={!isAdmin} />
+      <div className="flex flex-col gap-5">
+        <ProfileSection readOnly={!isAdmin} />
+        <AccountSection readOnly={!isAdmin} />
+      </div>
       <section className="pt-8">
         <h3 className="flex items-center gap-1.5 font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
           <TriangleAlert className="size-3.5 shrink-0" />
