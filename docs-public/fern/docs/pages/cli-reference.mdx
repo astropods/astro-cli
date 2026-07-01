@@ -251,7 +251,7 @@ ast create <name> [flags]
 | `-y, --yes` | Skip the goal prompt and output the coding-agent prompt immediately |
 | `-p, --path <dir>` | Parent directory for the project |
 | `-t, --template <name>` | Agent template: `mastra` (default) or `langchain` |
-| `-m, --model <provider>` | LLM provider: `anthropic`, `openai`, or `ollama[/<model>]` (e.g. `ollama/llama3.3:70b`). Tab completion for `--model` is context-aware: typing `ollama/` lists known models; typing a model name followed by `:` shows only the tag suffix. |
+| `-m, --model <provider>` | LLM provider: `gateway`, `anthropic`, or `openai`. `gateway` wires the agent to the [Astro AI Gateway](/ai-gateway) for managed model access with no provider API key. (To use a self-hosted model such as Ollama, scaffold without `--model` and add it with `ast add`.) |
 | `--force` | Overwrite existing directory |
 
 After generating the agent harness, the CLI asks what you want the agent to do and prints a prompt to paste into Claude or another coding agent. Pass `-y` to skip the question and output the prompt immediately.

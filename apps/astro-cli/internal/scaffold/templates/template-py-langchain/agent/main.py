@@ -7,7 +7,10 @@ Environment variables (automatically injected by 'astro dev'):
 {{- end}}
 """
 
-{{- if .HasIntegration "anthropic"}}
+{{- if .AIGateway}}
+import os
+from langchain_openai import ChatOpenAI
+{{- else if .HasIntegration "anthropic"}}
 from langchain_anthropic import ChatAnthropic
 {{- else if .HasIntegration "openai"}}
 from langchain_openai import ChatOpenAI
@@ -17,7 +20,15 @@ from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
 from astropods_adapter_langchain import LangChainAdapter, serve
 
-{{- if .HasIntegration "anthropic"}}
+{{- if .AIGateway}}
+# Astro AI Gateway: managed model access over the OpenAI-compatible API.
+# No provider key needed — the platform injects URL + credential at runtime.
+llm = ChatOpenAI(
+    api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
+    base_url=os.environ["ASTRO_GATEWAY_URL"],
+    model="claude-sonnet-4-6",
+)
+{{- else if .HasIntegration "anthropic"}}
 llm = ChatAnthropic(model="claude-sonnet-4-5")
 {{- else if .HasIntegration "openai"}}
 llm = ChatOpenAI(model="gpt-4o")

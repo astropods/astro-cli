@@ -7,6 +7,10 @@ agent:
   build:
     context: .
     dockerfile: Dockerfile
+{{- if .AIGateway}}
+  # Managed model access — injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY.
+  astro_ai_gateway: true
+{{- end}}
 {{- if or (ne .ModelProvider "") (.HasIntegration "anthropic") (.HasIntegration "openai")}}
 
 models:

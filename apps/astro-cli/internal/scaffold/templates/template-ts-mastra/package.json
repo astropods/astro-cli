@@ -17,7 +17,8 @@
     "@mastra/observability": "latest",
     "@mastra/otel-exporter": "latest",
     "@opentelemetry/exporter-trace-otlp-proto": "latest",
-    "@astropods/adapter-mastra": "latest"
+    "@astropods/adapter-mastra": "latest"{{if .AIGateway}},
+    "@ai-sdk/openai": "^2.0.0"{{end}}
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",

@@ -1,13 +1,16 @@
 langchain>=0.3.0
 langchain-core>=0.3.0
 langgraph>=0.2.0
+{{- if .AIGateway}}
+langchain-openai>=0.3.0
+{{- end}}
 {{- if .HasIntegration "anthropic"}}
 langchain-anthropic>=0.3.0
 {{- end}}
 {{- if .HasIntegration "openai"}}
 langchain-openai>=0.3.0
 {{- end}}
-{{- if and (not (.HasIntegration "anthropic")) (not (.HasIntegration "openai"))}}
+{{- if and (not .AIGateway) (not (.HasIntegration "anthropic")) (not (.HasIntegration "openai"))}}
 langchain-anthropic>=0.3.0
 {{- end}}
 astropods-adapter-langchain>=0.1.1

@@ -8,7 +8,13 @@ Set one line in your spec and your agent gets a managed API key for calling supp
 
 ## Quick start
 
-Add `astro_ai_gateway: true` to your agent in `astropods.yml`:
+Scaffold a new agent wired to the gateway in one step:
+
+```bash
+ast create my-agent --model gateway
+```
+
+This generates `astro_ai_gateway: true` in the spec and agent code that reads the injected env vars — no provider key to configure. To enable the gateway on an existing agent, add the flag to `astropods.yml` by hand:
 
 ```yaml
 agent:
