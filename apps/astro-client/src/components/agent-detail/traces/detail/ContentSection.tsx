@@ -36,7 +36,9 @@ export function ContentSection({
   resizableContent = false,
 }: ContentSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const [contentHeight, setContentHeight] = useState<number | null>(
+    resizableContent ? RESIZE_MIN_HEIGHT : null,
+  );
   const contentRef = useRef<HTMLDivElement>(null);
   const { copy, copied } = useCopyToClipboard();
   const parsed = useMemo(() => parseContent(content), [content]);
@@ -156,7 +158,7 @@ export function ContentSection({
             <div
               ref={contentRef}
               className={cn(
-                resizableContent && "min-h-32",
+                resizableContent && "min-h-32 overflow-y-auto",
                 parsed.isJson && !parsed.isEmpty && mode !== "raw" ? "p-3" : "px-4 py-3",
                 contentClassName,
               )}

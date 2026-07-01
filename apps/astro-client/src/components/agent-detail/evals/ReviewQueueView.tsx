@@ -789,8 +789,8 @@ function ReviewQueueDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-none flex-col items-start justify-between gap-3 border-b border-border px-4 py-4 @[520px]/review-card:px-6 @[640px]/review-card:flex-row @[640px]/review-card:items-center @[640px]/review-card:gap-4">
-        <div className="flex min-w-0 items-center">
+      <div className="flex flex-none flex-col gap-3 border-b border-border px-4 py-4 @[520px]/review-card:px-6 @[520px]/review-card:gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <TraceDetailHoverLink
               traceId={item.trace_id}
@@ -819,13 +819,15 @@ function ReviewQueueDetail({
               </Tooltip>
             </TooltipProvider>
           </div>
+          <ReviewQueueDetailNavigation position={position} total={queueSize} />
         </div>
-        <div className="flex flex-none items-center gap-2">
-          <ReviewQueueDetailNavigation
-            position={position}
-            total={queueSize}
-          />
-        </div>
+        <ReviewQueueVerdictControls
+          isPending={isJudging}
+          showError={showJudgmentError}
+          onSelect={(verdict, trigger) =>
+            onJudge(item.trace_id, verdict, trigger)
+          }
+        />
       </div>
 
       <div
@@ -859,12 +861,6 @@ function ReviewQueueDetail({
           />
         </div>
       </div>
-
-      <ReviewQueueVerdictFooter
-        isPending={isJudging}
-        showError={showJudgmentError}
-        onSelect={(verdict, trigger) => onJudge(item.trace_id, verdict, trigger)}
-      />
     </div>
   );
 }
@@ -932,7 +928,7 @@ function ReviewQueueDetailNavigation({
   );
 }
 
-function ReviewQueueVerdictFooter({
+function ReviewQueueVerdictControls({
   isPending,
   showError,
   onSelect,
@@ -968,21 +964,12 @@ function ReviewQueueVerdictFooter({
   }, [isPending, onSelect]);
 
   return (
-    <div className="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 @[520px]/review-card:px-6 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
-      <div className="min-w-0 flex-1 text-body-sm text-muted-foreground @max-[520px]/review-card:flex-none">
-        {showError ? (
-          "Could not save verdict. Try again."
-        ) : (
-          <>
-            Select an option or use{" "}
-            <ShortcutKey className="mx-0.5">G</ShortcutKey>
-            {" / "}
-            <ShortcutKey className="mx-0.5">B</ShortcutKey>
-            {" / "}
-            <ShortcutKey className="mx-0.5">N</ShortcutKey>.
-          </>
-        )}
-      </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
+      {showError && (
+        <div className="min-w-0 text-body-sm text-muted-foreground @max-[520px]/review-card:flex-none">
+          Could not save verdict. Try again.
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 @max-[520px]/review-card:grid @max-[520px]/review-card:grid-cols-1">
         {REVIEW_QUEUE_VERDICT_OPTIONS.map(
           ({ verdict, label, shortcut, Icon, iconClassName }) => (

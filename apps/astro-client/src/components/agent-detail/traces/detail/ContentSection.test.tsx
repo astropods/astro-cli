@@ -47,23 +47,13 @@ describe("ContentSection", () => {
       throw new Error("Resizable content body not found");
     }
 
-    vi.spyOn(contentBody, "getBoundingClientRect").mockReturnValue({
-      width: 240,
-      height: 160,
-      top: 0,
-      right: 240,
-      bottom: 160,
-      left: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    expect(contentBody).toHaveStyle({ height: "128px" });
 
     fireEvent.keyDown(resizeButton, { key: "ArrowDown" });
-    expect(contentBody).toHaveStyle({ height: "184px" });
+    expect(contentBody).toHaveStyle({ height: "152px" });
 
     fireEvent.keyDown(resizeButton, { key: "ArrowUp" });
-    expect(contentBody).toHaveStyle({ height: "160px" });
+    expect(contentBody).toHaveStyle({ height: "128px" });
   });
 
   it("keeps the resize affordance out of non-resizable content", () => {
