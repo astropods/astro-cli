@@ -263,19 +263,17 @@ function ChartCard({ title, unit, headline, hint, loading, empty, children }: Ch
           {loading ? "—" : headline}
         </div>
       </div>
-      <div className="h-48">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : empty ? (
-          <div className="flex h-full items-center justify-center text-body-sm text-faint-foreground">
-            No data in this range.
-          </div>
-        ) : (
-          children
-        )}
-      </div>
+      {loading ? (
+        <div className="flex h-48 items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : empty ? (
+        <div className="flex h-48 items-center justify-center text-body-sm text-faint-foreground">
+          No data in this range.
+        </div>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -325,100 +323,102 @@ function MetricChart({ title, unit, points, loading, color, formatValue, limit, 
       loading={loading}
       empty={empty}
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-              <stop offset="95%" stopColor={color} stopOpacity={0.03} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid
-            strokeDasharray="3 3"
-            vertical={false}
-            stroke="var(--color-border)"
-            strokeOpacity={0.5}
-          />
-          <XAxis
-            dataKey="t"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            scale="time"
-            ticks={ticks}
-            tickFormatter={formatTimeTick(rangeMs(rows))}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={8}
-            minTickGap={20}
-          />
-          <YAxis
-            tickFormatter={formatValue}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={4}
-            width={60}
-            domain={[0, hasLimit ? limit! : "auto"]}
-          />
-          <Tooltip
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const row = payload[0].payload as { t: number; value: number };
-              return (
-                <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-                  <p className="mb-1 text-mono-sm text-muted-foreground">
-                    {formatTooltipTimestamp(row.t)}
-                  </p>
-                  <span className="font-mono font-medium text-foreground">
-                    {formatValue(row.value)}
-                  </span>
-                </div>
-              );
-            }}
-            cursor={{
-              stroke: "var(--color-border)",
-              strokeWidth: 1,
-              strokeDasharray: "4 4",
-            }}
-          />
-          {hasLimit && (
-            <ReferenceLine
-              y={limit}
-              stroke="var(--color-muted-foreground)"
-              strokeDasharray="4 4"
-              strokeOpacity={0.6}
-              ifOverflow="extendDomain"
-            />
-          )}
-          {markers.map((m, i) => (
-            <ReferenceLine
-              key={`${m.kind}-${m.t}-${i}`}
-              x={m.t}
-              stroke={MARKER_STYLE[m.kind].stroke}
-              strokeWidth={1.5}
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} margin={{ top: 16, right: 20, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={color} stopOpacity={0.03} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
               strokeDasharray="3 3"
-              ifOverflow="extendDomain"
+              vertical={false}
+              stroke="var(--color-border)"
+              strokeOpacity={0.5}
             />
-          ))}
-          <Area
-            type="monotone"
-            dataKey="value"
-            fill={`url(#${gradId})`}
-            stroke={color}
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+            <XAxis
+              dataKey="t"
+              type="number"
+              domain={["dataMin", "dataMax"]}
+              scale="time"
+              ticks={ticks}
+              tickFormatter={formatTimeTick(rangeMs(rows))}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={20}
+            />
+            <YAxis
+              tickFormatter={formatValue}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={4}
+              width={60}
+              domain={[0, hasLimit ? limit! : "auto"]}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as { t: number; value: number };
+                return (
+                  <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+                    <p className="mb-1 text-mono-sm text-muted-foreground">
+                      {formatTooltipTimestamp(row.t)}
+                    </p>
+                    <span className="font-mono font-medium text-foreground">
+                      {formatValue(row.value)}
+                    </span>
+                  </div>
+                );
+              }}
+              cursor={{
+                stroke: "var(--color-border)",
+                strokeWidth: 1,
+                strokeDasharray: "4 4",
+              }}
+            />
+            {hasLimit && (
+              <ReferenceLine
+                y={limit}
+                stroke="var(--color-muted-foreground)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.6}
+                ifOverflow="extendDomain"
+              />
+            )}
+            {markers.map((m, i) => (
+              <ReferenceLine
+                key={`${m.kind}-${m.t}-${i}`}
+                x={m.t}
+                stroke={MARKER_STYLE[m.kind].stroke}
+                strokeWidth={1.5}
+                strokeDasharray="3 3"
+                ifOverflow="extendDomain"
+              />
+            ))}
+            <Area
+              type="monotone"
+              dataKey="value"
+              fill={`url(#${gradId})`}
+              stroke={color}
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
       <MarkerLegend markers={markers} />
     </ChartCard>
   );
@@ -466,106 +466,108 @@ function StorageChart({ used, capacity, loading, color, markers = [], hint }: St
       loading={loading}
       empty={empty}
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id="storage-grad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-              <stop offset="95%" stopColor={color} stopOpacity={0.03} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid
-            strokeDasharray="3 3"
-            vertical={false}
-            stroke="var(--color-border)"
-            strokeOpacity={0.5}
-          />
-          <XAxis
-            dataKey="t"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            scale="time"
-            ticks={ticks}
-            tickFormatter={formatTimeTick(rangeMs(rows))}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={8}
-            minTickGap={20}
-          />
-          <YAxis
-            tickFormatter={formatBytes}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={4}
-            width={60}
-            domain={[0, latest.capacity > 0 ? latest.capacity : "auto"]}
-          />
-          {latest.capacity > 0 && (
-            <ReferenceLine
-              y={latest.capacity}
-              stroke="var(--color-muted-foreground)"
-              strokeDasharray="4 4"
-              strokeOpacity={0.6}
-            />
-          )}
-          <Tooltip
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const row = payload[0].payload as {
-                t: number;
-                used: number;
-                capacity: number;
-              };
-              return (
-                <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-                  <p className="mb-1 text-mono-sm text-muted-foreground">
-                    {formatTooltipTimestamp(row.t)}
-                  </p>
-                  <div className="flex flex-col gap-0.5 font-mono">
-                    <span className="text-foreground">{formatBytes(row.used)} used</span>
-                    <span className="text-muted-foreground">
-                      {formatBytes(row.capacity)} provisioned
-                    </span>
-                  </div>
-                </div>
-              );
-            }}
-            cursor={{
-              stroke: "var(--color-border)",
-              strokeWidth: 1,
-              strokeDasharray: "4 4",
-            }}
-          />
-          {markers.map((m, i) => (
-            <ReferenceLine
-              key={`${m.kind}-${m.t}-${i}`}
-              x={m.t}
-              stroke={MARKER_STYLE[m.kind].stroke}
-              strokeWidth={1.5}
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} margin={{ top: 16, right: 20, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="storage-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={color} stopOpacity={0.03} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
               strokeDasharray="3 3"
-              ifOverflow="extendDomain"
+              vertical={false}
+              stroke="var(--color-border)"
+              strokeOpacity={0.5}
             />
-          ))}
-          <Area
-            type="monotone"
-            dataKey="used"
-            fill="url(#storage-grad)"
-            stroke={color}
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+            <XAxis
+              dataKey="t"
+              type="number"
+              domain={["dataMin", "dataMax"]}
+              scale="time"
+              ticks={ticks}
+              tickFormatter={formatTimeTick(rangeMs(rows))}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={20}
+            />
+            <YAxis
+              tickFormatter={formatBytes}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={4}
+              width={60}
+              domain={[0, latest.capacity > 0 ? latest.capacity : "auto"]}
+            />
+            {latest.capacity > 0 && (
+              <ReferenceLine
+                y={latest.capacity}
+                stroke="var(--color-muted-foreground)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.6}
+              />
+            )}
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as {
+                  t: number;
+                  used: number;
+                  capacity: number;
+                };
+                return (
+                  <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+                    <p className="mb-1 text-mono-sm text-muted-foreground">
+                      {formatTooltipTimestamp(row.t)}
+                    </p>
+                    <div className="flex flex-col gap-0.5 font-mono">
+                      <span className="text-foreground">{formatBytes(row.used)} used</span>
+                      <span className="text-muted-foreground">
+                        {formatBytes(row.capacity)} provisioned
+                      </span>
+                    </div>
+                  </div>
+                );
+              }}
+              cursor={{
+                stroke: "var(--color-border)",
+                strokeWidth: 1,
+                strokeDasharray: "4 4",
+              }}
+            />
+            {markers.map((m, i) => (
+              <ReferenceLine
+                key={`${m.kind}-${m.t}-${i}`}
+                x={m.t}
+                stroke={MARKER_STYLE[m.kind].stroke}
+                strokeWidth={1.5}
+                strokeDasharray="3 3"
+                ifOverflow="extendDomain"
+              />
+            ))}
+            <Area
+              type="monotone"
+              dataKey="used"
+              fill="url(#storage-grad)"
+              stroke={color}
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
       <MarkerLegend markers={markers} />
     </ChartCard>
   );
@@ -636,114 +638,116 @@ function DualLineChart({
       loading={loading}
       empty={empty}
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={`dual-grad-a-${title}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={seriesA.color} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={seriesA.color} stopOpacity={0.03} />
-            </linearGradient>
-            <linearGradient id={`dual-grad-b-${title}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={seriesB.color} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={seriesB.color} stopOpacity={0.03} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid
-            strokeDasharray="3 3"
-            vertical={false}
-            stroke="var(--color-border)"
-            strokeOpacity={0.5}
-          />
-          <XAxis
-            dataKey="t"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            scale="time"
-            ticks={ticks}
-            tickFormatter={formatTimeTick(rangeMs(rows))}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={8}
-            minTickGap={20}
-          />
-          <YAxis
-            tickFormatter={formatValue}
-            tick={{
-              fill: "var(--color-muted-foreground)",
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-            }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={4}
-            width={60}
-            domain={[0, "auto"]}
-          />
-          {markers.map((m, i) => (
-            <ReferenceLine
-              key={`${m.kind}-${m.t}-${i}`}
-              x={m.t}
-              stroke={MARKER_STYLE[m.kind].stroke}
-              strokeWidth={1.5}
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} margin={{ top: 16, right: 20, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={`dual-grad-a-${title}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={seriesA.color} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={seriesA.color} stopOpacity={0.03} />
+              </linearGradient>
+              <linearGradient id={`dual-grad-b-${title}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={seriesB.color} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={seriesB.color} stopOpacity={0.03} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
               strokeDasharray="3 3"
-              ifOverflow="extendDomain"
+              vertical={false}
+              stroke="var(--color-border)"
+              strokeOpacity={0.5}
             />
-          ))}
-          <Tooltip
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const row = payload[0].payload as { t: number; a?: number; b?: number };
-              return (
-                <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-                  <p className="mb-1 text-mono-sm text-muted-foreground">
-                    {formatTooltipTimestamp(row.t)}
-                  </p>
-                  <div className="flex flex-col gap-0.5 font-mono">
-                    <span className="flex items-center gap-2">
-                      <span className="size-2 rounded-full" style={{ backgroundColor: seriesA.color }} />
-                      <span className="text-muted-foreground">{seriesA.label}</span>
-                      <span className="ml-auto text-foreground">{formatValue(row.a ?? 0)}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="size-2 rounded-full" style={{ backgroundColor: seriesB.color }} />
-                      <span className="text-muted-foreground">{seriesB.label}</span>
-                      <span className="ml-auto text-foreground">{formatValue(row.b ?? 0)}</span>
-                    </span>
+            <XAxis
+              dataKey="t"
+              type="number"
+              domain={["dataMin", "dataMax"]}
+              scale="time"
+              ticks={ticks}
+              tickFormatter={formatTimeTick(rangeMs(rows))}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={20}
+            />
+            <YAxis
+              tickFormatter={formatValue}
+              tick={{
+                fill: "var(--color-muted-foreground)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={4}
+              width={60}
+              domain={[0, "auto"]}
+            />
+            {markers.map((m, i) => (
+              <ReferenceLine
+                key={`${m.kind}-${m.t}-${i}`}
+                x={m.t}
+                stroke={MARKER_STYLE[m.kind].stroke}
+                strokeWidth={1.5}
+                strokeDasharray="3 3"
+                ifOverflow="extendDomain"
+              />
+            ))}
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0].payload as { t: number; a?: number; b?: number };
+                return (
+                  <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+                    <p className="mb-1 text-mono-sm text-muted-foreground">
+                      {formatTooltipTimestamp(row.t)}
+                    </p>
+                    <div className="flex flex-col gap-0.5 font-mono">
+                      <span className="flex items-center gap-2">
+                        <span className="size-2 rounded-full" style={{ backgroundColor: seriesA.color }} />
+                        <span className="text-muted-foreground">{seriesA.label}</span>
+                        <span className="ml-auto text-foreground">{formatValue(row.a ?? 0)}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="size-2 rounded-full" style={{ backgroundColor: seriesB.color }} />
+                        <span className="text-muted-foreground">{seriesB.label}</span>
+                        <span className="ml-auto text-foreground">{formatValue(row.b ?? 0)}</span>
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            }}
-            cursor={{
-              stroke: "var(--color-border)",
-              strokeWidth: 1,
-              strokeDasharray: "4 4",
-            }}
-          />
-          <Area
-            type="monotone"
-            dataKey="a"
-            name={seriesA.label}
-            fill={`url(#dual-grad-a-${title})`}
-            stroke={seriesA.color}
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-          <Area
-            type="monotone"
-            dataKey="b"
-            name={seriesB.label}
-            fill={`url(#dual-grad-b-${title})`}
-            stroke={seriesB.color}
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+                );
+              }}
+              cursor={{
+                stroke: "var(--color-border)",
+                strokeWidth: 1,
+                strokeDasharray: "4 4",
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="a"
+              name={seriesA.label}
+              fill={`url(#dual-grad-a-${title})`}
+              stroke={seriesA.color}
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="b"
+              name={seriesB.label}
+              fill={`url(#dual-grad-b-${title})`}
+              stroke={seriesB.color}
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
       <div className="mt-3 flex items-center gap-4 text-mono-sm text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="size-2 rounded-full" style={{ backgroundColor: seriesA.color }} />
