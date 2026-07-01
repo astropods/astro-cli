@@ -51,12 +51,13 @@ type PushPipeline struct {
 	cfg PushPipelineConfig
 
 	// State accumulated across steps
-	astroSpec  *spec.AstroSpec
-	specMap    map[string]any
-	components []spec.Component
-	tag        string
-	readme     string
-	visibility Visibility
+	astroSpec    *spec.AstroSpec
+	specMap      map[string]any
+	components   []spec.Component
+	tag          string
+	readme       string
+	readmeAssets map[string]string
+	visibility   Visibility
 
 	err error
 }
@@ -273,6 +274,34 @@ func findAgentReadme(dir string) string {
 	return ""
 }
 
+// UploadReadmeAssets vacuums local images referenced by AGENT.md, uploading them
+// to the server so Register can rewrite the stored readme to their CDN URLs.
+// Upload failures are non-fatal: the push proceeds with the original relative
+// links rather than discarding an already-built, already-pushed image.
+func (p *PushPipeline) UploadReadmeAssets() *PushPipeline {
+	return p.step(func() error {
+		if p.readme == "" {
+			return nil
+		}
+		images := spec.ExtractMarkdownImages(p.readme)
+		if len(images) == 0 {
+			return nil
+		}
+
+		workingDir := filepath.Dir(p.cfg.SpecPath)
+		printStep("Uploading AGENT.md images...")
+		assets, err := uploadReadmeAssets(p.ctx, pushBaseURL(), p.cfg.Account, p.cfg.AgentName, workingDir, images, p.cfg.Verbose)
+		if err != nil {
+			printStepFail()
+			fmt.Printf("  %s!%s could not upload images, continuing with relative links: %v\n", colorYellow, colorReset, err)
+			return nil
+		}
+		printStepDone(fmt.Sprintf("%d image(s)", len(assets)))
+		p.readmeAssets = assets
+		return nil
+	})
+}
+
 // ResolveVisibility queries the server for the current agent state and resolves
 // the target visibility, prompting for confirmation if needed.
 func (p *PushPipeline) ResolveVisibility() *PushPipeline {
@@ -321,7 +350,7 @@ func (p *PushPipeline) Register() *PushPipeline {
 
 		printStep("Registering agent with server...")
 		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
-			string(transformedSpecData), p.readme, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
+			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
 			printStepFail()
 			return fmt.Errorf("registration failed: %w", err)
 		}

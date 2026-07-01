@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -89,6 +91,7 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 		TransformSpec().
 		StripSecrets().
 		LoadReadme().
+		UploadReadmeAssets().
 		Register().
 		Err(); err != nil {
 		// Surface the canonical dim "Cancelled." line for both esc/ctrl+c and
@@ -172,11 +175,100 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	if err != nil {
 		return fmt.Errorf("failed to marshal transformed spec: %w", err)
 	}
-	return registerAgentWithServer(context.Background(), serverURL, agentName, buildID, registry, string(transformedSpecData), readme, visibility, verbose, skipAuth, account)
+	return registerAgentWithServer(context.Background(), serverURL, agentName, buildID, registry, string(transformedSpecData), readme, nil, visibility, verbose, skipAuth, account)
+}
+
+// readmeAssetsResponse is the server's reply to a readme-assets upload: each
+// repo-relative image path mapped to its CDN URL.
+type readmeAssetsResponse struct {
+	Assets map[string]string `json:"assets"`
+}
+
+const (
+	// maxReadmeAssetSize mirrors the server's per-image cap (10 MB).
+	maxReadmeAssetSize = 10 << 20
+	// maxReadmeAssets mirrors the server's per-AGENT.md image cap.
+	maxReadmeAssets = 20
+)
+
+// uploadReadmeAssets reads the given AGENT.md images from workingDir and uploads
+// them to the server, returning the server's path→URL map. The repo-relative
+// path travels as each part's form field name (multipart readers strip the
+// filename to its basename). Images that cannot be read, are oversized, or
+// resolve outside workingDir are skipped. Returns an empty map and makes no
+// request when nothing is uploadable.
+func uploadReadmeAssets(ctx context.Context, serverURL, account, agentName, workingDir string, images []spec.MarkdownImage, verbose bool) (map[string]string, error) {
+	root, err := filepath.Abs(workingDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	count := 0
+	for _, img := range images {
+		if count >= maxReadmeAssets {
+			break
+		}
+		full := filepath.Join(root, filepath.FromSlash(img.Path))
+		// Defense in depth — the path is already cleaned, but ensure it stays
+		// within the working directory before reading.
+		if full != root && !strings.HasPrefix(full, root+string(os.PathSeparator)) {
+			continue
+		}
+		info, statErr := os.Stat(full)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		if info.Size() > maxReadmeAssetSize {
+			if verbose {
+				log.Printf("   skipping oversized readme image: %s (%d bytes)", img.Path, info.Size())
+			}
+			continue
+		}
+		data, readErr := os.ReadFile(full) //nolint:gosec
+		if readErr != nil {
+			continue
+		}
+		part, partErr := mw.CreateFormFile(img.Path, filepath.Base(img.Path))
+		if partErr != nil {
+			return nil, partErr
+		}
+		if _, err := part.Write(data); err != nil {
+			return nil, err
+		}
+		count++
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return map[string]string{}, nil
+	}
+
+	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s/readme-assets",
+		strings.TrimSuffix(serverURL, "/"),
+		url.PathEscape(account),
+		url.PathEscape(agentName),
+	)
+
+	token, err := getAccountToken(ctx, account)
+	if err != nil {
+		return nil, fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	var resp readmeAssetsResponse
+	if _, err := apiUpload(ctx, http.MethodPost, reqURL, mw.FormDataContentType(), &buf, token, verbose, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Assets == nil {
+		resp.Assets = map[string]string{}
+	}
+	return resp.Assets, nil
 }
 
 // registerAgentWithServer sends the already-transformed spec content to the server.
-func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme, visibility string, verbose bool, skipAuth bool, account string) error {
+func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -188,7 +280,7 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	}
 
 	// Prepare request payload
-	payload := map[string]string{
+	payload := map[string]any{
 		"build_id":     buildID,
 		"registry":     registry,
 		"spec_content": specContent,
@@ -196,6 +288,9 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	}
 	if visibility != "" {
 		payload["visibility"] = visibility
+	}
+	if len(readmeAssets) > 0 {
+		payload["readme_assets"] = readmeAssets
 	}
 
 	jsonData, err := json.Marshal(payload)
