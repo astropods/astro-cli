@@ -39,6 +39,7 @@ type ScaffoldConfig struct {
 	Integrations    []string          // ["anthropic", "openai", "github"]
 	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
 	Ingestions      []string          // e.g. ["schedule", "webhook"]
+	AIGateway       bool              // opt into the Astro AI Gateway (managed model access, no provider key)
 }
 
 // HasKnowledge returns true if the given knowledge type is selected.
@@ -91,6 +92,13 @@ type EnvVarInfo struct {
 func (c ScaffoldConfig) AgentEnvVars() []EnvVarInfo {
 	vars := map[string]string{
 		"GRPC_SERVER_ADDR": "injected by Astro messaging service",
+	}
+	if c.AIGateway {
+		// Gateway env keys aren't part of the spec's auto-env set (they're
+		// injected by the deployer/dev wiring, not derived from providers), so
+		// surface them here for the generated source comments.
+		vars["ASTRO_GATEWAY_URL"] = "injected by Astro AI Gateway base URL"
+		vars["ASTRO_GATEWAY_API_KEY"] = "injected by Astro AI Gateway credential"
 	}
 	if s, err := c.specFromTemplate(); err == nil {
 		for k, meta := range spec.AllAgentAutoEnvKeys(s) {

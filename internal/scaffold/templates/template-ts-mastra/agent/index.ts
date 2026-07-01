@@ -21,6 +21,16 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Observability } from '@mastra/observability';
 import { OtelExporter } from '@mastra/otel-exporter';
 import { serve } from '@astropods/adapter-mastra';
+{{- if .AIGateway}}
+import { createOpenAI } from '@ai-sdk/openai';
+
+// Astro AI Gateway: managed model access over the OpenAI-compatible API.
+// No provider key needed — the platform injects URL + credential at runtime.
+const gateway = createOpenAI({
+  apiKey: process.env.ASTRO_GATEWAY_API_KEY,
+  baseURL: process.env.ASTRO_GATEWAY_URL,
+});
+{{- end}}
 
 const memory = new Memory({
   storage: new LibSQLStore({
@@ -64,7 +74,9 @@ const agent = new Agent({
   id: '{{.Name}}',
   name: '{{.Name | humanName}}',
   instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
-{{- if and (ne .ModelProvider "") (ne .Model "")}}
+{{- if .AIGateway}}
+  model: gateway('claude-sonnet-4-6'),
+{{- else if and (ne .ModelProvider "") (ne .Model "")}}
   model: '{{.ModelProvider}}/{{.Model}}',
 {{- else if .HasIntegration "anthropic"}}
   model: 'anthropic/claude-sonnet-4-5',

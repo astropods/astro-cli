@@ -194,6 +194,32 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 	}
 }
 
+// TestAstroYml_AIGateway ensures the gateway opt-in emits astro_ai_gateway: true
+// under agent and declares no provider models block (no API key required).
+func TestAstroYml_AIGateway(t *testing.T) {
+	yaml := renderAstroYml(t, ScaffoldConfig{
+		Name:            "gw-agent",
+		Description:     "gateway",
+		Interfaces:      []string{"web"},
+		Integrations:    []string{},
+		IntegrationKeys: map[string]string{},
+		Knowledge:       []string{},
+		Ingestions:      []string{},
+		AIGateway:       true,
+	})
+
+	s, err := spec.ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+	}
+	if !s.Agent.AIGateway {
+		t.Errorf("expected agent.astro_ai_gateway=true, got false\n%s", yaml)
+	}
+	if len(s.Models) != 0 {
+		t.Errorf("expected no models block with gateway, got %v", s.Models)
+	}
+}
+
 // TestAstroYml_ModelDeclarationPerModelChoice ensures the spec includes the correct
 // models block for each model selection (ollama+name, anthropic, openai, combined).
 func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
@@ -433,12 +459,16 @@ func TestAllTemplatesRender(t *testing.T) {
 	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})                 // 2^3 = 8
 	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"}) // 2^4 = 16
 
-	// Model states: none, provider-only, provider+model.
-	type modelState struct{ provider, model string }
+	// Model states: none, provider-only, provider+model, gateway opt-in.
+	type modelState struct {
+		provider, model string
+		aiGateway       bool
+	}
 	modelStates := []modelState{
-		{"", ""},
-		{"ollama", ""},
-		{"ollama", "llama3.2:1b"},
+		{"", "", false},
+		{"ollama", "", false},
+		{"ollama", "llama3.2:1b", false},
+		{"", "", true}, // AI Gateway
 	}
 
 	for _, tmpl := range standardTemplates {
@@ -454,6 +484,7 @@ func TestAllTemplatesRender(t *testing.T) {
 									Interfaces:      ifaces,
 									ModelProvider:   ms.provider,
 									Model:           ms.model,
+									AIGateway:       ms.aiGateway,
 									Integrations:    integs,
 									IntegrationKeys: map[string]string{},
 									Knowledge:       know,
@@ -461,8 +492,8 @@ func TestAllTemplatesRender(t *testing.T) {
 								}
 								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
 									t.Errorf(
-										"interfaces=%v model=%q/%q integrations=%v knowledge=%v ingestions=%v: %v",
-										ifaces, ms.provider, ms.model, integs, know, ings, err,
+										"interfaces=%v model=%q/%q gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, ms.provider, ms.model, ms.aiGateway, integs, know, ings, err,
 									)
 								}
 							}
@@ -1076,11 +1107,15 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})
 	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"})
 
-	type modelState struct{ provider, model string }
+	type modelState struct {
+		provider, model string
+		aiGateway       bool
+	}
 	modelStates := []modelState{
-		{"", ""},
-		{"ollama", ""},
-		{"ollama", "llama3.2:1b"},
+		{"", "", false},
+		{"ollama", "", false},
+		{"ollama", "llama3.2:1b", false},
+		{"", "", true}, // AI Gateway
 	}
 
 	for _, tmpl := range standardTemplates {
@@ -1096,6 +1131,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 									Interfaces:      ifaces,
 									ModelProvider:   ms.provider,
 									Model:           ms.model,
+									AIGateway:       ms.aiGateway,
 									Integrations:    integs,
 									IntegrationKeys: map[string]string{},
 									Knowledge:       know,
@@ -1103,8 +1139,8 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 								}
 								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
 									t.Errorf(
-										"interfaces=%v model=%q/%q integrations=%v knowledge=%v ingestions=%v: %v",
-										ifaces, ms.provider, ms.model, integs, know, ings, err,
+										"interfaces=%v model=%q/%q gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, ms.provider, ms.model, ms.aiGateway, integs, know, ings, err,
 									)
 								}
 							}

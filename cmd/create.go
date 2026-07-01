@@ -27,59 +27,15 @@ func exactValidProjectName(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-// ollamaModelList is a curated list of popular models from the Ollama library.
-// TODO (in the far future): Automate me!
-var ollamaModelList = []string{
-	"llama3.3:70b",
-	"llama3.2:3b",
-	"llama3.2:1b",
-	"llama3.1:8b",
-	"llama3.1:70b",
-	"deepseek-r1:7b",
-	"deepseek-r1:14b",
-	"deepseek-r1:70b",
-	"gemma3:4b",
-	"gemma3:12b",
-	"gemma3:27b",
-	"mistral:7b",
-	"mistral-small:24b",
-	"qwen3:8b",
-	"qwen3:14b",
-	"qwen3:32b",
-	"qwen2.5:7b",
-	"qwen2.5:14b",
-	"qwen2.5-coder:7b",
-	"phi4:14b",
-	"phi4-mini:3.8b",
-	"codellama:7b",
-	"codellama:13b",
-	"nomic-embed-text",
-	"mxbai-embed-large",
-}
-
 // parseModelFlag parses and validates a --model flag value.
-// Accepted: "anthropic", "openai", "ollama", or "ollama/<model>" where <model> must be in the known list.
-func parseModelFlag(s string) (provider, model string, err error) {
-	if s == "" {
-		return
-	}
-	parts := strings.SplitN(s, "/", 2)
-	provider = parts[0]
-	switch provider {
-	case "anthropic", "openai":
-		// valid, no specific model
-	case "ollama":
-		if len(parts) == 2 {
-			model = parts[1]
-			if !slices.Contains(ollamaModelList, model) {
-				return "", "", fmt.Errorf("unknown ollama model %q\n\nKnown models:\n  %s",
-					model, strings.Join(ollamaModelList, "\n  "))
-			}
-		}
+// Accepted: "gateway", "anthropic", or "openai". Empty input is valid (no override).
+func parseModelFlag(s string) (provider string, err error) {
+	switch s {
+	case "", "gateway", "anthropic", "openai":
+		return s, nil
 	default:
-		return "", "", fmt.Errorf("unknown model provider %q; supported: anthropic, openai, ollama[/<model>]", provider)
+		return "", fmt.Errorf("unknown model provider %q; supported: gateway, anthropic, openai", s)
 	}
-	return
 }
 
 var createCmd = &cobra.Command{
@@ -105,38 +61,20 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("path", "p", "", "Parent directory where the project will be created")
 	cmd.Flags().StringP("template", "t", "mastra", "Agent template (mastra, langchain)")
 	cmd.Flags().Bool("force", false, "Recreate in place if directory already exists")
-	cmd.Flags().StringP("model", "m", "", "LLM provider: anthropic, openai, or ollama[/<model>] (e.g. ollama/llama3.3:70b)")
-	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
-		if modelPart, ok := strings.CutPrefix(toComplete, "ollama/"); ok {
-			completions := make([]cobra.Completion, 0, len(ollamaModelList))
-			if namePrefix, tagPrefix, hasColon := strings.Cut(modelPart, ":"); hasColon {
-				// Colon is a word separator in zsh/bash. When the user has typed
-				// "ollama/<name>:" the shell replaces only the fragment after ":".
-				// Return just the tag suffix so it doesn't get doubled.
-				for _, m := range ollamaModelList {
-					if name, tag, ok := strings.Cut(m, ":"); ok && name == namePrefix && strings.HasPrefix(tag, tagPrefix) {
-						completions = append(completions, cobra.CompletionWithDesc(tag, ""))
-					}
-				}
-			} else {
-				for _, m := range ollamaModelList {
-					completions = append(completions, cobra.CompletionWithDesc("ollama/"+m, ""))
-				}
-			}
-			return completions, cobra.ShellCompDirectiveNoFileComp
-		}
+	cmd.Flags().StringP("model", "m", "", "LLM provider: gateway, anthropic, or openai")
+	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		return []cobra.Completion{
+			cobra.CompletionWithDesc("gateway", "Astro AI Gateway (managed models, no provider key)"),
 			cobra.CompletionWithDesc("anthropic", "Anthropic API"),
 			cobra.CompletionWithDesc("openai", "OpenAI API"),
-			cobra.CompletionWithDesc("ollama", "self-hosted (use ollama/<model> to pin a specific model)"),
 		}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 
 func initExamples(cmd string) string {
 	return fmt.Sprintf(`  %[1]s my-agent
+  %[1]s my-agent --model gateway
   %[1]s my-agent --model anthropic
-  %[1]s my-agent --model ollama/llama3.3:70b
   %[1]s my-agent --template langchain
   %[1]s my-agent --path /path/to/projects
   %[1]s my-agent --force`, cmd)
@@ -174,7 +112,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate model flag
-	if _, _, err := parseModelFlag(model); err != nil {
+	if _, err := parseModelFlag(model); err != nil {
 		return err
 	}
 
@@ -207,25 +145,29 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 
-	printSuccess(name, targetDir)
+	printSuccess(name, targetDir, config.AIGateway)
 	printCodingPrompt(targetDir, config, yes)
 	return nil
 }
 
 func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {
-	provider, model, _ := parseModelFlag(modelOverride) // already validated
+	provider, _ := parseModelFlag(modelOverride) // already validated
 	switch provider {
+	case "gateway":
+		// Gateway supplies managed model access, so the agent needs no provider
+		// API key — drop the default anthropic integration that DefaultConfig adds.
+		config.AIGateway = true
+		config.Integrations = slices.DeleteFunc(config.Integrations, func(s string) bool {
+			return s == "anthropic" || s == "openai"
+		})
 	case "anthropic", "openai":
 		if !slices.Contains(config.Integrations, provider) {
 			config.Integrations = append(config.Integrations, provider)
 		}
-	case "ollama":
-		config.ModelProvider = "ollama"
-		config.Model = model
 	}
 }
 
-func printSuccess(name, targetDir string) {
+func printSuccess(name, targetDir string, aiGateway bool) {
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	dim := lipgloss.NewStyle().Faint(true)
@@ -243,7 +185,12 @@ func printSuccess(name, targetDir string) {
 	}
 
 	addStep("cd "+targetDir, "enter the project directory")
-	addStep(buildinfo.BinaryName+" project configure", "set your API keys (anthropic / openai)")
+	if aiGateway {
+		// Gateway is account-scoped: no provider keys to set, just authenticate.
+		addStep(buildinfo.BinaryName+" login", "authenticate for AI Gateway access")
+	} else {
+		addStep(buildinfo.BinaryName+" project configure", "set your API keys (anthropic / openai)")
+	}
 	addStep(buildinfo.BinaryName+" project start", "start your agent locally")
 
 	lines = append(lines, "")

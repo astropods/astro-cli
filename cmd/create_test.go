@@ -17,25 +17,28 @@ func TestApplyModelOverride(t *testing.T) {
 	tests := []struct {
 		name            string
 		override        string
-		wantProvider    string
-		wantModel       string
+		startIntegs     []string // initial Integrations (mirrors DefaultConfig where relevant)
 		wantIntegration string
+		wantGateway     bool
+		wantNoIntegs    bool // assert Integrations ends up empty
 	}{
-		{"empty", "", "", "", ""},
-		{"anthropic", "anthropic", "", "", "anthropic"},
-		{"openai", "openai", "", "", "openai"},
-		{"ollama no model", "ollama", "ollama", "", ""},
-		{"ollama with model", "ollama/llama3.3:70b", "ollama", "llama3.3:70b", ""},
+		{name: "empty", override: ""},
+		{name: "anthropic", override: "anthropic", wantIntegration: "anthropic"},
+		{name: "openai", override: "openai", wantIntegration: "openai"},
+		// gateway opts in and drops the default anthropic integration so no key is required.
+		{name: "gateway", override: "gateway", startIntegs: []string{"anthropic"}, wantGateway: true, wantNoIntegs: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := scaffold.ScaffoldConfig{IntegrationKeys: map[string]string{}}
+			cfg := scaffold.ScaffoldConfig{IntegrationKeys: map[string]string{}, Integrations: tt.startIntegs}
 			applyModelOverride(&cfg, tt.override)
-			assert.Equal(t, tt.wantProvider, cfg.ModelProvider)
-			assert.Equal(t, tt.wantModel, cfg.Model)
-			if tt.wantIntegration != "" {
+			assert.Equal(t, tt.wantGateway, cfg.AIGateway)
+			switch {
+			case tt.wantNoIntegs:
+				assert.Empty(t, cfg.Integrations)
+			case tt.wantIntegration != "":
 				assert.Contains(t, cfg.Integrations, tt.wantIntegration)
-			} else {
+			default:
 				assert.Empty(t, cfg.Integrations)
 			}
 		})
@@ -59,61 +62,17 @@ func TestModelCompletion(t *testing.T) {
 		return out
 	}
 
-	tests := []struct {
-		toComplete   string
-		wantLen      int
-		wantContains []string // completion values (without description) that must appear
-	}{
-		// no prefix → top-level providers only
-		{"", 3, []string{"anthropic", "openai", "ollama"}},
-		// ollama prefix → full list (shell filters by prefix)
-		{"ollama/", len(ollamaModelList), nil},
-		{"ollama/llama3.", len(ollamaModelList), nil},
-		// name + colon → only tags for that model name
-		{"ollama/llama3.3:", 1, []string{"70b"}},
-		{"ollama/llama3.1:", 2, []string{"8b", "70b"}},
-		// partial tag narrows further
-		{"ollama/llama3.1:7", 1, []string{"70b"}},
-		{"ollama/llama3.1:8", 1, []string{"8b"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.toComplete, func(t *testing.T) {
-			got, _ := completionFn(cmd, nil, tt.toComplete)
-			assert.Len(t, got, tt.wantLen)
-			for _, want := range tt.wantContains {
-				assert.Contains(t, names(got), want)
-			}
-		})
-	}
+	// The provider list is static — every invocation offers the same three.
+	got, _ := completionFn(cmd, nil, "")
+	assert.Equal(t, []string{"gateway", "anthropic", "openai"}, names(got))
 }
 
 // ── --model flag validation ───────────────────────────────────────────────────
 
 func TestRunCreate_InvalidModelFlag(t *testing.T) {
-	tests := []struct {
-		name    string
-		model   string
-		wantErr string
-	}{
-		{
-			name:    "unknown provider",
-			model:   "gpt4",
-			wantErr: "unknown model provider",
-		},
-		{
-			name:    "unknown ollama model",
-			model:   "ollama/not-a-model",
-			wantErr: "unknown ollama model",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Cleanup(func() { rootCmd.SetArgs(nil) })
-			rootCmd.SetArgs([]string{"create", "my-agent", "--model", tt.model})
-			err := rootCmd.Execute()
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-		})
-	}
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	rootCmd.SetArgs([]string{"create", "my-agent", "--model", "gpt4"})
+	err := rootCmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown model provider")
 }
