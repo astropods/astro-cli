@@ -258,16 +258,26 @@ func persistUserMessage(
 	defer cancel()
 
 	title := truncateRunes(content, chatTitleMaxRunes)
-	err := chatStore.AppendUserMessage(ctx, accountID, deploymentID, userID, conversationID, title, chatstore.Message{
+	if err := chatStore.AppendUserMessage(ctx, accountID, deploymentID, userID, conversationID, title, chatstore.Message{
 		ID:      uuid.NewString(),
 		Role:    "user",
 		Content: content,
-	})
-	if err != nil {
+	}); err != nil {
 		log.Error("chat persist: append user message",
 			"deployment", deploymentID, "conversation", conversationID, "error", err)
+		return err
 	}
-	return err
+
+	// Mark the assistant turn active the moment the user message is accepted, so a
+	// history GET in the gap before the assistant SSE connects doesn't report
+	// "not in flight" and tear down the client's live turn. Best-effort: the
+	// marker is time-windowed and auto-expires if no reply follows (see
+	// AssistantStreamActiveFrom), and the assistant SSE re-marks it on connect.
+	if err := chatStore.SetAssistantStreamActive(ctx, deploymentID, userID, conversationID, true); err != nil {
+		log.Warn("chat persist: mark assistant stream active on send",
+			"deployment", deploymentID, "conversation", conversationID, "error", err)
+	}
+	return nil
 }
 
 func parseSendContent(body []byte) string {

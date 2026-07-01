@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { ApiRequestError, type GetDeploymentChatConversationResponse } from "@/lib/api";
 import {
+  deriveTurnInFlight,
   inFlightAssistantMessageId,
   mapServerMessages,
   serverTurnInFlight,
@@ -98,14 +99,22 @@ export function useDeploymentChat(
     [],
   );
 
-  const turnInFlight = useMemo(() => {
-    if (serverData) return serverTurnInFlight(serverData);
-    if (activeConversationId) {
-      const cached = readCachedThread(activeConversationId);
-      if (cached) return serverTurnInFlight(cached);
-    }
-    return isStreaming;
-  }, [activeConversationId, isStreaming, readCachedThread, serverData]);
+  const turnInFlight = useMemo(
+    () =>
+      deriveTurnInFlight({
+        // A just-sent turn with an open SSE outranks an early "not in flight"
+        // server snapshot (see deriveTurnInFlight). sseActiveRef is a ref, but
+        // it's set synchronously in sendMessage before isStreaming flips, so the
+        // isStreaming/serverData deps already cover every transition that matters.
+        activeLocalTurn: isStreaming && sseActiveRef.current,
+        serverThread: serverData ?? undefined,
+        cachedThread: activeConversationId
+          ? readCachedThread(activeConversationId)
+          : undefined,
+        isStreaming,
+      }),
+    [activeConversationId, isStreaming, readCachedThread, serverData],
+  );
 
   const activeStreamingMessageId = useMemo(() => {
     if (streamingAssistantId) return streamingAssistantId;
@@ -225,7 +234,11 @@ export function useDeploymentChat(
     if (!activeConversationId || !serverData) return;
     if (serverTurnInFlight(serverData)) {
       applyInFlightState(serverData);
-    } else if (isStreaming) {
+    } else if (isStreaming && !sseActiveRef.current) {
+      // Only let the server snapshot end the turn once no local SSE is open.
+      // While the SSE is live (a just-sent turn), an early "not in flight"
+      // snapshot is stale — the turn ends via the SSE finish/error or the
+      // in-flight timeout, both of which clear sseActiveRef first.
       applyInFlightState(undefined);
     }
   }, [activeConversationId, applyInFlightState, isStreaming, serverData]);

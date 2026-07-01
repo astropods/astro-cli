@@ -48,3 +48,29 @@ export function inFlightAssistantMessageId(
   return tail?.role === "assistant" ? tail.id : null;
 }
 
+/**
+ * Whether a turn should be treated as in flight, reconciling the optimistic
+ * local turn with what the server reports.
+ *
+ * `activeLocalTurn` (we just sent and the SSE is still open) is authoritative:
+ * a freshly-sent turn must stay in flight even if an early history snapshot says
+ * otherwise. On a new conversation the history GET can resolve before the server
+ * has registered the assistant turn — Langfuse write→read lag and first-token
+ * latency leave a window where `assistant_streaming` is false — and without this,
+ * that stale "not in flight" snapshot tears down the live stream (the loading dot
+ * vanishes and the reply is lost until reload). The turn ends through the SSE
+ * (finish/error) or the in-flight timeout, both of which clear `activeLocalTurn`,
+ * after which the server snapshot is trusted again.
+ */
+export function deriveTurnInFlight(params: {
+  activeLocalTurn: boolean;
+  serverThread: GetDeploymentChatConversationResponse | undefined;
+  cachedThread: GetDeploymentChatConversationResponse | undefined;
+  isStreaming: boolean;
+}): boolean {
+  if (params.activeLocalTurn) return true;
+  if (params.serverThread) return serverTurnInFlight(params.serverThread);
+  if (params.cachedThread) return serverTurnInFlight(params.cachedThread);
+  return params.isStreaming;
+}
+
