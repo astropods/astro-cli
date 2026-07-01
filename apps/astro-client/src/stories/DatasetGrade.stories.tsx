@@ -22,21 +22,20 @@ export const BadgeStates: Story = {
   ),
 };
 
-export const LabelWithProgress: Story = {
+export const Ring: Story = {
   args: {
     grade: "C",
-    variant: "label",
-    itemCount: 24,
+    variant: "ring",
     nextGrade: "B",
-    nextGradeProgress: 0.68,
-    casesToNextGrade: 12,
+    progress: 0.67,
   },
 };
 
-export const EmptyLabel: Story = {
+export const RingTopGrade: Story = {
   args: {
-    grade: "—",
-    variant: "label",
-    itemCount: 0,
+    grade: "A",
+    variant: "ring",
+    nextGrade: "",
+    progress: 1,
   },
 };

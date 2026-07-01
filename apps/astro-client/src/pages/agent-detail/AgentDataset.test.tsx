@@ -1332,9 +1332,9 @@ describe("dataset view", () => {
     const datasetName = screen.getAllByText("dep-test-deployment")[0];
     expect(datasetName).toBeInTheDocument();
     expect(datasetName).toHaveClass("font-mono", "text-mono-xs");
-    expect(screen.getByText(/composition · 42/i)).toBeInTheDocument();
-    expect(screen.getByText(/30 good/)).toBeInTheDocument();
-    expect(screen.getByText(/12 bad/)).toBeInTheDocument();
+    expect(screen.getByText("Baseline grade")).toBeInTheDocument();
+    expect(screen.getByText("30")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
   });
 
   it("shows download button when data is loaded", async () => {
@@ -1365,7 +1365,7 @@ describe("dataset view", () => {
     );
     renderDataset();
     await waitFor(() => {
-      expect(screen.getByText(/composition · 12,345/i)).toBeInTheDocument();
+      expect(screen.getByText(/12,345/)).toBeInTheDocument();
     });
   });
 
@@ -1629,8 +1629,6 @@ describe("dataset view", () => {
       expect(goodButton).toHaveTextContent("30");
       expect(badButton).toHaveTextContent("12");
     });
-    expect(screen.getByText(/30 good/)).toBeInTheDocument();
-    expect(screen.getByText(/12 bad/)).toBeInTheDocument();
   });
 
   it("requests server-filtered items with cursor pagination", async () => {

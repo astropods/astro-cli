@@ -20,30 +20,11 @@ function summary(overrides: Partial<EvalDatasetResponse> = {}): EvalDatasetRespo
 }
 
 describe("DatasetGradeSidebar", () => {
-  it("renders the grade letter and headline for an A dataset", () => {
+  it("renders the baseline grade header and grade letter for an A dataset", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
-    expect(screen.getByText(/dataset reliability/i)).toBeInTheDocument();
+    expect(screen.getByText(/baseline grade/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/grade a/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/dataset looks healthy/i).length).toBeGreaterThan(0);
-  });
-
-  it("maps headlines from the grade letter", () => {
-    const cases: Array<[string, RegExp]> = [
-      ["A", /dataset looks healthy/i],
-      ["B", /improve your dataset/i],
-      ["C", /needs more coverage/i],
-      ["D", /needs more coverage/i],
-      ["F", /needs more coverage/i],
-    ];
-    for (const [grade, label] of cases) {
-      cleanup();
-      render(
-        <DatasetGradeSidebar
-          summary={summary({ grade, next_grade: grade === "A" ? "" : "A" })}
-        />,
-      );
-      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
-    }
+    expect(screen.getByText(/dataset looks healthy/i)).toBeInTheDocument();
   });
 
   it("renders empty guidance when there are no items", () => {
@@ -55,7 +36,6 @@ describe("DatasetGradeSidebar", () => {
           bad_count: 0,
           grade: "—",
           next_grade: "",
-          next_grade_progress: 0,
         })}
       />,
     );
@@ -67,10 +47,23 @@ describe("DatasetGradeSidebar", () => {
     ).toBeInTheDocument();
   });
 
-  it("hides the progress bar when already at A", () => {
+  it("shows the top-grade ring caption and no progress percent when already at A", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
-    expect(screen.queryByText(/more to/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/keep grading to/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/top grade/i)).toBeInTheDocument();
+    expect(screen.queryByText(/% to/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the ring progress percent toward the next grade", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          grade: "C",
+          next_grade: "B",
+          next_grade_progress: 0.67,
+        })}
+      />,
+    );
+    expect(screen.getByText("67% to B")).toBeInTheDocument();
   });
 
   it("shows how many more judged cases are needed for the next grade", () => {
@@ -82,12 +75,13 @@ describe("DatasetGradeSidebar", () => {
           bad_count: 0,
           grade: "F",
           next_grade: "D",
-          next_grade_progress: 0.28,
           cases_to_next_grade: 21,
         })}
       />,
     );
-    expect(screen.getByText(/at least 21 mixed labels to D/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/label 21 or more traces to raise this grade to a D/i),
+    ).toBeInTheDocument();
   });
 
   it("shows low-volume guidance with the remaining case count", () => {
@@ -99,7 +93,6 @@ describe("DatasetGradeSidebar", () => {
           bad_count: 3,
           grade: "C",
           next_grade: "B",
-          next_grade_progress: 0.67,
         })}
       />,
     );
@@ -120,7 +113,6 @@ describe("DatasetGradeSidebar", () => {
           bad_count: 2,
           grade: "B",
           next_grade: "A",
-          next_grade_progress: 0.5,
         })}
       />,
     );
@@ -130,19 +122,19 @@ describe("DatasetGradeSidebar", () => {
 
   it("shows healthy dataset guidance for an A with healthy coverage", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
-    const guidanceTitle = screen.getAllByText(/dataset looks healthy/i)[1];
+    const guidanceTitle = screen.getByText(/dataset looks healthy/i);
     expect(guidanceTitle).toBeInTheDocument();
     expect(guidanceTitle.closest('[data-slot="card"]')).toBeInTheDocument();
     expect(screen.getByText(/this dataset is a reliable signal/i)).toBeInTheDocument();
   });
 
-  it("places guidance after the composition summary", () => {
+  it("places guidance after the baseline grade header", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
-    const composition = screen.getByText(/composition · 100/i);
-    const guidanceTitle = screen.getAllByText(/dataset looks healthy/i)[1];
+    const header = screen.getByText(/baseline grade/i);
+    const guidanceTitle = screen.getByText(/dataset looks healthy/i);
 
     expect(
-      composition.compareDocumentPosition(guidanceTitle) &
+      header.compareDocumentPosition(guidanceTitle) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -156,7 +148,6 @@ describe("DatasetGradeSidebar", () => {
           bad_count: 40,
           grade: "C",
           next_grade: "B",
-          next_grade_progress: 0.4,
         })}
       />,
     );
@@ -167,20 +158,4 @@ describe("DatasetGradeSidebar", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows composition counts in the legend", () => {
-    render(<DatasetGradeSidebar summary={summary({ good_count: 30, bad_count: 12, item_count: 42 })} />);
-    expect(screen.getByText(/composition · 42/i)).toBeInTheDocument();
-    expect(screen.getByText(/30 good/)).toBeInTheDocument();
-    expect(screen.getByText(/12 bad/)).toBeInTheDocument();
-  });
-
-  it("formats large composition counts with locale separators", () => {
-    render(
-      <DatasetGradeSidebar
-        summary={summary({ item_count: 12345, good_count: 12000, bad_count: 345 })}
-      />,
-    );
-    expect(screen.getByText(/composition · 12,345/i)).toBeInTheDocument();
-    expect(screen.getByText(/12,000 good/)).toBeInTheDocument();
-  });
 });

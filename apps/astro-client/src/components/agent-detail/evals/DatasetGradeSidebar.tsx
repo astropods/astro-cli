@@ -1,19 +1,17 @@
-import { Lightbulb } from "lucide-react";
+import { HelpCircle, Lightbulb } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { EvalDatasetResponse } from "@/lib/api";
 import { DatasetGrade } from "./DatasetGrade";
 
 const TARGET_SCORED_CASES = 100;
 const TARGET_BAD_SHARE = 0.1;
 const HIGH_BAD_SHARE = 0.25;
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="font-mono text-label uppercase text-faint-foreground">
-      {children}
-    </div>
-  );
-}
 
 function gradeGuidance(summary: EvalDatasetResponse) {
   const scoredCount = summary.good_count + summary.bad_count;
@@ -31,7 +29,9 @@ function gradeGuidance(summary: EvalDatasetResponse) {
       return {
         title: "Grade more cases",
         body:
-          "More labels make the dataset score more reliable. Make sure to include some bad cases.",
+          summary.cases_to_next_grade != null && summary.next_grade
+            ? `Label ${summary.cases_to_next_grade.toLocaleString()} or more traces to raise this grade to a ${summary.next_grade}. Include some bad cases to keep the score reliable.`
+            : "More labels make the dataset score more reliable. Make sure to include some bad cases.",
       };
     case badShare < TARGET_BAD_SHARE:
       return {
@@ -79,56 +79,51 @@ function GradeGuidanceCard({ summary }: { summary: EvalDatasetResponse }) {
   );
 }
 
+function GradeHeader() {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="font-mono text-label uppercase text-faint-foreground">
+        Baseline grade
+      </span>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              aria-label="How the grade is computed"
+              className="inline-flex cursor-help text-faint-foreground transition-colors hover:text-muted-foreground"
+            >
+              <HelpCircle aria-hidden className="size-3.5" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            A rough read on this eval set's strength, from how many examples
+            you've labeled and how balanced good vs. bad are. Label more
+            traces to raise it.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+}
+
 export function DatasetGradeSidebar({
   summary,
 }: {
   summary: EvalDatasetResponse;
 }) {
-  const {
-    item_count,
-    good_count,
-    bad_count,
-    grade,
-    next_grade,
-    next_grade_progress,
-    cases_to_next_grade,
-  } = summary;
-  const totalJudged = good_count + bad_count;
-  const goodPct = totalJudged > 0 ? (good_count / totalJudged) * 100 : 0;
-  const badPct = totalJudged > 0 ? (bad_count / totalJudged) * 100 : 0;
+  const { grade, next_grade, next_grade_progress } = summary;
 
   return (
     <aside className="flex w-full flex-none flex-col gap-5 border-b border-border bg-card p-4 dark:bg-surface @[780px]/dataset-card:w-[268px] @[780px]/dataset-card:border-b-0 @[780px]/dataset-card:border-r @[780px]/dataset-card:p-5 @[780px]/dataset-card:pt-5.5">
+      <GradeHeader />
+
       <DatasetGrade
         grade={grade}
-        variant="label"
-        itemCount={item_count}
+        variant="ring"
         nextGrade={next_grade}
-        nextGradeProgress={next_grade_progress}
-        casesToNextGrade={cases_to_next_grade}
+        progress={next_grade_progress}
       />
-
-      <div>
-        <SectionLabel>Composition · {item_count.toLocaleString()}</SectionLabel>
-        <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-muted">
-          {good_count > 0 && (
-            <div className="bg-success" style={{ width: `${goodPct}%` }} />
-          )}
-          {bad_count > 0 && (
-            <div className="bg-destructive" style={{ width: `${badPct}%` }} />
-          )}
-        </div>
-        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-body-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-[2px] bg-success" aria-hidden />
-            {good_count.toLocaleString()} good
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-[2px] bg-destructive" aria-hidden />
-            {bad_count.toLocaleString()} bad
-          </span>
-        </div>
-      </div>
 
       <GradeGuidanceCard summary={summary} />
     </aside>
