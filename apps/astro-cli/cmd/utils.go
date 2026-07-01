@@ -126,6 +126,56 @@ func apiCallWithHeaders(ctx context.Context, method, reqURL string, body any, to
 	return resp.StatusCode, nil
 }
 
+// apiUpload performs an authenticated request with a caller-supplied body and
+// Content-Type (e.g. multipart/form-data), mirroring apiCall's auth header,
+// verbose logging, status handling, and JSON response decoding. Use this for
+// binary uploads, where apiCall's JSON marshalling does not apply.
+func apiUpload(ctx context.Context, method, reqURL, contentType string, body io.Reader, token string, verbose bool, dest any) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s%s %s%s\n", colorDim, method, reqURL, colorReset)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
+	if err != nil {
+		return -1, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	if err != nil {
+		return -1, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck,gosec
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s→ %d%s\n", colorDim, resp.StatusCode, colorReset)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return resp.StatusCode, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	if dest != nil {
+		if err := json.Unmarshal(respBody, dest); err != nil {
+			return resp.StatusCode, fmt.Errorf("failed to decode response: %w", err)
+		}
+	}
+	return resp.StatusCode, nil
+}
+
 // apiCallForAccount fetches a fresh account-scoped token, performs the request, and on 401
 // forces a token refresh and retries once.
 func apiCallForAccount(ctx context.Context, method, reqURL string, body any, account string, verbose bool, dest any) (int, error) {

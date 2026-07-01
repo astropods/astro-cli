@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"gopkg.in/yaml.v3"
 )
@@ -55,15 +57,16 @@ func FetchAstroSpec(ctx context.Context, token, repoFullName, commitSHA string) 
 }
 
 // githubContentsGet performs a GitHub contents API GET for repoRelPath (a path
-// relative to the repo root) at ref, using the given Accept media type, and
-// returns the raw response body. accept selects the representation: the raw
-// media type for a file's bytes, or JSON for a directory listing. Returns
-// ("", nil) when the path does not exist at that ref.
-func githubContentsGet(ctx context.Context, token, repoBase, ref, repoRelPath, accept string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", repoBase, repoRelPath, ref)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// relative to the repo root) at ref, using the given Accept media type and
+// reading at most limit bytes. accept selects the representation: the raw media
+// type for a file's bytes, or JSON for a directory listing. Path segments are
+// URL-encoded so paths with spaces or unicode (common for image references)
+// resolve correctly. Returns (nil, nil) when the path does not exist at that ref.
+func githubContentsGet(ctx context.Context, token, repoBase, ref, repoRelPath, accept string, limit int64) ([]byte, error) {
+	reqURL := fmt.Sprintf("https://api.github.com/repos/%s/contents/%s?ref=%s", repoBase, encodePathSegments(repoRelPath), ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", accept)
@@ -71,20 +74,28 @@ func githubContentsGet(ctx context.Context, token, repoBase, ref, repoRelPath, a
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("GET %s: %w", url, err)
+		return nil, fmt.Errorf("GET %s: %w", reqURL, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode == http.StatusNotFound {
-		return "", nil
+		return nil, nil
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("GET %s returned %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("GET %s returned %d", reqURL, resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", err
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
+// fetchFile retrieves the raw bytes of a repo file via the GitHub contents API,
+// reading at most limit bytes. repoFullName may be "owner/repo" or
+// "owner/repo/sub/path"; the subpath is prepended to filePath and the base repo
+// is used for the API URL. Returns (nil, nil) when the file does not exist.
+func fetchFile(ctx context.Context, token, repoFullName, ref, filePath string, limit int64) ([]byte, error) {
+	base := githubconnection.RepoBase(repoFullName)
+	if sub := githubconnection.RepoSubPath(repoFullName); sub != "" {
+		filePath = sub + "/" + filePath
 	}
-	return string(body), nil
+	return githubContentsGet(ctx, token, base, ref, filePath, "application/vnd.github.raw+json", limit)
 }
 
 // FetchFileContent fetches a file's raw content from GitHub at a specific ref.
@@ -92,11 +103,18 @@ func githubContentsGet(ctx context.Context, token, repoBase, ref, repoRelPath, a
 // prepended to filePath and the base repo is used for the API URL.
 // Returns ("", nil) when the file does not exist at that ref.
 func FetchFileContent(ctx context.Context, token, repoFullName, ref, filePath string) (string, error) {
-	base := githubconnection.RepoBase(repoFullName)
-	if sub := githubconnection.RepoSubPath(repoFullName); sub != "" {
-		filePath = sub + "/" + filePath
+	data, err := fetchFile(ctx, token, repoFullName, ref, filePath, 1<<20)
+	if err != nil {
+		return "", err
 	}
-	return githubContentsGet(ctx, token, base, ref, filePath, "application/vnd.github.raw+json")
+	return string(data), nil
+}
+
+// FetchFileBytes fetches a file's raw bytes from GitHub at a specific ref,
+// capped at readmeassets.MaxAssetSize+1 so oversized images are detected and
+// rejected downstream. Returns (nil, nil) when the file does not exist.
+func FetchFileBytes(ctx context.Context, token, repoFullName, ref, filePath string) ([]byte, error) {
+	return fetchFile(ctx, token, repoFullName, ref, filePath, readmeassets.MaxAssetSize+1)
 }
 
 // FetchAgentReadme fetches the agent README (AGENT.md) from GitHub at a specific
@@ -123,12 +141,12 @@ type ghContentEntry struct {
 func findAgentReadmeName(ctx context.Context, token, repoFullName, ref string) (string, error) {
 	base := githubconnection.RepoBase(repoFullName)
 	dir := githubconnection.RepoSubPath(repoFullName)
-	body, err := githubContentsGet(ctx, token, base, ref, dir, "application/vnd.github+json")
-	if err != nil || body == "" {
+	body, err := githubContentsGet(ctx, token, base, ref, dir, "application/vnd.github+json", 1<<20)
+	if err != nil || len(body) == 0 {
 		return "", err
 	}
 	var entries []ghContentEntry
-	if err := json.Unmarshal([]byte(body), &entries); err != nil {
+	if err := json.Unmarshal(body, &entries); err != nil {
 		return "", fmt.Errorf("parse contents listing for %s: %w", repoFullName, err)
 	}
 	for _, e := range entries {
@@ -137,6 +155,16 @@ func findAgentReadmeName(ctx context.Context, token, repoFullName, ref string) (
 		}
 	}
 	return "", nil
+}
+
+// encodePathSegments URL-encodes each "/"-separated segment of a repo path,
+// preserving the separators.
+func encodePathSegments(p string) string {
+	segments := strings.Split(p, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	return strings.Join(segments, "/")
 }
 
 // BuildAgentCardJSON mirrors the agent card generation logic in handlers/agents.go.

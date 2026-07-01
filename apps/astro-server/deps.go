@@ -26,6 +26,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
@@ -54,6 +55,7 @@ type Stores struct {
 	Cluster      *clusterstore.Store
 	Audit        *auditlog.Store
 	Avatar       *avatar.Store
+	ReadmeAssets *readmeassets.Store
 	Knowledge    *knowledgestore.Store
 	GH           *githubconnection.Store
 	Webhook      *githubwebhook.Store

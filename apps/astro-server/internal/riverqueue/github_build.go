@@ -22,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 )
 
 const queueGitHubBuild = "github_build"
@@ -62,15 +63,16 @@ func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 // image with BuildKit, and registers the result in the agent index.
 type GitHubBuildWorker struct {
 	river.WorkerDefaults[GitHubBuildArgs]
-	pipesClient *pipes.Client
-	ghStore     *githubconnection.Store
-	agentIndex  *agentindex.Index
-	builder     *githubbuild.Builder // primary cluster; EnsureInfrastructure only
-	registry    *k8s.Registry
-	cfg         *config.Config
-	log         *logger.Logger
-	omClient    *openmeter.Client
-	db          *sql.DB
+	pipesClient  *pipes.Client
+	ghStore      *githubconnection.Store
+	agentIndex   *agentindex.Index
+	readmeAssets *readmeassets.Store
+	builder      *githubbuild.Builder // primary cluster; EnsureInfrastructure only
+	registry     *k8s.Registry
+	cfg          *config.Config
+	log          *logger.Logger
+	omClient     *openmeter.Client
+	db           *sql.DB
 	// deployStore + cache are used to fan out deploy-cache invalidations to
 	// downstream consumers once a new agent build is registered.
 	deployStore *deploymentstore.Store
@@ -78,23 +80,24 @@ type GitHubBuildWorker struct {
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
-func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB, deployStore *deploymentstore.Store, cache k8scache.Cache) *GitHubBuildWorker {
+func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, readmeAssets *readmeassets.Store, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, omClient *openmeter.Client, db *sql.DB, deployStore *deploymentstore.Store, cache k8scache.Cache) *GitHubBuildWorker {
 	var builder *githubbuild.Builder
 	if registry != nil {
 		builder = githubbuild.New(registry.Default(), cfg, log)
 	}
 	return &GitHubBuildWorker{
-		pipesClient: pipesClient,
-		ghStore:     ghStore,
-		agentIndex:  agentIndex,
-		builder:     builder,
-		registry:    registry,
-		cfg:         cfg,
-		log:         log,
-		omClient:    omClient,
-		db:          db,
-		deployStore: deployStore,
-		cache:       cache,
+		pipesClient:  pipesClient,
+		ghStore:      ghStore,
+		agentIndex:   agentIndex,
+		readmeAssets: readmeAssets,
+		builder:      builder,
+		registry:     registry,
+		cfg:          cfg,
+		log:          log,
+		omClient:     omClient,
+		db:           db,
+		deployStore:  deployStore,
+		cache:        cache,
 	}
 }
 
@@ -203,6 +206,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		RepoName:         conn.RepoFullName,
 		CommitSHA:        args.CommitSHA,
 		AgentName:        agentName,
+		AccountName:      conn.AccountName,
 		BuildID:          args.BuildID,
 		AccountID:        conn.AccountID,
 		ProxyHost:        w.cfg.Deployment.ProxyRegistryHost,
@@ -211,6 +215,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		Builder:          builder,
 		GHStore:          w.ghStore,
 		AgentIndex:       w.agentIndex,
+		ReadmeAssets:     w.readmeAssets,
 		RecordID:         args.BuildRecordID,
 		Log:              w.log,
 		AIGatewayEnabled: w.cfg.Deployment.AIGatewayURL != "",
@@ -223,6 +228,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		CreateComponentRecords().
 		RunBuildJobs().
 		FetchReadme().
+		ProcessReadmeImages().
 		TransformSpec().
 		StripSecrets().
 		Register().

@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -21,6 +22,7 @@ type GitHubBuildConfig struct {
 	RepoName    string // e.g. "owner/repo" or "owner/repo/sub/path"
 	CommitSHA   string
 	AgentName   string
+	AccountName string // account handle; used for readme-asset storage keys
 	BuildID     string
 	AccountID   string
 	ProxyHost   string // proxy registry host for image references
@@ -28,11 +30,12 @@ type GitHubBuildConfig struct {
 	Local       bool // local dev mode (no push)
 
 	// Dependencies
-	Builder    *Builder
-	GHStore    *githubconnection.Store
-	AgentIndex *agentindex.Index
-	RecordID   string // build record ID for status tracking
-	Log        *logger.Logger
+	Builder      *Builder
+	GHStore      *githubconnection.Store
+	AgentIndex   *agentindex.Index
+	ReadmeAssets *readmeassets.Store // optional; AGENT.md image vacuum skipped when nil
+	RecordID     string              // build record ID for status tracking
+	Log          *logger.Logger
 
 	// AIGatewayEnabled toggles the validator's astro-gateway provider gate.
 	// Pushed from cfg.Deployment.AIGatewayURL != "" at the worker wiring site.
@@ -250,6 +253,31 @@ func (p *GitHubBuildPipeline) FetchReadme() *GitHubBuildPipeline {
 	return p.step("fetching-readme", func() error {
 		readme, _ := FetchAgentReadme(p.ctx, p.cfg.Token, p.cfg.RepoName, p.cfg.CommitSHA)
 		p.readme = readme
+		return nil
+	})
+}
+
+// ProcessReadmeImages vacuums local images referenced by AGENT.md into the
+// shared assets store and rewrites their links to CDN URLs. Images are fetched
+// from the repo at the build commit. Missing or unstorable images are left as
+// their original reference (logged), never failing the build.
+func (p *GitHubBuildPipeline) ProcessReadmeImages() *GitHubBuildPipeline {
+	return p.step("processing-readme-images", func() error {
+		if p.cfg.ReadmeAssets == nil || p.readme == "" {
+			return nil
+		}
+		rewritten, warnings := p.cfg.ReadmeAssets.ProcessMarkdown(
+			p.ctx, p.cfg.AccountName, p.cfg.AgentName, p.readme,
+			func(relPath string) ([]byte, error) {
+				return FetchFileBytes(p.ctx, p.cfg.Token, p.cfg.RepoName, p.cfg.CommitSHA, relPath)
+			},
+		)
+		for _, warning := range warnings {
+			if p.cfg.Log != nil {
+				p.cfg.Log.Warn("readme image skipped", "agent", p.cfg.AgentName, "detail", warning)
+			}
+		}
+		p.readme = rewritten
 		return nil
 	})
 }

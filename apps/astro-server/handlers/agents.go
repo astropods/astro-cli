@@ -197,7 +197,11 @@ type RegisterAgentRequest struct {
 	Registry    string `json:"registry" binding:"required"`
 	SpecContent string `json:"spec_content" binding:"required"`
 	Readme      string `json:"readme"`
-	Visibility  string `json:"visibility,omitempty"` // "public" or "private"; only applied on first registration
+	// ReadmeAssets maps each AGENT.md-referenced local image path to the CDN URL
+	// it was uploaded to (via /readme-assets). The server rewrites Readme with
+	// these before storing so links resolve to the assets CDN.
+	ReadmeAssets map[string]string `json:"readme_assets,omitempty"`
+	Visibility   string            `json:"visibility,omitempty"` // "public" or "private"; only applied on first registration
 }
 
 // agentMetrics returns an AgentMetrics value for the given counts.
@@ -755,6 +759,11 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 
 		warningsBytes, _ := json.Marshal(validationWarnings)
 		validationWarningsJSON = string(warningsBytes)
+
+		// Rewrite AGENT.md image references to the CDN URLs they were uploaded to
+		// (via /readme-assets) before parsing and storage, so both the stored
+		// readme and the parsed card body link to the assets CDN.
+		req.Readme = spec.RewriteMarkdownImages(req.Readme, req.ReadmeAssets)
 
 		// Parse agent card from readme and merge spec-derived integrations at registration time
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)

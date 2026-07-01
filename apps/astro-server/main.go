@@ -59,6 +59,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
@@ -107,16 +108,20 @@ func main() {
 		log.Warn("Failed to initialize S3 client", "error", sharedS3Err)
 	}
 
-	// Initialize avatar store (S3 or local filesystem)
+	// Initialize avatar + readme-asset stores (S3 or local filesystem). Both
+	// serve from the assets bucket/CDN and share the same storage backend.
 	var avatarStore *avatar.Store
+	var readmeAssetStore *readmeassets.Store
 	if cfg.Avatar.Enabled() {
 		if cfg.Avatar.IsLocal() {
 			backend := avatar.NewLocalBackend(cfg.Avatar.LocalDir)
 			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
+			readmeAssetStore = readmeassets.NewStore(backend, cfg.Avatar.AssetsURL)
 			log.Info("Avatar store initialized (local)", "dir", cfg.Avatar.LocalDir)
 		} else if sharedS3Client != nil {
 			backend := avatar.NewS3Backend(sharedS3Client, cfg.Avatar.S3Bucket)
 			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
+			readmeAssetStore = readmeassets.NewStore(backend, cfg.Avatar.AssetsURL)
 			log.Info("Avatar store initialized (S3)", "bucket", cfg.Avatar.S3Bucket)
 		}
 	}
@@ -176,12 +181,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore, k8sCache)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore, readmeAssetStore, k8sCache)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, k8sCache, newImagePreflighter(cfg))
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg))
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -269,6 +274,7 @@ func runAPI(
 	omClient *openmeter.Client,
 	ent *middleware.Entitlements,
 	avatarStore *avatar.Store,
+	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
@@ -456,6 +462,7 @@ func runAPI(
 			Cluster:      clusterStore,
 			Audit:        auditStore,
 			Avatar:       avatarStore,
+			ReadmeAssets: readmeAssetStore,
 			Knowledge:    ksStore,
 			GH:           ghStore,
 			Webhook:      webhookStore,
@@ -549,6 +556,7 @@ func runWorker(
 	omClient *openmeter.Client,
 	orgClient *org.Client,
 	avatarStore *avatar.Store,
+	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 	imagePreflighter *k8s.ImagePreflighter,
 ) context.CancelFunc {
@@ -606,6 +614,7 @@ func runWorker(
 		AccountStore:            accountStore,
 		AgentIndex:              agentIndex,
 		AvatarStore:             avatarStore,
+		ReadmeAssetStore:        readmeAssetStore,
 		K8sRegistry:             k8sReg,
 		K8sCache:                k8sCache,
 		ServerConfig:            cfg,
@@ -672,6 +681,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	clusterStore := deps.Stores.Cluster
 	auditStore := deps.Stores.Audit
 	avatarStore := deps.Stores.Avatar
+	readmeAssetStore := deps.Stores.ReadmeAssets
 	ksStore := deps.Stores.Knowledge
 	ghStore := deps.Stores.GH
 	webhookStore := deps.Stores.Webhook
@@ -1323,6 +1333,17 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 						oapispec.PathParam("account", "Account name"),
 						oapispec.PathParam("name", "Agent name"),
 						oapispec.Response(200, &handlers.AvatarResponse{}),
+					)
+				}
+
+				if readmeAssetStore != nil {
+					api.POST(agentWriteRoutes, "/readme-assets", "Upload AGENT.md images",
+						handlers.UploadReadmeAssets(log, readmeAssetStore),
+						oapispec.Tags("Agents"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.PathParam("name", "Agent name"),
+						oapispec.Response(200, &handlers.ReadmeAssetsResponse{}),
 					)
 				}
 			}

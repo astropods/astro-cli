@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 )
 
 const queueDeploy = "deploy"
@@ -38,6 +39,7 @@ type Config struct {
 	AccountStore         *account.AccountStore
 	AgentIndex           *agentindex.Index
 	AvatarStore          *avatar.Store
+	ReadmeAssetStore     *readmeassets.Store
 	K8sRegistry          *k8s.Registry
 	K8sCache             k8scache.Cache
 	ServerConfig         *config.Config
