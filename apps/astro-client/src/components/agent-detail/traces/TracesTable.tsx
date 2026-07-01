@@ -64,16 +64,16 @@ function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string 
         {formatCost(trace.total_cost)}
       </td>
       <td className="min-w-0 px-3 py-2.5" title={trace.trace_id}>
-        <span className="flex min-w-0 max-w-full items-center gap-1.5">
+        <span className="relative block min-w-0 max-w-full">
           <span
-            className="block min-w-0 truncate whitespace-nowrap font-mono text-mono-sm text-muted-foreground"
+            className="block min-w-0 overflow-hidden text-clip whitespace-nowrap font-mono text-mono-sm text-muted-foreground transition-[padding] group-hover:pr-7"
           >
             {shortTraceId(trace.trace_id)}
           </span>
           <CopyButton
             copyText={trace.trace_id}
             title="Copy trace ID"
-            className="size-6 rounded-sm shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+            className="pointer-events-none absolute right-0 top-1/2 size-6 -translate-y-1/2 rounded-sm opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
             iconClassName="size-3"
           />
         </span>
