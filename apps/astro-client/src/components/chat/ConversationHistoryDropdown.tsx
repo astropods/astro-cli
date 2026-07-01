@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ChevronDownIcon,
   ClockIcon,
-  EllipsisHorizontalIcon,
   PencilSquareIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
@@ -96,6 +95,20 @@ function ConversationHistoryList({
     setDraftTitle("");
   };
 
+  const cancelRename = () => {
+    setEditingId(null);
+    setDraftTitle("");
+  };
+
+  // Stable callback ref: focuses/selects the input the moment it mounts. Stable
+  // identity means React won't re-run it (resetting the cursor) on each keystroke.
+  const focusRenameInput = useCallback((el: HTMLInputElement | null) => {
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }, []);
+
   return (
     <div className="flex max-h-[min(60vh,24rem)] flex-col">
       <div className="flex shrink-0 items-baseline justify-between border-b border-border px-3.5 py-2.5">
@@ -124,21 +137,24 @@ function ConversationHistoryList({
                 return (
                   <li key={session.conversationId}>
                     <input
-                      autoFocus
+                      ref={focusRenameInput}
                       value={draftTitle}
                       onChange={(e) => setDraftTitle(e.target.value)}
+                      // Keep keystrokes from bubbling to the Radix menu, whose
+                      // typeahead would otherwise steal focus to a matching row.
                       onKeyDown={(e) => {
+                        e.stopPropagation();
                         if (e.key === "Enter") {
                           e.preventDefault();
                           commitRename(session.conversationId);
                         } else if (e.key === "Escape") {
                           e.preventDefault();
-                          setEditingId(null);
-                          setDraftTitle("");
+                          cancelRename();
                         }
                       }}
                       onBlur={() => commitRename(session.conversationId)}
                       maxLength={200}
+                      placeholder={DEFAULT_TITLE}
                       className="w-full rounded-lg border border-border bg-card px-3 py-2 text-body-sm text-foreground outline-none focus:border-ring"
                       aria-label="Conversation title"
                     />
@@ -214,40 +230,42 @@ function ConversationHistoryList({
                     />
                   ) : null}
                   {(onRenameSession || onDeleteSession) && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      {onRenameSession && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          aria-label="Conversation options"
-                          className="size-7 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:bg-card focus:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                          aria-label="Rename conversation"
+                          className="size-7 shrink-0 text-muted-foreground hover:bg-card"
+                          // Inline action instead of a nested menu: no menu
+                          // teardown means nothing steals focus from the input.
                           onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRename(session);
+                          }}
                         >
-                          <EllipsisHorizontalIcon className="size-4" />
+                          <PencilSquareIcon className="size-4" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        {onRenameSession && (
-                          <DropdownMenuItem onClick={() => startRename(session)}>
-                            <PencilSquareIcon className="size-4" />
-                            Rename
-                          </DropdownMenuItem>
-                        )}
-                        {onDeleteSession && (
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() =>
-                              setConfirmingDeleteId(session.conversationId)
-                            }
-                          >
-                            <TrashIcon className="size-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                      )}
+                      {onDeleteSession && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Delete conversation"
+                          className="size-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmingDeleteId(session.conversationId);
+                          }}
+                        >
+                          <TrashIcon className="size-4" />
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </li>
               );
