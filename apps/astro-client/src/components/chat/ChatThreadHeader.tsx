@@ -3,7 +3,9 @@ import type { AgentDeploymentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/lib/chat/types";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
-import { chatDeploymentPath } from "@/lib/routes";
+import { useAccountBlueprints } from "@/api/queries/blueprints";
+import { useDeployments } from "@/api/queries/deployments";
+import { accountBlueprintsPath, chatDeploymentPath, explorePath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -13,7 +15,25 @@ import {
 } from "@/components/ui/tooltip";
 import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
 
+/**
+ * Where the "Deploy more agents" footer should point for a single-agent user:
+ * the blueprints page when the account still has undeployed blueprints,
+ * otherwise the Explore catalog to find new ones. Only fetches while `enabled`
+ * (the footer can actually show).
+ */
+function useGrowFleetHref(account: string, enabled: boolean): string {
+  const { data: blueprints } = useAccountBlueprints(account, { enabled });
+  const { data: deployments } = useDeployments(account, enabled);
+  if (!blueprints || !deployments) return accountBlueprintsPath;
+  const deployedNames = new Set(deployments.deployments.map((d) => d.name));
+  const hasUndeployedBlueprints = blueprints.agents.some(
+    (bp) => !bp.archived_at && !deployedNames.has(bp.name),
+  );
+  return hasUndeployedBlueprints ? accountBlueprintsPath : explorePath;
+}
+
 export function ChatThreadHeader({
+  account,
   deployment,
   eligibleDeploymentIds,
   sessions,
@@ -25,6 +45,7 @@ export function ChatThreadHeader({
   inspectorOpen,
   onToggleInspector,
 }: {
+  account: string;
   deployment: AgentDeploymentSummary;
   /** Chat-eligible deployments to show in the agent switch list. */
   eligibleDeploymentIds: ReadonlySet<string>;
@@ -37,6 +58,10 @@ export function ChatThreadHeader({
   inspectorOpen?: boolean;
   onToggleInspector?: () => void;
 }) {
+  // Single chat-eligible agent → the switch list is empty, so the menu shows
+  // the grow-fleet footer instead. Only then do we need its link target.
+  const growFleetHref = useGrowFleetHref(account, eligibleDeploymentIds.size <= 1);
+
   return (
     <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
       <AgentDeploymentMenu
@@ -46,6 +71,7 @@ export function ChatThreadHeader({
         eligibleDeploymentIds={eligibleDeploymentIds}
         getDeploymentPath={(_acct, dep) => chatDeploymentPath(dep.id)}
         showAccountLabels
+        growFleetHref={growFleetHref}
       />
 
       <span className="min-w-0 flex-1" aria-hidden />

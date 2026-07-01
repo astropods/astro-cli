@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { useDeploymentsSummary } from "@/api/queries/deployments";
 import {
@@ -40,6 +41,12 @@ interface AgentDeploymentMenuProps {
    * this so agents stay separated by org even when one org is in the list.
    */
   showAccountLabels?: boolean;
+  /**
+   * When set and there are no other agents to switch to (the user has a single
+   * chat-eligible agent), the menu shows the current agent as the selected row
+   * plus a footer linking here to deploy more agents from blueprints.
+   */
+  growFleetHref?: string;
 }
 
 export function AgentDeploymentMenu({
@@ -50,6 +57,7 @@ export function AgentDeploymentMenu({
   variant = "header",
   triggerClassName,
   showAccountLabels = false,
+  growFleetHref,
 }: AgentDeploymentMenuProps) {
   const displayName = deployment.display_name || deployment.name;
 
@@ -68,6 +76,15 @@ export function AgentDeploymentMenu({
     .filter((acct) => acct.deployments.length > 0);
 
   const hasSwitchList = accounts.length > 0;
+
+  // With a single chat-eligible agent there is nothing to switch to, so prompt
+  // the user to grow their fleet instead of opening to an empty panel.
+  const showGrowFleet = !!growFleetHref && !hasSwitchList;
+  const currentAccount = (summaryData?.accounts ?? []).find((acct) =>
+    acct.deployments.some((dep) => dep.id === deployment.id),
+  );
+  const currentAccountLabel =
+    currentAccount?.display_name || currentAccount?.name;
 
   return (
     <DropdownMenu>
@@ -123,32 +140,67 @@ export function AgentDeploymentMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="flex w-[260px] flex-col">
         {menuPrefix}
-        {menuPrefix && hasSwitchList && <DropdownMenuSeparator />}
-        <div className="max-h-[300px] overflow-y-auto">
-          {accounts.map((acct) => (
-            <DropdownMenuGroup key={acct.id}>
-              {(showAccountLabels || accounts.length > 1) && (
+        {menuPrefix && (hasSwitchList || showGrowFleet) && (
+          <DropdownMenuSeparator />
+        )}
+        {showGrowFleet ? (
+          <>
+            <DropdownMenuGroup>
+              {currentAccountLabel && (
                 <DropdownMenuLabel className="text-faint-foreground">
-                  {acct.display_name || acct.name}
+                  {currentAccountLabel}
                 </DropdownMenuLabel>
               )}
-              {acct.deployments.map((dep) => (
-                <DropdownMenuItem key={dep.id} asChild>
-                  <Link to={getDeploymentPath(acct.name, dep)}>
-                    <DeploymentAvatar
-                      deployment={dep}
-                      size={20}
-                      className="size-5 shrink-0 rounded-sm"
-                    />
-                    <span className="truncate">
-                      {dep.display_name || dep.name}
-                    </span>
-                  </Link>
-                </DropdownMenuItem>
-              ))}
+              <DropdownMenuItem className="bg-accent/60 focus:bg-accent/60">
+                <DeploymentAvatar
+                  deployment={deployment}
+                  size={20}
+                  className="size-5 shrink-0 rounded-sm"
+                />
+                <span className="truncate">{displayName}</span>
+                <Check className="ml-auto size-4 shrink-0 text-primary" />
+              </DropdownMenuItem>
             </DropdownMenuGroup>
-          ))}
-        </div>
+            <DropdownMenuSeparator />
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="mt-1 w-full justify-center gap-1.5 font-medium"
+            >
+              <Link to={growFleetHref!}>
+                <Plus className="text-muted-foreground" />
+                Deploy more agents
+              </Link>
+            </Button>
+          </>
+        ) : (
+          <div className="max-h-[300px] overflow-y-auto">
+            {accounts.map((acct) => (
+              <DropdownMenuGroup key={acct.id}>
+                {(showAccountLabels || accounts.length > 1) && (
+                  <DropdownMenuLabel className="text-faint-foreground">
+                    {acct.display_name || acct.name}
+                  </DropdownMenuLabel>
+                )}
+                {acct.deployments.map((dep) => (
+                  <DropdownMenuItem key={dep.id} asChild>
+                    <Link to={getDeploymentPath(acct.name, dep)}>
+                      <DeploymentAvatar
+                        deployment={dep}
+                        size={20}
+                        className="size-5 shrink-0 rounded-sm"
+                      />
+                      <span className="truncate">
+                        {dep.display_name || dep.name}
+                      </span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            ))}
+          </div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

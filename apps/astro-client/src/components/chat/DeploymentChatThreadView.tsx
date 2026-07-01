@@ -74,6 +74,7 @@ export function DeploymentChatThreadView({
   const { conversationId, isStreaming, historyLoading, streamError } =
     useDeploymentChatViewport();
   const useTopTurnAnchor = isStreaming && !historyLoading;
+  const isEmpty = useAuiState((s) => s.thread.isEmpty);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deploymentId);
   // States where the agent is off / broken: dim the thread to signal it.
@@ -99,7 +100,12 @@ export function DeploymentChatThreadView({
         className="chat-thread-scroll relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto"
       >
         <DeploymentChatHistoryScroll />
-        <div className="mx-auto flex w-full max-w-(--thread-max-width) min-h-0 flex-1 flex-col px-3 pt-3 md:px-6 md:pt-4">
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-(--thread-max-width) min-h-0 flex-1 flex-col px-3 pt-3 md:px-6 md:pt-4",
+            isEmpty && "justify-center",
+          )}
+        >
           <AuiIf condition={(s) => s.thread.isEmpty}>
             <ThreadWelcome
               account={account}
@@ -122,7 +128,12 @@ export function DeploymentChatThreadView({
             </ThreadPrimitive.Messages>
           </div>
 
-          <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer bg-background sticky bottom-0 mt-auto flex flex-col gap-2 overflow-visible rounded-t-(--composer-radius) pb-3 md:pb-4">
+          <ThreadPrimitive.ViewportFooter
+            className={cn(
+              "aui-thread-viewport-footer bg-background flex flex-col gap-2 overflow-visible rounded-t-(--composer-radius)",
+              isEmpty ? "mt-8 pb-3 md:pb-4" : "sticky bottom-0 mt-auto pb-4 md:pb-5",
+            )}
+          >
             <ThreadScrollToBottom />
             {streamError ? (
               <p className="px-1 text-xs text-destructive" role="alert">
@@ -134,6 +145,7 @@ export function DeploymentChatThreadView({
               agentLabel={agentLabel}
               account={account}
               deploymentId={deploymentId}
+              expanded={isEmpty}
             />
           </ThreadPrimitive.ViewportFooter>
         </div>
@@ -171,24 +183,24 @@ const ThreadWelcome: FC<{
   avatarUrl?: string;
   agentLabel: string;
 }> = ({ account, deployment, avatarUrl, agentLabel }) => (
-  <div className="aui-thread-welcome-root my-auto flex grow flex-col">
-    <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center py-8">
-      <div className="aui-thread-welcome-message flex flex-col items-center gap-3 px-4 text-center">
+  <div className="aui-thread-welcome-root fade-in slide-in-from-bottom-2 animate-in flex flex-col duration-500">
+    <div className="aui-thread-welcome-center flex w-full flex-col items-center justify-center pb-2">
+      <div className="aui-thread-welcome-message flex flex-col items-center gap-7 px-4 text-center">
         {deployment ? (
           <BlueprintIdentity
             account={account}
             name={deployment.name}
-            size={48}
+            size={64}
             url={avatarUrl}
-            className="size-12 rounded-xl"
+            className="size-16 rounded-md"
           />
         ) : null}
-        <div className="flex flex-col items-center gap-1">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-            {agentLabel}
+        <div className="flex flex-col items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+            What should {agentLabel} work on?
           </h1>
-          <p className="text-muted-foreground text-sm md:text-base">
-            Send a message below to start a new chat.
+          <p className="text-muted-foreground text-body">
+            Describe a task in your own words to get started.
           </p>
         </div>
       </div>
@@ -227,11 +239,12 @@ const ComposerArea: FC<{
   agentLabel: string;
   account: string;
   deploymentId: string;
-}> = ({ state, agentLabel, account, deploymentId }) => {
+  expanded?: boolean;
+}> = ({ state, agentLabel, account, deploymentId, expanded }) => {
   // "unknown" = status not loaded yet; stay optimistic so the composer doesn't
   // flicker disabled on first paint for a healthy agent.
   if (state === "ready" || state === "unknown") {
-    return <DeploymentComposer agentLabel={agentLabel} />;
+    return <DeploymentComposer agentLabel={agentLabel} expanded={expanded} />;
   }
   if (state === "starting" || state === "unreachable") {
     return (
@@ -242,7 +255,7 @@ const ComposerArea: FC<{
           ) : null}
           {TRANSIENT_NOTICE[state]}
         </p>
-        <DeploymentComposer disabled agentLabel={agentLabel} />
+        <DeploymentComposer disabled agentLabel={agentLabel} expanded={expanded} />
       </>
     );
   }
@@ -289,10 +302,11 @@ const ChatStateBanner: FC<{
   );
 };
 
-const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
-  disabled,
-  agentLabel,
-}) => {
+const DeploymentComposer: FC<{
+  disabled?: boolean;
+  agentLabel: string;
+  expanded?: boolean;
+}> = ({ disabled, agentLabel, expanded }) => {
   const composer = useComposerRuntime();
   const dictation = useComposer((c) => c.dictation);
   const listening = isDictationActive(dictation);
@@ -347,10 +361,15 @@ const DeploymentComposer: FC<{ disabled?: boolean; agentLabel: string }> = ({
               placeholder={
                 disabled
                   ? "Agent is not ready…"
-                  : `Send a message to ${agentLabel}…`
+                  : `Message ${agentLabel}…`
               }
               disabled={disabled}
-              className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent px-1.75 py-1.5 text-sm outline-none disabled:cursor-not-allowed"
+              className={cn(
+                "aui-composer-input placeholder:text-muted-foreground/80 min-w-0 flex-1 resize-none bg-transparent px-1.75 py-1.5 text-sm outline-none transition-[min-height] duration-300 ease-out disabled:cursor-not-allowed",
+                expanded
+                  ? "max-h-48 min-h-22 self-stretch"
+                  : "max-h-32 min-h-8 self-center",
+              )}
               rows={1}
               aria-label="Message input"
             />
@@ -376,7 +395,7 @@ const DictationButton: FC<{ disabled?: boolean; onStart: () => void }> = ({
     <TooltipIconButton
       // Privacy disclosure: the Web Speech API may send captured audio to the
       // browser vendor's speech service (e.g. Chrome → Google) for transcription.
-      tooltip="Dictate — audio is transcribed by your browser's speech service"
+      tooltip="Click to dictate"
       side="bottom"
       type="button"
       variant="ghost"
@@ -397,15 +416,13 @@ const ComposerAction: FC<{
 }> = ({ disabled, onStartDictation }) => {
   const dictationSupported = useDictationSupported();
   return (
-    <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-1">
+    <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-2">
       {dictationSupported ? (
         <DictationButton disabled={disabled} onStart={onStartDictation} />
       ) : null}
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
-          <TooltipIconButton
-            tooltip="Send message"
-            side="bottom"
+          <ChatButton
             type="button"
             variant="default"
             size="icon"
@@ -414,7 +431,7 @@ const ComposerAction: FC<{
             aria-label="Send message"
           >
             <ArrowUpIcon className="aui-composer-send-icon size-4" />
-          </TooltipIconButton>
+          </ChatButton>
         </ComposerPrimitive.Send>
       </AuiIf>
       <AuiIf condition={(s) => s.thread.isRunning}>
