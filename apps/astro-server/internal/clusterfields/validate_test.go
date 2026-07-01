@@ -8,11 +8,7 @@ import (
 func fullDeploy() DeployConfig {
 	return DeployConfig{
 		AgentIngressDomain:     "agents.example.com",
-		AgentACMCertARN:        "arn:cert",
-		AgentALBGroupName:      "agents",
 		IngestionIngressDomain: "ingest.example.com",
-		IngestionACMCertARN:    "arn:ingest",
-		IngestionALBGroupName:  "ingest",
 		KnowledgeDomain:        "knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.example:3000",
 		LangfuseVPCEIPs:        "10.0.0.1",
@@ -28,24 +24,24 @@ func TestValidateDeployNonEmpty_ok(t *testing.T) {
 
 func TestValidateDeployNonEmpty_storeError(t *testing.T) {
 	d := fullDeploy()
-	d.AgentALBGroupName = ""
+	d.AgentIngressDomain = ""
 	err := ValidateDeployNonEmpty("", d)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "agent_alb_group_name is required") {
+	if !strings.Contains(err.Error(), "agent_ingress_domain is required") {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestValidateDeployNonEmpty_deployError(t *testing.T) {
 	d := fullDeploy()
-	d.AgentALBGroupName = ""
+	d.AgentIngressDomain = ""
 	err := ValidateDeployNonEmpty("eu-west-1", d)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), `cluster "eu-west-1" is missing required field agent_alb_group_name`) {
+	if !strings.Contains(err.Error(), `cluster "eu-west-1" is missing required field agent_ingress_domain`) {
 		t.Fatalf("got %v", err)
 	}
 }

@@ -64,11 +64,7 @@ type ClusterEntry struct {
 	EKSClusterCA           []byte // PEM CA bytes, empty for primary
 	Enabled                bool
 	AgentIngressDomain     string
-	AgentACMCertARN        string
-	AgentALBGroupName      string
 	IngestionIngressDomain string
-	IngestionACMCertARN    string
-	IngestionALBGroupName  string
 	KnowledgeDomain        string
 	LangfuseBaseURLExt     string
 	LangfuseVPCEIPs        string
@@ -261,11 +257,7 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		EKSClusterCA:           row.EKSClusterCA,
 		Enabled:                row.Enabled,
 		AgentIngressDomain:     row.AgentIngressDomain,
-		AgentACMCertARN:        row.AgentACMCertARN,
-		AgentALBGroupName:      row.AgentALBGroupName,
 		IngestionIngressDomain: row.IngestionIngressDomain,
-		IngestionACMCertARN:    row.IngestionACMCertARN,
-		IngestionALBGroupName:  row.IngestionALBGroupName,
 		KnowledgeDomain:        row.KnowledgeDomain,
 		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
@@ -321,11 +313,7 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 			EKSClusterCA:           row.EKSClusterCA,
 			Enabled:                row.Enabled,
 			AgentIngressDomain:     row.AgentIngressDomain,
-			AgentACMCertARN:        row.AgentACMCertARN,
-			AgentALBGroupName:      row.AgentALBGroupName,
 			IngestionIngressDomain: row.IngestionIngressDomain,
-			IngestionACMCertARN:    row.IngestionACMCertARN,
-			IngestionALBGroupName:  row.IngestionALBGroupName,
 			KnowledgeDomain:        row.KnowledgeDomain,
 			LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 			LangfuseVPCEIPs:        row.LangfuseVPCEIPs,

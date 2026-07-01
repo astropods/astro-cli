@@ -1,7 +1,7 @@
-// Package clustercfg returns the effective ingress / ALB / cert / knowledge
-// and Langfuse / netpol configuration for one deployment. The primary cluster
-// reads env defaults (cfg.Deployment.*); additional clusters read their row
-// from public.clusters verbatim. Env defaults never apply to a non-primary
+// Package clustercfg returns the effective ingress / knowledge / Langfuse /
+// netpol configuration for one deployment. The primary cluster reads env
+// defaults (cfg.Deployment.*); additional clusters read their row from
+// public.clusters verbatim. Env defaults never apply to a non-primary
 // cluster — those rows must declare a complete config.
 package clustercfg
 
@@ -25,11 +25,7 @@ type Resolved struct {
 	// surfaces. Populated for the primary cluster (env-driven); additional
 	// clusters need a per-cluster column before they can serve public surfaces.
 	AgentPublicIngressDomain string
-	AgentACMCertARN          string
-	AgentALBGroupName        string
 	IngestionIngressDomain   string
-	IngestionACMCertARN      string
-	IngestionALBGroupName    string
 	KnowledgeDomain          string
 	LangfuseBaseURL          string   // collector LANGFUSE_BASE_URL
 	LangfuseVPCEIPs          []string // VPCE ENI IPs for netpol :3000 egress
@@ -51,11 +47,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 		return Resolved{
 			AgentIngressDomain:       dep.IngressDomain,
 			AgentPublicIngressDomain: dep.AgentPublicIngressDomain,
-			AgentACMCertARN:          dep.ACMCertificateARN,
-			AgentALBGroupName:        dep.ALBGroupName,
 			IngestionIngressDomain:   dep.IngestionIngressDomain,
-			IngestionACMCertARN:      dep.IngestionACMCertARN,
-			IngestionALBGroupName:    dep.IngestionALBGroupName,
 			KnowledgeDomain:          dep.KnowledgeDomain,
 			LangfuseBaseURL:          langfuseURL,
 			LangfuseVPCEIPs:          dep.LangfuseVPCEIPs,
@@ -78,11 +70,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 
 	return Resolved{
 		AgentIngressDomain:     entry.AgentIngressDomain,
-		AgentACMCertARN:        entry.AgentACMCertARN,
-		AgentALBGroupName:      entry.AgentALBGroupName,
 		IngestionIngressDomain: entry.IngestionIngressDomain,
-		IngestionACMCertARN:    entry.IngestionACMCertARN,
-		IngestionALBGroupName:  entry.IngestionALBGroupName,
 		KnowledgeDomain:        entry.KnowledgeDomain,
 		LangfuseBaseURL:        entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        commalist.Parse(entry.LangfuseVPCEIPs),
@@ -93,11 +81,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 func deployConfigFromEntry(entry k8s.ClusterEntry) clusterfields.DeployConfig {
 	return clusterfields.DeployConfig{
 		AgentIngressDomain:     entry.AgentIngressDomain,
-		AgentACMCertARN:        entry.AgentACMCertARN,
-		AgentALBGroupName:      entry.AgentALBGroupName,
 		IngestionIngressDomain: entry.IngestionIngressDomain,
-		IngestionACMCertARN:    entry.IngestionACMCertARN,
-		IngestionALBGroupName:  entry.IngestionALBGroupName,
 		KnowledgeDomain:        entry.KnowledgeDomain,
 		LangfuseBaseURLExt:     entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        entry.LangfuseVPCEIPs,

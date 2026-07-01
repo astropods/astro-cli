@@ -17,11 +17,7 @@ type namedValue struct {
 func deployFields(d DeployConfig) []namedValue {
 	return []namedValue{
 		{"agent_ingress_domain", d.AgentIngressDomain},
-		{"agent_acm_certificate_arn", d.AgentACMCertARN},
-		{"agent_alb_group_name", d.AgentALBGroupName},
 		{"ingestion_ingress_domain", d.IngestionIngressDomain},
-		{"ingestion_acm_certificate_arn", d.IngestionACMCertARN},
-		{"ingestion_alb_group_name", d.IngestionALBGroupName},
 		{"knowledge_domain", d.KnowledgeDomain},
 		{"langfuse_base_url_ext", d.LangfuseBaseURLExt},
 		{"langfuse_vpce_ips", d.LangfuseVPCEIPs},

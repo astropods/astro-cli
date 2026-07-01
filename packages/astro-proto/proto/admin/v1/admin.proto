@@ -589,11 +589,12 @@ message StopDeploymentResponse {
 // RegisteredCluster describes the primary cluster (synthesized, is_primary=true)
 // or an additional cluster row from public.clusters.
 //
-// The ingress/cert/knowledge fields are required for additional clusters —
-// RegisterCluster and UpdateCluster reject empty values, and deploys
-// targeting a row with any empty field fail at submit time. The primary
-// cluster reads env vars (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) instead;
-// these fields are returned empty for is_primary=true entries.
+// The ingress / knowledge / observability fields are required for additional
+// clusters — RegisterCluster and UpdateCluster reject empty values, and
+// deploys targeting a row with any empty field fail at submit time. The
+// primary cluster reads env vars (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN,
+// KNOWLEDGE_DOMAIN, ...) instead; these fields are returned empty for
+// is_primary=true entries.
 message RegisteredCluster {
   string id = 1;
   string region = 2;
@@ -606,11 +607,10 @@ message RegisteredCluster {
   bool healthy = 9;
   string health_error = 10;
   string agent_ingress_domain = 11;
-  string agent_acm_certificate_arn = 12;
-  string agent_alb_group_name = 13;
+  reserved 12, 13, 15, 16;
+  reserved "agent_acm_certificate_arn", "agent_alb_group_name",
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
   string ingestion_ingress_domain = 14;
-  string ingestion_acm_certificate_arn = 15;
-  string ingestion_alb_group_name = 16;
   string knowledge_domain = 17;
   string langfuse_base_url_ext = 18;
   string langfuse_vpce_ips = 19; // comma-separated ENI IPs
@@ -630,11 +630,10 @@ message RegisterClusterRequest {
   string eks_cluster_endpoint = 4;
   bool enabled = 5;
   string agent_ingress_domain = 6;
-  string agent_acm_certificate_arn = 7;
-  string agent_alb_group_name = 8;
+  reserved 7, 8, 10, 11;
+  reserved "agent_acm_certificate_arn", "agent_alb_group_name",
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
   string ingestion_ingress_domain = 9;
-  string ingestion_acm_certificate_arn = 10;
-  string ingestion_alb_group_name = 11;
   string knowledge_domain = 12;
   string langfuse_base_url_ext = 13;
   string langfuse_vpce_ips = 14;
@@ -724,11 +723,10 @@ message UpdateClusterRequest {
   string eks_cluster_name = 3;
   string eks_cluster_endpoint = 4;
   string agent_ingress_domain = 5;
-  string agent_acm_certificate_arn = 6;
-  string agent_alb_group_name = 7;
+  reserved 6, 7, 9, 10;
+  reserved "agent_acm_certificate_arn", "agent_alb_group_name",
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
   string ingestion_ingress_domain = 8;
-  string ingestion_acm_certificate_arn = 9;
-  string ingestion_alb_group_name = 10;
   string knowledge_domain = 11;
   string langfuse_base_url_ext = 12;
   string langfuse_vpce_ips = 13;

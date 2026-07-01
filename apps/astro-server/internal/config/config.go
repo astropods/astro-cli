@@ -185,8 +185,6 @@ type DeploymentConfig struct {
 	// surfaces (e.g., agents.public.astropods.ai). Hosts here fall through the
 	// front-door ALB's *.agents.<domain> OIDC rule to the no-auth default action.
 	AgentPublicIngressDomain string // AGENT_INGRESS_PUBLIC_DOMAIN
-	ACMCertificateARN        string // ACM certificate ARN for HTTPS
-	ALBGroupName             string // ALB group name for agent ALB
 	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
 	// Knowledge store public host domain (e.g., knowledge.astropods.ai)
@@ -194,9 +192,7 @@ type DeploymentConfig struct {
 	KnowledgeDomain string // KNOWLEDGE_DOMAIN
 	// KnowledgeAllowManagedCreate enables POST /api/v1/accounts/:account/knowledge (platform-provisioned stores).
 	// When false (default), only POST .../knowledge/connect is accepted.
-	KnowledgeAllowManagedCreate bool   // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
-	IngestionACMCertARN         string // ACM certificate ARN for ingestion wildcard cert
-	IngestionALBGroupName       string // ALB group name for ingestion ALB (separate from agents)
+	KnowledgeAllowManagedCreate bool // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
 	// NetworkPolicy isolation: secondary-private subnet CIDRs where pods run (comma-separated).
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// EKS apiserver ENI subnets (primary VPC private subnets). Service proxy traffic
@@ -265,11 +261,7 @@ func Load() (*Config, error) {
 			KubeContext:                 getEnv("KUBE_CONTEXT", ""),
 			IngressDomain:               getEnv("INGRESS_DOMAIN", ""),
 			AgentPublicIngressDomain:    getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
-			ACMCertificateARN:           getEnv("ACM_CERTIFICATE_ARN", ""),
-			ALBGroupName:                getEnv("ALB_GROUP_NAME", "astro-agents"),
 			IngestionIngressDomain:      getEnv("INGESTION_INGRESS_DOMAIN", ""),
-			IngestionACMCertARN:         getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
-			IngestionALBGroupName:       getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			KnowledgeDomain:             getEnv("KNOWLEDGE_DOMAIN", ""),
 			KnowledgeAllowManagedCreate: getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
 			PodSubnetCIDRs:              getEnvSlice("POD_SUBNET_CIDRS", nil),

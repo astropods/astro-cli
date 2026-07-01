@@ -32,16 +32,12 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 // must carry. Empty values are rejected by astro-server (no env fallback for
 // non-primary clusters), so the UI must collect all of them.
 type clusterDeployBody struct {
-	AgentIngressDomain         string `json:"agent_ingress_domain"`
-	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn"`
-	AgentALBGroupName          string `json:"agent_alb_group_name"`
-	IngestionIngressDomain     string `json:"ingestion_ingress_domain"`
-	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn"`
-	IngestionALBGroupName      string `json:"ingestion_alb_group_name"`
-	KnowledgeDomain            string `json:"knowledge_domain"`
-	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext"`
-	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips"`
-	PodSubnetCIDRs             string `json:"pod_subnet_cidrs"`
+	AgentIngressDomain     string `json:"agent_ingress_domain"`
+	IngestionIngressDomain string `json:"ingestion_ingress_domain"`
+	KnowledgeDomain        string `json:"knowledge_domain"`
+	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext"`
+	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips"`
+	PodSubnetCIDRs         string `json:"pod_subnet_cidrs"`
 }
 
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
@@ -60,21 +56,17 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := &adminv1.RegisterClusterRequest{
-		ID:                         body.ID,
-		Region:                     body.Region,
-		EKSClusterName:             body.EKSClusterName,
-		EKSClusterEndpoint:         body.EKSClusterEndpoint,
-		EKSClusterCA:               body.EKSClusterCA,
-		AgentIngressDomain:         body.AgentIngressDomain,
-		AgentACMCertificateARN:     body.AgentACMCertificateARN,
-		AgentALBGroupName:          body.AgentALBGroupName,
-		IngestionIngressDomain:     body.IngestionIngressDomain,
-		IngestionACMCertificateARN: body.IngestionACMCertificateARN,
-		IngestionALBGroupName:      body.IngestionALBGroupName,
-		KnowledgeDomain:            body.KnowledgeDomain,
-		LangfuseBaseURLExt:         body.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:            body.LangfuseVPCEIPs,
-		PodSubnetCIDRs:             body.PodSubnetCIDRs,
+		ID:                     body.ID,
+		Region:                 body.Region,
+		EKSClusterName:         body.EKSClusterName,
+		EKSClusterEndpoint:     body.EKSClusterEndpoint,
+		EKSClusterCA:           body.EKSClusterCA,
+		AgentIngressDomain:     body.AgentIngressDomain,
+		IngestionIngressDomain: body.IngestionIngressDomain,
+		KnowledgeDomain:        body.KnowledgeDomain,
+		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         body.PodSubnetCIDRs,
 	}
 	if body.Enabled != nil {
 		req.Enabled = body.Enabled
@@ -103,21 +95,17 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := s.admin.UpdateCluster(r.Context(), &adminv1.UpdateClusterRequest{
-		ID:                         id,
-		Region:                     body.Region,
-		EKSClusterName:             body.EKSClusterName,
-		EKSClusterEndpoint:         body.EKSClusterEndpoint,
-		EKSClusterCA:               body.EKSClusterCA,
-		AgentIngressDomain:         body.AgentIngressDomain,
-		AgentACMCertificateARN:     body.AgentACMCertificateARN,
-		AgentALBGroupName:          body.AgentALBGroupName,
-		IngestionIngressDomain:     body.IngestionIngressDomain,
-		IngestionACMCertificateARN: body.IngestionACMCertificateARN,
-		IngestionALBGroupName:      body.IngestionALBGroupName,
-		KnowledgeDomain:            body.KnowledgeDomain,
-		LangfuseBaseURLExt:         body.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:            body.LangfuseVPCEIPs,
-		PodSubnetCIDRs:             body.PodSubnetCIDRs,
+		ID:                     id,
+		Region:                 body.Region,
+		EKSClusterName:         body.EKSClusterName,
+		EKSClusterEndpoint:     body.EKSClusterEndpoint,
+		EKSClusterCA:           body.EKSClusterCA,
+		AgentIngressDomain:     body.AgentIngressDomain,
+		IngestionIngressDomain: body.IngestionIngressDomain,
+		KnowledgeDomain:        body.KnowledgeDomain,
+		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         body.PodSubnetCIDRs,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

@@ -876,38 +876,30 @@ type RegisteredCluster struct {
 	UpdatedAt                  string `json:"updated_at,omitempty"`
 	Healthy                    bool   `json:"healthy,omitempty"`
 	HealthError                string `json:"health_error,omitempty"`
-	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
+	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
+	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
+	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	// EKS API server CA in PEM. Captured at registration so per-cluster client
 	// builds don't need cross-account DescribeCluster. Empty for is_primary.
 	EKSClusterCA []byte `json:"eks_cluster_ca,omitempty"`
 }
 
 type RegisterClusterRequest struct {
-	ID                         string `json:"id,omitempty"`
-	Region                     string `json:"region,omitempty"`
-	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
-	Enabled                    *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
-	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
-	EKSClusterCA               []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
+	ID                     string `json:"id,omitempty"`
+	Region                 string `json:"region,omitempty"`
+	EKSClusterName         string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint     string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled                *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
+	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
+	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
+	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
+	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
 }
 
 type RegisterClusterResponse struct {
@@ -957,21 +949,17 @@ type SetAccountClusterResponse struct {
 }
 
 type UpdateClusterRequest struct {
-	ID                         string `json:"id,omitempty"`
-	Region                     string `json:"region,omitempty"`
-	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
-	AgentIngressDomain         string `json:"agent_ingress_domain,omitempty"`
-	AgentACMCertificateARN     string `json:"agent_acm_certificate_arn,omitempty"`
-	AgentALBGroupName          string `json:"agent_alb_group_name,omitempty"`
-	IngestionIngressDomain     string `json:"ingestion_ingress_domain,omitempty"`
-	IngestionACMCertificateARN string `json:"ingestion_acm_certificate_arn,omitempty"`
-	IngestionALBGroupName      string `json:"ingestion_alb_group_name,omitempty"`
-	KnowledgeDomain            string `json:"knowledge_domain,omitempty"`
-	LangfuseBaseURLExt         string `json:"langfuse_base_url_ext,omitempty"`
-	LangfuseVPCEIPs            string `json:"langfuse_vpce_ips,omitempty"`
-	PodSubnetCIDRs             string `json:"pod_subnet_cidrs,omitempty"`
-	EKSClusterCA               []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
+	ID                     string `json:"id,omitempty"`
+	Region                 string `json:"region,omitempty"`
+	EKSClusterName         string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint     string `json:"eks_cluster_endpoint,omitempty"`
+	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
+	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
+	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
+	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
+	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
+	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
+	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
 }
 
 type UpdateClusterResponse struct {

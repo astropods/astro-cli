@@ -22,20 +22,19 @@ CREATE TABLE public.clusters (
     -- empty for new/updated rows.
     eks_cluster_ca     bytea        NOT NULL DEFAULT ''::bytea,
     enabled            boolean      NOT NULL DEFAULT true,
-    -- Per-cluster ingress / ALB / cert config. Required for every registered
+    -- Per-cluster ingress / knowledge config. Required for every registered
     -- cluster — clusterstore.Register / Update reject empty values, and the
     -- deployer errors on empty fields at deploy time. The columns default to
     -- '' so the schema diff applies cleanly to existing rows; operators must
     -- backfill values via UpdateCluster before deploys targeting those rows
     -- will succeed. The primary cluster has no row here; it reads env vars
-    -- (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) directly.
-    agent_ingress_domain      varchar(253) NOT NULL DEFAULT '',
-    agent_acm_certificate_arn varchar      NOT NULL DEFAULT '',
-    agent_alb_group_name      varchar(64)  NOT NULL DEFAULT '',
-    ingestion_ingress_domain  varchar(253) NOT NULL DEFAULT '',
-    ingestion_acm_certificate_arn varchar  NOT NULL DEFAULT '',
-    ingestion_alb_group_name      varchar(64) NOT NULL DEFAULT '',
-    knowledge_domain          varchar(253) NOT NULL DEFAULT '',
+    -- (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN, KNOWLEDGE_DOMAIN, ...)
+    -- directly. TLS termination and DNS for the tenant-router data plane are
+    -- owned by the front-door ALB in astro-infra, so per-cluster ACM cert
+    -- ARNs and per-tenant ALB group names are no longer stored here.
+    agent_ingress_domain     varchar(253) NOT NULL DEFAULT '',
+    ingestion_ingress_domain varchar(253) NOT NULL DEFAULT '',
+    knowledge_domain         varchar(253) NOT NULL DEFAULT '',
     -- Per-cluster Langfuse PrivateLink + netpol inputs (required for additional
     -- clusters; primary reads LANGFUSE_* / POD_SUBNET_CIDRS env vars).
     langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',

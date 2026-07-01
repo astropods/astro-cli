@@ -199,7 +199,7 @@ func TestBuildIngress(t *testing.T) {
 		// Under the tenant-router model the front-door ALB owns TLS, OIDC,
 		// and routing. BuildIngress no longer emits the legacy
 		// alb.ingress.kubernetes.io/* or external-dns.alpha.kubernetes.io/*
-		// annotations even when ACMCertificateARN / ALBGroupName are set.
+		// annotations.
 		for k := range ing.Annotations {
 			if strings.HasPrefix(k, "alb.ingress.kubernetes.io/") ||
 				strings.HasPrefix(k, "external-dns.alpha.kubernetes.io/") {

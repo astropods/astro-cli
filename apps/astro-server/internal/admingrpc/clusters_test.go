@@ -32,9 +32,7 @@ func (s *stubClusterClient) DiagnoseConnection() map[string]string { return nil 
 // clusterColumns is the full clusters table projection used by clusterstore.baseSelect.
 var clusterColumns = []string{
 	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-	"agent_ingress_domain", "agent_acm_certificate_arn", "agent_alb_group_name",
-	"ingestion_ingress_domain", "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
-	"knowledge_domain",
+	"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
 	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 	"created_at", "updated_at",
 }
@@ -49,9 +47,7 @@ func fakeCA() []byte {
 func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.Time) []driver.Value {
 	return []driver.Value{
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
-		"agents.example.com", "arn:acm:x", "astro",
-		"ingestion.example.com", "arn:acm:y", "astro-ingest",
-		"knowledge.example.com",
+		"agents.example.com", "ingestion.example.com", "knowledge.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		now, now,
 	}
@@ -61,42 +57,34 @@ func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.
 // required field is populated. Tests override only the field under test.
 func fullRegisterRequest(id string) *adminv1.RegisterClusterRequest {
 	return &adminv1.RegisterClusterRequest{
-		ID:                         id,
-		Region:                     "eu-west-1",
-		EKSClusterName:             "eks-eu",
-		EKSClusterEndpoint:         "https://eu.example",
-		EKSClusterCA:               fakeCA(),
-		AgentIngressDomain:         "agents.example.com",
-		AgentACMCertificateARN:     "arn:acm:x",
-		AgentALBGroupName:          "astro",
-		IngestionIngressDomain:     "ingestion.example.com",
-		IngestionACMCertificateARN: "arn:acm:y",
-		IngestionALBGroupName:      "astro-ingest",
-		KnowledgeDomain:            "knowledge.example.com",
-		LangfuseBaseURLExt:         "http://langfuse.platform.astroids.ai:3000",
-		LangfuseVPCEIPs:            "10.0.1.10,10.0.2.10",
-		PodSubnetCIDRs:             "10.0.0.0/24,10.1.0.0/24",
+		ID:                     id,
+		Region:                 "eu-west-1",
+		EKSClusterName:         "eks-eu",
+		EKSClusterEndpoint:     "https://eu.example",
+		EKSClusterCA:           fakeCA(),
+		AgentIngressDomain:     "agents.example.com",
+		IngestionIngressDomain: "ingestion.example.com",
+		KnowledgeDomain:        "knowledge.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
+		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
 	}
 }
 
 // fullUpdateRequest mirrors fullRegisterRequest for UpdateCluster.
 func fullUpdateRequest(id string) *adminv1.UpdateClusterRequest {
 	return &adminv1.UpdateClusterRequest{
-		ID:                         id,
-		Region:                     "eu-central-1",
-		EKSClusterName:             "eks-eu-new",
-		EKSClusterEndpoint:         "https://eu-new.example",
-		EKSClusterCA:               fakeCA(),
-		AgentIngressDomain:         "agents.example.com",
-		AgentACMCertificateARN:     "arn:acm:x",
-		AgentALBGroupName:          "astro",
-		IngestionIngressDomain:     "ingestion.example.com",
-		IngestionACMCertificateARN: "arn:acm:y",
-		IngestionALBGroupName:      "astro-ingest",
-		KnowledgeDomain:            "knowledge.example.com",
-		LangfuseBaseURLExt:         "http://langfuse.platform.astroids.ai:3000",
-		LangfuseVPCEIPs:            "10.0.1.10,10.0.2.10",
-		PodSubnetCIDRs:             "10.0.0.0/24,10.1.0.0/24",
+		ID:                     id,
+		Region:                 "eu-central-1",
+		EKSClusterName:         "eks-eu-new",
+		EKSClusterEndpoint:     "https://eu-new.example",
+		EKSClusterCA:           fakeCA(),
+		AgentIngressDomain:     "agents.example.com",
+		IngestionIngressDomain: "ingestion.example.com",
+		KnowledgeDomain:        "knowledge.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
+		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
 	}
 }
 

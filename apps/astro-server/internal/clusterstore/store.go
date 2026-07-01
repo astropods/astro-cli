@@ -45,12 +45,14 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 
 // Cluster is a managed workload Kubernetes cluster known to astro-server.
 //
-// Every ingress/ALB/cert/knowledge field is required: Register and Update
-// reject empty values via clusterfields validation, and clustercfg.Resolve
-// fails the deploy if a stored row carries an empty field. The primary
-// cluster has no row in this table — it reads env vars directly
-// (INGRESS_DOMAIN, ACM_CERTIFICATE_ARN, ...) and is the only place those
-// env defaults apply.
+// Every ingress / knowledge field is required: Register and Update reject
+// empty values via clusterfields validation, and clustercfg.Resolve fails
+// the deploy if a stored row carries an empty field. The primary cluster
+// has no row in this table — it reads env vars directly (INGRESS_DOMAIN,
+// INGESTION_INGRESS_DOMAIN, KNOWLEDGE_DOMAIN, ...) and is the only place
+// those env defaults apply. TLS termination and DNS for the tenant-router
+// data plane are owned by the front-door ALB in astro-infra, so per-
+// cluster ACM cert ARNs and per-tenant ALB group names are not stored here.
 type Cluster struct {
 	ID                     string
 	Region                 string
@@ -59,11 +61,7 @@ type Cluster struct {
 	EKSClusterCA           []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
 	Enabled                bool
 	AgentIngressDomain     string
-	AgentACMCertARN        string
-	AgentALBGroupName      string
 	IngestionIngressDomain string
-	IngestionACMCertARN    string
-	IngestionALBGroupName  string
 	KnowledgeDomain        string
 	LangfuseBaseURLExt     string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
 	LangfuseVPCEIPs        string // comma-separated VPCE ENI /32 targets for netpol egress
@@ -83,11 +81,7 @@ func ValidateID(id string) error {
 func deployConfigFromCluster(c *Cluster) clusterfields.DeployConfig {
 	return clusterfields.DeployConfig{
 		AgentIngressDomain:     c.AgentIngressDomain,
-		AgentACMCertARN:        c.AgentACMCertARN,
-		AgentALBGroupName:      c.AgentALBGroupName,
 		IngestionIngressDomain: c.IngestionIngressDomain,
-		IngestionACMCertARN:    c.IngestionACMCertARN,
-		IngestionALBGroupName:  c.IngestionALBGroupName,
 		KnowledgeDomain:        c.KnowledgeDomain,
 		LangfuseBaseURLExt:     c.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        c.LangfuseVPCEIPs,
@@ -199,15 +193,11 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO clusters (
 			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
-			agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
-			ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
-			knowledge_domain,
+			agent_ingress_domain, ingestion_ingress_domain, knowledge_domain,
 			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
-		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
-		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
-		c.KnowledgeDomain,
+		c.AgentIngressDomain, c.IngestionIngressDomain, c.KnowledgeDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 	)
 	if err != nil {
@@ -276,21 +266,15 @@ func (s *Store) Update(ctx context.Context, c *Cluster) error {
 			eks_cluster_endpoint = $3,
 			eks_cluster_ca = $4,
 			agent_ingress_domain = $5,
-			agent_acm_certificate_arn = $6,
-			agent_alb_group_name = $7,
-			ingestion_ingress_domain = $8,
-			ingestion_acm_certificate_arn = $9,
-			ingestion_alb_group_name = $10,
-			knowledge_domain = $11,
-			langfuse_base_url_ext = $12,
-			langfuse_vpce_ips = $13,
-			pod_subnet_cidrs = $14,
+			ingestion_ingress_domain = $6,
+			knowledge_domain = $7,
+			langfuse_base_url_ext = $8,
+			langfuse_vpce_ips = $9,
+			pod_subnet_cidrs = $10,
 			updated_at = now()
-		WHERE id = $15`,
+		WHERE id = $11`,
 		c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
-		c.AgentIngressDomain, c.AgentACMCertARN, c.AgentALBGroupName,
-		c.IngestionIngressDomain, c.IngestionACMCertARN, c.IngestionALBGroupName,
-		c.KnowledgeDomain,
+		c.AgentIngressDomain, c.IngestionIngressDomain, c.KnowledgeDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 		c.ID,
 	)
@@ -352,9 +336,7 @@ func (s *Store) Deregister(ctx context.Context, id string) error {
 // baseSelect is the column projection shared by Get and List.
 const baseSelect = `
 	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
-	       agent_ingress_domain, agent_acm_certificate_arn, agent_alb_group_name,
-	       ingestion_ingress_domain, ingestion_acm_certificate_arn, ingestion_alb_group_name,
-	       knowledge_domain,
+	       agent_ingress_domain, ingestion_ingress_domain, knowledge_domain,
 	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
 	       created_at, updated_at
 	FROM clusters`
@@ -368,9 +350,7 @@ func scanCluster(r rowScanner) (*Cluster, error) {
 	var c Cluster
 	if err := r.Scan(
 		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
-		&c.AgentIngressDomain, &c.AgentACMCertARN, &c.AgentALBGroupName,
-		&c.IngestionIngressDomain, &c.IngestionACMCertARN, &c.IngestionALBGroupName,
-		&c.KnowledgeDomain,
+		&c.AgentIngressDomain, &c.IngestionIngressDomain, &c.KnowledgeDomain,
 		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {

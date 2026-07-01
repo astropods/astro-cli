@@ -58,11 +58,7 @@ function normalizeEksClusterCA(raw: string): string {
 // Both the register form and the edit dialog collect the same set.
 type ClusterDeployFields = {
   agent_ingress_domain: string;
-  agent_acm_certificate_arn: string;
-  agent_alb_group_name: string;
   ingestion_ingress_domain: string;
-  ingestion_acm_certificate_arn: string;
-  ingestion_alb_group_name: string;
   knowledge_domain: string;
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
@@ -71,11 +67,7 @@ type ClusterDeployFields = {
 
 const emptyClusterDeploy: ClusterDeployFields = {
   agent_ingress_domain: "",
-  agent_acm_certificate_arn: "",
-  agent_alb_group_name: "",
   ingestion_ingress_domain: "",
-  ingestion_acm_certificate_arn: "",
-  ingestion_alb_group_name: "",
   knowledge_domain: "",
   langfuse_base_url_ext: "",
   langfuse_vpce_ips: "",
@@ -86,11 +78,7 @@ const emptyClusterDeploy: ClusterDeployFields = {
 function clusterDeployFromCluster(cluster: Pick<RegisteredCluster, keyof ClusterDeployFields>): ClusterDeployFields {
   return {
     agent_ingress_domain: cluster.agent_ingress_domain ?? "",
-    agent_acm_certificate_arn: cluster.agent_acm_certificate_arn ?? "",
-    agent_alb_group_name: cluster.agent_alb_group_name ?? "",
     ingestion_ingress_domain: cluster.ingestion_ingress_domain ?? "",
-    ingestion_acm_certificate_arn: cluster.ingestion_acm_certificate_arn ?? "",
-    ingestion_alb_group_name: cluster.ingestion_alb_group_name ?? "",
     knowledge_domain: cluster.knowledge_domain ?? "",
     langfuse_base_url_ext: cluster.langfuse_base_url_ext ?? "",
     langfuse_vpce_ips: cluster.langfuse_vpce_ips ?? "",
@@ -102,11 +90,7 @@ function trimClusterDeploy(f: ClusterDeployFields): ClusterDeployFields {
   const normalized = clusterDeployFromCluster(f);
   return {
     agent_ingress_domain: normalized.agent_ingress_domain.trim(),
-    agent_acm_certificate_arn: normalized.agent_acm_certificate_arn.trim(),
-    agent_alb_group_name: normalized.agent_alb_group_name.trim(),
     ingestion_ingress_domain: normalized.ingestion_ingress_domain.trim(),
-    ingestion_acm_certificate_arn: normalized.ingestion_acm_certificate_arn.trim(),
-    ingestion_alb_group_name: normalized.ingestion_alb_group_name.trim(),
     knowledge_domain: normalized.knowledge_domain.trim(),
     langfuse_base_url_ext: normalized.langfuse_base_url_ext.trim(),
     langfuse_vpce_ips: normalized.langfuse_vpce_ips.trim(),
@@ -118,11 +102,7 @@ function clusterDeployComplete(f: ClusterDeployFields): boolean {
   const normalized = clusterDeployFromCluster(f);
   return (
     normalized.agent_ingress_domain.trim() !== "" &&
-    normalized.agent_acm_certificate_arn.trim() !== "" &&
-    normalized.agent_alb_group_name.trim() !== "" &&
     normalized.ingestion_ingress_domain.trim() !== "" &&
-    normalized.ingestion_acm_certificate_arn.trim() !== "" &&
-    normalized.ingestion_alb_group_name.trim() !== "" &&
     normalized.knowledge_domain.trim() !== "" &&
     normalized.langfuse_base_url_ext.trim() !== "" &&
     normalized.langfuse_vpce_ips.trim() !== "" &&
@@ -301,11 +281,12 @@ function ClusterDeployFieldset({
   return (
     <div className="space-y-2 rounded-md border border-glass-border-honey/60 p-2">
       <div className="text-xs font-medium text-muted-foreground">
-        Ingress / ALB / cert / knowledge
+        Ingress / knowledge
       </div>
       <p className="text-[10px] text-muted-foreground">
         Per-cluster overrides. All fields are required — astro-server rejects empty values for
-        additional clusters; only the primary cluster reads env defaults.
+        additional clusters; only the primary cluster reads env defaults. TLS and DNS for the
+        tenant-router data plane are owned by the front-door ALB in astro-infra.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         <Field
@@ -315,34 +296,10 @@ function ClusterDeployFieldset({
           placeholder="agents.example.com"
         />
         <Field
-          label="Agent ACM certificate ARN"
-          value={value.agent_acm_certificate_arn}
-          onChange={(v) => set({ agent_acm_certificate_arn: v })}
-          placeholder="arn:aws:acm:..."
-        />
-        <Field
-          label="Agent ALB group name"
-          value={value.agent_alb_group_name}
-          onChange={(v) => set({ agent_alb_group_name: v })}
-          placeholder="astro-agents"
-        />
-        <Field
           label="Ingestion ingress domain"
           value={value.ingestion_ingress_domain}
           onChange={(v) => set({ ingestion_ingress_domain: v })}
           placeholder="ingestion.example.com"
-        />
-        <Field
-          label="Ingestion ACM ARN"
-          value={value.ingestion_acm_certificate_arn}
-          onChange={(v) => set({ ingestion_acm_certificate_arn: v })}
-          placeholder="arn:aws:acm:..."
-        />
-        <Field
-          label="Ingestion ALB group name"
-          value={value.ingestion_alb_group_name}
-          onChange={(v) => set({ ingestion_alb_group_name: v })}
-          placeholder="astro-ingestion"
         />
         <Field
           label="Knowledge domain"

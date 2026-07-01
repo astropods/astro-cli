@@ -12,11 +12,7 @@ import (
 func envDefaults() config.DeploymentConfig {
 	return config.DeploymentConfig{
 		IngressDomain:          "primary.agents.example.com",
-		ACMCertificateARN:      "arn:primary",
-		ALBGroupName:           "primary",
 		IngestionIngressDomain: "primary.ingestion.example.com",
-		IngestionACMCertARN:    "arn:primary-ingest",
-		IngestionALBGroupName:  "primary-ingest",
 		KnowledgeDomain:        "primary.knowledge.example.com",
 	}
 }
@@ -90,11 +86,7 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 		ID:                     "eu-west-1",
 		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
-		AgentACMCertARN:        "arn:eu",
-		AgentALBGroupName:      "eu-agents",
 		IngestionIngressDomain: "eu.ingestion.example.com",
-		IngestionACMCertARN:    "arn:eu-ingest",
-		IngestionALBGroupName:  "eu-ingest",
 		KnowledgeDomain:        "eu.knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
@@ -121,10 +113,6 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 	if len(got.PodSubnetCIDRs) != 2 || got.PodSubnetCIDRs[0] != "10.0.0.0/24" || got.PodSubnetCIDRs[1] != "10.1.0.0/24" {
 		t.Errorf("pod subnet cidrs: %v", got.PodSubnetCIDRs)
 	}
-	// Env defaults must not leak through for a non-primary cluster.
-	if got.AgentACMCertARN == "arn:primary" {
-		t.Errorf("env default leaked into ACM ARN")
-	}
 }
 
 func TestResolve_AdditionalClusterWhitespaceOnlyVPCEIPsErrors(t *testing.T) {
@@ -133,11 +121,7 @@ func TestResolve_AdditionalClusterWhitespaceOnlyVPCEIPsErrors(t *testing.T) {
 		ID:                     "eu-west-1",
 		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
-		AgentACMCertARN:        "arn:eu",
-		AgentALBGroupName:      "eu-agents",
 		IngestionIngressDomain: "eu.ingestion.example.com",
-		IngestionACMCertARN:    "arn:eu-ingest",
-		IngestionALBGroupName:  "eu-ingest",
 		KnowledgeDomain:        "eu.knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        " , ",
@@ -156,7 +140,6 @@ func TestResolve_AdditionalClusterWithEmptyFieldErrors(t *testing.T) {
 		ID:                 "eu-west-1",
 		Enabled:            true,
 		AgentIngressDomain: "eu.agents.example.com",
-		AgentACMCertARN:    "arn:eu",
 		// other fields intentionally left blank
 	})
 
@@ -164,7 +147,7 @@ func TestResolve_AdditionalClusterWithEmptyFieldErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty ingress field")
 	}
-	if !strings.Contains(err.Error(), "agent_alb_group_name") {
+	if !strings.Contains(err.Error(), "ingestion_ingress_domain") {
 		t.Errorf("error should name the missing field, got: %v", err)
 	}
 }
