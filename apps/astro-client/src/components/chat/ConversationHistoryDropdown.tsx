@@ -1,10 +1,5 @@
 import { useCallback, useState } from "react";
-import {
-  ChevronDownIcon,
-  ClockIcon,
-  PencilSquareIcon,
-  TrashIcon,
-} from "@heroicons/react/24/outline";
+import { Clock, Pencil, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +7,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/lib/chat/types";
 
@@ -31,32 +32,42 @@ export function ConversationHistoryDropdown({
   onDeleteSession?: (conversationId: string) => void;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-8 shrink-0 gap-1.5 px-2.5 text-body-sm font-medium"
-          aria-label="Chat history"
+    <TooltipProvider>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 px-2.5 text-body-sm font-medium"
+                aria-label="Chat history"
+              >
+                <Clock className="size-4 shrink-0 text-foreground" />
+                <span className="font-mono text-mono-sm text-foreground">
+                  {sessions.length}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Chat history</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="end"
+          collisionPadding={16}
+          className="w-[min(100vw-2rem,20rem)] p-0"
         >
-          <ClockIcon className="size-4 shrink-0 text-foreground" />
-          <span className="hidden text-foreground sm:inline">History</span>
-          <span className="font-mono text-mono-sm text-faint-foreground">
-            {sessions.length}
-          </span>
-          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[min(100vw-2rem,20rem)] p-0">
-        <ConversationHistoryList
-          sessions={sessions}
-          activeConversationId={activeConversationId}
-          onSelectSession={onSelectSession}
-          onRenameSession={onRenameSession}
-          onDeleteSession={onDeleteSession}
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <ConversationHistoryList
+            sessions={sessions}
+            activeConversationId={activeConversationId}
+            onSelectSession={onSelectSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </TooltipProvider>
   );
 }
 
@@ -112,8 +123,8 @@ function ConversationHistoryList({
   return (
     <div className="flex max-h-[min(60vh,24rem)] flex-col">
       <div className="flex shrink-0 items-baseline justify-between border-b border-border px-3.5 py-2.5">
-        <span className="font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
-          History
+        <span className="font-mono text-mono-sm tracking-wide text-faint-foreground">
+          Chat history
         </span>
         <span className="font-mono text-mono-sm text-faint-foreground">
           {sessions.length}
@@ -127,8 +138,7 @@ function ConversationHistoryList({
         ) : (
           <ul className="flex flex-col gap-0.5">
             {sessions.map((session) => {
-              const isActive =
-                activeConversationId === session.conversationId;
+              const isActive = activeConversationId === session.conversationId;
               const isEditing = editingId === session.conversationId;
               const isConfirmingDelete =
                 confirmingDeleteId === session.conversationId;
@@ -155,7 +165,7 @@ function ConversationHistoryList({
                       onBlur={() => commitRename(session.conversationId)}
                       maxLength={200}
                       placeholder={DEFAULT_TITLE}
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-body-sm text-foreground outline-none focus:border-ring"
+                      className="w-full rounded-sm border border-border bg-card px-3 py-2 text-body-sm text-foreground outline-none focus:border-ring"
                       aria-label="Conversation title"
                     />
                   </li>
@@ -166,7 +176,7 @@ function ConversationHistoryList({
                 return (
                   <li
                     key={session.conversationId}
-                    className="rounded-lg bg-muted px-3 py-2"
+                    className="rounded-sm bg-accent/50 px-3 py-2"
                   >
                     <p className="text-body-sm text-faint-foreground">
                       Delete this conversation?
@@ -202,15 +212,15 @@ function ConversationHistoryList({
                 <li
                   key={session.conversationId}
                   className={cn(
-                    "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
+                    "group flex items-center gap-1 rounded-sm pr-1 transition-colors",
                     isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-foreground hover:bg-muted",
+                      ? "bg-accent/60 text-accent-foreground"
+                      : "text-foreground hover:bg-accent/40",
                   )}
                 >
                   <DropdownMenuItem
                     onSelect={() => onSelectSession(session.conversationId)}
-                    className="min-w-0 flex-1 cursor-pointer flex-col items-start gap-0 rounded-lg px-2.5 py-2 text-inherit focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent"
+                    className="min-w-0 flex-1 cursor-pointer flex-col items-start gap-0 rounded-sm px-2.5 py-2 text-inherit focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent"
                   >
                     <span className="line-clamp-2 text-body-sm font-medium">
                       {session.title || DEFAULT_TITLE}
@@ -230,40 +240,50 @@ function ConversationHistoryList({
                     />
                   ) : null}
                   {(onRenameSession || onDeleteSession) && (
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity focus-within:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
                       {onRenameSession && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Rename conversation"
-                          className="size-7 shrink-0 text-muted-foreground hover:bg-card"
-                          // Inline action instead of a nested menu: no menu
-                          // teardown means nothing steals focus from the input.
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startRename(session);
-                          }}
-                        >
-                          <PencilSquareIcon className="size-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Rename conversation"
+                              className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+                              // Inline action instead of a nested menu: no menu
+                              // teardown means nothing steals focus from the input.
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRename(session);
+                              }}
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Rename</TooltipContent>
+                        </Tooltip>
                       )}
                       {onDeleteSession && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Delete conversation"
-                          className="size-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmingDeleteId(session.conversationId);
-                          }}
-                        >
-                          <TrashIcon className="size-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Delete conversation"
+                              className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive dark:hover:bg-transparent"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmingDeleteId(session.conversationId);
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Delete</TooltipContent>
+                        </Tooltip>
                       )}
                     </div>
                   )}

@@ -97,10 +97,9 @@ export function ChatThreadHeader({
   };
 
   return (
-    <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
+    <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border/60 px-3 md:px-4">
       <AgentDeploymentMenu
         deployment={deployment}
-        variant="detail"
         triggerClassName={cn(
           "dark:mt-0 dark:ml-0",
           showCoachmark &&
@@ -120,7 +119,7 @@ export function ChatThreadHeader({
 
       <span className="min-w-0 flex-1" aria-hidden />
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-3">
         {onNewConversation ? (
           <TooltipProvider>
             <Tooltip>
@@ -165,8 +164,8 @@ export function ChatThreadHeader({
                   aria-pressed={inspectorOpen}
                   onClick={onToggleInspector}
                 >
-                  <PanelRight className="size-4 text-foreground" />
-                  <span className="hidden text-foreground sm:inline">Details</span>
+                  <PanelRight className="hidden size-4 md:inline" />
+                  <span className="text-foreground">Details</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Agent details</TooltipContent>

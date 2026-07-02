@@ -117,7 +117,7 @@ export function ChatWorkspace({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
+        "chat-pane-bg flex h-full min-h-0 min-w-0 flex-1 overflow-hidden",
         className,
       )}
     >
@@ -157,7 +157,7 @@ export function ChatWorkspace({
         >
           <div
             className={cn(
-              "m-3.5 flex w-[340px] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none",
+              "m-3.5 flex w-[340px] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none",
               inspectorEntered ? "translate-x-0 opacity-100" : "translate-x-3 opacity-0",
             )}
           >

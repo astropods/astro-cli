@@ -19,10 +19,8 @@ import { DeploymentChatText } from "@/components/chat/DeploymentChatText";
 import { useDeploymentChatViewport } from "@/components/chat/deployment-chat-streaming-context";
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
-import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { Button } from "@/components/ui/button";
-import { getDeploymentAvatarUrl } from "@/lib/assets";
-import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentPath } from "@/lib/routes";
 import {
   isDictationActive,
@@ -75,8 +73,6 @@ export function DeploymentChatThreadView({
     useDeploymentChatViewport();
   const useTopTurnAnchor = isStreaming && !historyLoading;
   const isEmpty = useAuiState((s) => s.thread.isEmpty);
-  const avatarBust = useDeploymentAvatarBust(deploymentId);
-  const avatarUrl = avatarBust ?? getDeploymentAvatarUrl(deploymentId);
   // States where the agent is off / broken: dim the thread to signal it.
   const dimThread =
     composerState === "paused" ||
@@ -85,7 +81,7 @@ export function DeploymentChatThreadView({
 
   return (
     <ThreadPrimitive.Root
-      className="aui-root aui-thread-root chat-pane-bg @container flex h-full min-h-0 flex-1 flex-col"
+      className="aui-root aui-thread-root @container flex h-full min-h-0 flex-1 flex-col"
       style={{
         ["--thread-max-width" as string]: "44rem",
         ["--composer-radius" as string]: "20px",
@@ -108,16 +104,14 @@ export function DeploymentChatThreadView({
         >
           <AuiIf condition={(s) => s.thread.isEmpty}>
             <ThreadWelcome
-              account={account}
               deployment={deployment}
-              avatarUrl={avatarUrl}
               agentLabel={agentLabel}
             />
           </AuiIf>
 
           <div
             className={cn(
-              "mb-6 flex flex-col gap-y-6 empty:hidden md:mb-8 md:gap-y-8",
+              "mb-10 flex flex-col gap-y-6 empty:hidden md:mb-12 md:gap-y-8",
               dimThread && "pointer-events-none opacity-60 saturate-50",
             )}
           >
@@ -178,21 +172,17 @@ const ThreadScrollToBottom: FC = () => (
 );
 
 const ThreadWelcome: FC<{
-  account: string;
   deployment?: AgentDeploymentSummary;
-  avatarUrl?: string;
   agentLabel: string;
-}> = ({ account, deployment, avatarUrl, agentLabel }) => (
+}> = ({ deployment, agentLabel }) => (
   <div className="aui-thread-welcome-root fade-in slide-in-from-bottom-2 animate-in flex flex-col duration-500">
     <div className="aui-thread-welcome-center flex w-full flex-col items-center justify-center pb-2">
       <div className="aui-thread-welcome-message flex flex-col items-center gap-7 px-4 text-center">
         {deployment ? (
-          <BlueprintIdentity
-            account={account}
-            name={deployment.name}
+          <DeploymentAvatar
+            deployment={deployment}
             size={64}
-            url={avatarUrl}
-            className="size-16 rounded-md"
+            className="size-16 rounded-sm"
           />
         ) : null}
         <div className="flex flex-col items-center gap-3">

@@ -57,7 +57,6 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
     <div className="absolute top-4 left-0 z-20 pl-5">
       <AgentDeploymentMenu
         deployment={deployment}
-        variant="detail"
         getDeploymentPath={(acct, dep) =>
           `/${acct}/agents/${dep.id}/${activeTab}`
         }

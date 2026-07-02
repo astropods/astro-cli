@@ -13,7 +13,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
-import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export interface AgentDeploymentMenuTarget {
@@ -31,8 +30,6 @@ interface AgentDeploymentMenuProps {
   eligibleDeploymentIds?: ReadonlySet<string>;
   /** Rendered above the agent switch list (e.g. blueprint link, restart). */
   menuPrefix?: ReactNode;
-  /** `detail` matches the agent detail page trigger; `header` is the chat bar. */
-  variant?: "detail" | "header";
   /** Extra classes merged onto the trigger button (e.g. to tune alignment per host). */
   triggerClassName?: string;
   /**
@@ -56,7 +53,6 @@ export function AgentDeploymentMenu({
   getDeploymentPath,
   eligibleDeploymentIds,
   menuPrefix,
-  variant = "header",
   triggerClassName,
   showAccountLabels = false,
   deployMoreHref,
@@ -92,54 +88,32 @@ export function AgentDeploymentMenu({
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
-        {variant === "detail" ? (
-          <button
-            type="button"
-            aria-label="Agent menu"
-            className={cn(
-              "flex cursor-pointer items-center gap-3 rounded-[8px] bg-background p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5",
-              triggerClassName,
-            )}
+        <button
+          type="button"
+          aria-label="Agent menu"
+          className={cn(
+            "flex cursor-pointer items-center gap-3 rounded-[8px] bg-transparent p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5",
+            triggerClassName,
+          )}
+        >
+          <DeploymentAvatar
+            deployment={deployment}
+            size={32}
+            className="rounded-sm"
+          />
+          <span
+            className="max-w-[10rem] overflow-hidden whitespace-nowrap text-base font-medium tracking-wide text-foreground [--fade-start:8rem] [--fade-end:10rem] @max-[500px]:hidden min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]"
+            style={{
+              maskImage:
+                "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
+              WebkitMaskImage:
+                "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
+            }}
           >
-            <DeploymentAvatar
-              deployment={deployment}
-              size={32}
-              className="rounded-sm"
-            />
-            <span
-              className="max-w-[10rem] overflow-hidden whitespace-nowrap text-base font-medium tracking-wide text-foreground [--fade-start:8rem] [--fade-end:10rem] @max-[500px]:hidden min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]"
-              style={{
-                maskImage:
-                  "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
-                WebkitMaskImage:
-                  "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
-              }}
-            >
-              {displayName}
-            </span>
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            aria-label="Select agent"
-            className={cn(
-              "flex h-8 w-full cursor-pointer items-center justify-between px-2.5 text-sm leading-none text-foreground transition-colors !bg-white dark:!bg-transparent hover:!bg-slate-50 dark:hover:!bg-slate-800",
-              inputBase,
-              inputFocusVisible,
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <DeploymentAvatar
-                deployment={deployment}
-                size={18}
-                className="size-[18px] shrink-0 rounded-sm"
-              />
-              <span className="truncate">{displayName}</span>
-            </span>
-            <ChevronDown className="size-4 shrink-0 opacity-50" />
-          </button>
-        )}
+            {displayName}
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="flex w-[260px] flex-col">
         {menuPrefix}

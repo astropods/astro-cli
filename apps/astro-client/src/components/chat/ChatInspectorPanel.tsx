@@ -177,7 +177,7 @@ function AgentIdentity({
           to={deploymentPath(account, deploymentId)}
           className="mt-0.5 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
         >
-          <span className="truncate font-mono text-mono-sm">
+          <span className="truncate text-body-sm">
             {account}/{deploymentName}
           </span>
           <ExternalLink className="size-3 shrink-0" />
@@ -371,7 +371,7 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
             <>
               <p
                 className={cn(
-                  "font-mono text-mono-sm leading-relaxed whitespace-pre-wrap text-muted-foreground",
+                  "text-body-sm leading-relaxed whitespace-pre-wrap text-muted-foreground",
                   !expanded && longPrompt && "line-clamp-5",
                 )}
               >
