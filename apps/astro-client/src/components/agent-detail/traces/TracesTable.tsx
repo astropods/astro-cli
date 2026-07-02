@@ -36,8 +36,8 @@ const TRACE_ROW_SELECTED = "bg-black/3 dark:bg-white/4";
 const TRACE_ROW_HOVER = "hover:bg-black/2 dark:hover:bg-white/3";
 
 function shortTraceId(traceId: string) {
-  if (traceId.length <= 24) return traceId;
-  return `${traceId.slice(0, 12)}...${traceId.slice(-8)}`;
+  if (traceId.length <= 16) return traceId;
+  return `...${traceId.slice(-8)}`;
 }
 
 function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string }) {
@@ -63,17 +63,17 @@ function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string 
       <td className="truncate whitespace-nowrap px-2 py-2.5 font-mono text-body-sm text-muted-foreground">
         {formatCost(trace.total_cost)}
       </td>
-      <td className="min-w-0 px-3 py-2.5" title={trace.trace_id}>
-        <span className="relative block min-w-0 max-w-full">
+      <td className="min-w-0 px-3 py-2.5 text-right" title={trace.trace_id}>
+        <span className="flex min-w-0 max-w-full items-center justify-end gap-2">
           <span
-            className="block min-w-0 overflow-hidden text-clip whitespace-nowrap font-mono text-mono-sm text-muted-foreground transition-[padding] group-hover:pr-7"
+            className="block min-w-0 overflow-hidden text-clip whitespace-nowrap text-right font-mono text-mono-sm text-muted-foreground"
           >
             {shortTraceId(trace.trace_id)}
           </span>
           <CopyButton
             copyText={trace.trace_id}
             title="Copy trace ID"
-            className="pointer-events-none absolute right-0 top-1/2 size-6 -translate-y-1/2 rounded-sm opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+            className="pointer-events-none size-6 shrink-0 rounded-sm opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
             iconClassName="size-3"
           />
         </span>
@@ -123,12 +123,12 @@ export function TracesTable({
 
   return (
     <div
-      className="overflow-clip rounded-lg border border-border/60 bg-card dark:bg-surface"
+      className="overflow-hidden rounded-lg border border-border/60 bg-card dark:bg-surface"
     >
       {/* Filter bar */}
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         <MultiSelect value={selectedStatuses} onValueChange={setSelectedStatuses}>
-          <MultiSelectTrigger className="h-8 w-44 text-body-sm">
+          <MultiSelectTrigger className="h-8 w-44 max-w-full text-body-sm">
             <MultiSelectValue
               options={STATUS_OPTIONS}
               placeholder="All statuses"
@@ -143,7 +143,7 @@ export function TracesTable({
             ))}
           </MultiSelectContent>
         </MultiSelect>
-        <span className="text-mono-sm text-muted-foreground">
+        <span className="shrink-0 text-mono-sm text-muted-foreground">
           {filtered.length} trace{filtered.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -158,24 +158,29 @@ export function TracesTable({
         </div>
       ) : (
         <>
-          <div className="overflow-hidden">
-            <table className="w-full table-fixed border-collapse">
+          <div className="overflow-x-auto overscroll-x-contain [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
+            <table className="w-full min-w-[52rem] table-fixed border-collapse">
               <colgroup>
                 <col className="w-[18%]" />
-                <col className="w-[12%]" />
+                <col className="w-[13%]" />
                 <col className="w-[24%]" />
-                <col className="w-[9%]" />
                 <col className="w-[11%]" />
-                <col className="w-[26%]" />
+                <col className="w-[12%]" />
+                <col className="w-[22%]" />
               </colgroup>
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Date</th>
-                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Status</th>
-                  <th className="py-2 pl-3 pr-4 text-left text-mono-sm font-normal text-muted-foreground">User</th>
-                  <th className="py-2 pl-3 pr-2 text-left text-mono-sm font-normal text-muted-foreground">Latency</th>
-                  <th className="px-2 py-2 text-left text-mono-sm font-normal text-muted-foreground">Cost</th>
-                  <th className="px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Trace ID</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Date</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left text-mono-sm font-normal text-muted-foreground">Status</th>
+                  <th className="whitespace-nowrap py-2 pl-3 pr-4 text-left text-mono-sm font-normal text-muted-foreground">User</th>
+                  <th className="whitespace-nowrap py-2 pl-3 pr-2 text-left text-mono-sm font-normal text-muted-foreground">Latency</th>
+                  <th className="whitespace-nowrap px-2 py-2 text-left text-mono-sm font-normal text-muted-foreground">Cost</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-mono-sm font-normal text-muted-foreground">
+                    <span className="flex items-center justify-end gap-2">
+                      <span className="block w-[11ch] text-left">Trace ID</span>
+                      <span aria-hidden className="size-6 shrink-0" />
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
