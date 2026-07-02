@@ -40,7 +40,7 @@ export function SidebarSection({
                 {badge}
               </button>
             </PopoverTrigger>
-            <PopoverContent>{badgeTooltip}</PopoverContent>
+            <PopoverContent className="max-w-[260px]">{badgeTooltip}</PopoverContent>
           </Popover>
         )}
         {trailing && <span className="ml-auto">{trailing}</span>}

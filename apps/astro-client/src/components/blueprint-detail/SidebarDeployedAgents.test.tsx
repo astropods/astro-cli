@@ -8,6 +8,13 @@ import type { AgentDeploymentSummary, DeploymentsListResponse } from "@/lib/api"
 
 afterEach(cleanup);
 
+// Row navigation links, excluding the per-row upgrade action.
+function rowLinks() {
+  return screen
+    .getAllByRole("link")
+    .filter((l) => !/upgrade/i.test(l.textContent ?? ""));
+}
+
 function deployment(overrides: Partial<AgentDeploymentSummary>): AgentDeploymentSummary {
   return {
     id: "dep-default",
@@ -73,10 +80,49 @@ describe("SidebarDeployedAgents", () => {
       expect(screen.getByText("Deployed agents")).toBeInTheDocument();
     });
 
-    const links = screen.getAllByRole("link");
+    const links = rowLinks();
     expect(links).toHaveLength(2);
     expect(links[0]).toHaveTextContent("Newer deploy");
     expect(links[1]).toHaveTextContent("Older deploy");
+  });
+
+  it("offers an upgrade to the latest build on instances running an older build", async () => {
+    mockDeploymentsResponse([
+      deployment({ id: "dep-1", build_id: "build-001", latest_build_id: "build-latest" }),
+    ]);
+
+    renderWithProviders(
+      <SidebarDeployedAgents
+        account="testuser"
+        blueprintName="inbox-triage"
+        buildIds={["build-001"]}
+      />,
+    );
+
+    const upgrade = await screen.findByRole("link", { name: /upgrade/i });
+    expect(upgrade).toHaveAttribute(
+      "href",
+      "/testuser/agents/dep-1/configure?build=build-latest",
+    );
+  });
+
+  it("does not offer an upgrade on instances already running the latest build", async () => {
+    mockDeploymentsResponse([
+      deployment({ id: "dep-1", build_id: "build-latest", latest_build_id: "build-latest" }),
+    ]);
+
+    renderWithProviders(
+      <SidebarDeployedAgents
+        account="testuser"
+        blueprintName="inbox-triage"
+        buildIds={["build-latest"]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Deployed agents")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("link", { name: /upgrade/i })).not.toBeInTheDocument();
   });
 
   it("collapses deployments beyond the visible limit behind a toggle", async () => {
@@ -131,6 +177,6 @@ describe("SidebarDeployedAgents", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
     });
-    expect(screen.getAllByRole("link")).toHaveLength(6);
+    expect(rowLinks()).toHaveLength(6);
   });
 });

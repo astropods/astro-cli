@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ChevronDown, ChevronUp, Info } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { useDeployments } from "@/api/queries/deployments";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/lib/auth";
-import { formatRelativeTime } from "@/lib/deployment-utils";
-import { deploymentPath } from "@/lib/routes";
+import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
+import { deploymentConfigurePath, deploymentPath } from "@/lib/routes";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { SidebarSection } from "./SidebarSection";
 
@@ -52,7 +53,7 @@ export function SidebarDeployedAgents({
     <SidebarSection
       title="Deployed agents"
       badge={<span className="text-muted-foreground"><Info className="h-3 w-3" /></span>}
-      badgeTooltip="Deployments of this blueprint in accounts you belong to."
+      badgeTooltip="Deployments of this blueprint in accounts you belong to. Instances running an older build can be upgraded to the latest."
       trailing={
         <span className="text-mono-sm font-mono text-faint-foreground">{matches.length}</span>
       }
@@ -110,11 +111,15 @@ function DeployedAgentRow({
   blueprintName: string;
   deployment: AgentDeploymentSummary;
 }) {
+  const shortBuild = shortBuildId(deployment.build_id);
+  const latest = deployment.latest_build_id;
+  const isBehind = !!latest && deployment.build_id !== latest;
+  const isCurrent = !!latest && deployment.build_id === latest;
   return (
-    <li>
+    <li className="flex items-center gap-1 rounded-[3px] pr-1.5">
       <Link
         to={deploymentPath(account, deployment.id)}
-        className="group flex items-center gap-2.5 rounded-[3px] px-2 py-1.5 focus-visible:bg-card focus-visible:outline-none"
+        className="group flex min-w-0 flex-1 items-center gap-2.5 rounded-[3px] px-2 py-1.5 focus-visible:bg-card focus-visible:outline-none"
       >
         <BlueprintIdentity
           account={account}
@@ -122,13 +127,27 @@ function DeployedAgentRow({
           size={16}
           className="h-4 w-4 shrink-0 rounded-[3px]"
         />
-        <span className="min-w-0 flex-1 truncate text-body-sm font-medium text-foreground group-hover:underline">
-          {deployment.display_name || deployment.name}
-        </span>
-        <span className="shrink-0 text-body-sm text-muted-foreground">
-          {formatRelativeTime(deployment.created_at)}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-body-sm font-medium text-foreground group-hover:underline">
+            {deployment.display_name || deployment.name}
+          </span>
+          <span className="truncate text-mono-sm text-faint-foreground">
+            <span className="font-mono">{shortBuild}</span> · {formatRelativeTime(deployment.created_at)}
+          </span>
         </span>
       </Link>
+      {isBehind ? (
+        <Button asChild size="xs" variant="outline" className="shrink-0">
+          <Link
+            to={`${deploymentConfigurePath(account, deployment.id)}?build=${encodeURIComponent(latest!)}`}
+          >
+            <ArrowUp className="size-3" />
+            Upgrade
+          </Link>
+        </Button>
+      ) : isCurrent ? (
+        <span className="shrink-0 pr-1 text-body-sm text-muted-foreground">Latest</span>
+      ) : null}
     </li>
   );
 }

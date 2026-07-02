@@ -2,11 +2,25 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   DeploymentHistoryPanelContent,
   UpgradeNudge,
+  BuildInProgressNudge,
   type DeploymentHistoryPanelContentProps,
 } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
 import { DeploymentTile } from "@/components/agent-detail/deployments/DeploymentTile";
 import { StarField } from "@/components/agent-detail/starfield/StarField";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeployment, GitHubBuild } from "@/lib/api";
+
+function mockBuild(overrides: Partial<GitHubBuild> = {}): GitHubBuild {
+  return {
+    id: "build-1",
+    build_id: "b4c5d6e7f8a9",
+    commit_sha: "b4c5d6e7f8a9012345",
+    branch: "main",
+    status: "building",
+    commit_message: "Add retries with exponential backoff",
+    enqueued_at: new Date(Date.now() - 1000 * 30).toISOString(),
+    ...overrides,
+  };
+}
 
 function mockDeployment(overrides: Partial<AgentDeployment> = {}): AgentDeployment {
   return {
@@ -29,7 +43,7 @@ const meta = {
     (Story) => (
       <div className="relative flex h-[600px] items-stretch justify-end bg-surface p-3">
         <StarField />
-        <div className="relative z-10">
+        <div className="relative z-10 w-[26rem]">
           <Story />
         </div>
       </div>
@@ -113,6 +127,75 @@ export const UpgradeAvailable: Story = {
           latestBuildId="b4c5d6e7f8a9"
           commitMessage="Add retries with exponential backoff"
           commitSha="b4c5d6e7f8a9012345"
+          repoFullName="acme/my-agent"
+        />
+        <DeploymentTile
+          name="Bump model to claude-sonnet-4-6"
+          source="github"
+          branch="main"
+          buildId="f7e8d9c0b1a2"
+          deployedAt={new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()}
+          active
+          deployment={mockDeployment()}
+        />
+      </>
+    ),
+  },
+};
+
+export const BuildInProgress: Story = {
+  args: {
+    children: (
+      <>
+        <BuildInProgressNudge
+          build={mockBuild()}
+          repoFullName="acme/my-agent"
+        />
+        <DeploymentTile
+          name="Bump model to claude-sonnet-4-6"
+          source="github"
+          branch="main"
+          buildId="f7e8d9c0b1a2"
+          deployedAt={new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()}
+          active
+          deployment={mockDeployment()}
+        />
+      </>
+    ),
+  },
+};
+
+export const BuildInProgressLongTitle: Story = {
+  args: {
+    children: (
+      <>
+        <BuildInProgressNudge
+          build={mockBuild({
+            commit_message:
+              "Add retries with exponential backoff and jitter to all outbound provider calls",
+          })}
+          repoFullName="acme/my-agent"
+        />
+        <DeploymentTile
+          name="Bump model to claude-sonnet-4-6"
+          source="github"
+          branch="main"
+          buildId="f7e8d9c0b1a2"
+          deployedAt={new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()}
+          active
+          deployment={mockDeployment()}
+        />
+      </>
+    ),
+  },
+};
+
+export const BuildPreparing: Story = {
+  args: {
+    children: (
+      <>
+        <BuildInProgressNudge
+          build={mockBuild({ status: "pending" })}
           repoFullName="acme/my-agent"
         />
         <DeploymentTile

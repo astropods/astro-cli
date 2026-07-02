@@ -51,3 +51,18 @@ export function repoHref(repoFullName: string, branch?: string): string {
     ? `https://github.com/${base}/tree/${branch}/${sub}`
     : `https://github.com/${base}`;
 }
+
+// commitUrl returns the GitHub URL for a commit, or undefined when repo or sha is missing.
+export function commitUrl(repoFullName?: string, sha?: string): string | undefined {
+  return repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : undefined;
+}
+
+// commitTitle returns the first non-empty line of a commit message, trimmed, or undefined.
+export function commitTitle(message?: string): string | undefined {
+  return message?.split("\n")[0].trim() || undefined;
+}
+
+// shortSha returns the abbreviated 7-char commit SHA, or undefined when absent.
+export function shortSha(sha?: string): string | undefined {
+  return sha?.slice(0, 7);
+}

@@ -127,6 +127,11 @@ export function getLaunchDisabledMessage(
   }
 }
 
+/** Truncate a build id for display (8 chars); returns it unchanged when already short. */
+export function shortBuildId(buildId: string): string {
+  return buildId.length > 8 ? buildId.slice(0, 8) : buildId;
+}
+
 export function formatRelativeTime(dateStr: string): string {
   const diffSecs = Math.round((new Date(dateStr).getTime() - Date.now()) / 1000);
   const diffMins = Math.round(diffSecs / 60);

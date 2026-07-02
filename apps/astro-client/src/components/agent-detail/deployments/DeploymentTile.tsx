@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Loader2, SquareTerminal } from "lucide-react";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
-import { formatRelativeTime } from "@/lib/deployment-utils";
+import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
+import { commitUrl } from "@/lib/github-utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
 
@@ -13,7 +14,7 @@ const SUCCESS_COLORS: StatusColor = {
   badgeBg: "color-mix(in oklch, var(--success) 20%, transparent)",
   badgeText: "var(--success)",
 };
-const WARNING_COLORS: StatusColor = {
+export const WARNING_COLORS: StatusColor = {
   bg: "color-mix(in oklch, var(--warning) 12%, transparent)",
   border: "color-mix(in oklch, var(--warning) 25%, transparent)",
   badgeBg: "color-mix(in oklch, var(--warning) 22%, transparent)",
@@ -91,10 +92,8 @@ export function DeploymentTile({
   const { data: statusData } = useDeploymentStatus(deployment?.id ?? "", !!active && !!deployment);
   const status: DeploymentStatusValue | null = active && deployment ? statusData?.value ?? null : null;
   const colors = status ? (STATUS_COLORS[status] ?? NEUTRAL_COLORS) : NEUTRAL_COLORS;
-  const shortBuild = buildId.length > 8 ? buildId.slice(0, 8) : buildId;
-  const commitUrl = repoFullName && commitSha
-    ? `https://github.com/${repoFullName}/commit/${commitSha}`
-    : undefined;
+  const shortBuild = shortBuildId(buildId);
+  const commitLink = commitUrl(repoFullName, commitSha);
   const errorMessage = status === "error" ? deployment?.error_message : undefined;
 
   return (
@@ -103,7 +102,7 @@ export function DeploymentTile({
       style={{ backgroundColor: colors.bg, borderColor: colors.border }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-body font-medium text-foreground">
+        <span className="min-w-0 truncate text-body font-medium text-foreground">
           {name}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -120,9 +119,9 @@ export function DeploymentTile({
         </div>
       </div>
       <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
-        {commitUrl ? (
+        {commitLink ? (
           <a
-            href={commitUrl}
+            href={commitLink}
             target="_blank"
             rel="noopener noreferrer"
             className="flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
