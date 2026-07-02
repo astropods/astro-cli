@@ -43,11 +43,11 @@ describe("insightsUserIdentityKey", () => {
 });
 
 describe("slackIdentityDisplay", () => {
-  it("prefers username, then display name, then raw Slack user fallback", () => {
+  it("prefers display name, then username, then raw Slack user fallback", () => {
     expect(slackIdentityDisplay({
       user_id: "U09READY01",
       user_details: { kind: "slack", display_name: "Ready User", username: "ready" },
-    }).primary).toBe("ready");
+    }).primary).toBe("Ready User");
 
     expect(slackIdentityDisplay({
       user_id: "U09DISPLAY",
@@ -58,6 +58,60 @@ describe("slackIdentityDisplay", () => {
       user_id: "U09RAWONLY",
       user_details: { kind: "slack" },
     }).primary).toBe("Slack user - U09RAWONLY");
+  });
+
+  it("recovers stale handle-like display names and title-cases username fallback", () => {
+    expect(slackIdentityDisplay({
+      user_id: "U09STALE",
+      user_details: {
+        kind: "slack",
+        display_name: "christopher.patty",
+        username: "christopher.patty",
+      },
+    }).primary).toBe("Christopher Patty");
+
+    expect(slackIdentityDisplay({
+      user_id: "U09USERNAME",
+      user_details: { kind: "slack", username: "jia.kim" },
+    }).primary).toBe("Jia Kim");
+
+    expect(slackIdentityDisplay({
+      user_id: "U09DOUBLESEP",
+      user_details: {
+        kind: "slack",
+        display_name: "ab..cd",
+        username: "ab..cd",
+      },
+    }).primary).toBe("Ab Cd");
+
+    expect(slackIdentityDisplay({
+      user_id: "U09INITIALS",
+      user_details: {
+        kind: "slack",
+        display_name: "a.j",
+        username: "a.j",
+      },
+    }).primary).toBe("a.j");
+  });
+
+  it("keeps legitimate punctuated display names intact", () => {
+    expect(slackIdentityDisplay({
+      user_id: "U09WILLIAM",
+      user_details: {
+        kind: "slack",
+        display_name: "will.i.am",
+        username: "will.i.am",
+      },
+    }).primary).toBe("will.i.am");
+
+    expect(slackIdentityDisplay({
+      user_id: "U09POET",
+      user_details: {
+        kind: "slack",
+        display_name: "e.e.cummings",
+        username: "e.e.cummings",
+      },
+    }).primary).toBe("e.e.cummings");
   });
 
   it("builds a slack:// deep link only when team_id is present", () => {

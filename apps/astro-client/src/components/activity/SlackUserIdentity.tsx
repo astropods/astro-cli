@@ -44,16 +44,12 @@ export function SlackIdentityAvatar({
 // a team_id render as plain text because the Slack URL would be incomplete.
 export function SlackUserIdentity({
   user,
-  orgName,
   variant = "insights",
 }: {
   user: UserIdentity;
-  orgName?: string;
   variant?: "insights" | "trace";
 }) {
   const display = slackIdentityDisplay(user);
-  const orgLabel = orgName || "this org";
-  const tooltipCopy = `This user isn't a member of ${orgLabel}.`;
   const isTrace = variant === "trace";
   const label = (
     <span className={cn("inline-flex min-w-0 max-w-full items-center", isTrace ? "gap-1.5" : "gap-2")}>
@@ -92,7 +88,7 @@ export function SlackUserIdentity({
           )}
         </TooltipTrigger>
         <TooltipContent side="right" className="max-w-[260px] [text-wrap:initial]">
-          {tooltipCopy}
+          Slack User
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

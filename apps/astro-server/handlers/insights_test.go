@@ -403,3 +403,68 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 		}
 	})
 }
+
+func TestInsightUserIdentity_SlackOnlyTooltipAndFullName(t *testing.T) {
+	slack := insightUserIdentity(UserIdentity{
+		UserID: "U123",
+		UserDetails: UserDetails{
+			Kind:     UserDetailsKindSlack,
+			TeamID:   "T123",
+			Username: "christopher.patty",
+		},
+	}, nil)
+	if slack.Label != "Christopher Patty" {
+		t.Fatalf("slack label = %q, want %q", slack.Label, "Christopher Patty")
+	}
+	if slack.Tooltip != "Slack User" {
+		t.Fatalf("slack tooltip = %q, want %q", slack.Tooltip, "Slack User")
+	}
+
+	withDisplayName := insightUserIdentity(UserIdentity{
+		UserID: "U456",
+		UserDetails: UserDetails{
+			Kind:        UserDetailsKindSlack,
+			DisplayName: "Christopher Patty",
+			Username:    "christopher.patty",
+		},
+	}, nil)
+	if withDisplayName.Label != "Christopher Patty" {
+		t.Fatalf("slack display name label = %q, want %q", withDisplayName.Label, "Christopher Patty")
+	}
+
+	withStaleHandleDisplayName := insightUserIdentity(UserIdentity{
+		UserID: "U457",
+		UserDetails: UserDetails{
+			Kind:        UserDetailsKindSlack,
+			DisplayName: "christopher.patty",
+			Username:    "christopher.patty",
+		},
+	}, nil)
+	if withStaleHandleDisplayName.Label != "Christopher Patty" {
+		t.Fatalf("slack stale handle display name label = %q, want %q", withStaleHandleDisplayName.Label, "Christopher Patty")
+	}
+
+	withInitialsDisplayName := insightUserIdentity(UserIdentity{
+		UserID: "U789",
+		UserDetails: UserDetails{
+			Kind:        UserDetailsKindSlack,
+			DisplayName: "will.i.am",
+			Username:    "will.i.am",
+		},
+	}, nil)
+	if withInitialsDisplayName.Label != "will.i.am" {
+		t.Fatalf("slack display name with punctuation label = %q, want %q", withInitialsDisplayName.Label, "will.i.am")
+	}
+
+	withLowercaseLiteraryName := insightUserIdentity(UserIdentity{
+		UserID: "U790",
+		UserDetails: UserDetails{
+			Kind:        UserDetailsKindSlack,
+			DisplayName: "e.e.cummings",
+			Username:    "e.e.cummings",
+		},
+	}, nil)
+	if withLowercaseLiteraryName.Label != "e.e.cummings" {
+		t.Fatalf("slack lowercase punctuated display name label = %q, want %q", withLowercaseLiteraryName.Label, "e.e.cummings")
+	}
+}

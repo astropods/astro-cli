@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/test-utils";
 import type { InsightsAgentRow, InsightsPersonRow } from "@/lib/api";
@@ -79,7 +80,9 @@ describe("TopSpendersTable agents mode", () => {
     expect(screen.getByText("No deployment activity in this period")).toBeInTheDocument();
   });
 
-  it("renders server-shaped agent rows and used-by identities", () => {
+  it("renders server-shaped agent rows and used-by identities", async () => {
+    const user = userEvent.setup();
+
     renderWithProviders(
       <TopSpendersTable
         mode="agents"
@@ -99,9 +102,9 @@ describe("TopSpendersTable agents mode", () => {
               {
                 kind: "slack",
                 id: "U07ABCDEF",
-                label: "Slack user - U07ABCDEF",
+                label: "Christopher Patty",
                 href: "slack://user?team=T07XYZ&id=U07ABCDEF",
-                tooltip: "This user isn't a member of this org.",
+                tooltip: "Slack User",
               },
             ],
           }),
@@ -116,6 +119,10 @@ describe("TopSpendersTable agents mode", () => {
       "/acme/agents/dep-alpha/monitor",
     );
     expect(within(row).getAllByRole("img")).toHaveLength(2);
+
+    await user.hover(screen.getByLabelText("Christopher Patty"));
+    expect((await screen.findAllByText("Christopher Patty")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Slack User")).not.toBeInTheDocument();
   });
 
   it("renders rank inside the agent identity cell", () => {
@@ -390,7 +397,8 @@ describe("TopSpendersTable users mode", () => {
     expect(screen.getByText("No activity from people in this period")).toBeInTheDocument();
   });
 
-  it("renders member, Slack, and system identities from the server row model", () => {
+  it("renders member, Slack, and system identities from the server row model", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <TopSpendersTable
         mode="users"
@@ -412,13 +420,13 @@ describe("TopSpendersTable users mode", () => {
           }),
           personRow({
             key: "slack:T07XYZ:U07ABCDEF",
-            label: "Slack user - U07ABCDEF",
+            label: "Christopher Patty",
             identity: {
               kind: "slack",
               id: "U07ABCDEF",
-              label: "Slack user - U07ABCDEF",
+              label: "Christopher Patty",
               href: "slack://user?team=T07XYZ&id=U07ABCDEF",
-              tooltip: "This user isn't a member of this org.",
+              tooltip: "Slack User",
             },
             metrics: { requests: 2, cost_usd: 2, cost_pct: 20, tokens: 200, last_seen: "2026-06-01T00:00:00Z" },
           }),
@@ -439,10 +447,13 @@ describe("TopSpendersTable users mode", () => {
 
     expect(screen.getByText("Alice Chen")).toBeInTheDocument();
     expect(screen.getByText("Alpha Agent")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Slack user - U07ABCDEF/ })).toHaveAttribute(
+    const slackLink = screen.getByRole("link", { name: /Christopher Patty/ });
+    expect(slackLink).toHaveAttribute(
       "href",
       "slack://user?team=T07XYZ&id=U07ABCDEF",
     );
+    await user.hover(slackLink);
+    expect((await screen.findAllByText("Slack User")).length).toBeGreaterThan(0);
     expect(screen.getByText("System spend")).toBeInTheDocument();
   });
 

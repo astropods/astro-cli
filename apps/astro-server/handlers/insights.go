@@ -1044,10 +1044,7 @@ func insightUserIdentity(ref UserIdentity, members map[string]insightsMemberProf
 	}
 	if details.Kind == UserDetailsKindSlack {
 		teamID := details.TeamID
-		label := details.Username
-		if label == "" {
-			label = details.DisplayName
-		}
+		label := slackDisplayNameFromProfile(details.DisplayName, details.Username)
 		if label == "" {
 			label = "Slack user - " + uid
 		}
@@ -1057,7 +1054,7 @@ func insightUserIdentity(ref UserIdentity, members map[string]insightsMemberProf
 			UserID:      uid,
 			UserDetails: detailsRef,
 			Label:       label,
-			Tooltip:     "This user isn't a member of this org.",
+			Tooltip:     "Slack User",
 		}
 		if teamID != "" {
 			identity.IdentityKey = "slack:" + teamID + ":" + uid

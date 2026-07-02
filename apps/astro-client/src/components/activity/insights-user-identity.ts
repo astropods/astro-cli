@@ -36,17 +36,53 @@ export function insightsUserIdentityKey(
 }
 
 // slackIdentityDisplay picks the human-facing label + slack:// deep link
-// for a Slack-kind row. Username preferred over display name; falls back
-// to the raw id. Deep link is omitted when the directory didn't surface a
-// team_id (the slack:// URL is invalid without one).
+// for a Slack-kind row. Keep the display-name fallback logic aligned with
+// apps/astro-server/handlers/slack_display.go for trace rows that do not
+// receive the server-shaped Insights label.
+// Deep link is omitted when the directory didn't surface a team_id.
 export function slackIdentityDisplay(
   user: Pick<UserIdentity, "user_id" | "user_details">,
 ): SlackIdentityDisplay {
   const uid = user.user_id;
   const details = user.user_details;
-  const primary = details?.username || details?.display_name || `Slack user - ${uid}`;
+  const primary = slackDisplayNameFromProfile(details?.display_name, details?.username) || `Slack user - ${uid}`;
   const deepLink = details?.team_id ? `slack://user?team=${details.team_id}&id=${uid}` : undefined;
   return { primary, deepLink };
+}
+
+function slackDisplayNameFromProfile(displayName?: string, username?: string): string {
+  const trimmedDisplayName = displayName?.trim() ?? "";
+  const trimmedUsername = username?.trim() ?? "";
+  if (!trimmedDisplayName) {
+    return slackDisplayNameFromUsername(trimmedUsername);
+  }
+  if (isStaleSlackHandleDisplayName(trimmedDisplayName, trimmedUsername)) {
+    return slackDisplayNameFromUsername(trimmedUsername);
+  }
+  return trimmedDisplayName;
+}
+
+function isStaleSlackHandleDisplayName(displayName: string, username: string): boolean {
+  if (!displayName || !username || displayName !== username || displayName !== displayName.toLowerCase()) {
+    return false;
+  }
+  const parts = displayName.split(/[._-]/).filter(Boolean);
+  if (parts.length < 2) {
+    return false;
+  }
+  return parts.every((part) => Array.from(part).length > 1);
+}
+
+function slackDisplayNameFromUsername(username: string): string {
+  if (!username) return "";
+  const parts = username.split(/[._-]/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return username;
+  return parts.map(titleSlackNamePart).join(" ");
+}
+
+function titleSlackNamePart(part: string): string {
+  const lower = part.toLowerCase();
+  return lower ? lower[0].toUpperCase() + lower.slice(1) : "";
 }
 
 // identityRefFromUserID builds a placeholder UserIdentity from a raw

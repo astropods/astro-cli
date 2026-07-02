@@ -13,6 +13,7 @@ func TestObservedUsersForSlackDirectory(t *testing.T) {
 			ID:          "U07ABC",
 			Name:        "jesse",
 			DisplayName: "Jesse Morgan",
+			RealName:    "Jessica Legal",
 			AvatarURL:   "https://avatars.slack-edge.com/jesse.png",
 		},
 		{
@@ -33,13 +34,13 @@ func TestObservedUsersForSlackDirectory(t *testing.T) {
 	if got[0].TeamID != "T07XYZ" || got[0].SlackUserID != "U07ABC" {
 		t.Fatalf("first observed identity mismatch: %+v", got[0])
 	}
-	if got[0].Profile.DisplayName != "Jesse Morgan" || got[0].Profile.Username != "jesse" {
+	if got[0].Profile.DisplayName != "Jessica Legal" || got[0].Profile.Username != "jesse" {
 		t.Errorf("first profile mismatch: %+v", got[0].Profile)
 	}
 	if got[0].Profile.AvatarURL != "https://avatars.slack-edge.com/jesse.png" {
 		t.Errorf("first avatar mismatch: %+v", got[0].Profile)
 	}
-	if got[1].Profile.Username != "Deploy Bot" || !got[1].Profile.IsBot || !got[1].Profile.Deleted {
+	if got[1].Profile.DisplayName != "Deploy Bot" || got[1].Profile.Username != "Deploy Bot" || !got[1].Profile.IsBot || !got[1].Profile.Deleted {
 		t.Errorf("second profile mismatch: %+v", got[1].Profile)
 	}
 }

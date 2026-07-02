@@ -355,7 +355,7 @@ func observedUsersForSlackDirectory(teamID string, users []slackclient.UserInfo)
 			TeamID:      teamID,
 			SlackUserID: user.ID,
 			Profile: slackidentity.SlackProfile{
-				DisplayName: user.DisplayName,
+				DisplayName: slackObservedDisplayName(user),
 				Username:    username,
 				AvatarURL:   user.AvatarURL,
 				IsBot:       user.IsBot,

@@ -167,6 +167,13 @@ function maybeWithTooltip(
   );
 }
 
+function identityNameTooltip(identity: InsightsIdentityRef): Pick<InsightsIdentityRef, "label" | "tooltip"> {
+  return {
+    label: identity.label,
+    tooltip: identity.label,
+  };
+}
+
 function IdentityAvatar({
   identity,
   className,
@@ -319,10 +326,10 @@ function IdentityAvatarStack({
       {visible.map((identity, index) => (
         <span key={identityKey(identity, index)}>
           {maybeWithTooltip(
-            <span className="inline-flex">
+            <span className="inline-flex" aria-label={identity.label}>
               <IdentityAvatar identity={identity} className="size-6" size={24} />
             </span>,
-            identity,
+            identityNameTooltip(identity),
           )}
         </span>
       ))}
