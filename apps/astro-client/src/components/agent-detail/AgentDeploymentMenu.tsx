@@ -46,7 +46,9 @@ interface AgentDeploymentMenuProps {
    * chat-eligible agent), the menu shows the current agent as the selected row
    * plus a footer linking here to deploy more agents from blueprints.
    */
-  growFleetHref?: string;
+  deployMoreHref?: string;
+  /** Notified when the switch menu opens or closes. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function AgentDeploymentMenu({
@@ -57,7 +59,8 @@ export function AgentDeploymentMenu({
   variant = "header",
   triggerClassName,
   showAccountLabels = false,
-  growFleetHref,
+  deployMoreHref,
+  onOpenChange,
 }: AgentDeploymentMenuProps) {
   const displayName = deployment.display_name || deployment.name;
 
@@ -78,8 +81,8 @@ export function AgentDeploymentMenu({
   const hasSwitchList = accounts.length > 0;
 
   // With a single chat-eligible agent there is nothing to switch to, so prompt
-  // the user to grow their fleet instead of opening to an empty panel.
-  const showGrowFleet = !!growFleetHref && !hasSwitchList;
+  // the user to deploy more agents instead of opening to an empty panel.
+  const showDeployMore = !!deployMoreHref && !hasSwitchList;
   const currentAccount = (summaryData?.accounts ?? []).find((acct) =>
     acct.deployments.some((dep) => dep.id === deployment.id),
   );
@@ -87,7 +90,7 @@ export function AgentDeploymentMenu({
     currentAccount?.display_name || currentAccount?.name;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         {variant === "detail" ? (
           <button
@@ -140,10 +143,10 @@ export function AgentDeploymentMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="flex w-[260px] flex-col">
         {menuPrefix}
-        {menuPrefix && (hasSwitchList || showGrowFleet) && (
+        {menuPrefix && (hasSwitchList || showDeployMore) && (
           <DropdownMenuSeparator />
         )}
-        {showGrowFleet ? (
+        {showDeployMore ? (
           <>
             <DropdownMenuGroup>
               {currentAccountLabel && (
@@ -168,7 +171,7 @@ export function AgentDeploymentMenu({
               size="sm"
               className="mt-1 w-full justify-center gap-1.5 font-medium"
             >
-              <Link to={growFleetHref!}>
+              <Link to={deployMoreHref!}>
                 <Plus className="text-muted-foreground" />
                 Deploy more agents
               </Link>

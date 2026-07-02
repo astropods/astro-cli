@@ -1,10 +1,11 @@
 import { PanelRight, SquarePen } from "lucide-react";
+import { useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/lib/chat/types";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { useDeployments } from "@/api/queries/deployments";
+import { useDeployments, useDeploymentsSummary } from "@/api/queries/deployments";
 import { accountBlueprintsPath, chatDeploymentPath, explorePath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
+import { ChatAgentSwitchCoachmark } from "./ChatAgentSwitchCoachmark";
+
+// Set once the user opens the agent switcher or dismisses the coachmark, so
+// the first-run nudge never shows again. Plain localStorage (not the shared
+// experiments store) since this is a simple one-shot dismissal flag.
+const COACHMARK_SEEN_KEY = "astro:chat-agent-switch-coachmark-seen";
+
+function coachmarkSeen(): boolean {
+  try {
+    return localStorage.getItem(COACHMARK_SEEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Where the "Deploy more agents" footer should point for a single-agent user:
@@ -21,7 +36,7 @@ import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
  * otherwise the Explore catalog to find new ones. Only fetches while `enabled`
  * (the footer can actually show).
  */
-function useGrowFleetHref(account: string, enabled: boolean): string {
+function useDeployMoreHref(account: string, enabled: boolean): string {
   const { data: blueprints } = useAccountBlueprints(account, { enabled });
   const { data: deployments } = useDeployments(account, enabled);
   if (!blueprints || !deployments) return accountBlueprintsPath;
@@ -58,21 +73,50 @@ export function ChatThreadHeader({
   inspectorOpen?: boolean;
   onToggleInspector?: () => void;
 }) {
-  // Single chat-eligible agent → the switch list is empty, so the menu shows
-  // the grow-fleet footer instead. Only then do we need its link target.
-  const growFleetHref = useGrowFleetHref(account, eligibleDeploymentIds.size <= 1);
+  // Mirror AgentDeploymentMenu's switch list off the same summary query, not
+  // eligibleDeploymentIds — otherwise the two disagree while summary loads and
+  // the coachmark points at a switcher that only shows the deploy-more footer.
+  const { data: summaryData } = useDeploymentsSummary();
+  const hasSwitchList = (summaryData?.accounts ?? []).some((acct) =>
+    acct.deployments.some(
+      (dep) => dep.id !== deployment.id && eligibleDeploymentIds.has(dep.id),
+    ),
+  );
+  const deployMoreHref = useDeployMoreHref(account, !hasSwitchList);
+  const [seen, setSeen] = useState(coachmarkSeen);
+  // Only point the coachmark at the switcher when there's actually another
+  // agent to switch to; otherwise the menu shows the deploy-more footer.
+  const showCoachmark = !seen && hasSwitchList;
+  const dismissCoachmark = () => {
+    try {
+      localStorage.setItem(COACHMARK_SEEN_KEY, "true");
+    } catch {
+      // localStorage may be unavailable (SSR, private mode); ignore.
+    }
+    setSeen(true);
+  };
 
   return (
     <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-3 md:px-4">
       <AgentDeploymentMenu
         deployment={deployment}
         variant="detail"
-        triggerClassName="dark:mt-0 dark:ml-0"
+        triggerClassName={cn(
+          "dark:mt-0 dark:ml-0",
+          showCoachmark &&
+            "bg-primary/10 ring-1 ring-inset ring-primary/50 dark:bg-primary-400/10 dark:ring-primary-400/50",
+        )}
         eligibleDeploymentIds={eligibleDeploymentIds}
         getDeploymentPath={(_acct, dep) => chatDeploymentPath(dep.id)}
         showAccountLabels
-        growFleetHref={growFleetHref}
+        deployMoreHref={deployMoreHref}
+        onOpenChange={(open) => {
+          if (open) dismissCoachmark();
+        }}
       />
+      {showCoachmark ? (
+        <ChatAgentSwitchCoachmark onClose={dismissCoachmark} />
+      ) : null}
 
       <span className="min-w-0 flex-1" aria-hidden />
 
