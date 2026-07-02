@@ -246,6 +246,292 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.template?.target.deployment_id).toBe('dep-123');
   });
 
+  it('hydrates existing configure values for custom interface auth and provisioning', async () => {
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Custom Agent', deployment_id: 'dep-custom' },
+      agent: {
+        ...mockTemplate.agent,
+        endpoints: { http: { port: 8080, expose: { enabled: true } } },
+      },
+      interfaces: {
+        ...mockTemplate.interfaces,
+        adapters: [],
+        auth: { custom: { public: true, grants: [{ anyone: true }] } },
+      },
+      variables: {},
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-custom',
+          initialTemplateResponse: wrapTemplateResponse(existingTemplate, {
+            interfaces: {
+              adapters: [],
+              auth: { custom: { public: true, grants: [{ anyone: true }] } },
+            },
+            provisioning: {
+              agent: {
+                compute: { cpu: '500m', memory: '1Gi' },
+                volume: { mount: '/workspace', storage: { size: '20Gi' } },
+              },
+            },
+          }),
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.customSupported).toBe(true);
+    expect(result.current.customPublic).toBe(true);
+    expect(result.current.customGrants).toEqual([{ anyone: true }]);
+    expect(result.current.selectedAdapters).toEqual([]);
+    expect(result.current.agentCpu).toBe('500m');
+    expect(result.current.agentMemory).toBe('1Gi');
+    expect(result.current.agentVolumeMount).toBe('/workspace');
+    expect(result.current.agentStorageSize).toBe('20Gi');
+    expect(result.current.volumeAlreadyProvisioned).toBe(true);
+    expect(result.current.trySubmit()).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.initialValues).toMatchObject({
+        customPublic: true,
+        selectedAdapters: [],
+        agentCpu: '500m',
+        agentMemory: '1Gi',
+        agentVolumeMount: '/workspace',
+        agentStorageSize: '20Gi',
+      });
+    });
+  });
+
+  it('requires a messaging adapter for existing messaging-only deployments', async () => {
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Messaging Agent', deployment_id: 'dep-messaging' },
+      variables: {},
+      interfaces: {
+        ...mockTemplate.interfaces,
+        adapters: [],
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-messaging',
+          initialTemplateResponse: wrapTemplateResponse(existingTemplate, {
+            interfaces: { adapters: [] },
+          }),
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.messagingSupported).toBe(true);
+    expect(result.current.customSupported).toBe(false);
+    expect(result.current.selectedAdapters).toEqual([]);
+
+    let valid = true;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(false);
+    await waitFor(() => {
+      expect(result.current.errors.adapters).toBe('Select at least one messaging type');
+    });
+  });
+
+  it('allows empty messaging adapters when a protected custom interface has no grants', async () => {
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Custom Agent', deployment_id: 'dep-custom' },
+      agent: {
+        ...mockTemplate.agent,
+        endpoints: { http: { port: 8080, expose: { enabled: true } } },
+      },
+      variables: {},
+      interfaces: {
+        ...mockTemplate.interfaces,
+        adapters: [],
+        auth: { custom: { public: false, grants: [] } },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-custom',
+          initialTemplateResponse: wrapTemplateResponse(existingTemplate, {
+            interfaces: {
+              adapters: [],
+              auth: { custom: { public: false, grants: [] } },
+            },
+          }),
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.customSupported).toBe(true);
+    expect(result.current.customPublic).toBe(false);
+    expect(result.current.customGrants).toEqual([]);
+    expect(result.current.selectedAdapters).toEqual([]);
+
+    let valid = false;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(true);
+    await waitFor(() => {
+      expect(result.current.errors.adapters).toBeUndefined();
+    });
+  });
+
+  it('counts advanced provisioning edits as deployment changes', async () => {
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Custom Agent', deployment_id: 'dep-custom' },
+      variables: {},
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-custom',
+          initialTemplateResponse: wrapTemplateResponse(existingTemplate, {
+            provisioning: {
+              agent: {
+                compute: { cpu: '500m', memory: '1Gi' },
+                volume: { mount: '/workspace', storage: { size: '20Gi' } },
+              },
+            },
+          }),
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.initialValues?.agentMemory).toBe('1Gi');
+      expect(result.current.deployChanged).toBe(false);
+    });
+
+    act(() => {
+      result.current.setAgentMemory('2Gi');
+    });
+
+    await waitFor(() => {
+      expect(result.current.deployChanged).toBe(true);
+      expect(result.current.changeCount).toBe(1);
+    });
+  });
+
+  it('keeps an existing local knowledge store selection clean until the mode changes', async () => {
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Knowledge Agent', deployment_id: 'dep-knowledge' },
+      variables: {},
+      knowledge: {
+        postgres: { provider: 'postgres' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-knowledge',
+          initialTemplateResponse: wrapTemplateResponse(existingTemplate),
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.initialValues?.knowledgeBindingModes).toEqual({ postgres: 'local' });
+    });
+    expect(result.current.knowledgeBindings).toEqual({});
+    expect(result.current.knowledgeBindingModes).toEqual({ postgres: 'local' });
+    expect(result.current.deployChanged).toBe(false);
+    expect(result.current.changeCount).toBe(0);
+
+    act(() => {
+      result.current.setKnowledgeBindingMode('postgres', 'shared');
+    });
+
+    await waitFor(() => {
+      expect(result.current.knowledgeBindingModes.postgres).toBe('shared');
+      expect(result.current.deployChanged).toBe(true);
+      expect(result.current.changeCount).toBe(1);
+    });
+
+    act(() => {
+      result.current.setKnowledgeBindingMode('postgres', 'local');
+    });
+
+    await waitFor(() => {
+      expect(result.current.knowledgeBindingModes.postgres).toBe('local');
+      expect(result.current.deployChanged).toBe(false);
+      expect(result.current.changeCount).toBe(0);
+    });
+  });
+
+  it('keeps an existing shared knowledge store selection clean and counts clearing it once', async () => {
+    const bindingArn = 'arn:knowledge:acct:pg-store';
+    const existingTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'Knowledge Agent', deployment_id: 'dep-knowledge' },
+      variables: {},
+      knowledge: {
+        postgres: { provider: 'postgres', binding: bindingArn },
+      },
+    };
+    const response = wrapTemplateResponse(existingTemplate);
+    response.bindings = {
+      knowledge: {
+        postgres: { arn: bindingArn, name: 'pg-store', provider: 'postgres', status: 'ready' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-knowledge',
+          initialTemplateResponse: response,
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.initialValues?.knowledgeBindings).toEqual({ postgres: bindingArn });
+    });
+    expect(result.current.knowledgeBindings).toEqual({ postgres: bindingArn });
+    expect(result.current.knowledgeBindingModes).toEqual({ postgres: 'shared' });
+    expect(result.current.deployChanged).toBe(false);
+    expect(result.current.changeCount).toBe(0);
+
+    act(() => {
+      result.current.setKnowledgeBindingMode('postgres', 'local');
+    });
+
+    await waitFor(() => {
+      expect(result.current.knowledgeBindings).toEqual({});
+      expect(result.current.knowledgeBindingModes.postgres).toBe('local');
+      expect(result.current.deployChanged).toBe(true);
+      expect(result.current.changeCount).toBe(1);
+    });
+  });
+
   it('treats overlapping slack token keys as filled when value is set in either form map', async () => {
     const prefilledTemplate: DeploymentTemplate = {
       ...mockTemplate,
@@ -326,6 +612,80 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
 
     expect(result.current.variableValues.DEBUG).toBe('false');
     expect(result.current.variableValues.VERBOSE).toBe('true');
+  });
+
+  it('requires a messaging adapter for fresh messaging-only deploys', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {},
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.messagingSupported).toBe(true);
+    expect(result.current.customSupported).toBe(false);
+
+    act(() => {
+      result.current.setSelectedAdapters([]);
+    });
+
+    let valid = true;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(false);
+    await waitFor(() => {
+      expect(result.current.errors.adapters).toBe('Select at least one messaging type');
+    });
+  });
+
+  it('allows empty messaging adapters when a custom interface is protected without grants', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      agent: {
+        ...mockTemplate.agent,
+        endpoints: { http: { port: 8080, expose: { enabled: true } } },
+      },
+      variables: {},
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'my-agent', {
+          initialTemplateResponse: wrapTemplateResponse(tpl),
+        }),
+      { wrapper },
+    );
+
+    expect(result.current.messagingSupported).toBe(true);
+    expect(result.current.customSupported).toBe(true);
+    expect(result.current.customPublic).toBe(false);
+    expect(result.current.customGrants).toEqual([]);
+
+    act(() => {
+      result.current.setSelectedAdapters([]);
+    });
+
+    let valid = false;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(true);
+    await waitFor(() => {
+      expect(result.current.errors.adapters).toBeUndefined();
+    });
   });
 
   it('populates ingestion schedule defaults on first render', () => {
@@ -724,6 +1084,12 @@ describe('computeInitialValues', () => {
     expect(result.selectedAdapters).toEqual(['web']);
   });
 
+  it('preserves empty response adapters for existing deployments', () => {
+    const tpl = makeTemplate({ interfaces: { image: 'messaging:latest', adapters: [] } });
+    const result = computeInitialValues(tpl, 'acme', { adapters: [] }, undefined, { preserveEmptyAdapters: true });
+    expect(result.selectedAdapters).toEqual([]);
+  });
+
   it('reads webGrants from response interfaces auth', () => {
     const tpl = makeTemplate({});
     const result = computeInitialValues(tpl, 'acme', { adapters: ['web'], auth: { web: { grants: [{ user_id: 'u1' }] } } });
@@ -972,5 +1338,59 @@ describe('useDeployForm knowledge binding wire format', () => {
         docs: 'arn:knowledge:acct:docs-store',
       },
     });
+  });
+
+  it('requires a selected store when a knowledge entry is set to shared', async () => {
+    const tpl: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, deployment_id: 'dep-123' },
+      variables: {},
+      knowledge: {
+        postgres: { provider: 'postgres' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(tpl),
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      result.current.setKnowledgeBindingMode('postgres', 'shared');
+    });
+
+    let valid = true;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(false);
+    await waitFor(() => {
+      expect(result.current.errors.knowledgeBindings).toEqual(['postgres']);
+    });
+
+    await act(async () => {
+      result.current.setKnowledgeBindings({
+        postgres: 'arn:knowledge:testuser:shared-postgres',
+      });
+    });
+    act(() => {
+      result.current.setVariableValues({
+        OPENAI_API_KEY: 'sk-shared-knowledge-test',
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.errors.knowledgeBindings).toBeUndefined();
+    });
+
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(true);
   });
 });

@@ -13,6 +13,12 @@ import { useAccountVariables } from "@/api/queries";
 import { serializeObjectVariable, deserializeObjectVariable } from "./slackConfig";
 import { computeFormDefaults } from "./computeFormDefaults";
 import { DEFAULT_AGENT_VOLUME_MOUNT } from "./constants";
+import {
+  knowledgeBindingChangeCount,
+  provisioningChangeCount,
+  type KnowledgeBindingMode,
+  type KnowledgeBindingModes,
+} from "./changeTracking";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
@@ -41,10 +47,16 @@ export interface DeployFormInitialValues {
   slackGrants?: AuthGrant[];
   customPublic?: boolean;
   customGrants?: AuthGrant[];
+  knowledgeBindings?: Record<string, string>;
+  knowledgeBindingModes?: KnowledgeBindingModes;
   agentCpu?: string;
   agentMemory?: string;
   agentVolumeMount?: string;
   agentStorageSize?: string;
+}
+
+interface ComputeInitialValuesOptions {
+  preserveEmptyAdapters?: boolean;
 }
 
 export interface UseDeployFormOptions {
@@ -99,10 +111,73 @@ function agentHasCustomInterface(template: DeploymentTemplate | null): boolean {
   return Object.values(endpoints).some((ep) => ep?.expose?.enabled);
 }
 
+function knowledgeEntriesFromTemplate(
+  template: DeploymentTemplate | null | undefined,
+): Record<string, { provider?: string; binding?: string }> {
+  return (template?.knowledge ?? {}) as Record<string, { provider?: string; binding?: string }>;
+}
+
+function bindingsFromKnowledgeEntries(
+  entries: Record<string, { binding?: string }> | undefined,
+): Record<string, string> {
+  const bindings: Record<string, string> = {};
+  if (!entries) return bindings;
+  for (const [name, entry] of Object.entries(entries)) {
+    if (entry.binding) bindings[name] = entry.binding;
+  }
+  return bindings;
+}
+
+function bindingsFromTemplateResponse(
+  resp: TemplateResponse,
+  template: DeploymentTemplate,
+): Record<string, string> {
+  const bindings = bindingsFromKnowledgeEntries(knowledgeEntriesFromTemplate(template));
+  for (const [name, info] of Object.entries(resp.bindings?.knowledge ?? {})) {
+    if (info.arn) bindings[name] = info.arn;
+  }
+  return bindings;
+}
+
+function knowledgeModesFromBindings(
+  entries: Record<string, { binding?: string }> | undefined,
+  bindings: Record<string, string>,
+  explicitModes?: KnowledgeBindingModes,
+): KnowledgeBindingModes {
+  const modes: KnowledgeBindingModes = {};
+  const names = new Set([
+    ...Object.keys(entries ?? {}),
+    ...Object.keys(bindings),
+    ...Object.keys(explicitModes ?? {}),
+  ]);
+  for (const name of names) {
+    modes[name] = bindings[name] ? "shared" : explicitModes?.[name] ?? "local";
+  }
+  return modes;
+}
+
+function sharedKnowledgeEntriesMissingBinding(
+  entries: Record<string, { provider?: string; binding?: string }> | undefined,
+  bindings: Record<string, string>,
+  modes: KnowledgeBindingModes,
+): string[] {
+  if (!entries) return [];
+  return Object.keys(entries)
+    .filter((name) => (modes[name] ?? (bindings[name] ? "shared" : "local")) === "shared")
+    .filter((name) => !bindings[name]?.trim())
+    .sort();
+}
+
 /** Compute form-ready initial values from a pre-filled deployment template.
  *  @param respInterfaces — top-level `interfaces` from TemplateResponse (adapters + auth)
  *  @param respSchedules — top-level `schedules` from TemplateResponse (ingestion name → cron) */
-export function computeInitialValues(template: DeploymentTemplate, account: string, respInterfaces?: TemplateInterfaces, respSchedules?: Record<string, string>): DeployFormInitialValues {
+export function computeInitialValues(
+  template: DeploymentTemplate,
+  account: string,
+  respInterfaces?: TemplateInterfaces,
+  respSchedules?: Record<string, string>,
+  options: ComputeInitialValuesOptions = {},
+): DeployFormInitialValues {
   const variableValues: Record<string, string> = {};
   const adapterCredentials: Record<string, string> = {};
 
@@ -133,13 +208,15 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
   // to the "web" adapter.
   const hasMessaging = agentHasMessaging(template);
   const adapters = respInterfaces?.adapters;
-  const selectedAdapters: string[] = Array.isArray(adapters) && adapters.length > 0
+  const selectedAdapters: string[] = Array.isArray(adapters) && (adapters.length > 0 || options.preserveEmptyAdapters)
     ? adapters
     : hasMessaging ? ["web"] : [];
   const webGrants = respInterfaces?.auth?.web?.grants ?? [];
   const slackGrants = respInterfaces?.auth?.slack?.grants ?? [];
   const customPublic = respInterfaces?.auth?.custom?.public ?? false;
   const customGrants = respInterfaces?.auth?.custom?.grants ?? [];
+  const knowledgeEntries = knowledgeEntriesFromTemplate(template);
+  const knowledgeBindings = bindingsFromKnowledgeEntries(knowledgeEntries);
 
   const ingestionSchedules: Record<string, string> = respSchedules ?? {};
   if (!respSchedules && template.ingestion) {
@@ -161,6 +238,8 @@ export function computeInitialValues(template: DeploymentTemplate, account: stri
     slackGrants,
     customPublic,
     customGrants,
+    knowledgeBindings,
+    knowledgeBindingModes: knowledgeModesFromBindings(knowledgeEntries, knowledgeBindings),
   };
 }
 
@@ -192,6 +271,28 @@ function toDeploymentTemplate(resp: TemplateResponse): DeploymentTemplate {
     spec: 'deployment-template/v1',
     variables: resp.variables,
   } as DeploymentTemplate;
+}
+
+function initialValuesFromTemplateResponse(
+  resp: TemplateResponse,
+  account: string,
+  options: ComputeInitialValuesOptions = {},
+): DeployFormInitialValues {
+  const template = toDeploymentTemplate(resp);
+  const extracted = computeInitialValues(template, account, resp.interfaces, resp.schedules, options);
+  const respAgent = resp.provisioning?.agent;
+  const knowledgeEntries = knowledgeEntriesFromTemplate(template);
+  const knowledgeBindings = bindingsFromTemplateResponse(resp, template);
+
+  return {
+    ...extracted,
+    knowledgeBindings,
+    knowledgeBindingModes: knowledgeModesFromBindings(knowledgeEntries, knowledgeBindings),
+    agentCpu: respAgent?.compute?.cpu ?? "",
+    agentMemory: respAgent?.compute?.memory ?? "",
+    agentVolumeMount: respAgent?.volume?.mount ?? "",
+    agentStorageSize: respAgent?.volume?.storage?.size ?? "",
+  };
 }
 
 const hasTextValue = (value: string | undefined): boolean => !!value?.trim();
@@ -313,6 +414,7 @@ export interface FormErrors {
   credentials?: string[];
   adapterCredentials?: string[];
   ingestionSchedules?: string[];
+  knowledgeBindings?: string[];
 }
 
 // --- Hook ---
@@ -408,6 +510,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // own endpoint — the two can both show, neither, or one.
   const messagingSupported = agentHasMessaging(template);
   const customSupported = agentHasCustomInterface(template);
+  const requiresMessagingAdapter = messagingSupported && !customSupported;
 
   const deployMutation = useDeployAgent(targetAccount, name);
 
@@ -416,7 +519,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Otherwise, derive defaults from the template (fresh deploy page).
   // The POST-based seeding effect will override these once the template loads.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
-  const computedDefaults = useMemo(() => iv ?? computeFormDefaults(null, name), []);
+  const computedDefaults = useMemo(() => {
+    if (iv) return iv;
+    if (opts?.initialTemplateResponse) {
+      return initialValuesFromTemplateResponse(
+        opts.initialTemplateResponse,
+        account,
+        { preserveEmptyAdapters: !!opts?.deploymentId },
+      );
+    }
+    return computeFormDefaults(null, name);
+  }, []);
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
@@ -427,18 +540,23 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [customPublic, setCustomPublic] = useState<boolean>(computedDefaults.customPublic ?? false);
   const [customGrants, setCustomGrants] = useState<AuthGrant[]>(computedDefaults.customGrants ?? []);
   const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(computedDefaults.ingestionSchedules ?? {});
-  const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>({});
+  const [knowledgeBindings, setKnowledgeBindingsRaw] = useState<Record<string, string>>(computedDefaults.knowledgeBindings ?? {});
+  const [knowledgeBindingModes, setKnowledgeBindingModesRaw] = useState<KnowledgeBindingModes>(
+    () => computedDefaults.knowledgeBindingModes ?? knowledgeModesFromBindings({}, computedDefaults.knowledgeBindings ?? {}),
+  );
   // Advanced provisioning overrides — all optional; empty strings let the
   // server fall back to astropods.yml declarations and tier defaults.
-  const [agentCpu, setAgentCpu] = useState<string>("");
-  const [agentMemory, setAgentMemory] = useState<string>("");
-  const [agentVolumeMount, setAgentVolumeMount] = useState<string>("");
-  const [agentStorageSize, setAgentStorageSize] = useState<string>("");
+  const [agentCpu, setAgentCpu] = useState<string>(computedDefaults.agentCpu ?? "");
+  const [agentMemory, setAgentMemory] = useState<string>(computedDefaults.agentMemory ?? "");
+  const [agentVolumeMount, setAgentVolumeMount] = useState<string>(computedDefaults.agentVolumeMount ?? "");
+  const [agentStorageSize, setAgentStorageSize] = useState<string>(computedDefaults.agentStorageSize ?? "");
   // True once we observe that the deployment loaded from the server already
   // has a persistent volume attached. K8s won't resize a live PVC in place
   // (the StatefulSet's volumeClaimTemplates is immutable on update), so once
   // this flips true we lock the storage slider in the UI.
-  const [volumeAlreadyProvisioned, setVolumeAlreadyProvisioned] = useState(false);
+  const [volumeAlreadyProvisioned, setVolumeAlreadyProvisioned] = useState(
+    () => !!opts?.deploymentId && !!opts?.initialTemplateResponse?.provisioning?.agent?.volume?.mount,
+  );
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
@@ -462,6 +580,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setSlackGrants(v.slackGrants ?? []);
     setCustomPublic(v.customPublic ?? false);
     setCustomGrants(v.customGrants ?? []);
+    const nextKnowledgeBindings = v.knowledgeBindings ?? {};
+    setKnowledgeBindingsRaw(nextKnowledgeBindings);
+    setKnowledgeBindingModesRaw(
+      knowledgeModesFromBindings(
+        knowledgeEntriesFromTemplate(template),
+        nextKnowledgeBindings,
+        v.knowledgeBindingModes,
+      ),
+    );
     setAgentCpu(v.agentCpu ?? "");
     setAgentMemory(v.agentMemory ?? "");
     setAgentVolumeMount(v.agentVolumeMount ?? "");
@@ -478,30 +605,22 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (!template || seededRef.current) return;
     seededRef.current = true;
 
-    const extracted = computeInitialValues(template, account, templateResponse?.interfaces, templateResponse?.schedules);
+    const extracted = templateResponse
+      ? initialValuesFromTemplateResponse(
+          templateResponse,
+          account,
+          { preserveEmptyAdapters: !!opts?.deploymentId },
+        )
+      : computeInitialValues(template, account, undefined, undefined, { preserveEmptyAdapters: !!opts?.deploymentId });
 
-    // Seed knowledge bindings from prefilled template response.
-    if (templateResponse?.bindings?.knowledge) {
-      const prefilled: Record<string, string> = {};
-      for (const [entryName, info] of Object.entries(templateResponse.bindings.knowledge)) {
-        if (info.arn) prefilled[entryName] = info.arn;
-      }
-      if (Object.keys(prefilled).length > 0) {
-        setKnowledgeBindingsRaw(prefilled);
-      }
-    }
     // Seed advanced provisioning from the resolved response so the user sees
     // the effective values (whether they came from the request, the astropods
     // declaration, or tier defaults).
     const respAgent = templateResponse?.provisioning?.agent;
-    const seededAgentCpu = respAgent?.compute?.cpu ?? "";
-    const seededAgentMemory = respAgent?.compute?.memory ?? "";
-    const seededAgentVolumeMount = respAgent?.volume?.mount ?? "";
-    const seededAgentStorageSize = respAgent?.volume?.storage?.size ?? "";
-    if (seededAgentCpu) setAgentCpu(seededAgentCpu);
-    if (seededAgentMemory) setAgentMemory(seededAgentMemory);
-    if (seededAgentVolumeMount) setAgentVolumeMount(seededAgentVolumeMount);
-    if (seededAgentStorageSize) setAgentStorageSize(seededAgentStorageSize);
+    const seededAgentCpu = extracted.agentCpu ?? "";
+    const seededAgentMemory = extracted.agentMemory ?? "";
+    const seededAgentVolumeMount = extracted.agentVolumeMount ?? "";
+    const seededAgentStorageSize = extracted.agentStorageSize ?? "";
     // For an existing deployment, treat a volume returned by the template as
     // already provisioned in the cluster — its size is locked from here on.
     if (opts?.deploymentId && respAgent?.volume?.mount) {
@@ -536,6 +655,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       slackGrants: iv?.slackGrants ?? seededSlackGrants,
       customPublic: iv?.customPublic ?? extracted.customPublic ?? false,
       customGrants: iv?.customGrants ?? extracted.customGrants ?? [],
+      knowledgeBindings: iv?.knowledgeBindings ?? extracted.knowledgeBindings ?? {},
+      knowledgeBindingModes: knowledgeModesFromBindings(
+        knowledgeEntriesFromTemplate(template),
+        iv?.knowledgeBindings ?? extracted.knowledgeBindings ?? {},
+        iv?.knowledgeBindingModes ?? extracted.knowledgeBindingModes,
+      ),
       agentCpu: iv?.agentCpu ?? seededAgentCpu,
       agentMemory: iv?.agentMemory ?? seededAgentMemory,
       agentVolumeMount: iv?.agentVolumeMount ?? seededAgentVolumeMount,
@@ -634,11 +759,27 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const setKnowledgeBindings = useCallback((bindings: Record<string, string>) => {
     const cleaned = nonEmptyBindings(bindings);
     setKnowledgeBindingsRaw(cleaned);
+    setKnowledgeBindingModesRaw((prev) =>
+      knowledgeModesFromBindings(knowledgeEntriesFromTemplate(template), cleaned, prev),
+    );
     reshapeTemplate({
       interfaces: buildInterfaces(),
       bindings: { knowledge: cleaned },
     });
-  }, [reshapeTemplate, buildInterfaces]);
+  }, [reshapeTemplate, buildInterfaces, template]);
+
+  const setKnowledgeBindingMode = useCallback((entryName: string, mode: KnowledgeBindingMode) => {
+    setKnowledgeBindingModesRaw((prev) => ({ ...prev, [entryName]: mode }));
+    if (mode === "shared") return;
+
+    const nextBindings = { ...knowledgeBindings };
+    delete nextBindings[entryName];
+    setKnowledgeBindingsRaw(nextBindings);
+    reshapeTemplate({
+      interfaces: buildInterfaces(),
+      bindings: { knowledge: nextBindings },
+    });
+  }, [buildInterfaces, knowledgeBindings, reshapeTemplate]);
 
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
@@ -749,6 +890,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       : [],
     [accountVarsLoaded, variableEntries, allFormValues, accountVarNames],
   );
+  const missingSharedKnowledgeBindings = useMemo(
+    () => sharedKnowledgeEntriesMissingBinding(
+      knowledgeEntriesFromTemplate(template),
+      knowledgeBindings,
+      knowledgeBindingModes,
+    ),
+    [template, knowledgeBindings, knowledgeBindingModes],
+  );
 
   // Compute validation errors (only surfaced after first submit attempt)
   const errors = useMemo<FormErrors>(() => {
@@ -766,7 +915,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.deployName = "Name must be 64 characters or fewer";
     }
 
-    if (messagingSupported && selectedAdapters.length === 0) {
+    if (requiresMessagingAdapter && selectedAdapters.length === 0) {
       result.adapters = "Select at least one messaging type";
     }
 
@@ -796,11 +945,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.ingestionSchedules = emptySchedules;
     }
 
+    if (missingSharedKnowledgeBindings.length > 0) {
+      result.knowledgeBindings = missingSharedKnowledgeBindings;
+    }
+
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, messagingSupported, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiresMessagingAdapter, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys, missingSharedKnowledgeBindings]);
 
   const isValid = submitted
-    ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules
+    ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules && !errors.knowledgeBindings
     : true;
 
   // Try to submit: marks form as submitted and returns validity
@@ -810,7 +963,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAccount = !!targetAccount;
     const hasName = !!deployName.trim();
-    const hasAdapter = !messagingSupported || selectedAdapters.length > 0;
+    const hasAdapter = !requiresMessagingAdapter || selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, allFormValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = adapterDisplayFields[adapterId] ?? [];
@@ -818,8 +971,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     });
     const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
     const vaultRefsValid = invalidVaultRefKeys.length === 0;
+    const knowledgeBindingsValid = missingSharedKnowledgeBindings.length === 0;
 
-    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid;
+    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid && knowledgeBindingsValid;
   };
 
   // Submission: POST template with all inputs, then deploy with the fulfilled spec.
@@ -953,11 +1107,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       if ((ingestionSchedules[k] ?? "") !== (ivSchedules[k] ?? "")) deployCount++;
     }
 
-    // Knowledge bindings — count each key that differs
-    const allBindKeys = new Set(Object.keys(knowledgeBindings));
-    for (const k of allBindKeys) {
-      if (knowledgeBindings[k]) deployCount++;
-    }
+    // Knowledge bindings — count one change per entry whose mode or selected
+    // shared store differs from the deployed form state.
+    const ivBindings = initialValues.knowledgeBindings ?? {};
+    const ivModes = initialValues.knowledgeBindingModes ?? knowledgeModesFromBindings(
+      knowledgeEntriesFromTemplate(template),
+      ivBindings,
+    );
+    deployCount += knowledgeBindingChangeCount(
+      { bindings: ivBindings, modes: ivModes },
+      { bindings: knowledgeBindings, modes: knowledgeBindingModes },
+    );
 
     // Auth grants — count adds/removes per adapter
     deployCount += diffGrants(webGrants, initialValues.webGrants ?? []);
@@ -965,11 +1125,26 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     deployCount += diffGrants(customGrants, initialValues.customGrants ?? []);
     if (customPublic !== (initialValues.customPublic ?? false)) deployCount++;
 
+    deployCount += provisioningChangeCount(
+      {
+        agentCpu: initialValues.agentCpu ?? "",
+        agentMemory: initialValues.agentMemory ?? "",
+        agentVolumeMount: initialValues.agentVolumeMount ?? "",
+        agentStorageSize: initialValues.agentStorageSize ?? "",
+      },
+      {
+        agentCpu,
+        agentMemory,
+        agentVolumeMount,
+        agentStorageSize,
+      },
+    );
+
     const deployChanged = deployCount > 0;
     const changeCount = (nameChanged ? 1 : 0) + deployCount;
 
     return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
-  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, customGrants, customPublic, ingestionSchedules, knowledgeBindings]);
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, customGrants, customPublic, agentCpu, agentMemory, agentVolumeMount, agentStorageSize, ingestionSchedules, knowledgeBindings, knowledgeBindingModes, template]);
 
   const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
 
@@ -1026,7 +1201,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setIngestionSchedules,
 
     knowledgeBindings,
+    knowledgeBindingModes,
     setKnowledgeBindings,
+    setKnowledgeBindingMode,
     resolvedBindings: templateResponse?.bindings?.knowledge ?? {},
     knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
 

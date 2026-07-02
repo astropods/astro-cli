@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router";
 import { Database, Package } from "lucide-react";
 import {
@@ -11,28 +10,37 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { ErrorPanel } from "@/components/ui/status-panel";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeStore, KnowledgeBindingInfo, KnowledgeProvider } from "@/lib/api";
 import { newKnowledgePath } from "@/lib/routes";
+import type { KnowledgeBindingMode, KnowledgeBindingModes } from "./changeTracking";
 
 export interface KnowledgeBindingPickerProps {
   entries: Record<string, { provider?: string; binding?: string }>;
   bindings: Record<string, string>;
+  modes: KnowledgeBindingModes;
   resolvedBindings: Record<string, KnowledgeBindingInfo>;
+  errorKeys?: string[];
   onChange: (bindings: Record<string, string>) => void;
+  onModeChange: (entryName: string, mode: KnowledgeBindingMode) => void;
   stores: KnowledgeStore[];
 }
 
 export function KnowledgeBindingPicker({
   entries,
   bindings,
+  modes,
   resolvedBindings,
+  errorKeys,
   onChange,
+  onModeChange,
   stores,
 }: KnowledgeBindingPickerProps) {
   const entryNames = Object.keys(entries).sort();
   if (entryNames.length === 0) return null;
+  const errorKeySet = new Set(errorKeys ?? []);
 
   return (
     <div className="rounded-[6px] border border-border divide-y divide-border">
@@ -42,7 +50,9 @@ export function KnowledgeBindingPicker({
           name={name}
           entry={entries[name]}
           binding={bindings[name]}
+          mode={modes[name]}
           resolvedBinding={resolvedBindings[name]}
+          error={errorKeySet.has(name)}
           stores={stores}
           onBind={(arn) => {
             const next = { ...bindings };
@@ -53,6 +63,7 @@ export function KnowledgeBindingPicker({
             }
             onChange(next);
           }}
+          onModeChange={(mode) => onModeChange(name, mode)}
         />
       ))}
     </div>
@@ -63,25 +74,30 @@ function KnowledgeBindingEntry({
   name,
   entry,
   binding,
+  mode: selectedMode,
   resolvedBinding,
+  error,
   stores,
   onBind,
+  onModeChange,
 }: {
   name: string;
   entry: { provider?: string; binding?: string };
   binding: string | undefined;
+  mode: KnowledgeBindingMode | undefined;
   resolvedBinding: KnowledgeBindingInfo | undefined;
+  error: boolean;
   stores: KnowledgeStore[];
   onBind: (arn: string | null) => void;
+  onModeChange: (mode: KnowledgeBindingMode) => void;
 }) {
   const provider = (entry.provider ?? resolvedBinding?.provider) as KnowledgeProvider | undefined;
   const providerLabel = provider ? PROVIDER_LABELS[provider] ?? provider : undefined;
   const compatibleStores = stores.filter(
     (s) => s.provider === provider && s.status === "ready"
   );
-  const rawArn = binding || entry.binding || "";
-  const [explicitlyShared, setExplicitlyShared] = useState(false);
-  const mode: "local" | "shared" = rawArn || explicitlyShared ? "shared" : "local";
+  const rawArn = binding || (selectedMode ? "" : entry.binding) || "";
+  const mode: KnowledgeBindingMode = selectedMode ?? (rawArn ? "shared" : "local");
 
   return (
     <div className="px-5 py-4">
@@ -105,13 +121,7 @@ function KnowledgeBindingEntry({
           value={mode}
           onValueChange={(value) => {
             if (!value) return;
-            const next = value as "local" | "shared";
-            if (next === "local") {
-              setExplicitlyShared(false);
-              onBind(null);
-            } else {
-              setExplicitlyShared(true);
-            }
+            onModeChange(value as KnowledgeBindingMode);
           }}
           className="shrink-0 [&_button]:cursor-pointer"
         >
@@ -176,6 +186,13 @@ function KnowledgeBindingEntry({
                 )}
               </SelectContent>
             </Select>
+          )}
+          {error && (
+            <div className="mt-3">
+              <ErrorPanel variant="inline">
+                Select a shared knowledge store or switch to Local.
+              </ErrorPanel>
+            </div>
           )}
         </div>
       )}

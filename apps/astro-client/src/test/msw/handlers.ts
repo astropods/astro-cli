@@ -19,6 +19,7 @@ import type {
   AccountOrgsResponse,
   AccountSearchResponse,
   AccountSearchResult,
+  TemplateRequest,
 } from '@/lib/api';
 
 function paginateBlueprintList(
@@ -175,9 +176,16 @@ export const mockTemplate: DeploymentTemplate = {
   },
 };
 
+type TemplateResponseInput = {
+  interfaces?: Partial<NonNullable<TemplateRequest['interfaces']>>;
+  variables?: TemplateRequest['variables'];
+  schedules?: TemplateRequest['schedules'];
+  provisioning?: TemplateRequest['provisioning'];
+};
+
 export function wrapTemplateResponse(
   tmpl: DeploymentTemplate,
-  reqBody?: { interfaces?: { adapters?: string[] }; variables?: Record<string, { value?: string; ref?: string }>; schedules?: Record<string, string> },
+  reqBody?: TemplateResponseInput,
 ): TemplateResponse {
   const { variables, spec: _spec, ...rest } = tmpl;
   const reqAdapters = reqBody?.interfaces?.adapters;
@@ -198,9 +206,10 @@ export function wrapTemplateResponse(
   }
   const interfaces = rest.interfaces as Record<string, unknown> | undefined;
   const shapedAdapters = (reqAdapters ?? (interfaces?.adapters as string[] | undefined) ?? []);
-  const shapedAuth = interfaces?.auth as { web?: { type?: string } } | undefined;
-  const shapedRest = reqAdapters && interfaces
-    ? { ...rest, interfaces: { ...interfaces, adapters: reqAdapters } }
+  const templateAuth = interfaces?.auth as TemplateResponse['interfaces']['auth'] | undefined;
+  const shapedAuth = reqBody?.interfaces?.auth ?? templateAuth;
+  const shapedRest = reqBody?.interfaces && interfaces
+    ? { ...rest, interfaces: { ...interfaces, adapters: shapedAdapters, auth: shapedAuth } }
     : rest;
 
   const schemaVars: Record<string, DeploymentVariable> = {};
@@ -230,6 +239,7 @@ export function wrapTemplateResponse(
     variables: schemaVars,
     interfaces: { adapters: shapedAdapters, auth: shapedAuth },
     schedules,
+    provisioning: reqBody?.provisioning,
     validation: { valid: errors.length === 0, errors },
   };
 }

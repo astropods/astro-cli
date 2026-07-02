@@ -196,8 +196,11 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           <KnowledgeBindingPicker
             entries={form.knowledgeEntries!}
             bindings={form.knowledgeBindings}
+            modes={form.knowledgeBindingModes}
             resolvedBindings={form.resolvedBindings}
+            errorKeys={form.errors.knowledgeBindings}
             onChange={form.setKnowledgeBindings}
+            onModeChange={form.setKnowledgeBindingMode}
             stores={knowledgeStores ?? []}
           />
         </FormSection>

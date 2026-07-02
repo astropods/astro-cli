@@ -11,6 +11,7 @@ const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const AGENT_CROSS_ACCOUNT = "cross-agent";
 const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
+const AGENT_KNOWLEDGE_BINDINGS = "knowledge-bindings";
 const AGENT_XACCT_UPGRADE = "xacct-upgrade-bot";
 const AGENT_XACCT_COLLISION = "xacct-collision-bot";
 const AGENT_XACCT_PRIVATE = "xacct-private-bot";
@@ -19,6 +20,8 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
+const DEPLOYMENT_KNOWLEDGE_BINDINGS_ID = "dep-knowledge-bindings-1";
+const SHARED_POSTGRES_ARN = "arn:astro:knowledge:testuser:shared-postgres";
 // Cross-account upgrade fixture (legit upgrade exists in source account).
 //
 // The deployment was built from CROSS_ACCOUNT_PUBLISHER's blueprint and is
@@ -61,6 +64,7 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_SLACK_OVERLAP]: "build-123",
   [AGENT_CROSS_ACCOUNT]: "build-cross-1",
   [AGENT_INGESTION_SCHEDULE]: "build-125",
+  [AGENT_KNOWLEDGE_BINDINGS]: "build-126",
   // Personal-account "latest" for the collision agent name. Intentionally
   // newer than the deployment's pinned build so the pre-fix
   // (name-only lookup against the viewer's account) would surface a
@@ -277,6 +281,28 @@ const templatesByAgent = {
     },
     editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
   },
+  [AGENT_KNOWLEDGE_BINDINGS]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: ACCOUNT,
+      name: AGENT_KNOWLEDGE_BINDINGS,
+      build: "build-126",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes" },
+    agent: {
+      image: `registry.example.com/testuser/${AGENT_KNOWLEDGE_BINDINGS}:build-126`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
+    knowledge: {
+      postgres: { provider: "postgres" },
+    },
+    variables: {
+      ...baseVariables,
+    },
+    editable: ["variables.*.value", "interfaces.adapters", "bindings.knowledge"],
+  },
   // Personal-account template for the collision agent name. Not directly
   // exercised by the badge tests, but kept so configure-page navigation
   // to the personal-side blueprint resolves rather than 404s.
@@ -441,6 +467,31 @@ const prefilledTemplatesByDeployment = {
     },
     editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
   },
+  [DEPLOYMENT_KNOWLEDGE_BINDINGS_ID]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: ACCOUNT,
+      name: AGENT_KNOWLEDGE_BINDINGS,
+      build: "build-126",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes", display_name: "Knowledge Local Bot" },
+    agent: {
+      image: `registry.example.com/testuser/${AGENT_KNOWLEDGE_BINDINGS}:build-126`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { image: "messaging:latest", adapters: ["web"] },
+    knowledge: {
+      postgres: { provider: "postgres" },
+    },
+    variables: {
+      OPENAI_API_KEY: {
+        ...baseVariables.OPENAI_API_KEY,
+        configured: true,
+      },
+    },
+    editable: ["variables.*.value", "interfaces.adapters", "bindings.knowledge"],
+  },
 } satisfies Record<string, unknown>;
 
 // Mirrors the server's populateLatestBuildIDs contract: latest_build_id
@@ -525,6 +576,22 @@ const makeInitialDeployments = () => [
     jobs: [],
   },
   {
+    id: DEPLOYMENT_KNOWLEDGE_BINDINGS_ID,
+    name: AGENT_KNOWLEDGE_BINDINGS,
+    display_name: "Knowledge Local Bot",
+    build_id: "build-126",
+    latest_build_id: "build-126",
+    namespace: "astro-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    jobs: [],
+  },
+  {
     id: DEPLOYMENT_XACCT_UPGRADE_ID,
     name: AGENT_XACCT_UPGRADE,
     display_name: "Cross-Account Upgrade Bot",
@@ -591,6 +658,19 @@ const makeInitialDeployments = () => [
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
 let createdBlueprints = new Set<string>();
+const knowledgeStores = [
+  {
+    id: "ks-shared-postgres",
+    arn: SHARED_POSTGRES_ARN,
+    name: "shared-postgres",
+    provider: "postgres",
+    mode: "external",
+    status: "ready",
+    public: false,
+    created_at: nowIso,
+    updated_at: nowIso,
+  },
+];
 
 // GitHub state
 let githubAccountConnected = false;
@@ -652,6 +732,7 @@ const accountAgents = {
     personalAgentFor(AGENT_SLACK_OVERLAP),
     personalAgentFor(AGENT_CROSS_ACCOUNT),
     personalAgentFor(AGENT_INGESTION_SCHEDULE),
+    personalAgentFor(AGENT_KNOWLEDGE_BINDINGS),
     // Personal-account collision blueprint: same agent_name as the
     // cross-account deployment, totally unrelated lineage, intentionally
     // newer than the deployment's pinned build. Used by the e2e to prove
@@ -659,7 +740,7 @@ const accountAgents = {
     // cross-account deployment carries source_account.
     personalAgentFor(AGENT_XACCT_COLLISION),
   ],
-  count: 6,
+  count: 7,
 };
 
 // Publisher-account (CROSS_ACCOUNT_PUBLISHER) blueprint listing. The
@@ -1427,6 +1508,13 @@ Bun.serve({
         }
         return json({ results });
       }
+    }
+
+    const accountKnowledgeMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/knowledge$/);
+    if (accountKnowledgeMatch && request.method === "GET") {
+      const accountName = accountKnowledgeMatch[1]!;
+      if (accountName !== ACCOUNT) return json([]);
+      return json(knowledgeStores);
     }
 
     const accountVariableItemMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/variables\/([^/]+)$/);

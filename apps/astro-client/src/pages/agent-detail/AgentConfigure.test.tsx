@@ -40,6 +40,14 @@ beforeEach(() => {
     http.get("/api/v1/accounts/:account/variables", () =>
       HttpResponse.json({ variables: [] }),
     ),
+    http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
+      const tmpl = {
+        ...mockTemplate,
+        interfaces: { ...mockTemplate.interfaces, adapters: ["web"] },
+      };
+      return HttpResponse.json(wrapTemplateResponse(tmpl, body));
+    }),
   );
 });
 
@@ -323,6 +331,49 @@ describe("user submits a deployment", () => {
     expect(deployHandler).toHaveBeenCalledTimes(1);
   });
 
+  it("redeploys a protected custom interface without messaging adapters", async () => {
+    const deployHandler = vi.fn();
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
+        const tmpl = {
+          ...mockTemplate,
+          agent: {
+            ...mockTemplate.agent,
+            endpoints: { http: { port: 8080, expose: { enabled: true } } },
+          },
+          interfaces: {
+            ...mockTemplate.interfaces,
+            adapters: [],
+            auth: { custom: { public: false, grants: [] } },
+          },
+          variables: {},
+        };
+        return HttpResponse.json(
+          wrapTemplateResponse(tmpl, {
+            ...body,
+            interfaces: {
+              adapters: [],
+              auth: { custom: { public: false, grants: [] } },
+            },
+          }),
+        );
+      }),
+      http.post("/api/v1/deploy", () => {
+        deployHandler();
+        return HttpResponse.json({ status: "deployed" });
+      }),
+    );
+
+    const { user } = renderConfigure();
+    await waitForForm();
+
+    await user.click(screen.getByRole("button", { name: /redeploy/i }));
+
+    expect(await screen.findByTestId("deployments-page")).toBeInTheDocument();
+    expect(deployHandler).toHaveBeenCalledTimes(1);
+  });
+
   it("clicking Redeploy with a required field empty does not call the deploy endpoint", async () => {
     const deployHandler = vi.fn();
     server.use(
@@ -450,6 +501,7 @@ describe("redeploy of org-owned deployment", () => {
           ...mockTemplate,
           source: { ...mockTemplate.source, account: "astropods" },
           target: { ...mockTemplate.target, account: "astropods", deployment_id: "dep-1" },
+          interfaces: { ...mockTemplate.interfaces, adapters: ["web"] },
         };
         return HttpResponse.json(
           wrapTemplateResponse(tmpl, body as Parameters<typeof wrapTemplateResponse>[1]),

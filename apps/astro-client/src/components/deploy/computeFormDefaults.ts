@@ -75,6 +75,17 @@ export function computeFormDefaults(
     ?? (template.interfaces as Record<string, unknown> | undefined)?.auth as TemplateInterfaces['auth'] | undefined;
   const webGrants = auth?.web?.grants ?? [];
   const slackGrants = auth?.slack?.grants ?? [];
+  const knowledgeEntries = (template.knowledge ?? {}) as Record<string, { binding?: string }>;
+  const knowledgeBindings: Record<string, string> = {};
+  const knowledgeBindingModes: DeployFormInitialValues["knowledgeBindingModes"] = {};
+  for (const [entryName, entry] of Object.entries(knowledgeEntries)) {
+    if (entry.binding) {
+      knowledgeBindings[entryName] = entry.binding;
+      knowledgeBindingModes[entryName] = "shared";
+    } else {
+      knowledgeBindingModes[entryName] = "local";
+    }
+  }
 
   return {
     deployName,
@@ -84,6 +95,8 @@ export function computeFormDefaults(
     ingestionSchedules,
     webGrants,
     slackGrants,
+    knowledgeBindings,
+    knowledgeBindingModes,
   };
 }
 
