@@ -792,6 +792,7 @@ func upsertJudgmentDatasetItem(
 			"confidence":        100,
 			"judged_by_user_id": lctx.UserID,
 			"judged_at":         time.Now().UTC().Format(time.RFC3339),
+			"judgment_criteria": []any{},
 		},
 	}); err != nil {
 		return "", err
@@ -979,7 +980,7 @@ func PatchDatasetJudgment(
 			return
 		}
 
-		previous, found, err := judgmentStore.UpdateReturningPrevious(ds.ID, traceID, verdict)
+		previous, previousReasons, found, err := judgmentStore.SetVerdictAndReasons(ds.ID, traceID, verdict, nil)
 		if err != nil {
 			log.Error("Failed to update dataset judgment", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update judgment"})
@@ -990,9 +991,18 @@ func PatchDatasetJudgment(
 			return
 		}
 
+		if previous == verdict {
+			c.JSON(http.StatusOK, DatasetJudgmentResponse{
+				EvalDatasetID: ds.ID,
+				TraceID:       traceID,
+				Verdict:       string(verdict),
+			})
+			return
+		}
+
 		restoreJudgment := func(reason string) {
-			if _, _, err := judgmentStore.UpdateReturningPrevious(ds.ID, traceID, previous); err != nil {
-				log.Warn("Failed to restore judgment row after verdict change failure", "error", err, "trace_id", traceID, "reason", reason)
+			if _, _, _, err := judgmentStore.SetVerdictAndReasons(ds.ID, traceID, previous, previousReasons); err != nil {
+				log.Warn("Failed to restore judgment after verdict change failure", "error", err, "trace_id", traceID, "reason", reason)
 			}
 		}
 
@@ -1021,6 +1031,9 @@ func PatchDatasetJudgment(
 		if goodDelta != 0 || badDelta != 0 {
 			if err := datasetStore.BumpCountsByID(ds.ID, goodDelta, badDelta); err != nil {
 				if previousEffect.writeDatasetItem {
+					// TODO: once criteria are written to Langfuse metadata, this re-upsert
+					// must carry previousReasons — upsertJudgmentDatasetItem currently writes
+					// judgment_criteria: [], so the restored item would drop the prior criteria.
 					if _, rollbackErr := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, previousEffect); rollbackErr != nil {
 						log.Warn("Failed to restore dataset item after verdict count failure", "error", rollbackErr, "trace_id", traceID)
 					}

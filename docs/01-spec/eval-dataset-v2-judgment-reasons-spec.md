@@ -135,13 +135,12 @@ Langfuse metadata should describe the dataset item. Astro DB owns the judgment r
 
 ## Server API
 
-Modify the following existing endpoints:
-
 | Method | Path | Change |
 |---|---|---|
-| `GET` | `/api/v1/deployments/:id/dataset` | Add derived criteria counts. |
-| `POST` | `/api/v1/deployments/:id/dataset/judgments` | Accept selected criteria when submitting a judgment. |
-| `PATCH` | `/api/v1/deployments/:id/dataset/judgments/:trace_id` | Allow verdict and/or criteria changes. |
+| `GET` | `/api/v1/deployments/:id/dataset` | Modified. Add derived criteria counts. |
+| `POST` | `/api/v1/deployments/:id/dataset/judgments` | Modified. Accept selected criteria when submitting a judgment. |
+| `PATCH` | `/api/v1/deployments/:id/dataset/judgments/:trace_id` | Modified. Change verdict only; clears the judgment's criteria. |
+| `PUT` | `/api/v1/deployments/:id/dataset/judgments/:trace_id/criteria` | New. Replace the criteria for an existing judgment. |
 
 ### Dataset summary
 
@@ -185,27 +184,37 @@ Server behavior:
 
 The local judgment row and reason rows should be written in one DB transaction before the Langfuse mutation so they act as the duplicate gate. If the Langfuse dataset item write fails, compensate by deleting the judgment row; the reason rows cascade through the FK.
 
-### Change judgment
+### Change verdict
 
-Extend request:
+PATCH already accepts `{ verdict }` only and does not touch reasons. Reasons cascade only on a judgment row delete, so a verdict flip leaves stale reason rows behind today.
+
+Request: unchanged (`{ verdict }`, required).
+
+Changes:
+
+- Clear the judgment's `eval_dataset_judgment_reasons` on any verdict change. Criteria are verdict-scoped, so the flip invalidates them; the frontend re-submits via the criteria endpoint. Needs a new store op that deletes reasons and returns the previous set for restore.
+- Include an empty `judgment_criteria` array in Langfuse metadata on upsert.
+
+PATCH should preserve the previous reasons before clearing them and restore them if a later Langfuse or count update fails and the judgment is rolled back.
+
+### Replace criteria
+
+PUT replaces the full set of reasons for an existing judgment. The judgment must already exist and its verdict must be `good` or `bad`.
+
+Request:
 
 | Field | Notes |
 |---|---|
-| `verdict` | Optional. When omitted, keep the existing verdict. |
-| `criteria` | Optional array of selected dimension keys. When present, replace the stored reasons. Empty array clears reasons. |
-
-At least one of `verdict` or `criteria` must be present.
+| `criteria` | Required array of selected dimension keys. Empty array clears reasons. |
 
 Behavior:
 
-- Criteria-only patch: keep the existing verdict, replace reasons, and upsert Langfuse metadata when the existing verdict is `good` or `bad`. Reject a criteria-only patch when the existing verdict is `unknown`.
-- `good` → `bad` or `bad` → `good`: replace reasons when `criteria` is present; otherwise clear reasons. Upsert the Langfuse dataset item metadata.
-- `good` / `bad` → `unknown`: delete reasons and delete the Langfuse dataset item.
-- `unknown` → `good` / `bad`: insert submitted reasons when present and create the Langfuse dataset item.
+1. Load the judgment. Reject if it does not exist or its verdict is `unknown`.
+2. Validate submitted criteria against the server enum.
+3. Replace `eval_dataset_judgment_reasons` with the submitted set, writing `dimension_value = 1` when the verdict is `good` and `dimension_value = -1` when the verdict is `bad`.
+4. Upsert the Langfuse dataset item metadata with the new `judgment_criteria`.
 
-When the effective verdict is `good`, stored reasons use `dimension_value = 1`. When the effective verdict is `bad`, stored reasons use `dimension_value = -1`.
-
-PATCH should preserve the previous reasons before replacing or deleting them. If a later Langfuse mutation or count update fails and the handler restores the previous judgment state, it must restore the previous reasons too.
+PUT should preserve the previous reasons before replacing them. If the Langfuse mutation or count update fails, restore the previous reasons.
 
 ### Delete judgment
 

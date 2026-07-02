@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 )
 
 func TestInsertRejectsInvalidVerdict(t *testing.T) {
@@ -116,51 +117,124 @@ func TestDeleteReturningVerdictNotFound(t *testing.T) {
 	}
 }
 
-func TestUpdateReturningPrevious(t *testing.T) {
+func TestSetVerdictAndReasonsClearsOnChange(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	mock.ExpectBegin()
 	mock.ExpectQuery("WITH previous AS").
 		WithArgs("dataset-1", "trace-1", "bad").
 		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	mock.ExpectQuery("DELETE FROM eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"dimension_key", "dimension_value"}).
+			AddRow("accuracy", 1.0).
+			AddRow("tone", 1.0))
+	mock.ExpectCommit()
 
 	store := NewStore(db)
-	previous, found, err := store.UpdateReturningPrevious("dataset-1", "trace-1", VerdictBad)
+	previous, replaced, found, err := store.SetVerdictAndReasons("dataset-1", "trace-1", VerdictBad, nil)
 	if err != nil {
-		t.Fatalf("UpdateReturningPrevious: %v", err)
+		t.Fatalf("SetVerdictAndReasons: %v", err)
 	}
-	if !found {
-		t.Fatal("UpdateReturningPrevious found = false, want true")
+	if !found || previous != VerdictGood {
+		t.Fatalf("found=%v previous=%q, want true/good", found, previous)
 	}
-	if previous != VerdictGood {
-		t.Fatalf("UpdateReturningPrevious previous = %q, want good", previous)
+	want := []Reason{{Dimension: DimensionAccuracy, Value: 1}, {Dimension: DimensionTone, Value: 1}}
+	if len(replaced) != len(want) {
+		t.Fatalf("replaced len = %d, want %d", len(replaced), len(want))
+	}
+	for i, r := range replaced {
+		if r != want[i] {
+			t.Errorf("replaced[%d] = %+v, want %+v", i, r, want[i])
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 
-func TestUpdateReturningPreviousNotFound(t *testing.T) {
+func TestSetVerdictAndReasonsReplacesWithGivenReasons(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
+	mock.ExpectBegin()
+	mock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-1", "trace-1", "good").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("bad"))
+	mock.ExpectQuery("DELETE FROM eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"dimension_key", "dimension_value"}))
+	mock.ExpectExec("INSERT INTO eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1", pq.Array([]string{"accuracy"}), pq.Array([]float64{1})).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	previous, _, found, err := store.SetVerdictAndReasons("dataset-1", "trace-1", VerdictGood, []Reason{{Dimension: DimensionAccuracy, Value: 1}})
+	if err != nil {
+		t.Fatalf("SetVerdictAndReasons: %v", err)
+	}
+	if !found || previous != VerdictBad {
+		t.Fatalf("found=%v previous=%q, want true/bad", found, previous)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestSetVerdictAndReasonsSameVerdictLeavesReasons(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("WITH previous AS").
+		WithArgs("dataset-1", "trace-1", "good").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	previous, replaced, found, err := store.SetVerdictAndReasons("dataset-1", "trace-1", VerdictGood, nil)
+	if err != nil {
+		t.Fatalf("SetVerdictAndReasons: %v", err)
+	}
+	if !found || previous != VerdictGood || replaced != nil {
+		t.Fatalf("found=%v previous=%q replaced=%+v, want true/good/nil", found, previous, replaced)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestSetVerdictAndReasonsNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
 	mock.ExpectQuery("WITH previous AS").
 		WithArgs("dataset-1", "trace-missing", "bad").
 		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
 
 	store := NewStore(db)
-	_, found, err := store.UpdateReturningPrevious("dataset-1", "trace-missing", VerdictBad)
+	_, _, found, err := store.SetVerdictAndReasons("dataset-1", "trace-missing", VerdictBad, nil)
 	if err != nil {
-		t.Fatalf("UpdateReturningPrevious: %v", err)
+		t.Fatalf("SetVerdictAndReasons: %v", err)
 	}
 	if found {
-		t.Fatal("UpdateReturningPrevious found = true, want false")
+		t.Fatal("found = true, want false")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

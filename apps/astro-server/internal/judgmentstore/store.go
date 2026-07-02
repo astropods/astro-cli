@@ -128,15 +128,23 @@ func (s *Store) DeleteReturningVerdict(evalDatasetID, traceID string) (Verdict, 
 	return verdict, true, nil
 }
 
-// UpdateReturningPrevious changes a judged trace's verdict and returns the
-// previous verdict. The boolean is false when the trace has no judgment row.
-func (s *Store) UpdateReturningPrevious(evalDatasetID, traceID string, verdict Verdict) (Verdict, bool, error) {
+// SetVerdictAndReasons sets a judgment's verdict and, when the verdict changes,
+// replaces its reasons with the given set in one transaction. It returns the
+// previous verdict and the reasons it replaced so the same call can reverse the
+// change on rollback. found is false when the trace has no judgment row.
+func (s *Store) SetVerdictAndReasons(evalDatasetID, traceID string, verdict Verdict, reasons []Reason) (Verdict, []Reason, bool, error) {
 	if !verdict.Valid() {
-		return "", false, fmt.Errorf("judgmentstore update: invalid verdict %q", verdict)
+		return "", nil, false, fmt.Errorf("judgmentstore set verdict: invalid verdict %q", verdict)
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore set verdict: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	var raw string
-	err := s.db.QueryRow(`
+	err = tx.QueryRow(`
 		WITH previous AS (
 			SELECT verdict
 			FROM eval_dataset_judgments
@@ -151,17 +159,64 @@ func (s *Store) UpdateReturningPrevious(evalDatasetID, traceID string, verdict V
 		SELECT previous.verdict
 		FROM previous, updated
 	`, evalDatasetID, traceID, string(verdict)).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return "", false, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("judgmentstore update: %w", err)
+		return "", nil, false, fmt.Errorf("judgmentstore set verdict: %w", err)
 	}
 	previous := Verdict(raw)
 	if !previous.Valid() {
-		return "", false, fmt.Errorf("judgmentstore update: invalid previous verdict %q", raw)
+		return "", nil, false, fmt.Errorf("judgmentstore set verdict: invalid previous verdict %q", raw)
 	}
-	return previous, true, nil
+
+	var replaced []Reason
+	if previous != verdict {
+		rows, err := tx.Query(`
+			DELETE FROM eval_dataset_judgment_reasons
+			WHERE eval_dataset_id = $1 AND trace_id = $2
+			RETURNING dimension_key, dimension_value
+		`, evalDatasetID, traceID)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("judgmentstore set verdict clear reasons: %w", err)
+		}
+		for rows.Next() {
+			var (
+				key string
+				val float64
+			)
+			if err := rows.Scan(&key, &val); err != nil {
+				_ = rows.Close()
+				return "", nil, false, fmt.Errorf("judgmentstore set verdict scan reasons: %w", err)
+			}
+			replaced = append(replaced, Reason{Dimension: CriterionDimension(key), Value: val})
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return "", nil, false, fmt.Errorf("judgmentstore set verdict iter reasons: %w", err)
+		}
+		_ = rows.Close()
+
+		if len(reasons) > 0 {
+			keys := make([]string, len(reasons))
+			vals := make([]float64, len(reasons))
+			for i, r := range reasons {
+				keys[i] = string(r.Dimension)
+				vals[i] = r.Value
+			}
+			if _, err := tx.Exec(`
+				INSERT INTO eval_dataset_judgment_reasons (eval_dataset_id, trace_id, dimension_key, dimension_value)
+				SELECT $1, $2, unnest($3::text[]), unnest($4::numeric[])
+			`, evalDatasetID, traceID, pq.Array(keys), pq.Array(vals)); err != nil {
+				return "", nil, false, fmt.Errorf("judgmentstore set verdict insert reasons: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore set verdict commit: %w", err)
+	}
+	return previous, replaced, true, nil
 }
 
 // JudgedTraceIDs returns the subset of the input trace_ids that already have a judgment row.
@@ -231,4 +286,11 @@ func (s *Store) CriterionCounts(evalDatasetID string) ([]CriterionCounts, error)
 		return nil, fmt.Errorf("judgmentstore criterion counts iter: %w", err)
 	}
 	return out, nil
+}
+
+// Reason is one selected criterion on a judgment: a dimension and the value
+// captured at judgment time.
+type Reason struct {
+	Dimension CriterionDimension
+	Value     float64
 }

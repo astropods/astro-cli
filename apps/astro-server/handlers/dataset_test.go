@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore/judgmentstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 )
 
@@ -318,6 +319,7 @@ type langfuseJudgeOptions struct {
 	expectDatasetItem   bool
 	datasetItemStatus   int
 	wantMetadataVerdict float64
+	wantEmptyCriteria   bool
 	datasetItemCalled   *atomic.Bool
 }
 
@@ -373,6 +375,13 @@ func langfuseJudgeHandlerWithOptions(t *testing.T, opts langfuseJudgeOptions) ht
 			}
 			if got, ok := body.Metadata["verdict"].(float64); !ok || got != opts.wantMetadataVerdict {
 				t.Errorf("metadata verdict = %v, want %v", body.Metadata["verdict"], opts.wantMetadataVerdict)
+			}
+			if opts.wantEmptyCriteria {
+				if crit, ok := body.Metadata["judgment_criteria"].([]any); !ok {
+					t.Errorf("metadata judgment_criteria = %v, want empty array", body.Metadata["judgment_criteria"])
+				} else if len(crit) != 0 {
+					t.Errorf("metadata judgment_criteria = %v, want empty", crit)
+				}
 			}
 			w.WriteHeader(opts.datasetItemStatus)
 			_, _ = w.Write([]byte(`{}`))
@@ -1720,13 +1729,12 @@ func TestPatchDatasetJudgment_GoodToBadUpdatesItemAndCounts(t *testing.T) {
 		traceID:             "trace-1",
 		expectDatasetItem:   true,
 		wantMetadataVerdict: -1,
+		wantEmptyCriteria:   true,
 		datasetItemCalled:   &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
-	f.judgmentMock.ExpectQuery("WITH previous AS").
-		WithArgs("dataset-dep-1", "trace-1", "bad").
-		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad, judgmentstore.VerdictGood, nil, nil)
 	f.datasetMock.ExpectExec("UPDATE eval_datasets").
 		WithArgs(-1, 1, "dataset-dep-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1768,16 +1776,52 @@ func TestPatchDatasetJudgment_RestoresJudgmentWhenDatasetItemUpsertFails(t *test
 		expectDatasetItem:   true,
 		datasetItemStatus:   http.StatusInternalServerError,
 		wantMetadataVerdict: -1,
+		wantEmptyCriteria:   true,
 		datasetItemCalled:   &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
-	f.judgmentMock.ExpectQuery("WITH previous AS").
-		WithArgs("dataset-dep-1", "trace-1", "bad").
-		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
-	f.judgmentMock.ExpectQuery("WITH previous AS").
-		WithArgs("dataset-dep-1", "trace-1", "good").
-		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("bad"))
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad, judgmentstore.VerdictGood, nil, nil)
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictGood, judgmentstore.VerdictBad, nil, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		strings.NewReader(`{"verdict":"bad"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert attempt")
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_RestoresReasonsWhenDatasetItemUpsertFails(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		datasetItemStatus:   http.StatusInternalServerError,
+		wantMetadataVerdict: -1,
+		wantEmptyCriteria:   true,
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	accuracy := judgmentstore.Reason{Dimension: judgmentstore.DimensionAccuracy, Value: 1}
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad, judgmentstore.VerdictGood, []judgmentstore.Reason{accuracy}, nil)
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictGood, judgmentstore.VerdictBad, nil, []judgmentstore.Reason{accuracy})
 
 	req := httptest.NewRequest(
 		http.MethodPatch,
@@ -1808,9 +1852,7 @@ func TestPatchDatasetJudgment_GoodToUnknownDeletesItemAndDecrementsCount(t *test
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerExpectDelete(t, itemID, &deleteCalled))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
-	f.judgmentMock.ExpectQuery("WITH previous AS").
-		WithArgs("dataset-dep-1", "trace-1", "unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictUnknown, judgmentstore.VerdictGood, nil, nil)
 	f.datasetMock.ExpectExec("UPDATE eval_datasets").
 		WithArgs(-1, 0, "dataset-dep-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1845,6 +1887,42 @@ func TestPatchDatasetJudgment_GoodToUnknownDeletesItemAndDecrementsCount(t *test
 	}
 }
 
+func TestPatchDatasetJudgment_SameVerdictIsNoOp(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad, judgmentstore.VerdictBad, nil, nil)
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/deployments/dep-1/dataset/judgments/trace-1",
+		strings.NewReader(`{"verdict":"bad"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetJudgmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-1" || resp.Verdict != "bad" {
+		t.Fatalf("judgment response = %+v, want dataset id / trace id / bad verdict", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
 func TestPatchDatasetJudgment_MissingJudgmentReturnsNotFound(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
 		traceID:           "trace-missing",
@@ -1852,9 +1930,7 @@ func TestPatchDatasetJudgment_MissingJudgmentReturnsNotFound(t *testing.T) {
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
-	f.judgmentMock.ExpectQuery("WITH previous AS").
-		WithArgs("dataset-dep-1", "trace-missing", "bad").
-		WillReturnRows(sqlmock.NewRows([]string{"verdict"}))
+	judgmentstoretest.ExpectSetVerdictMissing(f.judgmentMock, "dataset-dep-1", "trace-missing", judgmentstore.VerdictBad)
 
 	req := httptest.NewRequest(
 		http.MethodPatch,
