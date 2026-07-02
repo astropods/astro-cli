@@ -166,3 +166,49 @@ func TestUpdateReturningPreviousNotFound(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+func TestCriterionDimensionValid(t *testing.T) {
+	for _, d := range CriterionDimensions {
+		if !d.Valid() {
+			t.Errorf("CriterionDimensions entry %q is not Valid()", d)
+		}
+	}
+	if CriterionDimension("nonsense").Valid() {
+		t.Fatal("unknown dimension reported Valid() = true")
+	}
+}
+
+func TestCriterionCounts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery("FROM eval_dataset_judgment_reasons").
+		WithArgs("dataset-1").
+		WillReturnRows(sqlmock.NewRows([]string{"dimension_key", "good_count", "bad_count"}).
+			AddRow("accuracy", 2, 1).
+			AddRow("tone", 0, 3))
+
+	store := NewStore(db)
+	counts, err := store.CriterionCounts("dataset-1")
+	if err != nil {
+		t.Fatalf("CriterionCounts: %v", err)
+	}
+	want := []CriterionCounts{
+		{Dimension: DimensionAccuracy, GoodCount: 2, BadCount: 1},
+		{Dimension: DimensionTone, GoodCount: 0, BadCount: 3},
+	}
+	if len(counts) != len(want) {
+		t.Fatalf("CriterionCounts len = %d, want %d", len(counts), len(want))
+	}
+	for i, count := range counts {
+		if count != want[i] {
+			t.Errorf("CriterionCounts[%d] = %+v, want %+v", i, count, want[i])
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

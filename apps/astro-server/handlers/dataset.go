@@ -30,14 +30,21 @@ import (
 
 // evalDatasetSummary is the JSON shape returned by GetEvalDataset.
 type evalDatasetSummary struct {
-	DatasetName       string  `json:"dataset_name"`
-	ItemCount         int     `json:"item_count"`
-	GoodCount         int     `json:"good_count"`
-	BadCount          int     `json:"bad_count"`
-	Grade             string  `json:"grade"`
-	NextGrade         string  `json:"next_grade"`
-	NextGradeProgress float64 `json:"next_grade_progress"`
-	CasesToNextGrade  *int    `json:"cases_to_next_grade"`
+	DatasetName       string                      `json:"dataset_name"`
+	ItemCount         int                         `json:"item_count"`
+	GoodCount         int                         `json:"good_count"`
+	BadCount          int                         `json:"bad_count"`
+	Grade             string                      `json:"grade"`
+	NextGrade         string                      `json:"next_grade"`
+	NextGradeProgress float64                     `json:"next_grade_progress"`
+	CasesToNextGrade  *int                        `json:"cases_to_next_grade"`
+	CriteriaCounts    []evalDatasetCriterionCount `json:"criteria_counts"`
+}
+
+type evalDatasetCriterionCount struct {
+	DimensionKey string `json:"dimension_key"`
+	GoodCount    int    `json:"good_count"`
+	BadCount     int    `json:"bad_count"`
 }
 
 // loadDataset fetches the dataset row for a deployment and writes the matching
@@ -62,7 +69,7 @@ func loadDataset(
 	return ds, true
 }
 
-func summaryFromRow(ds *evaldatasetstore.EvalDataset) evalDatasetSummary {
+func summaryFromRow(ds *evaldatasetstore.EvalDataset, criteriaCounts []judgmentstore.CriterionCounts) evalDatasetSummary {
 	nextGrade, nextGradeProgress := evaldataset.NextGradeProgress(ds.GoodCount, ds.BadCount)
 	return evalDatasetSummary{
 		DatasetName:       ds.LangfuseDatasetName,
@@ -73,7 +80,28 @@ func summaryFromRow(ds *evaldatasetstore.EvalDataset) evalDatasetSummary {
 		NextGrade:         nextGrade,
 		NextGradeProgress: nextGradeProgress,
 		CasesToNextGrade:  evaldataset.CasesToNextGrade(ds.GoodCount, ds.BadCount),
+		CriteriaCounts:    summaryCriterionCounts(criteriaCounts),
 	}
+}
+
+func summaryCriterionCounts(counts []judgmentstore.CriterionCounts) []evalDatasetCriterionCount {
+	byDimension := make(map[judgmentstore.CriterionDimension]judgmentstore.CriterionCounts, len(counts))
+	for _, count := range counts {
+		if count.Dimension.Valid() {
+			byDimension[count.Dimension] = count
+		}
+	}
+
+	out := make([]evalDatasetCriterionCount, 0, len(judgmentstore.CriterionDimensions))
+	for _, dimension := range judgmentstore.CriterionDimensions {
+		count := byDimension[dimension]
+		out = append(out, evalDatasetCriterionCount{
+			DimensionKey: string(dimension),
+			GoodCount:    count.GoodCount,
+			BadCount:     count.BadCount,
+		})
+	}
+	return out
 }
 
 // GetEvalDataset returns dataset summary metadata from the local DB.
@@ -83,6 +111,7 @@ func GetEvalDataset(
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
+	judgmentStore *judgmentstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -109,7 +138,14 @@ func GetEvalDataset(
 			return
 		}
 
-		c.JSON(http.StatusOK, summaryFromRow(ds))
+		criteriaCounts, err := judgmentStore.CriterionCounts(ds.ID)
+		if err != nil {
+			log.Error("Failed to get dataset criterion counts", "error", err, "dataset_id", ds.ID, "deployment_id", deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dataset criteria counts"})
+			return
+		}
+
+		c.JSON(http.StatusOK, summaryFromRow(ds, criteriaCounts))
 	}
 }
 

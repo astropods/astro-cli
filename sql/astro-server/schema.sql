@@ -827,6 +827,17 @@ CREATE TABLE public.eval_dataset_judgments (
     CONSTRAINT eval_dataset_judgments_verdict_check CHECK (verdict IN ('good', 'bad', 'unknown'))
 );
 
+CREATE TABLE public.eval_dataset_judgment_reasons (
+    eval_dataset_id uuid        NOT NULL,
+    trace_id        text        NOT NULL,
+    dimension_key   text        NOT NULL,
+    dimension_value numeric     NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_judgment_reasons_pkey PRIMARY KEY (eval_dataset_id, trace_id, dimension_key),
+    CONSTRAINT eval_dataset_judgment_reasons_judgment_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_judgments(eval_dataset_id, trace_id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_judgment_reasons_value_check CHECK (dimension_value BETWEEN -1 AND 1)
+);
+
 -- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
 -- can emit the final period after deletion without losing data.
 CREATE TABLE public.knowledge_billing_state (

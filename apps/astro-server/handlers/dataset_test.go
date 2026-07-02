@@ -44,7 +44,7 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	judgmentStore := judgmentstore.NewStore(judgmentDB)
 
 	f.router.GET("/api/v1/deployments/:id/dataset",
-		GetEvalDataset(log, accountStore, deployStore, dsStore))
+		GetEvalDataset(log, accountStore, deployStore, dsStore, judgmentStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/items",
 		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
@@ -71,6 +71,22 @@ func expectDatasetRowCounts(mock sqlmock.Sqlmock, deploymentID, datasetName stri
 
 func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {
 	datasetstoretest.ExpectMissing(mock, deploymentID)
+}
+
+type criterionCountRow struct {
+	dimension string
+	goodCount int
+	badCount  int
+}
+
+func expectCriterionCounts(mock sqlmock.Sqlmock, evalDatasetID string, rows ...criterionCountRow) {
+	dbRows := sqlmock.NewRows([]string{"dimension_key", "good_count", "bad_count"})
+	for _, row := range rows {
+		dbRows.AddRow(row.dimension, row.goodCount, row.badCount)
+	}
+	mock.ExpectQuery("FROM eval_dataset_judgment_reasons").
+		WithArgs(evalDatasetID).
+		WillReturnRows(dbRows)
 }
 
 func langfuseDatasetItemsHandler(items []langfuse.DatasetItem, totalPages int) http.HandlerFunc {
@@ -436,11 +452,42 @@ func TestGetEvalDataset_DatasetNotYetCreated(t *testing.T) {
 	}
 }
 
+func TestGetEvalDataset_CriterionCountsError(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	f.judgmentMock.ExpectQuery("FROM eval_dataset_judgment_reasons").
+		WithArgs(datasetstoretest.ID("dep-1")).
+		WillReturnError(errors.New("count failed"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Error != "failed to get dataset criteria counts" {
+		t.Errorf("error = %q, want failed to get dataset criteria counts", resp.Error)
+	}
+}
+
 func TestGetEvalDataset_OK(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	// 90 good / 10 bad → score 0.9 → grade A.
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	expectCriterionCounts(f.judgmentMock, datasetstoretest.ID("dep-1"),
+		criterionCountRow{dimension: "accuracy", goodCount: 12, badCount: 2},
+		criterionCountRow{dimension: "tone", goodCount: 4, badCount: 1},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
 	rec := httptest.NewRecorder()
@@ -459,6 +506,11 @@ func TestGetEvalDataset_OK(t *testing.T) {
 		NextGrade         string  `json:"next_grade"`
 		NextGradeProgress float64 `json:"next_grade_progress"`
 		CasesToNextGrade  *int    `json:"cases_to_next_grade"`
+		CriteriaCounts    []struct {
+			DimensionKey string `json:"dimension_key"`
+			GoodCount    int    `json:"good_count"`
+			BadCount     int    `json:"bad_count"`
+		} `json:"criteria_counts"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -482,6 +534,28 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	if resp.CasesToNextGrade != nil {
 		t.Errorf("cases_to_next_grade = %v, want nil", *resp.CasesToNextGrade)
 	}
+	if len(resp.CriteriaCounts) != len(judgmentstore.CriterionDimensions) {
+		t.Fatalf("criteria_counts len = %d, want %d", len(resp.CriteriaCounts), len(judgmentstore.CriterionDimensions))
+	}
+	criteriaByDimension := make(map[string]struct {
+		goodCount int
+		badCount  int
+	}, len(resp.CriteriaCounts))
+	for _, count := range resp.CriteriaCounts {
+		criteriaByDimension[count.DimensionKey] = struct {
+			goodCount int
+			badCount  int
+		}{goodCount: count.GoodCount, badCount: count.BadCount}
+	}
+	if got := criteriaByDimension["accuracy"]; got.goodCount != 12 || got.badCount != 2 {
+		t.Errorf("accuracy criteria counts = good %d / bad %d, want 12 / 2", got.goodCount, got.badCount)
+	}
+	if got := criteriaByDimension["completeness"]; got.goodCount != 0 || got.badCount != 0 {
+		t.Errorf("completeness criteria counts = good %d / bad %d, want 0 / 0", got.goodCount, got.badCount)
+	}
+	if got := criteriaByDimension["tone"]; got.goodCount != 4 || got.badCount != 1 {
+		t.Errorf("tone criteria counts = good %d / bad %d, want 4 / 1", got.goodCount, got.badCount)
+	}
 }
 
 func TestGetEvalDataset_BelowA(t *testing.T) {
@@ -489,6 +563,7 @@ func TestGetEvalDataset_BelowA(t *testing.T) {
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	// All good / no bad → fcm caps at 0.55, score ≈ 0.55 → grade F, next D.
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 100, 0)
+	expectCriterionCounts(f.judgmentMock, datasetstoretest.ID("dep-1"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
 	rec := httptest.NewRecorder()

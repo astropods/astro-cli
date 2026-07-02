@@ -15,6 +15,7 @@ function summary(overrides: Partial<EvalDatasetResponse> = {}): EvalDatasetRespo
     next_grade: "",
     next_grade_progress: 1,
     cases_to_next_grade: null,
+    criteria_counts: [],
     ...overrides,
   };
 }

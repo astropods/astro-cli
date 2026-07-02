@@ -966,6 +966,12 @@ export interface DeploymentEventsResponse {
 
 // --- Dataset ---
 
+export interface EvalDatasetCriteriaCount {
+  dimension_key: string;
+  good_count: number;
+  bad_count: number;
+}
+
 export interface EvalDatasetResponse {
   dataset_name: string;
   item_count: number;
@@ -979,6 +985,7 @@ export interface EvalDatasetResponse {
   next_grade_progress: number;
   /** Additional judged cases needed for `next_grade`; null when there is no next grade. */
   cases_to_next_grade: number | null;
+  criteria_counts: EvalDatasetCriteriaCount[];
 }
 
 /** Per-item metadata persisted on Langfuse dataset items. `verdict` is a

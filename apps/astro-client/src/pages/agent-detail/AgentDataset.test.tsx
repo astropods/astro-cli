@@ -32,6 +32,7 @@ function makeDatasetResponse(
     next_grade: "A",
     next_grade_progress: 0.6,
     cases_to_next_grade: 100,
+    criteria_counts: [],
     ...overrides,
   };
 }

@@ -1617,7 +1617,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
 			datasetStore := evaldatasetstore.NewStore(db)
 			judgmentStore := judgmentstore.NewStore(db)
-			api.GET(protected, "/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore),
+			api.GET(protected, "/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
