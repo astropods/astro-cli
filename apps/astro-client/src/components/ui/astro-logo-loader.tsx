@@ -23,7 +23,7 @@ export function AstroLogoLoader({
       aria-label="Loading"
     >
       <span
-        className="pointer-events-none absolute -inset-3 rounded-full bg-primary/10 animate-ping"
+        className="pointer-events-none absolute -inset-1.5 rounded-full bg-primary/7 animate-ping"
         style={{ animationDuration: "2.4s" }}
         aria-hidden
       />

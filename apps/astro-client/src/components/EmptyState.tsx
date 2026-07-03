@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export interface EmptyStateAction {
   label: string;
@@ -21,33 +22,51 @@ export interface EmptyStateProps {
   variant?: "default" | "card";
 }
 
-export function EmptyState({ title, description, icon, actions, actionLabel, actionTo, variant = "default" }: EmptyStateProps) {
-  const resolvedActions: EmptyStateAction[] = actions ?? (actionLabel && actionTo ? [{ label: actionLabel, to: actionTo }] : []);
+function EmptyStateActions({
+  actions,
+  className,
+}: {
+  actions: EmptyStateAction[];
+  className?: string;
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <div className={cn("flex flex-wrap items-center justify-center gap-3", className)}>
+      {actions.map((a) => (
+        <Button key={a.label} variant={a.variant ?? "default"} asChild>
+          <Link to={a.to}>
+            {a.icon}
+            {a.label}
+          </Link>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+export function EmptyState({
+  title,
+  description,
+  icon,
+  actions,
+  actionLabel,
+  actionTo,
+  variant = "default",
+}: EmptyStateProps) {
+  const resolvedActions: EmptyStateAction[] =
+    actions ?? (actionLabel && actionTo ? [{ label: actionLabel, to: actionTo }] : []);
 
   if (variant === "card") {
     return (
       <div className="rounded-lg border border-dashed border-border-strong px-6 py-12 text-center">
-        {icon && (
-          <div className="mx-auto mb-4">
-            {icon}
-          </div>
-        )}
+        {icon && <div className="mx-auto mb-4">{icon}</div>}
         <p className="text-heading-3 text-foreground mb-2">{title}</p>
         {description && (
-          <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">{description}</p>
+          <p className="text-body text-muted-foreground mb-6 max-w-sm mx-auto">
+            {description}
+          </p>
         )}
-        {resolvedActions.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {resolvedActions.map((a) => (
-              <Button key={a.to} variant={a.variant ?? "default"} asChild>
-                <Link to={a.to}>
-                  {a.icon}
-                  {a.label}
-                </Link>
-              </Button>
-            ))}
-          </div>
-        )}
+        <EmptyStateActions actions={resolvedActions} />
       </div>
     );
   }
@@ -56,18 +75,7 @@ export function EmptyState({ title, description, icon, actions, actionLabel, act
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
       <p className="text-lg font-medium">{title}</p>
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
-      {resolvedActions.length > 0 && (
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
-          {resolvedActions.map((a) => (
-            <Button key={a.to} variant={a.variant ?? "default"} asChild>
-              <Link to={a.to}>
-                {a.icon}
-                {a.label}
-              </Link>
-            </Button>
-          ))}
-        </div>
-      )}
+      <EmptyStateActions actions={resolvedActions} className="mt-2" />
     </div>
   );
 }

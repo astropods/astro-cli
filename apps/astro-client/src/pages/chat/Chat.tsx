@@ -22,7 +22,8 @@ export default function ChatPage() {
   // All chat-eligible agents across every account the user belongs to — the
   // page is cross-account, so switching agents (the thread-header dropdown) is
   // all the navigation needed; there is no account switcher and no left rail.
-  const { entries, isLoading } = useChatAgents(isAuthenticated);
+  const { entries, totalDeployments, isLoading, isError, refetch } =
+    useChatAgents(isAuthenticated);
 
   const eligibleDeploymentIds = useMemo(
     () => new Set(entries.map((e) => e.deployment.id)),
@@ -52,13 +53,23 @@ export default function ChatPage() {
 
   const awaitingAgents = isLoading || entries.length === 0;
 
+  // isError before count branches — failed reads report 0 and would wrongly show the deploy nudge.
+  const emptyVariant = isLoading
+    ? "loading"
+    : isError
+      ? "error"
+      : totalDeployments > 0
+        ? "agents-not-chattable"
+        : "no-chat-agents";
+
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] overflow-hidden bg-background">
       {awaitingAgents ? (
         <ChatEmptyState
           className="flex-1"
-          variant={isLoading ? "loading" : "no-chat-agents"}
+          variant={emptyVariant}
           account={activeAccount}
+          onRetry={refetch}
         />
       ) : (
         <ChatWorkspace

@@ -1,5 +1,5 @@
 /** TanStack Query bindings for GET/PUT/POST /deployments/:id/chat (web /chat UI). */
-import { useMemo, type MutableRefObject } from "react";
+import { useCallback, useMemo, type MutableRefObject } from "react";
 import {
   useMutation,
   useQueries,
@@ -32,7 +32,13 @@ import { chatKeys, deploymentKeys } from "./keys";
  */
 export function useChatAgents(enabled = true): {
   entries: ChatAgent[];
+  /** All deployments across accounts, eligible or not — tells "no agents" from "no chat-enabled agents". */
+  totalDeployments: number;
   isLoading: boolean;
+  /** True when any read failed. A failed read reports 0 deployments, which looks identical to "no agents". */
+  isError: boolean;
+  /** Refetch all deployment queries. */
+  refetch: () => void;
 } {
   const api = useApiClient();
   const summary = useDeploymentsSummary();
@@ -65,10 +71,27 @@ export function useChatAgents(enabled = true): {
     // real input, so recomputing the merge is intentional.
   }, [accountNames, deploymentQueries]);
 
+  const totalDeployments = useMemo(
+    () =>
+      deploymentQueries.reduce(
+        (sum, q) => sum + (q.data?.deployments?.length ?? 0),
+        0,
+      ),
+    [deploymentQueries],
+  );
+
   const isLoading =
     summary.isLoading || deploymentQueries.some((q) => q.isLoading);
 
-  return { entries, isLoading };
+  const isError =
+    summary.isError || deploymentQueries.some((q) => q.isError);
+
+  const refetch = useCallback(() => {
+    void summary.refetch();
+    for (const q of deploymentQueries) void q.refetch();
+  }, [summary, deploymentQueries]);
+
+  return { entries, totalDeployments, isLoading, isError, refetch };
 }
 
 export async function fetchDeploymentChatConversation(

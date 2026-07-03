@@ -24,3 +24,12 @@ export const Default: Story = {
     actionTo: "/blueprints",
   },
 };
+
+export const CardVariant: Story = {
+  args: {
+    title: "No results",
+    description: "No agents match the current filters.",
+    variant: "card",
+    actions: [{ label: "Browse blueprints", to: "/blueprints" }],
+  },
+};
