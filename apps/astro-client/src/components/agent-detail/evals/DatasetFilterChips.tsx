@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { SelectableChip } from "@/components/ui/SelectableChip";
 import { cn } from "@/lib/utils";
 
 export type FilterKey = "good" | "bad";
@@ -28,17 +28,11 @@ export function DatasetFilterChips({ selected, counts, onToggle }: DatasetFilter
       {chips.map((chip) => {
         const active = selected.has(chip.key);
         return (
-          <Button
+          <SelectableChip
             key={chip.key}
-            variant="outline"
-            size="sm"
-            data-active={active || undefined}
+            selected={active}
+            tone="primary"
             onClick={() => onToggle(chip.key)}
-            className={cn(
-              "h-8 gap-1.5 rounded-full px-3 text-body-sm font-medium",
-              "data-[active]:border-primary/40 data-[active]:bg-primary/10 data-[active]:text-foreground",
-              "dark:data-[active]:border-primary/50 dark:data-[active]:bg-primary/15 dark:data-[active]:text-foreground",
-            )}
           >
             <span aria-hidden className={cn("size-1.5 rounded-full", chip.dotClass)} />
             {chip.label}
@@ -53,7 +47,7 @@ export function DatasetFilterChips({ selected, counts, onToggle }: DatasetFilter
               {chip.count.toLocaleString()}
             </span>
             {active && <X aria-hidden className="size-3 opacity-75" />}
-          </Button>
+          </SelectableChip>
         );
       })}
     </div>

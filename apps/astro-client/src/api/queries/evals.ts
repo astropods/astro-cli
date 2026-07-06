@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import {
   type InfiniteData,
   useInfiniteQuery,
@@ -7,11 +8,13 @@ import {
 } from "@tanstack/react-query";
 import { useApiClient } from "../../lib/api-context";
 import type {
+  DatasetJudgmentCriteriaResponse,
   DatasetJudgmentResponse,
   DatasetJudgmentVerdict,
   EvalDatasetItemsResponse,
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
+  JudgmentCriterion,
   ReviewQueueItem,
   ReviewQueueResponse,
 } from "@/lib/api";
@@ -35,6 +38,11 @@ type DatasetUndoJudgmentVariables = {
 type DatasetChangeJudgmentVariables = {
   traceId: string;
   verdict: DatasetJudgmentVerdict;
+};
+
+type DatasetJudgmentCriteriaVariables = {
+  traceId: string;
+  criteria: JudgmentCriterion[];
 };
 
 type ReviewQueuePageParam =
@@ -150,21 +158,29 @@ export function usePostDatasetJudgment(
     onSuccess: async (data, variables) => {
       options.onSuccess?.(data, variables);
 
-      queryClient.setQueryData<ReviewQueueInfiniteData>(
-        evalKeys.reviewQueue(deploymentId),
-        (old) => removeReviewQueueItem(old, variables.traceId),
-      );
-
-      // Skip the review-queue here — the optimistic update already reflects
-      // the removal, and refetching forces an expensive Langfuse round trip
-      // plus sentiment annotation per click. The query's staleTime picks
-      // up new traces on the next remount.
+      // Queue removal is the caller's job (useRemoveReviewQueueItem) so good/bad
+      // can keep the trace visible until Done.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
       ]);
     },
   });
+}
+
+/** Removes a trace from the review-queue cache. Callers own the timing so a
+ *  judged trace can stay visible until the reviewer dismisses its panel. */
+export function useRemoveReviewQueueItem(deploymentId: string) {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (traceId: string) => {
+      queryClient.setQueryData<ReviewQueueInfiniteData>(
+        evalKeys.reviewQueue(deploymentId),
+        (old) => removeReviewQueueItem(old, traceId),
+      );
+    },
+    [queryClient, deploymentId],
+  );
 }
 
 function insertReviewQueueItem(
@@ -276,6 +292,26 @@ export function useChangeDatasetJudgment(deploymentId: string) {
   >({
     mutationFn: ({ traceId, verdict }) =>
       api.patchDatasetJudgment(deploymentId, traceId, { verdict }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
+        queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
+      ]);
+    },
+  });
+}
+
+export function useSetDatasetJudgmentCriteria(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    DatasetJudgmentCriteriaResponse,
+    Error,
+    DatasetJudgmentCriteriaVariables
+  >({
+    mutationFn: ({ traceId, criteria }) =>
+      api.putDatasetJudgmentCriteria(deploymentId, traceId, { criteria }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),

@@ -38,17 +38,23 @@ import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
   useDatasetReviewQueue,
   usePostDatasetJudgment,
+  useRemoveReviewQueueItem,
+  useSetDatasetJudgmentCriteria,
   useUndoDatasetJudgment,
 } from "@/api/queries/evals";
 import type {
   DatasetJudgmentVerdict,
   EvalDatasetResponse,
+  JudgmentCriterion,
   ReviewQueueItem,
   ReviewQueueResponse,
   ReviewQueueSentiment,
   TraceEntry,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
+import { verdictHasCriteria } from "./judgment-criteria";
+import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
+import { QuickUndoToast } from "./QuickUndoToast";
 import { flyVerdictToGrade } from "./review-queue-motion";
 
 const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
@@ -94,11 +100,13 @@ const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 const REVIEW_QUEUE_CONTENT_CLASS =
   "dp-scroll overflow-y-auto overscroll-contain";
 
-type QuickUndoJudgment = {
+type ActiveJudgment = {
   traceId: string;
   verdict: DatasetJudgmentVerdict;
   item?: ReviewQueueItem;
   pageIndex?: number;
+  nextTraceId?: string | null;
+  nextReviewQueueItem?: ReviewQueueItem;
 };
 
 type ReviewQueuePanelAction = "none" | "open" | "sync";
@@ -144,7 +152,7 @@ export function ReviewQueueView({
   } = useDatasetReviewQueue(deploymentId);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [quickUndo, setQuickUndo] = useState<QuickUndoJudgment | null>(null);
+  const [activeJudgment, setActiveJudgment] = useState<ActiveJudgment | null>(null);
   // Mirrors selectedId for synchronous reads inside mutation callbacks.
   const selectedIdRef = useRef<string | null>(null);
   // Tracks the trace currently shown in the open detail panel.
@@ -162,6 +170,12 @@ export function ReviewQueueView({
     : -1;
   const baselineStatus = getBaselineStatus(summary);
   const canLoadMore = Boolean(hasNextPage);
+
+  const activeVerdict =
+    activeJudgment && selectedItem && activeJudgment.traceId === selectedItem.trace_id
+      ? activeJudgment.verdict
+      : null;
+  
   const selectTraceId = useCallback((traceId: string | null) => {
     selectedIdRef.current = traceId;
     setSelectedId(traceId);
@@ -192,6 +206,7 @@ export function ReviewQueueView({
     },
     [onOpenTrace, onSelectedTraceChange, selectTraceId],
   );
+
   const clearSyncedTracePanel = useCallback((clearSelection = false) => {
     if (clearSelection) {
       selectTraceId(null);
@@ -199,38 +214,51 @@ export function ReviewQueueView({
     syncedPanelTraceIdRef.current = null;
     onSelectedTraceCleared?.();
   }, [onSelectedTraceCleared, selectTraceId]);
-  const postJudgment = usePostDatasetJudgment(deploymentId, {
-    onSuccess: (_data, variables) => {
-      setQuickUndo({
-        traceId: variables.traceId,
-        verdict: variables.verdict,
-        item: variables.reviewQueueItem,
-        pageIndex: variables.reviewQueuePageIndex,
-      });
-      if (selectedIdRef.current !== variables.traceId) {
+  
+  const removeQueueItem = useRemoveReviewQueueItem(deploymentId);
+  const commitJudgment = useCallback(
+    (judgment: ActiveJudgment) => {
+      removeQueueItem(judgment.traceId);
+      if (selectedIdRef.current !== judgment.traceId) {
         return;
       }
-
-      selectTraceId(variables.nextTraceId ?? null);
-      if (variables.nextReviewQueueItem) {
-        applyReviewQueueSelection(variables.nextReviewQueueItem, "sync");
+      selectTraceId(judgment.nextTraceId ?? null);
+      if (judgment.nextReviewQueueItem) {
+        applyReviewQueueSelection(judgment.nextReviewQueueItem, "sync");
       } else {
         clearSyncedTracePanel();
       }
     },
+    [
+      applyReviewQueueSelection,
+      clearSyncedTracePanel,
+      removeQueueItem,
+      selectTraceId,
+    ],
+  );
+
+  const postJudgment = usePostDatasetJudgment(deploymentId, {
+    onSuccess: (_data, variables) => {
+      const judgment: ActiveJudgment = {
+        traceId: variables.traceId,
+        verdict: variables.verdict,
+        item: variables.reviewQueueItem,
+        pageIndex: variables.reviewQueuePageIndex,
+        nextTraceId: variables.nextTraceId,
+        nextReviewQueueItem: variables.nextReviewQueueItem,
+      };
+      setActiveJudgment(judgment);
+      if (verdictHasCriteria(variables.verdict)) {
+        return;
+      }
+      commitJudgment(judgment);
+    },
   });
+
   const undoJudgment = useUndoDatasetJudgment(deploymentId);
+  const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
   const resolvedAgentAvatarUrl =
     avatarBust ?? agentAvatarUrl ?? getDeploymentAvatarUrl(deploymentId);
-
-  useEffect(() => {
-    if (!quickUndo) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setQuickUndo(null), 8000);
-    return () => window.clearTimeout(timer);
-  }, [quickUndo]);
 
   useEffect(() => {
     if (items.length > 0 || !hasNextPage) {
@@ -286,9 +314,17 @@ export function ReviewQueueView({
   ]);
 
   const handleSelectTrace = (traceId: string) => {
+    if (
+      activeJudgment &&
+      verdictHasCriteria(activeJudgment.verdict) &&
+      activeJudgment.traceId !== traceId
+    ) {
+      removeQueueItem(activeJudgment.traceId);
+    }
     postJudgment.reset();
     undoJudgment.reset();
-    setQuickUndo(null);
+    setCriteria.reset();
+    setActiveJudgment(null);
     const item = items.find((candidate) => candidate.trace_id === traceId);
     if (item) {
       applyReviewQueueSelection(item, "sync");
@@ -296,6 +332,7 @@ export function ReviewQueueView({
       selectTraceId(traceId);
     }
   };
+
   const handleJudgeTrace = (
     traceId: string,
     verdict: DatasetJudgmentVerdict,
@@ -308,7 +345,8 @@ export function ReviewQueueView({
       ? items.find((item) => item.trace_id === nextSelectedTraceId)
       : undefined;
     const reviewQueuePageIndex = getReviewQueuePageIndex(data?.pages, traceId);
-    setQuickUndo(null);
+    setCriteria.reset();
+    setActiveJudgment(null);
     flyVerdictToGrade(
       trigger?.getBoundingClientRect() ?? null,
       gradeTargetRef?.current,
@@ -327,29 +365,51 @@ export function ReviewQueueView({
       reviewQueuePageIndex,
     });
   };
-  const handleQuickUndo = () => {
-    if (!quickUndo) {
+
+  const handleUndo = () => {
+    if (!activeJudgment) {
       return;
     }
 
-    const { traceId } = quickUndo;
+    const { traceId } = activeJudgment;
     undoJudgment.reset();
     undoJudgment.mutate(
       {
         traceId,
-        reviewQueueItem: quickUndo.item,
-        reviewQueuePageIndex: quickUndo.pageIndex,
+        reviewQueueItem: activeJudgment.item,
+        reviewQueuePageIndex: activeJudgment.pageIndex,
       },
       {
         onSuccess: () => {
-          setQuickUndo(null);
-          if (quickUndo.item) {
-            applyReviewQueueSelection(quickUndo.item, "sync");
+          setActiveJudgment(null);
+          if (activeJudgment.item) {
+            applyReviewQueueSelection(activeJudgment.item, "sync");
           } else {
             selectTraceId(traceId);
           }
         },
       },
+    );
+  };
+
+  const handleCriteriaDone = (criteria: JudgmentCriterion[]) => {
+    if (!activeJudgment) {
+      return;
+    }
+
+    const judgment = activeJudgment;
+    const finish = () => {
+      commitJudgment(judgment);
+      setActiveJudgment(null);
+    };
+
+    if (criteria.length === 0) {
+      finish();
+      return;
+    }
+    setCriteria.mutate(
+      { traceId: judgment.traceId, criteria },
+      { onSuccess: finish },
     );
   };
   const handleLoadMore = () => {
@@ -399,6 +459,7 @@ export function ReviewQueueView({
                 agentAvatarUrl={resolvedAgentAvatarUrl}
                 onJudge={handleJudgeTrace}
                 isJudging={postJudgment.isPending}
+                activeVerdict={activeVerdict}
                 showJudgmentError={postJudgment.isError || undoJudgment.isError}
                 position={selectedIndex >= 0 ? selectedIndex + 1 : 0}
                 queueSize={items.length}
@@ -419,11 +480,27 @@ export function ReviewQueueView({
           </div>
         </EvalTabCardBody>
       </EvalTabCard>
-      <ReviewQueueQuickUndoToast
-        quickUndo={quickUndo}
-        isUndoing={undoJudgment.isPending}
-        onQuickUndo={handleQuickUndo}
-      />
+      {activeJudgment &&
+        (verdictHasCriteria(activeJudgment.verdict) ? (
+          <JudgmentCriteriaPanel
+            key={activeJudgment.traceId}
+            verdict={activeJudgment.verdict}
+            title={markedLabel(activeJudgment.verdict)}
+            isUndoing={undoJudgment.isPending}
+            isSaving={setCriteria.isPending}
+            isError={setCriteria.isError}
+            onUndo={handleUndo}
+            onDone={handleCriteriaDone}
+          />
+        ) : (
+          <QuickUndoToast
+            key={activeJudgment.traceId}
+            label={markedLabel(activeJudgment.verdict)}
+            isUndoing={undoJudgment.isPending}
+            onUndo={handleUndo}
+            onDismiss={() => setActiveJudgment(null)}
+          />
+        ))}
     </>
   );
 }
@@ -763,6 +840,7 @@ function ReviewQueueDetail({
   agentAvatarUrl,
   onJudge,
   isJudging,
+  activeVerdict,
   showJudgmentError,
   position,
   queueSize,
@@ -779,6 +857,7 @@ function ReviewQueueDetail({
     trigger: HTMLButtonElement | null,
   ) => void;
   isJudging: boolean;
+  activeVerdict: DatasetJudgmentVerdict | null;
   showJudgmentError: boolean;
   position: number;
   queueSize: number;
@@ -823,6 +902,7 @@ function ReviewQueueDetail({
         </div>
         <ReviewQueueVerdictControls
           isPending={isJudging}
+          activeVerdict={activeVerdict}
           showError={showJudgmentError}
           onSelect={(verdict, trigger) =>
             onJudge(item.trace_id, verdict, trigger)
@@ -928,12 +1008,22 @@ function ReviewQueueDetailNavigation({
   );
 }
 
+// Highlight for the verdict already chosen; overrides the disabled dimming so
+// the selection stays vivid while the other buttons grey out.
+const VERDICT_ACTIVE_CLASS: Record<DatasetJudgmentVerdict, string> = {
+  good: "border-success/50 bg-success/15 text-success disabled:opacity-100",
+  bad: "border-destructive/50 bg-destructive/15 text-destructive disabled:opacity-100",
+  unknown: "border-border-strong bg-muted text-foreground disabled:opacity-100",
+};
+
 function ReviewQueueVerdictControls({
   isPending,
+  activeVerdict,
   showError,
   onSelect,
 }: {
   isPending: boolean;
+  activeVerdict: DatasetJudgmentVerdict | null;
   showError: boolean;
   onSelect: (
     verdict: DatasetJudgmentVerdict,
@@ -947,11 +1037,13 @@ function ReviewQueueVerdictControls({
     bad: null,
     unknown: null,
   });
+  // Once a verdict is recorded, lock the controls until the trace clears.
+  const locked = isPending || activeVerdict !== null;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const verdict = getReviewQueueShortcutVerdict(event);
-      if (!verdict || isPending) {
+      if (!verdict || locked) {
         return;
       }
 
@@ -961,7 +1053,7 @@ function ReviewQueueVerdictControls({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPending, onSelect]);
+  }, [locked, onSelect]);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
@@ -972,70 +1064,44 @@ function ReviewQueueVerdictControls({
       )}
       <div className="flex flex-wrap items-center gap-2 @max-[520px]/review-card:grid @max-[520px]/review-card:grid-cols-1">
         {REVIEW_QUEUE_VERDICT_OPTIONS.map(
-          ({ verdict, label, shortcut, Icon, iconClassName }) => (
-            <Button
-              key={verdict}
-              ref={(node) => {
-                verdictButtonRefs.current[verdict] = node;
-              }}
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isPending}
-              onClick={(event: MouseEvent<HTMLButtonElement>) =>
-                onSelect(verdict, event.currentTarget)
-              }
-              className="@max-[520px]/review-card:w-full"
-            >
-              <Icon className={cn("size-4", iconClassName)} />
-              {label}
-              <ShortcutKey ariaHidden>{shortcut}</ShortcutKey>
-            </Button>
-          ),
+          ({ verdict, label, shortcut, Icon, iconClassName }) => {
+            const isActive = activeVerdict === verdict;
+            return (
+              <Button
+                key={verdict}
+                ref={(node) => {
+                  verdictButtonRefs.current[verdict] = node;
+                }}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={locked}
+                aria-pressed={isActive}
+                onClick={(event: MouseEvent<HTMLButtonElement>) =>
+                  onSelect(verdict, event.currentTarget)
+                }
+                className={cn(
+                  "@max-[520px]/review-card:w-full",
+                  isActive && VERDICT_ACTIVE_CLASS[verdict],
+                )}
+              >
+                <Icon className={cn("size-4", iconClassName)} />
+                {label}
+                <ShortcutKey ariaHidden>{shortcut}</ShortcutKey>
+              </Button>
+            );
+          },
         )}
       </div>
     </div>
   );
 }
 
-function quickUndoLabel(verdict: DatasetJudgmentVerdict) {
+function markedLabel(verdict: DatasetJudgmentVerdict) {
   const label =
     REVIEW_QUEUE_VERDICT_OPTIONS.find((option) => option.verdict === verdict)
       ?.label ?? "verdict";
   return `Marked as ${label.toLowerCase()}`;
-}
-
-function ReviewQueueQuickUndoToast({
-  quickUndo,
-  isUndoing,
-  onQuickUndo,
-}: {
-  quickUndo: QuickUndoJudgment | null;
-  isUndoing: boolean;
-  onQuickUndo: () => void;
-}) {
-  if (!quickUndo) {
-    return null;
-  }
-
-  return (
-    <div
-      aria-live="polite"
-      className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 dark:bg-surface sm:w-auto sm:min-w-[300px]"
-    >
-      <span className="min-w-0 truncate">{quickUndoLabel(quickUndo.verdict)}</span>
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        disabled={isUndoing}
-        onClick={onQuickUndo}
-        className="h-7 flex-none px-3 font-semibold"
-      >
-        {isUndoing ? "Undoing..." : "Undo"}
-      </Button>
-    </div>
-  );
 }
 
 function ShortcutKey({

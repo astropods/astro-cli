@@ -740,6 +740,7 @@ describe("review queue view", () => {
     expect(within(panel).getByText("First judged panel prompt")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Good" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(within(panel).getByText("Second judged panel prompt")).toBeInTheDocument();
@@ -784,6 +785,7 @@ describe("review queue view", () => {
     expect(await screen.findByRole("dialog", { name: /trace details/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Good" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
@@ -1144,10 +1146,74 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Good" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => {
       expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
       expect(screen.getByText("Second response")).toBeInTheDocument();
+    });
+  });
+
+  it("submits the criteria selected before clicking Done", async () => {
+    const trace = queueItem({
+      trace_id: "trace_111111",
+      input: "Criteria prompt",
+      output: "Criteria response",
+    });
+    let queueItems = [trace];
+    let criteriaBody: {
+      criteria: { dimension_key: string; value: number }[];
+    } | null = null;
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
+        HttpResponse.json(reviewQueueResponse(queueItems)),
+      ),
+      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
+        const posted = (await request.json()) as DatasetJudgmentRequest;
+        queueItems = [];
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: posted.trace_id,
+            verdict: posted.verdict,
+          },
+          { status: 201 },
+        );
+      }),
+      http.put(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
+        async ({ request, params }) => {
+          criteriaBody = (await request.json()) as {
+            criteria: { dimension_key: string; value: number }[];
+          };
+          return HttpResponse.json({
+            eval_dataset_id: "dataset-1",
+            trace_id: params.traceId,
+            verdict: "good",
+            criteria: criteriaBody.criteria,
+          });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Criteria response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Good" }));
+    await user.click(screen.getByRole("button", { name: "Correct info" }));
+    await user.click(screen.getByRole("button", { name: "Followed instruction" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(criteriaBody).toEqual({
+        criteria: [
+          { dimension_key: "accuracy", value: 1 },
+          { dimension_key: "instruction_following", value: 1 },
+        ],
+      });
     });
   });
 
@@ -1191,6 +1257,7 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("Only loaded response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Good" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(await screen.findByText("Fresh page response")).toBeInTheDocument();
     expect(screen.queryByText("Ready for more traces")).not.toBeInTheDocument();

@@ -1065,6 +1065,20 @@ export interface DatasetJudgmentResponse {
   verdict: DatasetJudgmentVerdict;
 }
 
+/** A selected judgment criterion. `value` is the dimension score captured at
+ *  judgment time: human review sends 1 (good) or -1 (bad). */
+export interface JudgmentCriterion {
+  dimension_key: string;
+  value: number;
+}
+
+export interface DatasetJudgmentCriteriaResponse {
+  eval_dataset_id: string;
+  trace_id: string;
+  verdict: DatasetJudgmentVerdict;
+  criteria: JudgmentCriterion[];
+}
+
 // --- Pod metrics (CPU / memory time series) ---
 
 export type PodMetricsRange = "1h" | "6h" | "24h" | "7d";
@@ -2516,6 +2530,20 @@ class ApiClient {
     return this.request<DatasetJudgmentResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}`,
       { method: "DELETE" },
+    );
+  }
+
+  async putDatasetJudgmentCriteria(
+    deploymentId: string,
+    traceId: string,
+    body: { criteria: JudgmentCriterion[] },
+  ): Promise<DatasetJudgmentCriteriaResponse> {
+    return this.request<DatasetJudgmentCriteriaResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}/criteria`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
     );
   }
 
