@@ -445,6 +445,14 @@ func traceContentText(v any) string {
 	case string:
 		return strings.TrimSpace(val)
 	case map[string]any:
+		// A stopped/cancelled turn records a control marker as the trace output
+		// (e.g. {"status":"aborted","reason":"abort"}) rather than real content.
+		// Treat it as empty so it is dropped from the Langfuse thread and the
+		// persisted partial (chatstore) wins on hydration, instead of surfacing
+		// the raw marker as the assistant message.
+		if isAbortMarker(val) {
+			return ""
+		}
 		for _, key := range []string{"content", "text", "message", "output", "value", "response"} {
 			if s, ok := val[key].(string); ok && strings.TrimSpace(s) != "" {
 				return strings.TrimSpace(s)
@@ -486,6 +494,19 @@ func lastMessageText(items []any) string {
 		}
 	}
 	return ""
+}
+
+// isAbortMarker reports whether a trace value is a generation-abort control
+// object (recorded when a turn is stopped) rather than real message content.
+//
+// It matches only the exact marker shape — BOTH status=="aborted" AND
+// reason=="abort" — so a legitimate structured message that merely carries a
+// "status" or "reason" field on its own isn't mistaken for a marker and
+// dropped from hydration.
+func isAbortMarker(m map[string]any) bool {
+	status, _ := m["status"].(string)
+	reason, _ := m["reason"].(string)
+	return strings.EqualFold(status, "aborted") && strings.EqualFold(reason, "abort")
 }
 
 func jsonFallback(v any) string {

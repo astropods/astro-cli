@@ -183,3 +183,79 @@ func TestPaginateConversationMessages_OlderPage(t *testing.T) {
 		t.Fatalf("unexpected page: %+v", msgs)
 	}
 }
+
+func TestIsAbortMarker(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   map[string]any
+		want bool
+	}{
+		{
+			name: "exact marker matches",
+			in:   map[string]any{"status": "aborted", "reason": "abort"},
+			want: true,
+		},
+		{
+			name: "case-insensitive match",
+			in:   map[string]any{"status": "Aborted", "reason": "ABORT"},
+			want: true,
+		},
+		{
+			name: "extra fields still match",
+			in:   map[string]any{"status": "aborted", "reason": "abort", "note": "user stopped"},
+			want: true,
+		},
+		{
+			name: "status only does NOT match (tightened)",
+			in:   map[string]any{"status": "aborted"},
+			want: false,
+		},
+		{
+			name: "reason only does NOT match (tightened)",
+			in:   map[string]any{"reason": "abort"},
+			want: false,
+		},
+		{
+			name: "legit message with an aborted status field is not a marker",
+			in:   map[string]any{"status": "aborted", "reason": "policy", "content": "here is the answer"},
+			want: false,
+		},
+		{
+			name: "unrelated object",
+			in:   map[string]any{"content": "hello", "role": "assistant"},
+			want: false,
+		},
+		{
+			name: "non-string status field",
+			in:   map[string]any{"status": 1, "reason": "abort"},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAbortMarker(tc.in); got != tc.want {
+				t.Fatalf("isAbortMarker(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTraceContentText_MarkerYieldsEmpty(t *testing.T) {
+	t.Parallel()
+
+	if got := traceContentText(map[string]any{"status": "aborted", "reason": "abort"}); got != "" {
+		t.Fatalf("traceContentText(marker) = %q, want empty so the persisted partial wins", got)
+	}
+
+	// A near-marker that carries real content must NOT be dropped now that the
+	// matcher requires both fields.
+	got := traceContentText(map[string]any{"status": "aborted", "content": "partial answer"})
+	if got != "partial answer" {
+		t.Fatalf("traceContentText(status-only + content) = %q, want %q", got, "partial answer")
+	}
+}

@@ -2315,6 +2315,21 @@ class ApiClient {
     );
   }
 
+  // Stop generating: asks the messaging sidecar to end the in-flight turn
+  // (drop the agent's remaining output, finish the stream).
+  async cancelMessagingStream(
+    deploymentId: string,
+    conversationId: string,
+  ): Promise<void> {
+    await this.request(
+      this.messagingProxyPath(
+        deploymentId,
+        `conversations/${encodeURIComponent(conversationId)}/cancel`,
+      ),
+      { method: "POST" },
+    );
+  }
+
   messagingStreamPath(deploymentId: string, conversationId: string): string {
     return this.messagingProxyPath(
       deploymentId,

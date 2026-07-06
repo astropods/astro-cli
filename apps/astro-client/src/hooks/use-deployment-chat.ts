@@ -48,6 +48,10 @@ export function useDeploymentChat(
   const [streamingAssistantId, setStreamingAssistantId] = useState<
     string | null
   >(null);
+  // Conversation the user explicitly stopped. While set, a lagging server
+  // snapshot that still reports the turn in flight is ignored so the cancelled
+  // turn can't be reopened. Cleared on the next send or a conversation switch.
+  const [suppressedConvId, setSuppressedConvId] = useState<string | null>(null);
   const assistantIdRef = useRef<string | null>(null);
   const sendLockRef = useRef(false);
   const sseActiveRef = useRef(false);
@@ -99,22 +103,32 @@ export function useDeploymentChat(
     [],
   );
 
-  const turnInFlight = useMemo(
-    () =>
-      deriveTurnInFlight({
-        // A just-sent turn with an open SSE outranks an early "not in flight"
-        // server snapshot (see deriveTurnInFlight). sseActiveRef is a ref, but
-        // it's set synchronously in sendMessage before isStreaming flips, so the
-        // isStreaming/serverData deps already cover every transition that matters.
-        activeLocalTurn: isStreaming && sseActiveRef.current,
-        serverThread: serverData ?? undefined,
-        cachedThread: activeConversationId
-          ? readCachedThread(activeConversationId)
-          : undefined,
-        isStreaming,
-      }),
-    [activeConversationId, isStreaming, readCachedThread, serverData],
-  );
+  const turnInFlight = useMemo(() => {
+    // After an explicit stop, ignore a lagging server snapshot that still
+    // reports the turn in flight — the chat store is eventually consistent and
+    // would otherwise reopen the cancelled turn.
+    if (activeConversationId && suppressedConvId === activeConversationId) {
+      return false;
+    }
+    return deriveTurnInFlight({
+      // A just-sent turn with an open SSE outranks an early "not in flight"
+      // server snapshot (see deriveTurnInFlight). sseActiveRef is a ref, but
+      // it's set synchronously in sendMessage before isStreaming flips, so the
+      // isStreaming/serverData deps already cover every transition that matters.
+      activeLocalTurn: isStreaming && sseActiveRef.current,
+      serverThread: serverData ?? undefined,
+      cachedThread: activeConversationId
+        ? readCachedThread(activeConversationId)
+        : undefined,
+      isStreaming,
+    });
+  }, [
+    activeConversationId,
+    isStreaming,
+    readCachedThread,
+    serverData,
+    suppressedConvId,
+  ]);
 
   const activeStreamingMessageId = useMemo(() => {
     if (streamingAssistantId) return streamingAssistantId;
@@ -215,6 +229,9 @@ export function useDeploymentChat(
 
     if (deploymentChanged || prev !== activeConversationId) {
       setStreamError(null);
+      // A different conversation is now active — drop any stop-suppression that
+      // belonged to the previous one.
+      setSuppressedConvId(null);
     }
 
     if (!activeConversationId) {
@@ -232,16 +249,24 @@ export function useDeploymentChat(
 
   useEffect(() => {
     if (!activeConversationId || !serverData) return;
-    if (serverTurnInFlight(serverData)) {
+    const suppressed = suppressedConvId === activeConversationId;
+    if (!suppressed && serverTurnInFlight(serverData)) {
       applyInFlightState(serverData);
     } else if (isStreaming && !sseActiveRef.current) {
       // Only let the server snapshot end the turn once no local SSE is open.
       // While the SSE is live (a just-sent turn), an early "not in flight"
       // snapshot is stale — the turn ends via the SSE finish/error or the
-      // in-flight timeout, both of which clear sseActiveRef first.
+      // in-flight timeout, both of which clear sseActiveRef first. A suppressed
+      // (explicitly stopped) conversation never reactivates from the snapshot.
       applyInFlightState(undefined);
     }
-  }, [activeConversationId, applyInFlightState, isStreaming, serverData]);
+  }, [
+    activeConversationId,
+    applyInFlightState,
+    isStreaming,
+    serverData,
+    suppressedConvId,
+  ]);
 
   useEffect(() => {
     setCreatedConversationId(null);
@@ -292,6 +317,8 @@ export function useDeploymentChat(
       sendLockRef.current = true;
 
       setStreamError(null);
+      // A fresh send lifts any prior stop-suppression for this conversation.
+      setSuppressedConvId(null);
       assistantIdRef.current = null;
       setStreamingAssistantId(null);
       setIsStreaming(true);
@@ -363,11 +390,30 @@ export function useDeploymentChat(
   );
 
   const cancelStream = useCallback(() => {
-    applyInFlightState(undefined);
-    if (activeConversationId) {
-      finalizeConversation(activeConversationId);
+    const convId = activeConversationId;
+    if (convId) {
+      // Suppress reopen before tearing down so a lagging in-flight snapshot from
+      // the refetch below can't resurrect the turn.
+      setSuppressedConvId(convId);
+      // Best-effort: ask the sidecar to stop generating. The local teardown
+      // below ends the turn for the user regardless of this request's outcome,
+      // but a breadcrumb makes a systematically failing /cancel observable
+      // (e.g. the sidecar route regressed) rather than silently swallowed.
+      void api.cancelMessagingStream(deploymentId, convId).catch((err) => {
+        console.warn("[use-deployment-chat] cancelMessagingStream failed", err);
+      });
     }
-  }, [activeConversationId, applyInFlightState, finalizeConversation]);
+    applyInFlightState(undefined);
+    if (convId) {
+      finalizeConversation(convId);
+    }
+  }, [
+    activeConversationId,
+    api,
+    deploymentId,
+    applyInFlightState,
+    finalizeConversation,
+  ]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!activeConversationId || !serverData?.has_more || !serverData.oldest_seq) {

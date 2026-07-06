@@ -86,6 +86,7 @@ func ProxyDeploymentMessaging(
 
 		streamConvID, isChatStream := chatStreamConversationID(proxyPath)
 		sendConvID, isChatSend := chatSendConversationID(proxyPath, c.Request.Method)
+		cancelConvID, isChatCancel := chatCancelConversationID(proxyPath, c.Request.Method)
 
 		var upstreamBody io.Reader = c.Request.Body
 		if isChatSend {
@@ -169,6 +170,15 @@ func ProxyDeploymentMessaging(
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		// A client "stop generating" (POST conversations/{id}/cancel) ends the
+		// assistant turn. Clear the stream-active marker as soon as the sidecar
+		// accepts the cancel so a history refetch immediately reports "not in
+		// flight" and the client doesn't reopen the turn from a lagging snapshot.
+		// The sidecar also closes the SSE, which unwinds the detached persister.
+		if isChatCancel && chatStore != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			setAssistantStreamActive(log, chatStore, dep.ID, user.ID, cancelConvID, false)
+		}
+
 		if isEventStream(resp) {
 			var persist *chatStreamPersist
 			if isChatStream && chatStore != nil {
@@ -222,6 +232,17 @@ func chatSendConversationID(proxyPath, method string) (string, bool) {
 	}
 	parts := chatConversationPathParts(proxyPath)
 	if len(parts) != 3 || parts[0] != "conversations" || parts[2] != "messages" {
+		return "", false
+	}
+	return parseProxyConversationID(parts[1])
+}
+
+func chatCancelConversationID(proxyPath, method string) (string, bool) {
+	if method != http.MethodPost {
+		return "", false
+	}
+	parts := chatConversationPathParts(proxyPath)
+	if len(parts) != 3 || parts[0] != "conversations" || parts[2] != "cancel" {
 		return "", false
 	}
 	return parseProxyConversationID(parts[1])

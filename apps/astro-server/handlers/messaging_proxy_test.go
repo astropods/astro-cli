@@ -13,6 +13,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -228,5 +229,80 @@ func TestMessagingHTTPPort(t *testing.T) {
 	})
 	if err != nil || port != 8090 {
 		t.Fatalf("expected http port 8090, got %d err=%v", port, err)
+	}
+}
+
+func TestChatCancelConversationID(t *testing.T) {
+	id := uuid.New().String()
+
+	cases := []struct {
+		name      string
+		method    string
+		proxyPath string
+		wantID    string
+		wantOK    bool
+	}{
+		{
+			name:      "POST cancel with api prefix",
+			method:    http.MethodPost,
+			proxyPath: "/api/conversations/" + id + "/cancel",
+			wantID:    id,
+			wantOK:    true,
+		},
+		{
+			name:      "POST cancel without leading slash or api prefix",
+			method:    http.MethodPost,
+			proxyPath: "conversations/" + id + "/cancel",
+			wantID:    id,
+			wantOK:    true,
+		},
+		{
+			name:      "GET is rejected",
+			method:    http.MethodGet,
+			proxyPath: "/api/conversations/" + id + "/cancel",
+			wantOK:    false,
+		},
+		{
+			name:      "DELETE is rejected",
+			method:    http.MethodDelete,
+			proxyPath: "/api/conversations/" + id + "/cancel",
+			wantOK:    false,
+		},
+		{
+			name:      "stream path is not a cancel",
+			method:    http.MethodPost,
+			proxyPath: "/api/conversations/" + id + "/stream",
+			wantOK:    false,
+		},
+		{
+			name:      "send path (no trailing segment) is not a cancel",
+			method:    http.MethodPost,
+			proxyPath: "/api/conversations/" + id,
+			wantOK:    false,
+		},
+		{
+			name:      "non-uuid conversation id is rejected",
+			method:    http.MethodPost,
+			proxyPath: "/api/conversations/not-a-uuid/cancel",
+			wantOK:    false,
+		},
+		{
+			name:      "extra path segment is rejected",
+			method:    http.MethodPost,
+			proxyPath: "/api/conversations/" + id + "/cancel/extra",
+			wantOK:    false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotID, gotOK := chatCancelConversationID(tc.proxyPath, tc.method)
+			if gotOK != tc.wantOK {
+				t.Fatalf("chatCancelConversationID(%q, %q) ok = %v, want %v", tc.proxyPath, tc.method, gotOK, tc.wantOK)
+			}
+			if tc.wantOK && gotID != tc.wantID {
+				t.Fatalf("chatCancelConversationID(%q, %q) id = %q, want %q", tc.proxyPath, tc.method, gotID, tc.wantID)
+			}
+		})
 	}
 }
