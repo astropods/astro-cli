@@ -152,8 +152,9 @@ export default function AgentDeployments() {
           <PodDetailPanel
             workload={selectedWorkload}
             deploymentId={deployment.id}
-
             externalUrls={deployment.external_urls}
+            paused={paused}
+            probing={runtime === undefined}
             onClose={handleClosePodPanel}
             expanded={podPanelExpanded}
             onToggleExpanded={shouldOverlay ? undefined : togglePodPanelExpanded}

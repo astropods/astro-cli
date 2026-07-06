@@ -318,6 +318,21 @@ describe("user inspects pod details", () => {
     expect(screen.getAllByText("Online").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("keeps the detail panel status paused when the deployment is paused", async () => {
+    const { user } = renderDeployments(
+      makeDeployment({
+        status: "scaled_down",
+        workloads: [makeWorkload({ containers: [] })],
+      }),
+    );
+
+    await user.click(await screen.findByText("agent"));
+
+    expect(await screen.findByRole("heading", { level: 2 })).toHaveTextContent("agent");
+    expect(screen.getAllByText("Paused").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Starting")).not.toBeInTheDocument();
+  });
+
   it("General tab shows Domains and Environment Variables sections", async () => {
     const { user } = renderDeployments();
     await user.click(await screen.findByText("agent"));

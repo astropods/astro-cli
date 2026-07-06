@@ -6,7 +6,7 @@ import { useDeployments, useDeployment, useDeploymentEvents, useDeploymentLogs, 
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments, mockDeploymentEvents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
-import type { DeploymentsListResponse } from '@/lib/api';
+import type { AgentDeployment, DeploymentStatus, DeploymentsListResponse } from '@/lib/api';
 import type { LogEntry } from '@/lib/log-utils';
 
 const testAccount = 'testuser';
@@ -183,11 +183,16 @@ describe('useDeploymentEvents', () => {
 });
 
 describe('useStopDeployment', () => {
-  it('stops a deployment and invalidates the deployments list and detail cache', async () => {
+  it('stops a deployment, seeds paused caches, and invalidates list/detail reads', async () => {
     const { wrapper, queryClient } = createHookWrapper();
 
     queryClient.setQueryData(deploymentKeys.all(testAccount), mockDeployments);
     queryClient.setQueryData(deploymentKeys.detail('dep-code-reviewer'), { deployment: mockDeployments.deployments[0] });
+    queryClient.setQueryData<DeploymentStatus>(deploymentKeys.status('dep-code-reviewer'), {
+      value: 'active',
+      reason: 'ready',
+      details: 'Deployment is active',
+    });
 
     const { result } = renderHook(() => useStopDeployment(testAccount), { wrapper });
 
@@ -196,6 +201,15 @@ describe('useStopDeployment', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.status).toBe('stopped');
+
+    const list = queryClient.getQueryData<DeploymentsListResponse>(deploymentKeys.all(testAccount));
+    expect(list?.deployments.find((d) => d.id === 'dep-code-reviewer')?.status).toBe('stopped');
+
+    const detail = queryClient.getQueryData<{ deployment: AgentDeployment }>(deploymentKeys.detail('dep-code-reviewer'));
+    expect(detail?.deployment.status).toBe('stopped');
+
+    const status = queryClient.getQueryData<DeploymentStatus>(deploymentKeys.status('dep-code-reviewer'));
+    expect(status).toMatchObject({ value: 'inactive', reason: 'paused' });
 
     const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);

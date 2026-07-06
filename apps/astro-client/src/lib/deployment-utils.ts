@@ -9,6 +9,23 @@ import type {
 export const launchUnavailableMessage =
   "Launch is unavailable while we create your custom URL";
 
+export const PAUSED_DEPLOYMENT_RECORD_STATUSES = ["stopped", "scaled_down", "Stopped"] as const;
+
+export type PausedDeploymentRecordStatus =
+  (typeof PAUSED_DEPLOYMENT_RECORD_STATUSES)[number];
+
+export const PAUSED_DEPLOYMENT_STATUS_SEED = {
+  value: "inactive",
+  reason: "paused",
+  details: "Deployment is paused",
+} satisfies DeploymentStatus;
+
+export function coercePausedDeploymentStatus(status: string): string {
+  return PAUSED_DEPLOYMENT_RECORD_STATUSES.includes(status as PausedDeploymentRecordStatus)
+    ? status
+    : PAUSED_DEPLOYMENT_RECORD_STATUSES[0];
+}
+
 export function getMessagingEndpoint(deployment: AgentDeployment | AgentDeploymentSummary | null | undefined) {
   return deployment?.external_urls?.find((u) => u.type === "messaging");
 }
@@ -101,7 +118,9 @@ export function isLaunchReady(deployment: AgentDeployment | null | undefined): b
 // record. Used by AgentStatusToggle for the toggle's checked/unchecked state.
 export function isPausedState(deployment: AgentDeployment): boolean {
   const s = deployment.status?.toLowerCase() ?? "";
-  return s === "stopped" || s === "scaled_down";
+  return PAUSED_DEPLOYMENT_RECORD_STATUSES.some(
+    (status) => status.toLowerCase() === s,
+  );
 }
 
 /**

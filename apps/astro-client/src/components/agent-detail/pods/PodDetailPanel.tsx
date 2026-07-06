@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent } from "@/lib/api";
 import { useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
-import { derivePodStatus, POD_STATUS_STYLES } from "./PodTile";
+import { POD_STATUS_STYLES, resolvePodStatus } from "./PodTile";
 import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
 import { PodMetricsTab } from "./PodMetricsTab";
@@ -20,12 +20,16 @@ interface PodDetailPanelProps {
   deploymentId: string;
   /** Public-facing URLs from the deployment (external_urls). */
   externalUrls?: ServiceEndpointInfo[];
+  /** True when the parent deployment is paused. Mirrors PodTile status precedence. */
+  paused?: boolean;
+  /** True while the runtime query has not returned. Mirrors PodTile status precedence. */
+  probing?: boolean;
   onClose: () => void;
   expanded?: boolean;
   onToggleExpanded?: () => void;
 }
 
-export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
+export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("General");
 
   return (
@@ -34,6 +38,8 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose, 
       workload={workload}
       deploymentId={deploymentId}
       externalUrls={externalUrls}
+      paused={paused}
+      probing={probing}
       onClose={onClose}
       expanded={expanded}
       onToggleExpanded={onToggleExpanded}
@@ -43,11 +49,11 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, onClose, 
   );
 }
 
-function PodDetailPanelInner({ workload, deploymentId, externalUrls, onClose, expanded, onToggleExpanded, activeTab, setActiveTab }: PodDetailPanelProps & { activeTab: Tab; setActiveTab: (tab: Tab) => void }) {
+function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded, activeTab, setActiveTab }: PodDetailPanelProps & { activeTab: Tab; setActiveTab: (tab: Tab) => void }) {
   const logsVisited = useRef(false);
   if (activeTab === "Logs") logsVisited.current = true;
 
-  const { status, label: statusLabel } = derivePodStatus(workload);
+  const { status, label: statusLabel } = resolvePodStatus(workload, { paused, probing });
   const name = workload.component || workload.name;
 
   return (

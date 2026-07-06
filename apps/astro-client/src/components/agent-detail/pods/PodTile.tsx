@@ -110,6 +110,15 @@ export const POD_STATUS_STYLES: Record<PodStatus, { dot: string; glow: string; l
   paused:    { dot: "bg-stone-500",                   glow: "",                                          label: "Paused" },
 };
 
+export function resolvePodStatus(
+  workload: WorkloadDetail | undefined,
+  opts: { paused?: boolean; probing?: boolean },
+): PodStatusInfo {
+  if (opts.paused) return { status: "paused", label: POD_STATUS_STYLES.paused.label };
+  if (opts.probing) return { status: "probing", label: POD_STATUS_STYLES.probing.label };
+  return derivePodStatus(workload);
+}
+
 type IconComponent = React.ComponentType<{ className?: string }>;
 
 const COMPONENT_ICONS: Record<string, IconComponent> = {
@@ -210,11 +219,7 @@ export function PodTile({ workload, deploymentId, probing, paused, className, on
   // workload is missing so we can still bail out below — see PodGraph for the
   // root-cause fix; this is a defensive backstop for AnimatePresence exits and
   // query refetches that can briefly feed undefined through.
-  // Status precedence: paused > probing > derived (paused is the whole-agent
-  // state, probing is a transient loading state, derived is per-workload).
-  const derived = derivePodStatus(workload);
-  const status: PodStatus = paused ? "paused" : probing ? "probing" : derived.status;
-  const label = paused || probing ? undefined : derived.label;
+  const { status, label } = resolvePodStatus(workload, { paused, probing });
   const containerName = workload && status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
     deploymentId,

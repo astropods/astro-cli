@@ -9,6 +9,10 @@ import type {
   PodMetricsRange,
   UndeployResponse,
 } from '@/lib/api';
+import {
+  coercePausedDeploymentStatus,
+  PAUSED_DEPLOYMENT_STATUS_SEED,
+} from '@/lib/deployment-utils';
 import { deploymentKeys } from './keys';
 
 // Powers the cross-account quick switcher on the agent detail page.
@@ -366,7 +370,32 @@ export function useStopDeployment(account: string) {
 
   return useMutation<{ status: string; deployment_id: string }, Error, { deploymentId: string }>({
     mutationFn: api.stopDeployment.bind(api),
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
+      const stoppedStatus = coercePausedDeploymentStatus(data.status);
+      queryClient.setQueryData<{ deployment: AgentDeployment }>(
+        deploymentKeys.detail(variables.deploymentId),
+        (old) =>
+          old
+            ? { ...old, deployment: { ...old.deployment, status: stoppedStatus } }
+            : old,
+      );
+      queryClient.setQueriesData(
+        { queryKey: deploymentKeys.all(account) },
+        (old: DeploymentsListResponse | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            deployments: old.deployments.map((d) =>
+              d.id === variables.deploymentId ? { ...d, status: stoppedStatus } : d
+            ),
+          };
+        },
+      );
+      queryClient.setQueryData<DeploymentStatus>(
+        deploymentKeys.status(variables.deploymentId),
+        (old) =>
+          old ? { ...old, ...PAUSED_DEPLOYMENT_STATUS_SEED } : { ...PAUSED_DEPLOYMENT_STATUS_SEED },
+      );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
       invalidateDeployment(queryClient, variables.deploymentId);
     },
