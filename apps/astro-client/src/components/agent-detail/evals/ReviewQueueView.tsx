@@ -80,8 +80,8 @@ const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
   },
   {
     verdict: "unknown",
-    label: "Neutral",
-    shortcut: "N",
+    label: "Skip",
+    shortcut: "S",
     Icon: Minus,
     iconClassName: "text-muted-foreground",
   },
@@ -90,7 +90,7 @@ const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
 const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<string, DatasetJudgmentVerdict> = {
   g: "good",
   b: "bad",
-  n: "unknown",
+  s: "unknown",
 };
 
 const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
@@ -868,38 +868,7 @@ function ReviewQueueDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-none flex-col gap-3 border-b border-border px-4 py-4 @[520px]/review-card:px-6 @[520px]/review-card:gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <TraceDetailHoverLink
-              traceId={item.trace_id}
-              traceLabel={traceLabel}
-              onOpenTrace={onOpenTrace}
-            />
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex cursor-help">
-                    <StatusBadge
-                      color={sentiment.color}
-                      className="flex-none gap-1.5 px-2.5 py-1 font-sans text-label font-medium tracking-normal"
-                    >
-                      <sentiment.Icon aria-hidden className="size-3" />
-                      <span className="underline decoration-current/45 decoration-dotted underline-offset-2">
-                        {sentiment.label}
-                      </span>
-                    </StatusBadge>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-56 text-left">
-                  Inferred from keywords in the user's next reply. Only affects queue order,
-                  never the verdict.
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <ReviewQueueDetailNavigation position={position} total={queueSize} />
-        </div>
+      <div className="flex flex-none flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border px-4 py-4 @[520px]/review-card:px-6">
         <ReviewQueueVerdictControls
           isPending={isJudging}
           activeVerdict={activeVerdict}
@@ -908,6 +877,35 @@ function ReviewQueueDetail({
             onJudge(item.trace_id, verdict, trigger)
           }
         />
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
+          <TraceDetailHoverLink
+            traceId={item.trace_id}
+            traceLabel={traceLabel}
+            onOpenTrace={onOpenTrace}
+          />
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex cursor-help">
+                  <StatusBadge
+                    color={sentiment.color}
+                    className="flex-none gap-1.5 px-2.5 py-1 font-sans text-label font-medium tracking-normal"
+                  >
+                    <sentiment.Icon aria-hidden className="size-3" />
+                    <span className="underline decoration-current/45 decoration-dotted underline-offset-2">
+                      {sentiment.label}
+                    </span>
+                  </StatusBadge>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-56 text-left">
+                Inferred from keywords in the user's next reply. Only affects queue order,
+                never the verdict.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <ReviewQueueDetailNavigation position={position} total={queueSize} />
+        </div>
       </div>
 
       <div
@@ -972,7 +970,7 @@ function TraceDetailHoverLink({
       title={traceId}
       onClick={onOpenTrace}
       className={cn(
-        "group/trace -ml-1.5 inline-flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-1 text-foreground transition-colors",
+        "group/trace inline-flex cursor-pointer items-center gap-1.5 rounded-sm py-1 text-foreground transition-colors",
         "hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
     >

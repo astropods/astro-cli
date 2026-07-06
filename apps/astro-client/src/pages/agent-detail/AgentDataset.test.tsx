@@ -882,7 +882,7 @@ describe("review queue view", () => {
   it.each([
     ["Good", "good"],
     ["Bad", "bad"],
-    ["Neutral", "unknown"],
+    ["Skip", "unknown"],
   ] as const)("posts %s as %s", async (label, verdict) => {
     let posted: DatasetJudgmentRequest | null = null;
     setupDataset(
@@ -927,7 +927,7 @@ describe("review queue view", () => {
   it.each([
     ["g", "good"],
     ["b", "bad"],
-    ["n", "unknown"],
+    ["s", "unknown"],
   ] as const)("posts %s keyboard shortcut as %s", async (shortcut, verdict) => {
     let posted: DatasetJudgmentRequest | null = null;
     setupDataset(
