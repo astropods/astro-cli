@@ -40,6 +40,7 @@ function renderRow(opts: RenderOpts = {}) {
   const onToggle = vi.fn();
   const onChangeVerdict = vi.fn();
   const onRemoveVerdict = vi.fn();
+  const onSaveCriteria = vi.fn();
   render(
     <DatasetItemRow
       item={opts.item ?? makeItem()}
@@ -47,12 +48,14 @@ function renderRow(opts: RenderOpts = {}) {
       onToggle={onToggle}
       onChangeVerdict={onChangeVerdict}
       onRemoveVerdict={onRemoveVerdict}
+      onSaveCriteria={onSaveCriteria}
       isChanging={false}
       isRemoving={false}
+      isSavingCriteria={false}
       reviewer={opts.reviewer === undefined ? reviewer : opts.reviewer}
     />,
   );
-  return { onToggle, onChangeVerdict, onRemoveVerdict };
+  return { onToggle, onChangeVerdict, onRemoveVerdict, onSaveCriteria };
 }
 
 describe("DatasetItemRow collapsed", () => {

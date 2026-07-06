@@ -1,15 +1,11 @@
-import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "lucide-react";
 import { InlineBadge } from "@/components/InlineBadge";
 import { Button } from "@/components/ui/button";
 import { SelectableChip } from "@/components/ui/SelectableChip";
 import type { JudgmentCriterion } from "@/lib/api";
-import {
-  JUDGMENT_CRITERIA,
-  criterionLabel,
-  toCriteria,
-} from "./judgment-criteria";
+import { JUDGMENT_CRITERIA, criterionLabel } from "./judgment-criteria";
+import { useJudgmentCriteriaSelection } from "./useJudgmentCriteriaSelection";
 
 export interface JudgmentCriteriaPanelProps {
   /** The verdict just recorded; drives the label set and chip tone. */
@@ -20,11 +16,11 @@ export interface JudgmentCriteriaPanelProps {
   isSaving: boolean;
   isError: boolean;
   onUndo: () => void;
-  onDone: (criteria: JudgmentCriterion[]) => void;
+  onSave: (criteria: JudgmentCriterion[]) => void;
 }
 
 /** Popup that confirms a verdict with an Undo and lets the reviewer optionally
- *  pick judgment criteria before dismissing with Done. */
+ *  pick judgment criteria before dismissing with Save. */
 export function JudgmentCriteriaPanel({
   verdict,
   title,
@@ -32,27 +28,13 @@ export function JudgmentCriteriaPanel({
   isSaving,
   isError,
   onUndo,
-  onDone,
+  onSave,
 }: JudgmentCriteriaPanelProps) {
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const { selected, toggle, selectedCriteriaForVerdict } =
+    useJudgmentCriteriaSelection();
 
-  const toggle = (dimensionKey: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(dimensionKey)) {
-        next.delete(dimensionKey);
-      } else {
-        next.add(dimensionKey);
-      }
-      return next;
-    });
-  };
-
-  const handleDone = () => {
-    const orderedKeys = JUDGMENT_CRITERIA.filter((d) =>
-      selected.has(d.dimensionKey),
-    ).map((d) => d.dimensionKey);
-    onDone(toCriteria(orderedKeys, verdict));
+  const handleSave = () => {
+    onSave(selectedCriteriaForVerdict(verdict));
   };
 
   if (typeof document === "undefined") {
@@ -96,7 +78,9 @@ export function JudgmentCriteriaPanel({
                 key={dimension.dimensionKey}
                 selected={isSelected}
                 tone={verdict === "bad" ? "destructive" : "success"}
+                disabled={isSaving || isUndoing}
                 onClick={() => toggle(dimension.dimensionKey)}
+                className="h-7"
               >
                 {criterionLabel(dimension, verdict)}
                 {isSelected && <Check aria-hidden className="size-4" />}
@@ -114,11 +98,11 @@ export function JudgmentCriteriaPanel({
           <Button
             type="button"
             size="sm"
-            onClick={handleDone}
-            disabled={isSaving}
+            onClick={handleSave}
+            disabled={isSaving || isUndoing}
             className="h-7 px-3.5"
           >
-            {isSaving ? "Saving..." : "Done"}
+            {isSaving ? "Saving..." : "Save"}
           </Button>
         </div>
       </div>

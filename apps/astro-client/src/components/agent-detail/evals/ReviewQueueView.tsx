@@ -490,7 +490,7 @@ export function ReviewQueueView({
             isSaving={setCriteria.isPending}
             isError={setCriteria.isError}
             onUndo={handleUndo}
-            onDone={handleCriteriaDone}
+            onSave={handleCriteriaDone}
           />
         ) : (
           <QuickUndoToast

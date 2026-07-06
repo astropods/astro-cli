@@ -1,27 +1,8 @@
-import {
-  Check,
-  ChevronRight,
-  Info,
-  Minus,
-  MoreHorizontal,
-  ThumbsDown,
-  ThumbsUp,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ChevronRight, Info, ThumbsDown, ThumbsUp } from "lucide-react";
 import { ContentValue } from "@/components/agent-detail/ContentValue";
 import { CriterionLabels } from "@/components/agent-detail/evals/CriterionLabels";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { TableCell, TableRow } from "@/components/ui/table";
 import {
   Tooltip,
@@ -32,7 +13,12 @@ import {
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
-import type { DatasetJudgmentVerdict, EvalDatasetItem } from "@/lib/api";
+import type {
+  DatasetJudgmentVerdict,
+  EvalDatasetItem,
+  JudgmentCriterion,
+} from "@/lib/api";
+import { DatasetRowActionsMenu } from "./DatasetRowActionsMenu";
 
 export type Verdict = "good" | "bad" | null;
 
@@ -157,8 +143,14 @@ export interface DatasetItemRowProps {
   onToggle: (id: string) => void;
   onChangeVerdict: (traceId: string, verdict: DatasetJudgmentVerdict) => void;
   onRemoveVerdict: (traceId: string, trigger: HTMLElement | null) => void;
+  onSaveCriteria: (
+    traceId: string,
+    criteria: JudgmentCriterion[],
+    onSaved: () => void,
+  ) => void;
   isChanging: boolean;
   isRemoving: boolean;
+  isSavingCriteria: boolean;
   reviewer: ResolvedReviewer | null;
 }
 
@@ -168,11 +160,15 @@ export function DatasetItemRow({
   onToggle,
   onChangeVerdict,
   onRemoveVerdict,
+  onSaveCriteria,
   isChanging,
   isRemoving,
+  isSavingCriteria,
   reviewer,
 }: DatasetItemRowProps) {
   const verdict = itemVerdict(item);
+  const savedCriteriaKeys =
+    item.metadata?.judgment_criteria?.map((c) => c.dimension_key) ?? [];
   const inputSummary = summarize(item.input);
   const outputSummary = summarize(item.expected_output);
 
@@ -252,10 +248,13 @@ export function DatasetItemRow({
               <DatasetRowActionsMenu
                 traceId={item.source_trace_id}
                 verdict={verdict}
+                savedCriteriaKeys={savedCriteriaKeys}
                 isChanging={isChanging}
                 isRemoving={isRemoving}
                 onChangeVerdict={onChangeVerdict}
                 onRemoveVerdict={onRemoveVerdict}
+                onSaveCriteria={onSaveCriteria}
+                isSavingCriteria={isSavingCriteria}
               />
             </div>
           </div>
@@ -279,79 +278,3 @@ export function DatasetItemRow({
   );
 }
 
-function DatasetRowActionsMenu({
-  traceId,
-  verdict,
-  isChanging,
-  isRemoving,
-  onChangeVerdict,
-  onRemoveVerdict,
-}: {
-  traceId: string;
-  verdict: Verdict;
-  isChanging: boolean;
-  isRemoving: boolean;
-  onChangeVerdict: (traceId: string, verdict: DatasetJudgmentVerdict) => void;
-  onRemoveVerdict: (traceId: string, trigger: HTMLElement | null) => void;
-}) {
-  const busy = isChanging || isRemoving;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Trace actions"
-          disabled={busy}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <MoreHorizontal className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuLabel className="text-faint-foreground">
-          Change verdict
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          disabled={verdict === "good" || busy}
-          onSelect={() => onChangeVerdict(traceId, "good")}
-        >
-          <Check className="size-4 text-success" />
-          Good
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={verdict === "bad" || busy}
-          onSelect={() => onChangeVerdict(traceId, "bad")}
-        >
-          <X className="size-4 text-destructive" />
-          Bad
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={verdict === null || busy}
-          onSelect={() => onChangeVerdict(traceId, "unknown")}
-        >
-          <Minus className="size-4 text-muted-foreground" />
-          Neutral
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          disabled={busy}
-          onSelect={(event) =>
-            onRemoveVerdict(
-              traceId,
-              event.currentTarget instanceof HTMLElement
-                ? event.currentTarget
-                : null,
-            )
-          }
-        >
-          <Trash2 className="size-4" />
-          Remove from dataset
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}

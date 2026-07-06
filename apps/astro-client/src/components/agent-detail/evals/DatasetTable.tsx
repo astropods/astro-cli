@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type RefObject } from "react";
+import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
@@ -15,11 +16,13 @@ import type {
   EvalDatasetItem,
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
+  JudgmentCriterion,
   ReviewQueueItem,
 } from "@/lib/api";
 import {
   useChangeDatasetJudgment,
   useEvalDatasetItems,
+  useSetDatasetJudgmentCriteria,
   useUndoDatasetJudgment,
 } from "@/api/queries/evals";
 
@@ -55,11 +58,15 @@ export function DatasetTable({
     useEvalDatasetItems(deploymentId, PAGE_LIMIT, activeVerdict);
   const undoJudgment = useUndoDatasetJudgment(deploymentId);
   const changeJudgment = useChangeDatasetJudgment(deploymentId);
+  const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
   const undoingTraceId = undoJudgment.isPending
     ? undoJudgment.variables?.traceId ?? null
     : null;
   const changingTraceId = changeJudgment.isPending
     ? changeJudgment.variables?.traceId ?? null
+    : null;
+  const savingCriteriaTraceId = setCriteria.isPending
+    ? setCriteria.variables?.traceId ?? null
     : null;
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -89,6 +96,21 @@ export function DatasetTable({
       changeJudgment.mutate({ traceId, verdict });
     },
     [changeJudgment],
+  );
+  const saveTraceCriteria = useCallback(
+    (traceId: string, criteria: JudgmentCriterion[], onSaved: () => void) => {
+      setCriteria.mutate(
+        { traceId, criteria },
+        {
+          onSuccess: () => {
+            toast.success("Criteria saved");
+            onSaved();
+          },
+          onError: () => toast.error("Could not save criteria. Try again."),
+        },
+      );
+    },
+    [setCriteria],
   );
 
   const { data: membersData, isLoading: membersLoading } = useAccountMembers(
@@ -219,8 +241,10 @@ export function DatasetTable({
             onToggle={toggleExpanded}
             onChangeVerdict={changeTraceVerdict}
             onRemoveVerdict={(_traceId, trigger) => undoTrace(item, trigger)}
+            onSaveCriteria={saveTraceCriteria}
             isChanging={changingTraceId === item.source_trace_id}
             isRemoving={undoingTraceId === item.source_trace_id}
+            isSavingCriteria={savingCriteriaTraceId === item.source_trace_id}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
           />
         ))}

@@ -70,8 +70,10 @@ function DatasetRowStory({
             onToggle={() => setOpen((current) => !current)}
             onChangeVerdict={() => undefined}
             onRemoveVerdict={() => undefined}
+            onSaveCriteria={(_traceId, _criteria, onSaved) => onSaved()}
             isChanging={false}
             isRemoving={false}
+            isSavingCriteria={false}
             reviewer={reviewer}
           />
         </TableBody>

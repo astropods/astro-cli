@@ -740,7 +740,7 @@ describe("review queue view", () => {
     expect(within(panel).getByText("First judged panel prompt")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Good" }));
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(within(panel).getByText("Second judged panel prompt")).toBeInTheDocument();
@@ -785,7 +785,7 @@ describe("review queue view", () => {
     expect(await screen.findByRole("dialog", { name: /trace details/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Good" }));
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
@@ -1146,7 +1146,7 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Good" }));
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
@@ -1154,7 +1154,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("submits the criteria selected before clicking Done", async () => {
+  it("submits the criteria selected before clicking Save", async () => {
     const trace = queueItem({
       trace_id: "trace_111111",
       input: "Criteria prompt",
@@ -1205,7 +1205,7 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("button", { name: "Good" }));
     await user.click(screen.getByRole("button", { name: "Correct info" }));
     await user.click(screen.getByRole("button", { name: "Followed instruction" }));
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(criteriaBody).toEqual({
@@ -1257,7 +1257,7 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("Only loaded response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Good" }));
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Fresh page response")).toBeInTheDocument();
     expect(screen.queryByText("Ready for more traces")).not.toBeInTheDocument();
@@ -1602,7 +1602,7 @@ describe("dataset view", () => {
     });
   });
 
-  it("changes a judged dataset item to neutral and removes it from the dataset", async () => {
+  it("removes a judged dataset item from the dataset", async () => {
     const item = datasetItem({
       id: "dataset-item-neutral",
       input: "Neutral prompt",
@@ -1611,9 +1611,7 @@ describe("dataset view", () => {
       metadata: { verdict: 1 },
     });
     let items = [item];
-    let patched:
-      | { traceId: string; body: Pick<DatasetJudgmentRequest, "verdict"> }
-      | null = null;
+    let deletedTraceId: string | null = null;
 
     setupDataset(
       makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
@@ -1623,20 +1621,16 @@ describe("dataset view", () => {
       http.get("/api/v1/deployments/:id/dataset/items", () =>
         HttpResponse.json(itemsResponse(items)),
       ),
-      http.patch(
+      http.delete(
         "/api/v1/deployments/:id/dataset/judgments/:traceId",
-        async ({ params, request }) => {
+        ({ params }) => {
           const traceId = String(params.traceId);
-          const body = (await request.json()) as Pick<
-            DatasetJudgmentRequest,
-            "verdict"
-          >;
-          patched = { traceId, body };
+          deletedTraceId = traceId;
           items = [];
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: traceId,
-            verdict: body.verdict,
+            verdict: "good",
           });
         },
       ),
@@ -1648,14 +1642,11 @@ describe("dataset view", () => {
     expect(await screen.findByText("Neutral prompt")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
     await user.click(
-      await screen.findByRole("menuitem", { name: /^neutral$/i }),
+      await screen.findByRole("menuitem", { name: /remove from dataset/i }),
     );
 
     await waitFor(() => {
-      expect(patched).toEqual({
-        traceId: "trace-neutral",
-        body: { verdict: "unknown" },
-      });
+      expect(deletedTraceId).toBe("trace-neutral");
     });
     await waitFor(() => {
       expect(screen.queryByText("Neutral prompt")).not.toBeInTheDocument();

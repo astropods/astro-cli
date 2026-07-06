@@ -12,8 +12,8 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
 import { getCurrentUserForRequest } from "./lib/api.server";
+import { Toaster } from "./components/ui/toaster";
 import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./lib/active-account";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AmplitudeProvider } from "./lib/AmplitudeProvider";
@@ -53,7 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <Toaster position="bottom-right" />
+        <Toaster />
         <ScrollRestoration />
         <Scripts />
       </body>

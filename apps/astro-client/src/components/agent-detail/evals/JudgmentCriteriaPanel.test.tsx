@@ -8,7 +8,7 @@ function renderPanel(
   verdict: "good" | "bad",
   overrides: Partial<Parameters<typeof JudgmentCriteriaPanel>[0]> = {},
 ) {
-  const onDone = vi.fn();
+  const onSave = vi.fn();
   const onUndo = vi.fn();
   render(
     <JudgmentCriteriaPanel
@@ -18,11 +18,11 @@ function renderPanel(
       isSaving={false}
       isError={false}
       onUndo={onUndo}
-      onDone={onDone}
+      onSave={onSave}
       {...overrides}
     />,
   );
-  return { onDone, onUndo };
+  return { onSave, onUndo };
 }
 
 describe("JudgmentCriteriaPanel", () => {
@@ -73,28 +73,28 @@ describe("JudgmentCriteriaPanel", () => {
     expect(chip).not.toHaveAttribute("data-active");
   });
 
-  it("Done emits selected criteria with value 1 for good, in display order", () => {
-    const { onDone } = renderPanel("good");
+  it("Save emits selected criteria with value 1 for good, in display order", () => {
+    const { onSave } = renderPanel("good");
     // Select out of display order to prove the output is ordered.
     fireEvent.click(screen.getByRole("button", { name: /followed instruction/i }));
     fireEvent.click(screen.getByRole("button", { name: /correct info/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
-    expect(onDone).toHaveBeenCalledWith([
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onSave).toHaveBeenCalledWith([
       { dimension_key: "accuracy", value: 1 },
       { dimension_key: "instruction_following", value: 1 },
     ]);
   });
 
-  it("Done emits value -1 for a bad verdict", () => {
-    const { onDone } = renderPanel("bad");
+  it("Save emits value -1 for a bad verdict", () => {
+    const { onSave } = renderPanel("bad");
     fireEvent.click(screen.getByRole("button", { name: /hallucination/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
-    expect(onDone).toHaveBeenCalledWith([{ dimension_key: "accuracy", value: -1 }]);
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onSave).toHaveBeenCalledWith([{ dimension_key: "accuracy", value: -1 }]);
   });
 
-  it("Done with no selection emits an empty array", () => {
-    const { onDone } = renderPanel("good");
-    fireEvent.click(screen.getByRole("button", { name: /^done$/i }));
-    expect(onDone).toHaveBeenCalledWith([]);
+  it("Save with no selection emits an empty array", () => {
+    const { onSave } = renderPanel("good");
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onSave).toHaveBeenCalledWith([]);
   });
 });
