@@ -2433,20 +2433,22 @@ func GetLangfuseSummaries(
 		}
 		_ = g.Wait()
 
-		summaries := make(gin.H, len(deployments))
+		summaries := make(map[string]DeploymentTraceSummary, len(deployments))
 		for _, r := range results {
 			if r.id == "" || r.entry == nil {
 				continue
 			}
-			summaries[r.id] = gin.H{
-				"total_traces":   r.entry.TotalTraces,
-				"last_trace_at":  r.entry.LastTraceAt,
-				"request_series": r.entry.RequestSeries,
-				"token_series":   r.entry.TokenSeries,
+			summaries[r.id] = DeploymentTraceSummary{
+				TotalTraces:   r.entry.TotalTraces,
+				LastTraceAt:   r.entry.LastTraceAt,
+				CostUSD:       r.entry.CostUSD,
+				RequestSeries: r.entry.RequestSeries,
+				TokenSeries:   r.entry.TokenSeries,
+				CostSeries:    r.entry.CostSeries,
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+		c.JSON(http.StatusOK, DeploymentSummariesResponse{Summaries: summaries})
 	}
 }
 

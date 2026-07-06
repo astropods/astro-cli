@@ -129,6 +129,7 @@ func TestRefreshOne_WritesEntryWithSeries(t *testing.T) {
 				{
 					Date:        lastDay,
 					CountTraces: 7,
+					TotalCost:   0.42,
 					Usage: []langfuse.DailyMetricUsage{
 						{InputUsage: 100, OutputUsage: 50},
 					},
@@ -164,10 +165,16 @@ func TestRefreshOne_WritesEntryWithSeries(t *testing.T) {
 	if got := entry.TokenSeries[len(entry.TokenSeries)-1]; got != 150 {
 		t.Errorf("last TokenSeries = %d, want 150 (input+output)", got)
 	}
+	if got := entry.CostUSD; got != 0.42 {
+		t.Errorf("CostUSD = %v, want 0.42", got)
+	}
+	if got := entry.CostSeries[len(entry.CostSeries)-1]; got != 0.42 {
+		t.Errorf("last CostSeries = %v, want 0.42", got)
+	}
 	// All other days should be zero-padded.
 	for i := 0; i < len(entry.RequestSeries)-1; i++ {
-		if entry.RequestSeries[i] != 0 || entry.TokenSeries[i] != 0 {
-			t.Errorf("non-spike day %d not zero-padded: req=%d tok=%d", i, entry.RequestSeries[i], entry.TokenSeries[i])
+		if entry.RequestSeries[i] != 0 || entry.TokenSeries[i] != 0 || entry.CostSeries[i] != 0 {
+			t.Errorf("non-spike day %d not zero-padded: req=%d tok=%d cost=%v", i, entry.RequestSeries[i], entry.TokenSeries[i], entry.CostSeries[i])
 		}
 	}
 }
@@ -209,8 +216,8 @@ func TestRefreshOne_DailyMetricsError_StillWritesEntry(t *testing.T) {
 		t.Errorf("TotalTraces = %d, want 5", entry.TotalTraces)
 	}
 	for i := range entry.RequestSeries {
-		if entry.RequestSeries[i] != 0 || entry.TokenSeries[i] != 0 {
-			t.Errorf("series not zero at index %d: req=%d tok=%d", i, entry.RequestSeries[i], entry.TokenSeries[i])
+		if entry.RequestSeries[i] != 0 || entry.TokenSeries[i] != 0 || entry.CostSeries[i] != 0 {
+			t.Errorf("series not zero at index %d: req=%d tok=%d cost=%v", i, entry.RequestSeries[i], entry.TokenSeries[i], entry.CostSeries[i])
 		}
 	}
 }

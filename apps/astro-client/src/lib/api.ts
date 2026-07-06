@@ -1167,11 +1167,15 @@ export interface ObservabilityMetricsResponse {
 export interface DeploymentSummaryEntry {
   total_traces: number;
   last_trace_at: string;
+  /** Total spend in USD over the trailing 30-day window (sum of cost_series). */
+  cost_usd?: number;
   /** 30-day daily request counts, oldest → newest. Server pads days with no
    *  activity to zero so consumers can rely on a fixed-length array. */
   request_series?: number[];
   /** 30-day daily token totals (input + output), oldest → newest. */
   token_series?: number[];
+  /** 30-day daily spend totals, oldest → newest. */
+  cost_series?: number[];
 }
 
 export interface DeploymentSummariesResponse {

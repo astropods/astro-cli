@@ -3,7 +3,8 @@
 // page-load path never calls Langfuse — it only reads from this cache.
 //
 // The cache holds the "summary" data the agents page needs to render
-// sparklines + last-active timestamps for every deployment in the account.
+// sparklines, usage totals, and last-active timestamps for every deployment in
+// the account.
 // Worker refreshes happen every RefreshInterval; entries expire at CacheTTL
 // (one refresh window plus a buffer) so a missed tick still serves
 // stale-but-recent data instead of dropping the value off the page.
@@ -27,9 +28,9 @@ const RefreshInterval = 10 * time.Minute
 // late doesn't cause the page to suddenly lose data. 50% buffer.
 const CacheTTL = 15 * time.Minute
 
-// DaysOfHistory is the length of the request_series / token_series arrays
-// the worker writes and the handler returns. Bumping this changes the
-// sparkline window everywhere it's rendered.
+// DaysOfHistory is the length of the request_series, token_series, and
+// cost_series arrays the worker writes and the handler returns. Bumping this
+// changes the sparkline window everywhere it's rendered.
 const DaysOfHistory = 30
 
 // keyPrefix scopes the cache so other features can't accidentally collide.
@@ -41,8 +42,10 @@ const keyPrefix = "obs:summary:"
 type Entry struct {
 	TotalTraces   int       `json:"total_traces"`
 	LastTraceAt   string    `json:"last_trace_at"`
+	CostUSD       float64   `json:"cost_usd"`
 	RequestSeries []int     `json:"request_series"`
 	TokenSeries   []int     `json:"token_series"`
+	CostSeries    []float64 `json:"cost_series"`
 	RefreshedAt   time.Time `json:"refreshed_at"`
 }
 

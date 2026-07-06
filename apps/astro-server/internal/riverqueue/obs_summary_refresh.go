@@ -153,10 +153,12 @@ func (w *ObsSummaryRefreshWorker) refreshOne(
 
 	requestSeries := make([]int, obssummary.DaysOfHistory)
 	tokenSeries := make([]int, obssummary.DaysOfHistory)
+	costSeries := make([]float64, obssummary.DaysOfHistory)
+	var costUSD float64
 	dailyMetrics, dmErr := client.GetDailyMetrics(ctx, deploymentID, startTime, endTime)
 	if dmErr != nil {
 		// Daily metrics failure shouldn't drop the whole entry — total_traces
-		// + last_trace_at are still useful. Leave the series zero-padded.
+		// + last_trace_at are still useful. Leave the usage fields zero-padded.
 		w.log.Warn("Obs summary refresh: daily metrics", "deployment_id", deploymentID, "error", dmErr)
 	} else {
 		byDate := make(map[string]langfuse.DailyMetric, len(dailyMetrics))
@@ -167,6 +169,8 @@ func (w *ObsSummaryRefreshWorker) refreshOne(
 			if m, ok := byDate[d]; ok {
 				requestSeries[j] = m.CountTraces
 				tokenSeries[j] = m.InputTokens() + m.OutputTokens()
+				costSeries[j] = m.TotalCost
+				costUSD += m.TotalCost
 			}
 		}
 	}
@@ -174,8 +178,10 @@ func (w *ObsSummaryRefreshWorker) refreshOne(
 	entry := &obssummary.Entry{
 		TotalTraces:   traces.Meta.TotalItems,
 		LastTraceAt:   lastTraceAt,
+		CostUSD:       costUSD,
 		RequestSeries: requestSeries,
 		TokenSeries:   tokenSeries,
+		CostSeries:    costSeries,
 		RefreshedAt:   time.Now().UTC(),
 	}
 	return obssummary.Put(ctx, w.cache, deploymentID, entry)

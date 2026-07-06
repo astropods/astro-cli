@@ -266,8 +266,12 @@ type ObservabilitySummaryResponse struct {
 // DeploymentTraceSummary is the lightweight per-deployment trace count
 // projection returned by the bulk obs-summary endpoint.
 type DeploymentTraceSummary struct {
-	TotalTraces int    `json:"total_traces"`
-	LastTraceAt string `json:"last_trace_at"`
+	TotalTraces   int       `json:"total_traces"`
+	LastTraceAt   string    `json:"last_trace_at"`
+	CostUSD       float64   `json:"cost_usd"`
+	RequestSeries []int     `json:"request_series"`
+	TokenSeries   []int     `json:"token_series"`
+	CostSeries    []float64 `json:"cost_series"`
 }
 
 // DeploymentSummariesResponse is returned by the bulk deployment summaries endpoint.

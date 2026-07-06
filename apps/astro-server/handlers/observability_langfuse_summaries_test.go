@@ -76,14 +76,18 @@ func TestGetLangfuseSummaries_ReadsFromCache(t *testing.T) {
 	seedCache(t, cache, "dep-A", &obssummary.Entry{
 		TotalTraces:   100,
 		LastTraceAt:   "2026-05-27T10:00:00Z",
+		CostUSD:       1.25,
 		RequestSeries: []int{1, 2, 3},
 		TokenSeries:   []int{100, 200, 300},
+		CostSeries:    []float64{0.25, 0.4, 0.6},
 	})
 	seedCache(t, cache, "dep-B", &obssummary.Entry{
 		TotalTraces:   5,
 		LastTraceAt:   "2026-05-26T09:00:00Z",
+		CostUSD:       0.75,
 		RequestSeries: []int{0, 0, 5},
 		TokenSeries:   []int{0, 0, 500},
+		CostSeries:    []float64{0, 0, 0.75},
 	})
 
 	rec := runSummariesRequest(t, deploymentstore.NewStore(db), cache, &account.Account{ID: "acct-1", Name: "myorg"})
@@ -93,10 +97,12 @@ func TestGetLangfuseSummaries_ReadsFromCache(t *testing.T) {
 	}
 	var resp struct {
 		Summaries map[string]struct {
-			TotalTraces   int    `json:"total_traces"`
-			LastTraceAt   string `json:"last_trace_at"`
-			RequestSeries []int  `json:"request_series"`
-			TokenSeries   []int  `json:"token_series"`
+			TotalTraces   int       `json:"total_traces"`
+			LastTraceAt   string    `json:"last_trace_at"`
+			CostUSD       float64   `json:"cost_usd"`
+			RequestSeries []int     `json:"request_series"`
+			TokenSeries   []int     `json:"token_series"`
+			CostSeries    []float64 `json:"cost_series"`
 		} `json:"summaries"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -110,6 +116,12 @@ func TestGetLangfuseSummaries_ReadsFromCache(t *testing.T) {
 	}
 	if got := resp.Summaries["dep-B"].RequestSeries; len(got) != 3 || got[2] != 5 {
 		t.Errorf("dep-B RequestSeries = %v, want [0 0 5]", got)
+	}
+	if got := resp.Summaries["dep-A"].CostUSD; got != 1.25 {
+		t.Errorf("dep-A CostUSD = %v, want 1.25", got)
+	}
+	if got := resp.Summaries["dep-B"].CostSeries; len(got) != 3 || got[2] != 0.75 {
+		t.Errorf("dep-B CostSeries = %v, want [0 0 0.75]", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
