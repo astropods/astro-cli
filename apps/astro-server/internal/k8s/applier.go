@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"log"
 
@@ -15,6 +16,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -505,7 +507,9 @@ func (a *Applier) applyCronJob(ctx context.Context, cj *batchv1.CronJob) (deploy
 	return status, nil
 }
 
-// applyJob creates a Job, deleting any existing one first (Jobs are immutable)
+// applyJob creates a Job. Because Jobs are immutable, an existing Job is
+// deleted first; the delete is asynchronous, so applyJob waits for the object
+// to disappear before recreating to avoid the "object is being deleted" race.
 func (a *Applier) applyJob(ctx context.Context, job *batchv1.Job) (deployment.ResourceStatus, error) {
 	status := deployment.ResourceStatus{
 		Kind:      "Job",
@@ -516,17 +520,30 @@ func (a *Applier) applyJob(ctx context.Context, job *batchv1.Job) (deployment.Re
 	_, err := a.clientset.BatchV1().Jobs(a.namespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			// Jobs are immutable once created — delete and recreate
-			propagation := metav1.DeletePropagationForeground
-			deleteErr := a.clientset.BatchV1().Jobs(a.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
+			// Jobs are immutable — delete then recreate. Deletion is async, so
+			// wait until the object is actually gone before recreating;
+			// recreating while it is still terminating fails with
+			// "object is being deleted".
+			propagation := metav1.DeletePropagationBackground
+			if deleteErr := a.clientset.BatchV1().Jobs(a.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
 				PropagationPolicy: &propagation,
-			})
-			if deleteErr != nil {
+			}); deleteErr != nil && !errors.IsNotFound(deleteErr) {
 				status.Status = "failed"
 				status.Message = fmt.Sprintf("failed to delete existing job: %v", deleteErr)
 				return status, deleteErr
 			}
-			// Recreate
+
+			// Bound the wait so a stuck finalizer can't hang the deploy worker.
+			if waitErr := wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 60*time.Second, true,
+				func(ctx context.Context) (bool, error) {
+					_, getErr := a.clientset.BatchV1().Jobs(a.namespace).Get(ctx, job.Name, metav1.GetOptions{})
+					return errors.IsNotFound(getErr), nil
+				}); waitErr != nil {
+				status.Status = "failed"
+				status.Message = fmt.Sprintf("existing job still terminating: %v", waitErr)
+				return status, waitErr
+			}
+
 			_, err = a.clientset.BatchV1().Jobs(a.namespace).Create(ctx, job, metav1.CreateOptions{})
 			if err != nil {
 				status.Status = "failed"
