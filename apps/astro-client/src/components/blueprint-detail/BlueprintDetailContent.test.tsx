@@ -3,6 +3,7 @@ import { screen, cleanup } from "@testing-library/react";
 import { renderWithProviders } from "@/test/test-utils";
 import { BlueprintDetailContent } from "./BlueprintDetailContent";
 import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
+import { DISCORD_INVITE_URL } from "@/lib/constants";
 import { afterEach } from "vitest";
 
 afterEach(cleanup);
@@ -68,6 +69,18 @@ describe("BlueprintDetailContent", () => {
     expect(screen.getByText(readme)).toBeInTheDocument();
   });
 
+  it("links draft setup support to Discord", () => {
+    renderWithProviders(
+      <BlueprintDetailContent
+        {...baseProps}
+        isDraft
+      />,
+    );
+
+    const discordLink = screen.getByRole("link", { name: /join discord/i });
+    expect(discordLink).toHaveAttribute("href", DISCORD_INVITE_URL);
+    expect(screen.queryByRole("link", { name: /join slack/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("getLinkedInShareHref", () => {

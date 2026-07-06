@@ -2,19 +2,19 @@ import { type ReactNode } from "react";
 import { generateAstropodsYml } from "@/lib/astropods-yml";
 import { Link } from "react-router";
 import { FileText, BookOpen, ArrowUpRight } from "lucide-react";
-import { Slack } from "@/components/ui/svgs/slack";
 import { CommandLineIcon } from "@heroicons/react/24/outline";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { BlueprintDetailHeader } from "./BlueprintDetailHeader";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
+import { DiscordIcon } from "@/components/ui/svgs/discordIcon";
 import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
+import { DISCORD_INVITE_URL } from "@/lib/constants";
 
 export { getLinkedInShareHref, getXShareHref };
 
 // ─── Shared setup components ─────────────────────────────────────────────────
-
 
 function CodeBlock({ command, label }: { command: string; label?: string }) {
   return (
@@ -230,9 +230,9 @@ export function BlueprintDetailContent({
                 </Link>
               </Button>
               <Button variant="outline" size="sm" className="gap-2" asChild>
-                <Link to="https://join.slack.com/t/astropods-ai/shared_invite/zt-3v03e93dw-mPp~0ZxZfcmkexKGv_cofQ" target="_blank" rel="noopener noreferrer">
-                  <Slack className="size-4" strokeWidth={1.75} />
-                  Join Slack
+                <Link to={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                  <DiscordIcon className="size-4" />
+                  Join Discord
                 </Link>
               </Button>
             </div>
