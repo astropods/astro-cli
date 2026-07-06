@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { ContentValue } from "@/components/agent-detail/ContentValue";
+import { CriterionLabels } from "@/components/agent-detail/evals/CriterionLabels";
 import { StatusBadge } from "@/components/StatusBadge";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ import type { DatasetJudgmentVerdict, EvalDatasetItem } from "@/lib/api";
 
 export type Verdict = "good" | "bad" | null;
 
-export const DATASET_ITEM_COLUMN_COUNT = 5;
+export const DATASET_ITEM_COLUMN_COUNT = 6;
 
 export interface ResolvedReviewer {
   handle?: string;
@@ -231,6 +232,14 @@ export function DatasetItemRow({
           >
             {outputSummary}
           </div>
+        </TableCell>
+        <TableCell
+          data-label="Reason"
+          className="order-5 block px-4 pb-2 pt-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <CriterionLabels criteria={item.metadata?.judgment_criteria ?? []} />
         </TableCell>
         <TableCell className="order-2 block px-4 pb-2 pt-1 @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:pr-5">
           <div className="flex min-w-0 items-center justify-between gap-3">

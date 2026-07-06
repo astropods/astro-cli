@@ -157,14 +157,15 @@ export function DatasetTable({
       <TableHeader className="hidden bg-black/2 dark:bg-white/3 @[760px]/dataset-table:table-header-group">
         <TableRow>
           <TableHead className="w-10 pl-5 pr-0 text-faint-foreground" />
-          <TableHead className="w-[112px] text-faint-foreground">
+          <TableHead className="w-[92px] text-faint-foreground">
             Verdict
           </TableHead>
           <TableHead className="w-[30%] text-faint-foreground">Input</TableHead>
           <TableHead className="w-[38%] text-faint-foreground">
             Expected output
           </TableHead>
-          <TableHead className="w-[220px] pr-5 text-faint-foreground">
+          <TableHead className="w-[170px] text-faint-foreground">Reason</TableHead>
+          <TableHead className="w-[185px] pr-5 text-faint-foreground">
             Judged by
           </TableHead>
         </TableRow>

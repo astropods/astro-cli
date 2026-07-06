@@ -20,6 +20,7 @@ type ToggleGroupSingleProps = Extract<
 
 function ToggleGroup({
   className,
+  indicatorClassName,
   children,
   value,
   defaultValue,
@@ -27,7 +28,10 @@ function ToggleGroup({
   type,
   variant = "icon",
   ...props
-}: ToggleGroupSingleProps & { variant?: "icon" | "word" }) {
+}: ToggleGroupSingleProps & {
+  variant?: "icon" | "word";
+  indicatorClassName?: string;
+}) {
   const [internalValue, setInternalValue] = React.useState(defaultValue);
   const activeValue = value ?? internalValue;
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -77,7 +81,8 @@ function ToggleGroup({
               "absolute transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
               variant === "icon"
                 ? "rounded-sm bg-background dark:bg-background shadow-sm"
-                : "rounded-[6px] bg-surface border border-border/70"
+                : "rounded-[6px] bg-surface border border-border/70",
+              indicatorClassName
             )}
             style={{
               top: variant === "icon" ? 4 : 2,

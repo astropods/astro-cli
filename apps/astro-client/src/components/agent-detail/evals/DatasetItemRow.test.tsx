@@ -96,8 +96,35 @@ describe("DatasetItemRow collapsed", () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
+  it("activating the reason overflow chip does not toggle the row", async () => {
+    const { onToggle } = renderRow({
+      item: makeItem({
+        metadata: {
+          verdict: 1,
+          judgment_criteria: [
+            { dimension_key: "accuracy", value: -1 },
+            { dimension_key: "completeness", value: -1 },
+          ],
+        },
+      }),
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /show 2 reasons/i }));
+
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   it("renders dash when reviewer is null", () => {
-    renderRow({ reviewer: null });
+    renderRow({
+      reviewer: null,
+      item: makeItem({
+        metadata: {
+          verdict: 1,
+          judgment_criteria: [{ dimension_key: "accuracy", value: 1 }],
+        },
+      }),
+    });
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 });

@@ -996,6 +996,7 @@ export interface EvalDatasetItemMetadata {
   confidence?: number;
   judged_by_user_id?: string;
   judged_at?: string;
+  judgment_criteria?: JudgmentCriterion[];
 }
 
 export interface EvalDatasetItem {

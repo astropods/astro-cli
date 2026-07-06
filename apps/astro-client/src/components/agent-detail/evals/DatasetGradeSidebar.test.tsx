@@ -1,4 +1,5 @@
 import { render, screen, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 import type { EvalDatasetResponse } from "@/lib/api";
@@ -157,6 +158,106 @@ describe("DatasetGradeSidebar", () => {
     expect(
       screen.getByText(/add good responses or remove bad labels that don't reflect real failures/i),
     ).toBeInTheDocument();
+  });
+
+  it("omits the reasons section when no criterion has any count", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          criteria_counts: [
+            { dimension_key: "accuracy", good_count: 0, bad_count: 0 },
+          ],
+        })}
+      />,
+    );
+    expect(screen.queryByText(/^reasons$/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults to bad reasons, sorted most frequent first, skipping zero counts", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          criteria_counts: [
+            { dimension_key: "accuracy", good_count: 1, bad_count: 2 },
+            { dimension_key: "completeness", good_count: 0, bad_count: 5 },
+            { dimension_key: "tone", good_count: 4, bad_count: 0 },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText(/^reasons$/i)).toBeInTheDocument();
+    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+    expect(screen.getByText("Hallucination")).toBeInTheDocument();
+    // tone has no bad count, so it is not listed in the default bad view
+    expect(screen.queryByText("Appropriate tone")).not.toBeInTheDocument();
+
+    // sorted by bad count descending: Incomplete (5) before Hallucination (2)
+    const incomplete = screen.getByText("Incomplete");
+    const hallucination = screen.getByText("Hallucination");
+    expect(
+      incomplete.compareDocumentPosition(hallucination) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("toggles to good reasons, sorted most frequent first, skipping zero counts", async () => {
+    const user = userEvent.setup();
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          criteria_counts: [
+            { dimension_key: "accuracy", good_count: 2, bad_count: 1 },
+            { dimension_key: "completeness", good_count: 6, bad_count: 0 },
+            { dimension_key: "tone", good_count: 0, bad_count: 3 },
+          ],
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: /good/i }));
+
+    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getByText("Correct info")).toBeInTheDocument();
+    // tone has no good count, so it is not listed in the good view
+    expect(screen.queryByText("Appropriate tone")).not.toBeInTheDocument();
+
+    // sorted by good count descending: Complete (6) before Correct info (2)
+    const complete = screen.getByText("Complete");
+    const correct = screen.getByText("Correct info");
+    expect(
+      complete.compareDocumentPosition(correct) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("defaults to the good view when there are good reasons but no bad ones", () => {
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          criteria_counts: [
+            { dimension_key: "accuracy", good_count: 3, bad_count: 0 },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText(/^reasons$/i)).toBeInTheDocument();
+    expect(screen.getByText("Correct info")).toBeInTheDocument();
+  });
+
+  it("shows an empty message when the selected verdict has no reasons", async () => {
+    const user = userEvent.setup();
+    render(
+      <DatasetGradeSidebar
+        summary={summary({
+          criteria_counts: [
+            { dimension_key: "accuracy", good_count: 3, bad_count: 0 },
+          ],
+        })}
+      />,
+    );
+    // defaults to good; switching to bad has nothing to show
+    await user.click(screen.getByRole("radio", { name: /bad/i }));
+    expect(screen.getByText(/no bad reasons labeled yet/i)).toBeInTheDocument();
   });
 
 });
