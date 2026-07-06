@@ -775,6 +775,7 @@ func upsertJudgmentDatasetItem(
 	trace *langfuse.TraceDetail,
 	traceID string,
 	effect judgmentEffect,
+	criteria []judgmentstore.Reason,
 ) (string, error) {
 	if !effect.writeDatasetItem {
 		return "", nil
@@ -792,7 +793,7 @@ func upsertJudgmentDatasetItem(
 			"confidence":        100,
 			"judged_by_user_id": lctx.UserID,
 			"judged_at":         time.Now().UTC().Format(time.RFC3339),
-			"judgment_criteria": []any{},
+			"judgment_criteria": reasonsToCriteria(criteria),
 		},
 	}); err != nil {
 		return "", err
@@ -889,7 +890,7 @@ func PostDatasetJudgment(
 		var datasetItemID string
 		if effect.writeDatasetItem {
 			var err error
-			datasetItemID, err = upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, body.TraceID, effect)
+			datasetItemID, err = upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, body.TraceID, effect, nil)
 			if err != nil {
 				rollbackJudgment("dataset item write failed")
 				log.Error("Failed to upsert dataset item", "error", err, "trace_id", body.TraceID)
@@ -1011,7 +1012,7 @@ func PatchDatasetJudgment(
 		datasetItemID := hashID(ds.LangfuseDatasetName, traceID)
 
 		if nextEffect.writeDatasetItem {
-			if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, nextEffect); err != nil {
+			if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, nextEffect, nil); err != nil {
 				restoreJudgment("dataset item upsert failed")
 				log.Error("Failed to upsert changed dataset item", "error", err, "trace_id", traceID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
@@ -1031,10 +1032,7 @@ func PatchDatasetJudgment(
 		if goodDelta != 0 || badDelta != 0 {
 			if err := datasetStore.BumpCountsByID(ds.ID, goodDelta, badDelta); err != nil {
 				if previousEffect.writeDatasetItem {
-					// TODO: once criteria are written to Langfuse metadata, this re-upsert
-					// must carry previousReasons — upsertJudgmentDatasetItem currently writes
-					// judgment_criteria: [], so the restored item would drop the prior criteria.
-					if _, rollbackErr := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, previousEffect); rollbackErr != nil {
+					if _, rollbackErr := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, previousEffect, previousReasons); rollbackErr != nil {
 						log.Warn("Failed to restore dataset item after verdict count failure", "error", rollbackErr, "trace_id", traceID)
 					}
 				} else if nextEffect.writeDatasetItem {
@@ -1054,6 +1052,144 @@ func PatchDatasetJudgment(
 			EvalDatasetID: ds.ID,
 			TraceID:       traceID,
 			Verdict:       string(verdict),
+		})
+	}
+}
+
+type judgmentCriterion struct {
+	DimensionKey string  `json:"dimension_key"`
+	Value        float64 `json:"value"`
+}
+
+// judgmentCriterionInput is the request shape; Value is a pointer so an omitted
+// value is rejected rather than silently binding to 0 (a valid in-range score).
+type judgmentCriterionInput struct {
+	DimensionKey string   `json:"dimension_key"`
+	Value        *float64 `json:"value"`
+}
+
+type DatasetJudgmentCriteriaRequest struct {
+	Criteria []judgmentCriterionInput `json:"criteria"`
+}
+
+func reasonsToCriteria(reasons []judgmentstore.Reason) []judgmentCriterion {
+	out := make([]judgmentCriterion, len(reasons))
+	for i, r := range reasons {
+		out[i] = judgmentCriterion{DimensionKey: string(r.Dimension), Value: r.Value}
+	}
+	return out
+}
+
+type DatasetJudgmentCriteriaResponse struct {
+	EvalDatasetID string              `json:"eval_dataset_id"`
+	TraceID       string              `json:"trace_id"`
+	Verdict       string              `json:"verdict"`
+	Criteria      []judgmentCriterion `json:"criteria"`
+}
+
+// PutDatasetJudgmentCriteria replaces the selected criteria (reasons) for an
+// existing good/bad judgment and updates the Langfuse dataset item metadata.
+// PUT /api/v1/deployments/:id/dataset/judgments/:trace_id/criteria
+func PutDatasetJudgmentCriteria(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	langfuseStore *langfuse.Store,
+	judgmentStore *judgmentstore.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		traceID := strings.TrimSpace(c.Param("trace_id"))
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+			return
+		}
+
+		var body DatasetJudgmentCriteriaRequest
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		reasons := make([]judgmentstore.Reason, len(body.Criteria))
+		seen := make(map[judgmentstore.CriterionDimension]bool, len(body.Criteria))
+		for i, crit := range body.Criteria {
+			d := judgmentstore.CriterionDimension(strings.TrimSpace(crit.DimensionKey))
+			if !d.Valid() {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid criterion %q", crit.DimensionKey)})
+				return
+			}
+			if seen[d] {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("duplicate criterion %q", d)})
+				return
+			}
+			seen[d] = true
+			if crit.Value == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("criterion %q requires a value", crit.DimensionKey)})
+				return
+			}
+			if *crit.Value < -1 || *crit.Value > 1 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("criterion %q value %v out of range [-1, 1]", crit.DimensionKey, *crit.Value)})
+				return
+			}
+			reasons[i] = judgmentstore.Reason{Dimension: d, Value: *crit.Value}
+		}
+
+		trace, err := lctx.Client.GetTrace(c.Request.Context(), traceID)
+		if err != nil {
+			if errors.Is(err, langfuse.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
+				return
+			}
+			log.Error("Failed to fetch trace for criteria update", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
+			return
+		}
+		if !traceHasDeploymentTag(trace.Tags, lctx.DeploymentID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "trace does not belong to this deployment"})
+			return
+		}
+
+		ds, ok := loadDataset(c, log, datasetStore, lctx.DeploymentID)
+		if !ok {
+			return
+		}
+
+		verdict, previous, found, err := judgmentStore.ReplaceReasons(ds.ID, traceID, reasons)
+		if err != nil {
+			log.Error("Failed to replace judgment criteria", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update criteria"})
+			return
+		}
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "judgment not found"})
+			return
+		}
+		if verdict == judgmentstore.VerdictUnknown {
+			c.JSON(http.StatusConflict, gin.H{"error": "cannot set criteria on an unknown judgment"})
+			return
+		}
+
+		effect := effectForVerdict(verdict)
+		if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, effect, reasons); err != nil {
+			if _, _, _, restoreErr := judgmentStore.ReplaceReasons(ds.ID, traceID, previous); restoreErr != nil {
+				log.Warn("Failed to restore criteria after dataset item upsert failure", "error", restoreErr, "trace_id", traceID)
+			}
+			log.Error("Failed to upsert dataset item for criteria", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
+			return
+		}
+
+		c.JSON(http.StatusOK, DatasetJudgmentCriteriaResponse{
+			EvalDatasetID: ds.ID,
+			TraceID:       traceID,
+			Verdict:       string(verdict),
+			Criteria:      reasonsToCriteria(reasons),
 		})
 	}
 }

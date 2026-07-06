@@ -241,6 +241,126 @@ func TestSetVerdictAndReasonsNotFound(t *testing.T) {
 	}
 }
 
+func TestReplaceReasonsReplaces(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT verdict FROM eval_dataset_judgments").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("bad"))
+	mock.ExpectQuery("DELETE FROM eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"dimension_key", "dimension_value"}).
+			AddRow("accuracy", -1.0))
+	mock.ExpectExec("INSERT INTO eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1", pq.Array([]string{"tone"}), pq.Array([]float64{-0.5})).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	// A non-polar value is stored as given (not derived from the verdict).
+	verdict, previous, found, err := store.ReplaceReasons("dataset-1", "trace-1", []Reason{{Dimension: DimensionTone, Value: -0.5}})
+	if err != nil {
+		t.Fatalf("ReplaceReasons: %v", err)
+	}
+	if !found || verdict != VerdictBad {
+		t.Fatalf("found=%v verdict=%q, want true/bad", found, verdict)
+	}
+	want := []Reason{{Dimension: DimensionAccuracy, Value: -1}}
+	if len(previous) != len(want) || previous[0] != want[0] {
+		t.Fatalf("previous = %+v, want %+v", previous, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestReplaceReasonsClears(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT verdict FROM eval_dataset_judgments").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("good"))
+	mock.ExpectQuery("DELETE FROM eval_dataset_judgment_reasons").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"dimension_key", "dimension_value"}).
+			AddRow("accuracy", 1.0))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	verdict, previous, found, err := store.ReplaceReasons("dataset-1", "trace-1", nil)
+	if err != nil {
+		t.Fatalf("ReplaceReasons: %v", err)
+	}
+	if !found || verdict != VerdictGood || len(previous) != 1 {
+		t.Fatalf("found=%v verdict=%q previous=%+v, want true/good/1 prev", found, verdict, previous)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestReplaceReasonsUnknownVerdictDoesNotModify(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT verdict FROM eval_dataset_judgments").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(sqlmock.NewRows([]string{"verdict"}).AddRow("unknown"))
+	mock.ExpectRollback()
+
+	store := NewStore(db)
+	verdict, previous, found, err := store.ReplaceReasons("dataset-1", "trace-1", []Reason{{Dimension: DimensionTone, Value: -1}})
+	if err != nil {
+		t.Fatalf("ReplaceReasons: %v", err)
+	}
+	if !found || verdict != VerdictUnknown || previous != nil {
+		t.Fatalf("found=%v verdict=%q previous=%+v, want true/unknown/nil", found, verdict, previous)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestReplaceReasonsNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT verdict FROM eval_dataset_judgments").
+		WithArgs("dataset-1", "trace-missing").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	store := NewStore(db)
+	_, _, found, err := store.ReplaceReasons("dataset-1", "trace-missing", nil)
+	if err != nil {
+		t.Fatalf("ReplaceReasons: %v", err)
+	}
+	if found {
+		t.Fatal("found = true, want false")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestCriterionDimensionValid(t *testing.T) {
 	for _, d := range CriterionDimensions {
 		if !d.Valid() {

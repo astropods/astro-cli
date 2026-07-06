@@ -205,13 +205,13 @@ Request:
 
 | Field | Notes |
 |---|---|
-| `criteria` | Required array of selected dimension keys. Empty array clears reasons. |
+| `criteria` | Required array of `{ dimension_key, value }` objects. Empty array clears reasons. |
 
 Behavior:
 
 1. Load the judgment. Reject if it does not exist or its verdict is `unknown`.
-2. Validate submitted criteria against the server enum.
-3. Replace `eval_dataset_judgment_reasons` with the submitted set, writing `dimension_value = 1` when the verdict is `good` and `dimension_value = -1` when the verdict is `bad`.
+2. Validate each `dimension_key` against the server enum and each `value` against the `[-1, 1]` range.
+3. Replace `eval_dataset_judgment_reasons` with the submitted set, storing each `value` as given (the caller owns the scale; human review sends `1`/`-1`, future producers may send partial values in range).
 4. Upsert the Langfuse dataset item metadata with the new `judgment_criteria`.
 
 PUT should preserve the previous reasons before replacing them. If the Langfuse mutation or count update fails, restore the previous reasons.

@@ -1663,6 +1663,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
 				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
 			)
+			api.PUT(protected, "/deployments/:id/dataset/judgments/:trace_id/criteria", "Replace dataset judgment criteria", handlers.PutDatasetJudgmentCriteria(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Body(&handlers.DatasetJudgmentCriteriaRequest{}),
+				oapispec.Response(200, &handlers.DatasetJudgmentCriteriaResponse{}),
+			)
 			api.DELETE(protected, "/deployments/:id/dataset/judgments/:trace_id", "Undo dataset judgment", handlers.DeleteDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),

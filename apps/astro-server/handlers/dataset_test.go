@@ -56,6 +56,8 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		PostDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 	f.router.PATCH("/api/v1/deployments/:id/dataset/judgments/:trace_id",
 		PatchDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
+	f.router.PUT("/api/v1/deployments/:id/dataset/judgments/:trace_id/criteria",
+		PutDatasetJudgmentCriteria(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 	f.router.DELETE("/api/v1/deployments/:id/dataset/judgments/:trace_id",
 		DeleteDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 
@@ -320,6 +322,7 @@ type langfuseJudgeOptions struct {
 	datasetItemStatus   int
 	wantMetadataVerdict float64
 	wantEmptyCriteria   bool
+	wantCriteria        []judgmentCriterion
 	datasetItemCalled   *atomic.Bool
 }
 
@@ -381,6 +384,19 @@ func langfuseJudgeHandlerWithOptions(t *testing.T, opts langfuseJudgeOptions) ht
 					t.Errorf("metadata judgment_criteria = %v, want empty array", body.Metadata["judgment_criteria"])
 				} else if len(crit) != 0 {
 					t.Errorf("metadata judgment_criteria = %v, want empty", crit)
+				}
+			}
+			if opts.wantCriteria != nil {
+				crit, ok := body.Metadata["judgment_criteria"].([]any)
+				if !ok || len(crit) != len(opts.wantCriteria) {
+					t.Errorf("metadata judgment_criteria = %v, want %d items", body.Metadata["judgment_criteria"], len(opts.wantCriteria))
+				} else {
+					for i, want := range opts.wantCriteria {
+						m, _ := crit[i].(map[string]any)
+						if m["dimension_key"] != want.DimensionKey || m["value"] != want.Value {
+							t.Errorf("judgment_criteria[%d] = %v, want %+v", i, crit[i], want)
+						}
+					}
 				}
 			}
 			w.WriteHeader(opts.datasetItemStatus)
@@ -1946,6 +1962,277 @@ func TestPatchDatasetJudgment_MissingJudgmentReturnsNotFound(t *testing.T) {
 	}
 	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPatchDatasetJudgment_CountFailureRestoresCriteriaToLangfuse(t *testing.T) {
+	var upserts []map[string]any
+	f := setupDatasetRouter(t, true, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/public/traces/trace-1":
+			_ = json.NewEncoder(w).Encode(langfuse.TraceDetail{Trace: langfuse.Trace{
+				ID: "trace-1", Input: map[string]any{"prompt": "x"}, Output: map[string]any{"answer": "y"},
+				Tags: []string{"deployment:dep-1"}, CreatedAt: "2026-06-01T12:00:00Z",
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/public/dataset-items":
+			var body struct {
+				Metadata map[string]any `json:"metadata"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			upserts = append(upserts, body.Metadata)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Errorf("unexpected Langfuse request: %s %s", r.Method, r.URL.String())
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	accuracy := judgmentstore.Reason{Dimension: judgmentstore.DimensionAccuracy, Value: 1}
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad, judgmentstore.VerdictGood, []judgmentstore.Reason{accuracy}, nil)
+	f.datasetMock.ExpectExec("UPDATE eval_datasets").
+		WithArgs(-1, 1, "dataset-dep-1").
+		WillReturnError(errors.New("boom"))
+	judgmentstoretest.ExpectSetVerdict(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictGood, judgmentstore.VerdictBad, nil, []judgmentstore.Reason{accuracy})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/deployments/dep-1/dataset/judgments/trace-1", strings.NewReader(`{"verdict":"bad"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(upserts) != 2 {
+		t.Fatalf("expected 2 Langfuse upserts (forward + compensation), got %d", len(upserts))
+	}
+	crit, ok := upserts[1]["judgment_criteria"].([]any)
+	if !ok || len(crit) != 1 {
+		t.Fatalf("compensation judgment_criteria = %v, want 1 item", upserts[1]["judgment_criteria"])
+	}
+	m, _ := crit[0].(map[string]any)
+	if m["dimension_key"] != "accuracy" || m["value"] != 1.0 {
+		t.Fatalf("compensation criteria = %v, want accuracy/1", crit[0])
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_ReplacesCriteria(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		wantMetadataVerdict: -1,
+		wantCriteria:        []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectReplaceReasons(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad,
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: -1}},
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionTone, Value: -1}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":-1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert")
+	}
+	var resp DatasetJudgmentCriteriaResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Verdict != "bad" || len(resp.Criteria) != 1 || resp.Criteria[0] != (judgmentCriterion{DimensionKey: "tone", Value: -1}) {
+		t.Fatalf("response = %+v, want bad + tone/-1", resp)
+	}
+	if err := f.datasetMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset expectations: %v", err)
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_EmptyClears(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		wantMetadataVerdict: -1,
+		wantEmptyCriteria:   true,
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectReplaceReasons(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad,
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: -1}}, nil)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert")
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_UnknownVerdictReturns409(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectReplaceReasonsUnknown(f.judgmentMock, "dataset-dep-1", "trace-1")
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":-1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_InvalidCriterionReturns400(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"nonsense","value":-1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_DuplicateCriterionReturns400(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":-1},{"dimension_key":"tone","value":1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_MissingValueReturns400(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_ValueOutOfRangeReturns400(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":2}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_MissingReturns404(t *testing.T) {
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:           "trace-1",
+		expectDatasetItem: false,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectReplaceReasonsMissing(f.judgmentMock, "dataset-dep-1", "trace-1")
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":-1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet judgment expectations: %v", err)
+	}
+}
+
+func TestPutDatasetJudgmentCriteria_RestoresReasonsWhenUpsertFails(t *testing.T) {
+	var datasetItemCalled atomic.Bool
+	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
+		traceID:             "trace-1",
+		expectDatasetItem:   true,
+		datasetItemStatus:   http.StatusInternalServerError,
+		wantMetadataVerdict: -1,
+		wantCriteria:        []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
+		datasetItemCalled:   &datasetItemCalled,
+	}))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
+	judgmentstoretest.ExpectReplaceReasons(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad,
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: -1}},
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionTone, Value: -1}})
+	judgmentstoretest.ExpectReplaceReasons(f.judgmentMock, "dataset-dep-1", "trace-1", judgmentstore.VerdictBad,
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionTone, Value: -1}},
+		[]judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: -1}})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep-1/dataset/judgments/trace-1/criteria", strings.NewReader(`{"criteria":[{"dimension_key":"tone","value":-1}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !datasetItemCalled.Load() {
+		t.Fatal("expected Langfuse dataset item upsert attempt")
 	}
 	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet judgment expectations: %v", err)

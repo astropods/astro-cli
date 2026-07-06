@@ -172,44 +172,9 @@ func (s *Store) SetVerdictAndReasons(evalDatasetID, traceID string, verdict Verd
 
 	var replaced []Reason
 	if previous != verdict {
-		rows, err := tx.Query(`
-			DELETE FROM eval_dataset_judgment_reasons
-			WHERE eval_dataset_id = $1 AND trace_id = $2
-			RETURNING dimension_key, dimension_value
-		`, evalDatasetID, traceID)
+		replaced, err = replaceReasonsTx(tx, evalDatasetID, traceID, reasons)
 		if err != nil {
-			return "", nil, false, fmt.Errorf("judgmentstore set verdict clear reasons: %w", err)
-		}
-		for rows.Next() {
-			var (
-				key string
-				val float64
-			)
-			if err := rows.Scan(&key, &val); err != nil {
-				_ = rows.Close()
-				return "", nil, false, fmt.Errorf("judgmentstore set verdict scan reasons: %w", err)
-			}
-			replaced = append(replaced, Reason{Dimension: CriterionDimension(key), Value: val})
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return "", nil, false, fmt.Errorf("judgmentstore set verdict iter reasons: %w", err)
-		}
-		_ = rows.Close()
-
-		if len(reasons) > 0 {
-			keys := make([]string, len(reasons))
-			vals := make([]float64, len(reasons))
-			for i, r := range reasons {
-				keys[i] = string(r.Dimension)
-				vals[i] = r.Value
-			}
-			if _, err := tx.Exec(`
-				INSERT INTO eval_dataset_judgment_reasons (eval_dataset_id, trace_id, dimension_key, dimension_value)
-				SELECT $1, $2, unnest($3::text[]), unnest($4::numeric[])
-			`, evalDatasetID, traceID, pq.Array(keys), pq.Array(vals)); err != nil {
-				return "", nil, false, fmt.Errorf("judgmentstore set verdict insert reasons: %w", err)
-			}
+			return "", nil, false, fmt.Errorf("judgmentstore set verdict: %w", err)
 		}
 	}
 
@@ -217,6 +182,95 @@ func (s *Store) SetVerdictAndReasons(evalDatasetID, traceID string, verdict Verd
 		return "", nil, false, fmt.Errorf("judgmentstore set verdict commit: %w", err)
 	}
 	return previous, replaced, true, nil
+}
+
+// ReplaceReasons replaces an existing judgment's reasons with the given set in
+// one transaction, returning the verdict and the replaced (previous) reasons.
+// The reasons' values are stored as given, so callers control the scale. It does
+// not modify a judgment whose verdict is unknown. found is false when the trace
+// has no judgment row.
+func (s *Store) ReplaceReasons(evalDatasetID, traceID string, reasons []Reason) (verdict Verdict, previous []Reason, found bool, err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore replace reasons: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var raw string
+	err = tx.QueryRow(`
+		SELECT verdict FROM eval_dataset_judgments
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+		FOR UPDATE
+	`, evalDatasetID, traceID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, false, nil
+	}
+	if err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore replace reasons: %w", err)
+	}
+	verdict = Verdict(raw)
+	if !verdict.Valid() {
+		return "", nil, false, fmt.Errorf("judgmentstore replace reasons: invalid verdict %q", raw)
+	}
+	if verdict == VerdictUnknown {
+		return verdict, nil, true, nil
+	}
+
+	previous, err = replaceReasonsTx(tx, evalDatasetID, traceID, reasons)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore replace reasons: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", nil, false, fmt.Errorf("judgmentstore replace reasons commit: %w", err)
+	}
+	return verdict, previous, true, nil
+}
+
+// replaceReasonsTx deletes a judgment's reasons (returning them) and inserts the
+// given set, within tx. Shared by SetVerdictAndReasons and ReplaceReasons.
+func replaceReasonsTx(tx *sql.Tx, evalDatasetID, traceID string, reasons []Reason) ([]Reason, error) {
+	rows, err := tx.Query(`
+		DELETE FROM eval_dataset_judgment_reasons
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+		RETURNING dimension_key, dimension_value
+	`, evalDatasetID, traceID)
+	if err != nil {
+		return nil, fmt.Errorf("delete reasons: %w", err)
+	}
+	var previous []Reason
+	for rows.Next() {
+		var (
+			key string
+			val float64
+		)
+		if err := rows.Scan(&key, &val); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan reasons: %w", err)
+		}
+		previous = append(previous, Reason{Dimension: CriterionDimension(key), Value: val})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("iter reasons: %w", err)
+	}
+	_ = rows.Close()
+
+	if len(reasons) > 0 {
+		keys := make([]string, len(reasons))
+		vals := make([]float64, len(reasons))
+		for i, r := range reasons {
+			keys[i] = string(r.Dimension)
+			vals[i] = r.Value
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO eval_dataset_judgment_reasons (eval_dataset_id, trace_id, dimension_key, dimension_value)
+			SELECT $1, $2, unnest($3::text[]), unnest($4::numeric[])
+		`, evalDatasetID, traceID, pq.Array(keys), pq.Array(vals)); err != nil {
+			return nil, fmt.Errorf("insert reasons: %w", err)
+		}
+	}
+	return previous, nil
 }
 
 // JudgedTraceIDs returns the subset of the input trace_ids that already have a judgment row.
