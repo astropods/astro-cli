@@ -55,7 +55,7 @@ Global defaults are in `lib/queryClient.ts`:
 - **staleTime: 60s** — data is fresh for 1 minute. Override per-query for volatile data (e.g., logs use `staleTime: 0`).
 - **gcTime: 5 min** — inactive cache entries are garbage collected after 5 minutes.
 - **retry** — no retry on 4xx errors; up to 2 retries on 5xx/network errors. Mutations never retry.
-- **refetchOnWindowFocus: true** — stale queries refetch when the user tabs back.
+- **refetchOnWindowFocus: false** — queries do not automatically refetch when the user tabs back; freshness is driven by `staleTime` and explicit polling/invalidation instead.
 
 Override at the hook level when a query has different needs. Do not change the global defaults without discussion.
 

@@ -199,7 +199,7 @@ bunx playwright test --config=playwright.prod.config.ts --ui
 
 If login fails, all projects that depend on `setup` are skipped automatically.
 
-Tests run automatically every 15 minutes via the **"Smoke tests"** GitHub Actions workflow. They also run against preview after every deploy to `main`.
+Tests run automatically every hour via the **"Smoke tests"** GitHub Actions workflow (`.github/workflows/smoke-test.yml`, `cron: "0 * * * *"`). They also run against preview after every deploy to `main`.
 
 ## Deployments
 

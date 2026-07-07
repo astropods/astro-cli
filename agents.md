@@ -12,7 +12,7 @@ IMPORTANT: When planning and creating spec, please ensure it's concise and compl
 |-----|------|---------|
 | astro-cli | `apps/astro-cli` | CLI for building, pushing, and deploying agents; handles local dev mode, container builds, registry push, and spec registration |
 | astro-client | `apps/astro-client` | React web frontend for managing agents, deployments, observability, and team settings |
-| astro-queen | `apps/astro-queen` | Bubbletea TUI admin client; provides interactive access to cluster status, deployments, and observability via gRPC |
+| astro-queen | `apps/astro-queen` | Admin console: a Cobra CLI that serves an embedded React SPA (`//go:embed web/dist`) backed by the AdminService gRPC API; provides access to cluster status, deployments, jobs, and observability |
 | astro-registry | `apps/astro-registry` | Docker Registry V2 API proxy with auth; routes push/pull operations to backend registry (ECR) with membership checking |
 | astro-server | `apps/astro-server` | Go backend API server handling agent registry, K8s deployments, auth (WorkOS), admin gRPC, and observability |
 
@@ -35,7 +35,10 @@ Use Moon as the default task runner from repo root.
 - Discover tasks: `moon query tasks`
 - Refresh this list: `moon query tasks`
 
-### Current Moon Targets (61)
+### Current Moon Targets
+
+<!-- This list can drift; regenerate with `moon query tasks`. -->
+
 
 - `adapters:build`, `adapters:install-local`, `adapters:publish-local`
 - `astro-cli:build`, `astro-cli:build-preview`, `astro-cli:clean`, `astro-cli:link`, `astro-cli:link-preview`, `astro-cli:typecheck`, `astro-cli:unlink`
@@ -46,7 +49,7 @@ Use Moon as the default task runner from repo root.
 - `astro-registry:build`, `astro-registry:deps`, `astro-registry:fmt`, `astro-registry:lint`, `astro-registry:test`, `astro-registry:typecheck`, `astro-registry:vet`
 - `astro-server:build`, `astro-server:deps`, `astro-server:dev`, `astro-server:e2e`, `astro-server:e2e.setup`, `astro-server:e2e.teardown`, `astro-server:fmt`, `astro-server:lint`, `astro-server:test`, `astro-server:typecheck`, `astro-server:vet`
 - `astro-theme:build`, `astro-theme:clean`, `astro-theme:typecheck`
-- `deployment:clean`, `deployment:collector`, `deployment:messaging`, `deployment:playground`
+- `deployment:astro-client`, `deployment:astro-registry`, `deployment:astro-server`, `deployment:clean`, `deployment:collector`, `deployment:messaging`, `deployment:smoke-test-astro-client`
 - `messaging:proto-gen`, `messaging:publish-local`, `messaging:sdk-build`, `messaging:typecheck`
 
 # Kubernetes API Usage
