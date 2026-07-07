@@ -1430,6 +1430,24 @@ Bun.serve({
       return json({ message: "invitation revoked" });
     }
 
+    const accountAvatarMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/avatar$/);
+    if (accountAvatarMatch && request.method === "POST") {
+      const [, accountName] = accountAvatarMatch;
+      return json({
+        avatar_url: `https://cdn.example.com/${accountName}/avatar.jpg`,
+        avatar_colors: {
+          base: "#111111",
+          vibrant: "#222222",
+          vibrant_light: "#333333",
+          accent: "#444444",
+          accent_light: "#555555",
+          background: "#666666",
+          foreground: "#777777",
+          glow: "#888888",
+        },
+      });
+    }
+
     // Account detail (for display name update, rename, etc.)
     const accountDetailMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)$/);
     if (accountDetailMatch) {

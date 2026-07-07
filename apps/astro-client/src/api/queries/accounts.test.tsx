@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useUpdateProfile, useAccountOrgs } from './accounts';
+import { useUpdateProfile, useAccountOrgs, useUploadAvatar } from './accounts';
 import { createHookWrapper } from '@/test/test-utils';
 import { accountKeys } from './keys';
-import type { AccountOrgsResponse } from '@/lib/api';
+import type { AccountOrgsResponse, AccountPublic, AvatarColors } from '@/lib/api';
 
 // ── useUpdateProfile ──────────────────────────────────────────────────────────
 
@@ -78,6 +78,57 @@ describe('useUpdateProfile', () => {
     expect(
       queryClient.getQueryState(accountKeys.detail('otheruser'))?.isInvalidated,
     ).toBeFalsy();
+  });
+});
+
+// ── useUploadAvatar ──────────────────────────────────────────────────────────
+
+describe('useUploadAvatar', () => {
+  it('patches the account detail cache with the returned avatar data', async () => {
+    const avatarColors: AvatarColors = {
+      base: '#111111',
+      vibrant: '#222222',
+      vibrant_light: '#333333',
+      accent: '#444444',
+      accent_light: '#555555',
+      background: '#666666',
+      foreground: '#777777',
+      glow: '#888888',
+    };
+
+    server.use(
+      http.post('/api/v1/accounts/testuser/avatar', () =>
+        HttpResponse.json({
+          avatar_url: 'https://cdn.example.com/testuser.jpg?v=2',
+          avatar_colors: avatarColors,
+        }),
+      ),
+    );
+
+    const { wrapper, queryClient } = createHookWrapper();
+    queryClient.setQueryData<AccountPublic>(accountKeys.detail('testuser'), {
+      id: 'acct-1',
+      name: 'testuser',
+      type: 'personal',
+      display_name: 'Test User',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+      avatar_url: 'https://cdn.example.com/testuser.jpg?v=1',
+    });
+
+    const { result } = renderHook(() => useUploadAvatar(), { wrapper });
+
+    result.current.mutate({
+      account: 'testuser',
+      file: new Blob(['avatar'], { type: 'image/jpeg' }),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(queryClient.getQueryData<AccountPublic>(accountKeys.detail('testuser'))).toMatchObject({
+      avatar_url: 'https://cdn.example.com/testuser.jpg?v=2',
+      avatar_colors: avatarColors,
+    });
   });
 });
 

@@ -34,6 +34,7 @@ function ProfileSection({ readOnly }: { readOnly?: boolean }) {
       accountName={org.name}
       currentDisplayName={org.display_name ?? ""}
       avatarDialogTitle="Upload organization image"
+      currentAvatarUrl={org.avatar_url}
       onSave={async (displayName) => {
         await updateDisplayName.mutateAsync({ account: orgSlug, displayName });
         await refreshUserData();

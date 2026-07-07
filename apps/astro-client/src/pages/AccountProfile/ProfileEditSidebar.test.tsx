@@ -1,11 +1,50 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@/test/test-utils';
+import { renderRoute, renderWithProviders, mockAuthContext } from '@/test/test-utils';
+import { bustAvatar } from '@/lib/avatar-bust';
 import { ProfileEditSidebar } from './ProfileEditSidebar';
 import type { AccountPublic } from '@/lib/api';
 
-afterEach(cleanup);
+const avatarUploadDialogMock = vi.hoisted(() => ({
+  uploadBlob: undefined as Blob | undefined,
+}));
+
+vi.mock('@/lib/avatar-bust', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/avatar-bust')>('@/lib/avatar-bust');
+  return {
+    ...actual,
+    bustAvatar: vi.fn(),
+  };
+});
+
+vi.mock('@/components/settings/AvatarUploadDialog', () => ({
+  AvatarUploadDialog: ({
+    open,
+    onSuccess,
+  }: {
+    open: boolean;
+    onSuccess?: (blob: Blob) => void;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        onClick={() => {
+          if (avatarUploadDialogMock.uploadBlob) {
+            onSuccess?.(avatarUploadDialogMock.uploadBlob);
+          }
+        }}
+      >
+        Complete avatar upload
+      </button>
+    ) : null,
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  avatarUploadDialogMock.uploadBlob = undefined;
+});
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -118,5 +157,37 @@ describe('ProfileEditSidebar close button', () => {
     );
     await user.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Avatar upload feedback ───────────────────────────────────────────────────
+
+describe('ProfileEditSidebar avatar upload feedback', () => {
+  it('busts the avatar and refreshes auth data after upload success', async () => {
+    const user = userEvent.setup();
+    const refreshUserData = vi.fn().mockResolvedValue(undefined);
+    const blob = new Blob(['avatar'], { type: 'image/png' });
+    avatarUploadDialogMock.uploadBlob = blob;
+
+    renderRoute(
+      [
+        {
+          path: '/',
+          Component: () => (
+            <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />
+          ),
+        },
+      ],
+      {
+        initialEntries: ['/'],
+        auth: { ...mockAuthContext, refreshUserData },
+      },
+    );
+
+    await user.click(screen.getByRole('button', { name: /test user/i }));
+    await user.click(screen.getByRole('button', { name: /complete avatar upload/i }));
+
+    expect(bustAvatar).toHaveBeenCalledWith('testuser', blob);
+    expect(refreshUserData).toHaveBeenCalledOnce();
   });
 });

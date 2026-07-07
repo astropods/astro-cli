@@ -7,6 +7,7 @@ import {
   useUploadAvatar,
 } from "@/api/queries/accounts";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input, inputBase, inputFocusWithin } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { SocialLinksEditor } from "@/components/account-profile/SocialLinksEditor";
 import { PronounsSelect } from "@/components/account-profile/PronounsSelect";
+import { bustAvatar } from "@/lib/avatar-bust";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 import { Camera, Loader2, X } from "lucide-react";
 
@@ -31,6 +33,7 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
   const updateDisplayName = useUpdateAccountDisplayName();
   const updateAccountProfile = useUpdateAccountProfile();
   const uploadAvatar = useUploadAvatar();
+  const { refreshUserData } = useAuth();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
 
   const [displayName, setDisplayName] = useState(data.display_name ?? "");
@@ -98,6 +101,10 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
         }}
         isPending={uploadAvatar.isPending}
         title={isOrg ? "Upload org image" : "Upload profile image"}
+        onSuccess={(blob) => {
+          bustAvatar(data.name, blob);
+          void refreshUserData();
+        }}
       />
 
       <div className="flex flex-col gap-4">

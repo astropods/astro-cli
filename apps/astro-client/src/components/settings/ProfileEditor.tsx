@@ -14,6 +14,7 @@ import {
 import { useUploadAvatar } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
 import { useSavedFlash } from "@/hooks/use-saved-flash";
+import { bustAvatar } from "@/lib/avatar-bust";
 import { SavedIndicator } from "@/components/settings/SettingsShared";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
@@ -27,6 +28,8 @@ interface ProfileEditorProps {
   currentDisplayName: string;
   /** Title for the avatar upload dialog */
   avatarDialogTitle: string;
+  /** Current versioned avatar URL from the server */
+  currentAvatarUrl?: string;
   /** Called with the new display name; should return a promise that resolves on success */
   onSave: (displayName: string) => Promise<void>;
   /** Whether the save mutation is in flight */
@@ -39,6 +42,7 @@ export function ProfileEditor({
   accountName,
   currentDisplayName,
   avatarDialogTitle,
+  currentAvatarUrl,
   onSave,
   isSaving,
   readOnly,
@@ -110,6 +114,7 @@ export function ProfileEditor({
                 <UserAvatar
                   handle={accountName}
                   name={resolvedDisplayName}
+                  avatarUrl={currentAvatarUrl}
                   className="size-[72px] text-2xl"
                 />
                 {!readOnly && (
@@ -138,8 +143,9 @@ export function ProfileEditor({
           }}
           isPending={uploadAvatar.isPending}
           title={avatarDialogTitle}
-          onSuccess={() => {
-            refreshUserData();
+          onSuccess={(blob) => {
+            bustAvatar(accountName, blob);
+            void refreshUserData();
             flash();
           }}
         />

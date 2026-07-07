@@ -90,7 +90,15 @@ export function useUploadAvatar() {
   return useMutation({
     mutationFn: ({ account, file }: { account: string; file: Blob }) =>
       api.uploadAvatar(account, file),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData<AccountPublic>(accountKeys.detail(variables.account), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          avatar_url: data.avatar_url,
+          avatar_colors: data.avatar_colors ?? old.avatar_colors,
+        };
+      });
       queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });
     },
   });
@@ -204,4 +212,3 @@ export function useCreateInvitations() {
     },
   });
 }
-
