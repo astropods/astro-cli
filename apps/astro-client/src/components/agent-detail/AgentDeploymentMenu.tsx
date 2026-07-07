@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { useDeploymentsSummary } from "@/api/queries/deployments";
@@ -61,11 +61,15 @@ export function AgentDeploymentMenu({
   const displayName = deployment.display_name || deployment.name;
 
   const { data: summaryData } = useDeploymentsSummary();
+  // Keep the current agent (shown as the selected row); drop only ineligible ones.
   const accounts = (summaryData?.accounts ?? [])
     .map((acct) => ({
       ...acct,
       deployments: acct.deployments.filter((dep) => {
-        if (dep.id === deployment.id) return false;
+        // Always show the current agent as the selected row, before the
+        // eligibility gate: it's the agent being viewed/chatted, so it's
+        // inherently eligible (the detail page passes no eligibility set).
+        if (dep.id === deployment.id) return true;
         if (eligibleDeploymentIds && !eligibleDeploymentIds.has(dep.id)) {
           return false;
         }
@@ -74,11 +78,14 @@ export function AgentDeploymentMenu({
     }))
     .filter((acct) => acct.deployments.length > 0);
 
-  const hasSwitchList = accounts.length > 0;
+  const hasOtherAgents = accounts.some((acct) =>
+    acct.deployments.some((dep) => dep.id !== deployment.id),
+  );
 
   // With a single chat-eligible agent there is nothing to switch to, so prompt
   // the user to deploy more agents instead of opening to an empty panel.
-  const showDeployMore = !!deployMoreHref && !hasSwitchList;
+  const showDeployMore = !!deployMoreHref && !hasOtherAgents;
+  const hasContent = showDeployMore || accounts.length > 0;
   const currentAccount = (summaryData?.accounts ?? []).find((acct) =>
     acct.deployments.some((dep) => dep.id === deployment.id),
   );
@@ -102,7 +109,7 @@ export function AgentDeploymentMenu({
             className="rounded-sm"
           />
           <span
-            className="max-w-[10rem] overflow-hidden whitespace-nowrap text-base font-medium tracking-wide text-foreground [--fade-start:8rem] [--fade-end:10rem] @max-[500px]:hidden min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]"
+            className="max-w-[6rem] overflow-hidden whitespace-nowrap text-base font-medium tracking-wide text-foreground [--fade-start:4rem] [--fade-end:6rem] @max-[500px]:hidden min-[600px]:max-w-[8rem] min-[600px]:[--fade-start:6rem] min-[600px]:[--fade-end:8rem] min-[820px]:max-w-[10rem] min-[820px]:[--fade-start:8rem] min-[820px]:[--fade-end:10rem] min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]"
             style={{
               maskImage:
                 "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
@@ -117,52 +124,54 @@ export function AgentDeploymentMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="flex w-[260px] flex-col">
         {menuPrefix}
-        {menuPrefix && (hasSwitchList || showDeployMore) && (
-          <DropdownMenuSeparator />
-        )}
+        {menuPrefix && hasContent && <DropdownMenuSeparator />}
         {showDeployMore ? (
           <>
             <DropdownMenuGroup>
               {currentAccountLabel && (
-                <DropdownMenuLabel className="text-faint-foreground">
+                <DropdownMenuLabel className="px-2 pt-1 pb-1.5 text-xs font-medium text-faint-foreground">
                   {currentAccountLabel}
                 </DropdownMenuLabel>
               )}
-              <DropdownMenuItem className="bg-accent/60 focus:bg-accent/60">
+              <div
+                aria-current="true"
+                className="flex items-center gap-2 rounded-sm bg-accent/60 px-2 py-1.5 text-sm"
+              >
                 <DeploymentAvatar
                   deployment={deployment}
                   size={20}
                   className="size-5 shrink-0 rounded-sm"
                 />
                 <span className="truncate">{displayName}</span>
-                <Check className="ml-auto size-4 shrink-0 text-primary" />
-              </DropdownMenuItem>
+                <Check className="ml-auto size-4 shrink-0 text-primary dark:text-primary-300" />
+              </div>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <Button
               asChild
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="mt-1 w-full justify-center gap-1.5 font-medium"
+              className="mt-1 w-full justify-start gap-1 font-medium"
             >
               <Link to={deployMoreHref!}>
-                <Plus className="text-muted-foreground" />
                 Deploy more agents
+                <ArrowRight className="size-3 text-muted-foreground" />
               </Link>
             </Button>
           </>
         ) : (
-          <div className="max-h-[300px] overflow-y-auto">
-            {accounts.map((acct) => (
-              <DropdownMenuGroup key={acct.id}>
+          <div className="max-h-[320px] overflow-y-auto">
+            {accounts.map((acct, i) => (
+              <DropdownMenuGroup key={acct.id} className={cn(i > 0 && "mt-3")}>
                 {(showAccountLabels || accounts.length > 1) && (
-                  <DropdownMenuLabel className="text-faint-foreground">
+                  <DropdownMenuLabel className="px-2 pt-1 pb-1.5 text-xs font-medium text-faint-foreground">
                     {acct.display_name || acct.name}
                   </DropdownMenuLabel>
                 )}
-                {acct.deployments.map((dep) => (
-                  <DropdownMenuItem key={dep.id} asChild>
-                    <Link to={getDeploymentPath(acct.name, dep)}>
+                {acct.deployments.map((dep) => {
+                  const isCurrent = dep.id === deployment.id;
+                  const row = (
+                    <>
                       <DeploymentAvatar
                         deployment={dep}
                         size={20}
@@ -171,9 +180,27 @@ export function AgentDeploymentMenu({
                       <span className="truncate">
                         {dep.display_name || dep.name}
                       </span>
-                    </Link>
-                  </DropdownMenuItem>
-                ))}
+                      {isCurrent && (
+                        <Check className="ml-auto size-4 shrink-0 text-primary dark:text-primary-300" />
+                      )}
+                    </>
+                  );
+                  // The current agent is presentational, not a menuitem, so it
+                  // stays out of roving focus and can't dismiss the menu as a no-op.
+                  return isCurrent ? (
+                    <div
+                      key={dep.id}
+                      aria-current="true"
+                      className="flex items-center gap-2 rounded-sm bg-accent/60 px-2 py-1.5 text-sm"
+                    >
+                      {row}
+                    </div>
+                  ) : (
+                    <DropdownMenuItem key={dep.id} asChild className="gap-2">
+                      <Link to={getDeploymentPath(acct.name, dep)}>{row}</Link>
+                    </DropdownMenuItem>
+                  );
+                })}
               </DropdownMenuGroup>
             ))}
           </div>
