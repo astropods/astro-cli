@@ -21,6 +21,21 @@ interface ImportVariablesProps {
 
 const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env)/i;
 const MAX_FILE_SIZE = 256 * 1024; // 256 KB
+// Picker hint only; real validation is ALLOWED_FILE_PATTERN in processFile.
+// accept matches by exact suffix and cannot express that open-ended regex, so
+// these .env.* names are a best-effort subset, not an authoritative mirror:
+// some valid names (e.g. secrets.txt.bak) still pass validation but stay greyed.
+const ACCEPTED_FILE_TYPES = [
+  ".env",
+  ".env.local",
+  ".env.development",
+  ".env.production",
+  ".env.staging",
+  ".env.test",
+  ".env.example",
+  ".json",
+  ".txt",
+].join(",");
 
 export function ImportVariables({ onImport }: ImportVariablesProps) {
   const [open, setOpen] = useState(false);
@@ -191,6 +206,7 @@ export function ImportVariables({ onImport }: ImportVariablesProps) {
               <input
                 ref={fileInputRef}
                 type="file"
+                accept={ACCEPTED_FILE_TYPES}
                 className="hidden"
                 onChange={handleFileChange}
               />
