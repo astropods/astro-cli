@@ -1,11 +1,24 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ExternalLink, Wrench, X } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  CheckCircle2,
+  TimerReset,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { Button } from "@/components/ui/button";
-import { type StatusIndicatorVariant } from "@/components/StatusIndicator";
 import {
-  useDeployment,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountMembers } from "@/api/queries/accounts";
+import {
   useDeploymentRuntime,
   useDeploymentStatus,
 } from "@/api/queries/deployments";
@@ -16,32 +29,56 @@ import {
 } from "@/api/queries/observability";
 import { useDeploymentAgentConfig } from "@/api/queries/chat";
 import { RequestSparkline, ZERO_SERIES } from "@/components/RequestSparkline";
+import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import {
-  derivePodStatus,
-  POD_STATUS_STYLES,
-} from "@/components/agent-detail/pods/PodTile";
+  identityRefFromUserID,
+  slackIdentityDisplay,
+} from "@/components/activity/insights-user-identity";
+import type { DayRange } from "@/components/agent-detail/charts/chart-utils";
+import { DeploymentStatusBadge } from "@/components/agent-detail/deployments/DeploymentTile";
+import {
+  type TraceStatus,
+  STATUS_CONFIG,
+  formatCost as formatTraceCost,
+  normalizeStatus,
+} from "@/components/agent-detail/traces/trace-utils";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
   deriveChatComposerState,
   type ChatComposerState,
 } from "@/lib/deployment-utils";
-import { deploymentPath } from "@/lib/routes";
-import { formatCompact, formatLatency } from "@/lib/format-utils";
+import {
+  DeploymentTab,
+  deploymentPath,
+  deploymentTracesPath,
+  deploymentTracePath,
+} from "@/lib/routes";
+import {
+  formatCompact,
+  formatCost as formatAggregateCost,
+} from "@/lib/format-utils";
 import { cn } from "@/lib/utils";
 import type {
   AgentDeploymentSummary,
   DeploymentStatus,
+  DeploymentStatusValue,
   TraceEntry,
-  WorkloadDetail,
+  UserDetails,
 } from "@/lib/api";
 
 export type ChatInspectorTab = "overview" | "settings";
 
 const TABS: { id: ChatInspectorTab; label: string }[] = [
   { id: "overview", label: "Overview" },
-  { id: "settings", label: "Settings" },
+  { id: "settings", label: "Config" },
 ];
+const USAGE_RANGES: { key: DayRange; label: string; days: number }[] = [
+  { key: "7d", label: "7D", days: 7 },
+  { key: "14d", label: "14D", days: 14 },
+  { key: "30d", label: "30D", days: 30 },
+];
+const DEFAULT_USAGE_RANGE: DayRange = "30d";
 
 export function ChatInspectorPanel({
   account,
@@ -65,47 +102,11 @@ export function ChatInspectorPanel({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="flex h-[52px] shrink-0 items-stretch gap-3 pr-2 pl-4">
-        <nav className="flex h-full items-stretch gap-4" aria-label="Inspector tabs">
-          {TABS.map((t) => {
-            const active = t.id === tab;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onTabChange(t.id)}
-                className={cn(
-                  "relative flex items-center text-body-sm transition-colors",
-                  active
-                    ? "font-semibold text-foreground"
-                    : "font-medium text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t.label}
-                {active ? (
-                  <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
-                ) : null}
-              </button>
-            );
-          })}
-        </nav>
-        <span className="flex-1" />
-        <div className="flex items-center">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            aria-label="Hide panel"
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </Button>
+      <div className="shrink-0 border-b border-border">
+        <div className="flex justify-center pt-2 md:hidden" aria-hidden="true">
+          <span className="h-1 w-12 rounded-full bg-muted-foreground/30" />
         </div>
-      </div>
-
-      <div className="chat-thread-scroll min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-6 px-5 py-5">
+        <div className="flex items-start gap-3 px-5 pt-4">
           <AgentIdentity
             account={account}
             deploymentId={deploymentId}
@@ -113,24 +114,78 @@ export function ChatInspectorPanel({
             deploymentName={deployment?.name ?? ""}
             avatarUrl={avatarUrl}
             status={statusData}
+            className="flex-1"
           />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="-mt-1 -mr-1 size-7 shrink-0 text-muted-foreground"
+            aria-label="Hide panel"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        <InspectorTabs tab={tab} onTabChange={onTabChange} />
+      </div>
+
+      <div className="chat-thread-scroll min-h-0 flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-7 px-5 py-5">
           {tab === "overview" ? (
-            <OverviewTab deploymentId={deploymentId} account={account} />
+            <OverviewTab
+              deploymentId={deploymentId}
+              account={account}
+            />
           ) : (
             <SettingsTab deploymentId={deploymentId} />
           )}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border px-5 py-3">
-        <Button asChild variant="outline" size="sm" className="w-full">
-          <Link to={deploymentPath(account, deploymentId)}>
-            <ExternalLink className="size-3.5" />
+      <div className="shrink-0 border-t border-border px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:py-3">
+        <Button asChild variant="outline" className="w-full">
+          <Link to={deploymentPath(account, deploymentId, DeploymentTab.Monitor)}>
             View agent
+            <ArrowUpRight className="size-3.5 shrink-0" />
           </Link>
         </Button>
       </div>
     </div>
+  );
+}
+
+function InspectorTabs({
+  tab,
+  onTabChange,
+}: {
+  tab: ChatInspectorTab;
+  onTabChange: (tab: ChatInspectorTab) => void;
+}) {
+  return (
+    <nav className="mt-4 flex h-10 items-stretch gap-4 px-5" aria-label="Inspector tabs">
+      {TABS.map((t) => {
+        const active = t.id === tab;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => onTabChange(t.id)}
+            className={cn(
+              "relative flex items-center text-[13px] transition-colors",
+              active
+                ? "font-semibold text-foreground"
+                : "font-medium text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.label}
+            {active ? (
+              <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
+            ) : null}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -141,6 +196,7 @@ function AgentIdentity({
   deploymentName,
   avatarUrl,
   status,
+  className,
 }: {
   account: string;
   deploymentId: string;
@@ -148,58 +204,74 @@ function AgentIdentity({
   deploymentName: string;
   avatarUrl: string;
   status?: DeploymentStatus;
+  className?: string;
 }) {
-  const badge = statusBadge(status);
   return (
-    <div className="flex items-center gap-3">
-      <span className="relative inline-flex shrink-0">
-        <BlueprintIdentity
-          account={account}
-          name={deploymentName}
-          size={44}
-          url={avatarUrl}
-          className="size-11 rounded-xl"
-        />
-        <span className="absolute -right-0.5 -bottom-0.5 rounded-full bg-surface p-0.5">
-          <span
-            className={cn(
-              "block size-2 rounded-full",
-              statusDotClass(badge.variant),
-              badge.pulse && "animate-pulse",
-            )}
-            aria-label={badge.label}
-          />
-        </span>
-      </span>
-      <div className="flex min-w-0 flex-col">
-        <span className="truncate text-heading-4 text-foreground">{name}</span>
-        <Link
-          to={deploymentPath(account, deploymentId)}
-          className="mt-0.5 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-        >
-          <span className="truncate text-body-sm">
-            {account}/{deploymentName}
+    <div className={cn("flex min-w-0 items-start gap-2.5", className)}>
+      <BlueprintIdentity
+        account={account}
+        name={deploymentName}
+        size={40}
+        url={avatarUrl}
+        className="size-10 shrink-0 rounded-sm"
+      />
+      <div className="flex min-w-0 flex-1 flex-col pt-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-heading-3 text-foreground">
+            {name}
           </span>
-          <ExternalLink className="size-3 shrink-0" />
-        </Link>
+          <ChatDeploymentSummary
+            status={status}
+            className="shrink-0"
+          />
+        </div>
+        <div className="mt-1 flex min-w-0 items-center">
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to={deploymentPath(account, deploymentId)}
+                  className="inline-flex min-w-0 items-center text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                >
+                  <span className="min-w-0 truncate text-body-sm">
+                    {account}/{deploymentName}
+                  </span>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={3}>
+                View blueprint
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
     </div>
   );
 }
 
-function statusDotClass(variant: StatusIndicatorVariant): string {
-  switch (variant) {
-    case "success":
-      return "bg-teal-500 dark:bg-teal-300";
-    case "pending":
-      return "bg-teal-700 dark:bg-teal-600";
-    case "warning":
-      return "bg-yellow-500 dark:bg-yellow-400";
-    case "error":
-      return "bg-coral-600 dark:bg-coral-400";
-    default:
-      return "bg-stone-500 dark:bg-stone-400";
-  }
+export function ChatDeploymentSummary({
+  status,
+  className,
+}: {
+  status?: DeploymentStatus;
+  className?: string;
+}) {
+  const badge = status ? statusBadge(status) : null;
+  if (!badge) return null;
+
+  return (
+    <span
+      aria-label="Deployment status"
+      className={cn("inline-flex min-w-0", className)}
+    >
+      <span className="shrink-0">
+        <DeploymentStatusBadge
+          status={badge.status}
+          label={badge.label}
+        />
+      </span>
+    </span>
+  );
 }
 
 function OverviewTab({
@@ -209,96 +281,130 @@ function OverviewTab({
   deploymentId: string;
   account: string;
 }) {
-  const { data: deploymentData } = useDeployment(deploymentId, true);
-  const { data: runtimeData } = useDeploymentRuntime(deploymentId);
-  const timeParams = useMemo(() => buildTimeParams(7), []);
+  const [range, setRange] = useState<DayRange>(DEFAULT_USAGE_RANGE);
+  const selectedRange =
+    USAGE_RANGES.find((option) => option.key === range) ??
+    USAGE_RANGES[USAGE_RANGES.length - 1];
+  const { days } = selectedRange;
+  const timeParams = useMemo(() => buildTimeParams(days), [days]);
   const { data: summary } = useObservabilitySummary(deploymentId, timeParams, {
-    window: "7d",
+    window: range,
   });
   const { data: summariesData } = useObservabilitySummaries(account);
   const summaryEntry = summariesData?.summaries?.[deploymentId];
-  const requestSeries =
+  const requestValues =
     summaryEntry?.request_series && summaryEntry.request_series.length > 1
-      ? summaryEntry.request_series
-      : ZERO_SERIES;
-  const tokenSeries = summaryEntry?.token_series;
-  const traceParams = useMemo(
-    () => ({ ...timeParams, limit: "6" }),
-    [timeParams],
-  );
+      ? lastN(summaryEntry.request_series, days)
+      : undefined;
+  const requestSeries = requestValues ?? ZERO_SERIES;
+  const tokenSeries = summaryEntry?.token_series
+    ? lastN(summaryEntry.token_series, days)
+    : undefined;
+  const spendSeries = lastN(summaryEntry?.cost_series, days);
+  const spend =
+    sumSeries(spendSeries) ??
+    (range === DEFAULT_USAGE_RANGE ? summaryEntry?.cost_usd : undefined);
+  const requestTotal = sumSeries(requestValues);
+  const tokenTotal = sumSeries(tokenSeries);
+  const traceParams = useMemo(() => ({ limit: "8" }), []);
   const { data: tracesData } = useObservabilityTraces(deploymentId, traceParams, {
-    window: "chat-inspector-7d",
+    window: "chat-inspector-latest",
   });
 
-  const deployment = deploymentData?.deployment;
-  const runtime = runtimeData?.runtime;
-
-  const workloads = useMemo<WorkloadDetail[]>(() => {
-    const specByName = new Map(
-      (deployment?.workloads ?? []).map((w) => [w.name, w]),
-    );
-    const liveByName = new Map(
-      (runtime?.workloads ?? []).map((w) => [w.name, w]),
-    );
-    const names = new Set<string>([...specByName.keys(), ...liveByName.keys()]);
-    return Array.from(names).map((name) => ({
-      kind: specByName.get(name)?.kind ?? "Pod",
-      component: specByName.get(name)?.component ?? "",
-      ...specByName.get(name),
-      ...liveByName.get(name),
-      name,
-    }));
-  }, [deployment?.workloads, runtime?.workloads]);
-
-  const healthy = workloads.filter(
-    (w) => derivePodStatus(w).status === "healthy",
-  ).length;
-
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2.5">
-        <Kv k="Build" value={shortHash(deployment?.build_id)} mono />
-        <Kv k="Last deployed" value={timeAgo(deployment?.updated_at)} />
-        <Kv
-          k="Workloads"
-          value={
-            workloads.length
-              ? `${healthy} / ${workloads.length} healthy`
+    <div className="flex flex-col gap-8">
+      <UsageSummary
+        requestSeries={requestSeries}
+        tokenSeries={tokenSeries}
+        range={range}
+        onRangeChange={setRange}
+        spend={spend === undefined ? "—" : formatAggregateCost(spend)}
+        requests={
+          requestTotal !== undefined
+            ? formatCompact(requestTotal)
+            : summary
+              ? formatCompact(summary.total_traces)
               : "—"
-          }
+        }
+        tokens={
+          tokenTotal !== undefined
+            ? formatCompact(tokenTotal)
+            : summary
+              ? formatCompact(summary.metrics.total_tokens)
+              : "—"
+        }
+      />
+
+      <Section
+        label="Recent traces"
+        className="gap-2"
+        action={
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="-mr-2 h-7 px-2 text-body-sm font-medium text-primary hover:bg-primary/10 hover:text-primary active:bg-primary/15 dark:text-primary-300 dark:hover:bg-primary-400/10 dark:hover:text-primary-300"
+          >
+            <Link
+              to={deploymentTracesPath(account, deploymentId)}
+              aria-label="View all traces"
+            >
+              View all
+            </Link>
+          </Button>
+        }
+      >
+        <RecentTraces
+          traces={tracesData?.traces ?? []}
+          account={account}
+          deploymentId={deploymentId}
         />
-        {workloads.length > 0 ? (
-          <div className="mt-1 flex flex-col gap-2">
-            {workloads.map((w) => (
-              <WorkloadRow key={w.name} workload={w} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <Section label="Usage">
-        <RequestSparkline series={requestSeries} tokenSeries={tokenSeries} />
-        <div className="grid grid-cols-4 gap-3 border-t border-border pt-3">
-          <Stat k="Reqs" value={summary ? formatCompact(summary.total_traces) : "—"} />
-          <Stat
-            k="Tokens"
-            value={summary ? formatCompact(summary.metrics.total_tokens) : "—"}
-          />
-          <Stat
-            k="P95"
-            value={summary ? formatLatency(summary.metrics.p95_latency_ms) : "—"}
-          />
-          <Stat
-            k="Err"
-            value={summary ? formatErrorRate(summary.metrics.error_rate) : "—"}
-          />
-        </div>
-      </Section>
-
-      <Section label="Recent traces">
-        <RecentTraces traces={tracesData?.traces ?? []} />
       </Section>
     </div>
+  );
+}
+
+function UsageSummary({
+  requestSeries,
+  tokenSeries,
+  range,
+  onRangeChange,
+  spend,
+  requests,
+  tokens,
+}: {
+  requestSeries: number[];
+  tokenSeries?: number[];
+  range: DayRange;
+  onRangeChange: (range: DayRange) => void;
+  spend: string;
+  requests: string;
+  tokens: string;
+}) {
+  return (
+    <Section
+      label="Usage"
+      action={
+        <div className="shrink-0">
+          <TimeRangeSelector
+            value={range}
+            ranges={USAGE_RANGES}
+            onChange={(next) => onRangeChange(next as DayRange)}
+            layoutId="chat-inspector-usage-range"
+          />
+        </div>
+      }
+      bodyClassName="flex flex-col gap-2.5"
+    >
+      <div className="min-w-0">
+        <RequestSparkline series={requestSeries} tokenSeries={tokenSeries} />
+      </div>
+      <div className="grid grid-cols-3 gap-x-5">
+        <UsageMetric label="Requests" value={requests} />
+        <UsageMetric label="Tokens" value={tokens} />
+        <UsageMetric label="Spend" value={spend} />
+      </div>
+    </Section>
   );
 }
 
@@ -364,14 +470,14 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
   const longPrompt = !!prompt && prompt.length > 280;
 
   return (
-    <div className="flex flex-col gap-6">
-      <Section label="System prompt">
+    <div className="flex flex-col gap-5">
+      <Section label="System prompt" className="gap-3">
         <div className="rounded-xl border border-border bg-surface/60 px-3.5 py-3">
           {prompt ? (
             <>
               <p
                 className={cn(
-                  "text-body-sm leading-relaxed whitespace-pre-wrap text-muted-foreground",
+                  "font-mono text-body-sm leading-relaxed whitespace-pre-wrap text-foreground",
                   !expanded && longPrompt && "line-clamp-5",
                 )}
               >
@@ -381,7 +487,7 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
                 <button
                   type="button"
                   onClick={() => setExpanded((e) => !e)}
-                  className="mt-2 text-body-sm font-medium text-muted-foreground hover:text-foreground"
+                  className="mt-2 text-body-sm font-medium text-primary transition-colors hover:text-primary/80"
                 >
                   {expanded ? "Show less" : "Show more"}
                 </button>
@@ -395,16 +501,19 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
         </div>
       </Section>
 
-      <Section label={`Tools${tools.length ? ` · ${tools.length}` : ""}`}>
+      <Section
+        label={`Tools${tools.length ? ` · ${tools.length}` : ""}`}
+        className="gap-3"
+      >
         {tools.length === 0 ? (
           <p className="text-body-sm text-muted-foreground">No tools configured.</p>
         ) : (
           <div className="flex flex-col gap-3.5">
             {tools.map((tool, i) => (
               <div key={`${tool.name}-${i}`} className="flex items-start gap-2.5">
-                <Wrench className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                <Wrench className="mt-0.5 size-3.5 shrink-0 text-foreground" />
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-mono text-mono-sm text-foreground">
+                  <span className="text-body-sm font-medium text-foreground">
                     {tool.title || tool.name}
                   </span>
                   {tool.description ? (
@@ -422,33 +531,17 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
   );
 }
 
-function WorkloadRow({ workload }: { workload: WorkloadDetail }) {
-  const { status } = derivePodStatus(workload);
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="flex min-w-0 items-center gap-2.5">
-        <span
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            POD_STATUS_STYLES[status].dot,
-          )}
-        />
-        <span className="truncate font-mono text-mono-sm text-muted-foreground">
-          {workload.name}
-        </span>
-      </span>
-      {workload.age ? (
-        <span className="shrink-0 font-mono text-mono-sm text-faint-foreground">
-          {workload.age}
-        </span>
-      ) : null}
-    </div>
-  );
-}
+const RECENT_TRACES_LIMIT = 8;
 
-const RECENT_TRACES_LIMIT = 6;
-
-function RecentTraces({ traces }: { traces: TraceEntry[] }) {
+function RecentTraces({
+  traces,
+  account,
+  deploymentId,
+}: {
+  traces: TraceEntry[];
+  account: string;
+  deploymentId: string;
+}) {
   const recent = traces.slice(0, RECENT_TRACES_LIMIT);
   if (recent.length === 0) {
     return (
@@ -456,136 +549,292 @@ function RecentTraces({ traces }: { traces: TraceEntry[] }) {
     );
   }
   return (
-    <div className="flex flex-col">
-      {recent.map((t, i) => {
-        const failed = isFailedTrace(t.status);
-        return (
-          <div
-            key={t.trace_id}
-            className={cn(
-              "flex items-center gap-2.5 py-2",
-              i > 0 && "border-t border-border/60",
-            )}
-          >
-            <span
+    <TooltipProvider delayDuration={200}>
+      <div className="flex flex-col">
+        {recent.map((t, i) => {
+          const status = normalizeStatus(t.status);
+          const timestamp = formatTraceDateTime(t.timestamp);
+          const statusIcon = traceStatusIcon(status);
+          const StatusIcon = statusIcon.Icon;
+          const statusLabel = STATUS_CONFIG[status].label;
+          return (
+            <Link
+              key={t.trace_id}
+              to={deploymentTracePath(account, deploymentId, t.trace_id)}
               className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                failed
-                  ? "bg-coral-600 dark:bg-coral-400"
-                  : "bg-teal-500 dark:bg-teal-300",
+                "group -mx-1.5 grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-1.5 py-1.5 transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                i > 0 && "border-t border-border/50",
               )}
-            />
-            <span className="font-mono text-mono-sm text-muted-foreground">
-              {shortHash(t.trace_id)}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-body-sm text-faint-foreground">
-              {t.user_details?.display_name ||
-                t.user_details?.username ||
-                t.user_id ||
-                "—"}
-            </span>
-            <span
-              className={cn(
-                "shrink-0 font-mono text-mono-sm",
-                failed ? "text-coral-600 dark:text-coral-400" : "text-foreground",
-              )}
+              aria-label={`Open ${statusLabel.toLowerCase()} trace from ${timestamp}`}
             >
-              {failed ? "Failed" : formatLatency(t.latency_ms)}
-            </span>
-            <span className="shrink-0 text-mono-sm text-faint-foreground">
-              {timeAgo(t.timestamp)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="inline-flex size-4 shrink-0 items-center justify-center"
+                    aria-label={statusLabel}
+                  >
+                    <StatusIcon
+                      aria-hidden="true"
+                      className={cn("size-3.5", statusIcon.className)}
+                      strokeWidth={2.1}
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6}>
+                  {statusLabel}
+                </TooltipContent>
+              </Tooltip>
+              <TraceUserDateIdentity
+                userId={t.user_id}
+                userDetails={t.user_details}
+                account={account}
+                timestamp={timestamp}
+                timestampIso={t.timestamp}
+                allowUserLink={false}
+              />
+              <div className="flex shrink-0 flex-col items-end gap-0.5 text-right text-body-sm leading-tight tabular-nums">
+                <span className="whitespace-nowrap font-mono font-medium text-foreground">
+                  {formatTraceCost(t.total_cost)}
+                </span>
+                <span className="whitespace-nowrap text-faint-foreground">
+                  {formatTraceTokens(t.total_tokens)}
+                </span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
+}
+
+function TraceUserDateIdentity({
+  userId,
+  userDetails,
+  account,
+  timestamp,
+  timestampIso,
+  allowUserLink = true,
+}: {
+  userId?: string;
+  userDetails?: UserDetails;
+  account: string;
+  timestamp: string;
+  timestampIso: string;
+  allowUserLink?: boolean;
+}) {
+  const identity = userId
+    ? userDetails
+      ? { user_id: userId, user_details: userDetails }
+      : identityRefFromUserID(userId)
+    : null;
+  const shouldResolveMember = !!identity && identity.user_details.kind !== "slack";
+  const { data, isLoading } = useAccountMembers(account, {
+    enabled: shouldResolveMember && !!account,
+  });
+
+  if (!identity) {
+    return (
+      <TraceUserDateShell
+        label="—"
+        timestamp={timestamp}
+        timestampIso={timestampIso}
+      />
+    );
+  }
+
+  if (identity.user_details.kind === "slack") {
+    const display = slackIdentityDisplay(identity);
+    const shell = (
+      <TraceUserDateShell
+        label={display.primary}
+        timestamp={timestamp}
+        timestampIso={timestampIso}
+      />
+    );
+
+    return allowUserLink && display.deepLink ? (
+      <a
+        href={display.deepLink}
+        rel="noreferrer"
+        className="group block min-w-0 hover:[&_span[data-user-name]]:underline"
+      >
+        {shell}
+      </a>
+    ) : (
+      <span className="group block min-w-0">{shell}</span>
+    );
+  }
+
+  const member = userId
+    ? data?.members.find((candidate) => candidate.user_id === userId)
+    : undefined;
+  const username = member?.username ?? identity.user_details.username;
+  const displayName =
+    member?.display_name ||
+    member?.username ||
+    identity.user_details.display_name ||
+    identity.user_details.username;
+
+  if (!username || !displayName) {
+    return (
+      <TraceUserDateShell
+        label={isLoading ? "…" : "Unknown user"}
+        muted
+        timestamp={timestamp}
+        timestampIso={timestampIso}
+      />
+    );
+  }
+
+  return (
+    <TraceUserDateShell
+      label={displayName}
+      timestamp={timestamp}
+      timestampIso={timestampIso}
+    />
+  );
+}
+
+function TraceUserDateShell({
+  label,
+  timestamp,
+  timestampIso,
+  muted = false,
+}: {
+  label: string;
+  timestamp: string;
+  timestampIso: string;
+  muted?: boolean;
+}) {
+  return (
+    <span className="flex min-w-0 flex-col gap-px">
+      <time
+        dateTime={timestampIso}
+        className="block truncate text-body-sm font-medium leading-tight text-foreground"
+      >
+        {timestamp}
+      </time>
+      <span
+        data-user-name
+        className={cn(
+          "truncate text-body-sm leading-tight text-faint-foreground",
+          muted && "italic",
+        )}
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
+
+function traceStatusIcon(status: TraceStatus): {
+  Icon: LucideIcon;
+  className: string;
+} {
+  switch (status) {
+    case "error":
+      return { Icon: AlertCircle, className: "text-error" };
+    case "timeout":
+      return { Icon: TimerReset, className: "text-warning" };
+    default:
+      return { Icon: CheckCircle2, className: "text-success" };
+  }
+}
+
+function formatTraceTokens(tokens?: number): string {
+  return tokens && tokens > 0 ? `${formatCompact(tokens)} tokens` : "— tokens";
+}
+
+function lastN<T>(items: T[] | undefined, count: number): T[] | undefined {
+  if (!items || items.length === 0) return undefined;
+  return items.slice(Math.max(items.length - count, 0));
+}
+
+function sumSeries(values: number[] | undefined): number | undefined {
+  if (!values || values.length === 0) return undefined;
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function formatTraceDateTime(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function Section({
   label,
+  action,
+  className,
+  bodyClassName,
   children,
 }: {
   label: string;
+  action?: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3">
-      <span className="font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
-        {label}
+    <section className={cn("flex flex-col gap-3.5", className)}>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="text-body font-medium text-foreground">
+          {label}
+        </span>
+        {action}
+      </div>
+      <div className={cn("min-w-0", bodyClassName)}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function UsageMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <MetricLabel>{label}</MetricLabel>
+      <span className="truncate font-mono text-body font-semibold text-foreground tabular-nums">
+        {value}
       </span>
+    </div>
+  );
+}
+
+function MetricLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="truncate text-body-sm text-faint-foreground">
       {children}
-    </div>
-  );
-}
-
-function Kv({ k, value, mono }: { k: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-body-sm text-muted-foreground">{k}</span>
-      <span
-        className={cn(
-          "truncate text-body-sm font-medium text-foreground",
-          mono && "font-mono",
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function Stat({ k, value }: { k: string; value: string }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <span className="font-mono text-mono-sm uppercase tracking-wide text-faint-foreground">
-        {k}
-      </span>
-      <span className="truncate font-mono text-body-sm text-foreground">
-        {value}
-      </span>
-    </div>
+    </span>
   );
 }
 
 function statusBadge(status?: DeploymentStatus): {
-  variant: StatusIndicatorVariant;
-  label: string;
-  pulse: boolean;
+  status: DeploymentStatusValue;
+  label?: string;
 } {
-  if (!status) return { variant: "muted", label: "Unknown", pulse: false };
-  if (status.reason === "paused") return { variant: "muted", label: "Paused", pulse: false };
+  if (!status) return { status: "inactive", label: "Unknown" };
+  if (status.value === "error" || status.reason === "failed") {
+    return { status: "error", label: "Error" };
+  }
+  if (
+    status.reason === "paused" ||
+    status.value === "inactive"
+  ) {
+    return { status: "inactive", label: "Paused" };
+  }
   switch (status.value) {
     case "active":
-      return { variant: "success", label: "Active", pulse: true };
+      return { status: "active", label: "Active" };
     case "deploying":
-      return { variant: "pending", label: "Deploying", pulse: true };
     case "undeploying":
-      return { variant: "pending", label: "Stopping", pulse: true };
-    case "error":
-      return { variant: "error", label: "Error", pulse: false };
-    case "inactive":
-      return { variant: "muted", label: "Inactive", pulse: false };
+      return { status: "deploying", label: "Deploying" };
     default:
-      return { variant: "muted", label: status.value, pulse: false };
+      return { status: "inactive", label: "Paused" };
   }
-}
-
-function isFailedTrace(status?: string): boolean {
-  if (!status) return false;
-  const s = status.toLowerCase();
-  return s !== "success" && s !== "ok" && s !== "default";
-}
-
-function shortHash(value?: string): string {
-  if (!value) return "—";
-  return value.slice(0, 8);
-}
-
-function formatErrorRate(rate: number): string {
-  if (rate === 0) return "0%";
-  if (rate < 0.001) return "<0.1%";
-  return `${(rate * 100).toFixed(rate < 0.1 ? 2 : 1)}%`;
 }
 
 function buildTimeParams(days: number): Record<string, string> {
@@ -597,23 +846,4 @@ function buildTimeParams(days: number): Record<string, string> {
     end_time: end.toISOString(),
     granularity: "hour",
   };
-}
-
-function timeAgo(iso?: string): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const diff = Date.now() - then;
-  if (diff < 0) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w`;
-  const months = Math.floor(days / 30);
-  return `${months}mo`;
 }

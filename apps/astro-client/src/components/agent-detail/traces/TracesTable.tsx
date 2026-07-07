@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -12,6 +12,7 @@ import {
   MultiSelectAllItem,
   MultiSelectItem,
 } from "@/components/ui/multi-select";
+import { traceRowAnchorId } from "@/lib/routes";
 import type { TraceEntry } from "@/lib/api";
 import { TraceUserIdentity } from "./TraceUserIdentity";
 import {
@@ -104,6 +105,7 @@ export function TracesTable({
 }: TracesTableProps) {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
+  const autoExpandedForTraceId = useRef<string | null>(null);
 
   const filtered = useMemo(
     () => selectedStatuses.length === 0
@@ -115,11 +117,48 @@ export function TracesTable({
   const stableTraces = filtered.slice(0, DEFAULT_VISIBLE);
   const expandableTraces = filtered.slice(DEFAULT_VISIBLE);
   const hiddenCount = expandableTraces.length;
+  const selectedTraceIndex = selectedTraceId
+    ? filtered.findIndex((trace) => trace.trace_id === selectedTraceId)
+    : -1;
   // Filtering down to a list that fits in the visible window invalidates an
   // outstanding expanded state — reset so the next overflow starts collapsed.
   useEffect(() => {
     if (hiddenCount <= 0 && expanded) setExpanded(false);
   }, [hiddenCount, expanded]);
+  // Force the overflow open once when a newly selected trace lives beyond the
+  // visible window. Keyed off the trace ID (not `expanded`) so a manual "Show
+  // less" collapse of the same selection isn't immediately reverted.
+  useEffect(() => {
+    if (!selectedTraceId) {
+      autoExpandedForTraceId.current = null;
+      return;
+    }
+    if (
+      selectedTraceIndex >= DEFAULT_VISIBLE &&
+      autoExpandedForTraceId.current !== selectedTraceId
+    ) {
+      autoExpandedForTraceId.current = selectedTraceId;
+      setExpanded(true);
+    }
+  }, [selectedTraceId, selectedTraceIndex]);
+  useEffect(() => {
+    if (!selectedTraceId || selectedTraceIndex < 0) return;
+    if (selectedTraceIndex >= DEFAULT_VISIBLE && !expanded) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const row = document.getElementById(traceRowAnchorId(selectedTraceId));
+      if (!row) return;
+      // Only recenter when the row isn't already fully visible. A plain
+      // click-to-select on an in-view row shouldn't jump the viewport; this
+      // keeps the recenter behavior for deep-link / auto-expand cases where
+      // the row lands off-screen.
+      const rect = row.getBoundingClientRect();
+      const fullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+      if (fullyVisible) return;
+      row.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedTraceId, selectedTraceIndex, expanded]);
 
   return (
     <div
@@ -189,7 +228,9 @@ export function TracesTable({
                   return (
                     <tr
                       key={trace.trace_id}
+                      id={traceRowAnchorId(trace.trace_id)}
                       onClick={() => onSelectTrace?.(trace)}
+                      data-selected={isSelected || undefined}
                       className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
                     >
                       <TraceRowCells trace={trace} account={account} />
@@ -202,7 +243,9 @@ export function TracesTable({
                     return (
                       <tr
                         key={trace.trace_id}
+                        id={traceRowAnchorId(trace.trace_id)}
                         onClick={() => onSelectTrace?.(trace)}
+                        data-selected={isSelected || undefined}
                         className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
                       >
                         <TraceRowCells trace={trace} account={account} />

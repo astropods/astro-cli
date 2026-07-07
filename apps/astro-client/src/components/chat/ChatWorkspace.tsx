@@ -176,9 +176,9 @@ export function ChatWorkspace({
       {isMobile ? (
         <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
           <SheetContent
-            side="right"
+            side="bottom"
             showCloseButton={false}
-            className="w-[88vw] gap-0 bg-surface p-0 sm:max-w-sm"
+            className="h-[min(86dvh,760px)] max-h-[calc(100dvh-0.75rem)] gap-0 overflow-hidden rounded-t-2xl border-border bg-surface p-0 shadow-2xl"
           >
             <SheetTitle className="sr-only">Agent details</SheetTitle>
             <ChatInspectorPanel

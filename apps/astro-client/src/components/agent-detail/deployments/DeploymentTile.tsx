@@ -51,6 +51,26 @@ const STATUS_LABELS: Record<DeploymentStatusValue, string> = {
 
 const SPINNING_STATUSES: ReadonlySet<DeploymentStatusValue> = new Set(["deploying", "undeploying"]);
 
+export function DeploymentStatusBadge({
+  status,
+  label,
+}: {
+  status: DeploymentStatusValue;
+  label?: string;
+}) {
+  const colors = STATUS_COLORS[status] ?? NEUTRAL_COLORS;
+
+  return (
+    <span
+      className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
+      style={{ backgroundColor: colors.badgeBg, color: colors.badgeText }}
+    >
+      {SPINNING_STATUSES.has(status) && <Loader2 className="size-3 animate-spin" />}
+      {label ?? STATUS_LABELS[status]}
+    </span>
+  );
+}
+
 export interface DeploymentTileProps {
   /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
   name: string;
@@ -106,15 +126,7 @@ export function DeploymentTile({
           {name}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
-          {status && (
-            <span
-              className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
-              style={{ backgroundColor: colors.badgeBg, color: colors.badgeText }}
-            >
-              {SPINNING_STATUSES.has(status) && <Loader2 className="size-3 animate-spin" />}
-              {STATUS_LABELS[status]}
-            </span>
-          )}
+          {status && <DeploymentStatusBadge status={status} />}
           {menu}
         </div>
       </div>

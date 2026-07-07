@@ -2,9 +2,10 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { server } from "@/test/msw/server";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
+import { traceRowAnchorId } from "@/lib/routes";
 import type {
   AgentDeployment,
   MetricsBucket,
@@ -93,6 +94,18 @@ const emptyTraces: ObservabilityTracesResponse = {
   offset: 0,
 };
 
+const emptyRect: DOMRect = {
+  top: 0,
+  bottom: 0,
+  left: 0,
+  right: 0,
+  width: 0,
+  height: 0,
+  x: 0,
+  y: 0,
+  toJSON: () => ({}),
+};
+
 function setupHandlers(
   metrics: ObservabilityMetricsResponse = emptyMetrics,
   traces: ObservabilityTracesResponse = emptyTraces,
@@ -111,35 +124,42 @@ function setupHandlers(
 // Rendering helper
 // ---------------------------------------------------------------------------
 
-function renderMonitor(deployment?: AgentDeployment) {
+function renderMonitor(deployment?: AgentDeployment, initialEntry?: string) {
   const dep = deployment ?? makeDeployment();
   const user = userEvent.setup();
+  let currentLocation = "";
+
+  function AgentDetailTestShell() {
+    const location = useLocation();
+    currentLocation = `${location.pathname}${location.search}`;
+    return (
+      <Outlet
+        context={{
+          deployment: dep,
+          account: "testuser",
+          deploymentId: dep.id,
+        }}
+      />
+    );
+  }
 
   const result = renderRoute(
     [
       {
         path: "/:account/agents/:deploymentId",
-        Component: () => (
-          <Outlet
-            context={{
-              deployment: dep,
-              account: "testuser",
-              deploymentId: dep.id,
-            }}
-          />
-        ),
+        Component: AgentDetailTestShell,
         children: [
           { path: "monitor", Component: AgentMonitor },
         ],
       },
     ],
     {
-      initialEntries: [`/testuser/agents/${dep.id}/monitor`],
+      initialEntries: [initialEntry ?? `/testuser/agents/${dep.id}/monitor`],
       auth: mockAuthContext,
     },
   );
 
-  return { ...result, user };
+  return { ...result, user, getLocation: () => currentLocation };
 }
 
 // ===========================================================================
@@ -391,7 +411,7 @@ describe("user inspects trace details", () => {
 
   it("clicking a trace row opens the detail panel with status, latency, and cost", async () => {
     setupDetailTraces();
-    const { user } = renderMonitor();
+    const { user, getLocation } = renderMonitor();
     await user.click((await screen.findByText("t-1")).closest("tr")!);
 
     // Scope to the panel — the table also has Status/Latency/Cost column headers.
@@ -399,6 +419,83 @@ describe("user inspects trace details", () => {
     expect(within(panel).getByText("Success")).toBeInTheDocument();
     expect(within(panel).getByText("245ms")).toBeInTheDocument();
     expect(within(panel).getByText("$0.0012")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getLocation()).toBe("/testuser/agents/dep-1/monitor?trace=t-1");
+    });
+  });
+
+  it("opens the detail panel from the trace query parameter", async () => {
+    setupDetailTraces();
+    renderMonitor(undefined, "/testuser/agents/dep-1/monitor?trace=t-2");
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("t-2")).toBeInTheDocument();
+    expect(within(panel).getByText("Complex query")).toBeInTheDocument();
+  });
+
+  it("expands and scrolls to the selected trace row from a trace anchor", async () => {
+    const traces = Array.from({ length: 12 }, (_, i) =>
+      makeTrace({ trace_id: `trace-${String(i).padStart(3, "0")}` }),
+    );
+    const targetTraceId = "trace-011";
+    const targetRowId = traceRowAnchorId(targetTraceId);
+    const scrollIntoView = vi.spyOn(
+      window.HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    // Deep-linked row lands off-screen; jsdom otherwise reports a zero rect,
+    // which the visibility guard would treat as already-visible.
+    const originalRect = window.HTMLElement.prototype.getBoundingClientRect;
+    const rectSpy = vi
+      .spyOn(window.HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.id === targetRowId) {
+          return { ...emptyRect, top: 2000, bottom: 2040, height: 40 };
+        }
+        return originalRect.call(this);
+      });
+    setupHandlers(emptyMetrics, { traces, total: 12, limit: 100, offset: 0 });
+    renderMonitor(
+      undefined,
+      `/testuser/agents/dep-1/monitor?trace=${targetTraceId}#${traceRowAnchorId(targetTraceId)}`,
+    );
+
+    await waitFor(() => {
+      expect(document.getElementById(targetRowId)).toBeInTheDocument();
+    });
+    expect(document.getElementById(targetRowId)).toHaveAttribute(
+      "data-selected",
+      "true",
+    );
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "center",
+        inline: "nearest",
+      });
+    });
+    scrollIntoView.mockRestore();
+    rectSpy.mockRestore();
+  });
+
+  it("does not scroll when the selected trace row is already fully visible", async () => {
+    const traces = Array.from({ length: 3 }, (_, i) =>
+      makeTrace({ trace_id: `t-${i}` }),
+    );
+    const scrollIntoView = vi.spyOn(
+      window.HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    setupHandlers(emptyMetrics, { traces, total: 3, limit: 100, offset: 0 });
+    const { user } = renderMonitor();
+
+    await user.click((await screen.findByText("t-1")).closest("tr")!);
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(within(panel).getByText("t-1")).toBeInTheDocument();
+    // jsdom reports a zero rect (top: 0, bottom: 0), which is within the
+    // viewport, so the visibility guard should skip the recenter.
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    scrollIntoView.mockRestore();
   });
 
   it("shows Input and Output sections with trace content", async () => {
@@ -422,7 +519,19 @@ describe("user inspects trace details", () => {
 
   it("close button dismisses the panel", async () => {
     setupDetailTraces();
-    const { user } = renderMonitor();
+    const { user, getLocation } = renderMonitor(undefined, "/testuser/agents/dep-1/monitor?trace=t-1");
+    expect(await screen.findByText("What is the weather?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /close trace/i }));
+    await waitFor(() => {
+      expect(screen.queryByText("What is the weather?")).not.toBeInTheDocument();
+    });
+    expect(getLocation()).toBe("/testuser/agents/dep-1/monitor");
+  });
+
+  it("clears a selected trace when closing a clicked row", async () => {
+    setupDetailTraces();
+    const { user, getLocation } = renderMonitor();
     await user.click((await screen.findByText("t-1")).closest("tr")!);
     expect(await screen.findByText("What is the weather?")).toBeInTheDocument();
 
@@ -430,6 +539,7 @@ describe("user inspects trace details", () => {
     await waitFor(() => {
       expect(screen.queryByText("What is the weather?")).not.toBeInTheDocument();
     });
+    expect(getLocation()).toBe("/testuser/agents/dep-1/monitor");
   });
 
   it("pretty-prints JSON input as a code block", async () => {
@@ -474,12 +584,18 @@ describe("user navigates between traces", () => {
 
   it("Next button navigates to the next trace", async () => {
     setupNavTraces();
-    const { user } = renderMonitor();
+    const { user, getLocation } = renderMonitor();
     await user.click((await screen.findByText("first")).closest("tr")!);
     expect(await screen.findByText("First question")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getLocation()).toBe("/testuser/agents/dep-1/monitor?trace=first");
+    });
 
     await user.click(screen.getByRole("button", { name: /next trace/i }));
     expect(await screen.findByText("Second question")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getLocation()).toBe("/testuser/agents/dep-1/monitor?trace=second");
+    });
   });
 
   it("Prev is disabled on the first trace", async () => {

@@ -32,6 +32,10 @@ export default function ChatPage() {
 
   const activeEntry = entries.find((e) => e.deployment.id === deploymentId);
   const deployment = activeEntry?.deployment;
+  // The chat page is cross-account, so the selected agent may live in a
+  // different org than the globally-active one. Scope everything (identity link,
+  // observability, members) to the deployment's own account, not activeAccount.
+  const deploymentAccount = activeEntry?.account ?? activeAccount;
 
   const upsertConversation = useUpsertDeploymentChatConversation(
     deployment?.id ?? "",
@@ -74,7 +78,7 @@ export default function ChatPage() {
       ) : (
         <ChatWorkspace
           className="flex-1"
-          account={activeAccount}
+          account={deploymentAccount}
           deploymentId={deployment!.id}
           deployment={deployment!}
           eligibleDeploymentIds={eligibleDeploymentIds}

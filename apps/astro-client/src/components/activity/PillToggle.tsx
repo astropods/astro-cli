@@ -37,9 +37,9 @@ interface PillToggleProps<K extends string> {
 
 const PILL_SIZE: Record<PillSize, { container: string; item: string; indicator: string }> = {
   sm: {
-    container: "p-0.5 rounded-md",
-    item: "rounded-[10px] px-3 py-1 text-mono-sm font-medium",
-    indicator: "rounded-[10px]",
+    container: "p-0.5 rounded-sm",
+    item: "rounded-sm px-2.5 py-0.5 text-mono-xs font-medium",
+    indicator: "rounded-sm",
   },
   md: {
     container: "p-[2px] rounded-[7px]",
@@ -95,7 +95,9 @@ export function PillToggle<K extends string>({
             className={cn(
               "relative inline-flex items-center gap-1.5 transition-colors",
               s.item,
-              isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              isActive
+                ? "font-semibold text-foreground"
+                : "font-medium text-muted-foreground hover:text-foreground",
             )}
           >
             {isActive && (

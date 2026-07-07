@@ -1,11 +1,14 @@
 import { useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router";
 import { motion } from "motion/react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/theme";
 import { useAgentDetailContext } from "../AgentDetail";
 import {
   useObservabilityMetrics,
   useObservabilityTraces,
+  useObservabilityTraceDetail,
 } from "@/api/queries/observability";
 import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
 import { TokenUsageChart } from "@/components/agent-detail/charts/TokenUsageChart";
@@ -27,6 +30,7 @@ import {
   aggregateRequestsByLocalDay,
 } from "@/components/agent-detail/charts/aggregate-token-buckets";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
+import { monitorTracesAnchorId } from "@/lib/routes";
 
 const RANGES: { key: DayRange; label: string; days: number }[] = [
   { key: "7d", label: "7D", days: 7 },
@@ -53,6 +57,7 @@ function buildTimeParams(days: number) {
 
 export default function AgentMonitor() {
   const { deploymentId, account } = useAgentDetailContext();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [range, setRange] = useState<DayRange>("7d");
   const { days } = RANGES.find((r) => r.key === range)!;
 
@@ -97,21 +102,83 @@ export default function AgentMonitor() {
   );
 
   // Trace detail panel
-  const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
   const allTraces = tracesData?.traces ?? [];
+  const selectedTraceId = searchParams.get("trace");
+  const traceFromList = useMemo(
+    () => selectedTraceId
+      ? allTraces.find((t) => t.trace_id === selectedTraceId) ?? null
+      : null,
+    [allTraces, selectedTraceId],
+  );
 
-  const selectedIndex = selectedTrace
-    ? allTraces.findIndex((t) => t.trace_id === selectedTrace.trace_id)
+  // A deep link (?trace=<id>) can target a trace outside the loaded window
+  // (traces are capped at limit:100). When the ID isn't in the list, hydrate a
+  // minimal TraceEntry from the detail endpoint so the panel can still open —
+  // TraceDetailPanel refetches the same detail (deduped by react-query) for the
+  // full body content.
+  const needsHydration = !!selectedTraceId && !tracesLoading && !traceFromList;
+  const {
+    data: hydratedDetail,
+    isError: hydrationError,
+  } = useObservabilityTraceDetail(
+    deploymentId,
+    needsHydration ? selectedTraceId : null,
+  );
+
+  const hydratedTrace = useMemo<TraceEntry | null>(() => {
+    const t = hydratedDetail?.trace;
+    if (!needsHydration || !t) return null;
+    // The detail endpoint doesn't carry status/total_tokens; the panel defaults
+    // status to "success" and sums tokens from observations. input/output here
+    // are placeholders — the panel prefers the detail body once it loads.
+    return {
+      trace_id: t.trace_id,
+      name: t.name,
+      status: "",
+      latency_ms: t.latency_ms,
+      total_cost: t.total_cost,
+      input: "",
+      output: "",
+      timestamp: t.timestamp,
+      user_id: t.user_id,
+      user_details: t.user_details,
+    };
+  }, [needsHydration, hydratedDetail]);
+
+  const selectedTrace = traceFromList ?? hydratedTrace;
+
+  const selectedIndex = traceFromList
+    ? allTraces.findIndex((t) => t.trace_id === traceFromList.trace_id)
     : -1;
+
+  const setSelectedTraceId = useCallback(
+    (traceId: string | null, options?: { replace?: boolean }) => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        if (traceId) {
+          next.set("trace", traceId);
+        } else {
+          next.delete("trace");
+        }
+        return next;
+      }, options);
+    },
+    [setSearchParams],
+  );
+
+  const handleSelectTrace = useCallback(
+    (trace: TraceEntry) => setSelectedTraceId(trace.trace_id),
+    [setSelectedTraceId],
+  );
 
   const handleNavigate = useCallback(
     (dir: "prev" | "next") => {
       const nextIdx = dir === "prev" ? selectedIndex - 1 : selectedIndex + 1;
       if (nextIdx >= 0 && nextIdx < allTraces.length) {
-        setSelectedTrace(allTraces[nextIdx]);
+        setSelectedTraceId(allTraces[nextIdx].trace_id, { replace: true });
       }
     },
-    [selectedIndex, allTraces],
+    [allTraces, selectedIndex, setSelectedTraceId],
   );
 
   // Track container width for responsive panel behavior
@@ -119,7 +186,12 @@ export default function AgentMonitor() {
 
   const OVERLAY_THRESHOLD = 900;
   const PANEL_WIDTH_REM = 41; // 40rem panel + 1rem gap
-  const panelOpen = selectedTrace !== null;
+  // The panel slides in whenever a trace is requested via the URL — even before
+  // it resolves — so a deep link shows a loading or not-found state rather than
+  // silently doing nothing while leaving a stale ?trace= behind.
+  const traceNotFound = needsHydration && hydrationError;
+  const traceHydrating = !!selectedTraceId && !selectedTrace && !traceNotFound;
+  const panelOpen = selectedTraceId !== null;
   const shouldOverlay = outerWidth > 0 && outerWidth < OVERLAY_THRESHOLD;
   const [panelExpanded, setPanelExpanded] = useState(false);
   const isFullWidth = panelExpanded || shouldOverlay;
@@ -245,7 +317,7 @@ export default function AgentMonitor() {
           </div>
 
           {/* Traces */}
-          <div className="mt-10">
+          <div id={monitorTracesAnchorId} className="mt-10 scroll-mt-6">
             <div className="mb-6">
               <h2 className="text-heading-4 text-foreground">Traces</h2>
             </div>
@@ -254,8 +326,8 @@ export default function AgentMonitor() {
               traces={allTraces}
               account={account}
               loading={tracesLoading}
-              selectedTraceId={selectedTrace?.trace_id}
-              onSelectTrace={setSelectedTrace}
+              selectedTraceId={selectedTraceId}
+              onSelectTrace={handleSelectTrace}
             />
           </div>
         </motion.div>
@@ -271,19 +343,37 @@ export default function AgentMonitor() {
         )}
         style={{ transform: panelOpen ? "translateX(0)" : "translateX(calc(100% + 0.75rem))" }}
       >
-        {selectedTrace && (
+        {selectedTrace ? (
           <TraceDetailPanel
             deploymentId={deploymentId}
             trace={selectedTrace}
             account={account}
-            onClose={() => setSelectedTrace(null)}
+            onClose={() => setSelectedTraceId(null, { replace: true })}
             canGoPrev={selectedIndex > 0}
-            canGoNext={selectedIndex < allTraces.length - 1}
+            canGoNext={selectedIndex >= 0 && selectedIndex < allTraces.length - 1}
             onNavigate={handleNavigate}
             expanded={panelExpanded}
             onToggleExpanded={shouldOverlay ? undefined : () => setPanelExpanded((v) => !v)}
           />
-        )}
+        ) : traceNotFound ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface px-6 text-center">
+            <p className="text-body-sm text-foreground">Trace not found.</p>
+            <p className="text-body-sm text-muted-foreground">
+              It may be outside the selected time range or no longer available.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSelectedTraceId(null, { replace: true })}
+              className="mt-1 rounded-md border border-border px-3 py-1.5 text-body-sm text-foreground transition-colors hover:bg-muted"
+            >
+              Close
+            </button>
+          </div>
+        ) : traceHydrating ? (
+          <div className="flex h-full w-full items-center justify-center rounded-md border border-border bg-surface">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : null}
       </div>
     </div>
   );
