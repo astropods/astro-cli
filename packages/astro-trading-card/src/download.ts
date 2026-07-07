@@ -35,26 +35,37 @@ async function urlToDataUri(url: string): Promise<string> {
   });
 }
 
+function resolveEmbeddableHref(href: string): string | null {
+  if (!href || /^(data:|#)/i.test(href)) return null;
+  try {
+    return new URL(href, window.location.href).href;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Find all external image hrefs in the SVG and replace them with
+ * Find image hrefs in the SVG and replace them with
  * embedded data URIs so the SVG is fully self-contained.
  */
 async function embedImages(svg: string): Promise<string> {
-  const hrefRe = /href="(https?:\/\/[^"]+)"/g;
+  const hrefRe = /<image\b[^>]*\b(?:href|xlink:href)="([^"]+)"[^>]*>/g;
   const matches = [...svg.matchAll(hrefRe)];
   if (matches.length === 0) return svg;
 
-  // Deduplicate URLs
   const urls = [...new Set(matches.map((m) => m[1]))];
   const dataUris = new Map<string, string>();
 
   await Promise.all(
-    urls.map(async (url) => {
+    urls.map(async (href) => {
+      const url = resolveEmbeddableHref(href);
+      if (!url) return;
+
       try {
         const dataUri = await urlToDataUri(url);
-        dataUris.set(url, dataUri);
+        dataUris.set(href, dataUri);
       } catch {
-        // If fetch fails, leave the original URL
+        // If fetch fails, leave the original href in place.
       }
     }),
   );
