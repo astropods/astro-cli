@@ -53,7 +53,7 @@ export function SidebarDeployedAgents({
     <SidebarSection
       title="Deployed agents"
       badge={<span className="text-muted-foreground"><Info className="h-3 w-3" /></span>}
-      badgeTooltip="Deployments of this blueprint in accounts you belong to. Instances running an older build can be upgraded to the latest."
+      badgeTooltip="Deployments of this blueprint in accounts you belong to. Instances running an older build can be updated to the latest."
       trailing={
         <span className="text-mono-sm font-mono text-faint-foreground">{matches.length}</span>
       }
@@ -142,7 +142,7 @@ function DeployedAgentRow({
             to={`${deploymentConfigurePath(account, deployment.id)}?build=${encodeURIComponent(latest!)}`}
           >
             <ArrowUp className="size-3" />
-            Upgrade
+            Update
           </Link>
         </Button>
       ) : isCurrent ? (

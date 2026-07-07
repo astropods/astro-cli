@@ -453,7 +453,7 @@ describe("upgrade mode", () => {
     );
     await waitForForm();
 
-    expect(screen.getByText("Upgrade")).toBeInTheDocument();
+    expect(screen.getByText("Update")).toBeInTheDocument();
     // Shows old → new build hash comparison
     expect(screen.getByText(/oldbuild/)).toBeInTheDocument();
     expect(screen.getByText("newbuild")).toBeInTheDocument();
@@ -463,7 +463,7 @@ describe("upgrade mode", () => {
     renderConfigure(undefined, "build=newbuild2");
     await waitForForm();
 
-    expect(screen.getByText(/upgrade to new build/i)).toBeInTheDocument();
+    expect(screen.getByText(/update to new build/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /redeploy/i })).toBeInTheDocument();
   });
 });

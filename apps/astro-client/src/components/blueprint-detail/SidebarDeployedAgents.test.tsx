@@ -12,7 +12,7 @@ afterEach(cleanup);
 function rowLinks() {
   return screen
     .getAllByRole("link")
-    .filter((l) => !/upgrade/i.test(l.textContent ?? ""));
+    .filter((l) => !/update/i.test(l.textContent ?? ""));
 }
 
 function deployment(overrides: Partial<AgentDeploymentSummary>): AgentDeploymentSummary {
@@ -99,7 +99,7 @@ describe("SidebarDeployedAgents", () => {
       />,
     );
 
-    const upgrade = await screen.findByRole("link", { name: /upgrade/i });
+    const upgrade = await screen.findByRole("link", { name: /update/i });
     expect(upgrade).toHaveAttribute(
       "href",
       "/testuser/agents/dep-1/configure?build=build-latest",
@@ -122,7 +122,7 @@ describe("SidebarDeployedAgents", () => {
     await waitFor(() => {
       expect(screen.getByText("Deployed agents")).toBeInTheDocument();
     });
-    expect(screen.queryByRole("link", { name: /upgrade/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /update/i })).not.toBeInTheDocument();
   });
 
   it("collapses deployments beyond the visible limit behind a toggle", async () => {

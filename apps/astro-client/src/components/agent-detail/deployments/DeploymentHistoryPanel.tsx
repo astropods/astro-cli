@@ -269,7 +269,7 @@ export function UpgradeNudge({
         }
       >
         <ArrowUp className="size-3" />
-        Upgrade
+        Update
       </Button>
     </div>
   );

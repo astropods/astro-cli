@@ -138,7 +138,7 @@ test("configure page shows upgrade banner and redeploys without edits", async ({
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   const redeployRequest = page.waitForRequest(
@@ -166,7 +166,7 @@ test("new build nudge clears after successful upgrade redeploy", async ({ page }
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   await Promise.all([
@@ -186,7 +186,7 @@ test("editing config on upgrade page keeps redeploy and discard reverts", async 
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   await page.getByLabel("Slack Bot Token").fill("xoxb-changed-value");
@@ -199,7 +199,7 @@ test("editing config on upgrade page keeps redeploy and discard reverts", async 
   await page.getByRole("button", { name: /discard/i }).click();
 
   // After discard the upgrade override is cleared, footer disappears
-  await expect(page.getByText("Upgrade", { exact: true })).toHaveCount(0, { timeout: 5_000 });
+  await expect(page.getByText("Update", { exact: true })).toHaveCount(0, { timeout: 5_000 });
 });
 
 // When the deploy API rejects a redeploy, the user should stay on the configure
@@ -210,7 +210,7 @@ test("failed redeploy keeps user on configure page with action bar", async ({ pa
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Upgrade", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
 
   // Change the bot token to the sentinel that triggers a 400 from the mock backend
   await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");

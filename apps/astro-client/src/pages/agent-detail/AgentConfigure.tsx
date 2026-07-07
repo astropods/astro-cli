@@ -143,7 +143,7 @@ export default function AgentConfigure() {
             <div className="mb-6 flex items-center gap-3 rounded-md border border-indigo-600/30 bg-indigo-300/80 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-500/18">
               <ArrowUp className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
               <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-indigo-950 dark:text-indigo-100">
-                <span className="font-medium">Upgrade</span>
+                <span className="font-medium">Update</span>
                 <span className="text-indigo-950/50 dark:text-indigo-100/50">·</span>
                 <span>
                   {deployment.build_id.slice(0, 8)} → <span className="font-mono">{rollbackBuild!.slice(0, 8)}</span>
@@ -201,7 +201,7 @@ export default function AgentConfigure() {
               {isRollback
                 ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
                 : isUpgrade
-                ? "Upgrade to new build. Review and redeploy."
+                ? "Update to new build. Review and redeploy."
                 : form.deployChanged
                 ? `Redeploy to apply ${form.changeCount} ${form.changeCount === 1 ? "change" : "changes"}.`
                 : isNameOnly
