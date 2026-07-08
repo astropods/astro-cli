@@ -12,6 +12,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-registry/handlers"
 	"github.com/astropods/astro/apps/astro-registry/internal/account"
+	"github.com/astropods/astro/apps/astro-registry/internal/clusterpull"
 	"github.com/astropods/astro/apps/astro-registry/internal/config"
 	"github.com/astropods/astro/apps/astro-registry/internal/logger"
 	"github.com/astropods/astro/apps/astro-registry/internal/middleware"
@@ -75,6 +76,9 @@ func main() {
 	// Initialize membership checker
 	mc := account.NewMembershipChecker(db)
 
+	// Initialize cluster pull authorizer (CPC path for /token).
+	clusterAuth := clusterpull.NewAuthorizer(db, cfg.Auth.PrimaryPullKeyHash)
+
 	// Initialize ECR auth provider
 	ecrAuth := registry.NewECRAuthProvider(cfg.Registry.AWSRegion)
 	log.Info("ECR auth provider initialized", "region", cfg.Registry.AWSRegion)
@@ -87,7 +91,7 @@ func main() {
 	probeHandler := handlers.NewProbeHandler(log, ecrAuth)
 
 	// Register routes
-	setupRoutes(router, log, cfg, authMw, ecrAuth, probeHandler, mc)
+	setupRoutes(router, log, cfg, authMw, ecrAuth, probeHandler, mc, clusterAuth)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -131,7 +135,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, authMw *middleware.AuthMiddleware, ecrAuth *registry.ECRAuthProvider, probeHandler *handlers.ProbeHandler, mc *account.MembershipChecker) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, authMw *middleware.AuthMiddleware, ecrAuth *registry.ECRAuthProvider, probeHandler *handlers.ProbeHandler, mc *account.MembershipChecker, clusterAuth *clusterpull.Authorizer) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -144,6 +148,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, aut
 		WorkOSValidator:   authMw.JWTValidator(),
 		Signer:            authMw.RegistrySigner(),
 		MembershipChecker: mc,
+		ClusterAuthorizer: clusterAuth,
 		Service:           cfg.Auth.RegistryTokenIssuer,
 	}))
 

@@ -222,3 +222,40 @@ func TestGetEnvSlice_Default(t *testing.T) {
 		t.Errorf("expected default value, got %v", result)
 	}
 }
+
+func TestValidate_PrimaryPullKeyHash(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			Server:   ServerConfig{Port: "5000", Mode: "release"},
+			Log:      LogConfig{Level: "info"},
+			Registry: RegistryConfig{URL: "https://x.dkr.ecr.us-east-1.amazonaws.com", Environment: "test"},
+			Auth: AuthConfig{
+				WorkOSClientID:      "client_test",
+				RegistryTokenSecret: "s",
+				RegistryTokenRealm:  "https://r/token",
+			},
+			Database: DatabaseConfig{URL: "postgres://localhost/test"},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		hash    string
+		wantErr bool
+	}{
+		{"empty is allowed", "", false},
+		{"valid sha256 hex", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", false},
+		{"not hex", "zzzz", true},
+		{"wrong length", "abcd", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := base()
+			c.Auth.PrimaryPullKeyHash = tt.hash
+			err := c.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("PrimaryPullKeyHash=%q: wantErr=%v, got err=%v", tt.hash, tt.wantErr, err)
+			}
+		})
+	}
+}

@@ -29,14 +29,28 @@ type TokenSigner interface {
 	Issue(subject string, access []auth.ResourceAccess) (string, int, time.Time, error)
 }
 
+// ClusterAuthorizer authenticates cluster pull credentials and resolves whether
+// a tenant is homed on the requesting cluster. Implemented by
+// *clusterpull.Authorizer.
+type ClusterAuthorizer interface {
+	Authenticate(ctx context.Context, clusterID, secret string) (bool, error)
+	HomedHere(ctx context.Context, accountID, clusterID string) (bool, error)
+}
+
 // TokenHandlerConfig wires the /token endpoint dependencies.
 type TokenHandlerConfig struct {
 	Logger            *logger.Logger
 	WorkOSValidator   IdPValidator
 	Signer            TokenSigner
 	MembershipChecker AccountResolver
-	Service           string // expected service name in query param
+	ClusterAuthorizer ClusterAuthorizer // CPC issuance path; may be nil to disable
+	Service           string            // expected service name in query param
 }
+
+// clusterPullCredentialPrefix marks a password-slot value as a cluster pull
+// credential (CPC) rather than a WorkOS IdP token. Format:
+// astrocp_{clusterID}_{secret}.
+const clusterPullCredentialPrefix = "astrocp_"
 
 // TokenResponse is the spec response body for the token endpoint.
 // https://distribution.github.io/distribution/spec/auth/token/#token-response-fields
@@ -61,6 +75,14 @@ func Token(cfg TokenHandlerConfig) gin.HandlerFunc {
 				"code":    "UNAUTHORIZED",
 				"message": "Basic auth required",
 			}}})
+			return
+		}
+
+		// Cluster pull credential path — a machine credential a cluster's
+		// kubelets present to obtain a pull-scoped token. Distinguished from a
+		// WorkOS IdP token by the astrocp_ prefix.
+		if clusterID, secret, isCPC := parseClusterPullCredential(password); isCPC {
+			issueClusterPullToken(c, cfg, clusterID, secret)
 			return
 		}
 
@@ -117,6 +139,139 @@ func Token(cfg TokenHandlerConfig) gin.HandlerFunc {
 			IssuedAt:    issuedAt,
 		})
 	}
+}
+
+// parseClusterPullCredential splits a CPC password of the form
+// astrocp_{clusterID}_{secret}. clusterID never contains "_" (it is DNS-safe
+// or the reserved "primary"), so the first "_" after the prefix separates it
+// from the secret. Returns ok=false for non-CPC values.
+func parseClusterPullCredential(password string) (clusterID, secret string, ok bool) {
+	if !strings.HasPrefix(password, clusterPullCredentialPrefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(password, clusterPullCredentialPrefix)
+	parts := strings.SplitN(rest, "_", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+// issueClusterPullToken authenticates a CPC and mints a pull-only registry
+// token scoped to the requested repositories whose tenant is homed on the
+// requesting cluster. Unauthorized scopes are dropped (spec intersection
+// behavior), never errored.
+func issueClusterPullToken(c *gin.Context, cfg TokenHandlerConfig, clusterID, secret string) {
+	if cfg.ClusterAuthorizer == nil {
+		cfg.Logger.Warn("CPC token requested but cluster authorizer disabled")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"errors": []gin.H{{
+			"code":    "UNAUTHORIZED",
+			"message": "Cluster pull credentials not accepted",
+		}}})
+		return
+	}
+
+	ok, err := cfg.ClusterAuthorizer.Authenticate(c.Request.Context(), clusterID, secret)
+	if err != nil {
+		cfg.Logger.Error("CPC authentication error", "cluster_id", clusterID, "error", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"errors": []gin.H{{
+			"code":    "SERVER_ERROR",
+			"message": "Failed to authenticate cluster pull credential",
+		}}})
+		return
+	}
+	if !ok {
+		cfg.Logger.Warn("CPC authentication failed", "cluster_id", clusterID)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"errors": []gin.H{{
+			"code":    "UNAUTHORIZED",
+			"message": "Invalid cluster pull credential",
+		}}})
+		return
+	}
+
+	service := c.Query("service")
+	if cfg.Service != "" && service != cfg.Service {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"errors": []gin.H{{
+			"code":    "DENIED",
+			"message": "Unrecognized service",
+		}}})
+		return
+	}
+
+	requested := c.Request.URL.Query()["scope"]
+	granted := make([]auth.ResourceAccess, 0, len(requested))
+	for _, raw := range requested {
+		parsed, ok := parseScope(raw)
+		if !ok {
+			cfg.Logger.Warn("CPC token request had malformed scope", "scope", raw)
+			continue
+		}
+		authorized := authorizeClusterScope(c.Request.Context(), parsed, clusterID, cfg.ClusterAuthorizer, cfg.Logger)
+		if len(authorized.Actions) > 0 {
+			granted = append(granted, authorized)
+		}
+	}
+
+	token, expiresIn, issuedAt, err := cfg.Signer.Issue("cluster:"+clusterID, granted)
+	if err != nil {
+		cfg.Logger.Error("Failed to mint cluster pull token", "cluster_id", clusterID, "error", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"errors": []gin.H{{
+			"code":    "SERVER_ERROR",
+			"message": "Failed to mint registry token",
+		}}})
+		return
+	}
+
+	c.JSON(http.StatusOK, TokenResponse{
+		Token:       token,
+		AccessToken: token,
+		ExpiresIn:   expiresIn,
+		IssuedAt:    issuedAt,
+	})
+}
+
+// authorizeClusterScope grants pull (only) on a repository when its tenant is
+// homed on the requesting cluster. The scope namespace is the account UUID
+// (the frozen ECRNamespace the server bakes into the pod image reference).
+func authorizeClusterScope(
+	ctx context.Context,
+	requested auth.ResourceAccess,
+	clusterID string,
+	az ClusterAuthorizer,
+	log *logger.Logger,
+) auth.ResourceAccess {
+	out := auth.ResourceAccess{Type: requested.Type, Name: requested.Name}
+	if requested.Type != "repository" {
+		return out
+	}
+
+	// "<accountID>/<image>" — namespace is the account UUID.
+	parts := strings.SplitN(requested.Name, "/", 2)
+	if len(parts) < 2 || parts[0] == "" {
+		return out
+	}
+	accountID := parts[0]
+
+	homed, err := az.HomedHere(ctx, accountID, clusterID)
+	if err != nil {
+		log.Warn("CPC home check failed", "account_id", accountID, "cluster_id", clusterID, "error", err)
+		return out
+	}
+	if !homed {
+		log.Warn("CPC pull denied — tenant not homed on cluster",
+			"account_id", accountID, "cluster_id", clusterID)
+		return out
+	}
+
+	// CPC is pull-only regardless of requested actions.
+	for _, action := range requested.Actions {
+		if action == "pull" {
+			out.Actions = []string{"pull"}
+			break
+		}
+	}
+	out.AccountID = accountID
+	return out
 }
 
 // parseScope parses a "repository:<ns>/<image>:<actions>" entry.

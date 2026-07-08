@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -63,6 +65,13 @@ type AuthConfig struct {
 	RegistryTokenIssuer string        // iss claim for registry-scope tokens
 	RegistryTokenTTL    time.Duration // Lifetime of registry-scope tokens
 	RegistryTokenRealm  string        // Public URL of /token; advertised in WWW-Authenticate. Derived from request host if empty.
+
+	// Cluster pull credential (CPC) — machine credential clusters present at
+	// /token to obtain a pull-scoped registry token. The primary cluster has no
+	// clusters row, so its hash is configured here; additional clusters store
+	// their hash in clusters.pull_key_hash. Hex-encoded sha256 of the secret.
+	// See docs/01-spec/registry-pull-through-spec.md.
+	PrimaryPullKeyHash string
 }
 
 // Load loads configuration from environment variables with defaults
@@ -97,6 +106,7 @@ func Load() (*Config, error) {
 			RegistryTokenIssuer: getEnv("REGISTRY_TOKEN_ISSUER", "astro-registry"),
 			RegistryTokenTTL:    getEnvDuration("REGISTRY_TOKEN_TTL", 1*time.Hour),
 			RegistryTokenRealm:  getEnv("REGISTRY_TOKEN_REALM", ""),
+			PrimaryPullKeyHash:  strings.ToLower(strings.TrimSpace(getEnv("PRIMARY_PULL_KEY_HASH", ""))),
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", ""),
@@ -158,6 +168,16 @@ func (c *Config) Validate() error {
 
 	if c.Database.URL == "" {
 		return fmt.Errorf("DATABASE_URL environment variable is required")
+	}
+
+	// PRIMARY_PULL_KEY_HASH is optional, but a set-but-malformed value would
+	// silently disable primary cluster pulls (opaque 401 → ImagePullBackOff),
+	// so fail loudly at boot instead. Must be hex-encoded sha256 (32 bytes).
+	if c.Auth.PrimaryPullKeyHash != "" {
+		b, err := hex.DecodeString(c.Auth.PrimaryPullKeyHash)
+		if err != nil || len(b) != sha256.Size {
+			return fmt.Errorf("PRIMARY_PULL_KEY_HASH must be a hex-encoded sha256 (64 hex chars); got %d-char value", len(c.Auth.PrimaryPullKeyHash))
+		}
 	}
 
 	return nil
