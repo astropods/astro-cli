@@ -17,10 +17,13 @@ test.describe("Homepage (/)", () => {
     await expect(cta).toHaveAttribute("href", /calendar\.app\.google/);
   });
 
-  test("Login link points to the app", async ({ page }) => {
-    const login = page.getByRole("link", { name: "Login" }).first();
-    await expect(login).toBeVisible();
-    await expect(login).toHaveAttribute("href", /\/login/);
+  test("auth CTA invites new visitors to sign up", async ({ page }) => {
+    // A fresh browser has no `astro_returning` cookie, so the nav shows the
+    // new-visitor default "Get started" (→ /signup). Returning users (cookie
+    // present) see "Sign in" (→ /login) instead.
+    const cta = page.getByRole("link", { name: "Get started" }).first();
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute("href", /\/signup/);
   });
 
   test("Docs nav link is present", async ({ page }) => {
