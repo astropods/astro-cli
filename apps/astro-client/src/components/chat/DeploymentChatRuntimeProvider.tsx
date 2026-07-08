@@ -20,7 +20,7 @@ export function DeploymentChatRuntimeProvider({
 }: {
   deploymentId: string;
   conversationId?: string | null;
-  onConversationCreated?: (conversationId: string, preview: string) => void;
+  onConversationCreated?: (conversationId: string) => void;
   children: ReactNode;
 }) {
   const {

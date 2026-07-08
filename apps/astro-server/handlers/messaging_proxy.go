@@ -4,17 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -22,7 +19,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -30,27 +26,34 @@ import (
 
 const oidcIdentityHeader = "X-Amzn-Oidc-Identity"
 
-const (
-	streamPersistTimeout       = 15 * time.Minute
-	chatTitleMaxRunes          = 80
-	streamPersistMinInterval   = 500 * time.Millisecond
-	messagingProxyMaxSendBody  = 1 << 20
-	// Upstream deadline for non-stream messaging proxy requests (agent/config,
-	// conversation CRUD, history, sends). The proxy's upstream http.Client has
-	// no timeout of its own (it also carries long-lived SSE streams), so an
-	// unresponsive sidecar would otherwise hang until the client disconnects.
-	// Streaming requests are exempt — they keep the unbounded context.
-	messagingProxyUpstreamTimeout = 15 * time.Second
-)
+// Upstream deadline for non-stream messaging proxy requests (agent/config,
+// conversation CRUD, history, sends). The proxy's upstream http.Client has no
+// timeout of its own (it also carries long-lived SSE streams), so an
+// unresponsive sidecar would otherwise hang until the client disconnects.
+// Streaming requests are exempt — they keep the unbounded context.
+const messagingProxyUpstreamTimeout = 15 * time.Second
+
+// messagingProxySendBodyLimit bounds request bodies proxied to the sidecar (chat
+// sends, conversation create). It matches forwardChat's title-body cap so both
+// chat write paths share the same cheap boundary defense — the sidecar enforces
+// its own per-message content limit; this just stops an authenticated user from
+// streaming an arbitrarily large body through astro-server. GET/stream paths
+// carry no body and are unaffected.
+//
+// FLAG (roadmap): image/attachment sends will carry base64 payloads far larger
+// than 1 MiB. When they land, raise this cap or make it per-path (a larger limit
+// for the send endpoint) — a single 1 MiB cap will reject attachment sends.
+const messagingProxySendBodyLimit = 1 << 20 // 1 MiB
 
 // ProxyDeploymentMessaging forwards deployment-scoped messaging API calls to the
 // deployment's messaging sidecar. Astro session auth is validated before proxying;
 // the WorkOS user ID is injected upstream as x-amzn-oidc-identity so messaging
 // auth stays unchanged.
 //
-// For chat traffic the proxy also persists user sends and assistant SSE streams
-// into chatstore so history survives navigation and reloads even when Langfuse
-// traces are not yet available.
+// This is a pure in-transit proxy: it never persists chat content. The messaging
+// sidecar owns chat persistence (deployment-local SQLite on the shared disk; no
+// Langfuse access), so no conversation metadata or message bodies are written to
+// astro-server's database.
 //
 // Routes: /api/v1/deployments/:id/messaging/* → messaging /api/*
 func ProxyDeploymentMessaging(
@@ -59,7 +62,6 @@ func ProxyDeploymentMessaging(
 	deployStore *deploymentstore.Store,
 	k8sReg *k8s.Registry,
 	cfg *config.Config,
-	chatStore *chatstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -84,40 +86,6 @@ func ProxyDeploymentMessaging(
 			upstreamPath += "?" + c.Request.URL.RawQuery
 		}
 
-		streamConvID, isChatStream := chatStreamConversationID(proxyPath)
-		sendConvID, isChatSend := chatSendConversationID(proxyPath, c.Request.Method)
-		cancelConvID, isChatCancel := chatCancelConversationID(proxyPath, c.Request.Method)
-
-		var upstreamBody io.Reader = c.Request.Body
-		if isChatSend {
-			raw, readErr := io.ReadAll(io.LimitReader(c.Request.Body, messagingProxyMaxSendBody+1))
-			if readErr != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
-				return
-			}
-			if len(raw) > messagingProxyMaxSendBody {
-				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
-				return
-			}
-			upstreamBody = bytes.NewReader(raw)
-			if chatStore != nil {
-				bodyCopy := append([]byte(nil), raw...)
-				if err := persistUserMessage(log, chatStore, dep.AccountID, dep.ID, user.ID, sendConvID, bodyCopy); err != nil {
-					switch {
-					case errors.Is(err, chatstore.ErrActiveAssistantStream):
-						c.JSON(http.StatusConflict, gin.H{"error": "assistant is still responding; wait for the current reply to finish"})
-						return
-					case errors.Is(err, chatstore.ErrMessageLimitReached):
-						c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrMessageLimitReached.Error()})
-						return
-					case errors.Is(err, chatstore.ErrConversationIDConflict):
-						c.JSON(http.StatusConflict, gin.H{"error": chatstore.ErrConversationIDConflict.Error()})
-						return
-					}
-				}
-			}
-		}
-
 		target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 		if resolveErr != nil {
 			log.Warn("messaging proxy target resolution failed",
@@ -126,26 +94,42 @@ func ProxyDeploymentMessaging(
 			return
 		}
 
+		// Bound non-stream upstream calls so a stuck sidecar fails fast (504)
+		// instead of holding the connection open. SSE streams are exempt — they
+		// keep the unbounded request context.
+		//
+		// NOTE: this exemption is keyed on the request *path*
+		// (conversations/{id}/stream), decided before the response is seen,
+		// whereas SSE responses are detected generically downstream via
+		// isEventStream(resp). Today that path is the only streamed one the client
+		// hits (sends are plain JSON POSTs), so the two agree. If the messaging
+		// sidecar ever exposes another long-lived SSE endpoint on a different
+		// path, this 15s deadline would truncate it — make the bound
+		// response-aware at that point.
 		reqCtx := c.Request.Context()
-		if isChatStream && chatStore != nil {
-			detached, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), streamPersistTimeout)
-			defer cancel()
-			reqCtx = detached
-		} else if !isChatStream {
-			// Bound non-stream upstream calls so a stuck sidecar fails fast
-			// (504) instead of holding the connection open. Streams are exempt.
-			//
-			// NOTE: this exemption is keyed on the request *path* (isChatStream
-			// = conversations/{id}/stream), decided before the response is seen,
-			// whereas SSE responses are actually detected generically downstream
-			// via isEventStream(resp). Today that path is the only streamed one
-			// the client hits (sends are plain JSON POSTs), so the two agree. If
-			// the messaging sidecar ever exposes another long-lived SSE endpoint
-			// on a different path, this 15s deadline would truncate it — make the
-			// bound response-aware (or widen isChatStream) at that point.
+		if !isMessagingStreamPath(proxyPath) {
 			timed, cancel := context.WithTimeout(reqCtx, messagingProxyUpstreamTimeout)
 			defer cancel()
 			reqCtx = timed
+		}
+
+		// Bound body-carrying requests (sends, create) before forwarding. Buffer up
+		// to the cap+1 to detect overflow and return 413; these are small JSON
+		// payloads, so buffering is cheap and gives a clean status instead of a mid-
+		// stream upstream failure.
+		upstreamBody := c.Request.Body
+		switch c.Request.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+			raw, readErr := io.ReadAll(io.LimitReader(c.Request.Body, messagingProxySendBodyLimit+1))
+			if readErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+				return
+			}
+			if int64(len(raw)) > messagingProxySendBodyLimit {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+				return
+			}
+			upstreamBody = io.NopCloser(bytes.NewReader(raw))
 		}
 
 		upstreamURL := target + upstreamPath
@@ -170,26 +154,8 @@ func ProxyDeploymentMessaging(
 		}
 		defer func() { _ = resp.Body.Close() }()
 
-		// A client "stop generating" (POST conversations/{id}/cancel) ends the
-		// assistant turn. Clear the stream-active marker as soon as the sidecar
-		// accepts the cancel so a history refetch immediately reports "not in
-		// flight" and the client doesn't reopen the turn from a lagging snapshot.
-		// The sidecar also closes the SSE, which unwinds the detached persister.
-		if isChatCancel && chatStore != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			setAssistantStreamActive(log, chatStore, dep.ID, user.ID, cancelConvID, false)
-		}
-
 		if isEventStream(resp) {
-			var persist *chatStreamPersist
-			if isChatStream && chatStore != nil {
-				persist = &chatStreamPersist{
-					store:          chatStore,
-					deploymentID:   dep.ID,
-					userID:         user.ID,
-					conversationID: streamConvID,
-				}
-			}
-			proxyMessagingEventStream(log, c, resp, dep.ID, persist)
+			proxyMessagingEventStream(log, c, resp, dep.ID)
 			return
 		}
 
@@ -212,115 +178,14 @@ func messagingUpstreamPath(proxyPath string) string {
 	return "/api/" + proxyPath
 }
 
-func chatConversationPathParts(proxyPath string) []string {
+// isMessagingStreamPath reports whether the proxied path is the SSE stream
+// endpoint (conversations/{id}/stream), which must be exempt from the non-stream
+// upstream timeout.
+func isMessagingStreamPath(proxyPath string) bool {
 	p := strings.TrimPrefix(proxyPath, "/")
 	p = strings.TrimPrefix(p, "api/")
-	return strings.Split(p, "/")
-}
-
-func chatStreamConversationID(proxyPath string) (string, bool) {
-	parts := chatConversationPathParts(proxyPath)
-	if len(parts) != 3 || parts[0] != "conversations" || parts[2] != "stream" {
-		return "", false
-	}
-	return parseProxyConversationID(parts[1])
-}
-
-func chatSendConversationID(proxyPath, method string) (string, bool) {
-	if method != http.MethodPost {
-		return "", false
-	}
-	parts := chatConversationPathParts(proxyPath)
-	if len(parts) != 3 || parts[0] != "conversations" || parts[2] != "messages" {
-		return "", false
-	}
-	return parseProxyConversationID(parts[1])
-}
-
-func chatCancelConversationID(proxyPath, method string) (string, bool) {
-	if method != http.MethodPost {
-		return "", false
-	}
-	parts := chatConversationPathParts(proxyPath)
-	if len(parts) != 3 || parts[0] != "conversations" || parts[2] != "cancel" {
-		return "", false
-	}
-	return parseProxyConversationID(parts[1])
-}
-
-func parseProxyConversationID(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", false
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return "", false
-	}
-	return id.String(), true
-}
-
-func persistUserMessage(
-	log *logger.Logger,
-	chatStore *chatstore.Store,
-	accountID, deploymentID, userID, conversationID string,
-	body []byte,
-) error {
-	content := parseSendContent(body)
-	if content == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(content) > chatstore.MaxMessageContentRunes {
-		log.Warn("chat user message exceeds limit; skipping persistence", "deployment", deploymentID)
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	title := truncateRunes(content, chatTitleMaxRunes)
-	if err := chatStore.AppendUserMessage(ctx, accountID, deploymentID, userID, conversationID, title, chatstore.Message{
-		ID:      uuid.NewString(),
-		Role:    "user",
-		Content: content,
-	}); err != nil {
-		log.Error("chat persist: append user message",
-			"deployment", deploymentID, "conversation", conversationID, "error", err)
-		return err
-	}
-
-	// Mark the assistant turn active the moment the user message is accepted, so a
-	// history GET in the gap before the assistant SSE connects doesn't report
-	// "not in flight" and tear down the client's live turn. Best-effort: the
-	// marker is time-windowed and auto-expires if no reply follows (see
-	// AssistantStreamActiveFrom), and the assistant SSE re-marks it on connect.
-	if err := chatStore.SetAssistantStreamActive(ctx, deploymentID, userID, conversationID, true); err != nil {
-		log.Warn("chat persist: mark assistant stream active on send",
-			"deployment", deploymentID, "conversation", conversationID, "error", err)
-	}
-	return nil
-}
-
-func parseSendContent(body []byte) string {
-	var payload struct {
-		Content string `json:"content"`
-		Text    string `json:"text"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return ""
-	}
-	if c := strings.TrimSpace(payload.Content); c != "" {
-		return c
-	}
-	return strings.TrimSpace(payload.Text)
-}
-
-func truncateRunes(s string, max int) string {
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:max])
+	parts := strings.Split(p, "/")
+	return len(parts) == 3 && parts[0] == "conversations" && parts[2] == "stream"
 }
 
 func resolveMessagingProxyTarget(
@@ -407,126 +272,14 @@ func isEventStream(resp *http.Response) bool {
 	return strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 }
 
-type chatStreamPersist struct {
-	store          *chatstore.Store
-	deploymentID   string
-	userID         string
-	conversationID string
-	content        strings.Builder
-	messageID      string
-	lastPersistAt  time.Time
-	turnMarked     bool
-}
-
-func (p *chatStreamPersist) consume(data, eventName string) string {
-	var payload struct {
-		Type      string `json:"type"`
-		ChunkType string `json:"chunk_type"`
-		Content   string `json:"content"`
-	}
-	if err := json.Unmarshal([]byte(data), &payload); err != nil {
-		return ""
-	}
-	typ := payload.Type
-	if typ == "" {
-		typ = eventName
-	}
-	if typ == "chunk" {
-		if payload.ChunkType == "replace" {
-			p.content.Reset()
-		}
-		if p.content.Len() < chatstore.StreamPersistMaxAccumBytes {
-			p.content.WriteString(payload.Content)
-		}
-	}
-	return typ
-}
-
-func (p *chatStreamPersist) resetTurn() {
-	p.content.Reset()
-	p.messageID = ""
-	p.lastPersistAt = time.Time{}
-}
-
-func (p *chatStreamPersist) normalizedContent(trim bool) string {
-	text := p.content.String()
-	if trim {
-		text = strings.TrimSpace(text)
-	}
-	if text == "" {
-		return ""
-	}
-	if utf8.RuneCountInString(text) > chatstore.MaxMessageContentRunes {
-		runes := []rune(text)
-		text = string(runes[:chatstore.MaxMessageContentRunes])
-	}
-	return text
-}
-
-func (p *chatStreamPersist) writeProgress(log *logger.Logger, trim bool) {
-	text := p.normalizedContent(trim)
-	if text == "" {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	messageID, err := p.store.UpsertAssistantProgress(ctx, p.deploymentID, p.userID, p.conversationID, text)
-	if err != nil {
-		log.Error("chat persist: upsert assistant message",
-			"deployment", p.deploymentID, "conversation", p.conversationID, "error", err)
-		return
-	}
-	p.messageID = messageID
-	p.lastPersistAt = time.Now()
-}
-
-func (p *chatStreamPersist) maybeWriteProgress(log *logger.Logger, trim, force bool) {
-	if !force &&
-		!p.lastPersistAt.IsZero() &&
-		time.Since(p.lastPersistAt) < streamPersistMinInterval {
-		return
-	}
-	p.writeProgress(log, trim)
-}
-
-func setAssistantStreamActive(
-	log *logger.Logger,
-	store *chatstore.Store,
-	deploymentID, userID, conversationID string,
-	active bool,
-) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := store.SetAssistantStreamActive(ctx, deploymentID, userID, conversationID, active); err != nil {
-		log.Warn("chat persist: set assistant stream active",
-			"deployment", deploymentID, "conversation", conversationID, "active", active, "error", err)
-	}
-}
-
-func (p *chatStreamPersist) markTurnActive(log *logger.Logger) {
-	if p.turnMarked {
-		return
-	}
-	setAssistantStreamActive(log, p.store, p.deploymentID, p.userID, p.conversationID, true)
-	p.turnMarked = true
-}
-
-func (p *chatStreamPersist) clearTurnActive(log *logger.Logger) {
-	if !p.turnMarked {
-		return
-	}
-	setAssistantStreamActive(log, p.store, p.deploymentID, p.userID, p.conversationID, false)
-	p.turnMarked = false
-}
-
+// proxyMessagingEventStream streams an upstream SSE response to the client. It is
+// a pure passthrough — chat persistence happens in the messaging sidecar, not
+// here.
 func proxyMessagingEventStream(
 	log *logger.Logger,
 	c *gin.Context,
 	resp *http.Response,
 	deploymentID string,
-	persist *chatStreamPersist,
 ) {
 	if resp.StatusCode != http.StatusOK {
 		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("upstream returned %d", resp.StatusCode)})
@@ -542,58 +295,19 @@ func proxyMessagingEventStream(
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
 
 	flusher, canFlush := c.Writer.(http.Flusher)
-	clientGone := false
-	eventName := ""
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-
-		if !clientGone {
-			if _, err := fmt.Fprintf(c.Writer, "%s\n", line); err != nil {
-				clientGone = true
-			} else if canFlush {
-				flusher.Flush()
-			}
-		}
-		if clientGone && persist == nil {
+		if _, err := fmt.Fprintf(c.Writer, "%s\n", line); err != nil {
 			return
 		}
-
-		if persist == nil {
-			continue
-		}
-
-		switch {
-		case line == "":
-			eventName = ""
-		case strings.HasPrefix(line, "event:"):
-			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		default:
-			data, ok := strings.CutPrefix(line, "data:")
-			if !ok {
-				continue
-			}
-			typ := persist.consume(strings.TrimSpace(data), eventName)
-			switch typ {
-			case "chunk":
-				persist.markTurnActive(log)
-				persist.maybeWriteProgress(log, false, false)
-			case "finish", "error":
-				persist.writeProgress(log, true)
-				persist.resetTurn()
-				persist.clearTurnActive(log)
-			}
+		if canFlush {
+			flusher.Flush()
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Debug("messaging proxy SSE scan failed", "deployment", deploymentID, "error", err)
-	}
-
-	if persist != nil {
-		persist.writeProgress(log, true)
-		persist.resetTurn()
-		persist.clearTurnActive(log)
 	}
 }

@@ -152,6 +152,45 @@ moon run deployment:messaging    # builds messaging:latest + tags astropods/mess
 
 Without these, the sidecar pods will fail to pull their images.
 
+#### Reloading a rebuilt sidecar image (Docker Desktop / kind)
+
+Building the image is not always enough. Recent Docker Desktop runs Kubernetes on
+a node (`desktop-control-plane`) whose **containerd image store is separate from
+the Docker daemon**, so a `docker build` is invisible to the cluster. The sidecars
+deploy with `imagePullPolicy: IfNotPresent`, so if containerd already has an
+`astropods/messaging:latest` (e.g. a stale Docker Hub pull), the cluster keeps
+using it and your rebuild never takes effect — the pod silently runs old code.
+
+Symptoms of a stale sidecar: no `chat.db` under `/data`, no `Chat store
+initialized` log line, and empty chat history despite `CHAT_DB_PATH` being set.
+
+After rebuilding, load the image into the cluster's containerd and restart the
+pod so `IfNotPresent` re-resolves the tag:
+
+```bash
+moon run deployment:messaging
+
+# Import the freshly built image into the cluster's containerd (k8s.io namespace)
+docker save astropods/messaging:latest \
+  | docker exec -i desktop-control-plane ctr -n k8s.io images import -
+
+# Restart the agent so the StatefulSet recreates its pod on the new image
+kubectl -n <agent-namespace> delete pod <agent-pod>
+```
+
+Verify the reload took effect:
+
+```bash
+# New chat-store line appears and chat.db is created eagerly at startup
+kubectl -n <agent-namespace> logs <agent-pod> -c messaging | grep "Chat store initialized"
+kubectl -n <agent-namespace> exec <agent-pod> -c messaging -- ls -la /data
+```
+
+The messaging sidecar runs as a native sidecar (an init container with
+`restartPolicy: Always`), so target it with `-c messaging` and expect it in
+`.spec.initContainers`, not `.spec.containers`. The same reload applies to
+`astropods/collector:latest`.
+
 ---
 
 ## 6. Example scenarios

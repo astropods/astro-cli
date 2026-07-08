@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useApiClient } from "@/lib/api-context";
 import { ApiRequestError, type GetDeploymentChatConversationResponse } from "@/lib/api";
 import {
@@ -32,7 +33,7 @@ export function useDeploymentChat(
   deploymentId: string,
   options?: {
     conversationId?: string | null;
-    onConversationCreated?: (conversationId: string, preview: string) => void;
+    onConversationCreated?: (conversationId: string) => void;
   },
 ) {
   const api = useApiClient();
@@ -281,9 +282,15 @@ export function useDeploymentChat(
     const timeout = window.setTimeout(() => {
       setStreamError("Response timed out. You can try sending again.");
       applyInFlightState(undefined);
+      // Suppress the server's streaming state for this conversation so the
+      // composer actually unblocks. Without this, a persisted assistant_streaming
+      // with no live SSE (e.g. a turn interrupted in another tab / before a
+      // sidecar reaped it) keeps turnInFlight deriving true from the snapshot and
+      // "you can try sending again" would be a lie. Cleared on the next send.
+      if (activeConversationId) setSuppressedConvId(activeConversationId);
     }, IN_FLIGHT_TIMEOUT_MS);
     return () => window.clearTimeout(timeout);
-  }, [applyInFlightState, turnInFlight]);
+  }, [activeConversationId, applyInFlightState, turnInFlight]);
 
   useEffect(() => {
     if (!activeConversationId || !turnInFlight) return;
@@ -357,7 +364,7 @@ export function useDeploymentChat(
           await api.sendMessagingMessage(deploymentId, convId, trimmed);
         }
 
-        onConversationCreated?.(convId, trimmed);
+        onConversationCreated?.(convId);
       } catch (err) {
         applyInFlightState(undefined);
         if (convId) {
@@ -368,11 +375,23 @@ export function useDeploymentChat(
               old ? removeConversationMessage(old, userId) : old,
           );
         }
-        setStreamError(
-          err instanceof ApiRequestError
-            ? err.message
-            : "Failed to send message. Please try again.",
-        );
+        // The message cap is a terminal per-conversation state, not a retryable
+        // failure. Key on the sidecar's machine-readable error code rather than a
+        // bare 409 (which can carry other, transient meanings) so a future
+        // conflict isn't mislabeled as "permanently full". See the sidecar
+        // contract in docs/04-guides/deployment-chat.md (HandleSendMessage).
+        if (err instanceof ApiRequestError && err.code === "message_limit_reached") {
+          toast.error("Conversation message limit reached", {
+            description:
+              "This chat has reached its message limit. Start a new chat to keep going.",
+          });
+        } else {
+          setStreamError(
+            err instanceof ApiRequestError
+              ? err.message
+              : "Failed to send message. Please try again.",
+          );
+        }
       } finally {
         sendLockRef.current = false;
       }

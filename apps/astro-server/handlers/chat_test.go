@@ -1,261 +1,161 @@
 package handlers
 
+// Covers the chat proxy (forwardChat + the four chat handlers): auth, deployment
+// resolution, conversation-id validation/escaping at the boundary (the fix for
+// query-injection into the identity-injected sidecar call), and that the id and
+// OIDC identity header reach the upstream. Mirrors the messaging-proxy harness.
+//
+//	go test ./handlers -run TestChatProxy -v
+
 import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
 
-func TestSelectLongerHydratedThread_PrefersPostgresWhenMoreComplete(t *testing.T) {
-	t.Parallel()
+const testConvID = "d4d407c3-0146-4834-8021-2a9850169554"
 
-	langfuse := []ChatMessageResponse{
-		{ID: "t1-u", Role: "user", Content: "hello"},
-	}
-	postgres := []ChatMessageResponse{
-		{ID: "m1", Role: "user", Content: "hello"},
-		{ID: "m2", Role: "assistant", Content: "hi"},
-		{ID: "m3", Role: "user", Content: "again"},
-		{ID: "m4", Role: "assistant", Content: "sure"},
-	}
-
-	got := selectLongerHydratedThread(langfuse, postgres)
-	if len(got) != 4 {
-		t.Fatalf("expected 4 postgres messages when Langfuse is partial, got %d", len(got))
-	}
-	if got[0].ID != "m1" || got[3].ID != "m4" {
-		t.Fatalf("unexpected merge result: %+v", got)
-	}
-}
-
-func TestSelectLongerHydratedThread_PrefersLangfuseWhenComplete(t *testing.T) {
-	t.Parallel()
-
-	langfuse := []ChatMessageResponse{
-		{ID: "t1-u", Role: "user", Content: "a"},
-		{ID: "t1-a", Role: "assistant", Content: "b"},
-	}
-	postgres := []ChatMessageResponse{
-		{ID: "m1", Role: "user", Content: "a"},
-	}
-
-	got := selectLongerHydratedThread(langfuse, postgres)
-	if len(got) != 2 {
-		t.Fatalf("expected Langfuse thread when it is the superset, got %d", len(got))
-	}
-}
-
-func TestHydrateFromChatStore_ReturnsPersistedMessages(t *testing.T) {
-	t.Parallel()
-
-	chatDB, chatMock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	chatStore := chatstore.NewStore(chatDB)
-	log := logger.New("error", "json")
-
-	chatMock.ExpectQuery("SELECT id::text, role, content, seq").
-		WithArgs("dep-1", "conv-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "content", "seq"}).
-			AddRow("msg-1", "user", "hello", 1).
-			AddRow("msg-2", "assistant", "hi there", 2))
-
-	msgs := hydrateFromChatStore(log, chatStore, "dep-1", "conv-1")
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
-	}
-	if msgs[0].Role != "user" || msgs[0].Content != "hello" {
-		t.Fatalf("unexpected first message: %+v", msgs[0])
-	}
-	if msgs[1].Role != "assistant" || msgs[1].Content != "hi there" {
-		t.Fatalf("unexpected second message: %+v", msgs[1])
-	}
-	if err := chatMock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestParseConversationPage(t *testing.T) {
-	t.Parallel()
+func setupChatRouter(upstreamURL string, withAuth bool) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("full thread by default", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-		page, err := parseConversationPage(c)
-		if err != nil {
-			t.Fatalf("parseConversationPage: %v", err)
-		}
-		if page.Limit != 0 || page.BeforeSeq != 0 {
-			t.Fatalf("expected empty page, got %+v", page)
-		}
-	})
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New()
 
-	t.Run("tail page", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Request = httptest.NewRequest(http.MethodGet, "/?limit=50", nil)
-		page, err := parseConversationPage(c)
-		if err != nil {
-			t.Fatalf("parseConversationPage: %v", err)
-		}
-		if page.Limit != 50 || page.BeforeSeq != 0 {
-			t.Fatalf("unexpected page: %+v", page)
-		}
-	})
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+	cfg.Deployment.MessagingURLOverride = upstreamURL
 
-	t.Run("older page", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Request = httptest.NewRequest(http.MethodGet, "/?limit=25&before_seq=40", nil)
-		page, err := parseConversationPage(c)
-		if err != nil {
-			t.Fatalf("parseConversationPage: %v", err)
-		}
-		if page.Limit != 25 || page.BeforeSeq != 40 {
-			t.Fatalf("unexpected page: %+v", page)
-		}
-	})
+	router := gin.New()
+	if withAuth {
+		router.Use(setAuthUser("user-workos-1"))
+	}
+	router.GET("/deployments/:id/chat/conversations",
+		ListDeploymentChatConversations(log, cfg, nil, accountStore, deployStore))
+	router.GET("/deployments/:id/chat/conversations/:conversationId",
+		GetDeploymentChatConversation(log, cfg, nil, accountStore, deployStore))
+	router.PUT("/deployments/:id/chat/conversations/:conversationId/title",
+		SetDeploymentChatConversationTitle(log, cfg, nil, accountStore, deployStore))
+	router.DELETE("/deployments/:id/chat/conversations/:conversationId",
+		DeleteDeploymentChatConversation(log, cfg, nil, accountStore, deployStore))
 
-	t.Run("rejects invalid limit", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Request = httptest.NewRequest(http.MethodGet, "/?limit=0", nil)
-		_, err := parseConversationPage(c)
-		if err == nil {
-			t.Fatal("expected invalid limit error")
-		}
-	})
+	return router, accountMock, deployMock
 }
 
-func TestPaginateConversationMessages_TailPage(t *testing.T) {
-	t.Parallel()
+func TestChatProxy_NoAuth(t *testing.T) {
+	router, _, _ := setupChatRouter("", false)
 
-	all := make([]ChatMessageResponse, 120)
-	for i := range all {
-		all[i] = ChatMessageResponse{ID: fmt.Sprintf("m%d", i+1), Role: "user", Content: "x"}
-	}
+	req := httptest.NewRequest(http.MethodGet, "/deployments/dep-1/chat/conversations", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
 
-	msgs, hasMore, oldestSeq := paginateConversationMessages(all, chatConversationPage{Limit: 100}, false)
-	if len(msgs) != 100 {
-		t.Fatalf("expected 100 messages, got %d", len(msgs))
-	}
-	if !hasMore {
-		t.Fatal("expected has_more")
-	}
-	if oldestSeq != 21 {
-		t.Fatalf("oldest_seq = %d, want 21", oldestSeq)
-	}
-	if msgs[0].ID != "m21" {
-		t.Fatalf("first message = %q, want m21", msgs[0].ID)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestPaginateConversationMessages_OlderPage(t *testing.T) {
-	t.Parallel()
+// A non-UUID conversation id is rejected at the boundary with 400 and never
+// reaches the sidecar. This is the query-injection guard: gin URL-decodes path
+// params, so `abc%3Fadmin%3D1` would otherwise splice `?admin=1` onto the
+// trusted upstream URL.
+func TestChatProxy_InvalidConversationID(t *testing.T) {
+	var upstreamHits int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
 
-	all := []ChatMessageResponse{
-		{ID: "m1", Role: "user", Content: "a"},
-		{ID: "m2", Role: "assistant", Content: "b"},
-		{ID: "m3", Role: "user", Content: "c"},
-		{ID: "m4", Role: "assistant", Content: "d"},
-	}
+	// "abc%3Fadmin%3D1" decodes to "abc?admin=1" — the exact query-injection the
+	// UUID guard blocks. (Ids containing an encoded "/" like "../admin" are
+	// rejected earlier by gin's router as 404, so they never reach the handler.)
+	for _, raw := range []string{"not-a-uuid", "abc%3Fadmin%3D1"} {
+		router, _, _ := setupChatRouter(upstream.URL, true)
+		req := httptest.NewRequest(http.MethodGet,
+			"/deployments/dep-1/chat/conversations/"+raw, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
 
-	msgs, hasMore, oldestSeq := paginateConversationMessages(
-		all,
-		chatConversationPage{Limit: 2, BeforeSeq: 3},
-		false,
-	)
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("id=%q: expected 400, got %d: %s", raw, rec.Code, rec.Body.String())
+		}
 	}
-	if hasMore {
-		t.Fatal("expected no further pages")
-	}
-	if oldestSeq != 1 {
-		t.Fatalf("oldest_seq = %d, want 1", oldestSeq)
-	}
-	if msgs[0].ID != "m1" || msgs[1].ID != "m2" {
-		t.Fatalf("unexpected page: %+v", msgs)
-	}
-}
-
-func TestIsAbortMarker(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		in   map[string]any
-		want bool
-	}{
-		{
-			name: "exact marker matches",
-			in:   map[string]any{"status": "aborted", "reason": "abort"},
-			want: true,
-		},
-		{
-			name: "case-insensitive match",
-			in:   map[string]any{"status": "Aborted", "reason": "ABORT"},
-			want: true,
-		},
-		{
-			name: "extra fields still match",
-			in:   map[string]any{"status": "aborted", "reason": "abort", "note": "user stopped"},
-			want: true,
-		},
-		{
-			name: "status only does NOT match (tightened)",
-			in:   map[string]any{"status": "aborted"},
-			want: false,
-		},
-		{
-			name: "reason only does NOT match (tightened)",
-			in:   map[string]any{"reason": "abort"},
-			want: false,
-		},
-		{
-			name: "legit message with an aborted status field is not a marker",
-			in:   map[string]any{"status": "aborted", "reason": "policy", "content": "here is the answer"},
-			want: false,
-		},
-		{
-			name: "unrelated object",
-			in:   map[string]any{"content": "hello", "role": "assistant"},
-			want: false,
-		},
-		{
-			name: "non-string status field",
-			in:   map[string]any{"status": 1, "reason": "abort"},
-			want: false,
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := isAbortMarker(tc.in); got != tc.want {
-				t.Fatalf("isAbortMarker(%v) = %v, want %v", tc.in, got, tc.want)
-			}
-		})
+	if h := atomic.LoadInt32(&upstreamHits); h != 0 {
+		t.Errorf("invalid ids must not reach the sidecar, got %d upstream hits", h)
 	}
 }
 
-func TestTraceContentText_MarkerYieldsEmpty(t *testing.T) {
-	t.Parallel()
+func TestChatProxy_GetConversation_Success(t *testing.T) {
+	var gotPath, gotIdentity string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotIdentity = r.Header.Get(oidcIdentityHeader)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"conversation_id":"`+testConvID+`","messages":[]}`)
+	}))
+	defer upstream.Close()
 
-	if got := traceContentText(map[string]any{"status": "aborted", "reason": "abort"}); got != "" {
-		t.Fatalf("traceContentText(marker) = %q, want empty so the persisted partial wins", got)
+	router, accountMock, deployMock := setupChatRouter(upstream.URL, true)
+	expectMessagingProxyAuth(accountMock, deployMock)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/deployments/dep-1/chat/conversations/"+testConvID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	if want := "/api/chat/conversations/" + testConvID; gotPath != want {
+		t.Errorf("upstream path = %q, want %q", gotPath, want)
+	}
+	if gotIdentity != "user-workos-1" {
+		t.Errorf("upstream identity header = %q, want user-workos-1", gotIdentity)
+	}
+	if !strings.Contains(rec.Body.String(), testConvID) {
+		t.Errorf("response not forwarded: %s", rec.Body.String())
+	}
+}
 
-	// A near-marker that carries real content must NOT be dropped now that the
-	// matcher requires both fields.
-	got := traceContentText(map[string]any{"status": "aborted", "content": "partial answer"})
-	if got != "partial answer" {
-		t.Fatalf("traceContentText(status-only + content) = %q, want %q", got, "partial answer")
+func TestChatProxy_DeploymentNotFound(t *testing.T) {
+	router, _, deployMock := setupChatRouter("http://unused", true)
+	expectDeploymentNotFound(deployMock, "dep-1")
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/deployments/dep-1/chat/conversations/"+testConvID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestChatProxy_UpstreamError_502(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	upstream.Close() // closed server -> connection refused -> 502
+
+	router, accountMock, deployMock := setupChatRouter(upstream.URL, true)
+	expectMessagingProxyAuth(accountMock, deployMock)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/deployments/dep-1/chat/conversations/"+testConvID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

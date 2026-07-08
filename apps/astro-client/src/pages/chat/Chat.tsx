@@ -1,10 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import type { Route } from "./+types/Chat";
-import {
-  useChatAgents,
-  useUpsertDeploymentChatConversation,
-} from "@/api/queries/chat";
+import { useChatAgents } from "@/api/queries/chat";
 import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import { ChatWorkspace } from "@/components/chat/ChatWorkspace";
 import { useAuth } from "@/lib/auth";
@@ -37,19 +34,14 @@ export default function ChatPage() {
   // observability, members) to the deployment's own account, not activeAccount.
   const deploymentAccount = activeEntry?.account ?? activeAccount;
 
-  const upsertConversation = useUpsertDeploymentChatConversation(
-    deployment?.id ?? "",
-  );
-
-  const handleNewConversation = useCallback(async () => {
+  // A new conversation is a fresh client-side id we navigate to; the sidecar
+  // creates the row (and derives the title) on the first send, so there is no
+  // server pre-create. It appears in the history dropdown after that send.
+  const handleNewConversation = useCallback(() => {
     if (!deployment) return;
     const conversationId = crypto.randomUUID();
-    await upsertConversation.mutateAsync({
-      conversationId,
-      title: "New conversation",
-    });
     navigate(chatDeploymentPath(deployment.id, conversationId));
-  }, [deployment, navigate, upsertConversation]);
+  }, [deployment, navigate]);
 
   if (!isLoading && entries.length > 0 && !deployment) {
     return <Navigate to={chatDeploymentPath(entries[0].deployment.id)} replace />;

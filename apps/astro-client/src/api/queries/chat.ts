@@ -197,7 +197,7 @@ export function useDeploymentChatConversation(
   });
 }
 
-export function useUpsertDeploymentChatConversation(deploymentId: string) {
+export function useSetDeploymentChatConversationTitle(deploymentId: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
@@ -208,7 +208,7 @@ export function useUpsertDeploymentChatConversation(deploymentId: string) {
       conversationId: string;
       title: string;
     }) =>
-      api.upsertDeploymentChatConversation(deploymentId, conversationId, {
+      api.setDeploymentChatConversationTitle(deploymentId, conversationId, {
         title,
       }),
     onSuccess: (_data, { conversationId }) => {

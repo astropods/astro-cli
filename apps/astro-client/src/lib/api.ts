@@ -821,13 +821,6 @@ export interface MessagingSendMessageResponse {
   timestamp?: string;
 }
 
-export interface MessagingHistoryMessage {
-  message_id: string;
-  content: string;
-  timestamp?: string;
-  user?: { id: string; username?: string };
-}
-
 // Agent self-reported config from the messaging web sidecar (GET
 // /api/agent/config), proxied via astro-server. Same shape the playground
 // reads; powers the chat inspector's Settings/config tab.
@@ -865,7 +858,7 @@ export interface GetDeploymentChatConversationResponse {
   title: string;
   updated_at: string;
   messages: DeploymentChatMessageRecord[];
-  /** Server-authoritative: the messaging proxy is persisting an assistant reply. */
+  /** True while the latest persisted message is the user's (assistant reply still in flight). */
   assistant_streaming?: boolean;
   has_more?: boolean;
   oldest_seq?: number;
@@ -876,13 +869,6 @@ export type DeploymentChatConversationQuery = {
   limit?: number;
   before_seq?: number;
 };
-
-export interface MessagingHistoryResponse {
-  conversation_id: string;
-  messages: MessagingHistoryMessage[];
-  is_complete?: boolean;
-  fetched_at?: string;
-}
 
 export interface DeploymentsListResponse {
   deployments: AgentDeploymentSummary[];
@@ -2320,7 +2306,7 @@ class ApiClient {
   }
 
   // Stop generating: asks the messaging sidecar to end the in-flight turn
-  // (drop the agent's remaining output, finish the stream).
+  // (drop the agent's remaining output, persist the partial, finish the stream).
   async cancelMessagingStream(
     deploymentId: string,
     conversationId: string,
@@ -2338,18 +2324,6 @@ class ApiClient {
     return this.messagingProxyPath(
       deploymentId,
       `conversations/${encodeURIComponent(conversationId)}/stream`,
-    );
-  }
-
-  async getMessagingHistory(
-    deploymentId: string,
-    conversationId: string,
-  ): Promise<MessagingHistoryResponse> {
-    return this.request<MessagingHistoryResponse>(
-      this.messagingProxyPath(
-        deploymentId,
-        `conversations/${encodeURIComponent(conversationId)}/history`,
-      ),
     );
   }
 
@@ -2399,7 +2373,9 @@ class ApiClient {
     );
   }
 
-  async upsertDeploymentChatConversation(
+  // Sets the title of an existing conversation. Idempotent and rename-only (it
+  // cannot create a conversation), so it's a PUT to the /title sub-resource.
+  async setDeploymentChatConversationTitle(
     deploymentId: string,
     conversationId: string,
     body: { title: string },
@@ -2407,7 +2383,7 @@ class ApiClient {
     return this.request(
       this.deploymentChatPath(
         deploymentId,
-        `conversations/${encodeURIComponent(conversationId)}`,
+        `conversations/${encodeURIComponent(conversationId)}/title`,
       ),
       { method: "PUT", body: JSON.stringify(body) },
     );

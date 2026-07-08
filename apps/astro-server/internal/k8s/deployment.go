@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 	"time"
 
@@ -73,6 +74,13 @@ type MessagingDeploymentConfig struct {
 	VolumeMountPath string
 	VolumeSubPath   string
 }
+
+// messagingChatDBFile is the SQLite chat database filename. Its directory is the
+// messaging sidecar's shared-volume mount (cfg.VolumeMountPath), so the DB lives
+// on the agent's shared persistent disk and is durable across reschedules. The
+// path is derived from the mount rather than hardcoded so the two can't drift —
+// a path outside the mount would land on the read-only container root.
+const messagingChatDBFile = "chat.db"
 
 // BuildDeployment creates a Kubernetes Deployment manifest.
 // Optional sidecar containers (messaging, collector) are colocated in the same
@@ -205,6 +213,17 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		{Name: "GRPC_LISTEN_ADDR", Value: fmt.Sprintf(":%d", port)},
 		{Name: "STORAGE_TYPE", Value: "memory"},
 		{Name: "DEPLOYMENT_MODE", Value: "all"},
+	}
+
+	// Persist the chat SQLite DB on the shared agent volume, only when one is
+	// mounted. Derived from the mount path (set just above) so the DB can't drift
+	// onto the read-only container root. No volume means no CHAT_DB_PATH, which
+	// disables chat persistence rather than crashing on an unwritable path.
+	if cfg.VolumeName != "" && cfg.VolumeMountPath != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "CHAT_DB_PATH",
+			Value: path.Join(cfg.VolumeMountPath, messagingChatDBFile),
+		})
 	}
 	if cfg.DeploymentID != "" {
 		container.Env = append(container.Env, corev1.EnvVar{Name: "ASTRO_AGENT_ID", Value: cfg.DeploymentID})

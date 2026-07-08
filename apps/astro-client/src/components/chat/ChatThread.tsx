@@ -18,7 +18,7 @@ export function ChatThread({
   deploymentId: string;
   deployment?: AgentDeploymentSummary;
   conversationId?: string | null;
-  onConversationCreated?: (conversationId: string, preview: string) => void;
+  onConversationCreated?: (conversationId: string) => void;
 }) {
   const { data: status } = useDeploymentStatus(deploymentId);
   const { data: runtimeData } = useDeploymentRuntime(deploymentId);

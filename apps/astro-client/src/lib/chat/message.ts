@@ -26,9 +26,9 @@ export function mapServerMessages(
 }
 
 /**
- * Server-authoritative "assistant turn in flight": the messaging proxy is
- * persisting a reply (`assistant_streaming`), or an optimistic client patch
- * marked the thread active before the server flag lands.
+ * "Assistant turn in flight": the sidecar reports `assistant_streaming` (the
+ * latest persisted message is still the user's), or an optimistic client patch
+ * marked the thread active before that state lands.
  */
 export function serverTurnInFlight(
   thread: GetDeploymentChatConversationResponse,

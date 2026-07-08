@@ -22,6 +22,8 @@ tags:
     description: Deploy and manage agents
   - name: observability
     description: Traces and metrics
+  - name: chat
+    description: Deployment chat conversations (persisted in the deployment's messaging sidecar)
 
 security:
   - BearerAuth: []
@@ -1000,6 +1002,261 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # ── Deployment chat ───────────────────────────────────────────────────────────
+  # Platform chat contract, proxied by astro-server to the deployment's messaging
+  # sidecar. History is persisted in the sidecar's deployment-local SQLite store on
+  # a shared persistent volume — not in the central platform database.
+
+  /deployments/{deploymentId}/chat/conversations:
+    get:
+      tags: [chat]
+      summary: List chat conversations
+      description: |
+        Returns the caller's chat conversations for this deployment, most-recent first.
+        Scoped to the authenticated user; two users on the same account never share threads.
+      operationId: listChatConversations
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: Conversation summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatConversationsList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/chat/conversations/{conversationId}:
+    get:
+      tags: [chat]
+      summary: Get chat conversation
+      description: |
+        Returns one conversation's thread (messages in order) plus `assistant_streaming`
+        (true while an assistant reply is still being persisted). Omit `limit` for the full
+        thread; pass `limit` for the tail and `before_seq` to page older messages. When a page
+        is returned, `has_more` and `oldest_seq` describe the remaining history.
+      operationId: getChatConversation
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+        - name: limit
+          in: query
+          required: false
+          description: Return only the most recent N messages (tail). Omit for the full thread.
+          schema:
+            type: integer
+        - name: before_seq
+          in: query
+          required: false
+          description: Return messages older than this sequence number (pagination cursor).
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation thread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [chat]
+      summary: Delete chat conversation
+      description: |
+        Soft-deletes the conversation for the owning user: it disappears from the list and
+        stays gone across pod reschedules (the store is on a durable volume). This does not
+        erase agent-run telemetry retained for cost/usage analytics.
+      operationId: deleteChatConversation
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "204":
+          description: Conversation deleted (no content)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/chat/conversations/{conversationId}/title:
+    put:
+      tags: [chat]
+      summary: Rename chat conversation
+      description: |
+        Sets the conversation's title — the only user-editable field of a conversation.
+        Idempotent and scoped to the title: it cannot create a conversation or modify
+        messages. Returns 404 when the conversation does not exist or is not owned by the
+        caller.
+      operationId: setChatConversationTitle
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatTitleRequest"
+      responses:
+        "200":
+          description: Updated title
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatTitleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/messaging/conversations:
+    post:
+      tags: [chat]
+      summary: Create chat conversation
+      description: |
+        Creates a conversation and returns its id. Optional: a client may instead
+        choose its own UUID v4 and use it directly on the first send. The messaging
+        sidecar owns persistence; astro-server forwards the request in transit only.
+      operationId: createChatConversation
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagingCreateConversationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/messaging/conversations/{conversationId}/messages:
+    post:
+      tags: [chat]
+      summary: Send a chat message
+      description: |
+        Sends a user message to the agent. The sidecar persists the user turn, then
+        forwards it to the agent; the assistant reply streams over the SSE endpoint
+        and is persisted as it arrives. Subscribe to the stream endpoint for live
+        chunks. A conversation owned by another user returns 404.
+      operationId: sendChatMessage
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessagingSendMessageRequest"
+      responses:
+        "200":
+          description: Message accepted (reply streams over the SSE endpoint)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagingSendMessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            The conversation has reached its per-thread message limit and is
+            terminal. The response body carries the machine-readable code
+            `message_limit_reached`; start a new conversation to continue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/messaging/conversations/{conversationId}/cancel:
+    post:
+      tags: [chat]
+      summary: Stop generating
+      description: |
+        Ends the in-flight turn ("stop generating"): the sidecar stops the stream,
+        persists the partial reply the user has seen, and best-effort signals the
+        agent to abort (agents that don't honor it keep running, but their output is
+        discarded). Idempotent — safe to call when no turn is active. A conversation
+        that is missing or owned by another user returns 404.
+      operationId: cancelChatGeneration
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "204":
+          description: Turn ended (no content)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/messaging/conversations/{conversationId}/stream:
+    get:
+      tags: [chat]
+      summary: Stream assistant reply (SSE)
+      description: |
+        Server-Sent Events stream of the assistant's reply for the current turn.
+        Emits a `connected` event, incremental content chunks, and a terminal
+        `finish` (or `error`) event. Subscribe after sending a message. Ownership-
+        scoped: a conversation owned by another user returns 404.
+      operationId: streamChatConversation
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Server-Sent Events stream of assistant chunks
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     BearerAuth:
@@ -1036,6 +1293,20 @@ components:
       in: path
       required: true
       description: Kubernetes namespace for the deployment
+      schema:
+        type: string
+    DeploymentId:
+      name: deploymentId
+      in: path
+      required: true
+      description: Deployment ID
+      schema:
+        type: string
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      description: Conversation ID (client-chosen UUID v4)
       schema:
         type: string
 
@@ -1078,6 +1349,95 @@ components:
             $ref: "#/components/schemas/Error"
 
   schemas:
+    ChatConversationSummary:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        title:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        assistant_streaming:
+          type: boolean
+          description: True while the latest turn is the user's and the assistant reply is still streaming/persisting.
+    ChatConversationsList:
+      type: object
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatConversationSummary"
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+    ChatConversation:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        title:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        assistant_streaming:
+          type: boolean
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        has_more:
+          type: boolean
+          description: Present when a page was returned; more (older) messages exist.
+        oldest_seq:
+          type: integer
+          description: Sequence number of the oldest message in this page (pagination cursor).
+    ChatTitleRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          description: New conversation title. Non-empty; capped at 80 characters.
+    ChatTitleResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        title:
+          type: string
+    MessagingCreateConversationResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    MessagingSendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: The user's message text.
+    MessagingSendMessageResponse:
+      type: object
+      properties:
+        message_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
     Error:
       type: object
       properties:

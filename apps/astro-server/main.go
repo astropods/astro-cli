@@ -34,7 +34,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
-	"github.com/astropods/astro/apps/astro-server/internal/chatstore"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -1484,23 +1483,23 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentRuntimeResponse{}),
 			)
-			// Chat store backs sidebar metadata and durable message bodies (messaging
-			// proxy persistence). Langfuse traces hydrate when available.
-			chatStore := chatstore.NewStore(db)
-			// Messaging proxy — send + SSE; mirrors user sends and assistant streams
-			// into chatstore so history survives navigation and reloads.
-			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg, chatStore)
+			// Messaging proxy — pure in-transit forward to the deployment's
+			// messaging sidecar (send + SSE). No chat content is persisted here.
+			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
 			protected.Any("/deployments/:id/messaging/*proxyPath", messagingProxy)
-			chatLangfuseStore := langfuse.NewStore(db)
+			// Chat API — authenticates the session and forwards to the sidecar,
+			// which owns chat persistence (deployment-local SQLite on the agent's
+			// shared persistent disk). astro-server stores no chat metadata or
+			// message bodies.
 			api.GET(protected, "/deployments/:id/chat/conversations", "List deployment chat conversations",
-				handlers.ListDeploymentChatConversations(log, accountStore, deploymentStore, chatStore),
+				handlers.ListDeploymentChatConversations(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.ListChatConversationsResponse{}),
 			)
 			api.GET(protected, "/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
-				handlers.GetDeploymentChatConversation(log, cfg, accountStore, deploymentStore, chatStore, chatLangfuseStore),
+				handlers.GetDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1509,15 +1508,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("before_seq", "Return messages older than this seq (requires limit)", false),
 				oapispec.Response(200, &handlers.GetChatConversationResponse{}),
 			)
-			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId", "Upsert deployment chat conversation",
-				handlers.UpsertDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
+			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId/title", "Rename deployment chat conversation",
+				handlers.SetDeploymentChatConversationTitle(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("conversationId", "Conversation ID"),
 			)
 			api.DELETE(protected, "/deployments/:id/chat/conversations/:conversationId", "Delete deployment chat conversation",
-				handlers.DeleteDeploymentChatConversation(log, accountStore, deploymentStore, chatStore),
+				handlers.DeleteDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

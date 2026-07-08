@@ -16,6 +16,16 @@ function conversationMessages(
 }
 
 /**
+ * Client-generated optimistic/streaming row id. sendMessage uses `user-<ts>` for
+ * the optimistic user row and patchConversationAssistantChunk uses
+ * `assistant-<ts>` for the streaming assistant row before the server id lands.
+ * Server ids are UUIDs, which never match this shape.
+ */
+function isClientTempId(id: string): boolean {
+  return /^(assistant|user)-\d+$/.test(id);
+}
+
+/**
  * Merge a tail fetch into cached history. Overlap is matched by message id so
  * streaming assistant rows update in place without re-downloading the thread.
  */
@@ -35,14 +45,17 @@ export function mergeConversationTail(
 
   const existingMessages = conversationMessages(existing);
   const tailIds = new Set(tailMessages.map((m) => m.id));
-  const prefix = existingMessages.filter((m) => !tailIds.has(m.id));
   const overlapIdx = existingMessages.findIndex((m) => tailIds.has(m.id));
-  const mergedMessages =
+  // Keep the history that precedes the authoritative tail window, but drop any
+  // client-temporary rows (optimistic user / streaming assistant ids). The tail
+  // supersedes them, and keeping a stale streaming row would leave an orphan
+  // partial assistant bubble after a mid-stream reconnect or conversation switch.
+  const keptPrefix = (
     overlapIdx >= 0
-      ? [...existingMessages.slice(0, overlapIdx), ...tailMessages]
-      : [...prefix, ...tailMessages];
-
-  const keptPrefix = overlapIdx >= 0 ? overlapIdx : prefix.length;
+      ? existingMessages.slice(0, overlapIdx)
+      : existingMessages.filter((m) => !tailIds.has(m.id))
+  ).filter((m) => !isClientTempId(m.id));
+  const mergedMessages = [...keptPrefix, ...tailMessages];
 
   return {
     conversation_id: tail.conversation_id,
@@ -50,9 +63,9 @@ export function mergeConversationTail(
     updated_at: tail.updated_at,
     assistant_streaming: tail.assistant_streaming,
     messages: mergedMessages,
-    has_more: keptPrefix > 0 || !!existing.has_more || !!tail.has_more,
+    has_more: keptPrefix.length > 0 || !!existing.has_more || !!tail.has_more,
     oldest_seq:
-      keptPrefix > 0 ? existing.oldest_seq : tail.oldest_seq,
+      keptPrefix.length > 0 ? existing.oldest_seq : tail.oldest_seq,
   };
 }
 

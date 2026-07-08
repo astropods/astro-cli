@@ -4,7 +4,7 @@ import type { AgentDeploymentSummary } from "@/lib/api";
 import { useChatSessions } from "@/hooks/use-chat-sessions";
 import {
   useDeleteDeploymentChatConversation,
-  useUpsertDeploymentChatConversation,
+  useSetDeploymentChatConversationTitle,
 } from "@/api/queries/chat";
 import { useIsMobile } from "@/hooks/use-compact-layout";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -54,7 +54,7 @@ export function ChatWorkspace({
 
   const { sessions, recordFirstMessage, isLoading: sessionsLoading } =
     useChatSessions(deploymentId);
-  const renameConversation = useUpsertDeploymentChatConversation(deploymentId);
+  const renameConversation = useSetDeploymentChatConversationTitle(deploymentId);
   const deleteConversation = useDeleteDeploymentChatConversation(deploymentId);
   const autoSelectedRef = useRef(false);
 
@@ -86,33 +86,27 @@ export function ChatWorkspace({
     setConversationId(latest.conversationId);
   }, [conversationId, sessions, sessionsLoading, setConversationId]);
 
-  const onConversationCreated = useCallback(
-    async (convId: string, preview: string) => {
-      await recordFirstMessage(convId, preview);
-      if (conversationId !== convId) {
-        setConversationId(convId);
-      }
-    },
-    [conversationId, recordFirstMessage, setConversationId],
-  );
+  // Plain handlers: ChatThread/ChatThreadHeader aren't memoized, so a stable
+  // identity would buy nothing (and the mutation objects aren't stable refs
+  // anyway). setConversationId stays memoized — it anchors the auto-select effect.
+  const onConversationCreated = async (convId: string) => {
+    await recordFirstMessage();
+    if (conversationId !== convId) {
+      setConversationId(convId);
+    }
+  };
 
-  const onRenameSession = useCallback(
-    (convId: string, title: string) => {
-      renameConversation.mutate({ conversationId: convId, title });
-    },
-    [renameConversation],
-  );
+  const onRenameSession = (convId: string, title: string) => {
+    renameConversation.mutate({ conversationId: convId, title });
+  };
 
-  const onDeleteSession = useCallback(
-    (convId: string) => {
-      deleteConversation.mutate(convId);
-      if (conversationId === convId) {
-        autoSelectedRef.current = true;
-        setConversationId(null);
-      }
-    },
-    [conversationId, deleteConversation, setConversationId],
-  );
+  const onDeleteSession = (convId: string) => {
+    deleteConversation.mutate(convId);
+    if (conversationId === convId) {
+      autoSelectedRef.current = true;
+      setConversationId(null);
+    }
+  };
 
   return (
     <div

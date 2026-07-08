@@ -1,29 +1,20 @@
 import { useCallback, useMemo } from "react";
-import {
-  useDeploymentChatConversations,
-  useUpsertDeploymentChatConversation,
-} from "@/api/queries/chat";
+import { useQueryClient } from "@tanstack/react-query";
+import { useDeploymentChatConversations } from "@/api/queries/chat";
+import { chatKeys } from "@/api/queries/keys";
 import type { ChatSession } from "@/lib/chat/types";
 
 const DEFAULT_TITLE = "New conversation";
 
-export function titleFromFirstMessage(
-  preview: string,
-  existingTitle?: string,
-): string {
-  const trimmed = preview.trim().slice(0, 80);
-  return trimmed || existingTitle || DEFAULT_TITLE;
-}
-
 /**
- * Server-backed chat session list. Conversation metadata (title, recency) is
- * persisted in astro-server (keyed by the opaque user id); message content is
- * hydrated from Postgres (messaging proxy persistence) with Langfuse as primary
- * when traces exist. Survives reloads and is shared across the user's devices.
+ * Server-backed chat session list. astro-server does not persist chat — it
+ * authenticates and forwards to the deployment's messaging sidecar, which owns
+ * conversation metadata and message bodies in a deployment-local SQLite store on
+ * the agent's shared persistent disk. Keyed by the opaque WorkOS user id.
  */
 export function useChatSessions(deploymentId: string) {
   const { data, isLoading } = useDeploymentChatConversations(deploymentId);
-  const upsert = useUpsertDeploymentChatConversation(deploymentId);
+  const queryClient = useQueryClient();
 
   const sessions = useMemo(
     (): ChatSession[] =>
@@ -37,18 +28,15 @@ export function useChatSessions(deploymentId: string) {
     [data?.conversations, deploymentId],
   );
 
-  // Called on every send: persists the conversation row, derives a title on the
-  // first real message, and bumps recency thereafter. An empty title is a pure
-  // "touch" on the server, so it never clobbers an existing/user-set title.
-  const recordFirstMessage = useCallback(
-    async (convId: string, preview: string) => {
-      const existing = sessions.find((s) => s.conversationId === convId);
-      const hasTitle = !!existing && existing.title !== DEFAULT_TITLE;
-      const title = hasTitle ? "" : titleFromFirstMessage(preview, existing?.title);
-      await upsert.mutateAsync({ conversationId: convId, title });
-    },
-    [sessions, upsert],
-  );
+  // Called after each send. The sidecar creates the conversation row and derives
+  // its title on the first send (EnsureForSend) and bumps recency thereafter, so
+  // the client no longer writes any of that — it just refreshes the list so the
+  // new conversation and its server-derived title appear in the history dropdown.
+  const recordFirstMessage = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: chatKeys.conversations(deploymentId),
+    });
+  }, [deploymentId, queryClient]);
 
   return { sessions, recordFirstMessage, isLoading };
 }
