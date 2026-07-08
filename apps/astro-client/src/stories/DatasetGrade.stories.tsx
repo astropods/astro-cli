@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { DatasetGrade } from "@/components/agent-detail/evals/DatasetGrade";
+import { DatasetGrade } from "@/components/agent-detail/evals/dataset/DatasetGrade";
 
 const meta = {
   title: "Features/Agents/Evals/DatasetGrade",

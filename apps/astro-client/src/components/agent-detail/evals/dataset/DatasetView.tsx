@@ -2,7 +2,7 @@ import { useCallback, useState, type RefObject } from "react";
 import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 import { DatasetTable } from "./DatasetTable";
 import { DatasetFilterChips, type FilterKey } from "./DatasetFilterChips";
-import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "./EvalTabCard";
+import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "../EvalTabCard";
 import type { EvalDatasetResponse } from "@/lib/api";
 
 export interface DatasetViewProps {

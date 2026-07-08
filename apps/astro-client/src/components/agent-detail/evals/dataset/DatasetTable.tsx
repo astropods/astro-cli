@@ -32,7 +32,7 @@ import {
   DatasetItemRow,
   type ResolvedReviewer,
 } from "./DatasetItemRow";
-import { flyUndoToReviewQueue } from "./review-queue-motion";
+import { flyUndoToReviewQueue } from "../review-queue-motion";
 
 export interface DatasetTableProps {
   deploymentId: string;

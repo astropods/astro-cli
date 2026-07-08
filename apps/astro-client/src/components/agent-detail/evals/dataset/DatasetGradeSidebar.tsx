@@ -15,7 +15,7 @@ import {
   criterionLabel,
   criterionTooltip,
   JUDGMENT_CRITERIA,
-} from "./judgment-criteria";
+} from "../judgment-criteria";
 
 const TARGET_SCORED_CASES = 100;
 const TARGET_BAD_SHARE = 0.1;

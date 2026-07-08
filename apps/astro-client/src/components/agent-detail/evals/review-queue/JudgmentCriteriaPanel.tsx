@@ -4,8 +4,8 @@ import { InlineBadge } from "@/components/InlineBadge";
 import { Button } from "@/components/ui/button";
 import { SelectableChip } from "@/components/ui/SelectableChip";
 import type { JudgmentCriterion } from "@/lib/api";
-import { JUDGMENT_CRITERIA, criterionLabel } from "./judgment-criteria";
-import { useJudgmentCriteriaSelection } from "./useJudgmentCriteriaSelection";
+import { JUDGMENT_CRITERIA, criterionLabel } from "../judgment-criteria";
+import { useJudgmentCriteriaSelection } from "../useJudgmentCriteriaSelection";
 
 export interface JudgmentCriteriaPanelProps {
   /** The verdict just recorded; drives the label set and chip tone. */

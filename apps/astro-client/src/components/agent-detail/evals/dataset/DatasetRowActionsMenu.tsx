@@ -18,8 +18,8 @@ import type {
   JudgmentCriterion,
 } from "@/lib/api";
 import type { Verdict } from "./DatasetItemRow";
-import { JUDGMENT_CRITERIA, criterionLabel } from "./judgment-criteria";
-import { useJudgmentCriteriaSelection } from "./useJudgmentCriteriaSelection";
+import { JUDGMENT_CRITERIA, criterionLabel } from "../judgment-criteria";
+import { useJudgmentCriteriaSelection } from "../useJudgmentCriteriaSelection";
 
 export interface DatasetRowActionsMenuProps {
   traceId: string;

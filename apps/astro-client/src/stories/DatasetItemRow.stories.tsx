@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   DatasetItemRow,
   type ResolvedReviewer,
-} from "@/components/agent-detail/evals/DatasetItemRow";
+} from "@/components/agent-detail/evals/dataset/DatasetItemRow";
 import {
   Table,
   TableBody,
