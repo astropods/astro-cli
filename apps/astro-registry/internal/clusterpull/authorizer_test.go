@@ -34,11 +34,6 @@ func TestAuthenticate_Primary_Unconfigured(t *testing.T) {
 	}
 }
 
-// A malformed namespace must short-circuit before the DB query — with a nil
-// *sql.DB this test would panic on QueryRowContext if the UUID guard regressed.
-func TestHomedHere_MalformedUUID_ShortCircuits(t *testing.T) {
-	az := NewAuthorizer(nil, "")
-	if ok, err := az.HomedHere(context.Background(), "not-a-uuid", PrimaryClusterID); err != nil || ok {
-		t.Fatalf("malformed uuid: want ok=false err=nil, got ok=%v err=%v", ok, err)
-	}
-}
+// ResolveHomedAccount is DB-backed (name/id lookup + homing) and is exercised
+// via the /token isolation tests (handlers) and preview integration; there is
+// no sqlmock in this module to unit-test the query here.

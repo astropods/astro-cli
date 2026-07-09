@@ -74,31 +74,39 @@ func (a *Authorizer) Authenticate(ctx context.Context, clusterID, secret string)
 	return subtle.ConstantTimeCompare(sum[:], hash) == 1, nil
 }
 
-// HomedHere reports whether the account (by UUID) is homed on clusterID. For
-// the primary, homed means accounts.cluster_id IS NULL; for an additional
-// cluster it must equal clusterID. Soft-deleted or unknown accounts are never
-// homed.
+// ResolveHomedAccount maps an image-namespace segment to its account id and
+// reports whether that account is homed on clusterID. The namespace is whatever
+// the pod's image reference carries — the account name the developer pushed
+// under (the common case), or an account id (deployments rendered before the
+// server stopped rewriting). This is the registry's job, mirroring the push
+// path's name→id resolution, so astro-server can pass the pushed reference
+// through untouched.
 //
-// accountID is validated as a UUID first so a malformed namespace short-circuits
-// to (false, nil); this also lets the query bind id directly (WHERE id = $1) and
-// use the accounts primary-key index instead of a sequential scan.
-func (a *Authorizer) HomedHere(ctx context.Context, accountID, clusterID string) (bool, error) {
-	if err := uuid.Validate(accountID); err != nil {
-		return false, nil
+// Returns the resolved account id (used to rewrite the request to the ECR
+// {env}-tenant-{id} repo) and whether it is homed here: for the primary,
+// accounts.cluster_id IS NULL; for an additional cluster, it must equal
+// clusterID. Unknown or soft-deleted accounts return ("", false, nil).
+func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, clusterID string) (accountID string, homed bool, err error) {
+	// A uuid-shaped namespace is an account id (transitional refs); otherwise it
+	// is an account name. Either way the lookup hits a unique index.
+	query := `SELECT id, cluster_id FROM accounts WHERE name = $1 AND deleted_at IS NULL`
+	if uuid.Validate(namespace) == nil {
+		query = `SELECT id, cluster_id FROM accounts WHERE id = $1 AND deleted_at IS NULL`
 	}
 
-	var homeCluster sql.NullString
-	err := a.db.QueryRowContext(ctx,
-		`SELECT cluster_id FROM accounts WHERE id = $1 AND deleted_at IS NULL`, accountID,
-	).Scan(&homeCluster)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+	var (
+		id          string
+		homeCluster sql.NullString
+	)
+	if err := a.db.QueryRowContext(ctx, query, namespace).Scan(&id, &homeCluster); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("failed to resolve account %q: %w", namespace, err)
 	}
-	if err != nil {
-		return false, fmt.Errorf("failed to resolve account cluster: %w", err)
-	}
+
 	if clusterID == PrimaryClusterID {
-		return !homeCluster.Valid, nil
+		return id, !homeCluster.Valid, nil
 	}
-	return homeCluster.Valid && homeCluster.String == clusterID, nil
+	return id, homeCluster.Valid && homeCluster.String == clusterID, nil
 }

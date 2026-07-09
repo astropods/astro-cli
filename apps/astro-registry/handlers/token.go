@@ -34,7 +34,7 @@ type TokenSigner interface {
 // *clusterpull.Authorizer.
 type ClusterAuthorizer interface {
 	Authenticate(ctx context.Context, clusterID, secret string) (bool, error)
-	HomedHere(ctx context.Context, accountID, clusterID string) (bool, error)
+	ResolveHomedAccount(ctx context.Context, namespace, clusterID string) (accountID string, homed bool, err error)
 }
 
 // TokenHandlerConfig wires the /token endpoint dependencies.
@@ -245,31 +245,31 @@ func authorizeClusterScope(
 		return out
 	}
 
-	// "<accountID>/<image>" — namespace is the account UUID.
+	// "<namespace>/<image>" — namespace is the account name (or id) from the
+	// pushed image reference; the registry resolves it to the account.
 	parts := strings.SplitN(requested.Name, "/", 2)
 	if len(parts) < 2 || parts[0] == "" {
 		return out
 	}
-	accountID := parts[0]
+	namespace := parts[0]
 
-	homed, err := az.HomedHere(ctx, accountID, clusterID)
+	accountID, homed, err := az.ResolveHomedAccount(ctx, namespace, clusterID)
 	if err != nil {
-		log.Warn("CPC home check failed", "account_id", accountID, "cluster_id", clusterID, "error", err)
+		log.Warn("CPC account resolution failed", "namespace", namespace, "cluster_id", clusterID, "error", err)
 		return out
 	}
 	if !homed {
 		log.Warn("CPC pull denied — tenant not homed on cluster",
-			"account_id", accountID, "cluster_id", clusterID)
+			"namespace", namespace, "cluster_id", clusterID)
 		return out
 	}
 
 	// CPC is pull-only regardless of requested actions.
-	for _, action := range requested.Actions {
-		if action == "pull" {
-			out.Actions = []string{"pull"}
-			break
-		}
+	if slices.Contains(requested.Actions, "pull") {
+		out.Actions = []string{"pull"}
 	}
+	// The resolved account id drives the ECR {env}-tenant-{id} rewrite, so the
+	// pushed name (or an id) both land on the right repo.
 	out.AccountID = accountID
 	return out
 }

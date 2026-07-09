@@ -37,42 +37,45 @@ func TestParseClusterPullCredential(t *testing.T) {
 
 // fakeClusterAuthorizer reports homing from a fixed set; Authenticate always ok.
 type fakeClusterAuthorizer struct {
-	homedAccounts map[string]bool
+	// namespace (name or id) → resolved account id; absence means "not homed here".
+	resolved map[string]string
 }
 
 func (f fakeClusterAuthorizer) Authenticate(context.Context, string, string) (bool, error) {
 	return true, nil
 }
 
-func (f fakeClusterAuthorizer) HomedHere(_ context.Context, accountID, _ string) (bool, error) {
-	return f.homedAccounts[accountID], nil
+func (f fakeClusterAuthorizer) ResolveHomedAccount(_ context.Context, namespace, _ string) (string, bool, error) {
+	id, ok := f.resolved[namespace]
+	return id, ok, nil
 }
 
 func TestAuthorizeClusterScope(t *testing.T) {
 	log := logger.New("error", "text")
-	az := fakeClusterAuthorizer{homedAccounts: map[string]bool{"acct-home": true, "acct-other": false}}
+	// "acme" (a name) is homed and resolves to account id "01acme"; "other" is not homed here.
+	az := fakeClusterAuthorizer{resolved: map[string]string{"acme": "01acme"}}
 	ctx := context.Background()
 
 	repo := func(name string, actions ...string) auth.ResourceAccess {
 		return auth.ResourceAccess{Type: "repository", Name: name, Actions: actions}
 	}
 
-	t.Run("homed tenant granted pull with account id", func(t *testing.T) {
-		got := authorizeClusterScope(ctx, repo("acct-home/agent", "pull"), "cluster-x", az, log)
-		if len(got.Actions) != 1 || got.Actions[0] != "pull" || got.AccountID != "acct-home" {
-			t.Errorf("want pull-only for acct-home, got %+v", got)
+	t.Run("homed tenant granted pull; scope carries resolved account id", func(t *testing.T) {
+		got := authorizeClusterScope(ctx, repo("acme/agent", "pull"), "cluster-x", az, log)
+		if len(got.Actions) != 1 || got.Actions[0] != "pull" || got.AccountID != "01acme" {
+			t.Errorf("want pull-only resolving acme→01acme, got %+v", got)
 		}
 	})
 
 	t.Run("tenant homed elsewhere is dropped (isolation)", func(t *testing.T) {
-		got := authorizeClusterScope(ctx, repo("acct-other/agent", "pull"), "cluster-x", az, log)
+		got := authorizeClusterScope(ctx, repo("other/agent", "pull"), "cluster-x", az, log)
 		if len(got.Actions) != 0 {
 			t.Errorf("want no actions for non-homed tenant, got %+v", got)
 		}
 	})
 
 	t.Run("push/delete downgraded to pull-only", func(t *testing.T) {
-		got := authorizeClusterScope(ctx, repo("acct-home/agent", "push", "pull", "delete"), "cluster-x", az, log)
+		got := authorizeClusterScope(ctx, repo("acme/agent", "push", "pull", "delete"), "cluster-x", az, log)
 		if len(got.Actions) != 1 || got.Actions[0] != "pull" {
 			t.Errorf("want pull-only, got %+v", got.Actions)
 		}
