@@ -53,6 +53,13 @@ func (a *Applier) ApplyDeploymentSpec(
 		return result, fmt.Errorf("failed to ensure namespace: %w", err)
 	}
 
+	// Ensure the registry pull secret exists and is linked to the default
+	// ServiceAccount before any pods are created, so tenant images pull through
+	// astro-registry. No-op unless a pull credential + proxy host are configured.
+	if err := a.ensureRegistryPullSecret(ctx); err != nil {
+		return result, fmt.Errorf("failed to ensure registry pull secret: %w", err)
+	}
+
 	// Phase 0: Ensure knowledge credential Secrets exist.
 	// These are created once and reused across redeployments so passwords stay stable.
 	// Must run before ResolveDeploymentSpecEnv so credential values are available

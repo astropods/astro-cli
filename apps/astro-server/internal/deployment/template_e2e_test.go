@@ -337,7 +337,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	}
 
 	// === Agent ===
-	if ds.Agent.Image != "registry.astropods.ai/prod-tenant-testuser/my-agent:abc123" {
+	if ds.Agent.Image != "registry.astropods.ai/testuser/my-agent:abc123" {
 		t.Errorf("agent.image: got %s", ds.Agent.Image)
 	}
 	if ds.Agent.Replicas != 1 {
@@ -483,7 +483,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if spec.PrimaryPort(webhookIng.Endpoints) != 3001 {
 		t.Errorf("ingestion.webhook_ingest port: expected 3001, got %d", spec.PrimaryPort(webhookIng.Endpoints))
 	}
-	if webhookIng.Image != "registry.astropods.ai/prod-tenant-testuser/my-agent-webhook:abc123" {
+	if webhookIng.Image != "registry.astropods.ai/testuser/my-agent-webhook:abc123" {
 		t.Errorf("ingestion.webhook_ingest.image: got %s", webhookIng.Image)
 	}
 

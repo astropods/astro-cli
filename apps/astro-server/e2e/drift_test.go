@@ -175,7 +175,6 @@ func setupDriftEnv(t *testing.T) *driftTestEnv {
 	// Apply spec to K8s
 	applier := k8s.NewApplier(client, k8s.ApplierConfig{
 		Namespace:       ns,
-		RegistryURL:     "test-registry.example.com",
 		ImagePullPolicy: corev1.PullNever,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

@@ -2,6 +2,8 @@ package k8s
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -20,13 +22,22 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// registryPullSecretName is the dockerconfigjson Secret the applier writes into
+// each tenant namespace (and links to the default ServiceAccount) so tenant
+// pods pull tenant images through astro-registry.
+const registryPullSecretName = "astro-registry-pull"
+
 // ApplierConfig holds configuration for the Applier
 type ApplierConfig struct {
 	Namespace         string
-	RegistryURL       string
 	ProxyRegistryHost string
-	Environment       string
-	ImagePullPolicy   corev1.PullPolicy // Defaults to PullAlways; set PullNever for local dev
+	// RegistryPullCredential is the cluster pull credential (CPC) the kubelet
+	// presents to astro-registry to pull tenant images. When set (with
+	// ProxyRegistryHost), the applier writes a dockerconfigjson pull secret into
+	// the tenant namespace and links it to the default ServiceAccount so tenant
+	// pods pull through the registry. See docs/01-spec/registry-pull-through-spec.md.
+	RegistryPullCredential string
+	ImagePullPolicy        corev1.PullPolicy // Defaults to PullAlways; set PullNever for local dev
 	// ImagePreflighter, when set, performs a registry HEAD on tenant images
 	// in resolveContainerImage and returns *ErrImageNotFound on missing tags.
 	// Defense in depth — the deploy handler should already have preflighted
@@ -114,13 +125,13 @@ type ApplierConfig struct {
 
 // Applier applies Kubernetes manifests to a cluster
 type Applier struct {
-	clientset        kubernetes.Interface
-	namespace        string
-	registryURL      string
-	imageResolver    *ImageResolver
-	imagePullPolicy  corev1.PullPolicy
-	imagePreflighter *ImagePreflighter
-	tenantImageHosts []string
+	clientset              kubernetes.Interface
+	namespace              string
+	proxyRegistryHost      string
+	registryPullCredential string
+	imagePullPolicy        corev1.PullPolicy
+	imagePreflighter       *ImagePreflighter
+	tenantImageHosts       []string
 	// Ingress configuration
 	ingressDomain            string
 	agentPublicIngressDomain string
@@ -158,8 +169,8 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 	return &Applier{
 		clientset:                client.Clientset(),
 		namespace:                cfg.Namespace,
-		registryURL:              cfg.RegistryURL,
-		imageResolver:            NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
+		proxyRegistryHost:        cfg.ProxyRegistryHost,
+		registryPullCredential:   cfg.RegistryPullCredential,
 		imagePullPolicy:          pullPolicy,
 		imagePreflighter:         cfg.ImagePreflighter,
 		tenantImageHosts:         cfg.TenantImageHosts,
@@ -187,30 +198,116 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 	}
 }
 
-// resolveContainerImage resolves a container image reference to its registry
-// path and (when an ImagePreflighter is configured for a tenant host) verifies
-// the manifest exists. Returns *ErrImageNotFound when preflight detects a
-// vanished tag — callers should propagate this so the deploy fails fast
-// instead of waiting for kubelet to surface ImagePullBackOff minutes later.
+// ensureRegistryPullSecret writes the tenant image-pull Secret (a
+// dockerconfigjson for the proxy registry, built from the cluster pull
+// credential) into the namespace and links it to the default ServiceAccount, so
+// every tenant pod pulls tenant images through astro-registry. No-op when the
+// credential or proxy host is unset (e.g. local dev).
+func (a *Applier) ensureRegistryPullSecret(ctx context.Context) error {
+	if a.registryPullCredential == "" || a.proxyRegistryHost == "" {
+		return nil
+	}
+
+	dockercfg, err := dockerConfigJSON(a.proxyRegistryHost, a.registryPullCredential)
+	if err != nil {
+		return fmt.Errorf("build dockerconfigjson: %w", err)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      registryPullSecretName,
+			Namespace: a.namespace,
+			Labels:    map[string]string{"app.kubernetes.io/managed-by": "astro-server"},
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{corev1.DockerConfigJsonKey: dockercfg},
+	}
+
+	secrets := a.clientset.CoreV1().Secrets(a.namespace)
+	if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("create pull secret: %w", err)
+		}
+		if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update pull secret: %w", err)
+		}
+	}
+
+	return a.linkPullSecretToDefaultSA(ctx)
+}
+
+// linkPullSecretToDefaultSA adds the pull secret to the namespace default
+// ServiceAccount's imagePullSecrets, so every pod using that SA (all tenant
+// pods — none set a serviceAccountName) picks it up. The default SA is created
+// asynchronously after the namespace, so we retry briefly; conflicts re-read.
+func (a *Applier) linkPullSecretToDefaultSA(ctx context.Context) error {
+	sas := a.clientset.CoreV1().ServiceAccounts(a.namespace)
+
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		sa, err := sas.Get(ctx, "default", metav1.GetOptions{})
+		if err != nil {
+			lastErr = err
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+			continue
+		}
+
+		for _, ref := range sa.ImagePullSecrets {
+			if ref.Name == registryPullSecretName {
+				return nil // already linked
+			}
+		}
+
+		sa.ImagePullSecrets = append(sa.ImagePullSecrets, corev1.LocalObjectReference{Name: registryPullSecretName})
+		if _, err := sas.Update(ctx, sa, metav1.UpdateOptions{}); err != nil {
+			if errors.IsConflict(err) {
+				continue // someone else updated it; re-read and retry
+			}
+			return fmt.Errorf("link pull secret to default ServiceAccount: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("default ServiceAccount not ready in namespace %s: %w", a.namespace, lastErr)
+}
+
+// dockerConfigJSON builds a Docker config.json for a single registry host,
+// authenticating as user "token" with the given credential in the password slot
+// (the astro-registry v2 token flow reads the credential from the password).
+func dockerConfigJSON(host, credential string) ([]byte, error) {
+	auth := base64.StdEncoding.EncodeToString([]byte("token:" + credential))
+	cfg := map[string]any{
+		"auths": map[string]any{
+			host: map[string]string{
+				"username": "token",
+				"password": credential,
+				"auth":     auth,
+			},
+		},
+	}
+	return json.Marshal(cfg)
+}
+
+// resolveContainerImage preflights a container image (when an ImagePreflighter
+// is configured for a tenant host) to fail fast on a vanished tag, returning
+// *ErrImageNotFound so the deploy errors immediately instead of waiting for
+// kubelet to surface ImagePullBackOff. Image references are already final pull
+// paths — the deployment template produces them — so nothing is rewritten here.
 func (a *Applier) resolveContainerImage(ctx context.Context, container spec.ContainerConfig) (spec.ContainerConfig, error) {
 	if container.Image == "" {
 		return container, nil
 	}
 
-	resolvedImage, err := a.imageResolver.ResolveImage(container.Image)
-	if err != nil {
-		return container, err
-	}
-
-	if a.imagePreflighter != nil && a.shouldPreflight(resolvedImage) {
-		if perr := a.imagePreflighter.Preflight(ctx, resolvedImage); perr != nil {
+	if a.imagePreflighter != nil && a.shouldPreflight(container.Image) {
+		if perr := a.imagePreflighter.Preflight(ctx, container.Image); perr != nil {
 			return container, perr
 		}
 	}
 
-	resolved := container
-	resolved.Image = resolvedImage
-	return resolved, nil
+	return container, nil
 }
 
 // shouldPreflight returns true when image's host matches one of the tenant

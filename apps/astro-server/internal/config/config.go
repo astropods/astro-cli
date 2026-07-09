@@ -224,6 +224,13 @@ type DeploymentConfig struct {
 	// endpoint can verify them without re-generating. Auto-generated at startup if
 	// not set. For multi-replica deployments behind a load balancer, set a shared key.
 	TemplateSigningKey []byte // TEMPLATE_SIGNING_KEY (hex-encoded; auto-generated if empty)
+
+	// RegistryPullCredential is the cluster pull credential (CPC) the deployer
+	// embeds in each tenant namespace's image-pull Secret so tenant pods pull
+	// tenant images through astro-registry. Delivered via External Secrets.
+	// Empty disables the injection (e.g. local dev). Treat as a secret.
+	// See docs/01-spec/registry-pull-through-spec.md.
+	RegistryPullCredential string // REGISTRY_PULL_CREDENTIAL
 }
 
 // Load loads configuration from environment variables with defaults
@@ -280,6 +287,7 @@ func Load() (*Config, error) {
 			PrivateLinkSubnetIDs:        getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
 			PrivateLinkSGID:             getEnv("PRIVATELINK_SG_ID", ""),
 			TemplateSigningKey:          loadSigningKey(),
+			RegistryPullCredential:      getEnv("REGISTRY_PULL_CREDENTIAL", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

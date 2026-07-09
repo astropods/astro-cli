@@ -190,9 +190,8 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 
 	applier := k8s.NewApplier(k8sForDep, k8s.ApplierConfig{
 		Namespace:                dep.Namespace,
-		RegistryURL:              d.Cfg.Deployment.RegistryURL,
 		ProxyRegistryHost:        d.Cfg.Deployment.ProxyRegistryHost,
-		Environment:              d.Cfg.Deployment.Environment,
+		RegistryPullCredential:   d.Cfg.Deployment.RegistryPullCredential,
 		ImagePullPolicy:          imagePullPolicyForMode(d.Cfg.Deployment.K8sClientMode),
 		ImagePreflighter:         d.ImagePreflighter,
 		TenantImageHosts:         tenantImageHostsFromConfig(d.Cfg),

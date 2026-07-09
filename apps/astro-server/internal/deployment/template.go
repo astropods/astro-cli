@@ -71,7 +71,6 @@ type TemplateInput struct {
 	Spec              *spec.AstroSpec
 	AgentName         string // canonical agent name from the registry (used in DeploymentSource and image fallback)
 	Account           string // account name (display, used in DeploymentSource)
-	ECRNamespace      string // where this version's images physically live in ECR
 	BuildID           string
 	RegistryURL       string
 	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropods.ai")
@@ -1255,7 +1254,9 @@ func resolveBuiltImage(kind spec.ComponentKind, name, image string, build *spec.
 }
 
 // resolveImage maps an image reference to its final pull path:
-//   - Tenant images (hosted on ProxyRegistryHost) → ECR tenant repo: {ecrHost}/{env}-tenant-{account}/{image}
+//   - Tenant images (hosted on ProxyRegistryHost) → unchanged. The pushed
+//     reference is already the pull URL; astro-registry maps the account
+//     namespace to its ECR repo at pull time. See docs/01-spec/registry-pull-through-spec.md.
 //   - Public images (bare Docker Hub reference, no registry host) → ECR pull-through cache: {ecrHost}/dockerhub/{image}
 //     Official library images (no org prefix) are placed under "library/".
 //   - Third-party images (explicit registry host such as gcr.io, ghcr.io) → unchanged.
@@ -1264,19 +1265,11 @@ func resolveImage(image string, input TemplateInput) string {
 		return image
 	}
 
-	// 1. Tenant image → ECR tenant repo
-	if input.ProxyRegistryHost != "" && input.RegistryURL != "" && strings.HasPrefix(image, input.ProxyRegistryHost+"/") {
-		pathWithTag := strings.TrimPrefix(image, input.ProxyRegistryHost+"/")
-		parts := strings.SplitN(pathWithTag, "/", 2)
-		if len(parts) >= 2 {
-			// Use ECRNamespace (frozen at push time) instead of the account name
-			// parsed from the image path, so transferred agents resolve correctly.
-			ns := input.ECRNamespace
-			if ns == "" {
-				ns = parts[0]
-			}
-			return fmt.Sprintf("%s/%s-tenant-%s/%s", stripScheme(input.RegistryURL), input.Environment, ns, parts[1])
-		}
+	// 1. Tenant image (hosted on the proxy registry) → passed through unchanged.
+	// The pushed reference (registry.<domain>/{account}/{image}) is already the
+	// pull URL; astro-registry maps the account namespace to its ECR repo at pull
+	// time (see registry-pull-through spec). No rewriting in the control plane.
+	if input.ProxyRegistryHost != "" && strings.HasPrefix(image, input.ProxyRegistryHost+"/") {
 		return image
 	}
 

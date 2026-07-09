@@ -111,8 +111,6 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	applier := &Applier{
 		clientset:       fakeClient,
 		namespace:       opts.Namespace,
-		registryURL:     opts.RegistryURL,
-		imageResolver:   NewImageResolver("", opts.RegistryURL, "test"),
 		imagePullPolicy: corev1.PullNever,
 	}
 

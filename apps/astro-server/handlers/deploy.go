@@ -3977,7 +3977,6 @@ func generateTemplate(
 		Spec:              &astroSpec,
 		AgentName:         agent.Name,
 		Account:           acct.Name,
-		ECRNamespace:      agentVersion.ECRNamespace,
 		BuildID:           agentVersion.BuildID,
 		RegistryURL:       cfg.Deployment.RegistryURL,
 		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,

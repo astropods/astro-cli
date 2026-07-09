@@ -25,7 +25,7 @@ This also removes the ECR-URL translation from `image_resolver`: the pod referen
 - **Home account / ECR** — the astro-server account holding the single tenant ECR (`REGISTRY_URL`), us-east-1.
 - **Primary cluster** — the env-var-defined cluster astro-server runs against, in the home account. Pulls directly from ECR via node IAM today; **migrated to pull-through first** by this spec. It has no `clusters` row, so its CPC and its "homed here" tenant set (`accounts.cluster_id IS NULL`) are handled via config rather than a row (see Pull auth).
 - **Additional cluster** — a runtime-registered row in `public.clusters` (EU, BYOC). Adopts pull-through in phase 2, once the primary is proven.
-- **Cluster pull credential (CPC)** — a per-cluster, opaque, long-lived, pull-only secret. Each cluster holds its *own* value as a node-level docker credential for the proxy registry host (provisioned by infra); the kubelet exchanges it at `/token` for a registry token scoped to only the tenants homed on that cluster. Not a WorkOS credential.
+- **Cluster pull credential (CPC)** — a per-cluster, opaque, long-lived, pull-only secret. Delivered to astro-server (via External Secrets) and injected as a per-namespace `imagePullSecret` for the proxy registry host; the kubelet exchanges it at `/token` for a registry token scoped to only the tenants homed on that cluster. Not a WorkOS credential.
 - **Registry token (R)** — the existing HS256 registry-scope JWT (`iss=astro-registry`) minted by `/token`, verified locally on `/v2/*`. Reused unchanged; only its issuance path for CPCs is new.
 
 ## Goals
@@ -64,11 +64,11 @@ This also removes the ECR-URL translation from `image_resolver`: the pod referen
 
 Requirement: additional-cluster nodes need egress to the home-region S3 endpoint. This replaces the ECR IAM requirement, not adds to it.
 
-### `image_resolver` simplification
+### Image resolution — the server passes the pushed reference through
 
-`image_resolver` emits a **registry-host reference** for pod pulls: `{registryHost}/{ECRNamespace}/{image}:{buildID}` — the same for the primary and every additional cluster. This is unconditional; the ECR-URL construction for tenant images is deleted. Rollback during the proving phase is redeploying the prior server build.
+The stored spec already carries the developer-facing pull URL for tenant images: `registry.astropods.ai/{account}/{image}:{tag}` (what `ast push` wrote). The deployment template **passes tenant images through unchanged** — no ECR host, no `{env}-tenant-` prefix, no account→id rewrite, no `ECRNamespace`. Public images (ECR pull-through cache) and third-party images are unchanged.
 
-`registryHost` is the registry ingress (`ProxyRegistryHost`, e.g. `registry.astropods.ai`) — resolvable and TLS-valid from the cluster. The path segment is the **frozen `ECRNamespace`** (account id captured at push time in `agent_versions`), not the current account name — this keeps pulls correct across agent transfers and lets the registry map straight to `{env}-tenant-{ECRNamespace}` with **no name→UUID lookup**. The server no longer builds ECR hostnames or the tenant prefix; that logic lives only in the registry.
+All name→repo mapping lives in **astro-registry**: at pull time it resolves the `{account}` namespace (by name, or by id for transitional refs) to the tenant's ECR repo, exactly as the push path already does. Whatever the spec carries just works, and account rename/transfer history — if ever needed — is the registry's concern, not the control plane's. This is unconditional; rollback during the proving phase is redeploying the prior server build.
 
 ### Pull auth: the cluster pull credential
 
@@ -85,16 +85,18 @@ WorkOS routing is unchanged: a JWT in the password slot goes to the existing val
 
 The registry gains read access to `public.clusters` (hash + `enabled`) and `public.accounts` (`cluster_id`, resolved from `{ns}`). Same shared Postgres it already uses for membership.
 
-### Credential provisioning (infra layer, not astro-server)
+### Credential provisioning (astro-server injects; infra delivers)
 
-The CPC is a static, per-cluster credential — nothing about it is per-deployment — so astro-server does **not** manage it. It is provisioned by the infra layer that stands up each cluster, keeping the server free of any pull-auth code (the server's only pull-through responsibility is emitting the proxy-host image reference).
+The CPC is a static, per-cluster credential — nothing about it is per-deployment. Infra generates it and **delivers it to astro-server** (via External Secrets, as `REGISTRY_PULL_CREDENTIAL` — the same pattern as the AI-gateway master key); astro-server injects it into each tenant namespace at apply time.
 
-- **Node-level kubelet credential (preferred).** Each cluster's node bootstrap (Terraform / launch template) carries that cluster's CPC (`astrocp_{clusterID}_{secret}`) as a docker credential for the proxy-registry host — the same shape as the ECR node-IAM credential nodes already carry. The kubelet runs the standard v2 token handshake (401 → `/token` with the CPC → Bearer) on every pull from that host. No `imagePullSecrets`, no per-namespace secrets, no pod-spec changes, no ServiceAccount patching. Naturally cluster-scoped: a node only ever presents its own cluster's CPC, so the isolation model holds.
-- **Kyverno / secret-replicator (fallback).** If node credentials are impractical, an infra-deployed policy watches astro-server's tenant namespaces (by label) and generates the `kubernetes.io/dockerconfigjson` secret plus a `default` ServiceAccount patch. More moving parts than node creds, still infra-owned.
+- **Infra side.** Generate the CPC (`astrocp_{clusterID}_{secret}`), hold it in Secrets Manager, and project it into the astro-server namespace via an ExternalSecret. For the primary, also set the registry's `PRIMARY_PULL_KEY_HASH` = `sha256(secret)`. No node bootstrap, no per-node docker config.
+- **Server side.** On every apply, before pods are created, the applier writes a `kubernetes.io/dockerconfigjson` Secret (`astro-registry-pull`) for the proxy host into the tenant namespace and links it to the namespace `default` ServiceAccount's `imagePullSecrets`. Every tenant pod uses the default SA (none set a `serviceAccountName`), so the credential is picked up automatically — no pod-spec changes. The kubelet then runs the standard v2 token handshake (401 → `/token` with the CPC → Bearer) on pulls from the proxy host. No-op when the credential/proxy host are unset (local dev).
 
-**Rotate / revoke** — regenerate a cluster's CPC, overwrite its stored hash (the `clusters` row, or `PRIMARY_PULL_KEY_HASH` for the primary), and roll the node credential (or replicated secret) for that one cluster. No other cluster is disturbed, and no shared signing secret rotates. An occasional infra action, **not a timed reconcile loop** — the CPC has no forced expiry.
+**Rotate / revoke** — regenerate a cluster's CPC, overwrite its stored hash (the `clusters` row, or `PRIMARY_PULL_KEY_HASH` for the primary) and the Secrets Manager value; the next apply (or ESO refresh + redeploy) re-injects it. Contained to one cluster; no shared signing secret rotates. The CPC has no forced expiry, so there is no timed refresher.
 
-This is the key contrast with an ECR-token approach: because we own the credential, there is no 12h expiry driving a mandatory refresher; because it is per-cluster, revocation and blast radius are contained to a single cluster; and because it lives in the infra layer, astro-server carries no secret-injection machinery.
+This is the key contrast with an ECR-token approach: because we own the credential, there is no 12h expiry driving a mandatory refresher, and because it is per-cluster, revocation and blast radius are contained to a single cluster.
+
+Why server-injected rather than a node-level docker credential: injection is per-namespace, so it composes with per-cluster credentials and future finer scoping, and it needs no change to node bootstrap/AMIs. The trade-off is that astro-server carries the (small) injection path below.
 
 ### Registry as critical infrastructure
 
@@ -122,10 +124,11 @@ Registry (new):
 - `PRIMARY_PULL_KEY_HASH` — `sha256` of the primary cluster's CPC (the primary has no `clusters` row). The `clusterID` `primary` authenticates against it.
 
 Server:
-- `ProxyRegistryHost` must be reachable + TLS-valid from every cluster, primary included (already the developer-facing registry host). No new server env vars — pull-through is unconditional and the server carries no pull credential.
+- `ProxyRegistryHost` must be reachable + TLS-valid from every cluster, primary included (already the developer-facing registry host).
+- `REGISTRY_PULL_CREDENTIAL` — the cluster's CPC, used to build the tenant `imagePullSecret`. Delivered via External Secrets; empty disables injection (local dev).
 
 Infra (per cluster):
-- Provision the cluster's CPC as a node-level docker credential for `ProxyRegistryHost` (see Credential provisioning). For the primary, the CPC secret's `sha256` is also set as the registry's `PRIMARY_PULL_KEY_HASH`.
+- Generate the CPC, hold it in Secrets Manager, and project it into the astro-server namespace via ExternalSecret as `REGISTRY_PULL_CREDENTIAL`. For the primary, also set the registry's `PRIMARY_PULL_KEY_HASH` = `sha256(secret)`.
 
 No new signing secret: R is still minted with `REGISTRY_TOKEN_SECRET`. `REGISTRY_URL` / `AWS_REGION` stay as the registry's ECR backend config; they leave the server's deploy path entirely (tenant image resolution no longer references ECR).
 
@@ -134,21 +137,21 @@ No new signing secret: R is still minted with `REGISTRY_TOKEN_SECRET`. `REGISTRY
 1. **Registry hardening** — bring the registry to tier-1 (replicas, SLO, monitoring) *before* it is in the primary's pull path.
 2. **Schema** — add `clusters.pull_key_hash` (Atlas, no reader yet).
 3. **Registry** — add the CPC `/token` issuance path (primary via `PRIMARY_PULL_KEY_HASH`, `NULL`-home scoping); blob redirect pass-through already exists. Backward compatible: WorkOS push/pull unchanged.
-4. **Server** — `image_resolver` emits registry-host references for tenant images (unconditional; the ECR-URL path is deleted).
-5. **Infra** — provision the primary CPC as a node credential for `ProxyRegistryHost` and set `PRIMARY_PULL_KEY_HASH` on the registry.
+4. **Server** — the deployment template passes tenant image references through unchanged (the ECR-URL rewrite and `ECRNamespace` are deleted), and the applier injects the `astro-registry-pull` Secret + default-SA link in each tenant namespace from `REGISTRY_PULL_CREDENTIAL`. Namespace→repo resolution moves to the registry.
+5. **Infra** — deliver the primary CPC to astro-server via ExternalSecret (`REGISTRY_PULL_CREDENTIAL`) and set `PRIMARY_PULL_KEY_HASH` on the registry.
 6. **Prove it** — deploy an agent on the primary; confirm pulls (cold + warm), scale-up, rollout, and node-cycle all pull through the registry with layers coming from S3 directly. Watch registry SLO and `ImagePullBackOff` rate. Bake until observably reliable before phase 2.
 
 Rollback during phase 1 is redeploying the prior server build (which resolves tenant images to ECR again) — there is no runtime flag. Because the change is a code path, not a toggle, keep the previous image one revert away until pull-through is proven.
 
 ### Phase 2 — additional clusters
 
-7. **Server + admin** — issue-on-register generates a per-cluster CPC and stores its `sha256` in the cluster row; infra provisions that CPC as the cluster's node credential.
+7. **Server + admin** — issue-on-register generates a per-cluster CPC and stores its `sha256` in the cluster row; infra delivers that CPC to astro-server (per-cluster) so the applier injects it into that cluster's tenant namespaces.
 8. **Acceptance** — register a test additional cluster, deploy a tenant agent homed on it, confirm pull-through and direct-from-S3 layers; confirm a *different* cluster's CPC is denied that repo (isolation); rotate the CPC and confirm the old secret is rejected and the rolled credential restores pulls.
 
 ## What this kills
 
 - Server-side ECR URL construction and `{env}-tenant-` prefixing for tenant images — deleted from the server (`image_resolver` becomes a passthrough; the template emits proxy-host refs). The one translation lives only in the registry.
-- Any server-side pull-credential machinery — the CPC is provisioned in the infra layer, so astro-server carries no imagePullSecret injection or reconcile loop.
+- Direct-to-ECR pulls from clusters, and the ECR/IAM reach that required — clusters now need only HTTPS to the registry, S3 egress, and the injected pull secret.
 - Any need for cross-account ECR access, assume-role, repo policies, per-cluster ECR, or replication for BYOC/EU pulls.
 - The permanent primary/additional pull-path split — the end state is one uniform path.
 
@@ -158,7 +161,7 @@ Rollback during phase 1 is redeploying the prior server build (which resolves te
 - Direct-ECR node-IAM pull as a **rollback path** (redeploy the prior server build) during the primary proving phase — not as the steady state.
 - The registry token format, HS256 signing, and `/v2/*` local scope enforcement.
 - Docker Hub pull-through and third-party pass-through in `image_resolver`.
-- Agent-transfer correctness (pod reference uses frozen `ECRNamespace`).
+- Agent-transfer correctness — the pushed reference keeps its original account namespace, which the registry resolves to the repo where the image physically lives.
 
 ## Decisions
 
@@ -168,11 +171,7 @@ Rollback during phase 1 is redeploying the prior server build (which resolves te
 
 1. **Promotion to phase 2 is an operator judgment call.** Phase 1 is done when the primary is observably running clean on pull-through — no formal metric gate. `ImagePullBackOff` rate and registry SLO are there to watch, not to pass a threshold. Additional clusters are registered once the primary is trusted.
 2. **Blob egress path — resolved (no change needed).** Verified: the proxy already passes ECR's S3 download redirect through unchanged (only same-host upload redirects are rewritten), so layer bytes go kubelet→S3 directly and the registry stays control-plane-sized. Requirement stands: additional-cluster nodes need S3 egress to the home region. No stream-through bottleneck to design around.
-3. **Authorization granularity — account-home vs deployment (phase-2 correctness gap).** Scoping keys off `accounts.cluster_id` for the account **named in the image reference**, which is the frozen `ECRNamespace` (the owner at push time). Two ways this diverges from where the pod actually runs, both **harmless in phase 1** (everything is `NULL`-home = primary) but real once clusters differ:
-   - **Cross-home deployment.** If a deployment is pinned to a cluster other than its account's home (`deployments.cluster_id` ≠ `accounts.cluster_id`), the home check denies a legitimate pull.
-   - **Cross-cluster transfer.** After an agent is transferred to an account homed on a *different* cluster, the image reference still carries the original owner's `ECRNamespace`; the check consults the original account's `cluster_id`, not the new owner's, and denies the pull.
-
-   Both stem from authorizing against the *image namespace's* account rather than the *deployment's* cluster. Correct fix: at issuance, verify the requesting cluster actually runs a deployment referencing `{ns}/{img}` (consult `deployments`) — heavier query, tighter coupling. Recommended: ship account-home scoping for phase 1; resolve this before enabling cross-cluster placement or transfers in multi-cluster.
+3. **Authorization granularity — account-home vs deployment (phase-2 correctness gap).** The registry resolves the image namespace to an account and scopes off that account's `accounts.cluster_id`. This diverges from where the pod actually runs when the deployment's cluster differs from the resolved account's home cluster — a **cross-home deployment** (`deployments.cluster_id` ≠ `accounts.cluster_id`) or a **cross-cluster transfer** (the pushed reference keeps the original account's namespace, whose home cluster may not be where the new owner deploys). Both are **harmless in phase 1** (everything is `NULL`-home = primary) but real once clusters differ. The fix belongs in the registry: at issuance, verify the requesting cluster actually runs a deployment referencing `{ns}/{img}` (consult `deployments`) rather than trusting the namespace's home cluster. Recommended: ship account-home scoping for phase 1; resolve before enabling cross-cluster placement or transfers.
 4. **CPC per cluster vs per namespace.** Recommended: one CPC per cluster, same value written into each tenant namespace's pull secret on that cluster. Per-namespace credentials add lifecycle cost without a threat-model gain — the cluster legitimately pulls every tenant homed on it, and cross-cluster isolation is already enforced at issuance.
 5. **CPC expiry.** Recommended: no forced expiry; rotation/revocation is an explicit per-cluster admin action. Revisit if a scheduled rotation policy is required for compliance.
 6. **Primary CPC provisioning.** The primary's CPC hash is config (`PRIMARY_PULL_KEY_HASH`). Open: is a plain config secret acceptable, or should the primary also become a `clusters` row purely to unify credential storage? Recommended: keep it config, consistent with the primary-as-deployment-artifact model established in the multi-region spec.

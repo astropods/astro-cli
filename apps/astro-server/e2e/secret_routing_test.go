@@ -274,7 +274,6 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 	// Apply to K8s
 	applier := k8s.NewApplier(client, k8s.ApplierConfig{
 		Namespace:       ns,
-		RegistryURL:     "test-registry.example.com",
 		ImagePullPolicy: corev1.PullNever,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

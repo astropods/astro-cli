@@ -277,7 +277,6 @@ func applySpec(t *testing.T, client k8s.ClusterClient, ns string, s *spec.AstroD
 
 	cfg := k8s.ApplierConfig{
 		Namespace:       ns,
-		RegistryURL:     "test-registry.example.com",
 		ImagePullPolicy: corev1.PullNever,
 	}
 	if extraCfg != nil {

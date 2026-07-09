@@ -1693,7 +1693,9 @@ func proxyInput() TemplateInput {
 func TestResolveImage_TenantImage(t *testing.T) {
 	input := proxyInput()
 	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
+	// Pull-through: the pushed reference passes through unchanged; astro-registry
+	// maps the "acme" namespace to its ECR repo at pull time.
+	expected := "proxy.registry.io/acme/my-app:v1"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
@@ -1709,10 +1711,12 @@ func TestResolveImage_TenantImageMissingImageSegment(t *testing.T) {
 }
 
 func TestResolveImage_TenantImageRegistryURLWithoutScheme(t *testing.T) {
+	// RegistryURL no longer affects tenant resolution under pull-through; the
+	// image stays on the proxy registry host regardless of the ECR URL form.
 	input := proxyInput()
 	input.RegistryURL = "123456789.dkr.ecr.us-east-1.amazonaws.com"
 	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
+	expected := "proxy.registry.io/acme/my-app:v1"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
@@ -1844,7 +1848,7 @@ func TestResolveImage_LocalEnvironmentStillResolvesTenantImages(t *testing.T) {
 	input.Environment = "local"
 
 	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/local-tenant-acme/my-app:v1"
+	expected := "proxy.registry.io/acme/my-app:v1"
 	if got != expected {
 		t.Errorf("tenant images should still resolve in local env, expected %s, got %s", expected, got)
 	}
@@ -1868,7 +1872,7 @@ func TestTemplate_AgentImageResolved(t *testing.T) {
 	input := proxyInput()
 	ds := mustGenerate(t, input)
 
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-agent:abc123"
+	expected := "proxy.registry.io/acme/my-agent:abc123"
 	if ds.Agent.Image != expected {
 		t.Errorf("agent.image: expected %s, got %s", expected, ds.Agent.Image)
 	}
@@ -1887,7 +1891,7 @@ func TestTemplate_ModelImageResolved(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/custom-embedder:v2"
+	expected := "proxy.registry.io/acme/custom-embedder:v2"
 	if ds.Models["embedder"].Image != expected {
 		t.Errorf("model image: expected %s, got %s", expected, ds.Models["embedder"].Image)
 	}
@@ -1921,7 +1925,7 @@ func TestTemplate_KnowledgeImageResolved(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/custom-store:v3"
+	expected := "proxy.registry.io/acme/custom-store:v3"
 	if ds.Knowledge["store"].Image != expected {
 		t.Errorf("knowledge image: expected %s, got %s", expected, ds.Knowledge["store"].Image)
 	}
@@ -1940,7 +1944,7 @@ func TestTemplate_IntegrationImageResolved(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/search-tool:latest"
+	expected := "proxy.registry.io/acme/search-tool:latest"
 	if ds.Integrations["search"].Image != expected {
 		t.Errorf("tool image: expected %s, got %s", expected, ds.Integrations["search"].Image)
 	}
@@ -1997,7 +2001,7 @@ func TestTemplate_IngestionImageResolved(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/ingestion-data:dfdddc61"
+	expected := "proxy.registry.io/acme/ingestion-data:dfdddc61"
 	if ds.Ingestion["data"].Image != expected {
 		t.Errorf("ingestion image: expected %s, got %s", expected, ds.Ingestion["data"].Image)
 	}
@@ -2024,7 +2028,7 @@ func TestTemplate_AllComponentImagesResolved(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	prefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/"
+	prefix := "proxy.registry.io/acme/"
 	checks := map[string]string{
 		"agent":       ds.Agent.Image,
 		"model":       ds.Models["m"].Image,
@@ -2049,7 +2053,7 @@ func TestTemplate_MixedTenantAndPublicImages(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	// Proxy image should be resolved
-	if !strings.Contains(ds.Models["proxy"].Image, "prod-tenant-acme") {
+	if !strings.Contains(ds.Models["proxy"].Image, "proxy.registry.io/acme") {
 		t.Errorf("proxy image should be resolved, got %s", ds.Models["proxy"].Image)
 	}
 	// Public image is served through the ECR pull-through cache
@@ -2197,377 +2201,6 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	}
 	if spec.PrimaryPort(parsed.Ingestion["data"].Endpoints) != 3001 {
 		t.Errorf("round-trip port: expected 3001, got %d", spec.PrimaryPort(parsed.Ingestion["data"].Endpoints))
-	}
-}
-
-// ===== Phase 14: ECR Namespace Backward Compatibility =====
-
-// Tests that the ECRNamespace field in TemplateInput is used for ECR path
-// construction, and that omitting it (empty string) falls back to parsing
-// the account name from the image path — preserving pre-migration behavior.
-
-func TestResolveImage_ECRNamespace_UsedWhenSet(t *testing.T) {
-	input := proxyInput()
-	input.ECRNamespace = "target-account"
-
-	// Image path says "acme" but ECRNamespace says "target-account"
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-target-account/my-app:v1"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_ECRNamespace_FallbackWhenEmpty(t *testing.T) {
-	input := proxyInput()
-	input.ECRNamespace = "" // not set — pre-migration behavior
-
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
-	if got != expected {
-		t.Errorf("expected fallback to image path account, got %s", got)
-	}
-}
-
-func TestResolveImage_ECRNamespace_TransferScenario(t *testing.T) {
-	// Simulates: agent was pushed under "alice", transferred to "bob".
-	// The stored image path still says "alice" but ECRNamespace is "alice"
-	// (frozen at push time). Images resolve to alice's ECR repos.
-	input := proxyInput()
-	input.Account = "bob"        // current owner after transfer
-	input.ECRNamespace = "alice" // where images physically are
-
-	got := resolveImage("proxy.registry.io/alice/my-agent:abc123", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-alice/my-agent:abc123"
-	if got != expected {
-		t.Errorf("transferred agent should resolve to original ECR namespace, got %s", got)
-	}
-}
-
-func TestResolveImage_ECRNamespace_NewPushAfterTransfer(t *testing.T) {
-	// After transfer to "bob", bob pushes a new build. The new version's
-	// ECRNamespace is "bob" and images are in bob's ECR repos.
-	input := proxyInput()
-	input.Account = "bob"
-	input.ECRNamespace = "bob"
-
-	got := resolveImage("proxy.registry.io/bob/my-agent:newbuild", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-bob/my-agent:newbuild"
-	if got != expected {
-		t.Errorf("new push should resolve to new owner's ECR namespace, got %s", got)
-	}
-}
-
-func TestResolveImage_ECRNamespace_DoesNotAffectPublicImages(t *testing.T) {
-	input := proxyInput()
-	input.ECRNamespace = "some-namespace"
-
-	// Public images go through the pull-through cache regardless of ECRNamespace
-	got := resolveImage("ollama/ollama:latest", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
-	if got != expected {
-		t.Errorf("public images should be unaffected by ECRNamespace, got %s", got)
-	}
-}
-
-func TestResolveImage_ECRNamespace_DoesNotAffectThirdParty(t *testing.T) {
-	input := proxyInput()
-	input.ECRNamespace = "some-namespace"
-
-	image := "gcr.io/my-project/my-app:v1"
-	got := resolveImage(image, input)
-	if got != image {
-		t.Errorf("third-party images should be unaffected by ECRNamespace, got %s", got)
-	}
-}
-
-func TestTemplate_ECRNamespace_AllComponentsUseIt(t *testing.T) {
-	// Verify that ECRNamespace flows through to all component types
-	input := proxyInput()
-	input.ECRNamespace = "original-owner"
-	input.Spec.Agent.Image = "proxy.registry.io/acme/agent:v1"
-	input.Spec.Models = map[string]spec.Model{
-		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/model:v1", Port: 8000}},
-	}
-	input.Spec.Knowledge = map[string]spec.Knowledge{
-		"k": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/knowledge:v1", Port: 5000}},
-	}
-	input.Spec.Integrations = map[string]spec.Integration{
-		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/tool:v1", Port: 3000}},
-	}
-	input.Spec.Ingestion = map[string]spec.Ingestion{
-		"i": {
-			Container: spec.ContainerConfig{Image: "proxy.registry.io/acme/ingest:v1"},
-			Trigger:   spec.IngestionTrigger{Type: "startup"},
-		},
-	}
-
-	ds := mustGenerate(t, input)
-
-	// All tenant images should resolve using "original-owner", not "acme"
-	prefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-original-owner/"
-	checks := map[string]string{
-		"agent":       ds.Agent.Image,
-		"model":       ds.Models["m"].Image,
-		"knowledge":   ds.Knowledge["k"].Image,
-		"integration": ds.Integrations["t"].Image,
-		"ingestion":   ds.Ingestion["i"].Image,
-	}
-	for component, image := range checks {
-		if !strings.HasPrefix(image, prefix) {
-			t.Errorf("%s image should use ECRNamespace 'original-owner': expected prefix %s, got %s", component, prefix, image)
-		}
-	}
-}
-
-func TestTemplate_ECRNamespace_MixedTenantAndPublic(t *testing.T) {
-	// Tenant images use ECRNamespace; public images are unaffected
-	input := proxyInput()
-	input.ECRNamespace = "transferred-ns"
-	input.Spec.Models = map[string]spec.Model{
-		"custom": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/custom:v1", Port: 8000}},
-		"public": {Container: &spec.ContainerConfig{Image: "ollama/ollama:latest", Port: 11434}},
-	}
-
-	ds := mustGenerate(t, input)
-
-	// Custom model uses ECRNamespace
-	if !strings.Contains(ds.Models["custom"].Image, "prod-tenant-transferred-ns") {
-		t.Errorf("tenant model should use ECRNamespace, got %s", ds.Models["custom"].Image)
-	}
-	// Public model uses pull-through cache
-	if !strings.Contains(ds.Models["public"].Image, "dockerhub/ollama") {
-		t.Errorf("public model should use pull-through cache, got %s", ds.Models["public"].Image)
-	}
-}
-
-// ===== Regression: Slack input defaults preserved through interfaces merge =====
-
-// When a user defines SLACK_BOT_TOKEN/SLACK_APP_TOKEN in spec inputs and the
-// user then selects the slack adapter, ApplyAdapterShaping wires the platform
-// metadata (Targets, Secret, etc.) while preserving their Default and Value.
-func TestGenerateDeploymentTemplate_SlackInputDefaultsPreserved(t *testing.T) {
-	input := TemplateInput{
-		Spec: &spec.AstroSpec{
-			Name: "test-agent",
-			Agent: spec.Container{
-				Image:      "test:latest",
-				Interfaces: &spec.Interfaces{Messaging: true},
-			},
-			Inputs: map[string]spec.Input{
-				"slack_bot_token": {Name: "SLACK_BOT_TOKEN", Secret: true, Default: "xoxb-default", Optional: true},
-				"slack_app_token": {Name: "SLACK_APP_TOKEN", Secret: true, Default: "xapp-default", Optional: true},
-			},
-		},
-		AgentName:   "test-agent",
-		Account:     "acme",
-		BuildID:     "abc",
-		RegistryURL: "registry.example.com",
-	}
-	ds := mustGenerate(t, input)
-
-	// User inputs appear with user-defined targets in the raw template.
-	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
-		t.Fatal("SLACK_BOT_TOKEN: expected in raw template from user inputs")
-	}
-
-	// After slack adapter is selected, platform wires Targets while preserving Default/Value.
-	ApplyAdapterShaping(ds, []string{"slack"})
-
-	botVar := ds.Variables["SLACK_BOT_TOKEN"]
-	if botVar.Default != "xoxb-default" {
-		t.Errorf("SLACK_BOT_TOKEN.Default: expected xoxb-default, got %q", botVar.Default)
-	}
-	if botVar.Value != "xoxb-default" {
-		t.Errorf("SLACK_BOT_TOKEN.Value: expected xoxb-default, got %q", botVar.Value)
-	}
-	if len(botVar.Targets) != 1 || botVar.Targets[0] != "interface.slack" {
-		t.Errorf("SLACK_BOT_TOKEN.Targets: expected [interface.slack], got %v", botVar.Targets)
-	}
-
-	appVar := ds.Variables["SLACK_APP_TOKEN"]
-	if appVar.Default != "xapp-default" {
-		t.Errorf("SLACK_APP_TOKEN.Default: expected xapp-default, got %q", appVar.Default)
-	}
-	if appVar.Value != "xapp-default" {
-		t.Errorf("SLACK_APP_TOKEN.Value: expected xapp-default, got %q", appVar.Value)
-	}
-	if len(appVar.Targets) != 1 || appVar.Targets[0] != "interface.slack" {
-		t.Errorf("SLACK_APP_TOKEN.Targets: expected [interface.slack], got %v", appVar.Targets)
-	}
-}
-
-// ===== Regression: Credential+input collision preserves input default =====
-
-func TestGenerateDeploymentTemplate_CredentialInputDefaultMerge(t *testing.T) {
-	input := TemplateInput{
-		Spec: &spec.AstroSpec{
-			Name:  "test-agent",
-			Agent: spec.Container{Image: "test:latest"},
-			Models: map[string]spec.Model{
-				"anthropic": {Provider: "anthropic"},
-			},
-			Inputs: map[string]spec.Input{
-				"anthropic_api_key": {Name: "ANTHROPIC_API_KEY", Secret: true, Default: "sk-test", Optional: true},
-			},
-		},
-		AgentName:   "test-agent",
-		Account:     "acme",
-		BuildID:     "abc",
-		RegistryURL: "registry.example.com",
-	}
-	ds := mustGenerate(t, input)
-
-	v := ds.Variables["ANTHROPIC_API_KEY"]
-	if v.Default != "sk-test" {
-		t.Errorf("ANTHROPIC_API_KEY.Default: expected sk-test, got %q", v.Default)
-	}
-	if v.Value != "sk-test" {
-		t.Errorf("ANTHROPIC_API_KEY.Value: expected sk-test, got %q", v.Value)
-	}
-	if !v.Secret {
-		t.Error("ANTHROPIC_API_KEY.Secret: expected true")
-	}
-}
-
-// ===== ECR namespace migration: old builds (account name) vs new builds (UUID) =====
-//
-// After the ecr-tenant-correction change, ECRNamespace stores the account UUID.
-// Existing agent_version rows still store the account name. Both must continue
-// to resolve to valid ECR image URIs without any data migration.
-
-const (
-	testAccountName = "saswatds"
-	testAccountUUID = "01kggdgfrw46qcsnxeqbr1hr1z"
-)
-
-// migrationProxyInput returns a TemplateInput wired up with proxy/ECR config,
-// leaving ECRNamespace unset so each test can set it explicitly.
-func migrationProxyInput() TemplateInput {
-	return TemplateInput{
-		Spec: &spec.AstroSpec{
-			Name:  "my-agent",
-			Agent: spec.Container{Image: "proxy.registry.io/" + testAccountName + "/my-agent:abc"},
-		},
-		AgentName:         "my-agent",
-		Account:           testAccountName,
-		BuildID:           "abc",
-		RegistryURL:       "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
-		ProxyRegistryHost: "proxy.registry.io",
-		Environment:       "prod",
-	}
-}
-
-// TestResolveImage_OldBuild_AccountNameNamespace verifies that a pre-migration
-// agent_version row (ECRNamespace = account name) still resolves to the correct
-// ECR path. The ECR repo under the account name still exists, so this must work.
-func TestResolveImage_OldBuild_AccountNameNamespace(t *testing.T) {
-	input := migrationProxyInput()
-	input.ECRNamespace = testAccountName // old format: stored as "saswatds"
-
-	got := resolveImage("proxy.registry.io/"+testAccountName+"/my-agent:abc", input)
-	want := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:abc"
-	if got != want {
-		t.Errorf("old build: expected %s, got %s", want, got)
-	}
-}
-
-// TestResolveImage_NewBuild_UUIDNamespace verifies that a post-migration
-// agent_version row (ECRNamespace = UUID) resolves to the UUID-namespaced ECR path.
-func TestResolveImage_NewBuild_UUIDNamespace(t *testing.T) {
-	input := migrationProxyInput()
-	input.ECRNamespace = testAccountUUID // new format: stored as UUID
-
-	got := resolveImage("proxy.registry.io/"+testAccountName+"/my-agent:newbuild", input)
-	want := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:newbuild"
-	if got != want {
-		t.Errorf("new build: expected %s, got %s", want, got)
-	}
-}
-
-// TestResolveImage_OldAndNewBuilds_IndependentECRPaths verifies that the same
-// agent with an old build and a new build resolve to different ECR paths — the
-// old path under the account name, the new path under the UUID. Both ECR repos
-// coexist and each build resolves to its own repo.
-func TestResolveImage_OldAndNewBuilds_IndependentECRPaths(t *testing.T) {
-	base := migrationProxyInput()
-	image := "proxy.registry.io/" + testAccountName + "/my-agent:tag"
-
-	oldBuildInput := base
-	oldBuildInput.ECRNamespace = testAccountName
-	oldPath := resolveImage(image, oldBuildInput)
-
-	newBuildInput := base
-	newBuildInput.ECRNamespace = testAccountUUID
-	newPath := resolveImage(image, newBuildInput)
-
-	wantOld := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/my-agent:tag"
-	wantNew := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/my-agent:tag"
-
-	if oldPath != wantOld {
-		t.Errorf("old build path: expected %s, got %s", wantOld, oldPath)
-	}
-	if newPath != wantNew {
-		t.Errorf("new build path: expected %s, got %s", wantNew, newPath)
-	}
-	if oldPath == newPath {
-		t.Error("old and new builds must resolve to different ECR paths")
-	}
-}
-
-// TestTemplate_OldBuild_AllComponentsResolveWithAccountName verifies that a
-// full template generated from an old agent_version (ECRNamespace = account name)
-// produces valid ECR URIs for every component type.
-func TestTemplate_OldBuild_AllComponentsResolveWithAccountName(t *testing.T) {
-	input := migrationProxyInput()
-	input.ECRNamespace = testAccountName
-	input.Spec.Models = map[string]spec.Model{
-		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:abc", Port: 8000}},
-	}
-	input.Spec.Integrations = map[string]spec.Integration{
-		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:abc", Port: 3000}},
-	}
-
-	ds := mustGenerate(t, input)
-
-	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-saswatds/"
-	checks := map[string]string{
-		"agent":       ds.Agent.Image,
-		"model":       ds.Models["m"].Image,
-		"integration": ds.Integrations["t"].Image,
-	}
-	for component, image := range checks {
-		if !strings.HasPrefix(image, wantPrefix) {
-			t.Errorf("old build %s: expected prefix %s, got %s", component, wantPrefix, image)
-		}
-	}
-}
-
-// TestTemplate_NewBuild_AllComponentsResolveWithUUID verifies that a full
-// template generated from a new agent_version (ECRNamespace = UUID) produces
-// UUID-namespaced ECR URIs for every component type.
-func TestTemplate_NewBuild_AllComponentsResolveWithUUID(t *testing.T) {
-	input := migrationProxyInput()
-	input.ECRNamespace = testAccountUUID
-	input.Spec.Models = map[string]spec.Model{
-		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/model:new", Port: 8000}},
-	}
-	input.Spec.Integrations = map[string]spec.Integration{
-		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/" + testAccountName + "/tool:new", Port: 3000}},
-	}
-
-	ds := mustGenerate(t, input)
-
-	wantPrefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-01kggdgfrw46qcsnxeqbr1hr1z/"
-	checks := map[string]string{
-		"agent":       ds.Agent.Image,
-		"model":       ds.Models["m"].Image,
-		"integration": ds.Integrations["t"].Image,
-	}
-	for component, image := range checks {
-		if !strings.HasPrefix(image, wantPrefix) {
-			t.Errorf("new build %s: expected prefix %s, got %s", component, wantPrefix, image)
-		}
 	}
 }
 

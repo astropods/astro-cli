@@ -770,12 +770,11 @@ func TestResolveDeploymentSpecEnv_SupportSignalAgent(t *testing.T) {
 
 	// Generate deployment template (same as the server does)
 	template, err := GenerateDeploymentTemplate(TemplateInput{
-		Spec:         &astroSpec,
-		AgentName:    astroSpec.Name,
-		Account:      "zain",
-		BuildID:      "8f406458",
-		RegistryURL:  "registry.astropods.ai",
-		ECRNamespace: "zain",
+		Spec:        &astroSpec,
+		AgentName:   astroSpec.Name,
+		Account:     "zain",
+		BuildID:     "8f406458",
+		RegistryURL: "registry.astropods.ai",
 	})
 	if err != nil {
 		t.Fatalf("GenerateDeploymentTemplate: %v", err)
@@ -864,12 +863,11 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	// Simulate a BUGGY stored deployment spec: manually inject the problems
 	// that the old template code would have produced.
 	buggyTemplate, err := GenerateDeploymentTemplate(TemplateInput{
-		Spec:         &astroSpec,
-		AgentName:    astroSpec.Name,
-		Account:      "zain",
-		BuildID:      "8f406458",
-		RegistryURL:  "registry.astropods.ai",
-		ECRNamespace: "zain",
+		Spec:        &astroSpec,
+		AgentName:   astroSpec.Name,
+		Account:     "zain",
+		BuildID:     "8f406458",
+		RegistryURL: "registry.astropods.ai",
 	})
 	if err != nil {
 		t.Fatalf("generate template: %v", err)
@@ -934,12 +932,11 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	// --- Simulate repair re-template ---
 	// Re-generate template from the package spec (with fixed code)
 	newTemplate, err := GenerateDeploymentTemplate(TemplateInput{
-		Spec:         &astroSpec,
-		AgentName:    astroSpec.Name,
-		Account:      "zain",
-		BuildID:      "8f406458",
-		RegistryURL:  "registry.astropods.ai",
-		ECRNamespace: "zain",
+		Spec:        &astroSpec,
+		AgentName:   astroSpec.Name,
+		Account:     "zain",
+		BuildID:     "8f406458",
+		RegistryURL: "registry.astropods.ai",
 	})
 	if err != nil {
 		t.Fatalf("re-generate template: %v", err)

@@ -2136,11 +2136,10 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, storedDS *spec.AstroDeploymentSpec) error {
 	// Look up the package spec from agent_versions.
 	var specJSON string
-	var ecrNamespace string
 	err := s.db.QueryRow(`
-		SELECT spec_json, ecr_namespace FROM agent_versions
+		SELECT spec_json FROM agent_versions
 		WHERE account_id = $1 AND name = $2 AND build_id = $3
-	`, dep.AccountID, dep.AgentName, dep.BuildID).Scan(&specJSON, &ecrNamespace)
+	`, dep.AccountID, dep.AgentName, dep.BuildID).Scan(&specJSON)
 	if err != nil {
 		return fmt.Errorf("look up package spec: %w", err)
 	}
@@ -2152,12 +2151,11 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 
 	// Re-generate the template using the fixed code.
 	newTemplate, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
-		Spec:         &astroSpec,
-		AgentName:    dep.AgentName,
-		Account:      storedDS.Source.Account,
-		ECRNamespace: ecrNamespace,
-		BuildID:      dep.BuildID,
-		RegistryURL:  storedDS.Source.Registry,
+		Spec:        &astroSpec,
+		AgentName:   dep.AgentName,
+		Account:     storedDS.Source.Account,
+		BuildID:     dep.BuildID,
+		RegistryURL: storedDS.Source.Registry,
 	})
 	if err != nil {
 		return fmt.Errorf("generate template: %w", err)

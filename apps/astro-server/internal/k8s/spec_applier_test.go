@@ -24,8 +24,6 @@ func newTestApplier() *Applier {
 	return &Applier{
 		clientset:       fakeClient,
 		namespace:       "default",
-		registryURL:     "test-registry.example.com",
-		imageResolver:   NewImageResolver("", "test-registry.example.com", "test"),
 		imagePullPolicy: corev1.PullNever,
 	}
 }
@@ -1900,8 +1898,6 @@ func TestApplyDeploymentSpec_AIGatewayInjection(t *testing.T) {
 	a := &Applier{
 		clientset:           fakeClient,
 		namespace:           "test-ns",
-		registryURL:         "test-registry.example.com",
-		imageResolver:       NewImageResolver("", "test-registry.example.com", "test"),
 		imagePullPolicy:     corev1.PullNever,
 		astroGatewayAPIKey:  "sk-astro-test",
 		astroGatewayBaseURL: "https://aig.test",
@@ -1936,8 +1932,6 @@ func TestApplyDeploymentSpec_AIGatewayMarkerOffSkipsInjection(t *testing.T) {
 	a := &Applier{
 		clientset:           fakeClient,
 		namespace:           "test-ns",
-		registryURL:         "test-registry.example.com",
-		imageResolver:       NewImageResolver("", "test-registry.example.com", "test"),
 		imagePullPolicy:     corev1.PullNever,
 		astroGatewayAPIKey:  "sk-astro-test", // present, but...
 		astroGatewayBaseURL: "https://aig.test",
@@ -1981,8 +1975,6 @@ func TestApplyCronJob_SuspendedCronJobIsUnsuspendedOnApply(t *testing.T) {
 	a := &Applier{
 		clientset:       fakeClient,
 		namespace:       "default",
-		registryURL:     "test-registry.example.com",
-		imageResolver:   NewImageResolver("", "test-registry.example.com", "test"),
 		imagePullPolicy: corev1.PullNever,
 	}
 
@@ -2653,8 +2645,6 @@ func TestApplyDeploymentSpec_BoundStoreEndToEnd(t *testing.T) {
 	a := &Applier{
 		clientset:       fakeClient,
 		namespace:       "default",
-		registryURL:     "test-registry.example.com",
-		imageResolver:   NewImageResolver("", "test-registry.example.com", "test"),
 		imagePullPolicy: corev1.PullNever,
 		boundKnowledge: map[string]deployment.BoundKnowledgeInfo{
 			"pg": {Host: vpceDNS, Provider: "postgres"},
