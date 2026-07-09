@@ -117,6 +117,18 @@ type Score struct {
 	CreatedAt     string  `json:"createdAt"`
 }
 
+// CreateScoreRequest is the payload for POST /api/public/scores.
+type CreateScoreRequest struct {
+	ID            string `json:"id,omitempty"`
+	TraceID       string `json:"traceId,omitempty"`
+	ObservationID string `json:"observationId,omitempty"`
+	SessionID     string `json:"sessionId,omitempty"`
+	Name          string `json:"name"`
+	Value         any    `json:"value"`
+	DataType      string `json:"dataType,omitempty"`
+	Comment       string `json:"comment,omitempty"`
+}
+
 // TraceDetail is the response shape from GET /api/public/traces/{traceId}.
 // Langfuse embeds observations and scores inline.
 type TraceDetail struct {
@@ -347,6 +359,11 @@ func (c *Client) GetObservation(ctx context.Context, observationID string) (*Obs
 		return nil, err
 	}
 	return &result, nil
+}
+
+// CreateScore attaches a score to a trace, observation, or session.
+func (c *Client) CreateScore(ctx context.Context, req CreateScoreRequest) error {
+	return c.doPost(ctx, "/api/public/scores", req)
 }
 
 // maxDailyMetricsPages caps the pagination loop in GetDailyMetrics to prevent

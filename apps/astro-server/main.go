@@ -762,7 +762,9 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		deployTokenRoutes := v1.Group("")
 		deployTokenRoutes.Use(middleware.RequireDeployToken(cfg.Security.DeployTokenSecret))
 		{
+			feedbackLangfuseStore := langfuse.NewStore(db)
 			deployTokenRoutes.GET("/deployments/authorize", handlers.CheckDeploymentAuthorization(log, authzStore, slackIdentityStore))
+			deployTokenRoutes.POST("/deployments/feedback/scores", handlers.PostDeploymentFeedbackScore(log, cfg, deploymentStore, feedbackLangfuseStore))
 		}
 
 		// Health check endpoint (public)
