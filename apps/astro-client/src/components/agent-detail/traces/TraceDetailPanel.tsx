@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import type { TraceEntry } from "@/lib/api";
 import { useObservabilityTraceDetail } from "@/api/queries/observability";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 function hasContent(v: unknown): boolean {
   if (v == null) return false;
@@ -44,6 +46,14 @@ export function TraceDetailPanel({
 }: TraceDetailPanelProps) {
   const [tab, setTab] = useState<TraceTab>("trace");
   const [selectedObsId, setSelectedObsId] = useState<string | null>(null);
+
+  // The panel keeps the URL in sync with the open trace (?trace=<id>), so the
+  // current location is already a shareable deep link. Copy it verbatim.
+  const { copy, copied } = useCopyToClipboard();
+  const handleShare = async () => {
+    if (await copy(window.location.href)) toast("Link copied");
+    else toast.error("Couldn't copy link");
+  };
 
   const { data, isLoading, isError } = useObservabilityTraceDetail(
     deploymentId,
@@ -109,6 +119,8 @@ export function TraceDetailPanel({
         onNavigate={onNavigate}
         expanded={expanded}
         onToggleExpanded={onToggleExpanded}
+        onShare={handleShare}
+        shareCopied={copied}
       />
 
       <TraceMetaGrid

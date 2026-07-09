@@ -58,7 +58,22 @@ function buildTimeParams(days: number) {
 export default function AgentMonitor() {
   const { deploymentId, account } = useAgentDetailContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [range, setRange] = useState<DayRange>("7d");
+  // Keep the time window in the URL so a shared trace link reproduces the same
+  // time context. Fall back to the default for a missing or unknown value.
+  const rangeParam = searchParams.get("window");
+  const range: DayRange = RANGES.some((r) => r.key === rangeParam)
+    ? (rangeParam as DayRange)
+    : "7d";
+  const setRange = (r: DayRange) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("window", r);
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const { days } = RANGES.find((r) => r.key === range)!;
 
   const timeParams = useMemo(() => buildTimeParams(days), [days]);
