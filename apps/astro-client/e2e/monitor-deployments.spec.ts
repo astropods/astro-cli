@@ -62,7 +62,9 @@ test("deployments tab: clicking a pod tile opens detail panel with logs", async 
 
   await expect(page.getByText("General")).toBeVisible();
 
-  await page.getByText("Logs").click();
+  // Use the tab's role rather than a bare text match: the pod detail panel can
+  // now render an "Errors in logs" banner whose text also contains "Logs".
+  await page.getByRole("button", { name: "Logs" }).click();
 
   await expect(async () => {
     await expect(page.getByText(/Starting agent server on :8080/)).toBeVisible();

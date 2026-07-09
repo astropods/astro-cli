@@ -1212,11 +1212,17 @@ Bun.serve({
 
     const deploymentLogsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/logs$/);
     if (deploymentLogsMatch && request.method === "GET") {
-      return json([
+      const lines = [
         { timestamp: "2024-01-01T00:00:00Z", level: null, message: "Starting agent server on :8080" },
         { timestamp: "2024-01-01T00:00:01Z", level: null, message: "Agent ready to accept requests" },
         { timestamp: "2024-01-01T00:00:02Z", level: null, message: "Listening for incoming requests" },
-      ]);
+      ];
+      // Honor the level filter the way the real backend does. The error-only
+      // probe (useLastErrorLog) must not treat these ordinary startup lines as
+      // errors, so a level=error request returns nothing for this healthy
+      // fixture. The Logs tab sends no level, so it still gets every line.
+      const level = url.searchParams.get("level");
+      return json(level ? lines.filter((l) => l.level === level) : lines);
     }
 
     const deploymentObsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/observability\/(metrics|summary|traces)$/);

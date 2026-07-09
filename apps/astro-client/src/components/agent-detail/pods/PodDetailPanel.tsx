@@ -1,5 +1,7 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
+import { ErrorPanel } from "@/components/ui/status-panel";
+import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
 import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { formatTimeAgo } from "@/lib/time-format";
 import { cn } from "@/lib/utils";
@@ -56,6 +58,24 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
   const { status, label: statusLabel } = resolvePodStatus(workload, { paused, probing });
   const name = workload.component || workload.name;
 
+  // Detect error-level logs for this pod (reuses the same cached queries the
+  // tile indicator uses). When present, open straight to the Logs tab and show
+  // the error as a banner, so the user lands on something useful instead of an
+  // empty General tab.
+  const { byContainer, report } = useContainerErrors();
+  const isLongRunning = workload.kind === "Deployment" || workload.kind === "StatefulSet";
+  const probeContainers = isLongRunning && !paused && !probing ? workload.containers ?? [] : [];
+  const logErrorMessage = firstContainerError(byContainer, probeContainers.map((c) => c.name));
+
+  useEffect(() => {
+    // Auto-open the Logs tab once when the pod has errors and the user has not
+    // navigated tabs yet. The query is already warm from the tile, so this
+    // resolves immediately rather than flashing the General tab.
+    if (logErrorMessage && !logsVisited.current && activeTab === "General") {
+      setActiveTab("Logs");
+    }
+  }, [logErrorMessage, activeTab, setActiveTab]);
+
   return (
     <div className="flex h-full w-full flex-col rounded-md border border-border bg-card dark:bg-surface">
       {/* Header */}
@@ -107,6 +127,22 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
           </button>
         ))}
       </div>
+
+      {probeContainers.map((c) => (
+        <ContainerLogErrorProbe
+          key={c.name}
+          deploymentId={deploymentId}
+          workloadName={workload.name}
+          container={c.name}
+          onResult={report}
+        />
+      ))}
+
+      {logErrorMessage && (
+        <div className="px-5 pt-4">
+          <ErrorPanel title="Errors in logs">{logErrorMessage}</ErrorPanel>
+        </div>
+      )}
 
       {/* Tab content */}
       {activeTab === "General" && (

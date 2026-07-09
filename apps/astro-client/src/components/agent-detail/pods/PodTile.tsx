@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import type { WorkloadDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Bot, Activity, Database, Brain, Box, Download } from "lucide-react";
+import { AlertCircle, Bot, Activity, Database, Brain, Box, Download, TriangleAlert } from "lucide-react";
 import { useLastErrorLog } from "@/api/queries/deployments";
 import { classify, brandIconId, type Role } from "./classify";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { Card } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
 
 // "probing" is rendered while the runtime query is still in flight (record
 // returned, runtime undefined). It's visually distinct from "pending"
@@ -154,13 +156,37 @@ export interface PodTileContentProps {
   age?: string;
   warningMessage?: string | null;
   errorMessage?: string | null;
+  /** Show a small alert icon when the container's logs contain errors or
+   *  warnings, even if its runtime status looks healthy. */
+  logIssue?: "error" | "warning" | null;
   className?: string;
   onClick?: () => void;
   selected?: boolean;
   dimmed?: boolean;
 }
 
-export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, leading, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
+/** Error/warning icon shown on the tile when a live container is logging
+ *  issues. Error uses the error icon + red; warning uses the warning icon +
+ *  amber. Wrapped in its own TooltipProvider so the label shows instantly. */
+function LogIssueIndicator({ severity }: { severity: "error" | "warning" }) {
+  const isError = severity === "error";
+  const Icon = isError ? AlertCircle : TriangleAlert;
+  const label = isError ? "Errors found in logs" : "Warnings found in logs";
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span role="img" aria-label={label} className="flex items-center">
+            <Icon className={cn("size-4", isError ? "text-red-400 dark:text-red-400" : "text-amber-400 dark:text-amber-400")} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, leading, age, warningMessage, errorMessage, logIssue, className, onClick, selected, dimmed }: PodTileContentProps) {
   const styles = POD_STATUS_STYLES[status] ?? POD_STATUS_STYLES.pending;
   const { dot, glow } = styles;
   const label = statusLabel ?? styles.label;
@@ -192,7 +218,12 @@ export function PodTileContent({ name, status = "pending", statusLabel, icon: Ic
           <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
             {leading ?? <Icon className="size-5 shrink-0 text-muted-foreground" />}
             <span className="text-base font-medium text-foreground">{name}</span>
-            {age && <span className="ml-auto text-xs text-muted-foreground">{age}</span>}
+            {(logIssue || age) && (
+              <div className="ml-auto flex items-center gap-2">
+                {age && <span className="text-xs text-muted-foreground">{age}</span>}
+                {logIssue && <LogIssueIndicator severity={logIssue} />}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1.5 px-4 pb-3">
             <span className={cn("size-1.5 shrink-0 rounded-full", dot, glow)} />
@@ -248,6 +279,7 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
     containerName,
     !!workload && status === "unhealthy",
   );
+  const { byContainer, report } = useContainerErrors();
   if (!workload) return null;
   const lastError = errorLogs?.[0]?.message ?? null;
   // "Restarting frequently" only applies to long-running pods that are
@@ -278,20 +310,41 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
     ) : brandId ? (
       <span className="block size-5 shrink-0">{getIntegrationIcon(brandId)}</span>
     ) : undefined;
+
+  // Surface a log-error indicator for a live, healthy-looking long-running pod
+  // that is still logging errors. Unhealthy pods already show the last error
+  // message above, so we only probe the non-unhealthy case to avoid a duplicate
+  // signal. One probe per container keeps the hook count stable.
+  const probeContainers =
+    isLongRunning && !idle && status !== "unhealthy" ? workload.containers ?? [] : [];
+  const hasLogErrors = !!firstContainerError(byContainer, probeContainers.map((c) => c.name));
+
   return (
-    <PodTileContent
-      name={workload.component || workload.name}
-      status={status}
-      statusLabel={label}
-      icon={ROLE_ICONS[role]}
-      leading={leading}
-      age={idle ? undefined : workload.age}
-      warningMessage={idle ? null : warningMessage}
-      errorMessage={idle ? null : lastError}
-      className={className}
-      onClick={onClick}
-      selected={selected}
-      dimmed={dimmed}
-    />
+    <>
+      {probeContainers.map((c) => (
+        <ContainerLogErrorProbe
+          key={c.name}
+          deploymentId={deploymentId}
+          workloadName={workload.name}
+          container={c.name}
+          onResult={report}
+        />
+      ))}
+      <PodTileContent
+        name={workload.component || workload.name}
+        status={status}
+        statusLabel={label}
+        icon={ROLE_ICONS[role]}
+        leading={leading}
+        age={idle ? undefined : workload.age}
+        warningMessage={idle ? null : warningMessage}
+        errorMessage={idle ? null : lastError}
+        logIssue={hasLogErrors ? "error" : null}
+        className={className}
+        onClick={onClick}
+        selected={selected}
+        dimmed={dimmed}
+      />
+    </>
   );
 }

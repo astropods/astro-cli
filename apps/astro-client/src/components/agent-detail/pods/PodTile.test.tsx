@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { screen } from "@testing-library/react";
 import type { WorkloadDetail } from "@/lib/api";
 import { renderWithProviders } from "@/test/test-utils";
-import { derivePodStatus, PodTile } from "./PodTile";
+import { derivePodStatus, PodTile, PodTileContent } from "./PodTile";
 
 // Regression: Go nil slices serialize as JSON `null`, so the `containers`
 // field arrives undefined for Job/CronJob workloads that have no live pods.
@@ -103,5 +103,27 @@ describe("PodTile rendering — null-containers regression", () => {
       />,
     );
     expect(screen.getByText("Idle")).toBeInTheDocument();
+  });
+});
+
+describe("PodTileContent log-issue indicator", () => {
+  it("shows the error indicator when logIssue is 'error'", () => {
+    renderWithProviders(
+      <PodTileContent name="agent" status="healthy" logIssue="error" />,
+    );
+    expect(screen.getByLabelText("Errors found in logs")).toBeInTheDocument();
+  });
+
+  it("shows the warning indicator when logIssue is 'warning'", () => {
+    renderWithProviders(
+      <PodTileContent name="agent" status="healthy" logIssue="warning" />,
+    );
+    expect(screen.getByLabelText("Warnings found in logs")).toBeInTheDocument();
+  });
+
+  it("hides the indicator by default", () => {
+    renderWithProviders(<PodTileContent name="agent" status="healthy" />);
+    expect(screen.queryByLabelText("Errors found in logs")).toBeNull();
+    expect(screen.queryByLabelText("Warnings found in logs")).toBeNull();
   });
 });
