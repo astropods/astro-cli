@@ -70,8 +70,5 @@ export function getFallbackAvatarUrl(): string {
  * @param variant - "light" or "dark" (default: "light")
  */
 export function getIntegrationIconUrl(id: string, variant: "light" | "dark" = "light"): string {
-  if (id === "ollama" && variant === "light") {
-    return getAssetUrl("integrations/light/ollama.png");
-  }
   return getAssetUrl(`integrations/${variant}/${id}.svg`);
 }

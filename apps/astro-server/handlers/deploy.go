@@ -1287,9 +1287,10 @@ type DeploymentRuntime struct {
 // apply time. URLs come from deployment_ingresses (DB), not from live K8s
 // Ingress objects.
 type WorkloadSpec struct {
-	Name      string                `json:"name"`      // K8s resource name
-	Kind      string                `json:"kind"`      // "Deployment", "StatefulSet", "Job", "CronJob"
-	Component string                `json:"component"` // component_kind from deployment_workloads / deployment_sidecars
+	Name      string                `json:"name"`               // K8s resource name
+	Kind      string                `json:"kind"`               // "Deployment", "StatefulSet", "Job", "CronJob"
+	Component string                `json:"component"`          // component_kind from deployment_workloads / deployment_sidecars
+	Provider  string                `json:"provider,omitempty"` // platform provider (e.g. postgres, ollama); empty for custom/agent
 	Image     string                `json:"image"`
 	Replicas  int32                 `json:"replicas"`           // desired
 	Schedule  string                `json:"schedule,omitempty"` // cron expression for scheduled ingestion
@@ -2336,6 +2337,7 @@ func loadRecordIntentFromDB(log *logger.Logger, deployStore *deploymentstore.Sto
 			// so it matches WorkloadRuntime.Component on the runtime endpoint
 			// and feeds correctly into rolesForComponent below.
 			Component: componentLabelFor(w.ComponentKind, w.ComponentKey),
+			Provider:  w.Provider,
 			Image:     w.Image,
 			Replicas:  int32(w.Replicas), //nolint:gosec
 			Schedule:  w.TriggerSchedule,

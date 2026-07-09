@@ -1,38 +1,12 @@
 /**
- * Force-directed pod layout.
- *
- * 1. Seeds initial positions using a golden-angle spiral (deterministic,
- *    close to a good solution so the simulation converges fast).
- * 2. Runs a force simulation where tiles repel on overlap and a gentle
- *    centering force keeps the cluster compact.
- * 3. Returns final positions as pixel offsets from the container center.
+ * Deterministic pod-graph layout. Tiles are grouped into role columns
+ * (ingestion | knowledge | agent | others), each stacked vertically, with the
+ * whole row centered on the origin. Positions are a pure function of role and
+ * measured size — same input, same layout — so a resize only shifts its own
+ * column. Offsets are pixels from the container center.
  */
 
-// ---------------------------------------------------------------------------
-// Golden-angle spiral seed
-// ---------------------------------------------------------------------------
-
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-const SEED_ROTATION = 0.7;
-
-function seedPositions(count: number, sizes: TileSize[]): Position[] {
-  if (count === 0) return [];
-  if (count === 1) return [{ x: 0, y: 0 }];
-
-  const avgSize =
-    sizes.reduce((s, t) => s + Math.max(t.width, t.height), 0) / sizes.length;
-  const spacing = avgSize * 0.75;
-
-  return Array.from({ length: count }, (_, i) => {
-    const angle = SEED_ROTATION + i * GOLDEN_ANGLE;
-    const radius = spacing * Math.sqrt(i + 0.5);
-    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Force simulation
-// ---------------------------------------------------------------------------
+import { roleRank, type Role } from "./classify";
 
 export interface TileSize {
   width: number;
@@ -44,133 +18,68 @@ export interface Position {
   y: number;
 }
 
-interface SimConfig {
-  /** Iterations to run. */
-  iterations: number;
-  /** Pixels of padding between tiles. */
-  padding: number;
-  /** Strength of the centering pull (0–1). */
-  centeringStrength: number;
-  /** Velocity damping per step (0–1, lower = more damping). */
-  damping: number;
-  /** Strength of repulsion force. */
-  repulsionStrength: number;
+export interface LayoutTile {
+  role: Role;
+  size: TileSize;
 }
 
-const DEFAULT_CONFIG: SimConfig = {
-  iterations: 80,
-  padding: 32,
-  repulsionStrength: 0.4,
-  centeringStrength: 0.02,
-  damping: 0.8,
-};
+const COLUMN_GAP = 28;
+const ROW_GAP = 16;
 
-/**
- * Check overlap between two axis-aligned rects centered at their positions.
- * Returns a repulsion vector along the center-to-center direction scaled by
- * the overlap magnitude, or null if no overlap.
- */
-function rectOverlap(
-  ax: number,
-  ay: number,
-  aw: number,
-  ah: number,
-  bx: number,
-  by: number,
-  bw: number,
-  bh: number,
-  padding: number,
-): { dx: number; dy: number } | null {
-  const halfW = (aw + bw) / 2 + padding;
-  const halfH = (ah + bh) / 2 + padding;
-  const dx = ax - bx;
-  const dy = ay - by;
-  const overlapX = halfW - Math.abs(dx);
-  const overlapY = halfH - Math.abs(dy);
+type ColumnKey = "ingestion" | "knowledge" | "agent" | "others";
 
-  if (overlapX <= 0 || overlapY <= 0) return null;
+const COLUMN_ORDER: ColumnKey[] = ["ingestion", "knowledge", "agent", "others"];
 
-  // Push along the center-to-center vector to preserve organic angles.
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const overlap = Math.min(overlapX, overlapY);
+function columnOf(role: Role): ColumnKey {
+  if (role === "ingestion") return "ingestion";
+  if (role === "knowledge") return "knowledge";
+  if (role === "agent") return "agent";
+  return "others";
+}
 
-  if (dist < 0.01) {
-    // Near-coincident — pick a deterministic diagonal direction.
-    return { dx: overlap * 0.7, dy: overlap * 0.7 };
+function byRole(tiles: LayoutTile[]) {
+  return (a: number, b: number) => roleRank(tiles[a].role) - roleRank(tiles[b].role) || a - b;
+}
+
+/** Stack `indices` into a vertical run at `cx`, centered on y = 0. */
+function stackColumn(indices: number[], tiles: LayoutTile[], cx: number, out: Position[]): void {
+  const height = indices.reduce((s, i) => s + tiles[i].size.height, 0) + (indices.length - 1) * ROW_GAP;
+  let y = -height / 2;
+  for (const i of indices) {
+    out[i] = { x: cx, y: y + tiles[i].size.height / 2 };
+    y += tiles[i].size.height + ROW_GAP;
   }
-
-  return {
-    dx: (dx / dist) * overlap,
-    dy: (dy / dist) * overlap,
-  };
 }
 
-function runSimulation(
-  positions: Position[],
-  sizes: TileSize[],
-  config: SimConfig,
-): Position[] {
-  const n = positions.length;
-  if (n <= 1) return positions;
+/** Role columns laid left to right, the whole row centered on the origin. */
+export function computeColumnLayout(tiles: LayoutTile[]): Position[] {
+  const columns = new Map<ColumnKey, number[]>();
+  tiles.forEach((tile, i) => {
+    const key = columnOf(tile.role);
+    const col = columns.get(key);
+    if (col) col.push(i);
+    else columns.set(key, [i]);
+  });
+  // Only the mixed "others" column needs sorting; single-role columns keep input order.
+  columns.get("others")?.sort(byRole(tiles));
 
-  // Clone so we don't mutate input.
-  const pos = positions.map((p) => ({ ...p }));
-  const vel = Array.from({ length: n }, () => ({ x: 0, y: 0 }));
+  const present = COLUMN_ORDER.filter((k) => columns.has(k));
+  const widths = present.map((k) => Math.max(...columns.get(k)!.map((i) => tiles[i].size.width)));
+  const totalWidth = widths.reduce((s, w) => s + w, 0) + (present.length - 1) * COLUMN_GAP;
 
-  for (let iter = 0; iter < config.iterations; iter++) {
-    // Pairwise repulsion on overlap.
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const overlap = rectOverlap(
-          pos[i].x, pos[i].y, sizes[i].width, sizes[i].height,
-          pos[j].x, pos[j].y, sizes[j].width, sizes[j].height,
-          config.padding,
-        );
-        if (!overlap) continue;
-
-        const fx = overlap.dx * config.repulsionStrength;
-        const fy = overlap.dy * config.repulsionStrength;
-        vel[i].x += fx;
-        vel[i].y += fy;
-        vel[j].x -= fx;
-        vel[j].y -= fy;
-      }
-    }
-
-    // Centering force — pull toward origin.
-    for (let i = 0; i < n; i++) {
-      vel[i].x -= pos[i].x * config.centeringStrength;
-      vel[i].y -= pos[i].y * config.centeringStrength;
-    }
-
-    // Integrate and damp.
-    for (let i = 0; i < n; i++) {
-      pos[i].x += vel[i].x;
-      pos[i].y += vel[i].y;
-      vel[i].x *= config.damping;
-      vel[i].y *= config.damping;
-    }
-  }
-
-  return pos;
+  const positions: Position[] = new Array(tiles.length);
+  let left = -totalWidth / 2;
+  present.forEach((key, k) => {
+    stackColumn(columns.get(key)!, tiles, left + widths[k] / 2, positions);
+    left += widths[k] + COLUMN_GAP;
+  });
+  return positions;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Compute non-overlapping positions for tiles of known sizes.
- * Positions are pixel offsets from the center of the container.
- */
-export function computePodPositions(
-  sizes: TileSize[],
-  config?: Partial<SimConfig>,
-): Position[] {
-  const count = sizes.length;
-  if (count === 0) return [];
-
-  const cfg = { ...DEFAULT_CONFIG, ...config };
-  const initial = seedPositions(count, sizes);
-  return runSimulation(initial, sizes, cfg);
+/** Single role-ordered column at x = 0 — the narrow-screen fallback. */
+export function computeVerticalLayout(tiles: LayoutTile[]): Position[] {
+  const order = tiles.map((_, i) => i).sort(byRole(tiles));
+  const positions: Position[] = new Array(tiles.length);
+  stackColumn(order, tiles, 0, positions);
+  return positions;
 }

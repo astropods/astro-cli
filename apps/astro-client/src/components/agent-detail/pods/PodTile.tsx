@@ -1,9 +1,12 @@
+import type { ReactNode } from "react";
 import type { WorkloadDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Bot, Activity, Database, Brain, Box, Download } from "lucide-react";
-import { ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import { useLastErrorLog } from "@/api/queries/deployments";
-import { Squircle } from "../Squircle";
+import { classify, brandIconId, type Role } from "./classify";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
+import { DeploymentAvatar } from "@/components/DeploymentAvatar";
+import { Card } from "@/components/ui/card";
 
 // "probing" is rendered while the runtime query is still in flight (record
 // returned, runtime undefined). It's visually distinct from "pending"
@@ -121,22 +124,15 @@ export function resolvePodStatus(
 
 type IconComponent = React.ComponentType<{ className?: string }>;
 
-const COMPONENT_ICONS: Record<string, IconComponent> = {
+const ROLE_ICONS: Record<Role, IconComponent> = {
   agent: Bot,
+  knowledge: Database,
+  model: Brain,
+  integration: Box,
+  ingestion: Download,
   collector: Activity,
-  messaging: ChatBubbleLeftRightIcon,
-  redis: Database,
-  postgres: Database,
-  qdrant: Database,
-  neo4j: Database,
-  ollama: Brain,
+  other: Box,
 };
-
-function getWorkloadIcon(workload: WorkloadDetail): IconComponent {
-  if (workload.kind === "Job" || workload.kind === "CronJob") return Download;
-  if (!workload.component) return Bot;
-  return COMPONENT_ICONS[workload.component.toLowerCase()] ?? Box;
-}
 
 function TileNotice({ color, children }: { color: string; children: React.ReactNode }) {
   return (
@@ -153,6 +149,8 @@ export interface PodTileContentProps {
   /** Override the default status label (e.g. "Completed" for finished Jobs). */
   statusLabel?: string;
   icon?: IconComponent;
+  /** Leading element rendered in place of the icon (e.g. the agent's avatar). */
+  leading?: ReactNode;
   age?: string;
   warningMessage?: string | null;
   errorMessage?: string | null;
@@ -162,31 +160,49 @@ export interface PodTileContentProps {
   dimmed?: boolean;
 }
 
-export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
+export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, leading, age, warningMessage, errorMessage, className, onClick, selected, dimmed }: PodTileContentProps) {
   const styles = POD_STATUS_STYLES[status] ?? POD_STATUS_STYLES.pending;
   const { dot, glow } = styles;
   const label = statusLabel ?? styles.label;
 
   return (
-    <Squircle className={cn("max-w-[300px]", className)} onClick={onClick} selected={selected} dimmed={dimmed}>
-      <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
-        <Icon className="size-5 shrink-0 text-muted-foreground" />
-        <span className="text-base font-medium text-foreground">
-          {name}
-        </span>
-        {age && (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {age}
-          </span>
+    <div
+      onClick={onClick}
+      className={cn(
+        "group max-w-[300px] drop-shadow-[0_2px_8px_rgba(0,0,0,0.12)] transition-[filter] duration-200 dark:drop-shadow-[0_2px_10px_rgba(0,0,0,0.4)]",
+        onClick && "cursor-pointer",
+        dimmed && "dark:brightness-[0.7]",
+        className,
+      )}
+    >
+      <Card
+        className={cn(
+          "relative overflow-hidden rounded-lg transition-colors duration-200",
+          selected && "border-primary/60",
+          !selected && onClick && "group-hover:border-primary/40",
         )}
-      </div>
-      <div className="flex items-center gap-1.5 px-4 pb-3">
-        <span className={cn("size-1.5 shrink-0 rounded-full", dot, glow)} />
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </div>
-      {warningMessage && <TileNotice color="text-amber-400">{warningMessage}</TileNotice>}
-      {errorMessage && <TileNotice color="text-red-400">{errorMessage}</TileNotice>}
-    </Squircle>
+      >
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 bg-primary/[0.04] transition-opacity duration-200 dark:bg-primary/[0.08]",
+            selected ? "opacity-100" : onClick ? "opacity-0 group-hover:opacity-100" : "opacity-0",
+          )}
+        />
+        <div className="relative">
+          <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
+            {leading ?? <Icon className="size-5 shrink-0 text-muted-foreground" />}
+            <span className="text-base font-medium text-foreground">{name}</span>
+            {age && <span className="ml-auto text-xs text-muted-foreground">{age}</span>}
+          </div>
+          <div className="flex items-center gap-1.5 px-4 pb-3">
+            <span className={cn("size-1.5 shrink-0 rounded-full", dot, glow)} />
+            <span className="text-xs text-muted-foreground">{label}</span>
+          </div>
+          {warningMessage && <TileNotice color="text-amber-400">{warningMessage}</TileNotice>}
+          {errorMessage && <TileNotice color="text-red-400">{errorMessage}</TileNotice>}
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -208,13 +224,18 @@ interface PodTileProps {
    * being off trumps an individual CronJob still appearing Idle, etc.
    */
   paused?: boolean;
+  /**
+   * The parent deployment. When present, the agent tile renders the deployment's
+   * avatar in place of the generic agent icon.
+   */
+  deployment?: { id: string; name: string; avatar_url?: string };
   className?: string;
   onClick?: () => void;
   selected?: boolean;
   dimmed?: boolean;
 }
 
-export function PodTile({ workload, deploymentId, probing, paused, className, onClick, selected, dimmed }: PodTileProps) {
+export function PodTile({ workload, deploymentId, probing, paused, deployment, className, onClick, selected, dimmed }: PodTileProps) {
   // Hooks must run unconditionally (rules-of-hooks). Pass safe defaults when
   // workload is missing so we can still bail out below — see PodGraph for the
   // root-cause fix; this is a defensive backstop for AnimatePresence exits and
@@ -247,12 +268,23 @@ export function PodTile({ workload, deploymentId, probing, paused, className, on
   // tile is in a non-live state — they're either stale (paused) or
   // unknown (probing).
   const idle = paused || probing;
+  // Agent tile → deployment avatar; knowledge/model/integration → brand icon
+  // when shipped; otherwise the role icon (via PodTileContent's `icon`).
+  const role = classify(workload.component, workload.kind);
+  const brandId = brandIconId(role, workload.provider, workload.component);
+  const leading =
+    role === "agent" && deployment ? (
+      <DeploymentAvatar deployment={deployment} size={20} className="size-5 shrink-0 rounded-sm" />
+    ) : brandId ? (
+      <span className="block size-5 shrink-0">{getIntegrationIcon(brandId)}</span>
+    ) : undefined;
   return (
     <PodTileContent
       name={workload.component || workload.name}
       status={status}
       statusLabel={label}
-      icon={getWorkloadIcon(workload)}
+      icon={ROLE_ICONS[role]}
+      leading={leading}
       age={idle ? undefined : workload.age}
       warningMessage={idle ? null : warningMessage}
       errorMessage={idle ? null : lastError}

@@ -111,15 +111,15 @@ export default function AgentDeployments() {
         ) : (
           <PodGraph
             count={workloads.length}
+            keys={workloads.map((w) => w.name)}
+            components={workloads.map((w) => w.component)}
+            kinds={workloads.map((w) => w.kind)}
             effectiveWidth={effectiveWidth}
-            // probing/paused/live each render different tile chrome (notices
-            // appear/disappear, age toggles), so the cached measurements
-            // become stale. Re-key the layout when the mode changes.
-            layoutKey={paused ? "paused" : runtime === undefined ? "probing" : "live"}
             renderTile={(i) => (
               <PodTile
                 workload={workloads[i]}
                 deploymentId={deployment.id}
+                deployment={deployment}
                 // While the runtime query hasn't returned, render each tile
                 // in the grey blinking "Probing" state so the user can tell
                 // the difference between "we don't know yet" and "K8s says

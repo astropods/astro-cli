@@ -112,6 +112,9 @@
       "id": "notion"
     },
     {
+      "id": "ollama"
+    },
+    {
       "id": "openai"
     },
     {

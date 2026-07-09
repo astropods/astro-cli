@@ -224,6 +224,7 @@ CREATE TABLE public.deployment_workloads (
     name varchar NOT NULL,
     component_kind varchar NOT NULL,
     component_key varchar NOT NULL DEFAULT '',
+    provider varchar,
     workload_type varchar NOT NULL,
     image varchar NOT NULL,
     replicas int NOT NULL DEFAULT 1,

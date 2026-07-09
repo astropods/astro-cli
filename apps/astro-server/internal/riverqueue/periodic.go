@@ -94,6 +94,18 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(24*time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return ProviderBackfillArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: 24 * time.Hour,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	if cfg.OMClient != nil {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),

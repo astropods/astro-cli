@@ -1,82 +1,69 @@
-import { useEffect, useRef, useMemo, type ReactNode } from "react";
+import { useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { computePodPositions, type TileSize, type Position } from "./pod-layout";
-import { computeMST } from "../starfield/constellation";
+import { computeColumnLayout, computeVerticalLayout, type LayoutTile, type Position } from "./pod-layout";
+import { computeRelationshipEdges } from "./pod-edges";
+import { classify, type Role } from "./classify";
 import { useTileMeasurements } from "./use-tile-measurements";
 import { useContainerSize } from "@/hooks/use-container-size";
 
 const VERTICAL_BREAKPOINT = 750;
-const VERTICAL_GAP = 12;
-
-function computeVerticalPositions(sizes: TileSize[]): Position[] {
-  const totalHeight =
-    sizes.reduce((sum, s) => sum + s.height, 0) + (sizes.length - 1) * VERTICAL_GAP;
-  let y = -totalHeight / 2;
-  return sizes.map((s) => {
-    const pos = { x: 0, y: y + s.height / 2 };
-    y += s.height + VERTICAL_GAP;
-    return pos;
-  });
-}
 
 interface PodGraphProps {
   count: number;
   renderTile: (index: number) => ReactNode;
-  /** Effective visible width (container minus panel). Drives layout breakpoints. */
+  /** Component label per tile, in index order — classifies each tile's role. */
+  components?: string[];
+  /** k8s kind per tile, in index order — fallback for role classification. */
+  kinds?: string[];
+  /** Stable id per tile, in index order, for animation identity. Falls back to the index. */
+  keys?: string[];
+  /** Effective visible width (container minus panel). Drives the layout breakpoint. */
   effectiveWidth?: number;
-  /**
-   * Optional key that invalidates the cached tile measurements when the
-   * tile *content* changes shape without changing count. Pass a string or
-   * number that varies with the rendered tile mode (e.g. `"probing"` vs
-   * `"live"`); the layout pass will re-measure and re-position.
-   */
-  layoutKey?: string | number;
 }
 
 /**
- * Layout-only component. Measures tiles, runs force-directed layout,
- * and positions them with spring animations. Draws constellation lines
- * between tiles via minimum spanning tree.
- *
- * Below 750px width, switches to a vertical stack layout.
+ * Layout-only component. Measures tiles continuously ({@link useTileMeasurements}),
+ * places them in deterministic role columns ({@link computeColumnLayout}), and
+ * draws relationship edges ({@link computeRelationshipEdges}). Collapses to a
+ * single vertical stack below {@link VERTICAL_BREAKPOINT}.
  */
-export function PodGraph({ count, renderTile, effectiveWidth, layoutKey }: PodGraphProps) {
+export function PodGraph({ count, renderTile, components, kinds, keys, effectiveWidth }: PodGraphProps) {
   const { ref: containerRef, width: containerW, height: containerH } = useContainerSize();
-  const { sizes, measureRef } = useTileMeasurements(count, layoutKey);
+  const { sizes, measureRef } = useTileMeasurements(count);
   const hasAnimatedIn = useRef(false);
+  const keyOf = useCallback((i: number) => keys?.[i] ?? String(i), [keys]);
 
-  // Use effectiveWidth (accounts for panel) if provided, otherwise container width
+  const roles = useMemo<Role[]>(
+    () => Array.from({ length: count }, (_, i) => classify(components?.[i], kinds?.[i])),
+    [components, kinds, count],
+  );
+
   const layoutWidth = effectiveWidth ?? containerW;
   const isVertical = layoutWidth > 0 && layoutWidth < VERTICAL_BREAKPOINT;
 
-  // Treat sizes as stale whenever it doesn't match the current count — the
-  // useEffect inside useTileMeasurements that resets sizes runs after commit,
-  // so a render that happens between "count changed" and "effect fired" would
-  // otherwise lay out N old positions while renderTile(i) reads the new
-  // (shorter) source array, dereferencing undefined.
-  const sizesValid = sizes !== null && sizes.length === count;
+  // Wait until every tile for the current count is measured; the length check
+  // rejects a stale render between a count change and the next measure.
+  const sizesValid = sizes.length === count && sizes.every(Boolean);
 
-  const positions = useMemo(() => {
-    if (!sizesValid) return null;
-    return isVertical ? computeVerticalPositions(sizes!) : computePodPositions(sizes!);
-  }, [sizes, sizesValid, isVertical]);
-
-  const graphPositions = useMemo(
-    () => (sizesValid ? computePodPositions(sizes!) : null),
-    [sizes, sizesValid],
+  const layoutTiles = useMemo<LayoutTile[] | null>(
+    () => (sizesValid ? roles.map((role, i) => ({ role, size: sizes[i]! })) : null),
+    [sizesValid, roles, sizes],
   );
 
+  const positions = useMemo<Position[] | null>(() => {
+    if (!layoutTiles) return null;
+    return isVertical ? computeVerticalLayout(layoutTiles) : computeColumnLayout(layoutTiles);
+  }, [layoutTiles, isVertical]);
+
   const edges = useMemo(
-    () => (graphPositions ? computeMST(graphPositions) : []),
-    [graphPositions],
+    () => (positions && !isVertical ? computeRelationshipEdges(roles) : []),
+    [positions, isVertical, roles],
   );
 
   const centerX = containerW / 2;
   const centerY = containerH / 2;
-  const measured = positions !== null;
-  const ready = measured && containerW > 0;
+  const ready = containerW > 0 && positions !== null;
 
-  // Flip after the initial entrance animation completes
   useEffect(() => {
     if (ready && !hasAnimatedIn.current) {
       const id = setTimeout(() => { hasAnimatedIn.current = true; }, count * 40 + 600);
@@ -86,62 +73,57 @@ export function PodGraph({ count, renderTile, effectiveWidth, layoutKey }: PodGr
 
   return (
     <div ref={containerRef} className="relative h-full flex-1 overflow-hidden">
-      {/* Pass 1: Hidden measurement render */}
-      {!measured && (
-        <div className="pointer-events-none invisible absolute left-0 top-0">
-          {Array.from({ length: count }, (_, i) => (
-            <div key={i} ref={measureRef(i)} className="inline-block">
-              {renderTile(i)}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Constellation lines — only in graph mode */}
-      {ready && graphPositions && !isVertical && (
+      {ready && positions && !isVertical && edges.length > 0 && (
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
-          {edges.map((edge, i) => (
+          {edges.map((edge) => (
             <motion.line
-              key={`${edge.from}-${edge.to}`}
-              x1={centerX + graphPositions[edge.from].x}
-              y1={centerY + graphPositions[edge.from].y}
-              x2={centerX + graphPositions[edge.to].x}
-              y2={centerY + graphPositions[edge.to].y}
-              className="stroke-foreground/10"
+              key={`${keyOf(edge.from)}-${keyOf(edge.to)}`}
+              x1={centerX + positions[edge.from].x}
+              y1={centerY + positions[edge.from].y}
+              x2={centerX + positions[edge.to].x}
+              y2={centerY + positions[edge.to].y}
+              className="stroke-foreground/15"
               strokeWidth={1}
               initial={{ pathLength: 0, opacity: 0 }}
               animate={{ pathLength: 1, opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.3 + i * 0.06, ease: "easeOut" }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
             />
           ))}
         </svg>
       )}
 
-      {/* Positioned tiles */}
-      <AnimatePresence>
-        {ready &&
-          positions!.map((pos, i) => (
-            <motion.div
-              key={i}
-              className="absolute -translate-x-1/2 -translate-y-1/2"
-              initial={hasAnimatedIn.current ? false : { opacity: 0, scale: 0.8, left: centerX, top: centerY }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                left: centerX + pos.x,
-                top: centerY + pos.y,
-              }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={
-                hasAnimatedIn.current
-                  ? { type: "spring", bounce: 0.1, duration: 0.4 }
-                  : { type: "spring", bounce: 0.15, duration: 0.6, delay: i * 0.04 }
-              }
-            >
-              {renderTile(i)}
-            </motion.div>
-          ))}
-      </AnimatePresence>
+      {/* Positioned with transforms, which don't affect the measured border box,
+          so placement never feeds back into the measurement that drives it. A
+          tile without a solved position waits invisibly at center to be measured. */}
+      {containerW > 0 && (
+        <AnimatePresence>
+          {Array.from({ length: count }, (_, i) => {
+            const pos = positions?.[i];
+            return (
+              <motion.div
+                key={keyOf(i)}
+                ref={measureRef(i)}
+                className="absolute left-0 top-0"
+                transformTemplate={(_, generated) => `${generated} translate(-50%, -50%)`}
+                initial={hasAnimatedIn.current ? false : { opacity: 0, scale: 0.8, x: centerX, y: centerY }}
+                animate={
+                  pos
+                    ? { opacity: 1, scale: 1, x: centerX + pos.x, y: centerY + pos.y }
+                    : { opacity: 0, scale: 0.8, x: centerX, y: centerY }
+                }
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={
+                  hasAnimatedIn.current
+                    ? { type: "spring", bounce: 0.1, duration: 0.4 }
+                    : { type: "spring", bounce: 0.15, duration: 0.6, delay: i * 0.04 }
+                }
+              >
+                {renderTile(i)}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

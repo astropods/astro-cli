@@ -628,6 +628,8 @@ export interface WorkloadDetail {
   name: string;
   kind: string;
   component: string;
+  /** Platform provider (e.g. postgres, ollama); empty for custom/agent workloads. */
+  provider?: string;
   image?: string;
   replicas?: number;
   schedule?: string;
@@ -657,6 +659,8 @@ export interface WorkloadSpec {
   // "Deployment" | "StatefulSet" | "Job" | "CronJob"
   kind: string;
   component: string;
+  /** Platform provider (e.g. postgres, ollama); empty for custom/agent workloads. */
+  provider?: string;
   // image / replicas are populated on the wire; declared optional so fixtures
   // and Partial<> consumers don't have to set them.
   image?: string;

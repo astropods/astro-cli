@@ -34,6 +34,7 @@ type Workload struct {
 	Name               string
 	ComponentKind      string
 	ComponentKey       string
+	Provider           string
 	WorkloadType       string
 	Image              string
 	Replicas           int
@@ -177,7 +178,7 @@ func SaveNormalizedSpec(
 		var id int
 		err := tx.QueryRow(`
 			INSERT INTO deployment_workloads (
-				deployment_id, name, component_kind, component_key, workload_type,
+				deployment_id, name, component_kind, component_key, provider, workload_type,
 				image, replicas, cpu_request, memory_request, cpu_limit, memory_limit,
 				gpu_vram, gpu_runtime, gpu_count,
 				update_strategy, update_max_unavailable, update_max_surge,
@@ -185,16 +186,16 @@ func SaveNormalizedSpec(
 				healthcheck_timeout, healthcheck_retries, healthcheck_test,
 				trigger_type, trigger_schedule, persistent, distributed
 			) VALUES (
-				$1, $2, $3, $4, $5,
-				$6, $7, $8, $9, $10, $11,
-				$12, $13, $14,
-				$15, $16, $17,
-				$18, $19, $20,
-				$21, $22, $23,
-				$24, $25, $26, $27
+				$1, $2, $3, $4, $5, $6,
+				$7, $8, $9, $10, $11, $12,
+				$13, $14, $15,
+				$16, $17, $18,
+				$19, $20, $21,
+				$22, $23, $24,
+				$25, $26, $27, $28
 			) RETURNING id
 		`,
-			deploymentID, w.Name, w.ComponentKind, w.ComponentKey, w.WorkloadType,
+			deploymentID, w.Name, w.ComponentKind, w.ComponentKey, w.Provider, w.WorkloadType,
 			w.Image, w.Replicas, w.CPURequest, w.MemoryRequest, w.CPULimit, w.MemoryLimit,
 			w.GPUVram, w.GPURuntime, w.GPUCount,
 			w.UpdateStrategy, w.UpdateMaxUnavail, w.UpdateMaxSurge,
@@ -254,6 +255,7 @@ func SaveNormalizedSpec(
 	type componentInput struct {
 		kind       string
 		key        string
+		provider   string
 		image      string
 		replicas   int
 		resources  spec.DeploymentResources
@@ -280,6 +282,7 @@ func SaveNormalizedSpec(
 			Name:          resourceName,
 			ComponentKind: ci.kind,
 			ComponentKey:  ci.key,
+			Provider:      ci.provider,
 			WorkloadType:  workloadTypeFor(ci),
 			Image:         ci.image,
 			Replicas:      ci.replicas,
@@ -461,7 +464,7 @@ func SaveNormalizedSpec(
 			replicas = 1
 		}
 		w := buildWorkload(componentInput{
-			kind: "model", key: name, image: model.Image,
+			kind: "model", key: name, provider: model.Provider, image: model.Image,
 			replicas: replicas, resources: model.Resources,
 			update: model.Update, hc: model.Healthcheck,
 			endpoints: model.Endpoints, gpu: model.GPU,
@@ -499,7 +502,7 @@ func SaveNormalizedSpec(
 			replicas = 1
 		}
 		w := buildWorkload(componentInput{
-			kind: "knowledge", key: name, image: knowledge.Image,
+			kind: "knowledge", key: name, provider: knowledge.Provider, image: knowledge.Image,
 			replicas: replicas, resources: knowledge.Resources,
 			update: knowledge.Update, hc: knowledge.Healthcheck,
 			endpoints: knowledge.Endpoints, persistent: knowledge.Persistent,
@@ -1120,6 +1123,7 @@ type WorkloadSummary struct {
 	Name            string
 	ComponentKind   string
 	ComponentKey    string
+	Provider        string
 	WorkloadType    string
 	Image           string
 	Replicas        int
@@ -1133,7 +1137,7 @@ type WorkloadSummary struct {
 // Used by API responses and admin gRPC to avoid full spec JSON parsing.
 func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT name, component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request, persistent, COALESCE(trigger_schedule, '')
+		SELECT name, component_kind, component_key, COALESCE(provider, ''), workload_type, image, replicas, cpu_request, memory_request, persistent, COALESCE(trigger_schedule, '')
 		FROM deployment_workloads
 		WHERE deployment_id = $1
 		ORDER BY id
@@ -1146,7 +1150,7 @@ func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, e
 	var result []*WorkloadSummary
 	for rows.Next() {
 		var w WorkloadSummary
-		if err := rows.Scan(&w.Name, &w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest, &w.Persistent, &w.TriggerSchedule); err != nil {
+		if err := rows.Scan(&w.Name, &w.ComponentKind, &w.ComponentKey, &w.Provider, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest, &w.Persistent, &w.TriggerSchedule); err != nil {
 			return nil, fmt.Errorf("scan workload summary: %w", err)
 		}
 		result = append(result, &w)
