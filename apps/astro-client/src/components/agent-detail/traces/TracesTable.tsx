@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
+import { FilterInput } from "@/components/FilterInput";
 import { StatusBadge } from "@/components/StatusBadge";
 import { TableShowMore } from "@/components/ui/table";
 import {
@@ -39,6 +40,26 @@ const TRACE_ROW_HOVER = "hover:bg-black/2 dark:hover:bg-white/3";
 function shortTraceId(traceId: string) {
   if (traceId.length <= 16) return traceId;
   return `...${traceId.slice(-8)}`;
+}
+
+// Case-insensitive match across the fields a user is most likely to search by.
+// The name is included even though it isn't a visible column, since users often
+// know a trace by its span name.
+function traceMatchesSearch(trace: TraceEntry, query: string): boolean {
+  const haystack = [
+    trace.name,
+    trace.trace_id,
+    trace.user_id,
+    // The User column shows display_name/username, not the raw id, so search
+    // must include them or a search by the visible name returns nothing.
+    trace.user_details?.display_name,
+    trace.user_details?.username,
+    STATUS_CONFIG[normalizeStatus(trace.status)]?.label,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
 }
 
 function TraceRowCells({ trace, account }: { trace: TraceEntry; account: string }) {
@@ -104,14 +125,24 @@ export function TracesTable({
   onSelectTrace,
 }: TracesTableProps) {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
   const autoExpandedForTraceId = useRef<string | null>(null);
 
+  const query = search.trim().toLowerCase();
   const filtered = useMemo(
-    () => selectedStatuses.length === 0
-      ? traces
-      : traces.filter((t) => selectedStatuses.includes(normalizeStatus(t.status))),
-    [traces, selectedStatuses],
+    () =>
+      traces.filter((t) => {
+        if (
+          selectedStatuses.length > 0 &&
+          !selectedStatuses.includes(normalizeStatus(t.status))
+        ) {
+          return false;
+        }
+        if (query && !traceMatchesSearch(t, query)) return false;
+        return true;
+      }),
+    [traces, selectedStatuses, query],
   );
 
   const stableTraces = filtered.slice(0, DEFAULT_VISIBLE);
@@ -164,27 +195,36 @@ export function TracesTable({
     <div
       className="overflow-hidden rounded-lg border border-border/60 bg-card dark:bg-surface"
     >
-      {/* Filter bar */}
+      {/* Filter bar: search on the left, status filter and the trace count on the right. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-        <MultiSelect value={selectedStatuses} onValueChange={setSelectedStatuses}>
-          <MultiSelectTrigger className="h-8 w-44 max-w-full text-body-sm">
-            <MultiSelectValue
-              options={STATUS_OPTIONS}
-              placeholder="All statuses"
-            />
-          </MultiSelectTrigger>
-          <MultiSelectContent>
-            <MultiSelectAllItem>All statuses</MultiSelectAllItem>
-            {STATUS_OPTIONS.map((opt) => (
-              <MultiSelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MultiSelectItem>
-            ))}
-          </MultiSelectContent>
-        </MultiSelect>
-        <span className="shrink-0 text-mono-sm text-muted-foreground">
-          {filtered.length} trace{filtered.length !== 1 ? "s" : ""}
-        </span>
+        <FilterInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name, ID, or user"
+          aria-label="Search traces"
+          containerClassName="h-8 w-64 max-w-full text-body-sm"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <MultiSelect value={selectedStatuses} onValueChange={setSelectedStatuses}>
+            <MultiSelectTrigger className="h-8 w-44 max-w-full text-body-sm">
+              <MultiSelectValue
+                options={STATUS_OPTIONS}
+                placeholder="All statuses"
+              />
+            </MultiSelectTrigger>
+            <MultiSelectContent>
+              <MultiSelectAllItem>All statuses</MultiSelectAllItem>
+              {STATUS_OPTIONS.map((opt) => (
+                <MultiSelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MultiSelectItem>
+              ))}
+            </MultiSelectContent>
+          </MultiSelect>
+          <span className="shrink-0 text-mono-sm text-muted-foreground">
+            {filtered.length} trace{filtered.length !== 1 ? "s" : ""}
+          </span>
+        </div>
       </div>
 
       {loading ? (

@@ -80,7 +80,7 @@ export default function AgentMonitor() {
   const { data, isLoading } = useObservabilityMetrics(deploymentId, timeParams, { window: range });
 
   const traceParams = useMemo(
-    () => ({ start_time: timeParams.start_time, end_time: timeParams.end_time, limit: "100" }),
+    () => ({ start_time: timeParams.start_time, end_time: timeParams.end_time, limit: "500" }),
     [timeParams],
   );
   const { data: tracesData, isLoading: tracesLoading } = useObservabilityTraces(
@@ -127,7 +127,7 @@ export default function AgentMonitor() {
   );
 
   // A deep link (?trace=<id>) can target a trace outside the loaded window
-  // (traces are capped at limit:100). When the ID isn't in the list, hydrate a
+  // (traces are capped at limit:500). When the ID isn't in the list, hydrate a
   // minimal TraceEntry from the detail endpoint so the panel can still open —
   // TraceDetailPanel refetches the same detail (deduped by react-query) for the
   // full body content.
