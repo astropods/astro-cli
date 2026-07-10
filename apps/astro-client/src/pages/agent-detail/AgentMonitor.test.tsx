@@ -358,27 +358,38 @@ describe("user filters traces by status", () => {
   });
 });
 
-describe("user expands trace list", () => {
-  it("shows 10 traces initially with expand button when >10 exist", async () => {
-    const traces = Array.from({ length: 15 }, (_, i) =>
+describe("user loads more traces", () => {
+  it("shows a Load more button and appends the next page when clicked", async () => {
+    const all = Array.from({ length: 15 }, (_, i) =>
       makeTrace({ trace_id: `trace-${String(i).padStart(3, "0")}` }),
     );
-    setupHandlers(emptyMetrics, { traces, total: 15, limit: 100, offset: 0 });
+    // Paginate by the request offset. The response's limit/total drive
+    // hasNextPage, so this exercises Load more independent of the client's
+    // page size.
+    server.use(
+      http.get("/api/v1/deployments/:id/observability/metrics", () =>
+        HttpResponse.json(emptyMetrics),
+      ),
+      http.get("/api/v1/deployments/:id/observability/traces", ({ request }) => {
+        const offset = Number(
+          new URL(request.url).searchParams.get("offset") ?? "0",
+        );
+        const pageSize = 10;
+        return HttpResponse.json({
+          traces: all.slice(offset, offset + pageSize),
+          total: all.length,
+          limit: pageSize,
+          offset,
+        });
+      }),
+    );
     const { user } = renderMonitor();
     expect(await screen.findByText("trace-000")).toBeInTheDocument();
     expect(screen.queryByText("trace-014")).not.toBeInTheDocument();
-    expect(screen.getByText(/show 5 more/i)).toBeInTheDocument();
 
-    await user.click(screen.getByText(/show 5 more/i));
-    expect(screen.getByText("trace-014")).toBeInTheDocument();
-    expect(screen.getByText(/show less/i)).toBeInTheDocument();
-
-    await user.click(screen.getByText(/show less/i));
-    // AnimatePresence keeps exiting rows in the DOM until their exit
-    // animation completes — wait for them to leave.
-    await waitFor(() =>
-      expect(screen.queryByText("trace-014")).not.toBeInTheDocument(),
-    );
+    await user.click(screen.getByText(/load more/i));
+    expect(await screen.findByText("trace-014")).toBeInTheDocument();
+    expect(screen.queryByText(/load more/i)).not.toBeInTheDocument();
   });
 });
 

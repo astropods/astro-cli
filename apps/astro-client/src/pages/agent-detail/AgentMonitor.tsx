@@ -7,7 +7,7 @@ import { useResolvedTheme } from "@/lib/theme";
 import { useAgentDetailContext } from "../AgentDetail";
 import {
   useObservabilityMetrics,
-  useObservabilityTraces,
+  useObservabilityTracesInfinite,
   useObservabilityTraceDetail,
 } from "@/api/queries/observability";
 import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
@@ -80,14 +80,16 @@ export default function AgentMonitor() {
   const { data, isLoading } = useObservabilityMetrics(deploymentId, timeParams, { window: range });
 
   const traceParams = useMemo(
-    () => ({ start_time: timeParams.start_time, end_time: timeParams.end_time, limit: "500" }),
+    () => ({ start_time: timeParams.start_time, end_time: timeParams.end_time }),
     [timeParams],
   );
-  const { data: tracesData, isLoading: tracesLoading } = useObservabilityTraces(
-    deploymentId,
-    traceParams,
-    { window: range },
-  );
+  const {
+    data: tracesData,
+    isLoading: tracesLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useObservabilityTracesInfinite(deploymentId, traceParams, { window: range });
 
   const rawBuckets = data?.buckets ?? [];
   const bars = useMemo(() => aggregateByLocalDay(rawBuckets, days), [rawBuckets, days]);
@@ -117,7 +119,10 @@ export default function AgentMonitor() {
   );
 
   // Trace detail panel
-  const allTraces = tracesData?.traces ?? [];
+  const allTraces = useMemo(
+    () => tracesData?.pages.flatMap((p) => p.traces) ?? [],
+    [tracesData],
+  );
   const selectedTraceId = searchParams.get("trace");
   const traceFromList = useMemo(
     () => selectedTraceId
@@ -343,6 +348,9 @@ export default function AgentMonitor() {
               loading={tracesLoading}
               selectedTraceId={selectedTraceId}
               onSelectTrace={handleSelectTrace}
+              hasMore={hasNextPage}
+              onLoadMore={() => fetchNextPage()}
+              loadingMore={isFetchingNextPage}
             />
           </div>
         </motion.div>

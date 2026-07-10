@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -31,7 +31,6 @@ const STATUS_OPTIONS = ALL_STATUSES.map((s) => ({
   value: s,
   label: STATUS_CONFIG[s].label,
 }));
-const DEFAULT_VISIBLE = 10;
 
 const TRACE_ROW_CLASS = "group cursor-pointer border-b border-border/30 transition-colors";
 const TRACE_ROW_SELECTED = "bg-black/3 dark:bg-white/4";
@@ -115,6 +114,12 @@ export interface TracesTableProps {
   loading?: boolean;
   selectedTraceId?: string | null;
   onSelectTrace?: (trace: TraceEntry) => void;
+  /** Another page of traces exists on the server past the loaded window. */
+  hasMore?: boolean;
+  /** Fetch the next server page; appended to the loaded window. */
+  onLoadMore?: () => void;
+  /** The next page is in flight. */
+  loadingMore?: boolean;
 }
 
 export function TracesTable({
@@ -123,11 +128,12 @@ export function TracesTable({
   loading,
   selectedTraceId,
   onSelectTrace,
+  hasMore,
+  onLoadMore,
+  loadingMore,
 }: TracesTableProps) {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState(false);
-  const autoExpandedForTraceId = useRef<string | null>(null);
 
   const query = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -145,51 +151,26 @@ export function TracesTable({
     [traces, selectedStatuses, query],
   );
 
-  const stableTraces = filtered.slice(0, DEFAULT_VISIBLE);
-  const expandableTraces = filtered.slice(DEFAULT_VISIBLE);
-  const hiddenCount = expandableTraces.length;
   const selectedTraceIndex = selectedTraceId
     ? filtered.findIndex((trace) => trace.trace_id === selectedTraceId)
     : -1;
-  // Filtering down to a list that fits in the visible window invalidates an
-  // outstanding expanded state — reset so the next overflow starts collapsed.
-  useEffect(() => {
-    if (hiddenCount <= 0 && expanded) setExpanded(false);
-  }, [hiddenCount, expanded]);
-  // Force the overflow open once when a newly selected trace lives beyond the
-  // visible window. Keyed off the trace ID (not `expanded`) so a manual "Show
-  // less" collapse of the same selection isn't immediately reverted.
-  useEffect(() => {
-    if (!selectedTraceId) {
-      autoExpandedForTraceId.current = null;
-      return;
-    }
-    if (
-      selectedTraceIndex >= DEFAULT_VISIBLE &&
-      autoExpandedForTraceId.current !== selectedTraceId
-    ) {
-      autoExpandedForTraceId.current = selectedTraceId;
-      setExpanded(true);
-    }
-  }, [selectedTraceId, selectedTraceIndex]);
   useEffect(() => {
     if (!selectedTraceId || selectedTraceIndex < 0) return;
-    if (selectedTraceIndex >= DEFAULT_VISIBLE && !expanded) return;
 
     const frame = window.requestAnimationFrame(() => {
       const row = document.getElementById(traceRowAnchorId(selectedTraceId));
       if (!row) return;
       // Only recenter when the row isn't already fully visible. A plain
       // click-to-select on an in-view row shouldn't jump the viewport; this
-      // keeps the recenter behavior for deep-link / auto-expand cases where
-      // the row lands off-screen.
+      // keeps the recenter behavior for the deep-link case where the row
+      // lands off-screen.
       const rect = row.getBoundingClientRect();
       const fullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
       if (fullyVisible) return;
       row.scrollIntoView({ block: "center", inline: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedTraceId, selectedTraceIndex, expanded]);
+  }, [selectedTraceId, selectedTraceIndex]);
 
   return (
     <div
@@ -263,7 +244,7 @@ export function TracesTable({
                 </tr>
               </thead>
               <tbody>
-                {stableTraces.map((trace) => {
+                {filtered.map((trace) => {
                   const isSelected = trace.trace_id === selectedTraceId;
                   return (
                     <tr
@@ -277,30 +258,22 @@ export function TracesTable({
                     </tr>
                   );
                 })}
-                {expanded &&
-                  expandableTraces.map((trace) => {
-                    const isSelected = trace.trace_id === selectedTraceId;
-                    return (
-                      <tr
-                        key={trace.trace_id}
-                        id={traceRowAnchorId(trace.trace_id)}
-                        onClick={() => onSelectTrace?.(trace)}
-                        data-selected={isSelected || undefined}
-                        className={cn(TRACE_ROW_CLASS, isSelected ? TRACE_ROW_SELECTED : TRACE_ROW_HOVER)}
-                      >
-                        <TraceRowCells trace={trace} account={account} />
-                      </tr>
-                    );
-                  })}
               </tbody>
             </table>
           </div>
 
-          <TableShowMore
-            hiddenCount={hiddenCount}
-            expanded={expanded}
-            onToggle={() => setExpanded((e) => !e)}
-          />
+          {/* Pull the next server page when one exists (the endpoint caps a
+              request at 100 traces). */}
+          {hasMore && (
+            <TableShowMore
+              hiddenCount={1}
+              expanded={false}
+              onToggle={() => {
+                if (!loadingMore) onLoadMore?.();
+              }}
+              showMoreLabel={loadingMore ? "Loading…" : "Load more"}
+            />
+          )}
 
         </>
       )}

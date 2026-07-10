@@ -1,4 +1,8 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
 import { api, type InsightsQueryParams } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
@@ -102,6 +106,37 @@ export function useObservabilityTraces(
   return useQuery({
     queryKey: observabilityKeys.traces(deploymentId, opts?.window),
     queryFn: () => api.getObservabilityTraces(deploymentId, params),
+    enabled: (opts?.enabled ?? true) && !!deploymentId,
+    ...LIVE_QUERY_OPTS,
+  });
+}
+
+// TRACES_PAGE_SIZE matches the server's max traces limit; larger windows are
+// assembled by paging through offsets rather than one oversized request.
+const TRACES_PAGE_SIZE = 100;
+
+// useObservabilityTracesInfinite pages the traces endpoint by offset so callers
+// can assemble a window wider than a single request allows. Flatten
+// `data.pages` and call `fetchNextPage` until `hasNextPage` is false (or the
+// desired count is reached).
+export function useObservabilityTracesInfinite(
+  deploymentId: string,
+  params?: Record<string, string>,
+  opts?: { enabled?: boolean; window?: string },
+) {
+  return useInfiniteQuery({
+    queryKey: observabilityKeys.tracesPaged(deploymentId, opts?.window),
+    queryFn: ({ pageParam }) =>
+      api.getObservabilityTraces(deploymentId, {
+        ...params,
+        limit: String(TRACES_PAGE_SIZE),
+        offset: String(pageParam),
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      const next = lastPage.offset + lastPage.limit;
+      return next < lastPage.total ? next : undefined;
+    },
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     ...LIVE_QUERY_OPTS,
   });

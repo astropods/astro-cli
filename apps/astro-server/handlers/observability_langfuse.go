@@ -2452,6 +2452,10 @@ func GetLangfuseSummaries(
 	}
 }
 
+// maxTracesLimit is the largest page size the Langfuse traces API accepts; it
+// rejects anything greater. Callers wanting a wider window paginate via offset.
+const maxTracesLimit = 100
+
 // GetLangfuseTraces returns a paginated list of traces from Langfuse.
 // GET /api/v1/deployments/:id/observability/traces
 func GetLangfuseTraces(
@@ -2472,6 +2476,9 @@ func GetLangfuseTraces(
 		limit, _ := strconv.Atoi(limitStr)
 		if limit <= 0 {
 			limit = 50
+		}
+		if limit > maxTracesLimit {
+			limit = maxTracesLimit
 		}
 
 		offsetStr := c.DefaultQuery("offset", "0")
