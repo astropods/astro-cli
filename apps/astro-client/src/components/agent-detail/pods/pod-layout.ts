@@ -75,11 +75,3 @@ export function computeColumnLayout(tiles: LayoutTile[]): Position[] {
   });
   return positions;
 }
-
-/** Single role-ordered column at x = 0 — the narrow-screen fallback. */
-export function computeVerticalLayout(tiles: LayoutTile[]): Position[] {
-  const order = tiles.map((_, i) => i).sort(byRole(tiles));
-  const positions: Position[] = new Array(tiles.length);
-  stackColumn(order, tiles, 0, positions);
-  return positions;
-}

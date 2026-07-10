@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useAgentDetailContext } from "../AgentDetail";
 import { PodGraph } from "@/components/agent-detail/pods/PodGraph";
@@ -14,6 +14,8 @@ const PANEL_WIDTH_REM = 43; // 42rem pod detail panel + 1rem gap
 const SIDEBAR_WIDTH_REM = 26.75;
 const OVERLAY_THRESHOLD = 800; // Below this, sidebar overlays instead of sitting side-by-side
 const POD_OVERLAY_THRESHOLD = 1050; // Below this, pod detail panel overlays
+const MOBILE_TOP_INSET = 64; // Clears the tab bar / identity controls overlaying the top
+const PANEL_EDGE_GAP = 24; // Gap between the mobile scroll list and the bottom panel (bottom-3 + margin)
 
 function remToPx(rem: number) {
   if (typeof document === "undefined") return rem * 16;
@@ -71,6 +73,25 @@ export default function AgentDeployments() {
 
   const [expanded, setExpanded] = useState(false);
 
+  // Insets that clear the page chrome overlaying the graph (only take effect in
+  // PodGraph's vertical scroll mode). The top bar is always present, so the top
+  // inset is unconditional; the bottom inset applies only when the deployment
+  // panel is a full-width bottom overlay (measured so its real height is used).
+  const { ref: bottomPanelRef, height: bottomPanelHeight } = useContainerSize();
+  const liveGraph = {
+    insetTop: MOBILE_TOP_INSET,
+    insetBottom: shouldOverlay ? bottomPanelHeight + PANEL_EDGE_GAP : 0,
+    effectiveWidth,
+  };
+  // Freeze those inputs while a panel fully covers the graph (mobile pod detail
+  // or expanded history): the graph is hidden, so reflowing it would only flash
+  // behind the panel's open/close animation. Restores to live values on close.
+  const graphCovered = podPanelFullWidth || (expanded && shouldOverlay);
+  const stableGraph = useRef(liveGraph);
+  if (!graphCovered) stableGraph.current = liveGraph;
+  const { insetTop: graphInsetTop, insetBottom: graphInsetBottom, effectiveWidth: graphEffectiveWidth } =
+    graphCovered ? stableGraph.current : liveGraph;
+
   const toggleExpanded = useCallback(() => {
     setExpanded((prev) => !prev);
   }, []);
@@ -114,7 +135,9 @@ export default function AgentDeployments() {
             keys={workloads.map((w) => w.name)}
             components={workloads.map((w) => w.component)}
             kinds={workloads.map((w) => w.kind)}
-            effectiveWidth={effectiveWidth}
+            effectiveWidth={graphEffectiveWidth}
+            insetTop={graphInsetTop}
+            insetBottom={graphInsetBottom}
             renderTile={(i) => (
               <PodTile
                 workload={workloads[i]}
@@ -178,6 +201,7 @@ export default function AgentDeployments() {
         </motion.div>
       ) : (
         <motion.div
+          ref={bottomPanelRef}
           layoutId="deployment-panel"
           className={shouldOverlay ? "absolute inset-x-3 bottom-3 z-20" : "absolute bottom-3 right-3 z-20 w-[26rem]"}
           transition={PANEL_SPRING}
