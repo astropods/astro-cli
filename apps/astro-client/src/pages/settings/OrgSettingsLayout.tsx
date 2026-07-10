@@ -100,7 +100,7 @@ function OrgSettingsContent() {
     <div className="flex-1 overflow-y-auto bg-background">
       <div className="@container w-full px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
         <SidebarLayout>
-        <div className="flex w-full flex-col md:w-48 md:shrink-0">
+        <div className="flex w-full min-w-0 flex-col md:w-48 md:shrink-0">
           <div className="mb-4">
             <Link
               to="/settings/account"
@@ -109,9 +109,14 @@ function OrgSettingsContent() {
               <ArrowLeft className="size-3" />
               Settings
             </Link>
-            <h1 className="text-heading-2 text-foreground break-words flex flex-wrap items-center gap-2">
-              {displayName}
-              {isEuAccount(org) && <Tag color="blue">EU</Tag>}
+            <h1 className="flex max-w-full items-start gap-2 text-heading-2 text-foreground">
+              <span
+                className="min-w-0 max-w-full hyphens-auto [overflow-wrap:anywhere]"
+                title={displayName}
+              >
+                {displayName}
+              </span>
+              {isEuAccount(org) && <Tag color="blue" className="mt-1 shrink-0">EU</Tag>}
             </h1>
           </div>
           <SidebarNav label="Org settings" className="md:w-48">

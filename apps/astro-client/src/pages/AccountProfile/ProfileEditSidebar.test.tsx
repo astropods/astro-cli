@@ -1,10 +1,13 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { screen, cleanup } from '@testing-library/react';
+import { screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
 import { renderRoute, renderWithProviders, mockAuthContext } from '@/test/test-utils';
 import { bustAvatar } from '@/lib/avatar-bust';
 import { ProfileEditSidebar } from './ProfileEditSidebar';
 import type { AccountPublic } from '@/lib/api';
+import { ORG_DISPLAY_NAME_MAX_LENGTH } from '@/lib/constants';
+import { server } from '@/test/msw/server';
 
 const avatarUploadDialogMock = vi.hoisted(() => ({
   uploadBlob: undefined as Blob | undefined,
@@ -60,6 +63,15 @@ const baseAccount: AccountPublic = {
   updated_at: '2025-01-01T00:00:00Z',
 };
 
+const baseOrgAccount: AccountPublic = {
+  ...baseAccount,
+  id: 'org-1',
+  name: 'test-org',
+  type: 'organization',
+  display_name: 'Test Org',
+  email: undefined,
+};
+
 // ── Field pre-population ──────────────────────────────────────────────────────
 
 describe('ProfileEditSidebar field pre-population', () => {
@@ -113,13 +125,13 @@ describe('ProfileEditSidebar display name validation', () => {
     expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
   });
 
-  it('Save button is disabled and error appears when display name is cleared', async () => {
+  it('Save button stays enabled and error appears when display name is cleared', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
     );
     await user.clear(screen.getByDisplayValue('Test User'));
-    expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
     expect(screen.getByText("Display name can't be empty")).toBeInTheDocument();
   });
 
@@ -132,6 +144,38 @@ describe('ProfileEditSidebar display name validation', () => {
     await user.type(screen.getByPlaceholderText('Display name'), 'New Name');
     expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
     expect(screen.queryByText("Display name can't be empty")).not.toBeInTheDocument();
+  });
+
+  it('shows the shared organization name length error for org profiles', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProfileEditSidebar data={baseOrgAccount} onClose={vi.fn()} variant="org" />,
+    );
+
+    await user.clear(screen.getByDisplayValue('Test Org'));
+    await user.type(
+      screen.getByPlaceholderText('Organization name'),
+      'a'.repeat(ORG_DISPLAY_NAME_MAX_LENGTH + 1),
+    );
+
+    expect(
+      screen.getByText(
+        `Organization names cannot exceed ${ORG_DISPLAY_NAME_MAX_LENGTH} characters.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
+  });
+
+  it('shows the shared empty organization name error for org profiles', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProfileEditSidebar data={baseOrgAccount} onClose={vi.fn()} variant="org" />,
+    );
+
+    await user.clear(screen.getByDisplayValue('Test Org'));
+
+    expect(screen.getByText("Organization name can't be empty")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled();
   });
 });
 
@@ -189,5 +233,101 @@ describe('ProfileEditSidebar avatar upload feedback', () => {
 
     expect(bustAvatar).toHaveBeenCalledWith('testuser', blob);
     expect(refreshUserData).toHaveBeenCalledOnce();
+  });
+});
+
+// ── Save consistency ─────────────────────────────────────────────────────────
+
+describe('ProfileEditSidebar save consistency', () => {
+  it('surfaces the server error when save fails', async () => {
+    const user = userEvent.setup();
+
+    server.use(
+      http.patch('/api/v1/me', () =>
+        HttpResponse.json(
+          { error_description: 'Server says no' },
+          { status: 400 },
+        ),
+      ),
+      http.patch('/api/v1/accounts/testuser', () =>
+        HttpResponse.json({ message: 'profile updated' }),
+      ),
+    );
+
+    renderWithProviders(
+      <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
+    );
+
+    await user.clear(screen.getByDisplayValue('Test User'));
+    await user.type(screen.getByPlaceholderText('Display name'), 'New Name');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Server says no')).toBeInTheDocument();
+    });
+  });
+
+  it('patches auth account data as soon as the org display-name save succeeds', async () => {
+    const user = userEvent.setup();
+    const patchAccount = vi.fn();
+    const refreshUserData = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    let resolveProfileSave: () => void = () => {};
+    const profileSave = new Promise<void>((resolve) => {
+      resolveProfileSave = resolve;
+    });
+
+    server.use(
+      http.patch('/api/v1/accounts/test-org', async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        if ('display_name' in body) {
+          return HttpResponse.json({ message: 'profile updated' });
+        }
+
+        await profileSave;
+        return HttpResponse.json({ message: 'profile updated' });
+      }),
+    );
+
+    renderRoute(
+      [
+        {
+          path: '/',
+          Component: () => (
+            <ProfileEditSidebar
+              data={baseOrgAccount}
+              onClose={onClose}
+              variant="org"
+            />
+          ),
+        },
+      ],
+      {
+        initialEntries: ['/'],
+        auth: {
+          ...mockAuthContext,
+          accounts: [baseOrgAccount],
+          patchAccount,
+          refreshUserData,
+        },
+      },
+    );
+
+    await user.clear(screen.getByDisplayValue('Test Org'));
+    await user.type(screen.getByPlaceholderText('Organization name'), 'New Org');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(patchAccount).toHaveBeenCalledWith('test-org', { display_name: 'New Org' });
+    });
+    expect(refreshUserData).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveProfileSave();
+
+    await waitFor(() => {
+      expect(refreshUserData).toHaveBeenCalledOnce();
+    });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

@@ -2,10 +2,19 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useUpdateProfile, useAccountOrgs, useUploadAvatar } from './accounts';
+import {
+  useUpdateProfile,
+  useAccountOrgs,
+  useUploadAvatar,
+  useUpdateAccountDisplayName,
+} from './accounts';
 import { createHookWrapper } from '@/test/test-utils';
 import { accountKeys } from './keys';
-import type { AccountOrgsResponse, AccountPublic, AvatarColors } from '@/lib/api';
+import type {
+  AccountOrgsResponse,
+  AccountPublic,
+  AvatarColors,
+} from '@/lib/api';
 
 // ── useUpdateProfile ──────────────────────────────────────────────────────────
 
@@ -78,6 +87,76 @@ describe('useUpdateProfile', () => {
     expect(
       queryClient.getQueryState(accountKeys.detail('otheruser'))?.isInvalidated,
     ).toBeFalsy();
+  });
+});
+
+// ── useUpdateAccountDisplayName ──────────────────────────────────────────────
+
+describe('useUpdateAccountDisplayName', () => {
+  it('patches account detail and org memberships with the saved display name', async () => {
+    server.use(
+      http.patch('/api/v1/accounts/test-org', () =>
+        HttpResponse.json({ message: 'profile updated' }),
+      ),
+    );
+
+    const { wrapper, queryClient } = createHookWrapper();
+    queryClient.setQueryData<AccountPublic>(accountKeys.detail('test-org'), {
+      name: 'test-org',
+      display_name: 'Old Org',
+    } as AccountPublic);
+    queryClient.setQueryData<AccountOrgsResponse>(accountKeys.orgs('testuser'), {
+      orgs: [{ name: 'test-org', display_name: 'Old Org' }],
+    });
+
+    const { result } = renderHook(() => useUpdateAccountDisplayName(), { wrapper });
+
+    result.current.mutate({ account: 'test-org', displayName: 'New Org' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(
+      queryClient.getQueryData<AccountPublic>(accountKeys.detail('test-org'))?.display_name,
+    ).toBe('New Org');
+    expect(
+      queryClient
+        .getQueryData<AccountOrgsResponse>(accountKeys.orgs('testuser'))
+        ?.orgs.find((org) => org.name === 'test-org')?.display_name,
+    ).toBe('New Org');
+  });
+
+  it('does not patch check or search caches that contain orgs in the key', async () => {
+    server.use(
+      http.patch('/api/v1/accounts/test-org', () =>
+        HttpResponse.json({ message: 'profile updated' }),
+      ),
+    );
+
+    const { wrapper, queryClient } = createHookWrapper();
+    const checkData = { available: true };
+    const searchData = {
+      results: [{ id: 'acct-1', name: 'test-org', display_name: 'Old Org', type: 'organization' }],
+    };
+
+    queryClient.setQueryData(accountKeys.checkName('orgs'), checkData);
+    queryClient.setQueryData(accountKeys.search('orgs'), searchData);
+    queryClient.setQueryData<AccountOrgsResponse>(accountKeys.orgs('testuser'), {
+      orgs: [{ name: 'test-org', display_name: 'Old Org' }],
+    });
+
+    const { result } = renderHook(() => useUpdateAccountDisplayName(), { wrapper });
+
+    result.current.mutate({ account: 'test-org', displayName: 'New Org' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(queryClient.getQueryData(accountKeys.checkName('orgs'))).toEqual(checkData);
+    expect(queryClient.getQueryData(accountKeys.search('orgs'))).toEqual(searchData);
+    expect(
+      queryClient
+        .getQueryData<AccountOrgsResponse>(accountKeys.orgs('testuser'))
+        ?.orgs.find((org) => org.name === 'test-org')?.display_name,
+    ).toBe('New Org');
   });
 });
 

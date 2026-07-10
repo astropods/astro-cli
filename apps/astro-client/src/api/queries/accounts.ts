@@ -1,7 +1,22 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { AccountPublic, CreateAccountData, AccountMembersResponse, AccountOrgsResponse } from '../../lib/api';
+import type {
+  AccountPublic,
+  CreateAccountData,
+  AccountMembersResponse,
+  AccountOrgsResponse,
+} from '../../lib/api';
 import { accountKeys } from './keys';
+
+function isAccountOrgsQueryKey(queryKey: readonly unknown[]) {
+  return (
+    queryKey.length === 3 &&
+    queryKey[0] === 'accounts' &&
+    queryKey[1] !== 'check' &&
+    queryKey[1] !== 'search' &&
+    queryKey[2] === 'orgs'
+  );
+}
 
 export function useAccountMembers(account: string, opts?: { includePending?: boolean; enabled?: boolean }) {
   return useQuery({
@@ -144,7 +159,27 @@ export function useUpdateAccountDisplayName() {
     mutationFn: ({ account, displayName }: { account: string; displayName: string }) =>
       api.updateAccountDisplayName(account, displayName),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });
+      const { account, displayName } = variables;
+      queryClient.setQueryData<AccountPublic>(
+        accountKeys.detail(account),
+        (old) => old ? { ...old, display_name: displayName } : old,
+      );
+      queryClient.setQueriesData<AccountOrgsResponse>(
+        { predicate: (query) => isAccountOrgsQueryKey(query.queryKey) },
+        (old) => Array.isArray(old?.orgs)
+          ? {
+              ...old,
+              orgs: old.orgs.map((org) =>
+                org.name === account ? { ...org, display_name: displayName } : org,
+              ),
+            }
+          : old,
+      );
+
+      void queryClient.invalidateQueries({ queryKey: accountKeys.detail(account) });
+      void queryClient.invalidateQueries({
+        predicate: (query) => isAccountOrgsQueryKey(query.queryKey),
+      });
     },
   });
 }

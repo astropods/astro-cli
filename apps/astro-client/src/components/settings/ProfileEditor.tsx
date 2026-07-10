@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useBlocker } from "react-router";
-import { Camera, Loader2 } from "lucide-react";
+import { Camera } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Button } from "@/components/ui/button";
+import { SaveButton } from "@/components/ui/save-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -13,13 +13,16 @@ import {
 } from "@/components/ui/tooltip";
 import { useUploadAvatar } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
-import { useSavedFlash } from "@/hooks/use-saved-flash";
+import { getApiErrorMessage } from "@/lib/api";
 import { bustAvatar } from "@/lib/avatar-bust";
-import { SavedIndicator } from "@/components/settings/SettingsShared";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
-import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
+import {
+  getDisplayNameError,
+  type AccountDisplayNameKind,
+} from "@/lib/account-display-name";
 
 const PERMISSION_TOOLTIP = "You need admin or owner access to edit this";
+const SAVE_ERROR_FALLBACK = "Failed to save. Please try again.";
 
 interface ProfileEditorProps {
   /** Account slug used for avatar upload */
@@ -36,6 +39,8 @@ interface ProfileEditorProps {
   isSaving: boolean;
   /** When true, all editing controls are disabled */
   readOnly?: boolean;
+  /** Account kind used for display-name validation */
+  displayNameKind?: AccountDisplayNameKind;
 }
 
 export function ProfileEditor({
@@ -46,13 +51,15 @@ export function ProfileEditor({
   onSave,
   isSaving,
   readOnly,
+  displayNameKind = "personal",
 }: ProfileEditorProps) {
   const { refreshUserData } = useAuth();
   const uploadAvatar = useUploadAvatar();
   const [displayName, setDisplayName] = useState(currentDisplayName);
   const [savedName, setSavedName] = useState(currentDisplayName);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
-  const { showSaved, flash } = useSavedFlash();
+  const [savePending, setSavePending] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Sync when upstream data changes (e.g. after session refresh)
   useEffect(() => {
@@ -61,6 +68,13 @@ export function ProfileEditor({
   }, [currentDisplayName]);
 
   const isDirty = displayName !== savedName;
+  const trimmedDisplayName = displayName.trim();
+  const displayNameClientError = getDisplayNameError(
+    displayName,
+    displayNameKind,
+  );
+  const displayNameError = displayNameClientError ?? saveError;
+  const saving = isSaving || savePending;
 
   const blocker = useBlocker(isDirty);
 
@@ -85,12 +99,20 @@ export function ProfileEditor({
   }, [isDirty]);
 
   const handleSave = () => {
-    const trimmed = displayName.trim();
-    onSave(trimmed).then(() => {
-      setDisplayName(trimmed);
-      setSavedName(trimmed);
-      flash();
-    });
+    if (displayNameClientError || saving) return;
+    setSaveError(null);
+    setSavePending(true);
+    onSave(trimmedDisplayName)
+      .then(() => {
+        setDisplayName(trimmedDisplayName);
+        setSavedName(trimmedDisplayName);
+      })
+      .catch((error: unknown) => {
+        setSaveError(getApiErrorMessage(error, SAVE_ERROR_FALLBACK));
+      })
+      .finally(() => {
+        setSavePending(false);
+      });
   };
 
   const resolvedDisplayName = currentDisplayName || accountName;
@@ -102,7 +124,7 @@ export function ProfileEditor({
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col gap-5">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -126,12 +148,18 @@ export function ProfileEditor({
             </TooltipTrigger>
             {permissionTip}
           </Tooltip>
-          <div>
-            <div className="text-sm font-semibold text-foreground">
+          <div className="min-w-0 flex-1">
+            <div
+              className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground"
+              title={resolvedDisplayName}
+            >
               {resolvedDisplayName}
             </div>
-            <div className="font-mono text-xs text-faint-foreground">
-              @{accountName}
+            <div
+              className="min-w-0 max-w-full truncate font-mono text-xs text-faint-foreground"
+              title={`@${accountName}`}
+            >
+              {`@${accountName}`}
             </div>
           </div>
         </div>
@@ -146,7 +174,6 @@ export function ProfileEditor({
           onSuccess={(blob) => {
             bustAvatar(accountName, blob);
             void refreshUserData();
-            flash();
           }}
         />
 
@@ -158,27 +185,39 @@ export function ProfileEditor({
                 <div className="min-w-[200px] max-w-sm flex-1">
                   <Input
                     value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    maxLength={DISPLAY_NAME_MAX_LENGTH}
+                    onChange={(e) => {
+                      setDisplayName(e.target.value);
+                      setSaveError(null);
+                    }}
                     placeholder="Add a display name"
                     disabled={readOnly}
+                    aria-invalid={!!displayNameError || undefined}
+                    aria-describedby={
+                      displayNameError ? "display-name-error" : undefined
+                    }
                   />
                 </div>
               </TooltipTrigger>
               {permissionTip}
             </Tooltip>
             {isDirty && (
-              <Button
+              <SaveButton
                 className="shrink-0"
-                disabled={isSaving}
+                isSaving={saving}
                 onClick={handleSave}
-              >
-                {isSaving && <Loader2 size={14} className="spinner-delayed" />}
-                Save changes
-              </Button>
+              />
             )}
-            <SavedIndicator visible={showSaved} />
           </div>
+          <p
+            id="display-name-error"
+            aria-hidden={!displayNameError}
+            aria-live="polite"
+            className={`mt-1.5 min-h-4 max-w-sm text-xs ${
+              displayNameError ? "text-destructive" : "invisible"
+            }`}
+          >
+            {displayNameError}
+          </p>
         </div>
       </div>
     </TooltipProvider>

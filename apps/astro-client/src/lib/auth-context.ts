@@ -22,6 +22,8 @@ export interface AuthContextType extends AuthState {
   refresh: () => Promise<void>;
   /** Refresh user/account data (display name, avatar, etc.) without triggering a blanket query invalidation. Use after profile edits instead of refresh(). */
   refreshUserData: () => Promise<void>;
+  /** Patch a known account in memory after a confirmed profile edit. */
+  patchAccount: (accountName: string, patch: Partial<Account>) => void;
   checkAuth: () => Promise<void>;
   switchOrg: (organizationId: string) => Promise<void>;
   /** Seed auth state from a server-side loader response. Skips the client-side check. */

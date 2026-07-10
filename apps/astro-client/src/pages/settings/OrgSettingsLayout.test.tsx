@@ -16,17 +16,17 @@ const orgAccount = {
   organization_id: 'wos-org-1',
 };
 
-const makeAuth = (role: string): AuthContextType => ({
+const makeAuth = (role: string, org = orgAccount): AuthContextType => ({
   ...mockAuthContext,
   role,
-  organizationId: 'wos-org-1',
+  organizationId: org.organization_id,
   accounts: [
     { id: 'acct-1', name: 'testuser', type: 'personal' },
-    orgAccount,
+    org,
   ],
 });
 
-function renderLayout(role: string) {
+function renderLayout(role: string, org = orgAccount) {
   return renderRoute(
     [
       {
@@ -40,8 +40,8 @@ function renderLayout(role: string) {
       },
     ],
     {
-      initialEntries: [`/settings/org/${ORG_SLUG}/general`],
-      auth: makeAuth(role),
+      initialEntries: [`/settings/org/${org.name}/general`],
+      auth: makeAuth(role, org),
     },
   );
 }
@@ -110,5 +110,23 @@ describe('OrgSettingsLayout', () => {
       expect(screen.getByText('Test Org')).toBeInTheDocument();
     });
     expect(screen.queryByText('EU')).not.toBeInTheDocument();
+  });
+
+  it('keeps long organization names inside the settings sidebar', async () => {
+    const longName = 'hereisaninsanelylongorgnamehereisaninsanelylongorgnamehereisanin';
+    renderLayout('admin', {
+      ...orgAccount,
+      name: longName,
+      display_name: longName,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(longName)).toBeInTheDocument();
+    });
+
+    const name = screen.getByText(longName);
+    expect(name).toHaveClass('min-w-0', 'max-w-full', 'hyphens-auto');
+    expect(name.className).toContain('[overflow-wrap:anywhere]');
+    expect(name.closest('h1')).toHaveClass('max-w-full');
   });
 });

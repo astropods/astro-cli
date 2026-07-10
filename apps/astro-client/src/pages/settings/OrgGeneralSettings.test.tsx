@@ -1,6 +1,7 @@
 import { screen, waitFor, cleanup } from '@testing-library/react';
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
+import userEvent from '@testing-library/user-event';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import { server } from '@/test/msw/server';
 import type { AuthContextType } from '@/lib/auth-context';
@@ -64,6 +65,39 @@ describe('OrgGeneralSettings', () => {
       });
       const input = screen.getByDisplayValue('Test Org');
       expect(input).toBeDisabled();
+    });
+
+    it('patches and refreshes auth account data after saving a display name', async () => {
+      const user = userEvent.setup();
+      const patchAccount = vi.fn();
+      const refreshUserData = vi.fn().mockResolvedValue(undefined);
+
+      server.use(
+        http.patch('/api/v1/accounts/:account', () =>
+          HttpResponse.json({ message: 'profile updated' }),
+        ),
+      );
+
+      renderRoute(
+        [{ path: '/settings/org/:orgSlug/general', Component: OrgGeneralSettings }],
+        {
+          initialEntries: [`/settings/org/${ORG_SLUG}/general`],
+          auth: {
+            ...makeAuth('admin'),
+            patchAccount,
+            refreshUserData,
+          },
+        },
+      );
+
+      await user.clear(await screen.findByDisplayValue('Test Org'));
+      await user.type(screen.getByPlaceholderText('Add a display name'), 'New Org');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => {
+        expect(patchAccount).toHaveBeenCalledWith(ORG_SLUG, { display_name: 'New Org' });
+      });
+      expect(refreshUserData).toHaveBeenCalledOnce();
     });
   });
 

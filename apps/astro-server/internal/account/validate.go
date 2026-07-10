@@ -6,6 +6,10 @@ import (
 	"unicode"
 )
 
+const AccountNameMaxLength = 39
+const DisplayNameMaxLength = 64
+const OrganizationDisplayNameMaxLength = 39
+
 // reserved names that cannot be used as account names
 var reservedNames = map[string]bool{
 	// Current frontend routes
@@ -274,8 +278,8 @@ func ValidateAccountName(name string) error {
 	if len(name) < 4 {
 		return fmt.Errorf("account name must be at least 4 characters")
 	}
-	if len(name) > 39 {
-		return fmt.Errorf("account name must be at most 39 characters")
+	if len(name) > AccountNameMaxLength {
+		return fmt.Errorf("account name must be at most %d characters", AccountNameMaxLength)
 	}
 
 	// Must be lowercase

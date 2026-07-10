@@ -58,6 +58,21 @@ export class ApiRequestError extends Error {
   }
 }
 
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object') {
+    const apiError = error as ApiError & { message?: unknown };
+    const message =
+      apiError.error_description ||
+      apiError.details ||
+      apiError.error ||
+      (typeof apiError.message === 'string' ? apiError.message : '');
+
+    if (message.trim()) return message;
+  }
+
+  return fallback;
+}
+
 // ============================================================================
 // Avatars (cross-domain primitives — shared by accounts, blueprints, deployments)
 // ============================================================================

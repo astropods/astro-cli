@@ -157,6 +157,18 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   // Use this after profile edits instead of refresh().
   const refreshUserData = useCallback(() => doRefreshSession({ isRefresh: false }), [doRefreshSession]);
 
+  const patchAccount = useCallback(
+    (accountName: string, patch: Partial<AuthState['accounts'][number]>) => {
+      setState((prev) => ({
+        ...prev,
+        accounts: prev.accounts.map((account) =>
+          account.name === accountName ? { ...account, ...patch } : account,
+        ),
+      }));
+    },
+    [],
+  );
+
   const switchOrg = useCallback(async (organizationId: string) => {
     try {
       const response = await api.switchOrg(organizationId);
@@ -223,6 +235,7 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
     logout,
     refresh,
     refreshUserData,
+    patchAccount,
     checkAuth,
     switchOrg,
     hydrateAuth,

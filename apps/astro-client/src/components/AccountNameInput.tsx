@@ -1,5 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { sanitizeAccountName } from "@/hooks/use-account-name";
+import { ACCOUNT_NAME_MAX_LENGTH } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface AccountNameInputProps {
@@ -32,7 +33,7 @@ export function AccountNameInput({
           onBlur={onBlur}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          maxLength={39}
+          maxLength={ACCOUNT_NAME_MAX_LENGTH}
           aria-invalid={!!displayError || undefined}
           className={cn(
             "pr-9",

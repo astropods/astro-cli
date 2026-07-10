@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
@@ -32,6 +33,20 @@ type CreateAccountRequest struct {
 		Kind  string `json:"kind"`
 		Role  string `json:"role"`
 	} `json:"invitations,omitempty"`
+}
+
+func accountDisplayNameMaxLength(accountType string) int {
+	if accountType == "organization" {
+		return account.OrganizationDisplayNameMaxLength
+	}
+	return account.DisplayNameMaxLength
+}
+
+func accountDisplayNameLengthError(accountType string, maxLength int) string {
+	if accountType == "organization" {
+		return "organization names cannot exceed " + strconv.Itoa(maxLength) + " characters"
+	}
+	return "display names cannot exceed " + strconv.Itoa(maxLength) + " characters"
 }
 
 // AccountOwner represents the owner's public profile in account responses
@@ -135,8 +150,18 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			}
 		}
 
+		req.DisplayName = strings.TrimSpace(req.DisplayName)
+		displayNameMaxLength := accountDisplayNameMaxLength(req.Type)
+		if req.DisplayName != "" && utf8.RuneCountInString(req.DisplayName) > displayNameMaxLength {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid request",
+				"details": accountDisplayNameLengthError(req.Type, displayNameMaxLength),
+			})
+			return
+		}
+
 		// Organization accounts require a display name
-		if req.Type == "organization" && strings.TrimSpace(req.DisplayName) == "" {
+		if req.Type == "organization" && req.DisplayName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid request",
 				"details": "display name is required for organization accounts",
@@ -400,7 +425,7 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 // UpdateAccountRequest represents the request body for updating account fields.
 // Profile fields use pointer/PATCH semantics: omitting a field leaves the existing value unchanged.
 type UpdateAccountRequest struct {
-	DisplayName    string    `json:"display_name"`
+	DisplayName    *string   `json:"display_name"`
 	Bio            *string   `json:"bio"`
 	Location       *string   `json:"location"`
 	Email          *string   `json:"email"`
@@ -430,10 +455,18 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			return
 		}
 
-		req.DisplayName = strings.TrimSpace(req.DisplayName)
-		if req.DisplayName != "" && len(req.DisplayName) > 64 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
-			return
+		displayName := ""
+		displayNameMaxLength := accountDisplayNameMaxLength(acct.Type)
+		if req.DisplayName != nil {
+			displayName = strings.TrimSpace(*req.DisplayName)
+			if acct.Type == "organization" && displayName == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "organization name can't be empty"})
+				return
+			}
+			if displayName != "" && utf8.RuneCountInString(displayName) > displayNameMaxLength {
+				c.JSON(http.StatusBadRequest, gin.H{"error": accountDisplayNameLengthError(acct.Type, displayNameMaxLength)})
+				return
+			}
 		}
 		if req.Bio != nil && len(*req.Bio) > 160 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bio must be 160 characters or fewer"})
@@ -495,13 +528,13 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			}
 		}
 
-		if err := accountStore.UpdateProfile(acct.ID, req.DisplayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
+		if err := accountStore.UpdateProfile(acct.ID, displayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
 			log.Error("Failed to update account profile", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return
 		}
 
-		log.Info("Account profile updated", "account_id", acct.ID, "display_name", req.DisplayName)
+		log.Info("Account profile updated", "account_id", acct.ID, "display_name", displayName)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.ProfileUpdate
@@ -509,7 +542,7 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 		evt.ResourceID = acct.ID
 		evt.ResourceName = acct.Name
 		evt.Description = "Updated account profile"
-		evt.Metadata = map[string]any{"display_name": req.DisplayName}
+		evt.Metadata = map[string]any{"display_name": displayName}
 		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{"message": "profile updated"})
@@ -634,8 +667,8 @@ func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore, audit
 			c.JSON(http.StatusBadRequest, gin.H{"error": "display name is required"})
 			return
 		}
-		if len(req.DisplayName) > 64 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
+		if utf8.RuneCountInString(req.DisplayName) > account.DisplayNameMaxLength {
+			c.JSON(http.StatusBadRequest, gin.H{"error": accountDisplayNameLengthError("personal", account.DisplayNameMaxLength)})
 			return
 		}
 

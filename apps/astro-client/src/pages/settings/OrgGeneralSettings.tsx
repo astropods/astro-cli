@@ -11,8 +11,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { useUpdateAccountDisplayName } from "@/api/queries";
-import { useSavedFlash } from "@/hooks/use-saved-flash";
-import { SectionHeader, SavedIndicator } from "@/components/settings/SettingsShared";
+import { SectionHeader } from "@/components/settings/SettingsShared";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { ProfileEditor } from "@/components/settings/ProfileEditor";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
@@ -23,7 +22,7 @@ export const meta: MetaFunction = () => [{ title: "General - Organization Settin
 
 function ProfileSection({ readOnly }: { readOnly?: boolean }) {
   const { orgSlug = "" } = useParams();
-  const { accounts, refreshUserData } = useAuth();
+  const { accounts, patchAccount, refreshUserData } = useAuth();
   const org = accounts.find((a) => a.name === orgSlug);
   const updateDisplayName = useUpdateAccountDisplayName();
 
@@ -37,10 +36,12 @@ function ProfileSection({ readOnly }: { readOnly?: boolean }) {
       currentAvatarUrl={org.avatar_url}
       onSave={async (displayName) => {
         await updateDisplayName.mutateAsync({ account: orgSlug, displayName });
+        patchAccount(orgSlug, { display_name: displayName });
         await refreshUserData();
       }}
       isSaving={updateDisplayName.isPending}
       readOnly={readOnly}
+      displayNameKind="organization"
     />
   );
 }
@@ -50,22 +51,23 @@ function AccountSection({ readOnly }: { readOnly?: boolean }) {
   const { refresh } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const { showSaved, flash } = useSavedFlash();
 
   const handleSuccess = (newName: string) => {
     setOpen(false);
     navigate(`/settings/org/${newName}/general`, { replace: true });
     refresh();
-    flash();
   };
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <Label size="md">Username</Label>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <span className="font-mono text-body text-foreground">
-            @{orgSlug}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span
+            className="min-w-0 max-w-full truncate font-mono text-body text-foreground"
+            title={`@${orgSlug}`}
+          >
+            {`@${orgSlug}`}
           </span>
           {readOnly ? (
             <TooltipProvider delayDuration={300}>
@@ -91,7 +93,6 @@ function AccountSection({ readOnly }: { readOnly?: boolean }) {
               Change username
             </Button>
           )}
-          <SavedIndicator visible={showSaved} />
         </div>
         <ChangeUsernameDialog
           currentName={orgSlug}

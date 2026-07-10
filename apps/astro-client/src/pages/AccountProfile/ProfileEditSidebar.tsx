@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AccountPublic } from "@/lib/api";
+import { getApiErrorMessage, type AccountPublic } from "@/lib/api";
 import {
   useUpdateProfile,
   useUpdateAccountDisplayName,
@@ -17,8 +17,9 @@ import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { SocialLinksEditor } from "@/components/account-profile/SocialLinksEditor";
 import { PronounsSelect } from "@/components/account-profile/PronounsSelect";
 import { bustAvatar } from "@/lib/avatar-bust";
-import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
-import { Camera, Loader2, X } from "lucide-react";
+import { getDisplayNameError } from "@/lib/account-display-name";
+import { SaveButton } from "@/components/ui/save-button";
+import { Camera, X } from "lucide-react";
 
 interface ProfileEditSidebarProps {
   data: AccountPublic;
@@ -33,7 +34,7 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
   const updateDisplayName = useUpdateAccountDisplayName();
   const updateAccountProfile = useUpdateAccountProfile();
   const uploadAvatar = useUploadAvatar();
-  const { refreshUserData } = useAuth();
+  const { patchAccount, refreshUserData } = useAuth();
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
 
   const [displayName, setDisplayName] = useState(data.display_name ?? "");
@@ -47,17 +48,37 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
     return [links[0] ?? "", links[1] ?? "", links[2] ?? "", links[3] ?? ""];
   });
 
-  const isSaving = (isOrg ? updateDisplayName.isPending : updateProfile.isPending) || updateAccountProfile.isPending;
-  const displayNameEmpty = displayName.trim() === "";
+  const displayNameKind = isOrg ? "organization" : "personal";
+  const trimmedDisplayName = displayName.trim();
+  const displayNameError = getDisplayNameError(
+    displayName,
+    displayNameKind,
+  );
+  const [savePending, setSavePending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const isSaving =
+    savePending ||
+    (isOrg ? updateDisplayName.isPending : updateProfile.isPending) ||
+    updateAccountProfile.isPending;
 
   async function handleSave() {
     setSaveError(null);
+    if (displayNameError || isSaving) return;
+    setSavePending(true);
     try {
+      const saveDisplayName = isOrg
+        ? updateDisplayName
+            .mutateAsync({
+              account: data.name,
+              displayName: trimmedDisplayName,
+            })
+            .then(() => {
+              patchAccount(data.name, { display_name: trimmedDisplayName });
+            })
+        : updateProfile.mutateAsync({ display_name: trimmedDisplayName });
+
       await Promise.all([
-        isOrg
-          ? updateDisplayName.mutateAsync({ account: data.name, displayName })
-          : updateProfile.mutateAsync({ display_name: displayName }),
+        saveDisplayName,
         updateAccountProfile.mutateAsync({
           account: data.name,
           bio,
@@ -67,9 +88,15 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
           ...(!isOrg && { email, pronouns, local_timezone: "" }),
         }),
       ]);
+      if (!isOrg) {
+        patchAccount(data.name, { display_name: trimmedDisplayName });
+      }
+      await refreshUserData();
       onClose();
-    } catch {
-      setSaveError("Failed to save. Please try again.");
+    } catch (error: unknown) {
+      setSaveError(getApiErrorMessage(error, "Failed to save. Please try again."));
+    } finally {
+      setSavePending(false);
     }
   }
 
@@ -113,12 +140,21 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
           <Input
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            maxLength={DISPLAY_NAME_MAX_LENGTH}
             placeholder={isOrg ? "Organization name" : "Display name"}
-            className={cn("h-8 text-body-sm", displayNameEmpty && "border-destructive focus-visible:ring-destructive/20")}
+            aria-invalid={!!displayNameError || undefined}
+            aria-describedby={
+              displayNameError ? "profile-display-name-error" : undefined
+            }
+            className={cn(
+              "h-8 text-body-sm",
+              displayNameError &&
+                "border-destructive focus-visible:ring-destructive/20",
+            )}
           />
-          {displayNameEmpty && (
-            <p className="mt-1 text-[11px] text-destructive">Display name can't be empty</p>
+          {displayNameError && (
+            <p id="profile-display-name-error" className="mt-1 text-[11px] text-destructive">
+              {displayNameError}
+            </p>
           )}
         </div>
 
@@ -187,10 +223,10 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
 
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
-          <Button size="sm" onClick={handleSave} disabled={isSaving || displayNameEmpty}>
-            {isSaving && <Loader2 className="size-3.5 animate-spin" />}
-            Save
-          </Button>
+          <SaveButton
+            onClick={handleSave}
+            isSaving={isSaving}
+          />
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>

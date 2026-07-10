@@ -336,9 +336,15 @@ func TestCreateAccount_OrgRequiresDisplayName(t *testing.T) {
 	tests := []struct {
 		name        string
 		displayName string
+		wantDetails string
 	}{
-		{"missing", ""},
-		{"whitespace only", "   "},
+		{"missing", "", "display name is required for organization accounts"},
+		{"whitespace only", "   ", "display name is required for organization accounts"},
+		{
+			"too long",
+			strings.Repeat("a", account.OrganizationDisplayNameMaxLength+1),
+			"organization names cannot exceed 39 characters",
+		},
 	}
 
 	for _, tt := range tests {
@@ -369,8 +375,8 @@ func TestCreateAccount_OrgRequiresDisplayName(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 				t.Fatalf("failed to unmarshal: %v", err)
 			}
-			if resp["details"] != "display name is required for organization accounts" {
-				t.Errorf("unexpected details: %v", resp["details"])
+			if resp["details"] != tt.wantDetails {
+				t.Errorf("details = %v, want %q", resp["details"], tt.wantDetails)
 			}
 		})
 	}
@@ -575,7 +581,7 @@ func TestDeleteAccount_MarkDeletedDBError(t *testing.T) {
 
 // --- UpdateAccount handler tests ---
 
-func setupUpdateAccountRouter() (*gin.Engine, sqlmock.Sqlmock) {
+func setupUpdateAccountRouter(accountType ...string) (*gin.Engine, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
@@ -585,15 +591,96 @@ func setupUpdateAccountRouter() (*gin.Engine, sqlmock.Sqlmock) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
+		typ := "personal"
+		if len(accountType) > 0 {
+			typ = accountType[0]
+		}
 		c.Set(string(auth.AccountContextKey), &account.Account{
 			ID:   "acct-1",
 			Name: "testaccount",
-			Type: "personal",
+			Type: typ,
 		})
 		c.Next()
 	})
 	router.PATCH("/api/v1/accounts/:account", UpdateAccount(log, store, auditStore))
 	return router, mock
+}
+
+func TestUpdateAccount_OrgDisplayNameTooLong(t *testing.T) {
+	router, _ := setupUpdateAccountRouter("organization")
+	body := fmt.Sprintf(`{"display_name":%q}`, strings.Repeat("a", account.OrganizationDisplayNameMaxLength+1))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "organization names cannot exceed 39 characters") {
+		t.Fatalf("expected organization display-name limit error, got %s", rec.Body.String())
+	}
+}
+
+func TestUpdateAccount_OrgDisplayNameRequiredWhenProvided(t *testing.T) {
+	router, _ := setupUpdateAccountRouter("organization")
+	body := `{"display_name":"   "}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "organization name can't be empty") {
+		t.Fatalf("expected organization display-name required error, got %s", rec.Body.String())
+	}
+}
+
+func TestUpdateAccount_OrgDisplayNameCountsCharacters(t *testing.T) {
+	router, mock := setupUpdateAccountRouter("organization")
+	displayName := strings.Repeat("é", account.OrganizationDisplayNameMaxLength)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE accounts SET display_name`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := fmt.Sprintf(`{"display_name":%q}`, displayName)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestUpdateAccount_OrgProfilePatchAllowsOmittedDisplayName(t *testing.T) {
+	router, mock := setupUpdateAccountRouter("organization")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM accounts`).
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectExec(`INSERT INTO account_profile`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	body := `{"bio":"Org bio"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/accounts/testaccount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
 }
 
 func TestUpdateAccount_TooManySocialLinks(t *testing.T) {

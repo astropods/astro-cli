@@ -1,9 +1,10 @@
 import { useCheckAccountName } from '@/api/queries/accounts';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { ACCOUNT_NAME_MAX_LENGTH } from '@/lib/constants';
 
 export function validateAccountName(name: string, minLength = 4): string | null {
   if (name.length < minLength) return `Must be at least ${minLength} characters`;
-  if (name.length > 39) return 'Must be at most 39 characters';
+  if (name.length > ACCOUNT_NAME_MAX_LENGTH) return `Must be at most ${ACCOUNT_NAME_MAX_LENGTH} characters`;
   if (!/^[a-z]/.test(name)) return 'Must start with a letter';
   if (name.endsWith('-')) return 'Must not end with a hyphen';
   if (/--/.test(name)) return 'Must not contain consecutive hyphens';
