@@ -1,4 +1,4 @@
-import { PanelRight, SquarePen } from "lucide-react";
+import { ExternalLink, PanelRight, SquarePen } from "lucide-react";
 import { useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -74,7 +74,7 @@ export function ChatThreadHeader({
   onToggleInspector?: () => void;
 }) {
   // Mirror AgentDeploymentMenu's switch list off the same summary query, not
-  // eligibleDeploymentIds — otherwise the two disagree while summary loads and
+  // eligibleDeploymentIds, otherwise the two disagree while summary loads and
   // the coachmark points at a switcher that only shows the deploy-more footer.
   const { data: summaryData } = useDeploymentsSummary();
   const hasSwitchList = (summaryData?.accounts ?? []).some((acct) =>
@@ -95,6 +95,10 @@ export function ChatThreadHeader({
     }
     setSeen(true);
   };
+
+  const activeTitle = sessions
+    .find((s) => s.conversationId === activeConversationId)
+    ?.title.trim();
 
   return (
     <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border/60 px-3 md:px-4">
@@ -117,7 +121,34 @@ export function ChatThreadHeader({
         <ChatAgentSwitchCoachmark onClose={dismissCoachmark} />
       ) : null}
 
-      <span className="min-w-0 flex-1" aria-hidden />
+      {activeTitle ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <p
+            className="truncate text-body-sm font-medium text-foreground"
+            title={activeTitle}
+          >
+            {activeTitle}
+          </p>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={chatDeploymentPath(deployment.id, activeConversationId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open chat in new tab"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ExternalLink className="size-3" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Open in new tab</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      ) : (
+        <span className="min-w-0 flex-1" aria-hidden />
+      )}
 
       <div className="flex shrink-0 items-center gap-3">
         {onNewConversation ? (

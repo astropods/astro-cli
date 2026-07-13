@@ -4,7 +4,24 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { AgentDeploymentSummary } from "@/lib/api";
+import type { ChatSession } from "@/lib/chat/types";
 import { ChatThreadHeader } from "./ChatThreadHeader";
+
+// This runner may leave localStorage undefined; stub a minimal in-memory one
+// (no-op in CI, where localStorage exists).
+if (!("localStorage" in globalThis) || !globalThis.localStorage) {
+  const store = new Map<string, string>();
+  globalThis.localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, String(v)),
+    removeItem: (k: string) => void store.delete(k),
+    clear: () => store.clear(),
+    key: (i: number) => [...store.keys()][i] ?? null,
+    get length() {
+      return store.size;
+    },
+  } as Storage;
+}
 
 // The header + agent menu read these query hooks; stub them so the test stays
 // focused on coachmark gating and never hits the network.
@@ -53,7 +70,10 @@ const deployment: AgentDeploymentSummary = {
   created_at: "2026-01-01T00:00:00Z",
 };
 
-function renderHeader(eligibleDeploymentIds: Set<string>) {
+function renderHeader(
+  eligibleDeploymentIds: Set<string>,
+  extra?: { sessions?: ChatSession[]; activeConversationId?: string },
+) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter>
@@ -61,12 +81,23 @@ function renderHeader(eligibleDeploymentIds: Set<string>) {
           account="acme"
           deployment={deployment}
           eligibleDeploymentIds={eligibleDeploymentIds}
-          sessions={[]}
+          sessions={extra?.sessions ?? []}
+          activeConversationId={extra?.activeConversationId}
           onSelectSession={vi.fn()}
         />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+function session(overrides: Partial<ChatSession> = {}): ChatSession {
+  return {
+    conversationId: "c1",
+    deploymentId: "dep-1",
+    title: "Weekend trip to Lisbon",
+    updatedAt: "2026-07-10T12:00:00Z",
+    ...overrides,
+  };
 }
 
 const coachmarkText = /switch agents here/i;
@@ -110,5 +141,32 @@ describe("ChatThreadHeader agent-switch coachmark", () => {
 
     expect(persistedFlag()).toBe(true);
     expect(screen.queryByText(coachmarkText)).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatThreadHeader window controls", () => {
+  it("surfaces the active conversation title", () => {
+    renderHeader(new Set(["dep-1"]), {
+      sessions: [session({ title: "Weekend trip to Lisbon" })],
+      activeConversationId: "c1",
+    });
+    expect(screen.getByText("Weekend trip to Lisbon")).toBeInTheDocument();
+  });
+
+  it("omits the title when no conversation is active", () => {
+    renderHeader(new Set(["dep-1"]), {
+      sessions: [session({ title: "Weekend trip to Lisbon" })],
+    });
+    expect(screen.queryByText("Weekend trip to Lisbon")).not.toBeInTheDocument();
+  });
+
+  it("opens the active conversation in a new tab", () => {
+    renderHeader(new Set(["dep-1"]), {
+      sessions: [session()],
+      activeConversationId: "c1",
+    });
+    const link = screen.getByRole("link", { name: "Open chat in new tab" });
+    expect(link).toHaveAttribute("href", "/chat/dep-1?conversation=c1");
+    expect(link).toHaveAttribute("target", "_blank");
   });
 });

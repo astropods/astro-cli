@@ -42,7 +42,7 @@ const XACCT_UPGRADE_LATEST_BUILD = "build-xacct-2";
 // lineage). The personal account ALSO publishes a blueprint with the same
 // name whose latest build is newer. Pre-fix the client matched by name
 // against the personal account's list and advertised that newer build as
-// an upgrade — but the server cannot honor it because the deployment's
+// an upgrade - but the server cannot honor it because the deployment's
 // build_id is not in that lineage (this is the redeploy-404 trigger
 // the user reproduced in production). Post-fix the lookup goes to the
 // source account's blueprint and the badge stays silent.
@@ -72,9 +72,9 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_XACCT_COLLISION]: XACCT_COLLISION_PERSONAL_NEWER,
 };
 
-// Mutable org role — changed via /test/set-role
+// Mutable org role - changed via /test/set-role
 let currentOrgRole = "admin";
-// Mutable unauth flag — changed via /test/set-unauth
+// Mutable unauth flag - changed via /test/set-unauth
 let forceUnauth = false;
 
 const makeAuthResponse = () => ({
@@ -499,7 +499,7 @@ const prefilledTemplatesByDeployment = {
 // (source_account when set, owning account otherwise), with the
 // cross-account private blueprint suppressed because the deploy endpoint
 // won't honor it. The dashboard reads this field directly to render the
-// upgrade badge — keep these values aligned with what the real server
+// upgrade badge - keep these values aligned with what the real server
 // would compute or the dashboard tests will silently drift.
 const makeInitialDeployments = () => [
   {
@@ -620,7 +620,7 @@ const makeInitialDeployments = () => [
     source_account: CROSS_ACCOUNT_PUBLISHER,
     // Source-account lineage has only the deployed build, so the server
     // reports no upgrade. The personal account's same-named blueprint
-    // (with a newer build) must NOT influence this — proven by the
+    // (with a newer build) must NOT influence this - proven by the
     // dashboard staying silent on this card.
     latest_build_id: XACCT_COLLISION_PUBLISHER_BUILD,
     namespace: "astro-namespace",
@@ -839,7 +839,7 @@ Bun.serve({
       const agentName = templateMatch[2];
       if (!accountName || !agentName) return json({ error: "not_found" }, 404);
 
-      // POST: interactive template endpoint — wraps response in TemplateResponse envelope
+      // POST: interactive template endpoint - wraps response in TemplateResponse envelope
       if (request.method === "POST") {
         const body = await request.json().catch(() => ({})) as Record<string, unknown>;
         const deploymentId = body.deployment_id as string | undefined;
@@ -1150,9 +1150,31 @@ Bun.serve({
     if (pathname === "/api/v1/deployments") {
       const accountParam = url.searchParams.get("account");
       if (accountParam === ACCOUNT) {
-        return json({ deployments, count: deployments.length });
+        // messaging_web_configured marks a deployment chat-eligible (web sidecar).
+        const withChat = deployments.map((d) => ({ ...d, messaging_web_configured: true }));
+        return json({ deployments: withChat, count: withChat.length });
       }
       return json({ deployments: [], count: 0 });
+    }
+
+    // Matched before /deployments/:id so "summary" isn't read as a deployment id.
+    if (pathname === "/api/v1/deployments/summary" && request.method === "GET") {
+      return json({
+        accounts: [
+          {
+            id: ORG_ACCOUNT_ID,
+            name: ACCOUNT,
+            type: "user",
+            display_name: "Test User",
+            deployments: deployments.map((d) => ({
+              id: d.id,
+              name: d.name,
+              display_name: d.display_name,
+              status: d.status,
+            })),
+          },
+        ],
+      });
     }
 
     const deploymentDetailMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)$/);
@@ -1162,7 +1184,7 @@ Bun.serve({
       return json({ deployment: dep });
     }
 
-    // GET /:id/runtime — K8s-derived view. The mock store keeps a single fat
+    // GET /:id/runtime - K8s-derived view. The mock store keeps a single fat
     // workload list on each deployment for historical reasons; project the
     // live-state fields onto a WorkloadRuntime[] keyed by name so the
     // client-side join in AgentDeployments matches the real wire shape.
@@ -1187,7 +1209,7 @@ Bun.serve({
       });
     }
 
-    // GET /:id/status — server-derived coarse status. Mirrors the handler's
+    // GET /:id/status - server-derived coarse status. Mirrors the handler's
     // DB-precedence ladder: paused/undeploying/failed/pending all short-
     // circuit; active probes the workload (mocked here as ready=replicas).
     const deploymentStatusMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/status$/);
@@ -1208,6 +1230,51 @@ Bun.serve({
         return json({ value: "deploying", reason: "provisioning", details: "Pods are being provisioned" });
       }
       return json({ value: "active", reason: "ready", details: "All replicas ready" });
+    }
+
+    // In-app chat: conversation list (titles feed the header + history).
+    const chatConversationsMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/chat\/conversations$/,
+    );
+    if (chatConversationsMatch && request.method === "GET") {
+      return json({
+        conversations: [
+          {
+            conversation_id: "conv-demo-1",
+            title: "Trip planning to Lisbon",
+            updated_at: "2026-07-10T12:00:00Z",
+          },
+        ],
+      });
+    }
+
+    // A single conversation's messages (renders the thread + its title).
+    const chatConversationDetailMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/chat\/conversations\/([^/]+)$/,
+    );
+    if (chatConversationDetailMatch && request.method === "GET") {
+      return json({
+        conversation_id: chatConversationDetailMatch[2],
+        title: "Trip planning to Lisbon",
+        updated_at: "2026-07-10T12:00:00Z",
+        messages: [
+          { id: "m1", role: "user", content: "Plan me a weekend in Lisbon." },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Sure! Start in Alfama, then Belem the next morning.",
+          },
+        ],
+        has_more: false,
+      });
+    }
+
+    // Agent self-reported config, proxied via the messaging sidecar.
+    const agentConfigMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/messaging\/agent\/config$/,
+    );
+    if (agentConfigMatch && request.method === "GET") {
+      return json({ systemPrompt: "You are a helpful travel assistant.", tools: [] });
     }
 
     const deploymentLogsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/logs$/);

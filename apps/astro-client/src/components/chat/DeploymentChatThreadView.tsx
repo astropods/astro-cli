@@ -300,6 +300,14 @@ const DeploymentComposer: FC<{
   const composer = useComposerRuntime();
   const dictation = useComposer((c) => c.dictation);
   const listening = isDictationActive(dictation);
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  // Auto-focus on launch and when the agent becomes ready (#1355); skipped while
+  // disabled or dictating. Esc/Enter are handled by the assistant-ui composer.
+  useEffect(() => {
+    if (disabled || listening) return;
+    shellRef.current?.querySelector("textarea")?.focus();
+  }, [disabled, listening]);
 
   // Text typed before dictation started, captured at the moment we start so
   // Cancel can restore it (the runtime overwrites the composer text live as it
@@ -333,6 +341,7 @@ const DeploymentComposer: FC<{
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <div
+        ref={shellRef}
         data-slot="aui_composer-shell"
         className={cn(
           "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
@@ -373,7 +382,7 @@ const DeploymentComposer: FC<{
 
 // Mic button: starts browser-native dictation, which replaces the input with a
 // live audio-reactive waveform until the user confirms or cancels. No
-// client-side model/VAD — the browser handles capture + recognition. The
+// client-side model/VAD; the browser handles capture + recognition. The
 // session's stop/cancel controls live on the waveform; lifecycle safety (stop
 // on disable/unmount) lives on DeploymentComposer, which stays mounted while
 // the mic button is swapped out for the waveform.
