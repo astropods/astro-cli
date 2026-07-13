@@ -44,6 +44,7 @@ export const lightTheme = {
   success: "var(--color-green-600)",
   warning: "var(--color-yellow-600)",
   error: "var(--color-coral-600)",
+  info: "var(--color-blue-600)",
 } as const;
 
 export type SemanticToken = keyof typeof lightTheme;
@@ -76,4 +77,5 @@ export const darkTheme: Record<SemanticToken, string> = {
   success: "var(--color-green-400)",
   warning: "var(--color-yellow-400)",
   error: "var(--color-coral-400)",
+  info: "var(--color-blue-400)",
 };

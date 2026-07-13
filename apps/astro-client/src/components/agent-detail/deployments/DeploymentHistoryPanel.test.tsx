@@ -89,17 +89,37 @@ function renderPanel() {
 describe("DeploymentHistoryPanel build-in-progress card", () => {
   it("shows a Building card with the commit message while the latest build is running", async () => {
     mockEndpoints([build({ status: "building" })]);
-    renderPanel();
+    const { container } = renderPanel();
 
     expect(await screen.findByText("Building")).toBeInTheDocument();
     expect(screen.getByText("Add retries with backoff")).toBeInTheDocument();
+    // The build card spins (blue), distinct from the amber Deploying card.
+    expect(container.querySelector(".animate-spin")).toBeTruthy();
   });
 
   it("shows a Preparing card while the latest build is queued", async () => {
     mockEndpoints([build({ status: "pending" })]);
-    renderPanel();
+    const { container } = renderPanel();
 
     expect(await screen.findByText("Preparing")).toBeInTheDocument();
+    expect(container.querySelector(".animate-spin")).toBeTruthy();
+  });
+
+  it("suppresses the build card while the deployment is actively deploying (no stacking)", async () => {
+    server.use(
+      http.get(`/api/v1/deployments/${DEPLOYMENT_ID}/status`, () =>
+        HttpResponse.json({ value: "deploying", reason: "provisioning", details: "Pods are being provisioned" }),
+      ),
+    );
+    mockEndpoints([build({ status: "building" })]);
+    renderPanel();
+
+    // The tile's Deploying status is the single in-progress indicator; the
+    // build card must not stack above it.
+    await waitFor(() => {
+      expect(screen.getByText("Code Reviewer")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Building")).not.toBeInTheDocument();
   });
 
   it("shows no build-in-progress card once the latest build has finished", async () => {

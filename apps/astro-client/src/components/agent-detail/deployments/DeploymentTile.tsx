@@ -20,6 +20,16 @@ export const WARNING_COLORS: StatusColor = {
   badgeBg: "color-mix(in oklch, var(--warning) 22%, transparent)",
   badgeText: "var(--warning)",
 };
+// The build phase (Preparing/Building) uses blue (--info) so its card reads as
+// distinct from the amber Deploying card it stacks above; deploying keeps the
+// amber warning treatment. --info adapts per theme (blue-600 light, blue-400
+// dark) so the badge text stays legible on both surfaces.
+export const INFO_COLORS: StatusColor = {
+  bg: "color-mix(in oklch, var(--info) 12%, transparent)",
+  border: "color-mix(in oklch, var(--info) 28%, transparent)",
+  badgeBg: "color-mix(in oklch, var(--info) 22%, transparent)",
+  badgeText: "var(--info)",
+};
 const ERROR_COLORS: StatusColor = {
   bg: "color-mix(in oklch, var(--error) 12%, transparent)",
   border: "color-mix(in oklch, var(--error) 25%, transparent)",

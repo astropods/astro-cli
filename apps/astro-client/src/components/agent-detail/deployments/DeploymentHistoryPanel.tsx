@@ -15,7 +15,7 @@ import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { isPausedState } from "@/lib/deployment-utils";
 import { commitTitle, commitUrl, shortSha } from "@/lib/github-utils";
 import type { AgentDeployment, DeploymentHistoryRecord, GitHubBuild } from "@/lib/api";
-import { DeploymentTile, WARNING_COLORS } from "./DeploymentTile";
+import { DeploymentTile, INFO_COLORS } from "./DeploymentTile";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -286,23 +286,24 @@ export function BuildInProgressNudge({
   build: GitHubBuild;
   repoFullName?: string;
 }) {
-  const label = build.status === "pending" ? "Preparing" : "Building";
+  const preparing = build.status === "pending";
+  const label = preparing ? "Preparing" : "Building";
   const title =
     commitTitle(build.commit_message) ||
-    (build.status === "pending" ? "Preparing build" : "Build in progress");
+    (preparing ? "Preparing build" : "Build in progress");
   const sha = shortSha(build.commit_sha);
   const commitLink = commitUrl(repoFullName, build.commit_sha);
 
   return (
     <div
       className="flex flex-col gap-1.5 rounded border px-3.5 py-3"
-      style={{ backgroundColor: WARNING_COLORS.bg, borderColor: WARNING_COLORS.border }}
+      style={{ backgroundColor: INFO_COLORS.bg, borderColor: INFO_COLORS.border }}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-body font-medium text-foreground">{title}</span>
         <span
           className="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
-          style={{ backgroundColor: WARNING_COLORS.badgeBg, color: WARNING_COLORS.badgeText }}
+          style={{ backgroundColor: INFO_COLORS.badgeBg, color: INFO_COLORS.badgeText }}
         >
           <Loader2 className="size-3 animate-spin" />
           {label}
@@ -384,6 +385,12 @@ export function DeploymentHistoryPanel({
     if (!latest || (latest.status !== "pending" && latest.status !== "building")) return null;
     return latest;
   }, [githubStatus]);
+  // Deploy runs after the build, so the build-in-progress card and the tile's
+  // live "Deploying" status are sequential phases, not concurrent. While a
+  // deploy/undeploy is live the tile already shows that phase, so suppress the
+  // build card to avoid stacking two in-progress indicators in this small panel.
+  const { data: statusData } = useDeploymentStatus(deployment.id);
+  const deploying = statusData?.value === "deploying" || statusData?.value === "undeploying";
   const upgrade = useMemo(() => {
     if (!sourceBlueprint?.versions?.length) return null;
     const latest = sourceBlueprint.versions.reduce((best, cur) =>
@@ -407,7 +414,7 @@ export function DeploymentHistoryPanel({
     >
       {records.map((record) => (
         <Fragment key={`${record.id}-${record.revision}`}>
-          {record.is_current && activeBuild && (
+          {record.is_current && activeBuild && !deploying && (
             <BuildInProgressNudge build={activeBuild} repoFullName={githubStatus?.repo_full_name} />
           )}
           {record.is_current && upgrade && (
