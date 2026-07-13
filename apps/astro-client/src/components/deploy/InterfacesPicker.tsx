@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertCircle, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
 import { AstroMark } from "@/components/ui/svgs/astroMark";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,8 @@ const ADAPTER_ICONS: Record<string, { icon: ReactNode; isBrand?: boolean }> = {
   web: { icon: <AstroMark mono className="h-5 w-5" /> },
   slack: { icon: <Slack className="h-5 w-5" />, isBrand: true },
 };
+
+const ADAPTERS_ERROR_ID = "messaging-interface-error";
 
 export interface InterfacesPickerProps {
   selected: string[];
@@ -67,7 +69,16 @@ export function InterfacesPicker({
 
   return (
     <div>
-      <div className="space-y-2">
+      <div
+        role="group"
+        aria-label="Messaging interface options"
+        aria-invalid={showError || undefined}
+        aria-describedby={showError ? ADAPTERS_ERROR_ID : undefined}
+        className={cn(
+          "space-y-2 rounded-[8px] transition-[outline-color]",
+          showError && "outline outline-1 outline-destructive",
+        )}
+      >
       {AVAILABLE_ADAPTERS.map((adapter) => {
         const isSelected = selected.includes(adapter.id);
         const { icon, isBrand = false } = ADAPTER_ICONS[adapter.id] ?? {};
@@ -201,12 +212,9 @@ export function InterfacesPicker({
       })}
       </div>
       {showError && (
-        <div className="flex items-center gap-1.5 mt-3 px-3 py-2 rounded-[6px] bg-red-50" role="alert">
-          <AlertCircle size={14} className="text-red-700 shrink-0" />
-          <p className="text-sm text-red-700">
-            Select at least one messaging type
-          </p>
-        </div>
+        <p id={ADAPTERS_ERROR_ID} className="mt-2 text-xs text-destructive">
+          Select at least one messaging type
+        </p>
       )}
     </div>
   );

@@ -781,7 +781,7 @@ describe('DeployBlueprint page', () => {
       expect(screen.queryByText('Required')).not.toBeInTheDocument();
     });
 
-    it('shows messaging error when all types are deselected and form is submitted', async () => {
+    it('shows messaging error as inline field text when all types are deselected and form is submitted', async () => {
       const user = userEvent.setup();
       renderInstall();
       await waitForForm();
@@ -794,13 +794,17 @@ describe('DeployBlueprint page', () => {
 
       // No error yet (haven't submitted)
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('group', { name: /messaging interface options/i })).not.toHaveAttribute('aria-invalid');
 
       // Submit
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
-      await waitFor(() => {
-        expect(screen.getByRole('alert')).toHaveTextContent('Select at least one messaging type');
-      });
+      const messagingError = await screen.findByText('Select at least one messaging type');
+      const messagingOptions = screen.getByRole('group', { name: /messaging interface options/i });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(messagingOptions).toHaveAttribute('aria-invalid', 'true');
+      expect(messagingOptions).toHaveClass('outline-destructive');
+      expect(messagingError).toHaveClass('text-destructive', 'text-xs');
     });
 
     it('clears messaging error when a type is reselected after submit', async () => {
@@ -813,15 +817,16 @@ describe('DeployBlueprint page', () => {
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByText('Select at least one messaging type')).toBeInTheDocument();
       });
 
       // Reselect Web
       await user.click(screen.getByRole('button', { name: /chat/i }));
 
       await waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByText('Select at least one messaging type')).not.toBeInTheDocument();
       });
+      expect(screen.getByRole('group', { name: /messaging interface options/i })).not.toHaveAttribute('aria-invalid');
     });
 
     it('shows inline errors on Slack credentials when submitted with empty tokens', async () => {
