@@ -37,3 +37,8 @@ vendor/
 
 # Credentials
 .secrets/
+
+# Embedded chat UI assets are built from astro-client and copied in at build
+# time; only the .gitkeep placeholder is tracked.
+internal/chatui/webdist/*
+!internal/chatui/webdist/.gitkeep
