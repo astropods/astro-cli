@@ -444,4 +444,4 @@ ast project start   # Start agent and messaging
 ast project logs    # Tail logs
 ```
 
-Open the playground at http://localhost:3100 to chat with your agent.
+Open the chat interface at http://localhost:3100 to chat with your agent.

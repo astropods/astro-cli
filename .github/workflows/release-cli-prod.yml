@@ -48,6 +48,17 @@ jobs:
           go-version-file: apps/astro-cli/go.mod
           cache-dependency-path: apps/astro-cli/go.sum
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      # Build astro-client's chat SPA and copy it into the CLI embed dir so the
+      # binaries below ship the latest chat UI (see apps/astro-cli/internal/chatui).
+      - name: Build and embed chat UI
+        run: bun x moon run astro-cli:embed-chat-ui
+
       - name: Set build variables
         id: vars
         run: |

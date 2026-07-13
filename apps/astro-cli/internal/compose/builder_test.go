@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,19 +220,25 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Error("playground should not be a separate service — it is bundled into messaging")
 	}
 
-	// Messaging should have WEB_ENABLED, WEB_SERVE_PLAYGROUND, and DEV
+	// Messaging is the chat backend only: WEB_ENABLED stays true, but the chat
+	// UI is now served by the CLI (internal/chatui), so the sidecar's bundled
+	// playground is disabled and chat history is persisted via CHAT_DB_PATH.
 	messaging := project.Services["astro-messaging"]
 	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
 		t.Error("WEB_ENABLED should be true")
 	}
-	if envVal(messaging.Environment, "WEB_SERVE_PLAYGROUND") != "true" {
-		t.Error("WEB_SERVE_PLAYGROUND should be true")
+	if envVal(messaging.Environment, "WEB_SERVE_PLAYGROUND") != "false" {
+		t.Error("WEB_SERVE_PLAYGROUND should be false (chat UI is served by the CLI)")
+	}
+	if envVal(messaging.Environment, "CHAT_DB_PATH") != chatDBPath {
+		t.Errorf("CHAT_DB_PATH should be %q, got %q", chatDBPath, envVal(messaging.Environment, "CHAT_DB_PATH"))
 	}
 	if envVal(messaging.Environment, "DEV") != "true" {
 		t.Error("DEV should be true for messaging in dev mode")
 	}
 
-	// Messaging should expose both gRPC (19090->9090) and HTTP (3100->8080) ports
+	// Messaging should expose gRPC (19090->9090) and HTTP (MessagingWebHostPort
+	// ->8080). The CLI serves the chat UI on 3100 and proxies to the HTTP port.
 	if len(messaging.Ports) != 2 {
 		t.Errorf("messaging ports = %d, want 2 (grpc + http)", len(messaging.Ports))
 	}
@@ -241,7 +248,7 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		if p.Target == 9090 && p.Published == "19090" {
 			hasGrpc = true
 		}
-		if p.Target == 8080 && p.Published == "3100" {
+		if p.Target == 8080 && p.Published == MessagingWebHostPort {
 			hasWeb = true
 		}
 	}
@@ -249,7 +256,45 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Errorf("messaging should publish gRPC as 19090->9090, got %#v", messaging.Ports)
 	}
 	if !hasWeb {
-		t.Errorf("messaging should publish web as 3100->8080, got %#v", messaging.Ports)
+		t.Errorf("messaging should publish web as %s->8080, got %#v", MessagingWebHostPort, messaging.Ports)
+	}
+
+	// Chat history persistence volume should be mounted at /data.
+	hasChatVolume := false
+	for _, v := range messaging.Volumes {
+		if v.Target == chatDataMountPath {
+			hasChatVolume = true
+		}
+	}
+	if !hasChatVolume {
+		t.Errorf("messaging should mount a chat-data volume at %s, got %#v", chatDataMountPath, messaging.Volumes)
+	}
+
+	// A one-shot init container must chown the fresh (root-owned) chat-data
+	// volume to the non-root astro uid before the sidecar starts; otherwise the
+	// sidecar cannot create its SQLite DB on /data and crashes (SQLITE_CANTOPEN).
+	init, ok := project.Services["astro-messaging-init"]
+	if !ok {
+		t.Fatal("missing astro-messaging-init service (chowns chat-data volume for non-root sidecar)")
+	}
+	if init.User != "0:0" {
+		t.Errorf("init container must run as root to chown the volume, got user %q", init.User)
+	}
+	initMountsData := false
+	for _, v := range init.Volumes {
+		if v.Target == chatDataMountPath {
+			initMountsData = true
+		}
+	}
+	if !initMountsData {
+		t.Errorf("init container must mount the chat-data volume at %s, got %#v", chatDataMountPath, init.Volumes)
+	}
+	dep, ok := messaging.DependsOn["astro-messaging-init"]
+	if !ok {
+		t.Fatal("messaging must depend on astro-messaging-init")
+	}
+	if dep.Condition != types.ServiceConditionCompletedSuccessfully {
+		t.Errorf("messaging should wait for init to complete successfully, got condition %q", dep.Condition)
 	}
 
 	// Collector should not be present in dev mode (runs as K8s sidecar only).

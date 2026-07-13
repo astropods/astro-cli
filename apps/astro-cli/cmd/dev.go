@@ -376,6 +376,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Serve astro-client's chat UI from the CLI (queen-style), proxying to the
+	// local messaging sidecar. Runs as a detached worker so it survives
+	// background mode; foreground/--local stop it on teardown.
+	startChatUI(astDir, astroSpec.Name, hasWebInterface)
+
 	// --local: run agent as local process and block
 	if local {
 		return runLocalAgent(cmd, astroSpec, projectName, workingDir, envVars, hasWebInterface, allLogs)
@@ -424,6 +429,7 @@ func runForeground(projectName, astDir string, allLogs bool) error {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
 	_ = stopSvc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
+	stopChatUI(astDir)
 	_ = os.Remove(filepath.Join(astDir, ".running"))
 	fmt.Printf("%s→%s Stopped\n", colorCyan, colorReset)
 	return nil
@@ -547,7 +553,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	if hasWebInterface {
 		go func() {
 			time.Sleep(2 * time.Second)
-			openBrowser("http://localhost:3100")
+			openBrowser(chatUIURL)
 		}()
 	}
 
@@ -590,8 +596,12 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName stri
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	if err := localSvc.Down(context.Background(), projectName, api.DownOptions{}); err != nil {
-		return fmt.Errorf("failed to stop services: %w", err)
+	// Always stop the chat-UI worker, even if Down errors — otherwise the
+	// detached worker keeps holding :3100. Matches runForeground/runDevStop.
+	downErr := localSvc.Down(context.Background(), projectName, api.DownOptions{})
+	stopChatUI(filepath.Join(workingDir, buildinfo.AppDirName))
+	if downErr != nil {
+		return fmt.Errorf("failed to stop services: %w", downErr)
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
@@ -670,6 +680,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	err = withSpinner("Stopping services...", "Services stopped", false, func() error {
 		return stopSvc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 	})
+	stopChatUI(filepath.Dir(statePath))
 	_ = os.Remove(statePath) // always remove — containers may be gone even on error
 	if err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
@@ -1033,7 +1044,7 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
 	}
 
 	if hasWebInterface {
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3100")+"  "+dim.Render("(playground)"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(chatUIURL)+"  "+dim.Render("(chat)"))
 	}
 
 	// Webhook endpoints

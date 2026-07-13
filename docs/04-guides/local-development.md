@@ -99,7 +99,7 @@ pip install -r requirements.txt  # restore normal deps (Py)
 Use `moon run deployment:<target>` to build infrastructure images from source:
 
 ```bash
-moon run deployment:messaging      # builds messaging:latest (includes playground UI)
+moon run deployment:messaging      # builds messaging:latest (chat backend sidecar)
 ```
 
 Then override the default image in your agent's `astropods.yml`:
@@ -128,6 +128,22 @@ moon run deployment:messaging
 # 4. Run the agent
 ast-dev dev
 ```
+
+### Local chat interface
+
+When an agent enables the `web` messaging adapter, `ast dev` / `ast project` serves
+astro-client's chat interface at `http://localhost:3100` directly from the CLI
+(the build is embedded in the binary, queen-style). The CLI proxies the
+deployment-scoped chat/messaging API to the local messaging sidecar — the same
+contract astro-server exposes in production — so the UI is identical to the
+deployed app. The messaging sidecar is the chat **backend** only; its bundled
+playground is disabled in dev (`WEB_SERVE_PLAYGROUND=false`). Chat history is
+persisted by the sidecar's SQLite store (`CHAT_DB_PATH`) on a named volume, so it
+survives container restarts and across `ast dev` sessions.
+
+To pick up chat UI changes locally, rebuild the CLI so it re-embeds the latest
+build: `moon run astro-cli:link` (runs `astro-client:build-chat-embed` and copies
+the assets into the CLI).
 
 ---
 
@@ -270,4 +286,64 @@ ast-dev dev --local-reset              # if you used --local
 moon run deployment:clean              # remove local Docker images
 moon run astro-cli:unlink              # remove ast-dev from PATH
 ```
+
+---
+
+## 7. Sidecar chat persistence in both local environments
+
+Chat history lives in the messaging sidecar's SQLite store (gated by `CHAT_DB_PATH`),
+not in astro-server's database. This is already merged and published: the
+`astropods/messaging:latest` image on the registry serves the chat endpoints and
+persists history, and astro-server injects `CHAT_DB_PATH` for deployed sidecars.
+So **both** the `ast dev` flow and a local astro-server deployment work out of the
+box — no messaging-image build, submodule repoint, or `messagingImage` override is
+required.
+
+**One-time (only to embed the current chat UI into the CLI):**
+
+```bash
+moon run astro-cli:link    # rebuild ast-dev with the embedded chat UI
+```
+
+**Path A — `ast dev` / `ast project`:**
+
+```yaml
+# astropods.yml
+dev:
+  interfaces:
+    messaging:
+      adapters: [web]
+```
+
+```bash
+ast-dev dev            # CLI serves the chat UI at http://localhost:3100
+```
+
+`ast dev` pulls `astropods/messaging:latest` from the registry automatically. Send
+a message, then `ast-dev dev stop` and `ast-dev dev` again — history persists (the
+sidecar SQLite store lives on the `*-chat-data` named volume).
+
+**Path B — local astro-server deployment:**
+
+```bash
+# astro-server resolves the sidecar to astropods/messaging:latest in local mode
+# (imagePullPolicy: IfNotPresent). Docker Desktop K8s shares the daemon, so a
+# pulled image is used directly; on kind/minikube load it first:
+#   kind load docker-image astropods/messaging:latest
+
+moon run astro-server:dev
+
+cd my-agent
+ast-dev push           # deploy the same agent to the local server
+# Chat via the astro-client app: localhost -> local astro-server (messaging
+# proxy) -> sidecar. astro-server injects CHAT_DB_PATH; history rides the
+# agent's shared disk at /data.
+```
+
+Both paths use the same published image and persist history via SQLite; Langfuse is
+not required locally (durability comes from the persistent/shared disk).
+
+> Iterating on the messaging image itself? Build it locally
+> (`moon run deployment:messaging`) and set `dev.overrides.messagingImage` in
+> `astropods.yml` to point `ast dev` at your build instead of the registry pull.
 

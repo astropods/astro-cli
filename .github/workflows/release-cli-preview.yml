@@ -7,6 +7,19 @@ on:
     paths:
       - 'apps/astro-cli/**'
       - 'packages/astro-spec/**'
+      # The CLI embeds astro-client's chat UI, so chat source changes must
+      # produce a fresh preview build too.
+      - 'apps/astro-client/src/pages/chat/**'
+      - 'apps/astro-client/src/components/chat/**'
+      - 'apps/astro-client/src/components/assistant-ui/**'
+      - 'apps/astro-client/src/hooks/use-deployment-chat.ts'
+      - 'apps/astro-client/src/hooks/use-chat-sessions.ts'
+      - 'apps/astro-client/src/api/queries/chat.ts'
+      - 'apps/astro-client/src/lib/chat/**'
+      - 'apps/astro-client/src/lib/messaging/**'
+      - 'apps/astro-client/src/chat-embed/**'
+      - 'apps/astro-client/chat-embed.html'
+      - 'apps/astro-client/vite.chat-embed.config.ts'
   workflow_dispatch:
 
 concurrency:
@@ -53,6 +66,17 @@ jobs:
         with:
           go-version-file: apps/astro-cli/go.mod
           cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      # Build astro-client's chat SPA and copy it into the CLI embed dir so the
+      # binaries below ship the latest chat UI (see apps/astro-cli/internal/chatui).
+      - name: Build and embed chat UI
+        run: bun x moon run astro-cli:embed-chat-ui
 
       - name: Set build variables
         id: vars

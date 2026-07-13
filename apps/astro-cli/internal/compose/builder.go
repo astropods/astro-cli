@@ -15,6 +15,27 @@ import (
 	"github.com/docker/compose/v5/pkg/api"
 )
 
+const (
+	// MessagingWebHostPort is the host port the messaging sidecar's HTTP API is
+	// published on. The astro CLI serves the chat UI on its own port and proxies
+	// chat/messaging requests here (see internal/chatui). It is deliberately not
+	// 3100 — that port now belongs to the CLI-served chat UI.
+	MessagingWebHostPort = "3110"
+
+	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
+	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
+	// persistent volume); locally it's a named volume so history survives
+	// container restarts and across `ast dev` sessions.
+	chatDataMountPath = "/data"
+	chatDBPath        = "/data/chat.db"
+
+	// messagingUserUIDGID is the uid:gid of the non-root "astro" user the
+	// published messaging image runs as. A one-shot init container (see the web
+	// adapter block below) chowns the chat-data volume to this owner so the
+	// sidecar can create its SQLite DB on a fresh, root-owned named volume.
+	messagingUserUIDGID = "1000:1000"
+)
+
 // buildSecretsConfig converts spec secrets to compose secrets configuration
 func buildSecretsConfig(secrets []spec.BuildSecret, project *types.Project) []types.ServiceSecretConfig {
 	if len(secrets) == 0 {
@@ -534,6 +555,50 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Environment: buildMessagingEnvironment(s, envVars),
 				Ports:       buildMessagingPorts(s),
 			}
+			// Persist the sidecar's SQLite chat store on a named volume so chat
+			// history survives container restarts and across `ast dev` sessions
+			// (CHAT_DB_PATH is set in buildMessagingEnvironment). Only needed for
+			// the web adapter, which is the chat path.
+			if slices.Contains(adapters, "web") {
+				chatVolume := fmt.Sprintf("%s-chat-data", agentName)
+				project.Volumes[chatVolume] = types.VolumeConfig{Name: chatVolume}
+				chatVolumeMount := types.ServiceVolumeConfig{
+					Type:   types.VolumeTypeVolume,
+					Source: chatVolume,
+					Target: chatDataMountPath,
+				}
+				messagingService.Volumes = append(messagingService.Volumes, chatVolumeMount)
+
+				// The published messaging image runs as the non-root "astro" user
+				// and does not pre-create /data. Docker initializes a fresh named
+				// volume's mountpoint as root:root, so the sidecar cannot create its
+				// SQLite chat DB there (SQLITE_CANTOPEN) and crashes on startup.
+				// Mirror the deployed sidecar's fsGroup/init behavior with a one-shot
+				// init container that chowns the volume to the astro uid before the
+				// sidecar starts. Reuses the messaging image so no extra pull.
+				initName := "astro-messaging-init"
+				project.Services[initName] = types.ServiceConfig{
+					Name:       initName,
+					Image:      messagingImage,
+					PullPolicy: messagingPull,
+					User:       "0:0",
+					Entrypoint: types.ShellCommand{
+						"/bin/sh", "-c",
+						fmt.Sprintf("mkdir -p %s && chown -R %s %s", chatDataMountPath, messagingUserUIDGID, chatDataMountPath),
+					},
+					Volumes: []types.ServiceVolumeConfig{chatVolumeMount},
+					Networks: map[string]*types.ServiceNetworkConfig{
+						"astro-dev": nil,
+					},
+				}
+				if messagingService.DependsOn == nil {
+					messagingService.DependsOn = make(types.DependsOnConfig)
+				}
+				messagingService.DependsOn[initName] = types.ServiceDependency{
+					Condition: types.ServiceConditionCompletedSuccessfully,
+					Required:  true,
+				}
+			}
 			project.Services["astro-messaging"] = messagingService
 		}
 
@@ -892,11 +957,13 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 		},
 	}
 
-	// Add HTTP port if web adapter is enabled
+	// Add HTTP port if web adapter is enabled. Published on MessagingWebHostPort
+	// (not 3100) because the astro CLI now serves the chat UI on 3100 itself and
+	// proxies API calls to this sidecar port (see internal/chatui).
 	if slices.Contains(s.Dev.MessagingAdapters(), "web") {
 		ports = append(ports, types.ServicePortConfig{
 			Target:    8080,
-			Published: "3100",
+			Published: MessagingWebHostPort,
 		})
 	}
 
@@ -956,14 +1023,20 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			}
 
 		case "web":
-			// Enable Web adapter for HTTP/SSE access; playground UI is bundled
-			// into the messaging binary and served from / on the same port.
+			// Enable the Web adapter for HTTP/SSE access. The chat UI is now
+			// served by the astro CLI (internal/chatui), so the sidecar's bundled
+			// playground is disabled — the sidecar is the API/persistence backend
+			// only.
 			enabled := "true"
 			env["WEB_ENABLED"] = &enabled
 			listenAddr := ":8080"
 			env["WEB_LISTEN_ADDR"] = &listenAddr
-			servePlayground := "true"
+			servePlayground := "false"
 			env["WEB_SERVE_PLAYGROUND"] = &servePlayground
+			// Persist chat history in the sidecar's SQLite store on the mounted
+			// volume. Without CHAT_DB_PATH the sidecar disables persistence.
+			dbPath := chatDBPath
+			env["CHAT_DB_PATH"] = &dbPath
 		}
 	}
 

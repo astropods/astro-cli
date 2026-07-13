@@ -56,3 +56,18 @@ tasks:
       - "tsconfig.json"
       - "tsconfig.app.json"
       - "vite.config.ts"
+
+  # Standalone, SSR-free chat bundle embedded into the astro CLI. Output is
+  # copied into apps/astro-cli/internal/chatui/webdist during the CLI release
+  # build (named webdist, not dist — the repo-root .gitignore ignores "dist").
+  build-chat-embed:
+    command: "bun run build:chat-embed"
+    deps:
+      - "astro-theme:build"
+    inputs:
+      - "src/**/*"
+      - "chat-embed.html"
+      - "vite.chat-embed.config.ts"
+      - "package.json"
+    outputs:
+      - "chat-embed-dist/**/*"

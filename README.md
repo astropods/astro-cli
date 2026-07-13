@@ -58,7 +58,7 @@ The pre-commit hook runs `gofmt` on staged Go files.
 │   ├── agents/             # Agent examples
 │   ├── cli-public/         # Public ast CLI repo
 │   ├── messaging/          # Messaging SDK
-│   ├── playground/         # Chat UI for agents (used in ast dev)
+│   ├── playground/         # Legacy chat UI (deprecated; ast dev now serves astro-client's chat)
 │   └── website/            # Astro marketing website
 ├── deployment/             # Dockerfiles and moon tasks for service images
 └── docs/                   # Internal documentation and guides
@@ -118,11 +118,10 @@ bun run build
 moon run messaging:sdk-build
 moon run adapters:build
 
-# 3. Build Docker images (messaging sidecar, playground)
+# 3. Build the messaging sidecar image
 moon run deployment:messaging
-moon run deployment:playground
 
-# 4. Build the CLI
+# 4. Build the CLI (embeds astro-client's chat UI, served by `ast dev`)
 moon run astro-cli:build
 ```
 

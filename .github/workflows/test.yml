@@ -19,6 +19,7 @@ jobs:
       go-cli: ${{ steps.filter.outputs.go-cli }}
       go-server: ${{ steps.filter.outputs.go-server }}
       docker-client: ${{ steps.filter.outputs.docker-client }}
+      cli-chat-embed: ${{ steps.filter.outputs.cli-chat-embed }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -58,6 +59,24 @@ jobs:
               - 'apps/astro-cli/!(VERSION)/**'
               - 'apps/astro-cli/!(VERSION)'
               - 'packages/astro-spec/**'
+            # The CLI embeds astro-client's chat SPA (//go:embed webdist). Run the
+            # embed smoke test when the CLI OR the chat source it bundles changes.
+            # Keep the chat globs in sync with bump-cli-on-chat-change.yml.
+            cli-chat-embed:
+              - 'apps/astro-cli/!(VERSION)/**'
+              - 'apps/astro-cli/!(VERSION)'
+              - 'packages/astro-spec/**'
+              - 'apps/astro-client/src/pages/chat/**'
+              - 'apps/astro-client/src/components/chat/**'
+              - 'apps/astro-client/src/components/assistant-ui/**'
+              - 'apps/astro-client/src/hooks/use-deployment-chat.ts'
+              - 'apps/astro-client/src/hooks/use-chat-sessions.ts'
+              - 'apps/astro-client/src/api/queries/chat.ts'
+              - 'apps/astro-client/src/lib/chat/**'
+              - 'apps/astro-client/src/lib/messaging/**'
+              - 'apps/astro-client/src/chat-embed/**'
+              - 'apps/astro-client/chat-embed.html'
+              - 'apps/astro-client/vite.chat-embed.config.ts'
             go-server:
               - 'apps/astro-server/**'
               - 'packages/astro-spec/**'
@@ -179,6 +198,60 @@ jobs:
       - name: Run CLI integration tests
         working-directory: apps/astro-cli
         run: gotestsum --format pkgname -- -tags integration ./e2e/...
+
+  test-cli-chat-embed:
+    needs: changes
+    if: needs.changes.outputs.product-code == 'true' && needs.changes.outputs.cli-chat-embed == 'true'
+    runs-on: ubuntu-latest
+    name: CLI chat embed smoke (ast dev chat UI + sidecar)
+    # Guards the two seams the build pipeline can't catch on its own: that the
+    # chat SPA still compiles into the CLI and mounts in a browser, and that the
+    # CLI's synthesized endpoints + messaging proxy reach a healthy sidecar on a
+    # fresh volume. Needs the embed BUILT first (webdist is gitignored) plus a
+    # browser; hence a dedicated job rather than the plain -tags integration one.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@v1.13.0
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      # Authenticated pull of the public astropods/messaging image avoids Docker
+      # Hub's anonymous rate limits on shared CI IPs. Best-effort: falls back to
+      # anonymous pull (e.g. on forks without secrets).
+      - name: Log in to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build astro-client's chat SPA and copy it into internal/chatui/webdist so
+      # go:embed compiles the real assets (not the tracked .gitkeep placeholder).
+      - name: Build embedded chat UI
+        run: bun x moon run astro-cli:embed-chat-ui
+
+      - name: Run chat embed smoke test
+        working-directory: apps/astro-cli
+        run: gotestsum --format pkgname -- -tags 'integration chatembed' -run TestDevChatEmbedSmoke ./e2e/...
 
   test-go-integration:
     needs: changes
@@ -431,6 +504,7 @@ jobs:
       - test-bun
       - test-go
       - test-cli-integration
+      - test-cli-chat-embed
       - test-go-integration
       - test-go-k8s
       - test-client-e2e
