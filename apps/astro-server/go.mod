@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.0
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.57.0
 	github.com/aws/aws-sdk-go-v2/service/eks v1.77.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.1
@@ -31,6 +32,9 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.31.0
 	github.com/riverqueue/river/rivertype v0.31.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
+	github.com/stretchr/testify v1.11.1
 	github.com/workos/workos-go/v6 v6.5.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/image v0.37.0
@@ -58,7 +62,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.57.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
@@ -117,9 +120,6 @@ require (
 	github.com/riverqueue/river/riverdriver v0.31.0 // indirect
 	github.com/riverqueue/river/rivershared v0.31.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
-	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

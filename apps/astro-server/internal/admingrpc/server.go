@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -88,6 +89,10 @@ type Server struct {
 	riverMu        sync.Mutex
 	riverUIHandler http.Handler
 	riverUICleanup func()
+
+	// imageRefresher force-refreshes ECR pull-through cache images (e.g. the
+	// messaging sidecar). Nil until SetImageRefresher is called.
+	imageRefresher *imagecache.Refresher
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
@@ -537,6 +542,12 @@ func (s *Server) ShutdownRiverUI() {
 // SetCommandDispatcher sets the dispatcher for sending commands to connected devices.
 func (s *Server) SetCommandDispatcher(d CommandDispatcher) {
 	s.cmdDispatch = d
+}
+
+// SetImageRefresher wires the ECR pull-through cache refresher used by
+// RefreshMessagingCache.
+func (s *Server) SetImageRefresher(r *imagecache.Refresher) {
+	s.imageRefresher = r
 }
 
 // ListDeployments returns all non-undeployed deployments across all accounts.

@@ -984,3 +984,10 @@ type InvalidateCachesResponse struct {
 	AccountsBusted    int32 `json:"accounts_busted,omitempty"`
 	DeploymentsBusted int32 `json:"deployments_busted,omitempty"`
 }
+
+type RefreshMessagingCacheRequest struct{}
+
+type RefreshMessagingCacheResponse struct {
+	Image   string `json:"image,omitempty"`
+	Message string `json:"message,omitempty"`
+}

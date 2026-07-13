@@ -52,6 +52,7 @@ service AdminService {
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
   rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
+  rpc RefreshMessagingCache(RefreshMessagingCacheRequest) returns (RefreshMessagingCacheResponse);
 }
 
 message ListDeploymentsRequest {
@@ -755,4 +756,11 @@ message InvalidateAllCachesRequest {}
 message InvalidateCachesResponse {
   int32 accounts_busted = 1;
   int32 deployments_busted = 2;
+}
+
+message RefreshMessagingCacheRequest {}
+
+message RefreshMessagingCacheResponse {
+  string image = 1;   // pull-through cache image path that was evicted
+  string message = 2; // operator-facing status detail
 }

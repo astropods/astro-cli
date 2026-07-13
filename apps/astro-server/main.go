@@ -44,6 +44,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
+	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -509,6 +510,9 @@ func runAPI(
 	// Wire WorkOS client for admin GetAuthConfig and owner email resolution
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
 	adminSrv.SetWorkOSClient(workosClient)
+
+	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
+	adminSrv.SetImageRefresher(imagecache.New(cfg.Deployment.AWSRegion))
 
 	// Wire Fleet gRPC server as command dispatcher for admin
 	if fleetSrv != nil {

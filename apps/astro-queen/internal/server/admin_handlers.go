@@ -37,6 +37,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/openmeter-backfill", s.handleTriggerOpenMeterBackfill)
 	mux.HandleFunc("GET /api/admin/feedback", s.handleListFeedback)
 	mux.HandleFunc("GET /api/admin/migrations", s.handleListClusterMigrations)
+	mux.HandleFunc("POST /api/admin/refresh-messaging-cache", s.handleRefreshMessagingCache)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -421,6 +422,15 @@ func (s *Server) handleListFeedback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTriggerOpenMeterBackfill(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.TriggerOpenMeterBackfill(r.Context(), &adminv1.TriggerOpenMeterBackfillRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRefreshMessagingCache(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RefreshMessagingCache(r.Context(), &adminv1.RefreshMessagingCacheRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

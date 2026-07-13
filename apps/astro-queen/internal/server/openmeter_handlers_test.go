@@ -195,6 +195,10 @@ func (m *mockAdminClient) ResumeQueue(context.Context, *adminv1.ResumeQueueReque
 	panic("not implemented")
 }
 
+func (m *mockAdminClient) RefreshMessagingCache(context.Context, *adminv1.RefreshMessagingCacheRequest, ...grpc.CallOption) (*adminv1.RefreshMessagingCacheResponse, error) {
+	panic("not implemented")
+}
+
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {
 		name       string

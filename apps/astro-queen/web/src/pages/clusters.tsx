@@ -8,6 +8,7 @@ import {
   useDeregisterCluster,
   useUpdateCluster,
   useCheckClusterHealth,
+  useRefreshMessagingCache,
 } from "@/api/admin";
 import type { RegisteredCluster } from "@/types/admin";
 import { Button } from "@/components/ui/button";
@@ -161,15 +162,18 @@ export function ClustersPage() {
             Primary cluster is configured via env vars. Register additional clusters for multi-region routing.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={enabledOnly}
-            onChange={(e) => setEnabledOnly(e.target.checked)}
-            className="rounded border-glass-border-honey"
-          />
-          Enabled only
-        </label>
+        <div className="flex items-start gap-3">
+          <RefreshMessagingCacheButton />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={enabledOnly}
+              onChange={(e) => setEnabledOnly(e.target.checked)}
+              className="rounded border-glass-border-honey"
+            />
+            Enabled only
+          </label>
+        </div>
       </div>
 
       <Collapsible open={registerOpen} onOpenChange={setRegisterOpen}>
@@ -652,6 +656,54 @@ function HealthErrorMessage({ message }: { message: string }) {
         <Copy className="size-3" />
         {copied ? "Copied" : "Copy"}
       </Button>
+    </div>
+  );
+}
+
+function RefreshMessagingCacheButton() {
+  const refreshMut = useRefreshMessagingCache();
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            disabled={refreshMut.isPending}
+          >
+            <RefreshCw className={cn("size-3.5", refreshMut.isPending && "animate-spin")} />
+            {refreshMut.isPending ? "Refreshing…" : "Refresh messaging cache"}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Refresh messaging cache?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Evicts the messaging sidecar&apos;s ECR Docker Hub pull-through cache tag
+              (astropods/messaging:latest) so the next agent pull re-imports it from
+              Docker Hub, bypassing AWS&apos;s ~24h upstream-check window. Running agents keep
+              their current sidecar until their pods restart or redeploy.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => refreshMut.mutate()}>
+              Refresh
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {refreshMut.isSuccess && (
+        <p className="max-w-xs text-right text-[10px] text-green-600">
+          {refreshMut.data?.message ?? "Cache refreshed."}
+        </p>
+      )}
+      {refreshMut.isError && (
+        <p className="max-w-xs text-right text-[10px] text-destructive">
+          {mutationErrorMessage(refreshMut.error)}
+        </p>
+      )}
     </div>
   );
 }

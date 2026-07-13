@@ -39,4 +39,6 @@ const (
 
 	CacheInvalidateAccount = "cache.invalidate_account"
 	CacheInvalidateAll     = "cache.invalidate_all"
+
+	ImageCacheRefreshMessaging = "image_cache.refresh_messaging"
 )

@@ -27,6 +27,7 @@ import type {
   CheckClusterHealthResponse,
   SetAccountClusterResponse,
   InvalidateCachesResponse,
+  RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
 } from "@/types/admin";
 
@@ -158,6 +159,19 @@ export function useInvalidateAllCaches() {
   return useMutation({
     mutationFn: () =>
       api.post<InvalidateCachesResponse>("/api/admin/invalidate-cache", {}),
+  });
+}
+
+// Evicts the messaging sidecar's ECR Docker Hub pull-through cache tag so the
+// next agent pull re-imports it from Docker Hub, bypassing AWS's ~24h
+// upstream-check window. Agents pick up the new sidecar on their next restart.
+export function useRefreshMessagingCache() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<RefreshMessagingCacheResponse>(
+        "/api/admin/refresh-messaging-cache",
+        {},
+      ),
   });
 }
 

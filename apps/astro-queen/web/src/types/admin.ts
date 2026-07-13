@@ -523,6 +523,11 @@ export interface InvalidateCachesResponse {
   deployments_busted: number;
 }
 
+export interface RefreshMessagingCacheResponse {
+  image?: string;
+  message?: string;
+}
+
 export interface ClusterMigrationEvent {
   deployment_id: string;
   account_name: string;
