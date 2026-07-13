@@ -37,24 +37,9 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   );
   const hydratedRef = useRef(!!serverAuth);
 
-  // Persist a durable, client-readable "returning user" marker once the user
-  // is authenticated. The marketing site (a static export served from the same
-  // astropods.com origin) reads this `astro_returning` cookie to show "Log in"
-  // instead of "Get started" for people who have signed in before. Set-once and
-  // intentionally NOT cleared on logout — the semantic is "has ever logged in".
-  // Host-only cookie (app + marketing share the astropods.com host); if the app
-  // ever moves to a subdomain, add `;Domain=astropods.com` so both can read it.
-  useEffect(() => {
-    if (!state.isAuthenticated) return;
-    try {
-      if (!document.cookie.split('; ').some((c) => c.startsWith('astro_returning='))) {
-        const secure = location.protocol === 'https:' ? ';Secure' : '';
-        document.cookie = `astro_returning=1;path=/;max-age=31536000;SameSite=Lax${secure}`;
-      }
-    } catch {
-      /* document.cookie unavailable — non-fatal */
-    }
-  }, [state.isAuthenticated]);
+  // Note: the durable "returning user" marker (astro_returning) is set
+  // server-side alongside the session cookie in astro-server (handlers/auth.go),
+  // scoped to the same domain but non-HttpOnly so the marketing nav can read it.
 
   const updateFromResponse = useCallback(
     (response: AuthResponse, { isRefresh = false } = {}) => {

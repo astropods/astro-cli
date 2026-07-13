@@ -339,6 +339,10 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			true, // httpOnly
 		)
 
+		// Durable, JS-readable marker the marketing nav reads to show returning
+		// users "Log in" instead of "Get started".
+		h.setReturningCookie(c)
+
 		// Redirect to frontend
 		c.Redirect(http.StatusFound, redirectURL)
 	}
@@ -762,7 +766,21 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 		true,
 	)
 
+	// Keep the returning-user marker fresh on refresh so existing sessions
+	// (pre-dating this feature) also get it without re-logging in.
+	h.setReturningCookie(c)
+
 	return newSessionData, nil
+}
+
+// setReturningCookie writes a durable, JS-readable "returning user" marker that
+// the marketing nav reads to show "Log in" instead of "Get started". It uses the
+// same domain and Secure setting as the session cookie so it is shared across
+// *.astropods.com, but is NOT HttpOnly (the marketing site reads it in JS) and is
+// deliberately never cleared on logout — the semantic is "has ever logged in".
+func (h *AuthHandler) setReturningCookie(c *gin.Context) {
+	const oneYearSeconds = 365 * 24 * 60 * 60
+	c.SetCookie("astro_returning", "1", oneYearSeconds, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, false)
 }
 
 // GetSessionManager returns the session manager for use in middleware
