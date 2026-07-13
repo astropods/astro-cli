@@ -186,6 +186,9 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           <CustomInterfacePicker
             isPublic={form.customPublic}
             onPublicChange={form.setCustomPublic}
+            grants={form.customGrants}
+            onGrantsChange={form.setCustomGrants}
+            targetAccount={form.targetAccount}
           />
         </FormSection>
       )}

@@ -370,10 +370,12 @@ function templateBootstrapKey(
  *   - slack → anyone, matching how Slack apps typically install (workspace-wide)
  *  Returns [] when no sensible default applies (e.g. web with no signed-in user). */
 export function defaultGrantsForAdapter(
-  adapter: "web" | "slack",
+  adapter: "web" | "slack" | "custom",
   userId: string | undefined,
 ): AuthGrant[] {
-  if (adapter === "slack") return [{ anyone: true }];
+  // Slack defaults to the whole workspace; the custom interface defaults to any
+  // signed-in Astro account. Web defaults to just the deploying user.
+  if (adapter === "slack" || adapter === "custom") return [{ anyone: true }];
   if (adapter === "web" && userId) return [{ user_id: userId }];
   return [];
 }
@@ -640,6 +642,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const seededSlackGrants = extracted.slackGrants && extracted.slackGrants.length > 0
       ? extracted.slackGrants
       : isFreshDeploy ? defaultGrantsForAdapter("slack", user?.id) : [];
+    const seededCustomGrants = extracted.customGrants && extracted.customGrants.length > 0
+      ? extracted.customGrants
+      : isFreshDeploy ? defaultGrantsForAdapter("custom", user?.id) : [];
 
     const merged: DeployFormInitialValues = {
       deployName: iv?.deployName || extracted.deployName || slugToTitle(name),
@@ -656,7 +661,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       webGrants: iv?.webGrants ?? seededWebGrants,
       slackGrants: iv?.slackGrants ?? seededSlackGrants,
       customPublic: iv?.customPublic ?? extracted.customPublic ?? false,
-      customGrants: iv?.customGrants ?? extracted.customGrants ?? [],
+      customGrants: iv?.customGrants ?? seededCustomGrants,
       knowledgeBindings: iv?.knowledgeBindings ?? extracted.knowledgeBindings ?? {},
       knowledgeBindingModes: knowledgeModesFromBindings(
         knowledgeEntriesFromTemplate(template),

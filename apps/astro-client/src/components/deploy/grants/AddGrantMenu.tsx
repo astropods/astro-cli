@@ -21,9 +21,15 @@ export interface AddGrantMenuProps {
   onPick: (grant: AuthGrant) => void;
   /** Open the user picker (web-only). When omitted, the user item is hidden. */
   onPickUser?: () => void;
+  /** Label for the "anyone" item — adapter-specific (e.g. "Anyone with an Astro account"). */
+  anyoneLabel?: string;
+  /** Hide the "anyone" item — used where blanket access is chosen elsewhere (e.g. the custom-interface access dropdown). */
+  hideAnyone?: boolean;
+  /** Trigger button label. */
+  triggerLabel?: string;
 }
 
-export function AddGrantMenu({ accounts, isAlreadyGranted, onPick, onPickUser }: AddGrantMenuProps) {
+export function AddGrantMenu({ accounts, isAlreadyGranted, onPick, onPickUser, anyoneLabel = "Anyone", hideAnyone = false, triggerLabel = "Add access" }: AddGrantMenuProps) {
   // Account-scope grants only make sense for organizations; a personal account's
   // member set is just one user, which is what the user picker covers.
   const orgAccounts = accounts.filter((a) => a.type === "organization");
@@ -33,17 +39,19 @@ export function AddGrantMenu({ accounts, isAlreadyGranted, onPick, onPickUser }:
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="outline" size="sm">
           <Plus className="h-3.5 w-3.5" />
-          Add access
+          {triggerLabel}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[14rem]">
-        <DropdownMenuItem
-          onSelect={() => onPick({ anyone: true })}
-          disabled={isAlreadyGranted({ anyone: true })}
-        >
-          <Globe className="h-4 w-4" />
-          Anyone
-        </DropdownMenuItem>
+        {!hideAnyone && (
+          <DropdownMenuItem
+            onSelect={() => onPick({ anyone: true })}
+            disabled={isAlreadyGranted({ anyone: true })}
+          >
+            <Globe className="h-4 w-4" />
+            {anyoneLabel}
+          </DropdownMenuItem>
+        )}
         {orgAccounts.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>

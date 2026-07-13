@@ -710,6 +710,35 @@ func TestAuthorize_UnknownAdapter(t *testing.T) {
 	}
 }
 
+// adapter=custom is accepted and resolved web-style: the agent's own server
+// calls this callback to authorize its self-served UI. An org grant matches a
+// member of that account, exactly like web.
+func TestAuthorize_CustomAdapterAccountGrantMatch(t *testing.T) {
+	f := newAuthorizeFixture(t, "dep-1")
+	defer f.close()
+
+	// resolveCandidates: account_members lookup for alice
+	f.mock.ExpectQuery("\n\t\tSELECT account_id FROM account_members WHERE user_id = $1\n\t").
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-Acme"))
+	// anyone short-circuit miss (scoped to the custom adapter)
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1 AND adapter = $2 AND subject_type = 'anyone'\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "custom").
+		WillReturnError(sql.ErrNoRows)
+	// grant lookup hits on the custom adapter
+	f.mock.ExpectQuery("\n\t\tSELECT 1 FROM deployment_authorization_grants\n\t\tWHERE deployment_id = $1\n\t\t  AND adapter = $2\n\t\t  AND (\n\t\t    (subject_type = 'org' AND subject_id = ANY($3))\n\t\t    OR\n\t\t    (subject_type = 'user' AND subject_id = ANY($4))\n\t\t  )\n\t\tLIMIT 1\n\t").
+		WithArgs("dep-1", "custom", pq.Array([]string{"acct-Acme"}), pq.Array([]string{"alice"})).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+
+	w := f.call(t, "identity_type=user&identity_id=alice&adapter=custom")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !decodeAllowed(t, w) {
+		t.Fatal("expected allowed=true for custom org grant")
+	}
+}
+
 // 400 when identity_type is set without identity_id (or vice versa).
 func TestAuthorize_PartialIdentity(t *testing.T) {
 	f := newAuthorizeFixture(t, "dep-1")

@@ -549,6 +549,15 @@ func (a *Applier) ApplyDeploymentSpec(
 				}
 			}
 		}
+		if ds.Interfaces.Auth.Custom != nil {
+			hasGrants = hasGrants || len(ds.Interfaces.Auth.Custom.Grants) > 0
+			for _, g := range ds.Interfaces.Auth.Custom.Grants {
+				if g.Anyone {
+					anyoneAdapters = append(anyoneAdapters, "custom")
+					break
+				}
+			}
+		}
 	}
 	var deployToken string
 	switch {

@@ -12,10 +12,13 @@ export interface GrantRowProps {
   /** Map of user ID → member record for resolving user-scope grants. */
   memberByUserId: Map<string, AccountMember>;
   onRemove: () => void;
+  /** The deploying user's id. Their own grant is marked "(you)" and locked (no remove). */
+  currentUserId?: string;
 }
 
-export function GrantRow({ grant, adapter, accountById, memberByUserId, onRemove }: GrantRowProps) {
-  const { primary, secondary } = grantText(grant, accountById, memberByUserId);
+export function GrantRow({ grant, adapter, accountById, memberByUserId, onRemove, currentUserId }: GrantRowProps) {
+  const { primary, secondary } = grantText(grant, adapter, accountById, memberByUserId);
+  const isSelf = !!currentUserId && grant.user_id === currentUserId;
   const member = grant.user_id ? memberByUserId.get(grant.user_id) : undefined;
   // The mapping between WorkOS users and Slack accounts is per-workspace, so
   // a user with zero linked workspaces can't be resolved at request time no
@@ -28,7 +31,10 @@ export function GrantRow({ grant, adapter, accountById, memberByUserId, onRemove
         <GrantBadge grant={grant} accountById={accountById} memberByUserId={memberByUserId} />
         <span className="flex flex-col min-w-0">
           <span className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[13px] text-foreground truncate">{primary}</span>
+            <span className="text-[13px] text-foreground truncate">
+              {primary}
+              {isSelf && <span className="text-muted-foreground"> (you)</span>}
+            </span>
             {slackUnlinked && <SlackUnlinkedBadge />}
           </span>
           {secondary && (
@@ -36,14 +42,16 @@ export function GrantRow({ grant, adapter, accountById, memberByUserId, onRemove
           )}
         </span>
       </div>
-      <button
-        type="button"
-        aria-label="Remove grant"
-        onClick={onRemove}
-        className="text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+      {!isSelf && (
+        <button
+          type="button"
+          aria-label="Remove grant"
+          onClick={onRemove}
+          className="text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
     </li>
   );
 }
@@ -89,10 +97,17 @@ function FallbackIcon() {
 
 function grantText(
   g: AuthGrant,
+  adapter: "web" | "slack" | "custom",
   accountById: Map<string, Account>,
   memberByUserId: Map<string, AccountMember>,
 ): { primary: string; secondary?: string } {
-  if (g.anyone) return { primary: "Anyone", secondary: "Any signed-in user" };
+  if (g.anyone) {
+    // Web/custom go through the OIDC gate, so "anyone" means any authenticated
+    // Astro account. Slack's "anyone" is workspace-scoped, not account-scoped.
+    return adapter === "slack"
+      ? { primary: "Anyone", secondary: "Any workspace member" }
+      : { primary: "Anyone with an Astro account" };
+  }
   if (g.org) {
     const a = accountById.get(g.org);
     return a

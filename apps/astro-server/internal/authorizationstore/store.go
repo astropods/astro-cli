@@ -38,8 +38,10 @@ const (
 	AdapterWeb   = "web"
 	AdapterSlack = "slack"
 	// AdapterCustom records grants for the agent's own custom interface (the
-	// web UI it serves itself). Stored for visibility/future use — not enforced
-	// by the platform today (the agent's server does its own authorization).
+	// web UI it serves itself). Not enforced by the platform at the ingress;
+	// the agent's server authorizes each request itself by calling the
+	// /deployments/authorize callback with adapter=custom (web-shaped: an OIDC
+	// WorkOS user identity, resolved and matched exactly like web).
 	AdapterCustom = "custom"
 )
 

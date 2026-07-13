@@ -807,7 +807,7 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     });
   });
 
-  it('allows empty messaging adapters when a custom interface is protected without grants', async () => {
+  it('allows empty messaging adapters when the agent serves a custom interface', async () => {
     const tpl: DeploymentTemplate = {
       ...mockTemplate,
       agent: {
@@ -830,7 +830,9 @@ describe('useDeployForm fresh deploy (no initialValues)', () => {
     expect(result.current.messagingSupported).toBe(true);
     expect(result.current.customSupported).toBe(true);
     expect(result.current.customPublic).toBe(false);
-    expect(result.current.customGrants).toEqual([]);
+    // Fresh custom deploys default to the "Astro members" grant (anyone with an
+    // Astro account) so the form never starts in a "no one has access" state.
+    expect(result.current.customGrants).toEqual([{ anyone: true }]);
 
     act(() => {
       result.current.setSelectedAdapters([]);

@@ -14,8 +14,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CheckDeploymentAuthorization is the messaging container's callback. It
+// CheckDeploymentAuthorization is the per-request authorization callback. It
 // answers "is this principal allowed to use this deployment over this adapter."
+//
+// Callers: the messaging container (web/slack) and — for adapter=custom — the
+// agent's own server, which authorizes its self-served web UI against the same
+// grants (the platform does not enforce custom at the ingress). Custom is
+// web-shaped: an OIDC WorkOS user identity, resolved and matched exactly like
+// web.
 //
 // Auth: the deploy token (validated by RequireDeployToken middleware) supplies
 // the deployment_id. The body of the request supplies the identity to check.
@@ -25,8 +31,8 @@ import (
 //   - identity_id:    the WorkOS user ID, slack user ID, or empty
 //   - identity_scope: adapter-specific disambiguator for identity_id —
 //     for slack this is the team_id (slack user_ids are only unique per
-//     team). Empty for web.
-//   - adapter:        "web" | "slack"
+//     team). Empty for web and custom.
+//   - adapter:        "web" | "slack" | "custom"
 //
 // Flow:
 //  1. Principal resolution — user → {user_id, account_ids}; slack → look up
@@ -66,8 +72,8 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		identityScope := c.Query("identity_scope")
 		adapter := c.Query("adapter")
 
-		if adapter != authorizationstore.AdapterWeb && adapter != authorizationstore.AdapterSlack {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "adapter must be one of: web, slack"})
+		if adapter != authorizationstore.AdapterWeb && adapter != authorizationstore.AdapterSlack && adapter != authorizationstore.AdapterCustom {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "adapter must be one of: web, slack, custom"})
 			return
 		}
 

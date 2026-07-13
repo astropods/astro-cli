@@ -52,6 +52,8 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
       ? "Slack defaults to anyone in the workspace if no grants are set."
       : "No one can access this agent yet. Select who has access to this agent.";
 
+  const anyoneLabel = adapter === "slack" ? "Anyone" : "Anyone with an Astro account";
+
   return (
     <TooltipProvider delayDuration={150}>
     <div className="space-y-2.5">
@@ -94,6 +96,7 @@ export function GrantsEditor({ adapter, grants, onChange, targetAccount }: Grant
           isAlreadyGranted={isAlreadyGranted}
           onPick={add}
           onPickUser={showUserPicker ? () => setPickingUser(true) : undefined}
+          anyoneLabel={anyoneLabel}
         />
       )}
     </div>

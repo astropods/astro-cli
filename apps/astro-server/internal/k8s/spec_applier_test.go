@@ -2186,6 +2186,57 @@ func TestApplyDeploymentSpec_SlackAnyoneGrantInToken(t *testing.T) {
 	}
 }
 
+// A fully-public custom interface (an `anyone` grant on the custom adapter)
+// puts "custom" in the token's anyone_adapters claim so the agent's own server
+// can fast-path its self-served UI without calling the authorize endpoint.
+func TestApplyDeploymentSpec_CustomAnyoneGrantInToken(t *testing.T) {
+	a := newTestApplier()
+	a.deploymentID = "dep-123"
+	a.deployTokenSecret = "test-secret"
+
+	// A custom interface is the agent serving its own web UI — no messaging
+	// adapter. The agent's exposed http endpoint (from minimalDeploymentSpec)
+	// is the interface; auth.custom records who may reach it.
+	ds := minimalDeploymentSpec()
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Auth: &spec.DeploymentInterfacesAuth{
+			Custom: &spec.DeploymentCustomAuth{
+				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+			},
+		},
+	}
+
+	if _, err := a.ApplyDeploymentSpec(context.Background(), ds); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	depl, err := a.clientset.AppsV1().StatefulSets("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get agent workload: %v", err)
+	}
+
+	var token string
+	for _, c := range depl.Spec.Template.Spec.Containers {
+		for _, e := range c.Env {
+			if e.Name == "ASTRO_AUTHZ_TOKEN" {
+				token = e.Value
+			}
+		}
+	}
+	if token == "" {
+		t.Fatal("ASTRO_AUTHZ_TOKEN not set on agent container")
+	}
+	_, anyoneAdapters, err := deploytoken.Verify(token, "test-secret")
+	if err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+	if !slices.Contains(anyoneAdapters, "custom") {
+		t.Errorf("expected anyone_adapters to contain \"custom\", got %v", anyoneAdapters)
+	}
+}
+
 // If grants are configured but the deploy-token secret is unset, the apply
 // must refuse — the messaging container would otherwise fall back to
 // AllowAll() and the spec's grants would be silently unenforced.
