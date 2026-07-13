@@ -177,6 +177,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
     return (
       <Textarea
         id={fieldKey}
+        name={fieldKey}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
@@ -220,6 +221,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
     return (
       <Input
         id={fieldKey}
+        name={fieldKey}
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -238,6 +240,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
     return (
       <Textarea
         id={fieldKey}
+        name={fieldKey}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -278,6 +281,7 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
       ) : (
         <Input
           id={fieldKey}
+          name={fieldKey}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value.trim())}
@@ -338,13 +342,14 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
       ) : (
         <Input
           id={fieldKey}
+          name={fieldKey}
           type={revealed ? "text" : "password"}
           value={value}
           onBlur={exitEditIfStillEmpty}
           onChange={(e) => onChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
           className="pr-16"
-          autoComplete="off"
+          autoComplete="new-password"
           spellCheck={false}
           aria-invalid={hasError || undefined}
           autoFocus={editing && meta.configured}

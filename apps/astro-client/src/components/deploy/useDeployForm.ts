@@ -446,15 +446,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const {
     data: accountVarsData,
     isSuccess: accountVarsLoaded,
+    isPlaceholderData: accountVarsPlaceholder,
     isError: vaultVarsQueryFailed,
     error: vaultVarsQueryError,
   } = useAccountVariables(targetAccount);
+  const accountVarsReady = !!targetAccount && accountVarsLoaded && !accountVarsPlaceholder;
   const vaultEntriesLoadError = vaultVarsQueryFailed
     ? formatVaultVariablesLoadError(vaultVarsQueryError)
     : null;
   const accountVarNames = useMemo(
-    () => new Set(accountVarsData?.variables.map(v => v.name) ?? []),
-    [accountVarsData?.variables],
+    () => new Set(accountVarsReady ? accountVarsData?.variables.map(v => v.name) ?? [] : []),
+    [accountVarsData?.variables, accountVarsReady],
   );
 
   const [initialValues, setInitialValues] = useState<DeployFormInitialValues | null>(null);
@@ -880,15 +882,22 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
   }, [template, selectedAdapters]);
 
+  const vaultRefKeys = useMemo(
+    () => variableEntries
+      .filter(([key]) => parseVaultToken(allFormValues[key] ?? '') !== null)
+      .map(([key]) => key),
+    [variableEntries, allFormValues],
+  );
+
   // Always-on vault ref validation — not gated by submitted so chips turn red
   // immediately when the target account changes, without requiring a submit attempt.
   const invalidVaultRefKeys = useMemo(
-    () => accountVarsLoaded
+    () => accountVarsReady
       ? variableEntries
           .filter(([key]) => isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames))
           .map(([key]) => key)
       : [],
-    [accountVarsLoaded, variableEntries, allFormValues, accountVarNames],
+    [accountVarsReady, variableEntries, allFormValues, accountVarNames],
   );
   const missingSharedKnowledgeBindings = useMemo(
     () => sharedKnowledgeEntriesMissingBinding(
@@ -970,7 +979,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return creds.every(([key, def]) => def.optional || isVariableFilled(def, allFormValues[key]));
     });
     const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
-    const vaultRefsValid = invalidVaultRefKeys.length === 0;
+    const vaultRefsValid = vaultRefKeys.length === 0
+      || (accountVarsReady && invalidVaultRefKeys.length === 0);
     const knowledgeBindingsValid = missingSharedKnowledgeBindings.length === 0;
 
     return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid && knowledgeBindingsValid;
@@ -1217,8 +1227,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     agentStorageSize,
     setAgentStorageSize,
 
-    vaultEntries: accountVarsData?.variables ?? [],
-    vaultEntriesLoaded: accountVarsLoaded,
+    vaultEntries: accountVarsReady ? accountVarsData?.variables ?? [] : [],
+    vaultEntriesLoaded: accountVarsReady,
     vaultEntriesLoadError,
     vaultSettingsUrl: accountSettingsPath(accounts, targetAccount, 'secrets'),
 

@@ -34,6 +34,25 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe('VariableField vault auto-fill readiness gate', () => {
+  it('renders secret inputs with stable field identity for browser autofill', () => {
+    render(
+      <Providers>
+        <VariableField
+          fieldKey="ANTHROPIC_API_KEY"
+          meta={{ ...meta, label: 'Anthropic API Key' }}
+          value=""
+          onChange={() => {}}
+          vaultEntries={[]}
+          vaultEntriesLoaded={true}
+        />
+      </Providers>,
+    )
+
+    const input = document.getElementById('ANTHROPIC_API_KEY') as HTMLInputElement
+    expect(input).toHaveAttribute('name', 'ANTHROPIC_API_KEY')
+    expect(input).toHaveAttribute('autocomplete', 'new-password')
+  })
+
   it('does not auto-fill while the vault query is still loading, then fills once it resolves', async () => {
     const onChange = vi.fn()
 

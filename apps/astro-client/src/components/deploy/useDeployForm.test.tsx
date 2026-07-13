@@ -6,7 +6,7 @@ import { mockAuthContext } from '@/test/test-utils';
 import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
 import { server } from '@/test/msw/server';
 import type { DeploymentTemplate } from '@/lib/api';
-import { AuthContext } from '@/lib/auth-context';
+import { AuthContext, type AuthContextType } from '@/lib/auth-context';
 import { type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -46,14 +46,14 @@ describe('slugToTitle', () => {
 });
 
 /** Wrapper that includes auth context + query client + router */
-function createAuthWrapper() {
+function createAuthWrapper(auth: AuthContextType = mockAuthContext) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 0 }, mutations: { retry: false } },
   });
 
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <AuthContext.Provider value={mockAuthContext}>
+      <AuthContext.Provider value={auth}>
         <QueryClientProvider client={queryClient}>
           <MemoryRouter>{children}</MemoryRouter>
         </QueryClientProvider>
@@ -63,6 +63,165 @@ function createAuthWrapper() {
 
   return { wrapper: Wrapper, queryClient };
 }
+
+describe('useDeployForm vault variable readiness', () => {
+  it('hides previous account variables while the next account variables are placeholder data', async () => {
+    let releaseTeamVariables: (() => void) | undefined;
+
+    server.use(
+      http.get('/api/v1/accounts/:account/variables', async ({ params }) => {
+        if (params.account === 'testuser') {
+          return HttpResponse.json({
+            variables: [
+              { name: 'ANTHROPIC_API_KEY', secret: true, description: '', created_at: '', updated_at: '' },
+            ],
+          });
+        }
+        if (params.account === 'team') {
+          await new Promise<void>((resolve) => {
+            releaseTeamVariables = resolve;
+          });
+          return HttpResponse.json({
+            variables: [
+              { name: 'TEAM_ANTHROPIC_API_KEY', secret: true, description: '', created_at: '', updated_at: '' },
+            ],
+          });
+        }
+        return HttpResponse.json({ variables: [] });
+      }),
+    );
+
+    const auth: AuthContextType = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-personal', name: 'testuser', type: 'personal' },
+        { id: 'acct-team', name: 'team', type: 'organization' },
+      ],
+    };
+
+    const { wrapper } = createAuthWrapper(auth);
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    expect(result.current.vaultEntries.map((entry) => entry.name)).toEqual(['ANTHROPIC_API_KEY']);
+
+    await act(async () => {
+      result.current.setTargetAccount('team');
+    });
+
+    await waitFor(() => {
+      expect(result.current.targetAccount).toBe('team');
+      expect(releaseTeamVariables).toBeDefined();
+    });
+    expect(result.current.vaultEntriesLoaded).toBe(false);
+    expect(result.current.vaultEntries).toEqual([]);
+
+    await act(async () => {
+      releaseTeamVariables?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    expect(result.current.vaultEntries.map((entry) => entry.name)).toEqual(['TEAM_ANTHROPIC_API_KEY']);
+  });
+
+  it('keeps vault ref chips quiet but blocks submit while the next account variables are placeholder data', async () => {
+    let releaseTeamVariables: (() => void) | undefined;
+
+    server.use(
+      http.get('/api/v1/accounts/:account/variables', async ({ params }) => {
+        if (params.account === 'testuser') {
+          return HttpResponse.json({
+            variables: [
+              { name: 'ANTHROPIC_API_KEY', secret: true, description: '', created_at: '', updated_at: '' },
+            ],
+          });
+        }
+        if (params.account === 'team') {
+          await new Promise<void>((resolve) => {
+            releaseTeamVariables = resolve;
+          });
+          return HttpResponse.json({
+            variables: [
+              { name: 'TEAM_ANTHROPIC_API_KEY', secret: true, description: '', created_at: '', updated_at: '' },
+            ],
+          });
+        }
+        return HttpResponse.json({ variables: [] });
+      }),
+    );
+
+    const auth: AuthContextType = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-personal', name: 'testuser', type: 'personal' },
+        { id: 'acct-team', name: 'team', type: 'organization' },
+      ],
+    };
+
+    const { wrapper } = createAuthWrapper(auth);
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+        initialValues: {
+          targetAccount: 'testuser',
+        },
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    await act(async () => {
+      result.current.setVariableValues((prev) => ({
+        ...prev,
+        OPENAI_API_KEY: '{{secrets.ANTHROPIC_API_KEY}}',
+      }));
+    });
+    expect(result.current.invalidVaultRefKeys).toEqual([]);
+
+    await act(async () => {
+      result.current.setTargetAccount('team');
+    });
+
+    await waitFor(() => {
+      expect(result.current.targetAccount).toBe('team');
+      expect(releaseTeamVariables).toBeDefined();
+    });
+
+    expect(result.current.vaultEntriesLoaded).toBe(false);
+    expect(result.current.vaultEntries).toEqual([]);
+    expect(result.current.invalidVaultRefKeys).toEqual([]);
+    let valid = true;
+    await act(async () => {
+      valid = result.current.trySubmit();
+    });
+    expect(valid).toBe(false);
+    expect(result.current.invalidVaultRefKeys).toEqual([]);
+
+    await act(async () => {
+      releaseTeamVariables?.();
+    });
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    expect(result.current.invalidVaultRefKeys).toEqual(['OPENAI_API_KEY']);
+    await act(async () => {
+      valid = result.current.trySubmit();
+    });
+    expect(valid).toBe(false);
+  });
+});
 
 describe('useDeployForm with pre-filled template', () => {
   it('initializes variable values from initialValues', () => {
