@@ -1224,7 +1224,18 @@ export interface AccountObservabilitySummaryResponse {
     date: string;
     models: Array<{ model: string; cost_usd: number }>;
   }>;
-  cost_by_model: Array<{ model: string; cost_usd: number; cost_pct: number }>;
+  cost_by_model: Array<{
+    model: string;
+    cost_usd: number;
+    cost_pct: number;
+    /** Token volume for this model and its share of total tokens. */
+    total_tokens: number;
+    token_pct: number;
+    /** Request count and latency percentiles (ms) for this model over the period. */
+    requests: number;
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+  }>;
   sparklines?: { cost: number[]; requests: number[]; tokens: number[] };
   /** Present only when the endpoint was called with ?group_by=user. */
   cost_over_time_by_user?: Array<{

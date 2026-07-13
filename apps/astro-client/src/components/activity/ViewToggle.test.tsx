@@ -16,4 +16,8 @@ describe("parseActivityView", () => {
   it("returns 'users' for the literal 'users'", () => {
     expect(parseActivityView("users")).toBe("users");
   });
+
+  it("returns 'models' for the literal 'models'", () => {
+    expect(parseActivityView("models")).toBe("models");
+  });
 });

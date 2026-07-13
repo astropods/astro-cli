@@ -356,6 +356,7 @@ func ComputeAccountSummary(
 	var currentMetrics, priorMetrics []langfuse.DailyMetric
 	var activeDepIDs map[string]bool
 	var userCostRows []map[string]any
+	var modelStatsRows []map[string]any
 	g, gCtx := errgroup.WithContext(ctx)
 
 	// Tally Langfuse call outcomes so we surface ErrAllLangfuseCallsFailed
@@ -386,6 +387,42 @@ func ComputeAccountSummary(
 			return nil
 		})
 	}
+
+	g.Go(func() error {
+		// Per-model request count + latency percentiles for the current period,
+		// grouped by model with no time dimension so the percentiles are
+		// computed over the whole period (averaging per-day percentiles would be
+		// wrong). Cost and tokens are rolled up separately from the daily
+		// metrics; this only supplies requests + p50/p95. Fail-open: a failure
+		// here just leaves those fields zero, so the cost/token breakdown still
+		// renders.
+		qFrom, qTo := metricsTimeRange(from, to)
+		q := langfuse.MetricsQuery{
+			View: "observations",
+			Metrics: []langfuse.MetricsQueryField{
+				{Measure: "count", Aggregation: "count"},
+				{Measure: "latency", Aggregation: "p50"},
+				{Measure: "latency", Aggregation: "p95"},
+			},
+			Dimensions:    []langfuse.MetricsDimension{{Field: "providedModelName"}},
+			FromTimestamp: qFrom,
+			ToTimestamp:   qTo,
+		}
+		if applyTagFilter {
+			q.Filters = []langfuse.MetricsFilter{
+				{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: visibleTagValues},
+			}
+		}
+		resp, ferr := client.GetMetrics(gCtx, q)
+		lfAttempts.Add(1)
+		if ferr != nil {
+			lfFailures.Add(1)
+			log.Warn("Per-model stats query failed; model latency/requests will be zero", "error", ferr)
+			return nil
+		}
+		modelStatsRows = resp.Data
+		return nil
+	})
 
 	if groupBy == "user" {
 		g.Go(func() error {
@@ -446,7 +483,7 @@ func ComputeAccountSummary(
 		activeAgents = len(names)
 	}
 
-	resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents)
+	resp := buildAccountSummary(currentMetrics, priorMetrics, hasPeriod, from, to, activeAgents, parseModelStats(modelStatsRows))
 	if groupBy == "user" {
 		// Translate linked Slack user_ids to their WorkOS id before
 		// bucketing, so Bob's bare-Slack spend and Astro spend fold
@@ -620,18 +657,48 @@ func zeroAccountSummary(from, to string, hasPeriod bool) AccountObservabilitySum
 	return resp
 }
 
+// modelStats holds the per-model request count and latency percentiles from the
+// model-grouped observations query (period-level, not per-day).
+type modelStats struct {
+	Requests int
+	P50Ms    float64
+	P95Ms    float64
+}
+
+// parseModelStats turns the raw model-grouped observations rows into a map keyed
+// by model. Latency is returned by Langfuse in seconds; convert to ms. Rows
+// without a model (non-LLM observations) are skipped. Tolerant of missing keys
+// so a partial or empty response degrades to zeroed fields.
+func parseModelStats(rows []map[string]any) map[string]modelStats {
+	out := make(map[string]modelStats, len(rows))
+	for _, row := range rows {
+		model, _ := row["providedModelName"].(string)
+		if model == "" {
+			continue
+		}
+		out[model] = modelStats{
+			Requests: toInt(row["count_count"]),
+			P50Ms:    toFloat(row["p50_latency"]) * 1000,
+			P95Ms:    toFloat(row["p95_latency"]) * 1000,
+		}
+	}
+	return out
+}
+
 // buildAccountSummary aggregates DailyMetric slices into the full response shape.
 func buildAccountSummary(
 	current, prior []langfuse.DailyMetric,
 	hasPeriod bool,
 	from, to string,
 	activeAgents int,
+	modelStatsByModel map[string]modelStats,
 ) AccountObservabilitySummaryResponse {
 	// Aggregate current period.
 	var totalCost float64
 	var totalRequests, totalInput, totalOutput int
 	costByDay := make(map[string][]AccountModelCost)
 	costByModel := make(map[string]float64)
+	tokensByModel := make(map[string]int)
 
 	for _, m := range current {
 		totalRequests += m.CountTraces
@@ -642,6 +709,7 @@ func buildAccountSummary(
 		if len(m.Usage) > 0 {
 			models := make([]AccountModelCost, 0, len(m.Usage))
 			for _, u := range m.Usage {
+				tokensByModel[u.Model] += u.InputUsage + u.OutputUsage
 				if u.TotalCost > 0 {
 					models = append(models, AccountModelCost{Model: u.Model, CostUSD: u.TotalCost})
 					costByModel[u.Model] += u.TotalCost
@@ -652,6 +720,7 @@ func buildAccountSummary(
 			}
 		}
 	}
+	totalModelTokens := totalInput + totalOutput
 
 	// Build per-day sparkline values (all dates, not just days with model breakdowns).
 	allDays := make(map[string]struct{})
@@ -700,6 +769,16 @@ func buildAccountSummary(
 	for i := range modelEntries {
 		if totalCost > 0 {
 			modelEntries[i].CostPct = math.Round(modelEntries[i].CostUSD/totalCost*1000) / 10
+		}
+		model := modelEntries[i].Model
+		modelEntries[i].TotalTokens = tokensByModel[model]
+		if totalModelTokens > 0 {
+			modelEntries[i].TokenPct = math.Round(float64(tokensByModel[model])/float64(totalModelTokens)*1000) / 10
+		}
+		if s, ok := modelStatsByModel[model]; ok {
+			modelEntries[i].Requests = s.Requests
+			modelEntries[i].P50LatencyMs = math.Round(s.P50Ms*10) / 10
+			modelEntries[i].P95LatencyMs = math.Round(s.P95Ms*10) / 10
 		}
 	}
 

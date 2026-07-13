@@ -500,6 +500,10 @@ function InsightsView({
   );
   const shouldShowConnectTooltip = !slackConnected && !slackConnect.isPending && !showSlackRefreshFeedback;
 
+  // The Models view is a per-model breakdown, not a name-searchable list, so it
+  // hides the search box and Slack action; only the toggle stays.
+  const isModelView = view === "models";
+
   // Counts shown in the toggle pills are the un-filtered totals — the pill
   // reflects how much data exists, not how much the current search returns.
   // Toggle + search render inside the table's bordered container via the
@@ -507,9 +511,6 @@ function InsightsView({
   const panelHeader = (
     <div className="flex flex-col gap-3 @md:flex-row @md:items-center @md:justify-between">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-label uppercase tracking-[0.07em] text-faint-foreground">
-          View by
-        </span>
         <ViewToggle
           value={view}
           onChange={onViewChange}
@@ -517,6 +518,7 @@ function InsightsView({
           agentsCount={insights?.tables.agents.count || undefined}
         />
       </div>
+      {!isModelView && (
       <div className="flex flex-col gap-2 @md:flex-row @md:items-center">
         {showSlackDetailsButton && (
           <PillToggleChrome size="md" inline className="shrink-0">
@@ -541,6 +543,7 @@ function InsightsView({
           onChange={(e) => setSearchInput(e.target.value)}
         />
       </div>
+      )}
     </div>
   );
 
@@ -562,7 +565,9 @@ function InsightsView({
       }
       chartRight={<ActiveUsersSpendChart data={rangeData?.people_spend_chart ?? []} days={days} />}
       table={
-        view === "agents" ? (
+        isModelView ? (
+          <TopSpendersTable mode="models" account={account} days={days} panelHeader={panelHeader} />
+        ) : view === "agents" ? (
           <TopSpendersTable
             mode="agents"
             rows={agentRows}

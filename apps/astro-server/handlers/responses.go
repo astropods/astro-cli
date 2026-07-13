@@ -328,11 +328,20 @@ type AccountModelCost struct {
 	CostUSD float64 `json:"cost_usd"`
 }
 
-// AccountCostByModelEntry is one row in the aggregate model cost breakdown.
+// AccountCostByModelEntry is one row in the aggregate per-model breakdown:
+// spend, token volume, request count, and latency percentiles. Powers the
+// model-optimization view (see #1374). Latency and request count come from a
+// model-grouped observations query; cost and tokens are rolled up from the
+// daily metrics.
 type AccountCostByModelEntry struct {
-	Model   string  `json:"model"`
-	CostUSD float64 `json:"cost_usd"`
-	CostPct float64 `json:"cost_pct"`
+	Model        string  `json:"model"`
+	CostUSD      float64 `json:"cost_usd"`
+	CostPct      float64 `json:"cost_pct"`
+	TotalTokens  int     `json:"total_tokens"`
+	TokenPct     float64 `json:"token_pct"`
+	Requests     int     `json:"requests"`
+	P50LatencyMs float64 `json:"p50_latency_ms"`
+	P95LatencyMs float64 `json:"p95_latency_ms"`
 }
 
 // AccountSparklines holds per-day value arrays (date-ascending) for frontend sparklines.

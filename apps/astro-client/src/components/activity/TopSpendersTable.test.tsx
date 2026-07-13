@@ -1,7 +1,9 @@
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { renderWithProviders } from "@/test/test-utils";
+import { server } from "@/test/msw/server";
 import type { InsightsAgentRow, InsightsPersonRow } from "@/lib/api";
 import { TopSpendersTable } from "./TopSpendersTable";
 
@@ -552,5 +554,57 @@ describe("TopSpendersTable users mode", () => {
     expect(within(rows[0]).getByText("High Spender")).toBeInTheDocument();
     expect(within(rows[1]).getByText("Low Spender")).toBeInTheDocument();
     expect(within(rows[2]).getByText("System spend")).toBeInTheDocument();
+  });
+});
+
+describe("TopSpendersTable models mode", () => {
+  const ACCOUNT = "testuser";
+
+  function mockSummary(costByModel: unknown[]) {
+    server.use(
+      http.get(`/api/v1/accounts/${ACCOUNT}/observability/summary`, () =>
+        HttpResponse.json({
+          period: { start: "", end: "", days: 7 },
+          totals: { cost_usd: 0, requests: 0, input_tokens: 0, output_tokens: 0, total_tokens: 0, active_agents: 0 },
+          daily_avg: { cost_usd: 0, requests: 0, tokens: 0 },
+          cost_over_time: [],
+          cost_by_model: costByModel,
+        }),
+      ),
+    );
+  }
+
+  it("renders a per-model row with requests, spend share, and a single p95 column", async () => {
+    mockSummary([
+      { model: "gpt-4o", cost_usd: 1.5, cost_pct: 100, total_tokens: 12000, token_pct: 100, requests: 340, p50_latency_ms: 320, p95_latency_ms: 900 },
+    ]);
+    renderWithProviders(<TopSpendersTable mode="models" account={ACCOUNT} days={7} />);
+
+    expect(await screen.findByText("gpt-4o")).toBeInTheDocument();
+    expect(screen.getByText(/340/)).toBeInTheDocument();
+    expect(screen.getByText("% Total")).toBeInTheDocument();
+    // Only p95 latency is shown; p50 was dropped per review.
+    expect(screen.getByText("p95")).toBeInTheDocument();
+    expect(screen.queryByText("p50")).toBeNull();
+    // No suggested-model callout.
+    expect(screen.queryByText(/of spend/)).toBeNull();
+  });
+
+  it("shows the clean family name and keeps the full model id in a tooltip", async () => {
+    mockSummary([
+      { model: "claude-3-5-sonnet-20241022", cost_usd: 9, cost_pct: 90, total_tokens: 90000, token_pct: 90, requests: 500, p50_latency_ms: 800, p95_latency_ms: 2100 },
+    ]);
+    renderWithProviders(<TopSpendersTable mode="models" account={ACCOUNT} days={7} />);
+
+    const cell = await screen.findByText("claude-3-5-sonnet");
+    expect(cell).toHaveAttribute("title", "claude-3-5-sonnet-20241022");
+  });
+
+  it("shows an empty state when there are no models", async () => {
+    mockSummary([]);
+    renderWithProviders(<TopSpendersTable mode="models" account={ACCOUNT} days={7} />);
+    await waitFor(() => {
+      expect(screen.getByText("No model usage in this period")).toBeInTheDocument();
+    });
   });
 });

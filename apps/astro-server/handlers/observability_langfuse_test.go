@@ -231,7 +231,7 @@ func TestLangfuseMetricsBucketFiltering(t *testing.T) {
 // ── buildAccountSummary ───────────────────────────────────────────────────────
 
 func TestBuildAccountSummary_Empty(t *testing.T) {
-	resp := buildAccountSummary(nil, nil, false, "", "", 0)
+	resp := buildAccountSummary(nil, nil, false, "", "", 0, nil)
 
 	if resp.Totals.Requests != 0 || resp.Totals.CostUSD != 0 {
 		t.Errorf("expected zero totals, got %+v", resp.Totals)
@@ -264,7 +264,7 @@ func TestBuildAccountSummary_Totals(t *testing.T) {
 		},
 	}
 
-	resp := buildAccountSummary(current, nil, true, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", 3)
+	resp := buildAccountSummary(current, nil, true, "2026-04-01T00:00:00Z", "2026-04-08T00:00:00Z", 3, nil)
 
 	if resp.Totals.Requests != 150 {
 		t.Errorf("requests = %d, want 150", resp.Totals.Requests)
@@ -291,6 +291,70 @@ func TestBuildAccountSummary_Totals(t *testing.T) {
 	}
 }
 
+func TestBuildAccountSummary_PerModelBreakdown(t *testing.T) {
+	current := []langfuse.DailyMetric{
+		{
+			Date: "2026-04-01", CountTraces: 100, TotalCost: 5.0,
+			Usage: []langfuse.DailyMetricUsage{
+				{Model: "claude-sonnet", InputUsage: 1000, OutputUsage: 500, TotalCost: 3.0},
+				{Model: "claude-haiku", InputUsage: 200, OutputUsage: 100, TotalCost: 1.0},
+			},
+		},
+		{
+			Date: "2026-04-02", CountTraces: 50, TotalCost: 1.0,
+			Usage: []langfuse.DailyMetricUsage{
+				{Model: "claude-sonnet", InputUsage: 500, OutputUsage: 250, TotalCost: 1.0},
+			},
+		},
+	}
+	stats := map[string]modelStats{
+		"claude-sonnet": {Requests: 120, P50Ms: 0.8 * 1000, P95Ms: 1.9 * 1000},
+		"claude-haiku":  {Requests: 30, P50Ms: 0.3 * 1000, P95Ms: 0.6 * 1000},
+	}
+
+	resp := buildAccountSummary(current, nil, false, "", "", 0, stats)
+
+	byModel := map[string]AccountCostByModelEntry{}
+	for _, e := range resp.CostByModel {
+		byModel[e.Model] = e
+	}
+	// Total tokens: sonnet (1500+750)=2250, haiku 300, total 2550.
+	sonnet := byModel["claude-sonnet"]
+	if sonnet.TotalTokens != 2250 {
+		t.Errorf("sonnet total_tokens = %d, want 2250", sonnet.TotalTokens)
+	}
+	if sonnet.Requests != 120 {
+		t.Errorf("sonnet requests = %d, want 120", sonnet.Requests)
+	}
+	if sonnet.P95LatencyMs != 1900 {
+		t.Errorf("sonnet p95_latency_ms = %v, want 1900", sonnet.P95LatencyMs)
+	}
+	// token_pct: 2250/2550 ≈ 88.2
+	if sonnet.TokenPct < 88 || sonnet.TokenPct > 89 {
+		t.Errorf("sonnet token_pct = %v, want ~88.2", sonnet.TokenPct)
+	}
+	haiku := byModel["claude-haiku"]
+	if haiku.TotalTokens != 300 || haiku.Requests != 30 || haiku.P50LatencyMs != 300 {
+		t.Errorf("haiku entry wrong: %+v", haiku)
+	}
+}
+
+func TestParseModelStats(t *testing.T) {
+	rows := []map[string]any{
+		{"providedModelName": "gpt-4o", "count_count": float64(42), "p50_latency": 0.5, "p95_latency": 1.25},
+		{"providedModelName": nil}, // non-LLM observation, skipped
+		{"count_count": float64(9)}, // no model, skipped
+	}
+	got := parseModelStats(rows)
+	if len(got) != 1 {
+		t.Fatalf("want 1 model, got %d", len(got))
+	}
+	s := got["gpt-4o"]
+	if s.Requests != 42 || s.P50Ms != 500 || s.P95Ms != 1250 {
+		t.Errorf("gpt-4o stats wrong: %+v", s)
+	}
+}
+
 func TestBuildAccountSummary_CostOverTime(t *testing.T) {
 	current := []langfuse.DailyMetric{
 		{
@@ -303,7 +367,7 @@ func TestBuildAccountSummary_CostOverTime(t *testing.T) {
 		},
 	}
 
-	resp := buildAccountSummary(current, nil, false, "", "", 0)
+	resp := buildAccountSummary(current, nil, false, "", "", 0, nil)
 
 	// cost_over_time should be sorted by date ascending
 	if len(resp.CostOverTime) != 2 {
@@ -328,7 +392,7 @@ func TestBuildAccountSummary_CostByModel(t *testing.T) {
 		},
 	}
 
-	resp := buildAccountSummary(current, nil, false, "", "", 0)
+	resp := buildAccountSummary(current, nil, false, "", "", 0, nil)
 
 	if len(resp.CostByModel) != 2 {
 		t.Fatalf("expected 2 cost_by_model entries, got %d", len(resp.CostByModel))
@@ -355,7 +419,7 @@ func TestBuildAccountSummary_ChangeWithPrior(t *testing.T) {
 			Usage: []langfuse.DailyMetricUsage{{Model: "m", InputUsage: 100, OutputUsage: 100, TotalCost: 5.0}}},
 	}
 
-	resp := buildAccountSummary(current, prior, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0)
+	resp := buildAccountSummary(current, prior, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0, nil)
 
 	if resp.Change == nil {
 		t.Fatal("change should be present when hasPeriod=true")
@@ -377,7 +441,7 @@ func TestBuildAccountSummary_ChangeNullWhenPriorZero(t *testing.T) {
 	}
 
 	// Empty prior (no data in the prior period)
-	resp := buildAccountSummary(current, nil, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0)
+	resp := buildAccountSummary(current, nil, true, "2026-04-08T00:00:00Z", "2026-04-15T00:00:00Z", 0, nil)
 
 	if resp.Change == nil {
 		t.Fatal("change key should exist when hasPeriod=true")

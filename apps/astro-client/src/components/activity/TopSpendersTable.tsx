@@ -28,6 +28,7 @@ import type {
   InsightsPersonRow,
 } from "@/lib/api";
 import { OverflowPopover } from "./OverflowPopover";
+import { useAccountObservabilitySummary } from "@/api/queries/observability";
 
 export type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
 export type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
@@ -68,11 +69,23 @@ type TopSpendersTableProps =
       sortDirection?: TopSpendersSortDirection;
       onSort?: (key: UserSortKey) => void;
       pagination?: TopSpendersPagination;
+    }
+  | {
+      // The "models" view self-fetches the account observability summary rather
+      // than taking rows, since its data comes from a different endpoint than
+      // the agents/people tables.
+      mode: "models";
+      account: string;
+      days: number;
+      panelHeader?: ReactNode;
     };
 
 export function TopSpendersTable(props: TopSpendersTableProps) {
   if (props.mode === "users") {
     return <UsersTopSpenders {...props} />;
+  }
+  if (props.mode === "models") {
+    return <ModelsTopSpenders {...props} />;
   }
   return <AgentsTopSpenders {...props} />;
 }
@@ -95,6 +108,20 @@ function useSort<K extends string>(initial: K) {
 
 function sortDirFor<K extends string>(active: K, asc: boolean, col: K) {
   return active === col ? (asc ? "asc" : "desc") : undefined;
+}
+
+// The observability summary window as from/to ISO params for the models view.
+function rangeParams(days: number): Record<string, string> {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - days);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+// Model ids often carry a date/version suffix (e.g. "claude-3-5-sonnet-20241022",
+// "gpt-4o-2024-08-06"); show the clean family name, full id in the tooltip.
+function modelDisplayName(model: string): string {
+  return model.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, "");
 }
 
 function RankMarker({ rank }: { rank: number }) {
@@ -133,6 +160,29 @@ function GhostRow({ columns }: { columns: number }) {
         </TableCell>
       ))}
     </TableRow>
+  );
+}
+
+// Shared table shell for every Insights view (agents / people / models) so the
+// card chrome, header bar, and body wrapper are defined once.
+function SpendersTableShell({
+  panelHeader,
+  head,
+  footer,
+  children,
+}: {
+  panelHeader?: ReactNode;
+  head: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Table header={panelHeader} containerClassName="bg-card dark:bg-surface" footer={footer}>
+      <TableHeader>
+        <TableRow>{head}</TableRow>
+      </TableHeader>
+      <TableBody>{children}</TableBody>
+    </Table>
   );
 }
 
@@ -531,9 +581,8 @@ function AgentsTopSpenders({
   const dir = (col: AgentSortKey) => sortDirFor(sortKey, asc, col);
 
   return (
-    <Table
-      header={panelHeader}
-      containerClassName="bg-card dark:bg-surface"
+    <SpendersTableShell
+      panelHeader={panelHeader}
       footer={
         hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
@@ -547,9 +596,8 @@ function AgentsTopSpenders({
           />
         ) : undefined
       }
-    >
-      <TableHeader>
-        <TableRow>
+      head={
+        <>
           <TableHead className="pl-3">{groupLabel}</TableHead>
           <TableHead>Used by</TableHead>
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
@@ -558,42 +606,41 @@ function AgentsTopSpenders({
           <TableHead sortable sortDirection={dir("cost_per_request")} onSort={() => handleSort("cost_per_request")} className="text-right">Spend/Req</TableHead>
           <TableHead sortable sortDirection={dir("tok_per_request")} onSort={() => handleSort("tok_per_request")} className="text-right">Tok/Req</TableHead>
           <TableHead sortable sortDirection={dir("p95_latency_ms")} onSort={() => handleSort("p95_latency_ms")} className="text-right">P95</TableHead>
+        </>
+      }
+    >
+      {loading ? (
+        Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
+      ) : sorted.length === 0 ? (
+        <TableRow>
+          <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
+            No deployment activity in this period
+          </TableCell>
         </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={8} />)
-        ) : sorted.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-body-sm text-faint-foreground">
-              No deployment activity in this period
+      ) : (
+        visibleRows.map((row, index) => (
+          <TableRow key={row.key}>
+            <IdentityTableCell rank={index + 1}>
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <AgentRowIdentity identity={row.identity} />
+                {row.not_instrumented && <NotInstrumentedMarker />}
+              </span>
+            </IdentityTableCell>
+            <TableCell>
+              <IdentityAvatarStack identities={row.used_by} />
+            </TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_per_request)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tok_per_request)}</TableCell>
+            <TableCell className="text-right text-foreground">
+              {row.metrics.p95_latency_ms > 0 ? formatLatency(row.metrics.p95_latency_ms) : "-"}
             </TableCell>
           </TableRow>
-        ) : (
-          visibleRows.map((row, index) => (
-            <TableRow key={row.key}>
-              <IdentityTableCell rank={index + 1}>
-                <span className="inline-flex min-w-0 items-center gap-1.5">
-                  <AgentRowIdentity identity={row.identity} />
-                  {row.not_instrumented && <NotInstrumentedMarker />}
-                </span>
-              </IdentityTableCell>
-              <TableCell>
-                <IdentityAvatarStack identities={row.used_by} />
-              </TableCell>
-              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_per_request)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tok_per_request)}</TableCell>
-              <TableCell className="text-right text-foreground">
-                {row.metrics.p95_latency_ms > 0 ? formatLatency(row.metrics.p95_latency_ms) : "-"}
-              </TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
+        ))
+      )}
+    </SpendersTableShell>
   );
 }
 
@@ -629,9 +676,8 @@ function UsersTopSpenders({
   const dir = (col: UserSortKey) => sortDirFor(sortKey, asc, col);
 
   return (
-    <Table
-      header={panelHeader}
-      containerClassName="bg-card dark:bg-surface"
+    <SpendersTableShell
+      panelHeader={panelHeader}
       footer={
         hiddenCount > 0 || revealedCount > 0 ? (
           <TableShowMore
@@ -645,9 +691,8 @@ function UsersTopSpenders({
           />
         ) : undefined
       }
-    >
-      <TableHeader>
-        <TableRow>
+      head={
+        <>
           <TableHead className="pl-3">Name</TableHead>
           <TableHead>Agents Used</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
@@ -655,35 +700,84 @@ function UsersTopSpenders({
           <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("tokens")} onSort={() => handleSort("tokens")} className="text-right">Tokens</TableHead>
           <TableHead sortable sortDirection={dir("last_seen")} onSort={() => handleSort("last_seen")} className="text-right">Last Used</TableHead>
+        </>
+      }
+    >
+      {loading ? (
+        Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
+      ) : sorted.length === 0 ? (
+        <TableRow>
+          <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
+            No activity from people in this period
+          </TableCell>
         </TableRow>
-      </TableHeader>
-      <TableBody>
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <GhostRow key={i} columns={7} />)
-        ) : sorted.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
-              No activity from people in this period
+      ) : (
+        visibleRows.map((row, index) => (
+          <TableRow key={row.key}>
+            <IdentityTableCell rank={index + 1}>
+              <IdentityRow identity={row.identity} />
+            </IdentityTableCell>
+            <TableCell>
+              <AgentChips agents={row.agents_used} />
+            </TableCell>
+            <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tokens)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatLastSeen(row.metrics.last_seen)}</TableCell>
+          </TableRow>
+        ))
+      )}
+    </SpendersTableShell>
+  );
+}
+
+// Per-model cost / tokens / requests / tail latency for the account. Self-fetches
+// the observability summary (a different endpoint than the agents/people rows).
+function ModelsTopSpenders({ account, days, panelHeader }: Extract<TopSpendersTableProps, { mode: "models" }>) {
+  const params = useMemo(() => rangeParams(days), [days]);
+  const { data, isLoading } = useAccountObservabilitySummary(account, params, { window: String(days) });
+  const models = useMemo(
+    () => [...(data?.cost_by_model ?? [])].sort((a, b) => b.cost_usd - a.cost_usd),
+    [data?.cost_by_model],
+  );
+
+  return (
+    <SpendersTableShell
+      panelHeader={panelHeader}
+      head={
+        <>
+          <TableHead className="pl-3">Model</TableHead>
+          <TableHead className="text-right">Requests</TableHead>
+          <TableHead className="text-right">Spend</TableHead>
+          <TableHead className="text-right">% Total</TableHead>
+          <TableHead className="text-right">Tokens</TableHead>
+          <TableHead className="pr-4 text-right">p95</TableHead>
+        </>
+      }
+    >
+      {models.length === 0 ? (
+        <TableRow>
+          <TableCell colSpan={6} className="py-10 text-center text-body-sm text-faint-foreground">
+            {isLoading ? "Loading model usage..." : "No model usage in this period"}
+          </TableCell>
+        </TableRow>
+      ) : (
+        models.map((m) => (
+          <TableRow key={m.model}>
+            <TableCell className="pl-3">
+              <div className="max-w-[22rem] truncate text-foreground" title={m.model}>{modelDisplayName(m.model)}</div>
+            </TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(m.requests)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCost(m.cost_usd)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatShare(m.cost_pct)}</TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(m.total_tokens)}</TableCell>
+            <TableCell className="pr-4 text-right text-foreground">
+              {m.p95_latency_ms > 0 ? formatLatency(m.p95_latency_ms) : "-"}
             </TableCell>
           </TableRow>
-        ) : (
-          visibleRows.map((row, index) => (
-            <TableRow key={row.key}>
-              <IdentityTableCell rank={index + 1}>
-                <IdentityRow identity={row.identity} />
-              </IdentityTableCell>
-              <TableCell>
-                <AgentChips agents={row.agents_used} />
-              </TableCell>
-              <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tokens)}</TableCell>
-              <TableCell className="text-right text-foreground">{formatLastSeen(row.metrics.last_seen)}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
+        ))
+      )}
+    </SpendersTableShell>
   );
 }
