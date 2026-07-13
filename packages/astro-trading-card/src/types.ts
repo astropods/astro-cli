@@ -33,8 +33,8 @@ export interface CardAccount {
 
 /** A label-value row displayed in the stats section. */
 export type CardStat =
-  | { label: string; value: string; account?: never }
-  | { label: string; account: CardAccount; value?: never };
+  | { label: string; value: string; account?: never; wrap?: boolean }
+  | { label: string; account: CardAccount; value?: never; wrap?: never };
 
 /** An integration displayed as a pill badge. */
 export interface CardIntegration {

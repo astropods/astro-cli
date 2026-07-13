@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"sync"
 
@@ -152,14 +153,18 @@ func resolveDeployment(c *gin.Context, deployStore *deploymentstore.Store, accou
 	return dep, nil
 }
 
-// validateAgentDisplayName trims and validates a display name.
+// Keep in sync with DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH in
+// apps/astro-client/src/components/deploy/constants.ts.
+const deploymentDisplayNameMaxLength = 42
+
+// validateAgentDisplayName trims and validates a deployment display name.
 func validateAgentDisplayName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("display_name must not be empty")
 	}
-	if len(name) > 64 {
-		return "", fmt.Errorf("display_name must be 64 characters or fewer")
+	if utf8.RuneCountInString(name) > deploymentDisplayNameMaxLength {
+		return "", fmt.Errorf("display_name must be %d characters or fewer", deploymentDisplayNameMaxLength)
 	}
 	for _, r := range name {
 		if r < 0x20 || r == 0x7f {
@@ -420,16 +425,6 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Sanitize and validate the optional display name
-	if dn := submittedSpec.Target.DisplayName; strings.TrimSpace(dn) != "" {
-		validated, err := validateAgentDisplayName(dn)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return nil, false
-		}
-		submittedSpec.Target.DisplayName = validated
-	}
-
 	agentName := submittedSpec.Source.Name
 	if !spec.IsValidName(agentName) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -457,8 +452,6 @@ func prepareDeployment(
 		})
 		return nil, false
 	}
-
-	displayName := submittedSpec.Target.DisplayName
 
 	// Resolve identity. The deployment id is the only handle for "redeploy this
 	// thing" — it is what binds a row to its K8s namespace forever. Without an
@@ -488,10 +481,22 @@ func prepareDeployment(
 		isUpdate = true
 	}
 
+	// Sanitize and validate the optional display name.
+	if dn := submittedSpec.Target.DisplayName; strings.TrimSpace(dn) != "" {
+		validated, err := validateAgentDisplayName(dn)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return nil, false
+		}
+		submittedSpec.Target.DisplayName = validated
+	}
+
 	if k8sNamespace == "" {
 		deploymentID = deployid.New()
 		k8sNamespace = deploymentNamespace(deploymentID)
 	}
+
+	displayName := submittedSpec.Target.DisplayName
 
 	// Resolve account variable refs before validation; capture the original refs
 	// so they can be persisted and restored when building the prefilled template.

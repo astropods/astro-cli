@@ -48,6 +48,7 @@ export interface DeployFormFieldsProps {
 export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
+  const deployNameErrorId = "agent-name-error";
   const { data: usageData } = useAccountUsage(form.targetAccount);
   // Settings → Usage lives at a different path for personal vs. organization
   // accounts. Scope the link to the deploy target (from form.accounts, which
@@ -126,17 +127,19 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
                 <div className="shrink-0">{avatarImage}</div>
               );
             })()}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1 max-w-[32rem]">
               <Label size="md">Agent Name</Label>
               <Input
                 value={form.deployName}
                 onChange={(e) => form.setDeployName(e.target.value)}
                 placeholder="My Agent"
-                maxLength={64}
-                aria-invalid={!!form.errors.deployName}
+                aria-invalid={!!form.errors.deployName || undefined}
+                aria-describedby={form.errors.deployName ? deployNameErrorId : undefined}
               />
               {form.errors.deployName && (
-                <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
+                <p id={deployNameErrorId} className="mt-1.5 text-xs text-destructive">
+                  {form.errors.deployName}
+                </p>
               )}
             </div>
           </div>

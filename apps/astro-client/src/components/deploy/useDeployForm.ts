@@ -12,7 +12,7 @@ import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
 import { serializeObjectVariable, deserializeObjectVariable } from "./slackConfig";
 import { computeFormDefaults } from "./computeFormDefaults";
-import { DEFAULT_AGENT_VOLUME_MOUNT } from "./constants";
+import { DEFAULT_AGENT_VOLUME_MOUNT, DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH } from "./constants";
 import {
   knowledgeBindingChangeCount,
   provisioningChangeCount,
@@ -913,20 +913,28 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     [template, knowledgeBindings, knowledgeBindingModes],
   );
 
-  // Compute validation errors (only surfaced after first submit attempt)
-  const errors = useMemo<FormErrors>(() => {
-    if (!submitted) return {};
+  const trimmedDeployName = deployName.trim();
+  const deployNameLength = Array.from(trimmedDeployName).length;
+  const deployNameLengthError = deployNameLength > DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH
+    ? `Name must be ${DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH} characters or fewer`
+    : undefined;
 
+  // Compute validation errors. Length is shown while typing; required fields
+  // stay submit-gated so the untouched form does not start in an error state.
+  const errors = useMemo<FormErrors>(() => {
     const result: FormErrors = {};
+    if (deployNameLengthError) {
+      result.deployName = deployNameLengthError;
+    }
+
+    if (!submitted) return result;
 
     if (!targetAccount) {
       result.account = "Select an account to install under";
     }
 
-    if (!deployName.trim()) {
+    if (!trimmedDeployName) {
       result.deployName = "Enter a name for the agent";
-    } else if (deployName.trim().length > 64) {
-      result.deployName = "Name must be 64 characters or fewer";
     }
 
     if (requiresMessagingAdapter && selectedAdapters.length === 0) {
@@ -964,11 +972,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiresMessagingAdapter, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys, missingSharedKnowledgeBindings]);
+  }, [submitted, targetAccount, trimmedDeployName, deployNameLengthError, selectedAdapters, requiresMessagingAdapter, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys, missingSharedKnowledgeBindings]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules && !errors.knowledgeBindings
-    : true;
+    : !errors.deployName;
 
   // Try to submit: marks form as submitted and returns validity
   const trySubmit = (): boolean => {
@@ -976,7 +984,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAccount = !!targetAccount;
-    const hasName = !!deployName.trim();
+    const hasName = !!trimmedDeployName;
+    const nameLengthValid = deployNameLength <= DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH;
     const hasAdapter = !requiresMessagingAdapter || selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, allFormValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
@@ -988,7 +997,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       || (accountVarsReady && invalidVaultRefKeys.length === 0);
     const knowledgeBindingsValid = missingSharedKnowledgeBindings.length === 0;
 
-    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid && knowledgeBindingsValid;
+    return hasAccount && hasName && nameLengthValid && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid && knowledgeBindingsValid;
   };
 
   // Submission: POST template with all inputs, then deploy with the fulfilled spec.

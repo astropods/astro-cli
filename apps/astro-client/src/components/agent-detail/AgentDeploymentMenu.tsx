@@ -32,6 +32,8 @@ interface AgentDeploymentMenuProps {
   menuPrefix?: ReactNode;
   /** Extra classes merged onto the trigger button (e.g. to tune alignment per host). */
   triggerClassName?: string;
+  /** When true, render the current deployment name without the fade mask. */
+  showFullName?: boolean;
   /**
    * Always render the org/account label per group. Defaults to only showing it
    * when more than one account has agents (the detail-page behavior). Chat sets
@@ -54,6 +56,7 @@ export function AgentDeploymentMenu({
   eligibleDeploymentIds,
   menuPrefix,
   triggerClassName,
+  showFullName = false,
   showAccountLabels = false,
   deployMoreHref,
   onOpenChange,
@@ -109,13 +112,22 @@ export function AgentDeploymentMenu({
             className="rounded-sm"
           />
           <span
-            className="max-w-[6rem] overflow-hidden whitespace-nowrap text-base font-medium tracking-wide text-foreground [--fade-start:4rem] [--fade-end:6rem] @max-[500px]:hidden min-[600px]:max-w-[8rem] min-[600px]:[--fade-start:6rem] min-[600px]:[--fade-end:8rem] min-[820px]:max-w-[10rem] min-[820px]:[--fade-start:8rem] min-[820px]:[--fade-end:10rem] min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]"
-            style={{
-              maskImage:
-                "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
-              WebkitMaskImage:
-                "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
-            }}
+            className={cn(
+              "whitespace-nowrap text-base font-medium tracking-wide text-foreground @max-[500px]:hidden",
+              showFullName
+                ? "max-w-[calc(100vw-8rem)] overflow-hidden text-ellipsis min-[900px]:max-w-[42rem]"
+                : "max-w-[6rem] overflow-hidden [--fade-start:4rem] [--fade-end:6rem] min-[600px]:max-w-[8rem] min-[600px]:[--fade-start:6rem] min-[600px]:[--fade-end:8rem] min-[820px]:max-w-[10rem] min-[820px]:[--fade-start:8rem] min-[820px]:[--fade-end:10rem] min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]",
+            )}
+            style={
+              showFullName
+                ? undefined
+                : {
+                    maskImage:
+                      "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
+                    WebkitMaskImage:
+                      "linear-gradient(to right, black var(--fade-start), transparent var(--fade-end))",
+                  }
+            }
           >
             {displayName}
           </span>

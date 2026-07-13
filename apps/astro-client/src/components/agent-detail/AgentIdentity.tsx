@@ -61,7 +61,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
       avatar: { url: avatarUrl },
       stats: [
         { label: "Deployed", value: formatDate(deployment.created_at) },
-        { label: "From", value: `${account}/${deployment.name}` },
+        { label: "From", value: `${account}/${deployment.name}`, wrap: true },
       ],
       barcodeId: deployment.id,
       qrUrl: `${origin}/${account}/${deployment.name}`,
@@ -98,6 +98,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
       <div className="absolute top-4 left-0 z-20 flex items-center gap-1 pl-5 dark:-mt-1.5 dark:-ml-2">
         <AgentDeploymentMenu
           deployment={deployment}
+          showFullName
           triggerClassName="dark:mt-0 dark:ml-0"
           getDeploymentPath={(acct, dep) =>
             `/${acct}/agents/${dep.id}/${activeTab}`

@@ -11,9 +11,15 @@ import { ShareBadgeDropdown } from "@/components/trading-card/ShareBadgeDropdown
 import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useCardColors, useResolvedIntegrations } from "@/hooks/use-card-colors";
-import type { CardData } from "astro-trading-card";
-import { generateCard } from "astro-trading-card";
+import { generateCard, NAME_MAX_CHARS, type CardData } from "astro-trading-card";
 import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
+
+function capDeploymentDisplayName(name: string): string {
+  const trimmed = name.trim();
+  const chars = Array.from(trimmed);
+  if (chars.length <= NAME_MAX_CHARS) return trimmed;
+  return chars.slice(0, NAME_MAX_CHARS).join("");
+}
 
 export function LiveRevealOverlay({
   deployment,
@@ -39,22 +45,23 @@ export function LiveRevealOverlay({
   }, []);
 
   const avatarUrl = useDeploymentAvatarUrl(deployment);
+  const deploymentDisplayName = capDeploymentDisplayName(deployment.display_name ?? deployment.name);
 
   const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return {
       name: deployment.name,
-      displayName: deployment.display_name,
+      displayName: deploymentDisplayName,
       account,
       avatar: { url: avatarUrl },
       stats: [
         { label: "Deployed", value: formatDate(deployment.created_at) },
-        { label: "From", value: `${account}/${deployment.name}` },
+        { label: "From", value: `${account}/${deployment.name}`, wrap: true },
       ],
       barcodeId: deployment.id,
       qrUrl: `${origin}/${account}/${deployment.name}`,
     };
-  }, [account, avatarUrl, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
+  }, [account, avatarUrl, deployment.created_at, deployment.id, deployment.name, deploymentDisplayName]);
 
   const colors = useCardColors(deployment.avatar_colors);
   const cardIntegrations = useResolvedIntegrations(integrations, true);
@@ -108,8 +115,8 @@ export function LiveRevealOverlay({
       >
         <div className="-mt-16 flex flex-col items-center gap-2">
           <StatusBadge color="warning" indicator spinning>Deploying</StatusBadge>
-          <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
-            {(deployment.display_name ?? deployment.name)} is deploying!
+          <h1 className="mb-0 max-w-[min(92vw,760px)] text-[clamp(2rem,4vw,46px)] leading-[1.04] font-semibold tracking-tight text-white text-balance break-words drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)] [overflow-wrap:anywhere]">
+            {deploymentDisplayName} is deploying!
           </h1>
         </div>
 
@@ -142,7 +149,7 @@ export function LiveRevealOverlay({
             View deployment <ArrowRight className="size-4" />
           </Button>
           <ShareBadgeDropdown
-            launchName={deployment.display_name ?? deployment.name}
+            launchName={deploymentDisplayName}
             blueprintUrl={blueprintUrl}
             svg={revealCardSvg}
             downloadName={deployment.name}

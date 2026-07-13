@@ -8,6 +8,7 @@ import { mockTemplate, wrapTemplateResponse } from "@/test/msw/handlers";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import type { AgentDeployment } from "@/lib/api";
 import type { AuthContextType } from "@/lib/auth-context";
+import { DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH } from "@/components/deploy/constants";
 import AgentConfigure from "./AgentConfigure";
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,29 @@ describe("user edits the agent name", () => {
       expect(screen.queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
     }, { timeout: 3000 });
     expect(screen.getByDisplayValue("Renamed Agent")).toBeInTheDocument();
+  });
+
+  it("does not send rename requests for over-length names", async () => {
+    const renameHandler = vi.fn();
+    server.use(
+      http.patch("/api/v1/deployments/:id", async ({ request }) => {
+        renameHandler(await request.json());
+        return HttpResponse.json({ display_name: "Should Not Save" });
+      }),
+    );
+    const { user } = renderConfigure();
+    await waitForForm();
+
+    const nameInput = screen.getByDisplayValue("Code Reviewer");
+    await user.clear(nameInput);
+    await user.type(nameInput, "a".repeat(DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH + 1));
+
+    expect(await screen.findByText(`Name must be ${DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH} characters or fewer`)).toBeInTheDocument();
+    const saveButton = screen.getByRole("button", { name: /save/i });
+    expect(saveButton).not.toBeDisabled();
+    await user.click(saveButton);
+
+    expect(renameHandler).not.toHaveBeenCalled();
   });
 });
 

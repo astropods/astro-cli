@@ -99,6 +99,7 @@ export interface StatRowsOptions {
   colors: ResolvedCardColors;
   rowHeight?: number;
   padding?: number;
+  maxWrappedLines?: number;
 }
 
 /** Get initials from a full name (up to 2 chars). */
@@ -130,6 +131,66 @@ function truncateText(text: string, font: string, maxWidth: number, fallbackChar
     if (measureTextWidth(candidate, font, fallbackCharWidth) <= maxWidth) return candidate;
   }
   return ellipsis;
+}
+
+export function findNaturalTextBreak(text: string | string[], maxChars: number, minBreak?: number): number {
+  const chars = Array.isArray(text) ? text : Array.from(text);
+  const minUsefulBreak = Math.max(minBreak ?? 1, Math.ceil(maxChars * 0.55));
+  for (let i = Math.min(maxChars, chars.length); i >= minUsefulBreak; i--) {
+    const prev = chars[i - 1] ?? "";
+    const next = chars[i] ?? "";
+    if (/\s/.test(prev) || prev === "/" || prev === "-" || prev === "_" || prev === ".") return i;
+    if (/[a-z0-9]/.test(prev) && /[A-Z]/.test(next)) return i;
+  }
+  return -1;
+}
+
+function hyphenateValue(text: string, maxWidth: number, fallbackCharWidth: number, maxLines = Infinity): string[] {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (!normalized) return [""];
+
+  const maxChars = Math.max(8, Math.floor(maxWidth / fallbackCharWidth));
+  const lines: string[] = [];
+  let remaining = normalized;
+
+  while (remaining.length > maxChars && lines.length < maxLines - 1) {
+    const naturalBreak = findNaturalTextBreak(remaining, maxChars);
+    if (naturalBreak > 0) {
+      lines.push(remaining.slice(0, naturalBreak).trimEnd());
+      remaining = remaining.slice(naturalBreak).trimStart();
+      continue;
+    }
+
+    const hardBreak = Math.max(1, maxChars - 1);
+    lines.push(`${remaining.slice(0, hardBreak)}-`);
+    remaining = remaining.slice(hardBreak);
+  }
+
+  if (remaining && lines.length < maxLines) {
+    if (remaining.length <= maxChars) {
+      lines.push(remaining);
+    } else {
+      lines.push(`${remaining.slice(0, Math.max(1, maxChars - 1)).trimEnd()}\u2026`);
+    }
+  }
+  return lines;
+}
+
+function renderHyphenatedValue(
+  lines: string[],
+  rightX: number,
+  firstLineY: number,
+  lineHeight: number,
+  colors: ResolvedCardColors,
+  clipId: string,
+): string {
+  const tspans = lines
+    .map(
+      (line, index) =>
+        `<tspan class="stat-value-line" x="${rightX}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`,
+    )
+    .join("");
+  return `<text x="${rightX}" y="${firstLineY}" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="${colors.foreground}" text-anchor="end" clip-path="url(#${clipId})">${tspans}</text>`;
 }
 
 /** Render an account value: small avatar circle + handle, right-aligned. */
@@ -178,27 +239,44 @@ function renderAccountValue(
  * Returns SVG markup and the total height consumed.
  */
 export function renderStatRows(opts: StatRowsOptions): { content: string; height: number } {
-  const { stats, x, y, width, colors, rowHeight = 32, padding = 20 } = opts;
+  const { stats, x, y, width, colors, rowHeight = 32, padding = 20, maxWrappedLines } = opts;
   if (stats.length === 0) return { content: "", height: 0 };
 
+  let currentY = y;
   const lines = stats.map((stat, i) => {
-    const rowY = y + i * rowHeight;
-    const labelY = rowY + rowHeight * 0.6;
-    const dividerY = rowY + rowHeight;
+    const rowY = currentY;
 
+    const labelWidth = measureTextWidth(stat.label.toUpperCase(), "300 9px ui-monospace, monospace", 9 * 0.65);
+    const labelGap = 12;
+    const valueX = x + padding + labelWidth + labelGap;
+    const valueRightX = x + width - padding;
+    const availableWidth = Math.max(8, valueRightX - valueX);
+    const valueClipId = `stat-value-clip-${i}`;
+    const shouldWrapValue = !stat.account && stat.wrap === true;
+    const hyphenatedLines = shouldWrapValue ? hyphenateValue(stat.value!, availableWidth, 10 * 0.55, maxWrappedLines) : [];
+    const valueLineHeight = 11;
+    const currentRowHeight = shouldWrapValue
+      ? Math.max(rowHeight, 18 + (hyphenatedLines.length - 1) * valueLineHeight + 12)
+      : rowHeight;
+    const labelY = rowY + Math.min(rowHeight * 0.6, currentRowHeight * 0.45);
+    const dividerY = rowY + currentRowHeight;
+    const valueClip = `<clipPath id="${valueClipId}"><rect x="${valueX}" y="${rowY}" width="${availableWidth}" height="${currentRowHeight}"/></clipPath>`;
     const labelEl = `<text x="${x + padding}" y="${labelY}" font-family="ui-monospace, monospace" font-size="9" font-weight="300" fill="${colors.glow}" opacity="0.7" letter-spacing="0.18em">${escapeXml(stat.label.toUpperCase())}</text>`;
 
     let valueEl: string;
     if (stat.account) {
-      const labelWidth = measureTextWidth(stat.label.toUpperCase(), "300 9px ui-monospace, monospace", 9 * 0.65);
-      const labelGap = 12;
-      const availableWidth = width - padding * 2 - labelWidth - labelGap - 10;
-      valueEl = renderAccountValue(stat.account, x + width - padding, labelY + 2, colors, `stat-avatar-${i}`, availableWidth);
+      valueEl = renderAccountValue(stat.account, valueRightX, labelY + 2, colors, `stat-avatar-${i}`, availableWidth);
+    } else if (shouldWrapValue) {
+      valueEl = renderHyphenatedValue(hyphenatedLines, valueRightX, rowY + 18, valueLineHeight, colors, valueClipId);
     } else {
-      valueEl = `<text x="${x + width - padding}" y="${labelY + 2}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end">${escapeXml(stat.value!)}</text>`;
+      const valueText = truncateText(stat.value!, "700 13px system-ui, sans-serif", availableWidth, 13 * 0.55);
+      valueEl = `<text x="${valueRightX}" y="${labelY + 2}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end" clip-path="url(#${valueClipId})">${escapeXml(valueText)}</text>`;
     }
 
+    currentY += currentRowHeight;
+
     return [
+      valueClip,
       labelEl,
       valueEl,
       i < stats.length - 1
@@ -209,7 +287,7 @@ export function renderStatRows(opts: StatRowsOptions): { content: string; height
 
   return {
     content: lines.join("\n    "),
-    height: stats.length * rowHeight,
+    height: currentY - y,
   };
 }
 
@@ -224,6 +302,7 @@ export interface IntegrationPillsOptions {
   pillGap?: number;
   rowGap?: number;
   iconSize?: number;
+  maxRows?: number;
 }
 
 /**
@@ -242,8 +321,9 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
   const {
     integrations, x, y, width, colors,
     padding = 20, pillHeight = 24, pillGap = 6, rowGap = 6, iconSize = 12,
+    maxRows = 2,
   } = opts;
-  if (integrations.length === 0) return { content: "", height: 0 };
+  if (integrations.length === 0 || maxRows <= 0) return { content: "", height: 0 };
 
   const fontSize = 10;
   const pillPadX = 8;
@@ -255,7 +335,6 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
   let curX = 0;
   let curRow = 0;
 
-  const maxRows = 2;
   let overflowCount = 0;
 
   for (let idx = 0; idx < integrations.length; idx++) {

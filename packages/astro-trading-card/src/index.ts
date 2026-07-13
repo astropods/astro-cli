@@ -1,4 +1,5 @@
 export { generateCard, getCardDimensions, DEFAULT_COLORS } from "./generate";
+export { NAME_MAX_CHARS } from "./variants/standard";
 export { extractPalette } from "./mmcq";
 export { pickCardColors, deriveCardColors, parseHex } from "./colors";
 export { stripSvgWrapper } from "./svg";

@@ -10,6 +10,7 @@ import { AuthContext, type AuthContextType } from '@/lib/auth-context';
 import { type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
+import { DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH } from './constants';
 
 describe('slugToTitle', () => {
   it('converts hyphenated slug to title case', () => {
@@ -502,6 +503,64 @@ describe('useDeployForm with pre-filled template', () => {
     expect(valid).toBe(false);
     await waitFor(() => {
       expect(result.current.errors.adapters).toBe('Select at least one messaging type');
+    });
+  });
+
+  it('limits deployment display names to the shared maximum length', async () => {
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+        }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.setDeployName('a'.repeat(DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH + 1));
+    });
+
+    await waitFor(() => {
+      expect(result.current.errors.deployName).toBe(`Name must be ${DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH} characters or fewer`);
+    });
+
+    let valid = true;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+
+    expect(valid).toBe(false);
+    await waitFor(() => {
+      expect(result.current.errors.deployName).toBe(`Name must be ${DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH} characters or fewer`);
+    });
+  });
+
+  it('counts deployment display-name length by code point', async () => {
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+        }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.setDeployName('🚀'.repeat(DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH));
+    });
+
+    await waitFor(() => {
+      expect(result.current.errors.deployName).toBeUndefined();
+    });
+
+    act(() => {
+      result.current.setDeployName('🚀'.repeat(DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH + 1));
+    });
+
+    await waitFor(() => {
+      expect(result.current.errors.deployName).toBe(`Name must be ${DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH} characters or fewer`);
     });
   });
 

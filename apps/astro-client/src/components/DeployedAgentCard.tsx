@@ -128,6 +128,13 @@ const STAR_BASE_R: [number, number] = [1.2, 2.8];
 // Asymmetric ramp: snappy spool-up on hover-in, languid coast-down on hover-out.
 const RAMP_UP_MS = 150;
 const RAMP_DOWN_MS = 1000;
+const CARD_TITLE_MAX_CHARS = 22;
+
+function getCardTitleDisplay(title: string): string {
+  const chars = Array.from(title.trim());
+  if (chars.length <= CARD_TITLE_MAX_CHARS) return title;
+  return `${chars.slice(0, CARD_TITLE_MAX_CHARS).join("").trimEnd()}\u2026`;
+}
 
 function CardStarfield({ seed, hovered }: { seed: string; hovered: boolean }) {
   const starGradientId = useId();
@@ -373,7 +380,7 @@ export function DeployedAgentCard({
         ...(installedAt
           ? [{ label: "Deployed", value: formatDate(installedAt) }]
           : []),
-        { label: "From", value: `${account}/${name}` },
+        { label: "From", value: `${account}/${name}`, wrap: true },
       ],
       barcodeId: deploymentId,
       qrUrl: `${origin}/${account}/${name}`,
@@ -406,6 +413,8 @@ export function DeployedAgentCard({
   // while the dropdown was still open would yank the trigger out from under
   // the user.
   const menuVisible = hovered || menuOpen || shareOpen;
+  const agentTitle = displayName || name;
+  const agentTitleDisplay = getCardTitleDisplay(agentTitle);
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -415,7 +424,7 @@ export function DeployedAgentCard({
       data-deployment-id={deploymentId}
       role={detailPath ? "link" : undefined}
       tabIndex={detailPath ? 0 : undefined}
-      aria-label={detailPath ? `View details for ${displayName || name}` : undefined}
+      aria-label={detailPath ? `View details for ${agentTitle}` : undefined}
       className={cn(
         "relative flex flex-col items-center gap-4 overflow-hidden rounded-md border border-border bg-[var(--card-base)] p-4 pt-8",
         // --card-base is the card's underlying surface. Default to var(--card);
@@ -505,7 +514,7 @@ export function DeployedAgentCard({
         <div className="pointer-events-none absolute inset-0 rounded-md border-[0.75px] border-foreground/45 mix-blend-overlay" />
       </div>
       <div className="relative z-[1] flex flex-col items-center gap-1">
-        <p className="text-heading-2 text-balance text-center text-foreground">{displayName || name}</p>
+        <p className="text-heading-2 text-balance text-center text-foreground">{agentTitleDisplay}</p>
         <Link
           to={`/${account}/${name}`}
           className="text-body-sm text-muted-foreground hover:text-foreground hover:underline"

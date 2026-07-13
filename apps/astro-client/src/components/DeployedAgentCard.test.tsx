@@ -6,7 +6,7 @@ import { DeployedAgentCard } from "./DeployedAgentCard";
 
 afterEach(cleanup);
 
-function renderDeployedAgentCard() {
+function renderDeployedAgentCard(overrides: Partial<Parameters<typeof DeployedAgentCard>[0]> = {}) {
   return renderRoute(
     [
       {
@@ -18,6 +18,7 @@ function renderDeployedAgentCard() {
             displayName="Prism"
             deploymentId="dep-prism"
             requestSeries={[0, 1, 2]}
+            {...overrides}
           />
         ),
       },
@@ -82,5 +83,23 @@ describe("DeployedAgentCard", () => {
     await user.click(screen.getByRole("button", { name: "Agent options" }));
 
     expect(screen.queryByRole("menuitem", { name: "Delete agent" })).not.toBeInTheDocument();
+  });
+
+  it("keeps target-length deployment titles fully visible", () => {
+    renderDeployedAgentCard({ displayName: "Sohum's Slack Test Bot" });
+    expect(screen.getByText("Sohum's Slack Test Bot")).toBeInTheDocument();
+
+    cleanup();
+    renderDeployedAgentCard({ displayName: "Feature Flag Assistant" });
+    expect(screen.getByText("Feature Flag Assistant")).toBeInTheDocument();
+  });
+
+  it("renders longer deployment titles with the main centered title classes", () => {
+    const longName = "VerylongagentnameVeeryVerylongagentname";
+    renderDeployedAgentCard({ displayName: longName });
+
+    const title = screen.getByText("VerylongagentnameVeery\u2026");
+    expect(title).toHaveClass("text-heading-2", "text-balance", "text-center", "text-foreground");
+    expect(title).not.toHaveClass("truncate");
   });
 });

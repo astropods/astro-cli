@@ -60,6 +60,7 @@ export default function AgentConfigure() {
     e.preventDefault();
     if (isBusy) return;
     if (isNameOnly) {
+      if (form.errors.deployName) return;
       try {
         await renameMutation.mutateAsync(form.deployName);
         form.reset({ ...form.initialValues!, deployName: form.deployName });

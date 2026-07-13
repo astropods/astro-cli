@@ -12,7 +12,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +60,37 @@ func healthyStubCluster() k8s.ClusterClient {
 
 func unhealthyStubCluster(msg string) k8s.ClusterClient {
 	return &healthStubClusterClient{checkHealthErr: errors.New(msg)}
+}
+
+func TestValidateAgentDisplayNameMaxLength(t *testing.T) {
+	valid := strings.Repeat("a", deploymentDisplayNameMaxLength)
+	if got, err := validateAgentDisplayName(valid); err != nil || got != valid {
+		t.Fatalf("validateAgentDisplayName(%q) = %q, %v; want valid", valid, got, err)
+	}
+
+	tooLong := strings.Repeat("a", deploymentDisplayNameMaxLength+1)
+	if _, err := validateAgentDisplayName(tooLong); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%d characters or fewer", deploymentDisplayNameMaxLength)) {
+		t.Fatalf("validateAgentDisplayName accepted too-long name, err=%v", err)
+	}
+}
+
+func TestDeploymentDisplayNameMaxLengthMatchesClientConstant(t *testing.T) {
+	contents, err := os.ReadFile("../../astro-client/src/components/deploy/constants.ts")
+	if err != nil {
+		t.Fatalf("read client deploy constants: %v", err)
+	}
+
+	matches := regexp.MustCompile(`DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH\s*=\s*([0-9]+)`).FindStringSubmatch(string(contents))
+	if len(matches) != 2 {
+		t.Fatalf("DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH not found in client deploy constants")
+	}
+	clientMaxLength, err := strconv.Atoi(matches[1])
+	if err != nil {
+		t.Fatalf("parse client display-name max length %q: %v", matches[1], err)
+	}
+	if clientMaxLength != deploymentDisplayNameMaxLength {
+		t.Fatalf("client display-name max length = %d, server = %d", clientMaxLength, deploymentDisplayNameMaxLength)
+	}
 }
 
 func testK8sRegistry(client k8s.ClusterClient) *k8s.Registry {
