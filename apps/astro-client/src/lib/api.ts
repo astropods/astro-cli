@@ -1814,6 +1814,24 @@ export interface CreateAccountVariablesResponse {
   results: CreateVariableResult[];
 }
 
+export interface OtelIngestKey {
+  id: string;
+  name: string;
+  token_prefix: string;
+  created_at: string;
+  last_used_at?: string;
+}
+
+export interface OtelIngestKeysListResponse {
+  tokens: OtelIngestKey[];
+  endpoint?: string;
+}
+
+export interface CreateOtelIngestKeyResponse extends OtelIngestKey {
+  token: string; // plaintext, returned once
+  endpoint?: string;
+}
+
 export interface UpdateAccountVariableInput {
   value?: string;
   secret?: boolean;
@@ -3007,6 +3025,36 @@ class ApiClient {
   ): Promise<{ message: string }> {
     return this.request(
       `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // OTel ingest keys (developer-tools telemetry)
+  // --------------------------------------------------------------------------
+
+  async listOtelIngestKeys(account: string): Promise<OtelIngestKeysListResponse> {
+    return this.request<OtelIngestKeysListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys`
+    );
+  }
+
+  async createOtelIngestKey(
+    account: string,
+    name: string,
+  ): Promise<CreateOtelIngestKeyResponse> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys`,
+      { method: 'POST', body: JSON.stringify({ name }) }
+    );
+  }
+
+  async revokeOtelIngestKey(
+    account: string,
+    keyId: string,
+  ): Promise<{ message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys/${encodeURIComponent(keyId)}`,
       { method: 'DELETE' }
     );
   }

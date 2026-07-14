@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	goredis "github.com/redis/go-redis/v9"
 
@@ -40,11 +41,13 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
+	"github.com/astropods/astro/apps/astro-server/internal/ingesttoken"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -705,6 +708,31 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		aiGatewayDevStore = aigateway.NewDevStore(db)
 	}
 
+	// OTel ingest keys (account-scoped telemetry credential for local coding
+	// tools). At key creation we best-effort ensure the account's Langfuse
+	// project exists so the trace leg has a destination. The provisioner/KMS are
+	// nil when Langfuse isn't configured (dev/test) — key creation still works,
+	// it just skips the project ensure.
+	ingestTokenStore := ingesttoken.NewStore(db)
+	var ingestLangfuseProvisioner *langfuse.Provisioner
+	var ingestLangfuseStore *langfuse.Store
+	var ingestKMSClient envelope.KMSClient
+	if cfg.Deployment.LangfuseDBURL != "" {
+		if p, err := langfuse.NewProvisioner(cfg.Deployment.LangfuseDBURL, cfg.Deployment.LangfuseSalt, cfg.Deployment.LangfuseOrgID); err != nil {
+			log.Warn("Langfuse provisioner init failed; ingest-key creation will skip project ensure", "error", err)
+		} else {
+			ingestLangfuseProvisioner = p
+			ingestLangfuseStore = langfuse.NewStore(db)
+			if cfg.Deployment.KMSKeyARN != "" {
+				if awsCfg, err := awsconfig.LoadDefaultConfig(context.Background()); err != nil {
+					log.Warn("AWS config load failed for ingest-key KMS; Langfuse project ensure may fail", "error", err)
+				} else {
+					ingestKMSClient = kms.NewFromConfig(awsCfg)
+				}
+			}
+		}
+	}
+
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -947,6 +975,32 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
+
+				// OTel ingest keys — account-scoped telemetry credential for
+				// local coding tools (e.g. Claude Code). Admin-only: the key is
+				// forced org-wide onto developer machines.
+				api.GET(accountAdmin, "/otel-keys", "List OTel ingest keys", handlers.ListOtelIngestTokens(log, ingestTokenStore, cfg),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
+				)
+				api.POST(accountAdmin, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.CreateOtelIngestTokenRequest{}),
+					oapispec.Response(201, &handlers.CreateOtelIngestTokenResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+				api.DELETE(accountAdmin, "/otel-keys/:tokenID", "Revoke an OTel ingest key", handlers.RevokeOtelIngestToken(log, ingestTokenStore),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("tokenID", "Ingest key ID"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 			}
 

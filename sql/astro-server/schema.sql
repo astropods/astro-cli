@@ -499,6 +499,28 @@ CREATE TABLE public.account_langfuse (
     CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
+-- Account-scoped OTel ingest keys. Set as the forced telemetry credential on
+-- developer machines (e.g. Claude Code via Anthropic managed settings); the
+-- ingest endpoint hashes the presented bearer key and looks it up here to
+-- resolve the account. Ingest-only by construction — grants no read access, so
+-- there is no scope/permission column. token_hash is sha256(plaintext): the
+-- ingest path verifies per batch and needs an indexed, cache-friendly lookup,
+-- which a per-hash-salted bcrypt could not provide. Plaintext is shown once at
+-- creation and never stored.
+CREATE TABLE public.otel_ingest_tokens (
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id   uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    name         text NOT NULL,
+    token_hash   bytea NOT NULL,
+    token_prefix text NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    created_by   text,                                 -- WorkOS user id of the creator
+    last_used_at timestamptz,
+    revoked_at   timestamptz
+);
+CREATE UNIQUE INDEX otel_ingest_tokens_token_hash_idx ON public.otel_ingest_tokens (token_hash);
+CREATE INDEX otel_ingest_tokens_account_idx ON public.otel_ingest_tokens (account_id);
+
 -- Per-deployment LiteLLM virtual keys. One row per deployment that opts in
 -- via agent.ai_gateway: true. Replaces account_ai_gateway — bucketing by
 -- deployment lets gateway-side traces and budgets attribute to a specific
