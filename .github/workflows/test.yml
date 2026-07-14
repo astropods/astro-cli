@@ -33,6 +33,7 @@ jobs:
               - 'apps/astro-server/**'
               - 'apps/astro-registry/**'
               - 'apps/astro-queen/**'
+              - 'apps/astro-otel/**'
               - 'apps/astro-cli/!(VERSION)/**'
               - 'apps/astro-cli/!(VERSION)'
               - 'packages/**'
@@ -50,6 +51,7 @@ jobs:
             go:
               - 'apps/astro-server/**'
               - 'apps/astro-registry/**'
+              - 'apps/astro-otel/**'
               - 'apps/astro-cli/!(VERSION)/**'
               - 'apps/astro-cli/!(VERSION)'
               - 'apps/astro-queen/**'
@@ -136,6 +138,8 @@ jobs:
             path: apps/astro-server
           - name: astro-registry
             path: apps/astro-registry
+          - name: astro-otel
+            path: apps/astro-otel
           - name: astro-cli
             path: apps/astro-cli
 

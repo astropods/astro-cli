@@ -1,0 +1,46 @@
+layer: "application"
+language: "go"
+
+tasks:
+  build:
+    command: "go build -o bin/astro-otel ."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+    outputs:
+      - "bin/astro-otel"
+
+  test:
+    command: "gotestsum --format testdox --hide-summary skipped -- -v ./..."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+
+  fmt:
+    command: "go fmt ./..."
+    inputs:
+      - "**/*.go"
+
+  vet:
+    command: "go vet ./..."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+
+  lint:
+    command: "golangci-lint run"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+
+  typecheck:
+    command: "go build ./..."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"

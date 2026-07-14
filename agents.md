@@ -15,6 +15,7 @@ IMPORTANT: When planning and creating spec, please ensure it's concise and compl
 | astro-queen | `apps/astro-queen` | Admin console: a Cobra CLI that serves an embedded React SPA (`//go:embed web/dist`) backed by the AdminService gRPC API; provides access to cluster status, deployments, jobs, and observability |
 | astro-registry | `apps/astro-registry` | Docker Registry V2 API proxy with auth; routes push/pull operations to backend registry (ECR) with membership checking |
 | astro-server | `apps/astro-server` | Go backend API server handling agent registry, K8s deployments, auth (WorkOS), admin gRPC, and observability |
+| astro-otel | `apps/astro-otel` | OTLP ingest service for local AI coding tools (e.g. Claude Code); authenticates account-scoped ingest keys against the DB and forwards traces→Langfuse and metrics→VictoriaMetrics |
 
 # Packages
 

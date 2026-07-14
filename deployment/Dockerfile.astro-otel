@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1
+
+# =============================================================================
+# Stage 1: Build the Go service
+# =============================================================================
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /app
+
+# Copy go.mod files for dependency caching
+COPY apps/astro-otel/go.mod apps/astro-otel/go.sum ./apps/astro-otel/
+
+WORKDIR /app/apps/astro-otel
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy source and build
+WORKDIR /app
+COPY apps/astro-otel ./apps/astro-otel
+
+WORKDIR /app/apps/astro-otel
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /app/astro-otel .
+
+# =============================================================================
+# Stage 2: Production image
+# =============================================================================
+FROM alpine:3.21
+
+WORKDIR /app
+
+RUN apk add --no-cache ca-certificates tzdata
+
+RUN addgroup -g 1000 astro && \
+    adduser -u 1000 -G astro -s /bin/sh -D astro
+
+COPY --from=builder /app/astro-otel /app/astro-otel
+
+USER astro
+
+ENV PORT=4318 \
+    HOST=0.0.0.0
+
+EXPOSE 4318
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:4318/livez || exit 1
+
+ENTRYPOINT ["/app/astro-otel"]

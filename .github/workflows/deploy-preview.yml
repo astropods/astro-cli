@@ -30,7 +30,7 @@ jobs:
         id: filter
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo 'services=["astro-server","astro-client","astro-registry"]' >> "$GITHUB_OUTPUT"
+            echo 'services=["astro-server","astro-client","astro-registry","astro-otel"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -45,6 +45,9 @@ jobs:
           fi
           if echo "$changed" | grep -qE '^(apps/astro-registry|deployment/Dockerfile\.astro-registry)/'; then
             services=$(echo "$services" | jq -c '. + ["astro-registry"]')
+          fi
+          if echo "$changed" | grep -qE '^(apps/astro-otel|deployment/Dockerfile\.astro-otel)/'; then
+            services=$(echo "$services" | jq -c '. + ["astro-otel"]')
           fi
 
           echo "services=$services" >> "$GITHUB_OUTPUT"
