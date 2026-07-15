@@ -866,16 +866,16 @@ type ListFeedbackResponse struct {
 }
 
 type RegisteredCluster struct {
-	ID                         string `json:"id,omitempty"`
-	Region                     string `json:"region,omitempty"`
-	EKSClusterName             string `json:"eks_cluster_name,omitempty"`
-	EKSClusterEndpoint         string `json:"eks_cluster_endpoint,omitempty"`
-	Enabled                    bool   `json:"enabled,omitempty"`
-	IsPrimary                  bool   `json:"is_primary,omitempty"`
-	CreatedAt                  string `json:"created_at,omitempty"`
-	UpdatedAt                  string `json:"updated_at,omitempty"`
-	Healthy                    bool   `json:"healthy,omitempty"`
-	HealthError                string `json:"health_error,omitempty"`
+	ID                     string `json:"id,omitempty"`
+	Region                 string `json:"region,omitempty"`
+	EKSClusterName         string `json:"eks_cluster_name,omitempty"`
+	EKSClusterEndpoint     string `json:"eks_cluster_endpoint,omitempty"`
+	Enabled                bool   `json:"enabled,omitempty"`
+	IsPrimary              bool   `json:"is_primary,omitempty"`
+	CreatedAt              string `json:"created_at,omitempty"`
+	UpdatedAt              string `json:"updated_at,omitempty"`
+	Healthy                bool   `json:"healthy,omitempty"`
+	HealthError            string `json:"health_error,omitempty"`
 	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
 	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`

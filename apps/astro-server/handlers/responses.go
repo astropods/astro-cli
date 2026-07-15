@@ -842,6 +842,10 @@ type K8sEventItem struct {
 	LastTimestamp  string `json:"last_timestamp"`
 	Title          string `json:"title,omitempty"`
 	Guidance       string `json:"guidance,omitempty"`
+	// Severity categorizes a humanized event: "info" (normal progress),
+	// "transient" (self-recovering), or "stuck" (needs user action). Empty for
+	// events we have no copy for. The client's stuck banner triggers on "stuck".
+	Severity string `json:"severity,omitempty"`
 }
 
 // DeploymentEventsResponse wraps Kubernetes events for a deployment namespace.

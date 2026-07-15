@@ -5178,12 +5178,15 @@ func TestGetDeploymentEvents_CacheBypassDuringDeploy(t *testing.T) {
 
 func TestHumanizeDeploymentEvent(t *testing.T) {
 	t.Run("FailedScheduling is humanized as a stuck/needs-action event", func(t *testing.T) {
-		title, guidance, ok := humanizeDeploymentEvent("FailedScheduling")
+		title, guidance, severity, ok := humanizeDeploymentEvent("FailedScheduling", "")
 		if !ok {
 			t.Fatal("expected FailedScheduling to be recognized")
 		}
 		if title == "" {
 			t.Error("expected a non-empty title")
+		}
+		if severity != "stuck" {
+			t.Errorf("expected stuck severity, got %q", severity)
 		}
 		if !strings.Contains(guidance, "Advanced sizing") {
 			t.Errorf("expected guidance to mention Configure → Advanced sizing, got %q", guidance)
@@ -5200,19 +5203,46 @@ func TestHumanizeDeploymentEvent(t *testing.T) {
 		"FailedScheduling", "FailedMount", "FailedAttachVolume", // error/stuck
 	} {
 		t.Run("mapped reason "+reason+" is humanized", func(t *testing.T) {
-			title, guidance, ok := humanizeDeploymentEvent(reason)
-			if !ok || title == "" || guidance == "" {
-				t.Errorf("expected %q humanized, got ok=%v title=%q guidance=%q", reason, ok, title, guidance)
+			title, guidance, severity, ok := humanizeDeploymentEvent(reason, "")
+			if !ok || title == "" || guidance == "" || severity == "" {
+				t.Errorf("expected %q humanized, got ok=%v title=%q guidance=%q severity=%q", reason, ok, title, guidance, severity)
 			}
 		})
 	}
 
+	// Image-pull and crash-loop are surfaced as stuck, whether they arrive as an
+	// explicit reason or via the message on the ambiguous Failed/BackOff reasons.
+	stuckCases := []struct{ reason, message string }{
+		{"ImagePullBackOff", ""},
+		{"ErrImagePull", ""},
+		{"CrashLoopBackOff", ""},
+		{"Failed", "Failed to pull image \"acme/agent:latest\": not found"},
+		{"BackOff", "Back-off pulling image \"acme/agent:latest\""},
+		{"BackOff", "Back-off restarting failed container agent"},
+	}
+	for _, tc := range stuckCases {
+		t.Run("stuck cause "+tc.reason+" "+tc.message, func(t *testing.T) {
+			title, guidance, severity, ok := humanizeDeploymentEvent(tc.reason, tc.message)
+			if !ok || severity != "stuck" || title == "" || guidance == "" {
+				t.Errorf("expected stuck humanization for (%q,%q), got ok=%v title=%q guidance=%q severity=%q", tc.reason, tc.message, ok, title, guidance, severity)
+			}
+		})
+	}
+
+	// A generic Failed with no image context is left raw.
+	t.Run("generic Failed is left raw", func(t *testing.T) {
+		title, guidance, severity, ok := humanizeDeploymentEvent("Failed", "Error: something else")
+		if ok || title != "" || guidance != "" || severity != "" {
+			t.Errorf("expected no humanization for generic Failed, got ok=%v title=%q guidance=%q severity=%q", ok, title, guidance, severity)
+		}
+	})
+
 	// Reasons we have no copy for pass through raw (UI shows reason/message).
 	for _, reason := range []string{"Killing", "Preempted", "SandboxChanged", ""} {
 		t.Run("unmapped reason "+reason+" is left raw", func(t *testing.T) {
-			title, guidance, ok := humanizeDeploymentEvent(reason)
-			if ok || title != "" || guidance != "" {
-				t.Errorf("expected no humanization for %q, got ok=%v title=%q guidance=%q", reason, ok, title, guidance)
+			title, guidance, severity, ok := humanizeDeploymentEvent(reason, "")
+			if ok || title != "" || guidance != "" || severity != "" {
+				t.Errorf("expected no humanization for %q, got ok=%v title=%q guidance=%q severity=%q", reason, ok, title, guidance, severity)
 			}
 		})
 	}

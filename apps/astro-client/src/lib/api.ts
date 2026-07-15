@@ -799,6 +799,10 @@ export interface DeploymentStatus {
   reason: DeploymentStatusReason;
   details: string;
   error_message?: string;
+  // When the deployment last changed status (RFC 3339). Lets the client measure
+  // real deploy age (e.g. how long it has been "deploying") rather than timing
+  // from page load. Absent on older servers.
+  status_changed_at?: string;
 }
 
 // DeploymentRuntime is the K8s-sourced live view (GET /deployments/:id/runtime).
@@ -966,6 +970,10 @@ export interface K8sEvent {
   // raw reason/message.
   title?: string;
   guidance?: string;
+  // Server-assigned category for humanized events: "info" (normal progress),
+  // "transient" (self-recovering), or "stuck" (needs user action). The stuck
+  // banner triggers on "stuck". Absent for events with no copy.
+  severity?: "info" | "transient" | "stuck";
 }
 
 export interface DeploymentEventsResponse {

@@ -90,12 +90,12 @@ function ActiveTileMenu({
   const restartMutation = useRestartDeployment(account);
   const stopMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
-  const { data: statusData } = useDeploymentStatus(deployment.id);
-  const status = statusData?.value;
 
   const { copy, copied } = useCopyToClipboard();
   const paused = isPausedState(deployment);
-  const deploying = status === "deploying" || status === "undeploying";
+  // Recovery actions stay enabled even mid-deploy so a stuck deploy never leaves
+  // the user without recourse (issue #1584). The stuck state is surfaced on the
+  // page banner, not here.
   const busy = restartMutation.isPending || stopMutation.isPending || wakeupMutation.isPending;
 
   return (
@@ -116,7 +116,7 @@ function ActiveTileMenu({
           </DropdownMenuItem>
           {paused ? (
             <DropdownMenuItem
-              disabled={deploying || busy}
+              disabled={busy}
               onClick={() => wakeupMutation.mutate({ deploymentId: deployment.id })}
             >
               <Play className="size-4" />
@@ -124,7 +124,7 @@ function ActiveTileMenu({
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
-              disabled={deploying || busy}
+              disabled={busy}
               onClick={() => stopMutation.mutate({ deploymentId: deployment.id })}
             >
               <Pause className="size-4" />
@@ -134,7 +134,7 @@ function ActiveTileMenu({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
-            disabled={deploying || busy}
+            disabled={busy}
             onClick={() => navigate("../configure", { relative: "path" })}
           >
             <Rocket className="size-4" />
@@ -142,7 +142,7 @@ function ActiveTileMenu({
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            disabled={paused || deploying || busy}
+            disabled={paused || busy}
             onClick={() => setRestartOpen(true)}
           >
             <RotateCw className="size-4" />

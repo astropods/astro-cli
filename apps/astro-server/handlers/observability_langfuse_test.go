@@ -342,7 +342,7 @@ func TestBuildAccountSummary_PerModelBreakdown(t *testing.T) {
 func TestParseModelStats(t *testing.T) {
 	rows := []map[string]any{
 		{"providedModelName": "gpt-4o", "count_count": float64(42), "p50_latency": 0.5, "p95_latency": 1.25},
-		{"providedModelName": nil}, // non-LLM observation, skipped
+		{"providedModelName": nil},  // non-LLM observation, skipped
 		{"count_count": float64(9)}, // no model, skipped
 	}
 	got := parseModelStats(rows)

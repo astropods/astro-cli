@@ -1251,6 +1251,10 @@ type DeploymentStatus struct {
 	Reason       string `json:"reason"`
 	Details      string `json:"details"`
 	ErrorMessage string `json:"error_message,omitempty"`
+	// StatusChangedAt is when the deployment last changed status (RFC 3339).
+	// Lets the client measure real deploy age (how long it has been deploying)
+	// instead of timing from page load. Empty if the DB value is zero.
+	StatusChangedAt string `json:"status_changed_at,omitempty"`
 }
 
 // Stable reason codes — keep in sync with the client's DeploymentStatusReason
@@ -2113,6 +2117,9 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		status := DeploymentStatus{}
 		if dbDep.ErrorMessage != nil {
 			status.ErrorMessage = *dbDep.ErrorMessage
+		}
+		if !dbDep.StatusChangedAt.IsZero() {
+			status.StatusChangedAt = dbDep.StatusChangedAt.UTC().Format(time.RFC3339)
 		}
 
 		// DB status precedence — these statuses are authoritative regardless of
@@ -3219,40 +3226,77 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 	}
 }
 
-// humanizeDeploymentEvent maps a Kubernetes pod event reason to a
-// plain-language title and guidance for the deployment Events tab, covering the
-// common working, transient, and error/stuck states. ok is false for reasons we
-// have no copy for, in which case the UI falls back to the raw reason/message.
+// humanizeDeploymentEvent maps a Kubernetes pod event to a plain-language title,
+// guidance, and severity for the deployment Events tab and the stuck-deploy
+// banner, covering the common working, transient, and error/stuck states.
+// severity is "info" (normal progress), "transient" (self-recovering), or
+// "stuck" (needs user action); the client's stuck banner triggers on "stuck".
+// ok is false for events we have no copy for, in which case the UI falls back to
+// the raw reason/message. The message is needed to disambiguate reasons that
+// cover more than one failure mode (BackOff is both crash-loop restarts and
+// image-pull back-off; Failed is both image-pull failures and other errors).
 // Mirrors humanizeKnowledgeEvent.
-func humanizeDeploymentEvent(reason string) (title, guidance string, ok bool) {
+func humanizeDeploymentEvent(reason, message string) (title, guidance, severity string, ok bool) {
+	msg := strings.ToLower(message)
+	imagePull := func() (string, string, string, bool) {
+		return "Action required: Image pull failed",
+			"The container image can't be pulled. Check the image name and tag, and that the registry is reachable with valid credentials, then redeploy.",
+			"stuck", true
+	}
+	crashLoop := func() (string, string, string, bool) {
+		return "Action required: Container crash looping",
+			"The container keeps starting and exiting. This is usually a bad start command or a missing secret or environment variable. Check the pod logs for the crash reason, fix it, then redeploy.",
+			"stuck", true
+	}
+
 	switch reason {
 	// Working — normal progress toward a running agent.
 	case "Scheduled":
-		return "Scheduled", "Your agent has been assigned to a node.", true
+		return "Scheduled", "Your agent has been assigned to a node.", "info", true
 	case "Pulling":
-		return "Downloading image", "Fetching your agent's container image — this may take a moment.", true
+		return "Downloading image", "Fetching your agent's container image — this may take a moment.", "info", true
 	case "Pulled":
-		return "Image ready", "Your agent's container image is downloaded and ready.", true
+		return "Image ready", "Your agent's container image is downloaded and ready.", "info", true
 	case "Created":
-		return "Preparing agent", "Your agent's container has been created.", true
+		return "Preparing agent", "Your agent's container has been created.", "info", true
 	case "Started":
-		return "Starting up", "Your agent is booting and will be ready shortly.", true
+		return "Starting up", "Your agent is booting and will be ready shortly.", "info", true
 
 	// Transient — self-recovering, no user action needed.
 	case "Unhealthy":
-		return "Health check pending", "Your agent is still initializing — waiting for it to pass health checks.", true
+		return "Health check pending", "Your agent is still initializing — waiting for it to pass health checks.", "transient", true
 	case "BackOff":
-		return "Retrying", "A transient issue occurred; the system is retrying automatically.", true
+		// BackOff covers both image-pull back-off and crash-loop restarts;
+		// disambiguate by message, else treat as a transient retry.
+		switch {
+		case strings.Contains(msg, "pull"), strings.Contains(msg, "image"):
+			return imagePull()
+		case strings.Contains(msg, "restart"), strings.Contains(msg, "crash"):
+			return crashLoop()
+		default:
+			return "Retrying", "A transient issue occurred; the system is retrying automatically.", "transient", true
+		}
 
 	// Stuck / error states.
+	case "ImagePullBackOff", "ErrImagePull", "ErrImageNeverPull", "InvalidImageName":
+		return imagePull()
+	case "CrashLoopBackOff":
+		return crashLoop()
+	case "Failed":
+		// Failed is generic; only surface the image-pull variant, otherwise
+		// leave it raw for the UI to show the reason/message.
+		if strings.Contains(msg, "image") || strings.Contains(msg, "pull") {
+			return imagePull()
+		}
+		return "", "", "", false
 	case "FailedScheduling":
-		return "Action required. Deployment stuck",
+		return "Action required: Deployment stuck",
 			"This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure → Advanced sizing and redeploy.",
-			true
+			"stuck", true
 	case "FailedMount", "FailedAttachVolume":
-		return "Storage issue", "There was a problem attaching storage; the system will retry.", true
+		return "Storage issue", "There was a problem attaching storage; the system will retry.", "transient", true
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // GetDeploymentEvents returns Kubernetes events for a deployment's namespace.
@@ -3317,7 +3361,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 			if firstTS.IsZero() {
 				firstTS = lastTS
 			}
-			title, guidance, _ := humanizeDeploymentEvent(evt.Reason)
+			title, guidance, severity, _ := humanizeDeploymentEvent(evt.Reason, evt.Message)
 			items = append(items, K8sEventItem{
 				Type:           evt.Type,
 				Reason:         evt.Reason,
@@ -3329,6 +3373,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 				LastTimestamp:  lastTS.UTC().Format(time.RFC3339),
 				Title:          title,
 				Guidance:       guidance,
+				Severity:       severity,
 			})
 		}
 

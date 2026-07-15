@@ -104,6 +104,9 @@ navigation:
           - page: Manually authorize requests
             path: docs/pages/manual-authz.mdx
             icon: fa-duotone fa-shield-check
+          - page: Troubleshooting stuck deployments
+            path: docs/pages/troubleshooting-deployments.mdx
+            icon: fa-duotone fa-triangle-exclamation
           - section: Messaging SDK
             icon: fa-duotone fa-messages
             contents:

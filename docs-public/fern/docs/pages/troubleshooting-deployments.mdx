@@ -1,0 +1,21 @@
+---
+title: Troubleshooting stuck deployments
+subtitle: Why a deploy can get stuck in the deploying state, and how to recover
+slug: troubleshooting-deployments
+---
+
+A deployment normally moves from `deploying` to `active` within a minute or two. If it stays in `deploying` longer than expected, Astro flags it as "taking longer than usual" and surfaces recovery actions directly on the deployment: roll back to your last good version, pause, redeploy, or restart. These actions stay available throughout, so a stuck deploy never leaves you without a way to act.
+
+## Common reasons a deploy gets stuck
+
+- **Image pull errors** — the container image cannot be pulled: a wrong tag, a private registry without credentials, or a build that has not finished pushing. Confirm the build completed and the image reference is correct.
+- **Insufficient resources or quota** — the cluster cannot schedule the pod because CPU or memory requests exceed what is available, or the account is at its quota. Lower the requested resources or free up capacity.
+- **Failing readiness probes** — the container starts but never reports healthy, so the deploy never completes. Confirm the agent listens on the expected port and its health endpoint returns success.
+- **Crash-looping containers** — the container starts and exits repeatedly, usually from a bad start command, a missing secret or environment variable, or an unhandled startup error. The pod logs show the crash reason.
+- **Missing configuration** — a required secret or environment variable is not set, so the agent cannot start.
+
+## How to recover
+
+1. **Roll back to the last good version.** A fresh redeploy usually hits the same wall, so the fastest fix is to return to the version that last deployed cleanly. Use "Roll back to last good version" on the stuck banner, or "Rollback to this revision" from an earlier entry in the deployment history.
+2. **Pause the deploy.** Stop the in-progress deploy to get back to a known state before trying again.
+3. **Check the pod logs and events.** Open the pod on the deployment and read its logs and events to see what is blocking startup, then fix the underlying cause and redeploy.

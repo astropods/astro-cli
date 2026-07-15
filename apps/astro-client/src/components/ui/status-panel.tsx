@@ -191,6 +191,9 @@ export interface ActionPanelProps {
   children?: ReactNode;
   primaryLabel: string;
   onPrimary: () => void;
+  /** Optional secondary action, rendered as an outline button left of the primary. */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   dismissible?: boolean;
   onDismiss?: () => void;
   confirmTitle?: string;
@@ -209,6 +212,8 @@ export function ActionPanel({
   children,
   primaryLabel,
   onPrimary,
+  secondaryLabel,
+  onSecondary,
   dismissible = false,
   onDismiss,
   confirmTitle,
@@ -242,6 +247,11 @@ export function ActionPanel({
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {secondaryLabel && onSecondary && (
+              <Button size="sm" variant="outline" onClick={onSecondary}>
+                {secondaryLabel}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="default"

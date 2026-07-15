@@ -25,6 +25,23 @@ describe("ActionPanel", () => {
     expect(onPrimary).toHaveBeenCalledOnce();
   });
 
+  it("renders and calls an optional secondary action", () => {
+    const onPrimary = vi.fn();
+    const onSecondary = vi.fn();
+    renderWithProviders(
+      <ActionPanel
+        title="t"
+        primaryLabel="Roll back"
+        onPrimary={onPrimary}
+        secondaryLabel="Pause"
+        onSecondary={onSecondary}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(onSecondary).toHaveBeenCalledOnce();
+    expect(onPrimary).not.toHaveBeenCalled();
+  });
+
   it("opens confirmation dialog instead of calling onPrimary immediately", () => {
     const onPrimary = vi.fn();
     renderWithProviders(
