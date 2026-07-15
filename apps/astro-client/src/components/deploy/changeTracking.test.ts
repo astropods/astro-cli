@@ -41,13 +41,15 @@ describe("deploy change tracking helpers", () => {
         agentMemory: "512Mi",
         agentVolumeMount: "/data",
         agentStorageSize: "5Gi",
+        agentResponseTimeout: "15s",
       },
       {
         agentCpu: "1",
         agentMemory: "512Mi",
         agentVolumeMount: "/data",
         agentStorageSize: "10Gi",
+        agentResponseTimeout: "30s",
       },
-    )).toBe(2);
+    )).toBe(3);
   });
 });

@@ -241,6 +241,30 @@ func TestBuildIngress(t *testing.T) {
 		}
 	})
 
+	t.Run("response timeout annotation", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name: "t-ingress", Namespace: "ns", AgentName: "a", BuildID: "1",
+			Component: "agent", ServiceName: "a-agent", ServicePort: 8080,
+			Host: "a.example.com", ResponseTimeout: "45s",
+		}
+		ing := BuildIngress(cfg)
+		if got := ing.Annotations["projectcontour.io/response-timeout"]; got != "45s" {
+			t.Errorf("response-timeout annotation: expected 45s, got %q", got)
+		}
+	})
+
+	t.Run("no response timeout annotation when unset", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name: "t-ingress", Namespace: "ns", AgentName: "a", BuildID: "1",
+			Component: "agent", ServiceName: "a-agent", ServicePort: 8080,
+			Host: "a.example.com",
+		}
+		ing := BuildIngress(cfg)
+		if _, ok := ing.Annotations["projectcontour.io/response-timeout"]; ok {
+			t.Error("expected no response-timeout annotation when ResponseTimeout is empty")
+		}
+	})
+
 	t.Run("without ACM and ALB group", func(t *testing.T) {
 		cfg := IngressConfig{
 			Name:        "basic-ingress",

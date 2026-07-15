@@ -2359,6 +2359,57 @@ func TestShapeTemplate_EmptyRequest(t *testing.T) {
 	}
 }
 
+func TestShapeTemplate_ResponseTimeout(t *testing.T) {
+	t.Run("defaults when unset", func(t *testing.T) {
+		base := baseTemplateForShape(t)
+		resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+		if got := resp.Template.Agent.ResponseTimeout; got != spec.DefaultResponseTimeout {
+			t.Errorf("template timeout: expected %s, got %q", spec.DefaultResponseTimeout, got)
+		}
+		if resp.Provisioning.Agent == nil || resp.Provisioning.Agent.ResponseTimeout != spec.DefaultResponseTimeout {
+			t.Errorf("echoed timeout: expected %s, got %+v", spec.DefaultResponseTimeout, resp.Provisioning.Agent)
+		}
+	})
+
+	t.Run("accepts a valid override", func(t *testing.T) {
+		base := baseTemplateForShape(t)
+		resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+			Provisioning: &spec.TemplateProvisioning{
+				Agent: &spec.ComponentProvisioning{ResponseTimeout: "90s"},
+			},
+		}, nil)
+		if got := resp.Template.Agent.ResponseTimeout; got != "90s" {
+			t.Errorf("expected 90s, got %q", got)
+		}
+		for _, e := range resp.Validation.Errors {
+			if e.Field == "agent.responseTimeout" {
+				t.Errorf("unexpected validation error: %s", e.Message)
+			}
+		}
+	})
+
+	t.Run("rejects invalid, non-positive, and over-cap values", func(t *testing.T) {
+		for _, v := range []string{"nonsense", "0s", "3m", "infinity"} {
+			base := baseTemplateForShape(t)
+			resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+				Provisioning: &spec.TemplateProvisioning{
+					Agent: &spec.ComponentProvisioning{ResponseTimeout: v},
+				},
+			}, nil)
+			found := false
+			for _, e := range resp.Validation.Errors {
+				if e.Field == "agent.responseTimeout" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("value %q: expected an agent.responseTimeout validation error", v)
+			}
+		}
+	})
+}
+
 func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	base := baseTemplateForShape(t)
 

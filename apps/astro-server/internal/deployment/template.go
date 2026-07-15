@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/robfig/cron/v3"
@@ -384,16 +385,17 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	agentStorage := spec.DefaultStorageConfig()
 	agentStorage.Size = spec.DefaultAgentStorageSize
 	ds.Agent = spec.DeploymentAgent{
-		Image:       agentImage,
-		Endpoints:   agentEndpoints,
-		Replicas:    1,
-		Resources:   spec.StandardResources,
-		Volume:      spec.DefaultAgentVolumeMount,
-		Storage:     &agentStorage,
-		Environment: agentEnv,
-		Healthcheck: astroSpec.Agent.Healthcheck,
-		Update:      spec.DefaultUpdateStrategy(),
-		AIGateway:   astroSpec.Agent.AIGateway,
+		Image:           agentImage,
+		Endpoints:       agentEndpoints,
+		Replicas:        1,
+		Resources:       spec.StandardResources,
+		Volume:          spec.DefaultAgentVolumeMount,
+		Storage:         &agentStorage,
+		Environment:     agentEnv,
+		Healthcheck:     astroSpec.Agent.Healthcheck,
+		Update:          spec.DefaultUpdateStrategy(),
+		AIGateway:       astroSpec.Agent.AIGateway,
+		ResponseTimeout: spec.DefaultResponseTimeout,
 	}
 
 	// Interfaces block — only emitted when the agent supports messaging
@@ -590,6 +592,14 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		p := req.Provisioning.Agent
 		shaped.Agent.Resources = applyCompute(shaped.Agent.Resources, p.Compute)
 		applyVolume(&shaped.Agent, p.Volume)
+		if p.ResponseTimeout != "" {
+			shaped.Agent.ResponseTimeout = p.ResponseTimeout
+		}
+	}
+	// Fresh templates set this, but stored specs predating the field arrive
+	// empty — default so the echo and deployed Ingress always carry a value.
+	if shaped.Agent.ResponseTimeout == "" {
+		shaped.Agent.ResponseTimeout = spec.DefaultResponseTimeout
 	}
 
 	// --- Variable filling ---
@@ -700,6 +710,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 				CPU:    shaped.Agent.Resources.CPU,
 				Memory: shaped.Agent.Resources.Memory,
 			},
+			ResponseTimeout: shaped.Agent.ResponseTimeout,
 		},
 	}
 	if shaped.Agent.Volume != "" {
@@ -768,6 +779,24 @@ func validateAgentProvisioning(a *spec.DeploymentAgent) []spec.ValidationError {
 	}
 	if a.Storage != nil {
 		checkQuantity("agent.volume.storage.size", a.Storage.Size)
+	}
+	if a.ResponseTimeout != "" {
+		if d, err := time.ParseDuration(a.ResponseTimeout); err != nil {
+			errs = append(errs, spec.ValidationError{
+				Field:   "agent.responseTimeout",
+				Message: "invalid duration: use a Go duration like 15s or 2m",
+			})
+		} else if d <= 0 {
+			errs = append(errs, spec.ValidationError{
+				Field:   "agent.responseTimeout",
+				Message: "must be greater than zero",
+			})
+		} else if d > spec.MaxResponseTimeout {
+			errs = append(errs, spec.ValidationError{
+				Field:   "agent.responseTimeout",
+				Message: "must not exceed " + spec.MaxResponseTimeout.String(),
+			})
+		}
 	}
 	return errs
 }

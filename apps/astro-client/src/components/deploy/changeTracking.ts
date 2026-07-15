@@ -36,6 +36,7 @@ export interface ProvisioningTrackedState {
   agentMemory: string;
   agentVolumeMount: string;
   agentStorageSize: string;
+  agentResponseTimeout: string;
 }
 
 type ProvisioningField = keyof ProvisioningTrackedState;
@@ -45,6 +46,7 @@ const PROVISIONING_FIELDS: ProvisioningField[] = [
   "agentMemory",
   "agentVolumeMount",
   "agentStorageSize",
+  "agentResponseTimeout",
 ];
 
 export function provisioningChangeCount(

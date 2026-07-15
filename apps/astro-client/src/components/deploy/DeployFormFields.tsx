@@ -267,10 +267,12 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
           mountPath={form.agentVolumeMount}
           storageSize={form.agentStorageSize}
           storageLocked={form.volumeAlreadyProvisioned}
+          responseTimeout={form.agentResponseTimeout}
           onCpuChange={form.setAgentCpu}
           onMemoryChange={form.setAgentMemory}
           onMountPathChange={form.setAgentVolumeMount}
           onStorageSizeChange={form.setAgentStorageSize}
+          onResponseTimeoutChange={form.setAgentResponseTimeout}
         />
       </FormSection>
 

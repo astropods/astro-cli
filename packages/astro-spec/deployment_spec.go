@@ -1,6 +1,9 @@
 package spec
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // AstroDeploymentSpec represents the deployment/v1 or deployment-template/v1 specification.
 // It is the intermediate artifact between the astro-spec (what the agent is)
@@ -131,6 +134,12 @@ type DeploymentAgent struct {
 	// mints an Astro AI Gateway virtual key and the applier injects
 	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY into the agent container.
 	AIGateway bool `json:"astro_ai_gateway,omitempty" yaml:"astro_ai_gateway,omitempty"`
+	// ResponseTimeout bounds how long the front-door proxy (Contour) waits for
+	// this deployment's containers to send a complete response before returning
+	// 504. Surfaced as the projectcontour.io/response-timeout annotation on every
+	// tenant Ingress. A Go duration string ("15s", "2m") between 0 and
+	// MaxResponseTimeout. Empty ⇒ DefaultResponseTimeout.
+	ResponseTimeout string `json:"response_timeout,omitempty" yaml:"response_timeout,omitempty"`
 }
 
 // DeploymentModel describes a model sidecar container.
@@ -360,6 +369,17 @@ const DefaultAgentVolumeMount = "/data"
 // aligns with the smallest tier offered in the deploy UI's storage slider.
 const DefaultAgentStorageSize = "5Gi"
 
+// DefaultResponseTimeout is the front-door (Contour) upstream response timeout
+// applied to every tenant Ingress when a deployment doesn't override it. Matches
+// Envoy's stock per-route default. Overridable per deployment via the advanced
+// config, up to MaxResponseTimeout.
+const DefaultResponseTimeout = "15s"
+
+// MaxResponseTimeout caps the per-deployment response-timeout override. Values
+// above this are rejected at deploy time. Keeps a single slow/hung upstream from
+// pinning a front-door Envoy worker for minutes.
+const MaxResponseTimeout = 2 * time.Minute
+
 // DefaultStorageConfig returns the default PVC configuration.
 func DefaultStorageConfig() StorageConfig {
 	return StorageConfig{
@@ -444,6 +464,10 @@ type TemplateProvisioning struct {
 type ComponentProvisioning struct {
 	Compute *ComponentCompute `json:"compute,omitempty"`
 	Volume  *ComponentVolume  `json:"volume,omitempty"`
+	// ResponseTimeout overrides the front-door ingress upstream response timeout
+	// for this deployment. A Go duration string ("15s", "2m") between 0 and
+	// MaxResponseTimeout. Empty falls back to DefaultResponseTimeout.
+	ResponseTimeout string `json:"response_timeout,omitempty"`
 }
 
 // ComponentCompute is the user-facing compute shape: one CPU value and one

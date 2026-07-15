@@ -229,7 +229,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: "agent",
 				ServiceName: agentResourceName, ServicePort: int32(ep.Port), //nolint:gosec
-				Host: host,
+				Host: host, ResponseTimeout: ds.Agent.ResponseTimeout,
 			})
 			status, err := a.applyIngress(ctx, ingress)
 			result.Resources = append(result.Resources, status)
@@ -771,6 +771,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
+					ResponseTimeout: ds.Agent.ResponseTimeout,
 				})
 				status, err := a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)
@@ -970,6 +971,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: component,
 					ServiceName: resourceName, ServicePort: port, Host: host,
+					ResponseTimeout: ds.Agent.ResponseTimeout,
 				})
 				status, err = a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)
@@ -1062,6 +1064,12 @@ func primaryPort(endpoints map[string]spec.Endpoint) int32 {
 // modest storage size); an explicitly requested volume or storage config is
 // left untouched. Idempotent — re-applying a defaulted spec is a no-op.
 func normalizeAgentStorageDefaults(ds *spec.AstroDeploymentSpec) {
+	// Ingress response timeout applies regardless of the volume short-circuit
+	// below, so default it first. Specs stored before this field existed arrive
+	// empty and would otherwise fall through to Contour's stock 15s.
+	if ds.Agent.ResponseTimeout == "" {
+		ds.Agent.ResponseTimeout = spec.DefaultResponseTimeout
+	}
 	if ds.Agent.Volume != "" {
 		return
 	}

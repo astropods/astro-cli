@@ -53,6 +53,7 @@ export interface DeployFormInitialValues {
   agentMemory?: string;
   agentVolumeMount?: string;
   agentStorageSize?: string;
+  agentResponseTimeout?: string;
 }
 
 interface ComputeInitialValuesOptions {
@@ -292,6 +293,7 @@ function initialValuesFromTemplateResponse(
     agentMemory: respAgent?.compute?.memory ?? "",
     agentVolumeMount: respAgent?.volume?.mount ?? "",
     agentStorageSize: respAgent?.volume?.storage?.size ?? "",
+    agentResponseTimeout: respAgent?.response_timeout ?? "",
   };
 }
 
@@ -310,17 +312,25 @@ function buildAgentProvisioning(input: {
   memory: string;
   mount: string;
   size: string;
+  responseTimeout: string;
 }): TemplateProvisioning | undefined {
   const cpu = input.cpu.trim();
   const memory = input.memory.trim();
   const mount = input.mount.trim();
   const size = input.size.trim();
+  const responseTimeout = input.responseTimeout.trim();
   const compute = (cpu || memory) ? { ...(cpu && { cpu }), ...(memory && { memory }) } : undefined;
   const volume = (mount || size)
     ? { mount: mount || DEFAULT_AGENT_VOLUME_MOUNT, ...(size && { storage: { size } }) }
     : undefined;
-  if (!compute && !volume) return undefined;
-  return { agent: { ...(compute && { compute }), ...(volume && { volume }) } };
+  if (!compute && !volume && !responseTimeout) return undefined;
+  return {
+    agent: {
+      ...(compute && { compute }),
+      ...(volume && { volume }),
+      ...(responseTimeout && { response_timeout: responseTimeout }),
+    },
+  };
 }
 
 const mergeFormValues = (
@@ -554,6 +564,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [agentMemory, setAgentMemory] = useState<string>(computedDefaults.agentMemory ?? "");
   const [agentVolumeMount, setAgentVolumeMount] = useState<string>(computedDefaults.agentVolumeMount ?? "");
   const [agentStorageSize, setAgentStorageSize] = useState<string>(computedDefaults.agentStorageSize ?? "");
+  const [agentResponseTimeout, setAgentResponseTimeout] = useState<string>(computedDefaults.agentResponseTimeout ?? "");
   // True once we observe that the deployment loaded from the server already
   // has a persistent volume attached. K8s won't resize a live PVC in place
   // (the StatefulSet's volumeClaimTemplates is immutable on update), so once
@@ -597,6 +608,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAgentMemory(v.agentMemory ?? "");
     setAgentVolumeMount(v.agentVolumeMount ?? "");
     setAgentStorageSize(v.agentStorageSize ?? "");
+    setAgentResponseTimeout(v.agentResponseTimeout ?? "");
     if (v.targetAccount !== undefined) {
       setTargetAccount(v.targetAccount);
     }
@@ -625,6 +637,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const seededAgentMemory = extracted.agentMemory ?? "";
     const seededAgentVolumeMount = extracted.agentVolumeMount ?? "";
     const seededAgentStorageSize = extracted.agentStorageSize ?? "";
+    const seededAgentResponseTimeout = extracted.agentResponseTimeout ?? "";
     // For an existing deployment, treat a volume returned by the template as
     // already provisioned in the cluster — its size is locked from here on.
     if (opts?.deploymentId && respAgent?.volume?.mount) {
@@ -672,6 +685,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       agentMemory: iv?.agentMemory ?? seededAgentMemory,
       agentVolumeMount: iv?.agentVolumeMount ?? seededAgentVolumeMount,
       agentStorageSize: iv?.agentStorageSize ?? seededAgentStorageSize,
+      agentResponseTimeout: iv?.agentResponseTimeout ?? seededAgentResponseTimeout,
     };
 
     setInitialValues(merged);
@@ -1040,6 +1054,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       memory: agentMemory,
       mount: agentVolumeMount,
       size: agentStorageSize,
+      responseTimeout: agentResponseTimeout,
     });
     if (provisioning) req.provisioning = provisioning;
     req.finalize = true;
@@ -1155,12 +1170,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         agentMemory: initialValues.agentMemory ?? "",
         agentVolumeMount: initialValues.agentVolumeMount ?? "",
         agentStorageSize: initialValues.agentStorageSize ?? "",
+        agentResponseTimeout: initialValues.agentResponseTimeout ?? "",
       },
       {
         agentCpu,
         agentMemory,
         agentVolumeMount,
         agentStorageSize,
+        agentResponseTimeout,
       },
     );
 
@@ -1168,7 +1185,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const changeCount = (nameChanged ? 1 : 0) + deployCount;
 
     return { nameChanged, deployChanged, isDirty: nameChanged || deployChanged, changeCount };
-  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, customGrants, customPublic, agentCpu, agentMemory, agentVolumeMount, agentStorageSize, ingestionSchedules, knowledgeBindings, knowledgeBindingModes, template]);
+  }, [initialValues, deployName, name, variableValues, selectedAdapters, adapterCredentials, webGrants, slackGrants, customGrants, customPublic, agentCpu, agentMemory, agentVolumeMount, agentStorageSize, agentResponseTimeout, ingestionSchedules, knowledgeBindings, knowledgeBindingModes, template]);
 
   const deferredDirty = useDeferredValue({ nameChanged, deployChanged, isDirty, changeCount });
 
@@ -1240,6 +1257,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setAgentVolumeMount,
     agentStorageSize,
     setAgentStorageSize,
+    agentResponseTimeout,
+    setAgentResponseTimeout,
 
     vaultEntries: accountVarsReady ? accountVarsData?.variables ?? [] : [],
     vaultEntriesLoaded: accountVarsReady,

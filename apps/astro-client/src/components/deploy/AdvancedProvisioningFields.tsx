@@ -72,12 +72,15 @@ export interface AdvancedProvisioningFieldsProps {
    * so we lock the control once the deployment exists.
    */
   storageLocked?: boolean;
+  /** Front-door ingress upstream response timeout (Go duration, e.g. "15s").
+   *  Empty falls back to the server default. */
+  responseTimeout: string;
   onCpuChange: (value: string) => void;
   onMemoryChange: (value: string) => void;
   onMountPathChange: (value: string) => void;
   onStorageSizeChange: (value: string) => void;
+  onResponseTimeoutChange: (value: string) => void;
 }
-
 
 const CPU_TIERS = ["25m", "50m", "100m", "250m", "500m", "1"];
 
@@ -85,9 +88,15 @@ const MEMORY_TIERS = ["256Mi", "512Mi", "1Gi", "2Gi", "4Gi"];
 
 const STORAGE_TIERS = ["5Gi", "10Gi", "20Gi", "30Gi", "50Gi"];
 
+// Ingress response-timeout tiers, capped at the server's MaxResponseTimeout
+// (2m). Values are Go durations sent verbatim; keep the top tier == the cap.
+// DEFAULT_TIMEOUT_INDEX must point at DefaultResponseTimeout in astro-spec.
+const TIMEOUT_TIERS = ["10s", "15s", "30s", "60s", "90s", "120s"];
+
 const DEFAULT_CPU_INDEX = 2;     // "100m"
 const DEFAULT_MEMORY_INDEX = 2;  // "1Gi"
 const DEFAULT_STORAGE_INDEX = 0; // "5Gi" — matches the server-side default disk
+const DEFAULT_TIMEOUT_INDEX = 1; // "15s" — matches the server-side default
 
 function indexOf(value: string, tiers: string[], fallback: number): number {
   const i = tiers.indexOf(value);
@@ -107,16 +116,19 @@ export function AdvancedProvisioningFields({
   mountPath,
   storageSize,
   storageLocked,
+  responseTimeout,
   onCpuChange,
   onMemoryChange,
   onMountPathChange,
   onStorageSizeChange,
+  onResponseTimeoutChange,
 }: AdvancedProvisioningFieldsProps) {
   const [open, setOpen] = useState(false);
 
   const cpuIndex = cpu ? indexOf(cpu, CPU_TIERS, DEFAULT_CPU_INDEX) : DEFAULT_CPU_INDEX;
   const memoryIndex = memory ? indexOf(memory, MEMORY_TIERS, DEFAULT_MEMORY_INDEX) : DEFAULT_MEMORY_INDEX;
   const storageIndex = storageSize ? indexOf(storageSize, STORAGE_TIERS, DEFAULT_STORAGE_INDEX) : DEFAULT_STORAGE_INDEX;
+  const timeoutIndex = responseTimeout ? indexOf(responseTimeout, TIMEOUT_TIERS, DEFAULT_TIMEOUT_INDEX) : DEFAULT_TIMEOUT_INDEX;
 
   // Live cost estimate based on the currently displayed tier values.
   const effectiveCpu = parseCpu(cpu || CPU_TIERS[cpuIndex]);
@@ -198,6 +210,19 @@ export function AdvancedProvisioningFields({
                     : undefined
                 }
                 onChange={onStorageSizeChange}
+              />
+            </div>
+
+            <div className="space-y-5 border-t border-border pt-5">
+              <TierSlider
+                label="Response timeout"
+                description="How long the front door waits for the agent to respond before returning a 504."
+                tiers={TIMEOUT_TIERS}
+                displayLabels={TIMEOUT_TIERS}
+                value={responseTimeout}
+                index={timeoutIndex}
+                isOverridden={!!responseTimeout}
+                onChange={onResponseTimeoutChange}
               />
             </div>
           </div>

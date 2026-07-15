@@ -483,6 +483,9 @@ export interface TemplateProvisioning {
 export interface ComponentProvisioning {
   compute?: ComponentCompute;
   volume?: ComponentVolume;
+  /** Front-door ingress upstream response timeout. Go duration ("15s", "2m");
+   *  empty falls back to the server default (15s). */
+  response_timeout?: string;
 }
 
 /** Simple compute knobs; the server expands these into K8s requests==limits

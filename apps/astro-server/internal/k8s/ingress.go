@@ -21,6 +21,11 @@ type IngressConfig struct {
 	ServiceName string
 	ServicePort int32
 	Host        string // Full hostname (e.g., agent-name-namespace.agents.example.com)
+	// ResponseTimeout, when set, is emitted as the
+	// projectcontour.io/response-timeout annotation so the tenant-router Envoy
+	// waits this long for the upstream to respond instead of its stock 15s. A Go
+	// duration string; empty leaves the annotation off (Contour default applies).
+	ResponseTimeout string
 }
 
 // BuildIngress creates a Kubernetes Ingress manifest for the tenant-router
@@ -35,11 +40,17 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	pathType := networkingv1.PathTypePrefix
 
+	var annotations map[string]string
+	if cfg.ResponseTimeout != "" {
+		annotations = map[string]string{"projectcontour.io/response-timeout": cfg.ResponseTimeout}
+	}
+
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.Name,
-			Namespace: cfg.Namespace,
-			Labels:    labels,
+			Name:        cfg.Name,
+			Namespace:   cfg.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: stringPtr("tenant-router"),
