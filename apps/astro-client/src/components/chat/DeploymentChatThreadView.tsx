@@ -26,6 +26,7 @@ import {
   isDictationActive,
   useDictationSupported,
 } from "@/lib/chat/dictation";
+import { loadDraft, saveDraft } from "@/lib/chat/chat-draft";
 import { DictationWaveform } from "@/components/chat/DictationWaveform";
 import type { ChatComposerState } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
@@ -88,6 +89,10 @@ export function DeploymentChatThreadView({
         ["--composer-padding" as string]: "10px",
       }}
     >
+      <ConversationDraftPersistence
+        deploymentId={deploymentId}
+        conversationId={conversationId}
+      />
       <ThreadPrimitive.Viewport
         key={conversationId ?? "draft"}
         turnAnchor={useTopTurnAnchor ? "top" : "bottom"}
@@ -147,6 +152,42 @@ export function DeploymentChatThreadView({
     </ThreadPrimitive.Root>
   );
 }
+
+// Persists the composer draft per conversation. The composer store is shared
+// across conversations (the runtime is keyed on the agent), so drafts are keyed
+// by conversation in sessionStorage and swapped as the user navigates, surviving
+// switches and reloads within the tab. Isolated as its own null-rendering node
+// so the per-keystroke composer subscription re-renders only this, not the whole
+// thread. See @/lib/chat/chat-draft.
+const ConversationDraftPersistence: FC<{
+  deploymentId: string;
+  conversationId: string | null;
+}> = ({ deploymentId, conversationId }) => {
+  const composerRuntime = useComposerRuntime();
+  const liveText = useComposer((c) => c.text);
+  // Tracks which conversation the composer currently holds. Starts undefined so
+  // the first run restores (covers mount / reload), then only re-restores when
+  // the conversation actually changes.
+  const restoredForRef = useRef<string | null | undefined>(undefined);
+
+  // Restore the incoming conversation's saved draft.
+  useEffect(() => {
+    if (restoredForRef.current === conversationId) return;
+    restoredForRef.current = conversationId;
+    composerRuntime.setText(loadDraft(deploymentId, conversationId));
+  }, [conversationId, deploymentId, composerRuntime]);
+
+  // Mirror the live composer into storage for the conversation it belongs to.
+  // Reads the store (not the render-captured liveText) so the mid-switch render
+  // — where liveText is still the previous conversation's — can't write under
+  // the new key; the restore effect above runs first and re-points the store.
+  useEffect(() => {
+    if (restoredForRef.current !== conversationId) return;
+    saveDraft(deploymentId, conversationId, composerRuntime.getState().text);
+  }, [liveText, conversationId, deploymentId, composerRuntime]);
+
+  return null;
+};
 
 const ThreadMessage: FC<{
   deploymentId: string;

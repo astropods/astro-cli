@@ -1,5 +1,18 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  AssistantRuntimeProvider,
+  useComposer,
+  useExternalStoreRuntime,
+  type ThreadMessageLike,
+} from "@assistant-ui/react";
+import { DeploymentChatThreadView } from "./DeploymentChatThreadView";
+import {
+  DeploymentChatStreamingContext,
+  type DeploymentChatViewportState,
+} from "./deployment-chat-streaming-context";
+import type { ChatComposerState } from "@/lib/deployment-utils";
 
 // jsdom lacks Element.scrollTo, which assistant-ui calls during auto-scroll.
 beforeAll(() => {
@@ -7,13 +20,10 @@ beforeAll(() => {
     Element.prototype.scrollTo = () => {};
   }
 });
-import {
-  AssistantRuntimeProvider,
-  useExternalStoreRuntime,
-  type ThreadMessageLike,
-} from "@assistant-ui/react";
-import { DeploymentChatThreadView } from "./DeploymentChatThreadView";
-import type { ChatComposerState } from "@/lib/deployment-utils";
+
+// Stable empty array so re-renders don't feed useExternalStoreRuntime a new
+// messages reference (which would confound the draft-persistence assertions).
+const NO_MESSAGES: ThreadMessageLike[] = [];
 
 function Harness({
   messages,
@@ -69,6 +79,112 @@ describe("DeploymentChatThreadView empty state", () => {
     expect(
       screen.queryByRole("heading", { name: "What should Test Agent work on?" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// The runtime persists across conversation switches (ChatThread is keyed on
+// deploymentId), so the composer store outlives a switch. DraftHarness holds one
+// runtime and flips conversationId via internal state, reproducing the switch
+// without remounting the runtime. The probe reads the live composer text.
+function ComposerTextProbe() {
+  const text = useComposer((c) => c.text);
+  return <span data-testid="composer-text">{text}</span>;
+}
+
+function DraftHarness({ initialConversationId = "conv-a" as string | null }) {
+  const [conversationId, setConversationId] = useState<string | null>(
+    initialConversationId,
+  );
+  const runtime = useExternalStoreRuntime({
+    messages: NO_MESSAGES,
+    isRunning: false,
+    onNew: async () => {},
+    convertMessage: (m) => m,
+  });
+  const viewport: DeploymentChatViewportState = {
+    streamingMessageId: null,
+    conversationId,
+    historyLoading: false,
+    isStreaming: false,
+    streamError: null,
+    hasMoreHistory: false,
+    loadOlderMessages: async () => {},
+  };
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <DeploymentChatStreamingContext.Provider value={viewport}>
+        <button onClick={() => setConversationId("conv-a")}>to-a</button>
+        <button onClick={() => setConversationId("conv-b")}>to-b</button>
+        <button onClick={() => setConversationId(conversationId)}>rerender</button>
+        <ComposerTextProbe />
+        <DeploymentChatThreadView
+          account="acme"
+          deploymentId="dep-1"
+          agentLabel="Test Agent"
+          composerState="ready"
+        />
+      </DeploymentChatStreamingContext.Provider>
+    </AssistantRuntimeProvider>
+  );
+}
+
+const input = () =>
+  screen.getByLabelText("Message input") as HTMLTextAreaElement;
+const composerText = () => screen.getByTestId("composer-text").textContent;
+
+describe("DeploymentChatThreadView composer draft", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it("does not leak a draft into another conversation", () => {
+    render(<DraftHarness />);
+    fireEvent.change(input(), { target: { value: "draft for A" } });
+    expect(composerText()).toBe("draft for A");
+
+    fireEvent.click(screen.getByText("to-b"));
+    expect(composerText()).toBe("");
+  });
+
+  it("restores a per-conversation draft when returning to it", () => {
+    render(<DraftHarness />);
+    fireEvent.change(input(), { target: { value: "draft for A" } });
+
+    fireEvent.click(screen.getByText("to-b"));
+    fireEvent.change(input(), { target: { value: "draft for B" } });
+    expect(composerText()).toBe("draft for B");
+
+    fireEvent.click(screen.getByText("to-a"));
+    expect(composerText()).toBe("draft for A");
+    fireEvent.click(screen.getByText("to-b"));
+    expect(composerText()).toBe("draft for B");
+  });
+
+  it("does not resurrect a sent/cleared draft", () => {
+    render(<DraftHarness />);
+    fireEvent.change(input(), { target: { value: "draft for A" } });
+    // Simulate the composer clearing on send (conversation is unchanged).
+    fireEvent.change(input(), { target: { value: "" } });
+
+    fireEvent.click(screen.getByText("to-b"));
+    fireEvent.click(screen.getByText("to-a"));
+    expect(composerText()).toBe("");
+  });
+
+  it("persists a draft across a reload (remount with a fresh runtime)", () => {
+    const { unmount } = render(<DraftHarness />);
+    fireEvent.change(input(), { target: { value: "survives reload" } });
+    unmount();
+
+    // A remount builds a brand-new runtime (empty composer); the draft comes
+    // back from sessionStorage for the same conversation.
+    render(<DraftHarness />);
+    expect(composerText()).toBe("survives reload");
+  });
+
+  it("keeps the draft when the conversation is unchanged (no clear on re-render)", () => {
+    render(<DraftHarness />);
+    fireEvent.change(input(), { target: { value: "keep me" } });
+    fireEvent.click(screen.getByText("rerender"));
+    expect(composerText()).toBe("keep me");
   });
 });
 

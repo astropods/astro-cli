@@ -7,6 +7,7 @@ import {
   useSetDeploymentChatConversationTitle,
 } from "@/api/queries/chat";
 import { useIsMobile } from "@/hooks/use-compact-layout";
+import { clearDraft } from "@/lib/chat/chat-draft";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { ChatThreadHeader } from "./ChatThreadHeader";
@@ -102,6 +103,9 @@ export function ChatWorkspace({
 
   const onDeleteSession = (convId: string) => {
     deleteConversation.mutate(convId);
+    // Drop the deleted conversation's draft so it doesn't linger in
+    // sessionStorage (and can't resurrect if the id ever recurs).
+    clearDraft(deploymentId, convId);
     if (conversationId === convId) {
       autoSelectedRef.current = true;
       setConversationId(null);
@@ -131,7 +135,7 @@ export function ChatWorkspace({
         />
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatThread
-            key={`${deploymentId}:${conversationId ?? "draft"}`}
+            key={deploymentId}
             account={account}
             deploymentId={deploymentId}
             deployment={deployment}

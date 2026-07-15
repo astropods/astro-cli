@@ -2,7 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useApiClient } from "@/lib/api-context";
-import { ApiRequestError, type GetDeploymentChatConversationResponse } from "@/lib/api";
+import {
+  ApiRequestError,
+  type GetDeploymentChatConversationResponse,
+  type ListDeploymentChatConversationsResponse,
+} from "@/lib/api";
 import {
   deriveTurnInFlight,
   inFlightAssistantMessageId,
@@ -59,6 +63,22 @@ export function useDeploymentChat(
 
   const activeConversationId = conversationIdFromOptions ?? createdConversationId;
   const useTailPollRef = useRef(false);
+  // Live SSE streams keyed by conversation. A stream's lifetime is scoped to its
+  // turn, not to the active view: it stays open across conversation switches and
+  // is closed only when the turn finishes or the hook unmounts. This lets a turn
+  // complete and persist while a different conversation is on screen.
+  const streamsRef = useRef<Map<string, EventSource>>(new Map());
+  // Per-stream watchdog timers keyed by conversation. Armed when a stream opens,
+  // cleared when its turn ends. If a turn never produces a finish event (a
+  // stalled or reaped-but-not-closed sidecar generation), the timer finalizes
+  // the stream so its EventSource is closed and a resend can open a fresh one.
+  const streamTimersRef = useRef<Map<string, number>>(new Map());
+  // Always-current active conversation, read by the long-lived stream callbacks.
+  // They must compare against the conversation on screen now — not the one
+  // captured when the stream opened — to tell whether a chunk/finish is for the
+  // active view or a background one.
+  const activeConversationIdRef = useRef(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
 
   const {
     data: serverData,
@@ -155,16 +175,16 @@ export function useDeploymentChat(
     ) => {
       const key = conversationKey(conversationId);
       const cached = readCachedThread(conversationId);
+      const isActive = conversationId === activeConversationIdRef.current;
 
-      let assistantId =
-        conversationId === activeConversationId
-          ? assistantIdRef.current
-          : inFlightAssistantMessageId(cached);
+      let assistantId = isActive
+        ? assistantIdRef.current
+        : inFlightAssistantMessageId(cached);
 
       if (!assistantId || chunkType === "replace") {
         assistantId =
           inFlightAssistantMessageId(cached) ?? `assistant-${Date.now()}`;
-        if (conversationId === activeConversationId) {
+        if (isActive) {
           assistantIdRef.current = assistantId;
           setStreamingAssistantId(assistantId);
         }
@@ -183,17 +203,27 @@ export function useDeploymentChat(
         },
       );
     },
-    [
-      activeConversationId,
-      conversationKey,
-      queryClient,
-      readCachedThread,
-    ],
+    [conversationKey, queryClient, readCachedThread],
   );
+
+  const closeStream = useCallback((conversationId: string) => {
+    streamsRef.current.get(conversationId)?.close();
+    streamsRef.current.delete(conversationId);
+    const timer = streamTimersRef.current.get(conversationId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      streamTimersRef.current.delete(conversationId);
+    }
+  }, []);
 
   const finalizeConversation = useCallback(
     (conversationId: string) => {
-      if (conversationId === activeConversationId) {
+      // Close this turn's stream (possibly a background conversation's) and
+      // cancel its watchdog timer.
+      closeStream(conversationId);
+      // Reset the on-screen streaming state only for the active conversation; a
+      // background finish just marks that conversation's cached thread done.
+      if (conversationId === activeConversationIdRef.current) {
         assistantIdRef.current = null;
         setStreamingAssistantId(null);
         setIsStreaming(false);
@@ -206,8 +236,24 @@ export function useDeploymentChat(
         (old) => (old ? { ...old, assistant_streaming: false } : old),
       );
       void queryClient.invalidateQueries({ queryKey: key });
+      // Clear this conversation's "reply in progress" dot in the history list,
+      // which is a separate query the per-conversation invalidation doesn't touch.
+      queryClient.setQueryData<ListDeploymentChatConversationsResponse>(
+        chatKeys.conversations(deploymentId),
+        (old) =>
+          old
+            ? {
+                ...old,
+                conversations: old.conversations.map((c) =>
+                  c.conversation_id === conversationId
+                    ? { ...c, assistant_streaming: false }
+                    : c,
+                ),
+              }
+            : old,
+      );
     },
-    [activeConversationId, conversationKey, queryClient],
+    [closeStream, conversationKey, deploymentId, queryClient],
   );
 
   const prevConversationRef = useRef<string | null>(null);
@@ -241,6 +287,10 @@ export function useDeploymentChat(
     }
 
     applyInFlightState(readCachedThread(activeConversationId));
+    // Re-derive whether the active conversation has an open stream (it may have
+    // one running in the background); the just-sent arbitration and the poll
+    // gate read this.
+    sseActiveRef.current = streamsRef.current.has(activeConversationId);
   }, [
     activeConversationId,
     applyInFlightState,
@@ -278,36 +328,42 @@ export function useDeploymentChat(
   }, [turnInFlight]);
 
   useEffect(() => {
-    if (!turnInFlight) return;
-    const timeout = window.setTimeout(() => {
-      setStreamError("Response timed out. You can try sending again.");
-      applyInFlightState(undefined);
-      // Suppress the server's streaming state for this conversation so the
-      // composer actually unblocks. Without this, a persisted assistant_streaming
-      // with no live SSE (e.g. a turn interrupted in another tab / before a
-      // sidecar reaped it) keeps turnInFlight deriving true from the snapshot and
-      // "you can try sending again" would be a lie. Cleared on the next send.
-      if (activeConversationId) setSuppressedConvId(activeConversationId);
-    }, IN_FLIGHT_TIMEOUT_MS);
-    return () => window.clearTimeout(timeout);
-  }, [activeConversationId, applyInFlightState, turnInFlight]);
-
-  useEffect(() => {
     if (!activeConversationId || !turnInFlight) return;
 
     const convId = activeConversationId;
     sseActiveRef.current = true;
     useTailPollRef.current = false;
+    // Don't open a second stream for a conversation already streaming (e.g. one
+    // navigated back to mid-turn).
+    if (streamsRef.current.has(convId)) return;
     const es = openMessagingStream(api, deploymentId, convId, {
       onChunk: (content, chunkType) =>
         patchAssistantChunk(convId, content, chunkType),
       onFinish: () => finalizeConversation(convId),
       onProtocolError: () => finalizeConversation(convId),
     });
-    return () => {
-      es.close();
-      sseActiveRef.current = false;
-    };
+    streamsRef.current.set(convId, es);
+    // Watchdog: bound the turn's lifetime so a stall (no finish event ever
+    // arrives) can't pin the stream open forever. This covers background turns
+    // too — the stream outlives the active view, so the timer, not the on-screen
+    // state, is what reaps a stalled turn. Cleared by finalizeConversation on a
+    // normal finish; on fire it closes the stream so a resend opens a fresh one.
+    const timer = window.setTimeout(() => {
+      if (convId === activeConversationIdRef.current) {
+        setStreamError("Response timed out. You can try sending again.");
+        // Suppress this conversation's server streaming snapshot so the composer
+        // unblocks; without it a persisted assistant_streaming with no live SSE
+        // would keep turnInFlight deriving true. Cleared on the next send or a
+        // conversation switch.
+        setSuppressedConvId(convId);
+      }
+      finalizeConversation(convId);
+    }, IN_FLIGHT_TIMEOUT_MS);
+    streamTimersRef.current.set(convId, timer);
+    // No cleanup here: the stream is closed by finalizeConversation when its turn
+    // ends (which also cancels the timer above), or by the unmount effect below —
+    // never on a conversation switch, so an in-flight turn keeps streaming in the
+    // background.
   }, [
     activeConversationId,
     api,
@@ -316,6 +372,19 @@ export function useDeploymentChat(
     patchAssistantChunk,
     turnInFlight,
   ]);
+
+  // Close every live stream and cancel its watchdog when the hook unmounts
+  // (agent switch / chat closed).
+  useEffect(() => {
+    const streams = streamsRef.current;
+    const timers = streamTimersRef.current;
+    return () => {
+      streams.forEach((es) => es.close());
+      streams.clear();
+      timers.forEach((t) => window.clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -368,6 +437,11 @@ export function useDeploymentChat(
       } catch (err) {
         applyInFlightState(undefined);
         if (convId) {
+          // A stream may have opened before the send threw (existing
+          // conversation, whose id is known synchronously); close it so a resend
+          // isn't short-circuited by the "already streaming" guard into reusing a
+          // dead stream.
+          closeStream(convId);
           const key = conversationKey(convId);
           queryClient.setQueryData<GetDeploymentChatConversationResponse>(
             key,
@@ -400,6 +474,7 @@ export function useDeploymentChat(
       activeConversationId,
       api,
       applyInFlightState,
+      closeStream,
       conversationKey,
       deploymentId,
       onConversationCreated,
