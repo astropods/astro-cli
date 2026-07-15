@@ -10,8 +10,9 @@ account-scoped ingest key as a bearer token. Per request it:
 
 1. **Authenticates** — `sha256(key)` looked up in `otel_ingest_tokens` (direct
    DB read, TTL-cached). No round-trip to astro-server, no ext_authz.
-2. **Redacts** — strips prompt/completion/tool-body attributes as defense in
-   depth.
+2. **Redacts (optional, off by default)** — when `OTEL_REDACT_ATTRIBUTES=true`,
+   strips prompt/completion/tool-body attributes as defense in depth. Off by
+   default: managed settings already keep that content off at the source.
 3. **Routes by signal**
    - **traces →** the account's Langfuse project via Langfuse's OTLP endpoint,
      with per-account `Basic pk:sk` resolved from `account_langfuse` + KMS.
@@ -37,6 +38,7 @@ here keeps all of that in one place and off astro-server's request path.
 | `LANGFUSE_OTLP_ENDPOINT` | Langfuse OTLP base, e.g. `http://<langfuse-vpce>:3000/api/public/otel` |
 | `VM_OTLP_ENDPOINT` | VictoriaMetrics OTLP push, e.g. `http://victoria-metrics-server.monitoring.svc.cluster.local:8428/opentelemetry/api/v1/push` |
 | `TOKEN_CACHE_TTL` | key→account / creds cache TTL (default `60s`); also the max time a revoked key keeps working |
+| `OTEL_REDACT_ATTRIBUTES` | strip prompt/completion/tool-body attributes before forwarding (default `false`) |
 | `PORT` / `HOST` | listen addr (default `0.0.0.0:4318`) |
 
 AWS credentials (IRSA) provide KMS `Decrypt` for Langfuse secret keys; without

@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -33,6 +34,12 @@ type Config struct {
 	// Langfuse credential) is cached before re-reading the DB. Also the upper
 	// bound on how long a revoked key keeps working.
 	TokenCacheTTL time.Duration
+
+	// RedactAttributes, when true, strips prompt/completion/tool-body
+	// attributes before forwarding (defense in depth). Off by default —
+	// managed settings already keep that content off at the source, so this is
+	// an opt-in belt-and-suspenders control, not the primary guarantee.
+	RedactAttributes bool
 }
 
 // Load reads configuration from the environment.
@@ -44,6 +51,7 @@ func Load() (*Config, error) {
 		LangfuseOTLPEndpoint: os.Getenv("LANGFUSE_OTLP_ENDPOINT"),
 		VMOTLPEndpoint:       os.Getenv("VM_OTLP_ENDPOINT"),
 		TokenCacheTTL:        getDuration("TOKEN_CACHE_TTL", 60*time.Second),
+		RedactAttributes:     getBool("OTEL_REDACT_ATTRIBUTES", false),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -66,6 +74,15 @@ func getDuration(key string, def time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
+		}
+	}
+	return def
+}
+
+func getBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return def

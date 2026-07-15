@@ -16,6 +16,8 @@ The account-scoped ingest keys shipped earlier are the credential; this adds the
 
 Both legs are OTLP pass-through (unmarshal → mutate → forward), so there is no Prometheus remote-write translation.
 
+**Redaction is opt-in, off by default.** Stripping prompt/completion/tool-body attributes is gated behind `OTEL_REDACT_ATTRIBUTES` (default `false`) — managed settings already keep that content off at the source, so in-service redaction is defense in depth, not the primary guarantee.
+
 **CI:** the service builds, publishes (multi-arch, by-digest → `:sha`/`:latest`), and tests through the existing preview/prod pipelines and the Go test matrix.
 
 ## Migration

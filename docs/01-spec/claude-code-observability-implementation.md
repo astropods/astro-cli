@@ -20,7 +20,7 @@ Developer laptop (Claude Code)
   ▼
 ALB (internet-facing, ACM TLS)  →  astro-otel  (primary cluster)
      auth: sha256(key) → otel_ingest_tokens → account   (direct DB, TTL-cached)
-     redact prompt/tool attrs; stamp astro.account_id + astro.source
+     stamp astro.account_id + astro.source (redaction optional, off by default)
         ├─ traces  → Langfuse (in-cluster) /api/public/otel/v1/traces
         │            Basic pk:sk resolved from account_langfuse + KMS; tag "claude-code"
         └─ metrics → VictoriaMetrics (managed) /opentelemetry/api/v1/push
@@ -42,7 +42,7 @@ Store `internal/ingesttoken`; handlers `handlers/otel_ingest_tokens.go`; account
 A standalone Go OTLP/HTTP receiver. Own module, shares astro-server's Postgres. Per request:
 
 1. **Authenticate** — `Bearer` token → `sha256` → `otel_ingest_tokens` lookup (via `internal/store`, TTL-cached; misses cached too so invalid-key floods can't hammer the DB). `last_used_at` stamped async. Invalid → 401; DB error → 503.
-2. **Redact** — strip prompt/completion/tool-body attributes (prefix list carried from the `astro` collector processor) as defense in depth.
+2. **Redact (optional, off by default)** — when `OTEL_REDACT_ATTRIBUTES=true`, strip prompt/completion/tool-body attributes as defense in depth. Disabled by default: managed settings keep that content off at the source, so this is an opt-in belt-and-suspenders control, not the primary guarantee.
 3. **Route by signal** (below). Logs dropped in v1.
 
 Both legs are **OTLP pass-through** — unmarshal (`go.opentelemetry.io/proto/otlp`), mutate attributes, re-marshal, forward — so there is no Prometheus remote-write translation. gzip request bodies supported; body capped at 16 MiB.
@@ -89,5 +89,5 @@ A standard internet-facing **ALB Ingress** on the primary cluster, mirroring the
 
 - **Metric label surfacing** — VM's OTLP ingestion must promote `astro.account_id`/`astro.source` (resource attributes) to labels; confirm the VM flag or move them to datapoint attributes.
 - **VM OTLP endpoint over the VPCE** — confirm the observability VPCE/NLB forwards `/opentelemetry/api/v1/push` (not just the query/`/api/v1/write` paths).
-- **Redaction parity** — the prompt-prefix list is duplicated in `astro-otel` and the `astro` collector processor; factor into a shared package if it grows.
+- **Redaction** — opt-in and off by default (`OTEL_REDACT_ATTRIBUTES`), since managed settings keep prompt content off at the source. If it's ever turned on broadly, the prompt-prefix list is duplicated in `astro-otel` and the `astro` collector processor — factor into a shared package then.
 - **Envelope duplication** — the KMS decrypt is copied from astro-server (internal packages can't cross modules); consolidate into a shared module if a third consumer appears.

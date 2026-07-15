@@ -1,6 +1,7 @@
 // Package ingest implements the OTLP/HTTP receiver: authenticate the bearer
-// ingest key, stamp/redact attributes, and forward each signal to its store —
-// traces to the account's Langfuse project, metrics to VictoriaMetrics.
+// ingest key, stamp identity attributes (optionally redacting prompt content),
+// and forward each signal to its store — traces to the account's Langfuse
+// project, metrics to VictoriaMetrics.
 package ingest
 
 import (
@@ -33,22 +34,6 @@ const (
 	sourceValue   = "claude-code"
 	sessionIDKey  = "session.id"
 )
-
-// promptAttrPrefixes are attribute name prefixes that may carry prompt,
-// completion, or tool-body content. Stripped as defense in depth — managed
-// settings keep them off at the source, this guarantees it regardless.
-var promptAttrPrefixes = []string{
-	"gen_ai.prompt",
-	"gen_ai.completion",
-	"gen_ai.input",
-	"gen_ai.output",
-	"llm.prompts",
-	"llm.completions",
-	"langfuse.observation.input",
-	"langfuse.observation.output",
-	"langfuse.trace.input",
-	"langfuse.trace.output",
-}
 
 // Handler serves the OTLP endpoints.
 type Handler struct {
@@ -124,13 +109,22 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	redactOn := h.cfg.RedactAttributes
 	for _, rs := range req.GetResourceSpans() {
 		if rs.Resource != nil {
-			rs.Resource.Attributes = stampIdentity(redact(rs.Resource.Attributes), accountID)
+			attrs := rs.Resource.Attributes
+			if redactOn {
+				attrs = redact(attrs)
+			}
+			rs.Resource.Attributes = stampIdentity(attrs, accountID)
 		}
 		for _, ss := range rs.GetScopeSpans() {
 			for _, span := range ss.GetSpans() {
-				span.Attributes = tagClaudeCode(redact(span.Attributes))
+				attrs := span.Attributes
+				if redactOn {
+					attrs = redact(attrs)
+				}
+				span.Attributes = tagClaudeCode(attrs)
 			}
 		}
 	}
@@ -262,6 +256,23 @@ func writeProto(w http.ResponseWriter, msg proto.Message) {
 }
 
 // --- attribute helpers ---------------------------------------------------
+
+// promptAttrPrefixes are attribute name prefixes that may carry prompt,
+// completion, or tool-body content. Only stripped when redaction is enabled
+// (OTEL_REDACT_ATTRIBUTES); managed settings keep this content off at the
+// source by default, so redaction is opt-in defense in depth.
+var promptAttrPrefixes = []string{
+	"gen_ai.prompt",
+	"gen_ai.completion",
+	"gen_ai.input",
+	"gen_ai.output",
+	"llm.prompts",
+	"llm.completions",
+	"langfuse.observation.input",
+	"langfuse.observation.output",
+	"langfuse.trace.input",
+	"langfuse.trace.output",
+}
 
 func shouldRedact(key string) bool {
 	for _, p := range promptAttrPrefixes {
