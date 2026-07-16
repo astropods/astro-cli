@@ -13,6 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChatPanelSectionHeader } from "@/components/chat/ChatPanelSectionHeader";
 import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/lib/chat/types";
 
@@ -122,13 +123,12 @@ function ConversationHistoryList({
 
   return (
     <div className="flex max-h-[min(60vh,24rem)] flex-col">
-      <div className="flex shrink-0 items-baseline justify-between border-b border-border px-3.5 py-2.5">
-        <span className="font-mono text-mono-sm tracking-wide text-faint-foreground">
-          Chat history
-        </span>
-        <span className="font-mono text-mono-sm text-faint-foreground">
-          {sessions.length}
-        </span>
+      <div className="flex shrink-0 items-center border-b border-border px-3.5 py-2.5">
+        <ChatPanelSectionHeader
+          label="Chat history"
+          icon={Clock}
+          count={sessions.length}
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
         {sessions.length === 0 ? (

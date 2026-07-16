@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
 
@@ -27,6 +27,9 @@ describe("ConversationHistoryDropdown", () => {
     await waitFor(() => {
       expect(screen.getByRole("menu")).toBeInTheDocument();
     });
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByText("Chat history")).toBeInTheDocument();
+    expect(within(menu).getByText("1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: /First chat/i }));
 

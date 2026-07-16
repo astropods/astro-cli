@@ -46,6 +46,199 @@ describe("ChatInspectorPanel", () => {
     ).toBeTruthy();
   });
 
+  it("keeps long system prompts contained and collapsible", async () => {
+    const longPrompt = Array.from(
+      { length: 24 },
+      (_, i) => `Instruction ${i + 1}: summarize the account state before taking action.`,
+    ).join("\n");
+
+    server.use(
+      http.get("/api/v1/deployments/:id/messaging/agent/config", () =>
+        HttpResponse.json({
+          systemPrompt: longPrompt,
+          tools: [],
+        }),
+      ),
+    );
+
+    renderWithProviders(
+      <ChatInspectorPanel
+        account="acme"
+        deploymentId="dep-1"
+        deployment={{
+          id: "dep-1",
+          name: "test-agent",
+          display_name: "Test Agent",
+          build_id: "build-1",
+          created_at: "2026-01-01T00:00:00Z",
+          messaging_web_configured: true,
+        }}
+        tab="settings"
+        onTabChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    const promptText = await screen.findByText(
+      (_, element) => element?.tagName === "P" && element.textContent === longPrompt,
+    );
+
+    expect(promptText).toHaveClass("line-clamp-5");
+
+    const showMoreButton = screen.getByRole("button", { name: "Show more" });
+    expect(showMoreButton).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(showMoreButton);
+
+    const showLessButton = screen.getByRole("button", { name: "Show less" });
+    expect(showLessButton).toHaveAttribute("aria-expanded", "true");
+    expect(promptText).toHaveClass(
+      "max-h-[min(50dvh,24rem)]",
+      "overflow-y-auto",
+      "overscroll-contain",
+    );
+    expect(promptText).not.toHaveClass("line-clamp-5");
+
+    promptText.scrollTop = 120;
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+
+    expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
+    expect(promptText).toHaveClass("line-clamp-5");
+    expect(promptText.scrollTop).toBe(0);
+  });
+
+  it("shows tools as an expandable list with titles", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/messaging/agent/config", () =>
+        HttpResponse.json({
+          systemPrompt: "Use the available tools when needed.",
+          tools: [
+            {
+              name: "lookup_deployment",
+              title: "Lookup deployment",
+              description: "Reads deployment status and runtime health.",
+            },
+            {
+              name: "search_traces",
+              title: "Search traces",
+              description: "Finds recent traces for debugging agent behavior.",
+            },
+            { name: "inspect_billing", title: "Inspect billing" },
+            { name: "list_incidents", title: "List incidents" },
+            { name: "open_runbook", title: "Open runbook" },
+            { name: "raw_tool_without_title" },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(
+      <ChatInspectorPanel
+        account="acme"
+        deploymentId="dep-1"
+        deployment={{
+          id: "dep-1",
+          name: "test-agent",
+          display_name: "Test Agent",
+          build_id: "build-1",
+          created_at: "2026-01-01T00:00:00Z",
+          messaging_web_configured: true,
+        }}
+        tab="settings"
+        onTabChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText("Tools")).toBeInTheDocument();
+    expect(screen.getByText("6")).toBeInTheDocument();
+    expect(screen.getByText("Lookup deployment")).toBeInTheDocument();
+    expect(screen.queryByText("lookup_deployment")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Reads deployment status and runtime health."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("raw_tool_without_title")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Show 1 more" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Expand all" }),
+    ).not.toBeInTheDocument();
+
+    const lookupButton = screen.getByRole("button", { name: "Lookup deployment" });
+    expect(lookupButton).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(lookupButton);
+
+    expect(lookupButton).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText("Reads deployment status and runtime health."),
+    ).toHaveClass("select-text");
+    expect(
+      screen.queryByText("Finds recent traces for debugging agent behavior."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("expands duplicate-named tools independently", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/messaging/agent/config", () =>
+        HttpResponse.json({
+          systemPrompt: "Use the available tools when needed.",
+          tools: [
+            {
+              name: "duplicate_tool",
+              title: "First duplicate",
+              description: "Description for the first duplicate tool.",
+            },
+            {
+              name: "duplicate_tool",
+              title: "Second duplicate",
+              description: "Description for the second duplicate tool.",
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(
+      <ChatInspectorPanel
+        account="acme"
+        deploymentId="dep-1"
+        deployment={{
+          id: "dep-1",
+          name: "test-agent",
+          display_name: "Test Agent",
+          build_id: "build-1",
+          created_at: "2026-01-01T00:00:00Z",
+          messaging_web_configured: true,
+        }}
+        tab="settings"
+        onTabChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    await screen.findByText("First duplicate");
+
+    fireEvent.click(screen.getByRole("button", { name: "First duplicate" }));
+
+    expect(
+      screen.getByText("Description for the first duplicate tool."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Description for the second duplicate tool."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Second duplicate" }));
+
+    expect(
+      screen.getByText("Description for the first duplicate tool."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Description for the second duplicate tool."),
+    ).toBeInTheDocument();
+  });
+
   it("shows recent trace status, user, date, tokens, and cost", async () => {
     const traceRequestUrls: string[] = [];
     server.use(

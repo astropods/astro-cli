@@ -195,8 +195,8 @@ export function ChatThreadHeader({
                   aria-pressed={inspectorOpen}
                   onClick={onToggleInspector}
                 >
-                  <PanelRight className="hidden size-4 md:inline" />
-                  <span className="text-foreground">Details</span>
+                  <PanelRight className="hidden size-4 shrink-0 md:block" />
+                  <span className="leading-none text-foreground">Details</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Agent details</TooltipContent>

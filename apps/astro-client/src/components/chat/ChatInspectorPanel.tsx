@@ -1,15 +1,21 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   AlertCircle,
+  Activity,
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  NotepadText,
+  ScrollText,
   TimerReset,
   Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import { ChatPanelSectionHeader } from "@/components/chat/ChatPanelSectionHeader";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -142,7 +148,7 @@ export function ChatInspectorPanel({
           ) : tab === "files" ? (
             <DeploymentFilesPanel deploymentId={deploymentId} />
           ) : (
-            <SettingsTab deploymentId={deploymentId} />
+            <SettingsTab key={deploymentId} deploymentId={deploymentId} />
           )}
         </div>
       </div>
@@ -341,6 +347,7 @@ function OverviewTab({
 
       <Section
         label="Recent traces"
+        icon={ScrollText}
         className="gap-2"
         action={
           <Button
@@ -388,6 +395,7 @@ function UsageSummary({
   return (
     <Section
       label="Usage"
+      icon={Activity}
       action={
         <div className="shrink-0">
           <TimeRangeSelector
@@ -449,6 +457,8 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
     ready,
   );
   const [expanded, setExpanded] = useState(false);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const promptRef = useRef<HTMLParagraphElement>(null);
 
   if (!ready) {
     const noticeKey = state === "ready" ? "unknown" : state;
@@ -475,13 +485,15 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <Section label="System prompt" className="gap-3">
-        <div className="rounded-xl border border-border bg-surface/60 px-3.5 py-3">
+      <Section label="System prompt" icon={NotepadText} className="gap-1.5">
+        <div className="max-w-full overflow-hidden rounded-md bg-muted/40 px-3.5 py-3 dark:bg-accent/50">
           {prompt ? (
             <>
               <p
+                ref={promptRef}
                 className={cn(
-                  "font-mono text-body-sm leading-relaxed whitespace-pre-wrap text-foreground",
+                  "max-w-full text-body-sm font-normal leading-relaxed whitespace-pre-wrap break-words text-foreground",
+                  expanded && "max-h-[min(50dvh,24rem)] overflow-y-auto overscroll-contain pr-1",
                   !expanded && longPrompt && "line-clamp-5",
                 )}
               >
@@ -490,7 +502,13 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
               {longPrompt ? (
                 <button
                   type="button"
-                  onClick={() => setExpanded((e) => !e)}
+                  aria-expanded={expanded}
+                  onClick={() => {
+                    if (expanded && promptRef.current) {
+                      promptRef.current.scrollTop = 0;
+                    }
+                    setExpanded((isExpanded) => !isExpanded);
+                  }}
                   className="mt-2 text-body-sm font-medium text-foreground-accent transition-colors hover:text-foreground-accent/80"
                 >
                   {expanded ? "Show less" : "Show more"}
@@ -506,28 +524,59 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
       </Section>
 
       <Section
-        label={`Tools${tools.length ? ` · ${tools.length}` : ""}`}
-        className="gap-3"
+        label="Tools"
+        icon={Wrench}
+        className="gap-1.5"
+        labelSuffix={tools.length ? tools.length : undefined}
       >
         {tools.length === 0 ? (
           <p className="text-body-sm text-muted-foreground">No tools configured.</p>
         ) : (
-          <div className="flex flex-col gap-3.5">
-            {tools.map((tool, i) => (
-              <div key={`${tool.name}-${i}`} className="flex items-start gap-2.5">
-                <Wrench className="mt-0.5 size-3.5 shrink-0 text-foreground" />
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-body-sm font-medium text-foreground">
-                    {tool.title || tool.name}
-                  </span>
-                  {tool.description ? (
-                    <span className="text-body-sm leading-snug text-muted-foreground">
-                      {tool.description}
+          <div className="flex flex-col">
+            {tools.map((tool, i) => {
+              const toolKey = `${tool.name}-${i}`;
+              const label = tool.title || tool.name;
+              const toolExpanded = expandedTools.has(toolKey);
+              const ToggleIcon = toolExpanded ? ChevronDown : ChevronRight;
+              return (
+                <div
+                  key={toolKey}
+                  className={cn(
+                    "flex min-w-0 flex-col transition-colors",
+                    i > 0 && "border-t border-border/60",
+                    toolExpanded && "bg-muted/40 dark:bg-accent/50",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-expanded={toolExpanded}
+                    onClick={() =>
+                      setExpandedTools((current) => {
+                        const next = new Set(current);
+                        if (next.has(toolKey)) next.delete(toolKey);
+                        else next.add(toolKey);
+                        return next;
+                      })
+                    }
+                    className={cn(
+                      "flex min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/25",
+                      toolExpanded && "hover:bg-transparent",
+                      toolExpanded && tool.description && "pb-1.5",
+                    )}
+                  >
+                    <ToggleIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate text-body-sm font-medium text-foreground">
+                      {label}
                     </span>
+                  </button>
+                  {toolExpanded && tool.description ? (
+                    <p className="select-text px-3 pb-2.5 pl-9 text-body-sm leading-relaxed text-muted-foreground">
+                      {tool.description}
+                    </p>
                   ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Section>
@@ -771,23 +820,32 @@ function formatTraceDateTime(iso: string): string {
 
 function Section({
   label,
+  labelSuffix,
+  icon: Icon,
   action,
   className,
+  labelClassName,
   bodyClassName,
   children,
 }: {
   label: string;
+  labelSuffix?: string | number;
+  icon?: LucideIcon;
   action?: React.ReactNode;
   className?: string;
+  labelClassName?: string;
   bodyClassName?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className={cn("flex flex-col gap-3.5", className)}>
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="text-body font-medium text-foreground">
-          {label}
-        </span>
+        <ChatPanelSectionHeader
+          label={label}
+          icon={Icon}
+          count={labelSuffix}
+          className={labelClassName}
+        />
         {action}
       </div>
       <div className={cn("min-w-0", bodyClassName)}>

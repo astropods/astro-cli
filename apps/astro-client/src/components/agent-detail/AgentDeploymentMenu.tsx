@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { ArrowRight, Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { useDeploymentsSummary } from "@/api/queries/deployments";
@@ -166,8 +166,8 @@ export function AgentDeploymentMenu({
               className="mt-1 w-full justify-start gap-1 font-medium"
             >
               <Link to={deployMoreHref!}>
+                <Plus className="size-3.5 text-muted-foreground" />
                 Deploy more agents
-                <ArrowRight className="size-3 text-muted-foreground" />
               </Link>
             </Button>
           </>

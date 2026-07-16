@@ -118,9 +118,16 @@ describe("ChatThreadHeader agent-switch coachmark", () => {
     expect(screen.getByText(coachmarkText)).toBeInTheDocument();
   });
 
-  it("hides the coachmark for single-agent users", () => {
+  it("hides the coachmark and offers deployment for single-agent users", async () => {
+    const user = userEvent.setup();
     renderHeader(new Set(["dep-1"]));
     expect(screen.queryByText(coachmarkText)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /agent menu/i }));
+
+    const deployMore = screen.getByRole("link", { name: /deploy more agents/i });
+    expect(deployMore).toBeInTheDocument();
+    expect(deployMore.querySelector("svg")).toBeInTheDocument();
   });
 
   it("removes the coachmark and persists the flag when dismissed", async () => {
