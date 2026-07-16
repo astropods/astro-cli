@@ -3,7 +3,10 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -21,7 +24,13 @@ type Config struct {
 	Avatar               AvatarConfig
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
-	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
+	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement/quota enforcement (default false)
+	// QuotaDefaults holds the system-wide default per-account resource limits
+	// (agents, agent_builds, agent_deployments, members, knowledge_stores,
+	// knowledge_endpoints). -1 = unlimited, 0 = disabled. Per-account overrides
+	// live in the account_limits table. Overridable via QUOTA_DEFAULTS
+	// ("agents=10,members=5,..."). See internal/quota.
+	QuotaDefaults        map[string]int64
 	S3                   S3Config
 	GitHub               GitHubConfig
 	Slack                SlackConfig
@@ -342,6 +351,7 @@ func Load() (*Config, error) {
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
 		OpenMeterEnforce:     getEnv("OPENMETER_ENFORCE", "") == "true",
+		QuotaDefaults:        loadQuotaDefaults(),
 		LokiURL:              getEnv("LOKI_URL", ""),
 		DeploymentLogBackend: getEnv("DEPLOYMENT_LOG_BACKEND", ""),
 		PrometheusURL:        getEnv("PROMETHEUS_URL", ""),
@@ -479,6 +489,47 @@ func loadSigningKey() []byte {
 		return nil
 	}
 	return key
+}
+
+// quotaResourceDefaults is the system-wide default per-account resource limit
+// for each quota-managed resource. Values mirror the former OpenMeter
+// private_beta plan (docs/03-architecture/openmeter-integration.md) so quota
+// enforcement reproduces the prior limits. Over-limit blocking is additionally
+// gated by OPENMETER_ENFORCE; a per-account account_limits row overrides these.
+// Use -1 for unlimited, 0 to disable a feature.
+var quotaResourceDefaults = map[string]int64{
+	"agents":              5,
+	"agent_builds":        50,
+	"agent_deployments":   10,
+	"members":             5,
+	"knowledge_stores":    5,
+	"knowledge_endpoints": 2,
+}
+
+// loadQuotaDefaults builds the default resource→limit map, applying any
+// QUOTA_DEFAULTS overrides ("agents=10,members=5"). Unknown keys and malformed
+// pairs are ignored.
+func loadQuotaDefaults() map[string]int64 {
+	defaults := make(map[string]int64, len(quotaResourceDefaults))
+	maps.Copy(defaults, quotaResourceDefaults)
+	raw := os.Getenv("QUOTA_DEFAULTS")
+	if raw == "" {
+		return defaults
+	}
+	for pair := range strings.SplitSeq(raw, ",") {
+		kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		if _, ok := defaults[key]; !ok {
+			continue
+		}
+		if v, err := strconv.ParseInt(strings.TrimSpace(kv[1]), 10, 64); err == nil {
+			defaults[key] = v
+		}
+	}
+	return defaults
 }
 
 // getEnv gets an environment variable or returns a default value

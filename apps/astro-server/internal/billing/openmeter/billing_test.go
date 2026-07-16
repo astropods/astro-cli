@@ -158,7 +158,7 @@ func TestStartBilling_InsertsRows(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -194,7 +194,7 @@ func TestStopBilling_RecordsStoppedAt(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -229,7 +229,7 @@ func TestStopBilling_NoActiveRows(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	m.StopBilling(context.Background(), "dep-1", time.Now())
 
@@ -246,7 +246,7 @@ func TestBilling_FullLifecycle(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -293,7 +293,7 @@ func TestBilling_ShortLivedDeployment(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'undeployed')`)
 
@@ -350,7 +350,7 @@ func TestBilling_MultipleWorkloads(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'undeployed')`)
 
@@ -392,7 +392,7 @@ func TestRunBillingCycle_EmitsDelta(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -427,7 +427,7 @@ func TestRunBillingCycle_NoActiveRows(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	m.RunBillingCycle(context.Background())
 
@@ -442,7 +442,7 @@ func TestRunBillingCycle_SkipsZeroElapsed(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -462,7 +462,7 @@ func TestReconcileStale_CrashRecovery(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	// Deployment was undeployed 5 minutes ago (simulating crash — billing_active left true)
 	statusChangedAt := time.Now().Add(-5 * time.Minute)
@@ -502,7 +502,7 @@ func TestReconcileStale_ScaledDown(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	statusChangedAt := time.Now().Add(-3 * time.Minute)
 	lastEmittedAt := time.Now().Add(-8 * time.Minute)
@@ -533,7 +533,7 @@ func TestStartKnowledgeBilling_InsertsRow(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
 
@@ -560,7 +560,7 @@ func TestStopKnowledgeBilling_RecordsStoppedAt(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
 
@@ -596,7 +596,7 @@ func TestStopKnowledgeBilling_NotActive(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'error')`)
 	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
@@ -615,7 +615,7 @@ func TestReconcileStoppedKnowledge_EmitsFinalPeriodAfterDeletion(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	// Store exists, billing started
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
@@ -665,7 +665,7 @@ func TestRunKnowledgeBillingCycle_EmitsDelta(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
 
@@ -693,7 +693,7 @@ func TestReconcileStaleKnowledge_ErrorStore(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	updatedAt := time.Now().Add(-2 * time.Minute)
 	lastEmitted := time.Now().Add(-10 * time.Minute)
@@ -725,7 +725,7 @@ func TestStartBilling_UpsertOnRedeploy(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -761,7 +761,7 @@ func TestStopBilling_MultipleComponents_AllDeactivated(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'undeployed')`)
 
@@ -805,7 +805,7 @@ func TestHealMissingBillingRows_SeededOnFirstTick(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 	db.Exec(`INSERT INTO deployment_workloads (deployment_id, name, component_kind, component_key, cpu_request, memory_request, replicas) VALUES ('dep-1', 'agent', 'agent', '', '1', '2Gi', 1)`)
@@ -833,7 +833,7 @@ func TestHealMissingBillingRows_IdempotentOnSubsequentTicks(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 	db.Exec(`INSERT INTO deployment_workloads (deployment_id, name, component_kind, component_key, cpu_request, memory_request, replicas) VALUES ('dep-1', 'agent', 'agent', '', '1', '2Gi', 1)`)
@@ -857,7 +857,7 @@ func TestHealMissingKnowledgeBillingRows_SeededOnFirstTick(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'managed', 'ready')`)
 
@@ -875,7 +875,7 @@ func TestHealMissingKnowledgeBillingRows_SkipsExternalAndNonReady(t *testing.T) 
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-ext', 'acct-1', 'ext-pg', 'postgres', 'external', 'ready')`)
 	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-prov', 'acct-1', 'prov-pg', 'postgres', 'managed', 'provisioning')`)
@@ -895,7 +895,7 @@ func TestEmitActiveBilling_FailingServer_DoesNotAdvanceTimestamp(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv := failingServer(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -916,7 +916,7 @@ func TestReconcileStopped_FailingServer_DoesNotClearStoppedAt(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv := failingServer(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'undeployed')`)
 
@@ -940,7 +940,7 @@ func TestReconcileStopped_MultipleDeployments_BatchUpdate(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'agent-a', 'ns-1', 'undeployed')`)
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-2', 'acct-1', 'agent-b', 'ns-1', 'undeployed')`)
@@ -967,7 +967,7 @@ func TestReconcileStopped_KeyScopedUpdate_DoesNotClearUnreadRows(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'agent-a', 'ns-1', 'undeployed')`)
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-2', 'acct-1', 'agent-b', 'ns-1', 'undeployed')`)
@@ -1001,7 +1001,7 @@ func TestStartBilling_RapidRedeploy_ClearsStoppedAt(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, _, _ := collectEvents(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
@@ -1031,7 +1031,7 @@ func TestReconcileStoppedKnowledge_FailingServer_DoesNotDeleteRow(t *testing.T) 
 	db := setupSQLiteDB(t)
 	srv := failingServer(t)
 	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewClient(srv.URL), db, log)
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
 
 	oneHourAgo := time.Now().Add(-time.Hour)
 	stoppedAt := time.Now().Add(-30 * time.Minute)

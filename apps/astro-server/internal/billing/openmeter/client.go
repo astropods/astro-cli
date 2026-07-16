@@ -205,17 +205,13 @@ type Meter struct {
 	Slug string `json:"slug"`
 }
 
-// RequiredMeters is the set of meter slugs that must exist in OpenMeter.
+// RequiredMeters is the set of meter slugs that must exist in OpenMeter. Only
+// metered-consumption meters remain; resource counts moved to the quota DB and
+// are no longer emitted as meter events.
 var RequiredMeters = []string{
 	"compute",
-	"agents",
-	"agent_builds",
-	"agent_deployments",
-	"members",
-	"knowledge_stores",
 	"knowledge_storage",
 	"knowledge_compute",
-	"knowledge_endpoints",
 }
 
 // ListMeters fetches all meters from OpenMeter.

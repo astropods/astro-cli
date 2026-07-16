@@ -9,10 +9,10 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // AccountPurgeArgs are the job arguments for the account purge periodic worker.
@@ -31,7 +31,7 @@ type AccountPurgeWorker struct {
 	river.WorkerDefaults[AccountPurgeArgs]
 	db              *sql.DB
 	deployStore     *deploymentstore.Store
-	omClient        *openmeter.Client
+	billingProvider billing.BillingProvider
 	lfProvisioner   *langfuse.Provisioner
 	lfStore         *langfuse.Store
 	aigwProvisioner *aigateway.Provisioner
@@ -111,17 +111,17 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 
 	// 2. Clean up external resources (must succeed before hard-delete)
 
-	// OpenMeter
-	if w.omClient != nil {
+	// Billing customer
+	if w.billingProvider != nil {
 		var customerID sql.NullString
 		if err := w.db.QueryRowContext(ctx,
 			`SELECT openmeter_customer_id FROM accounts WHERE id = $1`, accountID,
 		).Scan(&customerID); err != nil {
-			return fmt.Errorf("query openmeter customer id: %w", err)
+			return fmt.Errorf("query billing customer id: %w", err)
 		}
 		if customerID.Valid && customerID.String != "" {
-			if err := w.omClient.DeleteCustomer(ctx, customerID.String); err != nil {
-				return fmt.Errorf("delete openmeter customer: %w", err)
+			if err := w.billingProvider.DeleteCustomer(ctx, customerID.String); err != nil {
+				return fmt.Errorf("delete billing customer: %w", err)
 			}
 		}
 	}

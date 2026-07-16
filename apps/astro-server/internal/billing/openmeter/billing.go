@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -16,17 +17,18 @@ import (
 // precise CU-hour events at each state change and provides a reconciliation
 // method for the heartbeat to fill in gaps.
 type BillingStateManager struct {
-	client *Client
-	db     *sql.DB
-	log    *logger.Logger
+	provider billing.BillingProvider
+	db       *sql.DB
+	log      *logger.Logger
 }
 
-// NewBillingStateManager creates a new BillingStateManager. Returns nil if client is nil.
-func NewBillingStateManager(client *Client, db *sql.DB, log *logger.Logger) *BillingStateManager {
-	if client == nil {
+// NewBillingStateManager creates a new BillingStateManager. Returns nil if the
+// billing provider is nil (no metering backend configured).
+func NewBillingStateManager(provider billing.BillingProvider, db *sql.DB, log *logger.Logger) *BillingStateManager {
+	if provider == nil {
 		return nil
 	}
-	return &BillingStateManager{client: client, db: db, log: log}
+	return &BillingStateManager{provider: provider, db: db, log: log}
 }
 
 // WorkloadInfo describes a single billable workload component within a deployment.
@@ -112,7 +114,7 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 	defer rows.Close() //nolint:errcheck
 
 	type rowKey struct{ deploymentID, component string }
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	var keys []rowKey
 	for rows.Next() {
 		var deploymentID, component, cpuReq, memReq, accountID, agentName, namespace string
@@ -138,7 +140,7 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit reconcile compute events", "error", err)
 			return // don't advance timestamps if emission failed
 		}
@@ -181,7 +183,7 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	for rows.Next() {
 		var deploymentID, component, cpuReq, memReq, accountID, agentName, namespace string
 		var lastEmitted, statusChangedAt time.Time
@@ -204,7 +206,7 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit stale billing events", "error", err)
 			return
 		}
@@ -242,7 +244,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 	defer rows.Close() //nolint:errcheck
 
 	type rowKey struct{ deploymentID, component string }
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	var keys []rowKey
 	for rows.Next() {
 		var deploymentID, component, cpuReq, memReq, accountID, agentName, namespace string
@@ -273,7 +275,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit stopped billing events", "error", err)
 			return
 		}
@@ -394,7 +396,7 @@ func (m *BillingStateManager) emitActiveKnowledgeBilling(ctx context.Context, no
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	var ids []any
 	for rows.Next() {
 		var storeID, provider, accountID, name string
@@ -419,7 +421,7 @@ func (m *BillingStateManager) emitActiveKnowledgeBilling(ctx context.Context, no
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit knowledge reconcile events", "error", err)
 			return
 		}
@@ -487,7 +489,7 @@ func (m *BillingStateManager) reconcileStaleKnowledge(ctx context.Context) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	for rows.Next() {
 		var storeID, provider, accountID, name string
 		var lastEmitted, updatedAt time.Time
@@ -506,7 +508,7 @@ func (m *BillingStateManager) reconcileStaleKnowledge(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit stale knowledge events", "error", err)
 			return
 		}
@@ -541,7 +543,7 @@ func (m *BillingStateManager) reconcileStoppedKnowledge(ctx context.Context) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	var ids []any
 	for rows.Next() {
 		var storeID, provider, accountID, name string
@@ -570,7 +572,7 @@ func (m *BillingStateManager) reconcileStoppedKnowledge(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := m.client.IngestEvents(ctx, events); err != nil {
+		if err := m.provider.IngestUsage(ctx, events); err != nil {
 			m.log.Error("openmeter: failed to emit stopped knowledge billing events", "error", err)
 			return
 		}
@@ -590,8 +592,8 @@ func (m *BillingStateManager) reconcileStoppedKnowledge(ctx context.Context) {
 	}
 }
 
-func computeUsageEvent(accountID, agentName, namespace, component, cpuReq, memReq string, replicas int, cuHours float64) CloudEvent {
-	return NewCloudEvent("compute_usage", accountID, map[string]any{
+func computeUsageEvent(accountID, agentName, namespace, component, cpuReq, memReq string, replicas int, cuHours float64) billing.UsageEvent {
+	return usageEvent("compute_usage", accountID, map[string]any{
 		"compute_unit_hours": cuHours,
 		"agent_name":         agentName,
 		"namespace":          namespace,
@@ -602,9 +604,9 @@ func computeUsageEvent(accountID, agentName, namespace, component, cpuReq, memRe
 	})
 }
 
-func knowledgeComputeUsageEvent(accountID, name, provider string, cuHours float64) CloudEvent {
+func knowledgeComputeUsageEvent(accountID, name, provider string, cuHours float64) billing.UsageEvent {
 	res := knowledgeProviderResourceStrings(provider)
-	return NewCloudEvent("knowledge_compute_usage", accountID, map[string]any{
+	return usageEvent("knowledge_compute_usage", accountID, map[string]any{
 		"compute_unit_hours": cuHours,
 		"store_name":         name,
 		"provider":           provider,

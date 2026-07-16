@@ -24,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
@@ -39,7 +40,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -601,7 +602,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -689,9 +690,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}
 		}
 
-		// Check entitlements for deploy (account resolved from spec, not middleware)
+		// Gate deploy (account resolved from spec, not middleware). Resource count
+		// (active deployments) is a quota check; compute is a metered-consumption
+		// check via the entitlement path. Both fail open on provider error.
+		if quotaCheck != nil {
+			if res, err := quotaCheck.Check(c.Request.Context(), dctx.acct.ID, quota.ResourceAgentDeployments); err == nil && res.Blocked {
+				c.JSON(http.StatusPaymentRequired, quota.LimitResponse(res))
+				return
+			}
+		}
 		if entCheck != nil {
-			if blocked, feature, entResult := entCheck.Check(c.Request.Context(), dctx.acct.ID, "agent_deployments", "compute"); blocked {
+			if blocked, feature, entResult := entCheck.Check(c.Request.Context(), dctx.acct.ID, "compute"); blocked {
 				c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feature, entResult))
 				return
 			}
@@ -839,11 +848,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}
 		}
 
-		// Emit updated deployment count immediately so the next entitlement check
-		// doesn't see stale OpenMeter data (heartbeat only runs every 5 minutes).
-		if !dctx.isUpdate {
-			go openmeter.EmitActiveDeployments(context.Background(), omClient, db, log, dctx.acct.ID)
-		}
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
 		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID, params.ClusterID); err != nil {
@@ -912,7 +916,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 }
 
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -969,8 +973,6 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return
 		}
-
-		go openmeter.EmitActiveDeployments(context.Background(), omClient, db, log, dep.AccountID)
 
 		log.Info("Undeploy queued",
 			"deployment_id", dep.ID,

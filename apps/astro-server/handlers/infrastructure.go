@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/gin-gonic/gin"
 )
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -17,34 +18,30 @@ const heartbeatInterval = 5 * time.Minute
 
 // Heartbeat emits periodic metering events for active deployments and agent counts.
 type Heartbeat struct {
-	client  *Client
-	db      *sql.DB
-	log     *logger.Logger
-	billing *BillingStateManager
+	provider billing.BillingProvider
+	db       *sql.DB
+	log      *logger.Logger
+	billing  *BillingStateManager
 }
 
 // NewHeartbeat creates a new metering heartbeat.
-func NewHeartbeat(client *Client, db *sql.DB, log *logger.Logger, billing *BillingStateManager) *Heartbeat {
+func NewHeartbeat(provider billing.BillingProvider, db *sql.DB, log *logger.Logger, billing *BillingStateManager) *Heartbeat {
 	return &Heartbeat{
-		client:  client,
-		db:      db,
-		log:     log,
-		billing: billing,
+		provider: provider,
+		db:       db,
+		log:      log,
+		billing:  billing,
 	}
 }
 
-// Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, active members,
-// and knowledge store metrics.
+// Tick runs a single heartbeat iteration. It emits metered-consumption usage
+// only (compute, knowledge compute, knowledge storage). Resource counts are
+// served from the quota DB and no longer metered.
 func (h *Heartbeat) Tick(ctx context.Context) {
 	h.log.Debug("openmeter: tick starting")
 	h.emitComputeUsage(ctx)
-	h.emitActiveDeployments(ctx)
-	h.emitActiveAgents(ctx)
-	h.emitActiveMembers(ctx)
-	h.emitActiveKnowledgeStores(ctx)
 	h.emitKnowledgeStorage(ctx)
 	h.emitKnowledgeCompute(ctx)
-	h.emitActiveKnowledgeEndpoints(ctx)
 	h.log.Debug("openmeter: tick complete")
 }
 
@@ -96,7 +93,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 		return
 	}
 	intervalHours := heartbeatInterval.Hours()
-	var events []CloudEvent
+	var events []billing.UsageEvent
 
 	// Try normalized workloads table first
 	workloads, err := h.getActiveWorkloads(ctx)
@@ -119,7 +116,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 			if cu <= 0 {
 				continue
 			}
-			events = append(events, NewCloudEvent("compute_usage", w.AccountID, map[string]any{
+			events = append(events, usageEvent("compute_usage", w.AccountID, map[string]any{
 				"compute_unit_hours": cu * intervalHours,
 				"agent_name":         w.AgentName,
 				"namespace":          w.Namespace,
@@ -147,7 +144,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 				if c.CU <= 0 {
 					continue
 				}
-				events = append(events, NewCloudEvent("compute_usage", d.AccountID, map[string]any{
+				events = append(events, usageEvent("compute_usage", d.AccountID, map[string]any{
 					"compute_unit_hours": c.CU * intervalHours,
 					"agent_name":         d.AgentName,
 					"namespace":          d.Namespace,
@@ -161,10 +158,10 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
+		if err := h.provider.IngestUsage(ctx, events); err != nil {
 			h.log.Error("openmeter: failed to emit compute_usage events", "error", err)
 		} else {
-			h.log.Info("openmeter: emitted compute_usage", "events", len(events), "sample_subject", events[0].Subject, "sample_type", events[0].Type)
+			h.log.Info("openmeter: emitted compute_usage", "events", len(events), "sample_subject", events[0].AccountID, "sample_type", events[0].Type)
 		}
 	}
 }
@@ -204,113 +201,6 @@ func (h *Heartbeat) getActiveWorkloads(ctx context.Context) ([]activeWorkloadRow
 		result = append(result, r)
 	}
 	return result, rows.Err()
-}
-
-// emitActiveDeployments counts active deployments per account and emits active_deployments events.
-func (h *Heartbeat) emitActiveDeployments(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, COUNT(*) AS cnt
-		FROM deployments
-		WHERE status = 'active'
-		GROUP BY account_id
-	`)
-	if err != nil {
-		h.log.Error("openmeter: failed to query deployment counts", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []CloudEvent
-	for rows.Next() {
-		var accountID string
-		var count int
-		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("openmeter: failed to scan deployment count", "error", err)
-			continue
-		}
-		events = append(events, NewCloudEvent("active_deployments", accountID, map[string]any{
-			"count": count,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("openmeter: failed to emit active_deployments events", "error", err)
-		} else {
-			h.log.Info("openmeter: emitted active_deployments", "accounts", len(events))
-		}
-	}
-}
-
-// emitActiveAgents counts distinct agents per account and emits active_agents events.
-func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, COUNT(*) AS cnt
-		FROM agents
-		WHERE archived_at IS NULL
-		GROUP BY account_id
-	`)
-	if err != nil {
-		h.log.Error("openmeter: failed to query agent counts", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []CloudEvent
-	for rows.Next() {
-		var accountID string
-		var count int
-		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("openmeter: failed to scan agent count", "error", err)
-			continue
-		}
-		events = append(events, NewCloudEvent("active_agents", accountID, map[string]any{
-			"count": count,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("openmeter: failed to emit active_agents events", "error", err)
-		} else {
-			h.log.Info("openmeter: emitted active_agents", "accounts", len(events))
-		}
-	}
-}
-
-// emitActiveMembers counts members per account and emits active_members events.
-func (h *Heartbeat) emitActiveMembers(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, COUNT(*) AS cnt
-		FROM account_members
-		GROUP BY account_id
-	`)
-	if err != nil {
-		h.log.Error("openmeter: failed to query member counts", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []CloudEvent
-	for rows.Next() {
-		var accountID string
-		var count int
-		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("openmeter: failed to scan member count", "error", err)
-			continue
-		}
-		events = append(events, NewCloudEvent("active_members", accountID, map[string]any{
-			"count": count,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("openmeter: failed to emit active_members events", "error", err)
-		} else {
-			h.log.Info("openmeter: emitted active_members", "accounts", len(events))
-		}
-	}
 }
 
 // containerBreakdown returns per-container compute unit calculations for a deployment spec.
@@ -421,43 +311,6 @@ func parseMemory(s string) float64 {
 	return v / (1024 * 1024 * 1024)
 }
 
-// emitActiveKnowledgeStores counts knowledge stores (managed + external, excluding errored)
-// per account and emits active_knowledge_stores events.
-func (h *Heartbeat) emitActiveKnowledgeStores(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, COUNT(*) AS cnt
-		FROM knowledge_stores
-		WHERE status != 'error'
-		GROUP BY account_id
-	`)
-	if err != nil {
-		h.log.Error("openmeter: failed to query knowledge store counts", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []CloudEvent
-	for rows.Next() {
-		var accountID string
-		var count int
-		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("openmeter: failed to scan knowledge store count", "error", err)
-			continue
-		}
-		events = append(events, NewCloudEvent("active_knowledge_stores", accountID, map[string]any{
-			"count": count,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("openmeter: failed to emit active_knowledge_stores events", "error", err)
-		} else {
-			h.log.Info("openmeter: emitted active_knowledge_stores", "accounts", len(events))
-		}
-	}
-}
-
 // emitKnowledgeStorage emits knowledge_storage_provisioned events per managed store,
 // with provisioned storage parsed from K8s quantity to GB.
 func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
@@ -472,7 +325,7 @@ func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	for rows.Next() {
 		var accountID, name, provider, storage string
 		if err := rows.Scan(&accountID, &name, &provider, &storage); err != nil {
@@ -483,7 +336,7 @@ func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
 		if gb <= 0 {
 			continue
 		}
-		events = append(events, NewCloudEvent("knowledge_storage_provisioned", accountID, map[string]any{
+		events = append(events, usageEvent("knowledge_storage_provisioned", accountID, map[string]any{
 			"storage_gb": gb,
 			"store_name": name,
 			"provider":   provider,
@@ -491,7 +344,7 @@ func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
+		if err := h.provider.IngestUsage(ctx, events); err != nil {
 			h.log.Error("openmeter: failed to emit knowledge_storage_provisioned events", "error", err)
 		} else {
 			h.log.Info("openmeter: emitted knowledge_storage_provisioned", "events", len(events))
@@ -519,7 +372,7 @@ func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var events []CloudEvent
+	var events []billing.UsageEvent
 	for rows.Next() {
 		var accountID, name, provider string
 		if err := rows.Scan(&accountID, &name, &provider); err != nil {
@@ -531,7 +384,7 @@ func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
 			continue
 		}
 		res := knowledgeProviderResourceStrings(provider)
-		events = append(events, NewCloudEvent("knowledge_compute_usage", accountID, map[string]any{
+		events = append(events, usageEvent("knowledge_compute_usage", accountID, map[string]any{
 			"compute_unit_hours": cu * intervalHours,
 			"store_name":         name,
 			"provider":           provider,
@@ -541,48 +394,10 @@ func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
 	}
 
 	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
+		if err := h.provider.IngestUsage(ctx, events); err != nil {
 			h.log.Error("openmeter: failed to emit knowledge_compute_usage events", "error", err)
 		} else {
 			h.log.Info("openmeter: emitted knowledge_compute_usage", "events", len(events))
-		}
-	}
-}
-
-// emitActiveKnowledgeEndpoints counts PrivateLink VPC endpoints per account and emits
-// active_knowledge_endpoints events.
-func (h *Heartbeat) emitActiveKnowledgeEndpoints(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT ks.account_id, COUNT(*) AS cnt
-		FROM knowledge_store_endpoints kse
-		JOIN knowledge_stores ks ON ks.id = kse.knowledge_store_id
-		WHERE kse.status != 'error'
-		GROUP BY ks.account_id
-	`)
-	if err != nil {
-		h.log.Error("openmeter: failed to query knowledge endpoint counts", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []CloudEvent
-	for rows.Next() {
-		var accountID string
-		var count int
-		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("openmeter: failed to scan knowledge endpoint count", "error", err)
-			continue
-		}
-		events = append(events, NewCloudEvent("active_knowledge_endpoints", accountID, map[string]any{
-			"count": count,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("openmeter: failed to emit active_knowledge_endpoints events", "error", err)
-		} else {
-			h.log.Info("openmeter: emitted active_knowledge_endpoints", "accounts", len(events))
 		}
 	}
 }

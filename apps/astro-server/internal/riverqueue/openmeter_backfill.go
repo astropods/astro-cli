@@ -7,8 +7,8 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // OpenMeterBackfillArgs are the job arguments for the OpenMeter customer backfill worker.
@@ -41,8 +41,8 @@ func init() {
 //
 // The worker runs daily via River's periodic job scheduler (configured in periodic.go)
 // and also on startup (RunOnStart: true) so new deployments immediately reconcile.
-// It is gated on cfg.OMClient != nil — if OPENMETER_URL is not set, the worker
-// no-ops gracefully.
+// It is gated on cfg.Billing != nil — if no billing provider is configured, the
+// worker no-ops gracefully.
 //
 // For each account, it also resolves the owner's email from WorkOS (via the account's
 // first member) and auto-subscribes the customer to the default plan (e.g. "private_beta")
@@ -52,9 +52,9 @@ func init() {
 type OpenMeterBackfillWorker struct {
 	river.WorkerDefaults[OpenMeterBackfillArgs]
 
-	// omClient is the typed HTTP client for the OpenMeter API. If nil (OPENMETER_URL
-	// not set), Work() returns immediately.
-	omClient *openmeter.Client
+	// billingProvider is the billing backend. If nil (no metering backend
+	// configured), Work() returns immediately.
+	billingProvider billing.BillingProvider
 
 	// accountStore provides access to the accounts table — specifically
 	// GetAccountsMissingOpenMeterCustomer (finds accounts to backfill) and
@@ -92,8 +92,8 @@ type OpenMeterBackfillWorker struct {
 // result set — but since we process the full batch before re-querying, we won't
 // spin on the same failing account within a single run.
 func (w *OpenMeterBackfillWorker) Work(ctx context.Context, _ *river.Job[OpenMeterBackfillArgs]) error {
-	if w.omClient == nil {
-		w.log.Debug("OpenMeter backfill skipped: no OpenMeter client configured")
+	if w.billingProvider == nil {
+		w.log.Debug("OpenMeter backfill skipped: no billing provider configured")
 		return nil
 	}
 
@@ -122,7 +122,12 @@ func (w *OpenMeterBackfillWorker) Work(ctx context.Context, _ *river.Job[OpenMet
 			// Create the OpenMeter customer. The account.ID is used as both the customer
 			// key and the subject key for usage attribution, matching the inline creation
 			// in handlers/accounts.go CreateAccount.
-			customerID, createErr := w.omClient.CreateCustomer(ctx, acct.ID, acct.Name, acct.Type, ownerEmail)
+			customerID, createErr := w.billingProvider.CreateCustomer(ctx, billing.Account{
+				ID:         acct.ID,
+				Name:       acct.Name,
+				Type:       acct.Type,
+				OwnerEmail: ownerEmail,
+			})
 			if createErr != nil {
 				w.log.Error("OpenMeter backfill: failed to create customer", "account_id", acct.ID, "error", createErr)
 				totalFailed++
@@ -144,9 +149,11 @@ func (w *OpenMeterBackfillWorker) Work(ctx context.Context, _ *river.Job[OpenMet
 			// since the customer ID is now set, but the subscription can be created manually
 			// or via a separate reconciliation if needed).
 			if w.defaultPlan != "" {
-				if subErr := w.omClient.CreateSubscription(ctx, customerID, w.defaultPlan); subErr != nil {
-					w.log.Error("OpenMeter backfill: failed to subscribe account", "account_id", acct.ID, "plan", w.defaultPlan, "error", subErr)
-					// Don't count as failed — customer was created, subscription can be retried next run
+				if hb, ok := w.billingProvider.(billing.HostedBilling); ok {
+					if subErr := hb.ProvisionPackaging(ctx, customerID, billing.PackagingPlan{Key: w.defaultPlan}); subErr != nil {
+						w.log.Error("OpenMeter backfill: failed to subscribe account", "account_id", acct.ID, "plan", w.defaultPlan, "error", subErr)
+						// Don't count as failed — customer was created, subscription can be retried next run
+					}
 				}
 			}
 

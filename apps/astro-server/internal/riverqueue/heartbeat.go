@@ -6,8 +6,9 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // OpenmeterArgs are the job arguments for the OpenMeter heartbeat worker.
@@ -22,14 +23,14 @@ func init() {
 // OpenmeterWorker emits periodic metering events via OpenMeter.
 type OpenmeterWorker struct {
 	river.WorkerDefaults[OpenmeterArgs]
-	omClient *openmeter.Client
+	provider billing.BillingProvider
 	db       *sql.DB
 	log      *logger.Logger
 	billing  *openmeter.BillingStateManager
 }
 
 func (w *OpenmeterWorker) Work(ctx context.Context, _ *river.Job[OpenmeterArgs]) error {
-	hb := openmeter.NewHeartbeat(w.omClient, w.db, w.log, w.billing)
+	hb := openmeter.NewHeartbeat(w.provider, w.db, w.log, w.billing)
 	hb.Tick(ctx)
 	return nil
 }

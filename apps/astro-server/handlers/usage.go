@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,8 +18,8 @@ type UsageMeter struct {
 }
 
 // UsageResponse is the response for GET /api/v1/accounts/:account/usage.
-// Meters is keyed by the OpenMeter feature key and contains all entitlements
-// present in the account's subscription — no hardcoded list.
+// Meters is keyed by feature key. Resource-count features come from the quota
+// checker (DB); metered-consumption features come from the billing provider.
 type UsageResponse struct {
 	AccountID   string                `json:"account_id"`
 	PeriodStart string                `json:"period_start"`
@@ -26,10 +27,15 @@ type UsageResponse struct {
 	Meters      map[string]UsageMeter `json:"meters"`
 }
 
-// GetAccountUsage handles GET /api/v1/accounts/:account/usage.
-func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
+// consumptionFeatures are the metered-consumption meters still read from the
+// billing provider (OpenMeter). Resource counts are served from quota instead.
+var consumptionFeatures = []string{"compute", "knowledge_compute", "knowledge_storage"}
+
+// GetAccountUsage handles GET /api/v1/accounts/:account/usage. Counts come from
+// the quota DB; consumption comes from the billing provider.
+func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client, quotaChecker quota.Reporter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if omClient == nil {
+		if omClient == nil && quotaChecker == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "usage metering is not configured"})
 			return
 		}
@@ -50,20 +56,43 @@ func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.Handler
 			Meters:      map[string]UsageMeter{},
 		}
 
-		access, err := omClient.GetCustomerAccess(c.Request.Context(), acct.ID)
-		if err != nil {
-			log.Warn("Failed to get customer access", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusOK, resp)
-			return
+		// Resource counts from the quota DB (authoritative). A limit of -1
+		// (unlimited) is reported with no quota bar.
+		if quotaChecker != nil {
+			report, err := quotaChecker.Report(c.Request.Context(), acct.ID, quota.AllResources...)
+			if err != nil {
+				log.Warn("Failed to load quota usage", "error", err, "account_id", acct.ID)
+			} else {
+				for resource, u := range report {
+					m := UsageMeter{Usage: float64(u.Used)}
+					if u.Limit >= 0 {
+						q := float64(u.Limit)
+						m.Quota = &q
+					}
+					resp.Meters[resource] = m
+				}
+			}
 		}
 
-		for key, ent := range access.Entitlements {
-			m := UsageMeter{}
-			if ent.Usage != nil {
-				m.Usage = *ent.Usage
+		// Metered consumption from the billing provider.
+		if omClient != nil {
+			access, err := omClient.GetCustomerAccess(c.Request.Context(), acct.ID)
+			if err != nil {
+				log.Warn("Failed to get customer access", "error", err, "account_id", acct.ID)
+			} else {
+				for _, key := range consumptionFeatures {
+					ent, ok := access.Entitlements[key]
+					if !ok {
+						continue
+					}
+					m := UsageMeter{}
+					if ent.Usage != nil {
+						m.Usage = *ent.Usage
+					}
+					m.Quota = ent.TotalAvailableGrantAmount
+					resp.Meters[key] = m
+				}
 			}
-			m.Quota = ent.TotalAvailableGrantAmount
-			resp.Meters[key] = m
 		}
 
 		c.JSON(http.StatusOK, resp)

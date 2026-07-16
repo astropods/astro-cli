@@ -9,6 +9,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -22,10 +24,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
@@ -40,6 +42,7 @@ type Deps struct {
 	Cfg   *config.Config
 	DB    *sql.DB
 	Ent   *middleware.Entitlements
+	Quota *quota.DBChecker
 	Probe *handlers.ProbeHandler
 
 	Stores  Stores
@@ -69,10 +72,15 @@ type Clients struct {
 	Loki       *loki.Client
 	Org        *org.Client
 	OrgSync    *org.Sync
-	OpenMeter  *openmeter.Client
-	Pipes      *pipes.Client
-	Prom       *promquery.Client
-	K8sCache   k8scache.Cache
-	Preflight  *k8s.ImagePreflighter
-	Queue      *riverqueue.Queue
+	Billing    billing.BillingProvider
+	// OpenMeter is the concrete client retained transitionally for the usage and
+	// infrastructure read endpoints (GetCustomerAccess / QueryMeter), which have
+	// no billing.BillingProvider equivalent yet. Metering and customer lifecycle
+	// go through Billing. Removed when those readers move to the provider API.
+	OpenMeter *openmeter.Client
+	Pipes     *pipes.Client
+	Prom      *promquery.Client
+	K8sCache  k8scache.Cache
+	Preflight *k8s.ImagePreflighter
+	Queue     *riverqueue.Queue
 }

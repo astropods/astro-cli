@@ -2,7 +2,6 @@ package openmeter
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -173,7 +172,7 @@ func TestHeartbeat_EmitComputeUsage_Normalized(t *testing.T) {
 			AddRow("acct-1", "my-agent", "astro-abc", "agent", "", 1, "1", "2Gi").
 			AddRow("acct-1", "my-agent", "astro-abc", "model", "llm", 1, "2", "8Gi"))
 
-	hb := &Heartbeat{client: client, db: db, log: log}
+	hb := &Heartbeat{provider: NewProvider(client), db: db, log: log}
 	hb.emitComputeUsage(context.Background())
 
 	if len(received) != 2 {
@@ -242,7 +241,7 @@ func TestHeartbeat_EmitComputeUsage_FallbackToJSON(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "agent_name", "namespace", "deployment_spec_json"}).
 			AddRow("acct-1", "my-agent", "astro-abc", string(specJSON)))
 
-	hb := &Heartbeat{client: client, db: db, log: log}
+	hb := &Heartbeat{provider: NewProvider(client), db: db, log: log}
 	hb.emitComputeUsage(context.Background())
 
 	// Should still get 2 events from JSON fallback
@@ -256,105 +255,8 @@ func TestHeartbeat_EmitComputeUsage_FallbackToJSON(t *testing.T) {
 	}
 }
 
-func TestHeartbeat_EmitActiveDeployments(t *testing.T) {
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
 
-	db, mock, _ := sqlmock.New()
-	client := NewClient(srv.URL)
-	log := logger.New("error", "json")
 
-	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM deployments WHERE status = 'active'").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
-			AddRow("acct-1", 3).
-			AddRow("acct-2", 1))
-
-	hb := &Heartbeat{client: client, db: db, log: log}
-	hb.emitActiveDeployments(context.Background())
-
-	if len(received) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(received))
-	}
-	if received[0].Type != "active_deployments" {
-		t.Errorf("expected type 'active_deployments', got %q", received[0].Type)
-	}
-	if received[0].Subject != "acct-1" {
-		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
-	}
-}
-
-func TestHeartbeat_EmitActiveAgents(t *testing.T) {
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	db, mock, _ := sqlmock.New()
-	client := NewClient(srv.URL)
-	log := logger.New("error", "json")
-
-	// Query must filter out archived agents (archived_at IS NULL).
-	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM agents WHERE archived_at IS NULL").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
-			AddRow("acct-1", 5))
-
-	hb := &Heartbeat{client: client, db: db, log: log}
-	hb.emitActiveAgents(context.Background())
-
-	if len(received) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(received))
-	}
-	if received[0].Type != "active_agents" {
-		t.Errorf("expected type 'active_agents', got %q", received[0].Type)
-	}
-}
-
-func TestHeartbeat_EmitActiveKnowledgeStores(t *testing.T) {
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	db, mock, _ := sqlmock.New()
-	client := NewClient(srv.URL)
-	log := logger.New("error", "json")
-
-	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM knowledge_stores WHERE status != 'error'").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
-			AddRow("acct-1", 3).
-			AddRow("acct-2", 1))
-
-	hb := &Heartbeat{client: client, db: db, log: log}
-	hb.emitActiveKnowledgeStores(context.Background())
-
-	if len(received) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(received))
-	}
-	if received[0].Type != "active_knowledge_stores" {
-		t.Errorf("expected type 'active_knowledge_stores', got %q", received[0].Type)
-	}
-	if received[0].Subject != "acct-1" {
-		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
-	}
-	data := received[0].Data.(map[string]any)
-	if count := data["count"].(float64); count != 3 {
-		t.Errorf("expected count=3, got %v", count)
-	}
-}
 
 func TestHeartbeat_EmitKnowledgeStorage(t *testing.T) {
 	var received []CloudEvent
@@ -376,7 +278,7 @@ func TestHeartbeat_EmitKnowledgeStorage(t *testing.T) {
 			AddRow("acct-1", "my-redis", "redis", "1Gi").
 			AddRow("acct-2", "docs-db", "postgres", "50Gi"))
 
-	hb := &Heartbeat{client: client, db: db, log: log}
+	hb := &Heartbeat{provider: NewProvider(client), db: db, log: log}
 	hb.emitKnowledgeStorage(context.Background())
 
 	if len(received) != 3 {
@@ -425,7 +327,7 @@ func TestHeartbeat_EmitKnowledgeCompute(t *testing.T) {
 			AddRow("acct-1", "my-pg", "postgres").
 			AddRow("acct-1", "my-redis", "redis"))
 
-	hb := &Heartbeat{client: client, db: db, log: log}
+	hb := &Heartbeat{provider: NewProvider(client), db: db, log: log}
 	hb.emitKnowledgeCompute(context.Background())
 
 	if len(received) != 2 {
@@ -474,41 +376,6 @@ func TestHeartbeat_EmitKnowledgeCompute(t *testing.T) {
 	}
 }
 
-func TestHeartbeat_EmitActiveKnowledgeEndpoints(t *testing.T) {
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	db, mock, _ := sqlmock.New()
-	client := NewClient(srv.URL)
-	log := logger.New("error", "json")
-
-	mock.ExpectQuery("SELECT ks.account_id, COUNT.+ FROM knowledge_store_endpoints kse JOIN knowledge_stores ks").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
-			AddRow("acct-1", 2))
-
-	hb := &Heartbeat{client: client, db: db, log: log}
-	hb.emitActiveKnowledgeEndpoints(context.Background())
-
-	if len(received) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(received))
-	}
-	if received[0].Type != "active_knowledge_endpoints" {
-		t.Errorf("expected type 'active_knowledge_endpoints', got %q", received[0].Type)
-	}
-	if received[0].Subject != "acct-1" {
-		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
-	}
-	data := received[0].Data.(map[string]any)
-	if count := data["count"].(float64); count != 2 {
-		t.Errorf("expected count=2, got %v", count)
-	}
-}
 
 func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
 	var received []CloudEvent
@@ -528,7 +395,7 @@ func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
 	mock.ExpectQuery("SELECT account_id, name, provider FROM knowledge_stores WHERE mode = 'managed' AND status = 'ready'").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "provider"}))
 
-	hb := &Heartbeat{client: client, db: db, log: log}
+	hb := &Heartbeat{provider: NewProvider(client), db: db, log: log}
 	hb.emitKnowledgeCompute(context.Background())
 
 	if len(received) != 0 {
@@ -536,97 +403,4 @@ func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
 	}
 }
 
-func TestHeartbeat_EmitActiveKnowledgeStores_ExcludesErrored(t *testing.T) {
-	// Use in-memory SQLite to verify the WHERE status != 'error' filter
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("failed to open in-memory db: %v", err)
-	}
-	defer db.Close()
 
-	_, err = db.Exec(`CREATE TABLE knowledge_stores (
-		account_id TEXT NOT NULL,
-		status     TEXT NOT NULL
-	)`)
-	if err != nil {
-		t.Fatalf("failed to create table: %v", err)
-	}
-
-	// acct-1: 2 ready, 1 error
-	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'ready')`)
-	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'ready')`)
-	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-1', 'error')`)
-	// acct-2: all errored — should not appear
-	db.Exec(`INSERT INTO knowledge_stores VALUES ('acct-2', 'error')`)
-
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	hb := &Heartbeat{client: NewClient(srv.URL), db: db, log: logger.New("error", "json")}
-	hb.emitActiveKnowledgeStores(context.Background())
-
-	if len(received) != 1 {
-		t.Fatalf("expected 1 event (acct-1 only), got %d", len(received))
-	}
-	if received[0].Subject != "acct-1" {
-		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
-	}
-	data := received[0].Data.(map[string]any)
-	if count := data["count"].(float64); count != 2 {
-		t.Errorf("expected count=2 (errored excluded), got %v", count)
-	}
-}
-
-func TestHeartbeat_EmitActiveAgents_ExcludesArchived(t *testing.T) {
-	// Use an in-memory SQLite DB so we can insert real rows and verify the
-	// WHERE archived_at IS NULL filter actually excludes archived blueprints.
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("failed to open in-memory db: %v", err)
-	}
-	defer db.Close()
-
-	_, err = db.Exec(`CREATE TABLE agents (
-		account_id  TEXT NOT NULL,
-		archived_at DATETIME
-	)`)
-	if err != nil {
-		t.Fatalf("failed to create table: %v", err)
-	}
-
-	// acct-1: 2 active, 1 archived
-	db.Exec(`INSERT INTO agents VALUES ('acct-1', NULL)`)
-	db.Exec(`INSERT INTO agents VALUES ('acct-1', NULL)`)
-	db.Exec(`INSERT INTO agents VALUES ('acct-1', '2026-01-01 00:00:00')`)
-
-	db.Exec(`INSERT INTO agents VALUES ('acct-2', '2026-01-01 00:00:00')`)
-
-	var received []CloudEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var events []CloudEvent
-		_ = json.NewDecoder(r.Body).Decode(&events)
-		received = append(received, events...)
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	hb := &Heartbeat{client: NewClient(srv.URL), db: db, log: logger.New("error", "json")}
-	hb.emitActiveAgents(context.Background())
-
-	if len(received) != 1 {
-		t.Fatalf("expected 1 event (acct-1 only), got %d", len(received))
-	}
-	if received[0].Subject != "acct-1" {
-		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
-	}
-	data := received[0].Data.(map[string]any)
-	if count := data["count"].(float64); count != 2 {
-		t.Errorf("expected count=2 (archived excluded), got %v", count)
-	}
-}

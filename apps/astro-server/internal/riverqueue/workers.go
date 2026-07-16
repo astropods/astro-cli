@@ -10,6 +10,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
@@ -18,7 +19,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 type kindEntry struct {
@@ -121,10 +121,10 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log := cfg.Logger
 	logDuplicateJobKinds(log)
 
-	billing := openmeter.NewBillingStateManager(cfg.OMClient, cfg.DB, log)
+	billing := openmeter.NewBillingStateManager(cfg.Billing, cfg.DB, log)
 
 	addWorkerWithCatalogCheck(log, workers, &OpenmeterWorker{
-		omClient: cfg.OMClient,
+		provider: cfg.Billing,
 		db:       cfg.DB,
 		log:      log,
 		billing:  billing,
@@ -281,21 +281,21 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		omDefaultPlan = cfg.ServerConfig.OpenMeterDefaultPlan
 	}
 	addWorkerWithCatalogCheck(log, workers, &OpenMeterBackfillWorker{
-		omClient:     cfg.OMClient,
-		accountStore: cfg.AccountStore,
-		workosClient: cfg.WorkOSClient,
-		defaultPlan:  omDefaultPlan,
-		log:          log,
+		billingProvider: cfg.Billing,
+		accountStore:    cfg.AccountStore,
+		workosClient:    cfg.WorkOSClient,
+		defaultPlan:     omDefaultPlan,
+		log:             log,
 	})
 	log.Info("river: registered worker", "worker", "OpenMeterBackfillWorker", "period", "24h")
 
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{
-		db:            cfg.DB,
-		deployStore:   store,
-		omClient:      cfg.OMClient,
-		retentionDays: cfg.AccountRetentionDays,
-		log:           log,
+		db:              cfg.DB,
+		deployStore:     store,
+		billingProvider: cfg.Billing,
+		retentionDays:   cfg.AccountRetentionDays,
+		log:             log,
 	}
 	if dep != nil {
 		pw.lfProvisioner = dep.LangfuseProvisioner
@@ -346,7 +346,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.OMClient, cfg.DB, store, cfg.K8sCache)
+		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}

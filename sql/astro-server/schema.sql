@@ -109,6 +109,17 @@ CREATE TABLE public.account_members (
 
 CREATE INDEX idx_account_members_user ON public.account_members(user_id);
 
+-- Per-account quota overrides. Only overridden (account, resource) pairs get a
+-- row; everything else falls back to the system-wide config default. A limit of
+-- 0 disables the feature; -1 means unlimited. Admin-editable (via astro-queen).
+CREATE TABLE public.account_limits (
+    account_id  uuid   NOT NULL,
+    resource    text   NOT NULL,
+    limit_value bigint NOT NULL,
+    CONSTRAINT account_limits_pkey PRIMARY KEY (account_id, resource),
+    CONSTRAINT account_limits_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.account_member_workos (
     account_id uuid NOT NULL,
     user_id text NOT NULL,

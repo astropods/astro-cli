@@ -270,7 +270,7 @@ func TestAddMember_InvalidBody_MissingFields(t *testing.T) {
 
 	router := gin.New()
 	// syncSvc is nil — we test that validation fires before sync is called
-	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil))
 
 	tests := []struct {
 		name string
@@ -299,7 +299,7 @@ func TestAddMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "user-1", "role": "admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -354,7 +354,7 @@ func TestRemoveMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil, nil, nil))
+	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -514,7 +514,7 @@ func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
 	session := &auth.Session{Role: "admin"}
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -543,7 +543,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -684,7 +684,7 @@ func TestRemoveMember_SelfRemoval_NoOrgManage_Allowed(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, syncSvc, store, nil, nil, nil))
+		RemoveMember(log, syncSvc, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -714,7 +714,7 @@ func TestRemoveMember_OtherRemoval_WithOrgManage_Allowed(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, syncSvc, store, nil, nil, nil))
+		RemoveMember(log, syncSvc, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
 	rec := httptest.NewRecorder()
@@ -736,7 +736,7 @@ func TestRemoveMember_OtherRemoval_WithoutOrgManage_Denied(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, nil, nil, nil, nil, nil))
+		RemoveMember(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
 	rec := httptest.NewRecorder()
@@ -757,7 +757,7 @@ func TestRemoveMember_OtherRemoval_OrgMismatch_Denied(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, nil, nil, nil, nil, nil))
+		RemoveMember(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
 	rec := httptest.NewRecorder()
@@ -791,7 +791,7 @@ func TestRemoveMember_OtherRemoval_PersonalAccount_MemberAllowed(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccount(acct, user),
-		RemoveMember(log, syncSvc, store, nil, nil, nil))
+		RemoveMember(log, syncSvc, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-2", nil)
 	rec := httptest.NewRecorder()
@@ -811,7 +811,7 @@ func TestRemoveMember_NoUser_Denied(t *testing.T) {
 	// Inject account but no user
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccount(acct, nil),
-		RemoveMember(log, nil, nil, nil, nil, nil))
+		RemoveMember(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -829,7 +829,7 @@ func TestAddMember_InvalidRole_Rejected(t *testing.T) {
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "user-1", "role": "superadmin"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -860,7 +860,7 @@ func TestAddMember_AdminCanAssignAdmin(t *testing.T) {
 	router := gin.New()
 	router.POST("/members",
 		injectTestOrgAccountWithSession(acct, caller, session),
-		AddMember(log, syncSvc, store, nil, nil, nil))
+		AddMember(log, syncSvc, store, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -883,7 +883,7 @@ func TestAddMember_MemberSessionCannotAssignOwner(t *testing.T) {
 	router := gin.New()
 	router.POST("/members",
 		injectTestOrgAccountWithSession(acct, caller, session),
-		AddMember(log, nil, nil, nil, nil, nil))
+		AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -989,7 +989,7 @@ func TestFullChain_AddMember_MemberWithoutOrgManage_Denied(t *testing.T) {
 	memberRoutes.Use(middleware.RequireAccountMember(store))
 	memberManageRoutes := memberRoutes.Group("")
 	memberManageRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
-	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil, nil))
+	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil))
 
 	body := `{"user_id":"new-user","role":"member"}`
 	req := httptest.NewRequest(http.MethodPost, "/accounts/myorg/members", strings.NewReader(body))
@@ -1066,7 +1066,7 @@ func TestFullChain_RemoveMember_OtherRemoval_MemberDenied(t *testing.T) {
 	memberRoutes := base.Group("/members")
 	memberRoutes.Use(middleware.ResolveAccount(store))
 	memberRoutes.Use(middleware.RequireAccountMember(store))
-	memberRoutes.DELETE("/:user_id", RemoveMember(log, nil, store, nil, nil, nil))
+	memberRoutes.DELETE("/:user_id", RemoveMember(log, nil, store, nil, nil))
 
 	// user-1 tries to remove user-2 — handler checks HasAccountPermission("org:manage") → false
 	req := httptest.NewRequest(http.MethodDelete, "/accounts/myorg/members/user-2", nil)
@@ -1106,7 +1106,7 @@ func TestFullChain_OrgManage_WrongOrgScope_Denied(t *testing.T) {
 	memberRoutes.Use(middleware.RequireAccountMember(store))
 	memberManageRoutes := memberRoutes.Group("")
 	memberManageRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
-	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil, nil))
+	memberManageRoutes.POST("", AddMember(log, nil, store, nil, nil))
 
 	body := `{"user_id":"new-user","role":"member"}`
 	req := httptest.NewRequest(http.MethodPost, "/accounts/myorg/members", strings.NewReader(body))
@@ -1155,7 +1155,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, fake, store, nil, nil, nil))
+		RemoveMember(log, fake, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/owner-1", nil)
 	rec := httptest.NewRecorder()
@@ -1185,7 +1185,7 @@ func TestRemoveMember_OwnerCanRemoveOwner(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, fake, store, nil, nil, nil))
+		RemoveMember(log, fake, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/owner-2", nil)
 	rec := httptest.NewRecorder()
@@ -1212,7 +1212,7 @@ func TestRemoveMember_AdminCanRemoveNonOwner(t *testing.T) {
 	router := gin.New()
 	router.DELETE("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, fake, store, nil, nil, nil))
+		RemoveMember(log, fake, store, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/member-1", nil)
 	rec := httptest.NewRecorder()

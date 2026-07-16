@@ -14,6 +14,8 @@ import (
 	"database/sql"
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -23,8 +25,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -181,7 +183,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 	}
 }
 
-func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, k8sReg *k8s.Registry, cfg *config.Config, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, k8sReg *k8s.Registry, cfg *config.Config, billingProvider billing.BillingProvider, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -244,7 +246,6 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			publicHost = fmt.Sprintf("%s.%s.%s", req.Name, acct.Name, ingressCfg.KnowledgeDomain)
 		}
 
-
 		plainCreds, err := knowledgestore.GenerateCredentials(req.Provider)
 		if err != nil {
 			log.Error("Failed to generate credentials", "error", err)
@@ -301,9 +302,9 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			go provisionStoreAsync(context.Background(), log, ksStore, k8sClient, ks, plainCreds, cfg)
 		}
 
-		// Emit metering events (fire-and-forget) so entitlement checks see the new store immediately.
-		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
-		go openmeter.EmitKnowledgeStorage(context.Background(), omClient, db, log, acct.ID)
+		// Emit the storage-consumption metering event (fire-and-forget). Store
+		// counts are served from the quota DB, not metered.
+		go openmeter.EmitKnowledgeStorage(context.Background(), billingProvider, db, log, acct.ID)
 
 		c.JSON(http.StatusAccepted, toKnowledgeResponse(ks))
 	}
@@ -363,7 +364,7 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB, entCheck EntitlementChecker) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -471,9 +472,9 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		// The health check is deferred — the DB won't be reachable until the
 		// VPC endpoint is accepted and DNS propagates.
 		if req.PrivateLink {
-			if entCheck != nil {
-				if blocked, feature, entResult := entCheck.Check(c.Request.Context(), acct.ID, "knowledge_endpoints"); blocked {
-					c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feature, entResult))
+			if quotaCheck != nil {
+				if res, err := quotaCheck.Check(c.Request.Context(), acct.ID, quota.ResourceKnowledgeEndpoints); err == nil && res.Blocked {
+					c.JSON(http.StatusPaymentRequired, quota.LimitResponse(res))
 					return
 				}
 			}
@@ -514,9 +515,6 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 			ks, _ = ksStore.GetByID(storeID)
 			log.Info("External knowledge store connected with PrivateLink", "store_id", storeID, "provider", req.Provider, "arn", storeARN, "region", region)
 
-			go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
-			go openmeter.EmitActiveKnowledgeEndpoints(context.Background(), omClient, db, log, acct.ID)
-
 			c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 			return
 		}
@@ -537,8 +535,6 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		}
 
 		log.Info("External knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
-
-		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
 
 		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 	}
@@ -770,7 +766,7 @@ func recheckKMSClient(ctx context.Context, injected envelope.KMSClient) (envelop
 	return kms.NewFromConfig(awsCfg), nil
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, omClient *openmeter.Client, db *sql.DB, billing *openmeter.BillingStateManager) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, billingProvider billing.BillingProvider, db *sql.DB, billingState *openmeter.BillingStateManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -826,8 +822,8 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 
 		// No CASCADE: billing row outlives the store for the heartbeat's final-period emission.
 		// Block on error — without stopped_at the final period is never emitted.
-		if billing != nil && ks.Mode != knowledgestore.ModeExternal {
-			if err := billing.StopKnowledgeBilling(c.Request.Context(), ks.ID, time.Now()); err != nil {
+		if billingState != nil && ks.Mode != knowledgestore.ModeExternal {
+			if err := billingState.StopKnowledgeBilling(c.Request.Context(), ks.ID, time.Now()); err != nil {
 				log.Error("Failed to record knowledge billing stop, aborting delete", "error", err, "store_id", ks.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record final usage, please retry"})
 				return
@@ -840,10 +836,8 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
-		// Emit updated gauges so entitlement frees up immediately.
-		go openmeter.EmitActiveKnowledgeStores(context.Background(), omClient, db, log, acct.ID)
-		go openmeter.EmitKnowledgeStorage(context.Background(), omClient, db, log, acct.ID)
-		go openmeter.EmitActiveKnowledgeEndpoints(context.Background(), omClient, db, log, acct.ID)
+		// Re-emit provisioned storage so the consumption meter reflects the deletion.
+		go openmeter.EmitKnowledgeStorage(context.Background(), billingProvider, db, log, acct.ID)
 
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
 	}

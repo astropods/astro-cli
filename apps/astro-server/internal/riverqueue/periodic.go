@@ -106,7 +106,7 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
-	if cfg.OMClient != nil {
+	if cfg.Billing != nil {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) {

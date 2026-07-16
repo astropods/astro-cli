@@ -35,6 +35,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -58,10 +60,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
@@ -156,8 +158,22 @@ func main() {
 		}
 	}
 
-	// Entitlement enforcement (no-op when omClient is nil or enforce is false)
+	// Billing provider seam. Wraps the OpenMeter client behind the
+	// billing.BillingProvider interface (a true nil interface when omClient is
+	// nil). The metering/customer paths depend on this; the entitlement
+	// middleware and usage/infrastructure readers keep the concrete client until
+	// the quota split lands.
+	billingProvider := openmeter.NewProvider(omClient)
+
+	// Entitlement enforcement (no-op when omClient is nil or enforce is false).
+	// Handles metered-consumption features (compute, knowledge storage) only;
+	// resource-count limits moved to the DB-backed quota checker below.
 	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
+
+	// Per-account resource quota (DB-backed, OSS + hosted). Over-limit blocking
+	// respects the same enforce flag as the entitlement path; a disabled feature
+	// (limit 0) always blocks.
+	quotaChecker := quota.NewDBChecker(db, log, cfg.QuotaDefaults, cfg.OpenMeterEnforce)
 
 	// Initialize shared Redis client (nil when REDIS_URL is unset).
 	// Pass this client to any feature that needs Redis; do not create additional clients.
@@ -184,12 +200,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore, readmeAssetStore, k8sCache)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, billingProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg))
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg))
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -275,7 +291,9 @@ func runAPI(
 	orgClient *org.Client,
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
+	billingProvider billing.BillingProvider,
 	ent *middleware.Entitlements,
+	quotaChecker *quota.DBChecker,
 	avatarStore *avatar.Store,
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
@@ -455,6 +473,7 @@ func runAPI(
 		Cfg:   cfg,
 		DB:    db,
 		Ent:   ent,
+		Quota: quotaChecker,
 		Probe: probeHandler,
 		Stores: Stores{
 			Account:      accountStore,
@@ -478,6 +497,7 @@ func runAPI(
 			Loki:       lokiClient,
 			Org:        orgClient,
 			OrgSync:    orgSync,
+			Billing:    billingProvider,
 			OpenMeter:  omClient,
 			Pipes:      pipesClient,
 			Prom:       promClient,
@@ -559,7 +579,7 @@ func runWorker(
 	accountStore *account.AccountStore,
 	agentIndex *agentindex.Index,
 	db *sql.DB,
-	omClient *openmeter.Client,
+	billingProvider billing.BillingProvider,
 	orgClient *org.Client,
 	avatarStore *avatar.Store,
 	readmeAssetStore *readmeassets.Store,
@@ -616,7 +636,7 @@ func runWorker(
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
-		OMClient:                omClient,
+		Billing:                 billingProvider,
 		AccountStore:            accountStore,
 		AgentIndex:              agentIndex,
 		AvatarStore:             avatarStore,
@@ -664,6 +684,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	cfg := deps.Cfg
 	db := deps.DB
 	ent := deps.Ent
+	quotaChecker := deps.Quota
 	probeHandler := deps.Probe
 
 	agentIndex := deps.Clients.AgentIndex
@@ -673,6 +694,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	orgClient := deps.Clients.Org
 	orgSync := deps.Clients.OrgSync
 	omClient := deps.Clients.OpenMeter
+	billingProvider := deps.Clients.Billing
 	pipesClient := deps.Clients.Pipes
 	promClient := deps.Clients.Prom
 	k8sCache := deps.Clients.K8sCache
@@ -693,7 +715,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	webhookStore := deps.Stores.Webhook
 	slackIdentityStore := deps.Stores.SlackID
 
-	billing := openmeter.NewBillingStateManager(omClient, db, log)
+	billingState := openmeter.NewBillingStateManager(billingProvider, db, log)
 
 	// AI Gateway wiring for handler-side use (dev-key issuance). Worker side
 	// constructs its own provisioner via the deployer; both read the same URL +
@@ -898,7 +920,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient, cfg.OpenMeterDefaultPlan, auditStore),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, billingProvider, cfg.OpenMeterDefaultPlan, auditStore),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),
@@ -919,7 +941,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, omClient, auditStore),
+				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, billingProvider, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1076,7 +1098,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountMember.Use(middleware.ResolveAccount(accountStore))
 			accountMember.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
+				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient, quotaChecker),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1111,7 +1133,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, omClient, db), "knowledge_stores", "knowledge_storage"),
+				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, billingProvider, db), "knowledge_stores"), "knowledge_storage"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1121,7 +1143,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(403, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", ent.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, omClient, db, ent), "knowledge_stores"),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, db, quotaChecker), "knowledge_stores"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1152,7 +1174,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue, omClient, db, billing),
+				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue, billingProvider, db, billingState),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1211,7 +1233,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 				// Remove member — handler allows self-removal for any member,
 				// but requires org:manage to remove others.
-				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, accountStore, omClient, db, auditStore),
+				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, accountStore, db, auditStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1223,7 +1245,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			memberManageRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
 				api.POST(memberManageRoutes, "", "Add a member",
-					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db, auditStore), "members"),
+					quotaChecker.Wrap(handlers.AddMember(log, orgSync, accountStore, db, auditStore), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1304,7 +1326,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			createBlueprintRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(createBlueprintRoutes, "", "Create a blueprint",
-					ent.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, omClient, db), "agents"),
+					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db), "agents"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1340,7 +1362,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != ""), "agents", "agent_builds"),
+					quotaChecker.Wrap(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != ""), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1350,7 +1372,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(426, &handlers.ErrorResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, omClient, db, auditStore, ghStore, webhookStore, pipesClient),
+				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, db, auditStore, ghStore, webhookStore, pipesClient),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1408,7 +1430,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, queue, avatarStore, omClient, db, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, db, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -1420,7 +1442,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
 				oapispec.Response(200, &handlers.ValidateDeploymentResponse{}),
 			)
-			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue, omClient, db, auditStore),
+			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue, db, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&deployment.UndeployRequest{}),

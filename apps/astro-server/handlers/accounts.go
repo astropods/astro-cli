@@ -15,10 +15,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
@@ -118,8 +118,8 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
-// If omClient is non-nil, creates a corresponding OpenMeter customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
+// If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, billingProvider billing.BillingProvider, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -242,22 +242,29 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
 		}
 
-		// Create OpenMeter customer (non-blocking — failure is logged, not fatal)
-		if omClient != nil {
-			customerID, omErr := omClient.CreateCustomer(c.Request.Context(), acct.ID, acct.Name, acct.Type, user.Email)
+		// Create billing customer (non-blocking — failure is logged, not fatal)
+		if billingProvider != nil {
+			customerID, omErr := billingProvider.CreateCustomer(c.Request.Context(), billing.Account{
+				ID:         acct.ID,
+				Name:       acct.Name,
+				Type:       acct.Type,
+				OwnerEmail: user.Email,
+			})
 			if omErr != nil {
-				log.Error("Failed to create OpenMeter customer", "error", omErr, "account_id", acct.ID)
+				log.Error("Failed to create billing customer", "error", omErr, "account_id", acct.ID)
 			} else {
 				if storeErr := accountStore.SetOpenMeterCustomerID(acct.ID, customerID); storeErr != nil {
-					log.Error("Failed to store OpenMeter customer ID", "error", storeErr, "account_id", acct.ID)
+					log.Error("Failed to store billing customer ID", "error", storeErr, "account_id", acct.ID)
 				}
 
-				// Auto-subscribe to default plan if configured
+				// Auto-subscribe to default plan if configured (hosted-only surface)
 				if defaultPlan != "" && customerID != "" {
-					if subErr := omClient.CreateSubscription(c.Request.Context(), customerID, defaultPlan); subErr != nil {
-						log.Error("Failed to auto-subscribe account to default plan", "error", subErr, "account_id", acct.ID, "plan", defaultPlan)
-					} else {
-						log.Info("Auto-subscribed account to default plan", "account_id", acct.ID, "plan", defaultPlan)
+					if hb, ok := billingProvider.(billing.HostedBilling); ok {
+						if subErr := hb.ProvisionPackaging(c.Request.Context(), customerID, billing.PackagingPlan{Key: defaultPlan}); subErr != nil {
+							log.Error("Failed to auto-subscribe account to default plan", "error", subErr, "account_id", acct.ID, "plan", defaultPlan)
+						} else {
+							log.Info("Auto-subscribed account to default plan", "account_id", acct.ID, "plan", defaultPlan)
+						}
 					}
 				}
 			}
@@ -555,7 +562,7 @@ type RenameAccountRequest struct {
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, omClient *openmeter.Client, auditStore *auditlog.Store) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, billingProvider billing.BillingProvider, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -607,12 +614,12 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 			}
 		}
 
-		if omClient != nil && acct.Name != req.Name {
+		if billingProvider != nil && acct.Name != req.Name {
 			if omID, err := accountStore.GetOpenMeterCustomerID(acct.ID); err != nil {
-				log.Warn("Failed to load OpenMeter customer id for rename", "error", err, "account_id", acct.ID)
+				log.Warn("Failed to load billing customer id for rename", "error", err, "account_id", acct.ID)
 			} else if omID != "" {
-				if err := omClient.UpdateCustomerName(c.Request.Context(), omID, req.Name); err != nil {
-					log.Warn("Failed to update OpenMeter customer name", "error", err, "account_id", acct.ID, "openmeter_customer_id", omID)
+				if err := billingProvider.UpdateCustomer(c.Request.Context(), omID, req.Name); err != nil {
+					log.Warn("Failed to update billing customer name", "error", err, "account_id", acct.ID, "billing_customer_id", omID)
 				}
 			}
 		}

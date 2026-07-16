@@ -29,7 +29,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
@@ -627,7 +626,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
 // from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
 // using provider:astro-gateway in a gateway-less env fails at admission.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -788,9 +787,6 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 			)
 		}
 
-		// Emit agent_build metering event and updated agent count (fire-and-forget)
-		go openmeter.EmitAgentBuild(c.Request.Context(), omClient, log, accountID, agentName)
-		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, accountID)
 
 		// Set visibility if provided (only "public" or "private" are valid)
 		if req.Visibility == "public" || req.Visibility == "private" {
@@ -862,7 +858,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -910,10 +906,6 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			}
 		}
 
-		// Async to avoid adding latency to blueprint creation (unlike the GitHub
-		// build worker, which emits synchronously since it's already long-running).
-		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
-
 		// Generate and upload the placeholder avatar. Failures are non-fatal —
 		// the blueprint is already created in the DB, and the periodic backfill
 		// job will retry missing avatars. Don't block blueprint creation on an
@@ -957,7 +949,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -1008,8 +1000,6 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 				}
 			}
 		}()
-
-		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
 
 		log.Info("Agent archived", "account", accountName, "name", agentName)
 

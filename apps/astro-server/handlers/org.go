@@ -11,7 +11,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
@@ -262,7 +261,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 }
 
 // AddMember handles POST /api/v1/accounts/:account/members
-func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -307,7 +306,6 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 		evt.Metadata = map[string]any{"role": req.Role}
 		auditStore.LogAsync(log, evt)
 
-		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusCreated, gin.H{"member": member})
 	}
 }
@@ -371,7 +369,7 @@ func UpdateMemberRole(log *logger.Logger, syncSvc memberRoleSyncer, accountStore
 // RemoveMember handles DELETE /api/v1/accounts/:account/members/:user_id
 // Self-removal (leaving) is allowed for any member; removing others requires
 // org:manage. Additionally, only owners can remove other owners.
-func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *account.AccountStore, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -416,7 +414,6 @@ func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *ac
 		evt.Description = "Removed member"
 		auditStore.LogAsync(log, evt)
 
-		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusOK, gin.H{"message": "member removed"})
 	}
 }
