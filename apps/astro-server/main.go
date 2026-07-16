@@ -36,6 +36,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -158,12 +159,24 @@ func main() {
 		}
 	}
 
-	// Billing provider seam. Wraps the OpenMeter client behind the
-	// billing.BillingProvider interface (a true nil interface when omClient is
-	// nil). The metering/customer paths depend on this; the entitlement
-	// middleware and usage/infrastructure readers keep the concrete client until
-	// the quota split lands.
-	billingProvider := openmeter.NewProvider(omClient)
+	// Billing provider seam. BILLING_PROVIDER selects the backend; the
+	// metering/customer paths depend only on billing.BillingProvider. The
+	// entitlement middleware and usage/infrastructure readers keep the concrete
+	// OpenMeter client transitionally.
+	var billingProvider billing.BillingProvider
+	switch cfg.BillingBackend() {
+	case config.BillingBackendNoop:
+		billingProvider = noop.New()
+		log.Info("Billing provider: noop (unmetered)")
+	case config.BillingBackendOpenMeter:
+		if omClient == nil {
+			log.Error("BILLING_PROVIDER=openmeter but OPENMETER_URL is not set; billing disabled")
+		}
+		billingProvider = openmeter.NewProvider(omClient)
+		log.Info("Billing provider: openmeter")
+	default:
+		log.Error("Unsupported BILLING_PROVIDER for this build; billing disabled", "provider", cfg.BillingBackend())
+	}
 
 	// Entitlement enforcement (no-op when omClient is nil or enforce is false).
 	// Handles metered-consumption features (compute, knowledge storage) only;

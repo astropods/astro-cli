@@ -12,16 +12,21 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	RunMode              string // SERVER_MODE: "all" (default), "api", or "worker"
-	Server               ServerConfig
-	Log                  LogConfig
-	Security             SecurityConfig
-	Deployment           DeploymentConfig
-	Auth                 AuthConfig
-	Database             DatabaseConfig
-	AdminGRPC            AdminGRPCConfig
-	FleetGRPC            FleetGRPCConfig
-	Avatar               AvatarConfig
+	RunMode    string // SERVER_MODE: "all" (default), "api", or "worker"
+	Server     ServerConfig
+	Log        LogConfig
+	Security   SecurityConfig
+	Deployment DeploymentConfig
+	Auth       AuthConfig
+	Database   DatabaseConfig
+	AdminGRPC  AdminGRPCConfig
+	FleetGRPC  FleetGRPCConfig
+	Avatar     AvatarConfig
+	// BillingProvider selects the metering/billing backend: "noop" (OSS,
+	// unmetered), "openmeter" (transitional), or "metronome" (hosted). Empty
+	// resolves via BillingBackend(): openmeter when OPENMETER_URL is set, else
+	// noop — preserving pre-seam behavior.
+	BillingProvider      string // BILLING_PROVIDER
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement/quota enforcement (default false)
@@ -39,6 +44,26 @@ type Config struct {
 	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
 	OTelIngestEndpoint   string // OTEL_INGEST_ENDPOINT — public OTLP ingest URL shown in the ingest-key managed-settings block (e.g. https://otel.astropods.ai)
 	RedisURL             string // REDIS_URL — enables K8s state caching when set (e.g. redis://localhost:6379)
+}
+
+// Billing backend identifiers.
+const (
+	BillingBackendNoop      = "noop"
+	BillingBackendOpenMeter = "openmeter"
+	BillingBackendMetronome = "metronome"
+)
+
+// BillingBackend resolves the effective billing backend. An explicit
+// BILLING_PROVIDER wins; otherwise it defaults to openmeter when OPENMETER_URL
+// is set and noop when it is not, preserving pre-seam behavior.
+func (c *Config) BillingBackend() string {
+	if c.BillingProvider != "" {
+		return c.BillingProvider
+	}
+	if c.OpenMeterURL != "" {
+		return BillingBackendOpenMeter
+	}
+	return BillingBackendNoop
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -350,6 +375,7 @@ func Load() (*Config, error) {
 			ClientSecret: getEnv("SLACK_CLIENT_SECRET", ""),
 			CallbackURL:  getEnv("SLACK_CALLBACK_URL", ""),
 		},
+		BillingProvider:      getEnv("BILLING_PROVIDER", ""),
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
 		OpenMeterEnforce:     getEnv("OPENMETER_ENFORCE", "") == "true",
@@ -387,6 +413,14 @@ func (c *Config) Validate() error {
 	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLogLevels[c.Log.Level] {
 		return fmt.Errorf("invalid log level: %s", c.Log.Level)
+	}
+
+	if c.BillingProvider != "" {
+		switch c.BillingProvider {
+		case BillingBackendNoop, BillingBackendOpenMeter, BillingBackendMetronome:
+		default:
+			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop, openmeter, or metronome)", c.BillingProvider)
+		}
 	}
 
 	// Deployment config only required for API mode
