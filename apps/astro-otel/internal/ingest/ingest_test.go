@@ -78,6 +78,39 @@ func TestTagClaudeCode(t *testing.T) {
 	}
 }
 
+func TestMapLangfuseIdentity(t *testing.T) {
+	out := mapLangfuseIdentity([]*commonpb.KeyValue{
+		strAttr("user.email", "dev@example.com"),
+		strAttr("user.id", "hashed"),
+		strAttr("session.id", "sess-1"),
+	})
+	if kv := find(out, attrLangfuseUserID); kv == nil || kv.Value.GetStringValue() != "dev@example.com" {
+		t.Fatalf("langfuse.user.id not mapped from user.email: %+v", out)
+	}
+	if kv := find(out, attrLangfuseSessID); kv == nil || kv.Value.GetStringValue() != "sess-1" {
+		t.Fatalf("langfuse.session.id not mapped from session.id: %+v", out)
+	}
+
+	// Re-mapping upserts rather than duplicating.
+	out = mapLangfuseIdentity(out)
+	n := 0
+	for _, kv := range out {
+		if kv.Key == attrLangfuseUserID {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 langfuse.user.id after re-map, got %d", n)
+	}
+}
+
+func TestMapLangfuseIdentityAbsent(t *testing.T) {
+	out := mapLangfuseIdentity([]*commonpb.KeyValue{strAttr("service.name", "svc")})
+	if find(out, attrLangfuseUserID) != nil || find(out, attrLangfuseSessID) != nil {
+		t.Fatalf("added langfuse identity keys with no source attrs: %+v", out)
+	}
+}
+
 func TestDropAttr(t *testing.T) {
 	in := []*commonpb.KeyValue{
 		strAttr("session.id", "abc"),

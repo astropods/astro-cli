@@ -42,7 +42,10 @@ import { ErrorPanel } from '@/components/ui/status-panel'
 
 export const meta: MetaFunction = () => [{ title: "API Keys - Settings | Astro" }];
 
-const FALLBACK_ENDPOINT = 'https://otel.astropods.ai'
+// Environment-specific; the real value comes from the server (OTEL_INGEST_ENDPOINT).
+// This placeholder shows only when that is unset, making misconfig visible instead
+// of emitting a plausible-but-wrong URL.
+const UNSET_ENDPOINT_PLACEHOLDER = '<OTEL_INGEST_ENDPOINT not set>'
 
 /** Builds the Anthropic managed-settings env block for a freshly created key. */
 function managedSettingsBlock(endpoint: string, token: string): string {
@@ -52,7 +55,7 @@ function managedSettingsBlock(endpoint: string, token: string): string {
     'OTEL_TRACES_EXPORTER                = otlp',
     'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = 1',
     'OTEL_EXPORTER_OTLP_PROTOCOL         = http/protobuf',
-    `OTEL_EXPORTER_OTLP_ENDPOINT         = ${endpoint || FALLBACK_ENDPOINT}`,
+    `OTEL_EXPORTER_OTLP_ENDPOINT         = ${endpoint || UNSET_ENDPOINT_PLACEHOLDER}`,
     `OTEL_EXPORTER_OTLP_HEADERS          = Authorization=Bearer ${token}`,
     'OTEL_METRICS_INCLUDE_SESSION_ID     = false',
   ].join('\n')

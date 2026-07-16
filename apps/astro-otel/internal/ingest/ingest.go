@@ -33,6 +33,12 @@ const (
 	attrTags      = "langfuse.tags"
 	sourceValue   = "claude-code"
 	sessionIDKey  = "session.id"
+
+	// Claude Code emits identity on these keys; Langfuse reads the langfuse.*
+	// keys to populate a trace's userId/sessionId, so we promote across.
+	attrUserEmail      = "user.email"
+	attrLangfuseUserID = "langfuse.user.id"
+	attrLangfuseSessID = "langfuse.session.id"
 )
 
 // Handler serves the OTLP endpoints.
@@ -124,7 +130,7 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 				if redactOn {
 					attrs = redact(attrs)
 				}
-				span.Attributes = tagClaudeCode(attrs)
+				span.Attributes = mapLangfuseIdentity(tagClaudeCode(attrs))
 			}
 		}
 	}
@@ -312,6 +318,30 @@ func tagClaudeCode(attrs []*commonpb.KeyValue) []*commonpb.KeyValue {
 			},
 		}},
 	})
+}
+
+// mapLangfuseIdentity promotes Claude Code's identity attributes to the keys
+// Langfuse reads for a trace's userId/sessionId: user.email -> langfuse.user.id
+// and session.id -> langfuse.session.id. Without it Langfuse falls back to the
+// opaque hashed user.id and leaves the session ungrouped.
+func mapLangfuseIdentity(attrs []*commonpb.KeyValue) []*commonpb.KeyValue {
+	if email := stringAttr(attrs, attrUserEmail); email != "" {
+		attrs = upsertString(attrs, attrLangfuseUserID, email)
+	}
+	if sid := stringAttr(attrs, sessionIDKey); sid != "" {
+		attrs = upsertString(attrs, attrLangfuseSessID, sid)
+	}
+	return attrs
+}
+
+// stringAttr returns the string value for key, or "" if absent or non-string.
+func stringAttr(attrs []*commonpb.KeyValue, key string) string {
+	for _, kv := range attrs {
+		if kv != nil && kv.Key == key {
+			return kv.GetValue().GetStringValue()
+		}
+	}
+	return ""
 }
 
 func upsertString(attrs []*commonpb.KeyValue, key, val string) []*commonpb.KeyValue {
