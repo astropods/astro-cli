@@ -869,10 +869,20 @@ export interface DeploymentChatConversationSummary {
   assistant_streaming?: boolean;
 }
 
+/** A file attached to a chat message. `key` is the files-API key; the rest is
+ *  display metadata. Same shape for user-uploaded and agent-produced files. */
+export interface ChatAttachment {
+  key: string;
+  name: string;
+  content_type: string;
+  size: number;
+}
+
 export interface DeploymentChatMessageRecord {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
 }
 
 export interface ListDeploymentChatConversationsResponse {
@@ -895,6 +905,46 @@ export type DeploymentChatConversationQuery = {
   limit?: number;
   before_seq?: number;
 };
+
+/** Agent file metadata. `key` is the opaque server id used across the API. */
+export interface DeploymentFileMeta {
+  key: string;
+  name: string;
+  size: number;
+  content_type: string;
+  updated_at: string;
+  uploaded_by?: string;
+}
+
+export interface ListDeploymentFilesResponse {
+  files: DeploymentFileMeta[];
+}
+
+/** Capacity of the volume backing the deployment's file store. `available` is
+ *  false when the store can't report usage (S3-backed, or no statfs) — the UI
+ *  hides the capacity warning rather than showing a misleading 0%. */
+export interface DeploymentStorageUsage {
+  available: boolean;
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  percent_used: number;
+}
+
+/** Where the client sends the bytes after reserving a file. `url` may be a
+ *  relative content path (server-received upload) or an absolute presigned URL
+ *  (direct-to-store); the client resolves and uses it as-is either way. */
+export interface DeploymentFileUploadDescriptor {
+  url: string;
+  method: string;
+  headers?: Record<string, string>;
+}
+
+export interface CreateDeploymentFileResponse {
+  key: string;
+  file: DeploymentFileMeta;
+  upload: DeploymentFileUploadDescriptor;
+}
 
 export interface DeploymentsListResponse {
   deployments: AgentDeploymentSummary[];
@@ -2354,13 +2404,22 @@ class ApiClient {
     deploymentId: string,
     conversationId: string,
     content: string,
+    attachments?: ChatAttachment[],
   ): Promise<MessagingSendMessageResponse> {
+    // Only the key is sent per attachment; the sidecar re-reads authoritative
+    // metadata from the file store, so this body stays small (no inlined bytes).
+    const body: { content: string; attachments?: { key: string }[] } = {
+      content,
+    };
+    if (attachments && attachments.length > 0) {
+      body.attachments = attachments.map((a) => ({ key: a.key }));
+    }
     return this.request<MessagingSendMessageResponse>(
       this.messagingProxyPath(
         deploymentId,
         `conversations/${encodeURIComponent(conversationId)}/messages`,
       ),
-      { method: "POST", body: JSON.stringify({ content }) },
+      { method: "POST", body: JSON.stringify(body) },
     );
   }
 
@@ -2459,6 +2518,150 @@ class ApiClient {
       ),
       { method: "DELETE" },
     );
+  }
+
+  /** Agent files API — per-deployment upload/download backed by the agent's
+   *  persistent disk (or a presigned object store later). See the files handlers
+   *  in astro-server for the proxy contract. */
+  private deploymentFilesPath(deploymentId: string, subpath?: string) {
+    const base = `/api/v1/deployments/${encodeURIComponent(deploymentId)}/files`;
+    return subpath ? `${base}/${subpath.replace(/^\//, "")}` : base;
+  }
+
+  async listDeploymentFiles(
+    deploymentId: string,
+  ): Promise<ListDeploymentFilesResponse> {
+    return this.request<ListDeploymentFilesResponse>(
+      this.deploymentFilesPath(deploymentId),
+    );
+  }
+
+  async getDeploymentStorageUsage(
+    deploymentId: string,
+  ): Promise<DeploymentStorageUsage> {
+    return this.request<DeploymentStorageUsage>(
+      this.deploymentFilesPath(deploymentId, "usage"),
+    );
+  }
+
+  async createDeploymentFile(
+    deploymentId: string,
+    input: { name: string; size: number; content_type: string },
+  ): Promise<CreateDeploymentFileResponse> {
+    return this.request<CreateDeploymentFileResponse>(
+      this.deploymentFilesPath(deploymentId),
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  // Two-step upload: reserve a key + upload target, then send the bytes to
+  // wherever the server points us. The target is a relative content path today
+  // (server-received PUT) and can become an absolute presigned URL with no
+  // change here — we resolve and use whatever we're handed.
+  async uploadDeploymentFile(
+    deploymentId: string,
+    file: File,
+  ): Promise<DeploymentFileMeta> {
+    const created = await this.createDeploymentFile(deploymentId, {
+      name: file.name,
+      size: file.size,
+      content_type: file.type || "application/octet-stream",
+    });
+
+    const uploadUrl = this.resolveDeploymentFileUrl(
+      deploymentId,
+      created.upload.url,
+    );
+    // Only attach our session cookie when the target is our own origin; a
+    // presigned object URL is cross-origin and must not receive it.
+    const sameOrigin = this.isSameOrigin(uploadUrl);
+    const response = await fetch(uploadUrl, {
+      method: created.upload.method || "PUT",
+      headers: {
+        ...(created.upload.headers ?? {}),
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+      credentials: sameOrigin ? "include" : "omit",
+    });
+    if (!response.ok) {
+      const body: ApiError = await response.json().catch(() => ({
+        error: "upload_failed",
+        error_description: `Upload failed with status ${response.status}`,
+      }));
+      throw new ApiRequestError(body, response.status);
+    }
+    // The server-received PUT returns the reconciled metadata; a presigned PUT
+    // returns no useful body, so fall back to the declared metadata.
+    const text = await response.text();
+    if (text) {
+      try {
+        return JSON.parse(text) as DeploymentFileMeta;
+      } catch {
+        // ignore — presigned stores don't return our JSON
+      }
+    }
+    return created.file;
+  }
+
+  async downloadDeploymentFile(
+    deploymentId: string,
+    key: string,
+  ): Promise<Blob> {
+    // Default redirect-follow: a 200 stream (server-received) and a 3xx to a
+    // presigned URL both resolve to the bytes with the same call.
+    const url = `${this.baseUrl}${this.deploymentFilesPath(
+      deploymentId,
+      `${encodeURIComponent(key)}/content`,
+    )}`;
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) {
+      const body: ApiError = await response.json().catch(() => ({
+        error: "download_failed",
+        error_description: `Download failed with status ${response.status}`,
+      }));
+      throw new ApiRequestError(body, response.status);
+    }
+    return response.blob();
+  }
+
+  async deleteDeploymentFile(
+    deploymentId: string,
+    key: string,
+  ): Promise<void> {
+    await this.request(
+      this.deploymentFilesPath(deploymentId, encodeURIComponent(key)),
+      { method: "DELETE" },
+    );
+  }
+
+  // Resolve an upload target against the files collection base. Absolute URLs
+  // (presigned) pass through unchanged; a relative content path resolves to the
+  // proxied endpoint.
+  private resolveDeploymentFileUrl(
+    deploymentId: string,
+    target: string,
+  ): string {
+    if (/^https?:\/\//i.test(target)) return target;
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "http://localhost";
+    const base = new URL(
+      `${this.baseUrl}${this.deploymentFilesPath(deploymentId)}/`,
+      origin,
+    );
+    return new URL(target, base).toString();
+  }
+
+  private isSameOrigin(url: string): boolean {
+    if (typeof window === "undefined") return true;
+    try {
+      return new URL(url, window.location.origin).origin ===
+        window.location.origin;
+    } catch {
+      return true;
+    }
   }
 
   async updateDeploymentDisplayName(id: string, displayName: string): Promise<{ display_name: string }> {

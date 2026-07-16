@@ -1,10 +1,14 @@
-import type { ApiClient } from "@/lib/api";
+import type { ApiClient, ChatAttachment } from "@/lib/api";
 
 /** Poll cadence while a turn is in flight without an active SSE session (e.g. after reload). */
 export const CHAT_POLL_MS = 500;
 
 export type MessagingStreamHandlers = {
-  onChunk: (content: string, chunkType?: string) => void;
+  onChunk: (
+    content: string,
+    chunkType?: string,
+    attachments?: ChatAttachment[],
+  ) => void;
   onFinish: () => void;
   onProtocolError: () => void;
 };
@@ -13,6 +17,7 @@ type SsePayload = {
   type?: string;
   chunk_type?: string;
   content?: string;
+  attachments?: ChatAttachment[];
 };
 
 function parseSsePayload(data: string): SsePayload | null {
@@ -37,7 +42,7 @@ export function openMessagingStream(
     if (!payload) return;
     const typ = payload.type ?? eventName;
     if (typ === "chunk" && typeof payload.content === "string") {
-      handlers.onChunk(payload.content, payload.chunk_type);
+      handlers.onChunk(payload.content, payload.chunk_type, payload.attachments);
       return;
     }
     if (typ === "finish" || typ === "error") {

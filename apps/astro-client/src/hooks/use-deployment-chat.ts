@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useApiClient } from "@/lib/api-context";
 import {
   ApiRequestError,
+  type ChatAttachment,
   type GetDeploymentChatConversationResponse,
   type ListDeploymentChatConversationsResponse,
 } from "@/lib/api";
@@ -172,6 +173,7 @@ export function useDeploymentChat(
       conversationId: string,
       content: string,
       chunkType?: string,
+      attachments?: ChatAttachment[],
     ) => {
       const key = conversationKey(conversationId);
       const cached = readCachedThread(conversationId);
@@ -199,6 +201,7 @@ export function useDeploymentChat(
             assistantId,
             content,
             chunkType,
+            attachments,
           );
         },
       );
@@ -337,8 +340,8 @@ export function useDeploymentChat(
     // navigated back to mid-turn).
     if (streamsRef.current.has(convId)) return;
     const es = openMessagingStream(api, deploymentId, convId, {
-      onChunk: (content, chunkType) =>
-        patchAssistantChunk(convId, content, chunkType),
+      onChunk: (content, chunkType, attachments) =>
+        patchAssistantChunk(convId, content, chunkType, attachments),
       onFinish: () => finalizeConversation(convId),
       onProtocolError: () => finalizeConversation(convId),
     });
@@ -387,9 +390,12 @@ export function useDeploymentChat(
   }, []);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, attachments?: ChatAttachment[]) => {
       const trimmed = content.trim();
-      if (!trimmed || sendLockRef.current || turnInFlight) return;
+      const hasAttachments = !!attachments && attachments.length > 0;
+      // A turn needs text or at least one attachment (attach-and-send with no prose).
+      if ((!trimmed && !hasAttachments) || sendLockRef.current || turnInFlight)
+        return;
       sendLockRef.current = true;
 
       setStreamError(null);
@@ -414,10 +420,11 @@ export function useDeploymentChat(
               id: userId,
               role: "user",
               content: trimmed,
+              attachments,
             }),
           );
           setCreatedConversationId(convId);
-          await api.sendMessagingMessage(deploymentId, convId, trimmed);
+          await api.sendMessagingMessage(deploymentId, convId, trimmed, attachments);
         } else {
           const key = conversationKey(convId);
           await queryClient.cancelQueries({ queryKey: key });
@@ -428,9 +435,10 @@ export function useDeploymentChat(
                 id: userId,
                 role: "user",
                 content: trimmed,
+                attachments,
               }),
           );
-          await api.sendMessagingMessage(deploymentId, convId, trimmed);
+          await api.sendMessagingMessage(deploymentId, convId, trimmed, attachments);
         }
 
         onConversationCreated?.(convId);

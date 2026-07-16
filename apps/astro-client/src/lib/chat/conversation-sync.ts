@@ -1,4 +1,5 @@
 import type {
+  ChatAttachment,
   DeploymentChatMessageRecord,
   GetDeploymentChatConversationResponse,
 } from "@/lib/api";
@@ -95,21 +96,27 @@ export function patchConversationUserMessage(
   };
 }
 
-/** Apply one SSE assistant chunk to the cached thread (single client-side source of truth). */
+/** Apply one SSE assistant chunk to the cached thread (single client-side source
+ *  of truth). Attachments arrive only on the END chunk; when present they are set
+ *  on the assistant row so agent-produced files render as download chips. */
 export function patchConversationAssistantChunk(
   existing: GetDeploymentChatConversationResponse,
   assistantId: string,
   content: string,
   chunkType?: string,
+  attachments?: ChatAttachment[],
 ): GetDeploymentChatConversationResponse {
   const messages = [...conversationMessages(existing)];
   const idx = messages.findIndex((m) => m.id === assistantId);
+  const withAttachments =
+    attachments && attachments.length > 0 ? { attachments } : {};
 
   if (chunkType === "replace" || idx < 0) {
     const row: DeploymentChatMessageRecord = {
       id: assistantId,
       role: "assistant",
       content,
+      ...withAttachments,
     };
     if (idx >= 0) {
       messages[idx] = row;
@@ -120,6 +127,7 @@ export function patchConversationAssistantChunk(
     messages[idx] = {
       ...messages[idx],
       content: messages[idx].content + content,
+      ...withAttachments,
     };
   }
 

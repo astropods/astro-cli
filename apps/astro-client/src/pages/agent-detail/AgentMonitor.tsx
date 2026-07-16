@@ -11,6 +11,7 @@ import {
   useObservabilityTraceDetail,
 } from "@/api/queries/observability";
 import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
+import { StorageCapacityBanner } from "@/components/StorageCapacityBanner";
 import { TokenUsageChart } from "@/components/agent-detail/charts/TokenUsageChart";
 import {
   CHART_COLORS,
@@ -233,6 +234,7 @@ export default function AgentMonitor() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
         >
+          <StorageCapacityBanner deploymentId={deploymentId} className="mb-6" />
           {/* Header */}
           <div className="mb-6 flex items-end justify-between">
             <div>

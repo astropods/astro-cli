@@ -1618,6 +1618,69 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("conversationId", "Conversation ID"),
 			)
+			// Files API — authenticates the session and forwards to the sidecar,
+			// which owns file storage (per-deployment persistent disk). Content
+			// endpoints stream bytes and preserve upstream redirects so a future
+			// presigned-object store needs no client change. astro-server stores
+			// no file bytes or metadata.
+			api.GET(protected, "/deployments/:id/files", "List deployment files",
+				handlers.ListDeploymentFiles(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.ListDeploymentFilesResponse{}),
+			)
+			api.POST(protected, "/deployments/:id/files", "Create a deployment file",
+				handlers.CreateDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Desc("Reserves an opaque file key and returns an upload descriptor; does not carry the file bytes."),
+				oapispec.Response(200, &handlers.CreateDeploymentFileResponse{}),
+			)
+			// Registered before the :fileKey route so the static "usage" segment
+			// resolves to this handler, not a file key lookup.
+			api.GET(protected, "/deployments/:id/files/usage", "Get deployment storage usage",
+				handlers.GetDeploymentStorageUsage(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Desc("Capacity of the volume backing the deployment's file store, for storage-full warnings."),
+				oapispec.Response(200, &handlers.DeploymentStorageUsageResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/files/:fileKey", "Get deployment file metadata",
+				handlers.GetDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("fileKey", "File key"),
+				oapispec.Response(200, &handlers.DeploymentFileMetaResponse{}),
+			)
+			api.DELETE(protected, "/deployments/:id/files/:fileKey", "Delete a deployment file",
+				handlers.DeleteDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("fileKey", "File key"),
+			)
+			api.PUT(protected, "/deployments/:id/files/:fileKey/content", "Upload deployment file content",
+				handlers.UploadDeploymentFileContent(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("fileKey", "File key"),
+				oapispec.Desc("Streams the file bytes to the reserved key (server-received upload path)."),
+				oapispec.Response(200, &handlers.DeploymentFileMetaResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/files/:fileKey/content", "Download deployment file content",
+				handlers.DownloadDeploymentFileContent(log, cfg, k8sReg, accountStore, deploymentStore),
+				oapispec.Tags("Files"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("fileKey", "File key"),
+				oapispec.Desc("Streams the file bytes, or redirects (3xx) to a direct object URL when the store supports it."),
+				oapispec.Response(200, nil),
+			)
 			// Authorization is configured exclusively through `interfaces.auth`
 			// in the deployment spec — no imperative endpoints here. The only
 			// authorization endpoint is the messaging-facing

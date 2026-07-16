@@ -28,6 +28,7 @@ import {
   useObservabilityTraces,
 } from "@/api/queries/observability";
 import { useDeploymentAgentConfig } from "@/api/queries/chat";
+import { DeploymentFilesPanel } from "./DeploymentFilesPanel";
 import { RequestSparkline, ZERO_SERIES } from "@/components/RequestSparkline";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import {
@@ -67,10 +68,11 @@ import type {
   UserDetails,
 } from "@/lib/api";
 
-export type ChatInspectorTab = "overview" | "settings";
+export type ChatInspectorTab = "overview" | "settings" | "files";
 
 const TABS: { id: ChatInspectorTab; label: string }[] = [
   { id: "overview", label: "Overview" },
+  { id: "files", label: "Files" },
   { id: "settings", label: "Config" },
 ];
 const USAGE_RANGES: { key: DayRange; label: string; days: number }[] = [
@@ -137,6 +139,8 @@ export function ChatInspectorPanel({
               deploymentId={deploymentId}
               account={account}
             />
+          ) : tab === "files" ? (
+            <DeploymentFilesPanel deploymentId={deploymentId} />
           ) : (
             <SettingsTab deploymentId={deploymentId} />
           )}

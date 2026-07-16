@@ -11,8 +11,14 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
-import { ChatButton } from "@/components/assistant-ui/chat-button";
+import { ChatButton, chatButtonVariants } from "@/components/assistant-ui/chat-button";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DeploymentChatHistoryScroll } from "@/components/chat/DeploymentChatHistoryScroll";
 import { DeploymentChatStreamingIndicator } from "@/components/chat/DeploymentChatStreamingIndicator";
 import { DeploymentChatText } from "@/components/chat/DeploymentChatText";
@@ -28,10 +34,17 @@ import {
 } from "@/lib/chat/dictation";
 import { loadDraft, saveDraft } from "@/lib/chat/chat-draft";
 import { DictationWaveform } from "@/components/chat/DictationWaveform";
+import { useDownloadDeploymentFile } from "@/api/queries/files";
+import {
+  readAttachmentRef,
+  ASTRO_FILE_PART,
+} from "@/lib/messaging/deployment-attachment-adapter";
+import { formatBytes } from "@/lib/format-utils";
 import type { ChatComposerState } from "@/lib/deployment-utils";
-import type { AgentDeploymentSummary } from "@/lib/api";
+import type { AgentDeploymentSummary, ChatAttachment } from "@/lib/api";
 import {
   ActionBarPrimitive,
+  AttachmentPrimitive,
   AuiIf,
   ComposerPrimitive,
   ErrorPrimitive,
@@ -41,6 +54,7 @@ import {
   useAuiState,
   useComposer,
   useComposerRuntime,
+  type CompleteAttachment,
 } from "@assistant-ui/react";
 import {
   AlertTriangle,
@@ -48,14 +62,26 @@ import {
   ArrowUpIcon,
   CheckIcon,
   CopyIcon,
+  Download,
   ExternalLink,
+  FileIcon,
   Loader2,
   Mic,
+  Paperclip,
   Pause,
   Power,
   SquareIcon,
+  Upload,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, type FC } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type FC,
+} from "react";
 
 export function DeploymentChatThreadView({
   account,
@@ -194,7 +220,7 @@ const ThreadMessage: FC<{
   agentLabel: string;
 }> = ({ deploymentId, agentLabel }) => {
   const role = useAuiState((s) => s.message.role);
-  if (role === "user") return <UserMessage />;
+  if (role === "user") return <UserMessage deploymentId={deploymentId} />;
   return (
     <AssistantMessage deploymentId={deploymentId} agentLabel={agentLabel} />
   );
@@ -275,7 +301,9 @@ const ComposerArea: FC<{
   // "unknown" = status not loaded yet; stay optimistic so the composer doesn't
   // flicker disabled on first paint for a healthy agent.
   if (state === "ready" || state === "unknown") {
-    return <DeploymentComposer agentLabel={agentLabel} expanded={expanded} />;
+    return (
+      <DeploymentComposer agentLabel={agentLabel} expanded={expanded} />
+    );
   }
   if (state === "starting" || state === "unreachable") {
     return (
@@ -350,6 +378,63 @@ const DeploymentComposer: FC<{
     shellRef.current?.querySelector("textarea")?.focus();
   }, [disabled, listening]);
 
+  // Files (paperclip and drag-drop) go through the attachment adapter: they show
+  // as removable chips in the composer and upload on send, then ride the message
+  // as the agent's context for that turn.
+  const addFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files) return;
+      for (const file of Array.from(files)) void composer.addAttachment(file);
+    },
+    [composer],
+  );
+
+  // Drag-and-drop highlight. A depth counter tracks nested dragenter/dragleave
+  // (children fire their own events) so the highlight doesn't flicker as the
+  // pointer moves over the input/buttons.
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepth = useRef(0);
+  const draggingFiles = (e: DragEvent) =>
+    e.dataTransfer.types.includes("Files");
+  const onDragEnter = useCallback(
+    (e: DragEvent) => {
+      if (disabled || !draggingFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current += 1;
+      setIsDraggingFiles(true);
+    },
+    [disabled],
+  );
+  const onDragOver = useCallback(
+    (e: DragEvent) => {
+      if (disabled || !draggingFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [disabled],
+  );
+  const onDragLeave = useCallback(
+    (e: DragEvent) => {
+      if (disabled || !draggingFiles(e)) return;
+      dragDepth.current -= 1;
+      if (dragDepth.current <= 0) {
+        dragDepth.current = 0;
+        setIsDraggingFiles(false);
+      }
+    },
+    [disabled],
+  );
+  const onDrop = useCallback(
+    (e: DragEvent) => {
+      if (disabled || !draggingFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setIsDraggingFiles(false);
+      addFiles(e.dataTransfer.files);
+    },
+    [disabled, addFiles],
+  );
+
   // Text typed before dictation started, captured at the moment we start so
   // Cancel can restore it (the runtime overwrites the composer text live as it
   // transcribes). Recorded in startDictation, not an effect, to avoid racing
@@ -380,13 +465,20 @@ const DeploymentComposer: FC<{
   useEffect(() => () => composer.stopDictation(), [composer]);
 
   return (
-    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+    <ComposerPrimitive.Root
+      className="aui-composer-root relative flex w-full flex-col"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <div
         ref={shellRef}
         data-slot="aui_composer-shell"
         className={cn(
           "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
           "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
+          isDraggingFiles && "border-primary/70 ring-2 ring-primary/15",
           disabled && "pointer-events-none opacity-60",
         )}
       >
@@ -396,30 +488,79 @@ const DeploymentComposer: FC<{
             onConfirm={confirmDictation}
           />
         ) : (
-          <div className="flex w-full items-end gap-2">
-            <ComposerPrimitive.Input
-              placeholder={
-                disabled
-                  ? "Agent is not ready…"
-                  : `Message ${agentLabel}…`
-              }
-              disabled={disabled}
-              className={cn(
-                "aui-composer-input placeholder:text-muted-foreground/80 min-w-0 flex-1 resize-none bg-transparent px-1.75 py-1.5 text-sm outline-none transition-[min-height] duration-300 ease-out disabled:cursor-not-allowed",
-                expanded
-                  ? "max-h-48 min-h-22 self-stretch"
-                  : "max-h-32 min-h-8 self-center",
-              )}
-              rows={1}
-              aria-label="Message input"
-            />
-            <ComposerAction disabled={disabled} onStartDictation={startDictation} />
-          </div>
+          <>
+            <ComposerAttachments />
+            <div className="flex w-full items-end gap-2">
+              <ComposerPrimitive.Input
+                placeholder={
+                  disabled
+                    ? "Agent is not ready…"
+                    : `Message ${agentLabel}…`
+                }
+                disabled={disabled}
+                className={cn(
+                  "aui-composer-input placeholder:text-muted-foreground/80 min-w-0 flex-1 resize-none bg-transparent px-1.75 py-1.5 text-sm outline-none transition-[min-height] duration-300 ease-out disabled:cursor-not-allowed",
+                  expanded
+                    ? "max-h-48 min-h-22 self-stretch"
+                    : "max-h-32 min-h-8 self-center",
+                )}
+                rows={1}
+                aria-label="Message input"
+              />
+              <ComposerAction
+                disabled={disabled}
+                onStartDictation={startDictation}
+              />
+            </div>
+          </>
         )}
       </div>
+      {isDraggingFiles ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-(--composer-radius) border-2 border-dashed border-primary/60 bg-surface/90">
+          <span className="flex items-center gap-2 text-body-sm font-medium text-foreground">
+            <Upload className="size-4" />
+            Drop files to share with {agentLabel}
+          </span>
+        </div>
+      ) : null}
     </ComposerPrimitive.Root>
   );
 };
+
+// Removable chips for files staged in the composer (before send). The adapter's
+// send() uploads them; here we only show name + remove.
+const ComposerAttachments: FC = () => (
+  // Register under every type key: assistant-ui picks the component by the
+  // attachment's `type` (image/document/file) and only falls back to
+  // `Attachment` when none matches, so a "file" chip needs the File slot.
+  <ComposerPrimitive.Attachments
+    components={{
+      Image: ComposerAttachmentChip,
+      Document: ComposerAttachmentChip,
+      File: ComposerAttachmentChip,
+      Attachment: ComposerAttachmentChip,
+    }}
+  />
+);
+
+const ComposerAttachmentChip: FC = () => (
+  <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface/60 px-2 py-1">
+    <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    <span className="max-w-40 truncate text-label text-foreground">
+      <AttachmentPrimitive.Name />
+    </span>
+    <AttachmentPrimitive.Remove asChild>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Remove attachment"
+        className="ml-0.5"
+      >
+        <X className="size-3" />
+      </Button>
+    </AttachmentPrimitive.Remove>
+  </div>
+);
 
 // Mic button: starts browser-native dictation, which replaces the input with a
 // live audio-reactive waveform until the user confirms or cancels. No
@@ -450,6 +591,30 @@ const DictationButton: FC<{ disabled?: boolean; onStart: () => void }> = ({
   );
 };
 
+// Attach button: opens the native file picker and routes selected files through
+// the composer's attachment adapter (chips + upload-on-send). Styled to match
+// the composer's icon buttons. `multiple` allows selecting several at once.
+const ComposerAttachButton: FC<{ disabled?: boolean }> = ({ disabled }) => (
+  <TooltipProvider delayDuration={0}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <ComposerPrimitive.AddAttachment
+          multiple
+          disabled={disabled}
+          aria-label="Attach files"
+          className={cn(
+            chatButtonVariants({ variant: "ghost", size: "icon" }),
+            "aui-composer-attach size-8 rounded-full",
+          )}
+        >
+          <Paperclip className="size-4" />
+        </ComposerPrimitive.AddAttachment>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Attach files</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
+
 const ComposerAction: FC<{
   disabled?: boolean;
   onStartDictation: () => void;
@@ -457,6 +622,7 @@ const ComposerAction: FC<{
   const dictationSupported = useDictationSupported();
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-2">
+      <ComposerAttachButton disabled={disabled} />
       {dictationSupported ? (
         <DictationButton disabled={disabled} onStart={onStartDictation} />
       ) : null}
@@ -558,6 +724,15 @@ const AssistantMessage: FC<{
                     agentLabel={agentLabel}
                   />
                 );
+              case "data":
+                // Agent-produced file → download chip (see chat-message-adapter).
+                return part.name === ASTRO_FILE_PART ? (
+                  <FileDownloadChip
+                    file={part.data as ChatAttachment}
+                    deploymentId={deploymentId}
+                    className="mt-2"
+                  />
+                ) : null;
               default:
                 return null;
             }
@@ -591,13 +766,71 @@ const AssistantActionBar: FC = () => (
   </ActionBarPrimitive.Root>
 );
 
-const UserMessage: FC = () => (
+const UserMessage: FC<{ deploymentId: string }> = ({ deploymentId }) => (
   <MessagePrimitive.Root
     data-role="user"
     className="fade-in slide-in-from-bottom-1 animate-in flex justify-end px-2 duration-150"
   >
     <div className="bg-muted text-foreground max-w-[min(100%,42rem)] rounded-2xl px-4 py-2.5 text-sm wrap-break-word">
+      <div className="empty:hidden mb-1.5 flex flex-wrap justify-end gap-1.5">
+        <MessagePrimitive.Attachments>
+          {({ attachment }) => (
+            <UserAttachmentChip
+              attachment={attachment}
+              deploymentId={deploymentId}
+            />
+          )}
+        </MessagePrimitive.Attachments>
+      </div>
       <MessagePrimitive.Parts />
     </div>
   </MessagePrimitive.Root>
 );
+
+// User-attached file chip: resolves the files-API reference the composer adapter
+// stashed on the completed attachment, then renders the shared download chip.
+const UserAttachmentChip: FC<{
+  attachment: CompleteAttachment;
+  deploymentId: string;
+}> = ({ attachment, deploymentId }) => {
+  const file = readAttachmentRef(attachment);
+  if (!file) return null;
+  return <FileDownloadChip file={file} deploymentId={deploymentId} />;
+};
+
+// A single file chip: name + size + a download button. Shared by user-attached
+// files (via attachments) and agent-produced files (via a data content part).
+const FileDownloadChip: FC<{
+  file: ChatAttachment;
+  deploymentId: string;
+  className?: string;
+}> = ({ file, deploymentId, className }) => {
+  const download = useDownloadDeploymentFile(deploymentId);
+  return (
+    <div
+      className={cn(
+        "flex w-fit items-center gap-2 rounded-lg border border-border bg-surface/70 px-2.5 py-1.5",
+        className,
+      )}
+    >
+      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="max-w-48 truncate text-label text-foreground">{file.name}</p>
+        {file.size > 0 ? (
+          <p className="text-label text-faint-foreground">
+            {formatBytes(file.size)}
+          </p>
+        ) : null}
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Download ${file.name}`}
+        disabled={download.isPending}
+        onClick={() => download.mutate({ key: file.key, name: file.name })}
+      >
+        <Download className="size-4" />
+      </Button>
+    </div>
+  );
+};

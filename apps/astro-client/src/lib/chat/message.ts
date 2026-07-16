@@ -1,4 +1,5 @@
 import type {
+  ChatAttachment,
   DeploymentChatMessageRecord,
   GetDeploymentChatConversationResponse,
 } from "@/lib/api";
@@ -11,6 +12,8 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   isStreaming?: boolean;
+  /** Files on this turn (user uploads or agent-produced). */
+  attachments?: ChatAttachment[];
 };
 
 export function mapServerMessages(
@@ -22,6 +25,7 @@ export function mapServerMessages(
     role: m.role,
     content: m.content,
     isStreaming: streamingMessageId != null && m.id === streamingMessageId,
+    attachments: m.attachments,
   }));
 }
 

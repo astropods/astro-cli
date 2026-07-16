@@ -697,6 +697,10 @@ func (a *Applier) ApplyDeploymentSpec(
 		msgSidecar.VolumeName = agentDataVolumeName
 		msgSidecar.VolumeMountPath = spec.DefaultAgentVolumeMount
 		msgSidecar.VolumeSubPath = messagingVolumeSubPath
+		// Back the files API with a second subtree of the same disk, exposed to
+		// the agent under /data/files.
+		msgSidecar.FilesMountPath = messagingFilesMount
+		msgSidecar.FilesSubPath = filesVolumeSubPath
 
 		// Service — selects the agent pod (messaging is a sidecar container).
 		// In local mode we promote it to NodePort on the http port so the

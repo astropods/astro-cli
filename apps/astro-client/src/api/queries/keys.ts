@@ -110,6 +110,13 @@ export const chatKeys = {
     ['chat', 'agent-config', deploymentId] as const,
 };
 
+export const fileKeys = {
+  all: (deploymentId: string) => ['files', deploymentId] as const,
+  detail: (deploymentId: string, key: string) =>
+    ['files', deploymentId, key] as const,
+  usage: (deploymentId: string) => ['files', deploymentId, 'usage'] as const,
+};
+
 export const deploymentKeys = {
   summary: ['deployments', 'summary'] as const,
   all: (account: string) => ['deployments', account] as const,

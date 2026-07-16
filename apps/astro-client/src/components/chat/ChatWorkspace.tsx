@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { ChatThreadHeader } from "./ChatThreadHeader";
 import { ChatThread } from "./ChatThread";
+import { StorageCapacityBanner } from "@/components/StorageCapacityBanner";
 import {
   ChatInspectorPanel,
   type ChatInspectorTab,
@@ -133,6 +134,7 @@ export function ChatWorkspace({
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen((open) => !open)}
         />
+        <StorageCapacityBanner deploymentId={deploymentId} className="px-3.5 pt-3.5" />
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatThread
             key={deploymentId}

@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -19,6 +20,13 @@ const agentDataVolumeName = "data"
 // messagingVolumeSubPath isolates the messaging sidecar's files under a subtree
 // of the shared volume so they never collide with the agent's own data.
 const messagingVolumeSubPath = "messaging"
+
+// filesVolumeSubPath is the subtree of the shared volume that backs the agent
+// files API (upload/download). The messaging sidecar mounts it at its own clean
+// path; the agent container — which mounts the whole volume at /data with no
+// subPath — sees the same bytes under /data/files. Kept distinct from
+// messagingVolumeSubPath so chat's SQLite and user files never collide.
+const filesVolumeSubPath = "files"
 
 // StatefulSetConfig holds configuration for building a StatefulSet
 type StatefulSetConfig struct {
@@ -170,6 +178,19 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 
 	// Append explicit env vars (e.g. ASTRO_AUTHZ_TOKEN, knowledge secretKeyRefs).
 	container.Env = append(container.Env, cfg.ExtraEnv...)
+
+	// Tell the agent where the files slice is mounted in its own filesystem. The
+	// messaging sidecar mounts the same slice at a different path (its FILES_DIR),
+	// so the agent can't infer it from the sidecar; it sees the slice under its
+	// data mount at <mountPath>/<filesSubPath> (e.g. /data/files). The agent SDK
+	// resolves message file attachments (by storage key) against this dir. Gated
+	// on the same files config that enables the sidecar's files API.
+	if cfg.Messaging != nil && cfg.Messaging.FilesSubPath != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "AGENT_FILES_DIR",
+			Value: path.Join(mountPath, cfg.Messaging.FilesSubPath),
+		})
+	}
 
 	// Set resources: explicit config takes precedence
 	if cfg.Resources != nil {

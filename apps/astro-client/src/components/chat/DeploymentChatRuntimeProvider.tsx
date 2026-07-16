@@ -9,6 +9,12 @@ import {
 import { useDeploymentChat } from "@/hooks/use-deployment-chat";
 import { chatMessagesToThreadMessages } from "@/lib/messaging/chat-message-adapter";
 import { dictationAdapter } from "@/lib/chat/dictation";
+import { useApiClient } from "@/lib/api-context";
+import {
+  createDeploymentAttachmentAdapter,
+  readAttachmentRef,
+} from "@/lib/messaging/deployment-attachment-adapter";
+import type { ChatAttachment } from "@/lib/api";
 
 const convertMessage = (message: ThreadMessageLike) => message;
 
@@ -55,11 +61,25 @@ export function DeploymentChatRuntimeProvider({
     return messages.at(-1)?.role === "user";
   }, [assistantStreaming, isStreaming, messages]);
 
+  const api = useApiClient();
+  const attachmentAdapter = useMemo(
+    () => createDeploymentAttachmentAdapter(api, deploymentId),
+    [api, deploymentId],
+  );
+
   const onNew = useCallback(
     async (message: AppendMessage) => {
-      const part = message.content[0];
-      if (message.content.length !== 1 || part?.type !== "text") return;
-      await sendMessage(part.text);
+      // Join any text parts and collect uploaded-file references the composer's
+      // attachment adapter stashed on each completed attachment.
+      const text = message.content
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text)
+        .join("");
+      const attachments = (message.attachments ?? [])
+        .map((a) => readAttachmentRef(a))
+        .filter((a): a is ChatAttachment => a !== null);
+      if (!text && attachments.length === 0) return;
+      await sendMessage(text, attachments);
     },
     [sendMessage],
   );
@@ -77,7 +97,10 @@ export function DeploymentChatRuntimeProvider({
       cancelStream();
     },
     convertMessage,
-    adapters: dictationAdapter ? { dictation: dictationAdapter } : undefined,
+    adapters: {
+      ...(dictationAdapter ? { dictation: dictationAdapter } : {}),
+      attachments: attachmentAdapter,
+    },
   });
 
   const viewportState = useMemo(

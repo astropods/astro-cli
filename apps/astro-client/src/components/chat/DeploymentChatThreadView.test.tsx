@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   AssistantRuntimeProvider,
   useComposer,
@@ -36,6 +37,11 @@ function Harness({
   onCancel?: () => void;
   composerState?: ChatComposerState;
 }) {
+  // The composer's attach/drag-drop upload uses TanStack Query, so the view
+  // needs a QueryClient in scope.
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
   const runtime = useExternalStoreRuntime({
     messages,
     isRunning,
@@ -44,14 +50,16 @@ function Harness({
     convertMessage: (m) => m,
   });
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <DeploymentChatThreadView
-        account="acme"
-        deploymentId="dep-1"
-        agentLabel="Test Agent"
-        composerState={composerState}
-      />
-    </AssistantRuntimeProvider>
+    <QueryClientProvider client={queryClient}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <DeploymentChatThreadView
+          account="acme"
+          deploymentId="dep-1"
+          agentLabel="Test Agent"
+          composerState={composerState}
+        />
+      </AssistantRuntimeProvider>
+    </QueryClientProvider>
   );
 }
 

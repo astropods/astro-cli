@@ -3,7 +3,7 @@
 //
 // It embeds the prebuilt chat SPA (see embed.go) and serves it, while exposing
 // the same deployment-scoped HTTP contract astro-server presents in production
-// (`/api/v1/deployments/:id/{chat,messaging}/*`). Read endpoints the chat shell
+// (`/api/v1/deployments/:id/{chat,messaging,files}/*`). Read endpoints the chat shell
 // needs (deployments summary/list, status, runtime) are synthesized for a single
 // local deployment; chat/messaging traffic is proxied verbatim to the local
 // messaging sidecar. Because the contract matches production, the embedded React
@@ -120,6 +120,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/deployments/{id}/messaging/{rest...}", s.proxyMessaging)
 	mux.HandleFunc("/api/v1/deployments/{id}/chat/{rest...}", s.proxyChat)
 
+	// Files API — the chat composer's attachments (upload/list/download/delete)
+	// hit /files directly (not under /messaging), mirroring astro-server's
+	// dedicated files proxy. Both the bare list/create path and the /{key}[/content]
+	// sub-paths rewrite to the sidecar's native /api/files* routes.
+	mux.HandleFunc("/api/v1/deployments/{id}/files", s.proxyFiles)
+	mux.HandleFunc("/api/v1/deployments/{id}/files/{rest...}", s.proxyFiles)
+
 	// SPA (must be last so /api/* always wins).
 	mux.Handle("/", s.spaHandler())
 	return mux
@@ -157,6 +164,20 @@ func (s *Server) proxyMessaging(w http.ResponseWriter, r *http.Request) {
 func (s *Server) proxyChat(w http.ResponseWriter, r *http.Request) {
 	rest := r.PathValue("rest")
 	r.URL.Path = "/api/chat/" + rest
+	r.URL.RawPath = ""
+	s.proxy.ServeHTTP(w, r)
+}
+
+// proxyFiles serves both the bare files path (list/create) and the
+// /{key}[/content] sub-paths, rewriting to the sidecar's /api/files* routes.
+// The bare route yields an empty "rest".
+func (s *Server) proxyFiles(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("rest")
+	if rest == "" {
+		r.URL.Path = "/api/files"
+	} else {
+		r.URL.Path = "/api/files/" + rest
+	}
 	r.URL.RawPath = ""
 	s.proxy.ServeHTTP(w, r)
 }

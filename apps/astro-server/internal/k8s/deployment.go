@@ -73,6 +73,15 @@ type MessagingDeploymentConfig struct {
 	VolumeName      string
 	VolumeMountPath string
 	VolumeSubPath   string
+
+	// FilesMountPath / FilesSubPath mount a second subtree of the same shared
+	// volume for the agent files API (upload/download). Set together with
+	// VolumeName; the sidecar mounts VolumeName at FilesMountPath under
+	// FilesSubPath and reads/writes uploaded files there. The agent container
+	// (whole volume at /data, no subPath) sees the same bytes under
+	// /data/<FilesSubPath>. Empty FilesSubPath disables the files feature.
+	FilesMountPath string
+	FilesSubPath   string
 }
 
 // messagingChatDBFile is the SQLite chat database filename. Its directory is the
@@ -81,6 +90,12 @@ type MessagingDeploymentConfig struct {
 // path is derived from the mount rather than hardcoded so the two can't drift —
 // a path outside the mount would land on the read-only container root.
 const messagingChatDBFile = "chat.db"
+
+// messagingFilesMount is where the messaging sidecar mounts the files subtree of
+// the shared volume. It is a distinct mount point from the agent's /data so the
+// sidecar addresses uploaded files by a clean root (FILES_DIR); the same bytes
+// appear to the agent under /data/<filesVolumeSubPath>.
+const messagingFilesMount = "/files"
 
 // BuildDeployment creates a Kubernetes Deployment manifest.
 // Optional sidecar containers (messaging, collector) are colocated in the same
@@ -207,6 +222,18 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		})
 	}
 
+	// Mount a second subtree of the same volume for the agent files API. Kept on
+	// its own mount + subPath (not under the messaging subtree) so uploaded files
+	// are visible to the agent at /data/<FilesSubPath> and never mix with chat's
+	// SQLite. Only set when a volume and a files subPath are configured.
+	if cfg.VolumeName != "" && cfg.FilesSubPath != "" && cfg.FilesMountPath != "" {
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name:      cfg.VolumeName,
+			MountPath: cfg.FilesMountPath,
+			SubPath:   cfg.FilesSubPath,
+		})
+	}
+
 	// Add messaging-specific environment variables
 	container.Env = []corev1.EnvVar{
 		{Name: "GRPC_ENABLED", Value: "true"},
@@ -223,6 +250,16 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name:  "CHAT_DB_PATH",
 			Value: path.Join(cfg.VolumeMountPath, messagingChatDBFile),
+		})
+	}
+
+	// Point the files API at its mount. Gated the same way as the mount above so
+	// the sidecar only enables uploads/downloads when durable storage is present;
+	// unset FILES_DIR disables the feature rather than writing to a read-only root.
+	if cfg.VolumeName != "" && cfg.FilesSubPath != "" && cfg.FilesMountPath != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "FILES_DIR",
+			Value: cfg.FilesMountPath,
 		})
 	}
 	if cfg.DeploymentID != "" {
