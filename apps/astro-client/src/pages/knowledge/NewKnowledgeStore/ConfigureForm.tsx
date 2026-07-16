@@ -487,7 +487,7 @@ function KnowledgeFormRadioRow({
           <div
             className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center rounded-sm transition-colors",
-              selected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+              selected ? "bg-primary/10 text-foreground-accent" : "bg-muted text-muted-foreground",
             )}
             aria-hidden
           >

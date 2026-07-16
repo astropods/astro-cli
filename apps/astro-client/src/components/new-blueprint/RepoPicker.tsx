@@ -226,7 +226,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                       <span className="flex-1 font-medium truncate">{repoPickerLabel(repo.full_name, githubLogin)}</span>
                       {repo.private && <Tag className="text-[10px] px-1.5 py-0.5">Private</Tag>}
                       {usedBy && <span className="text-[10px] text-muted-foreground shrink-0">Linked to {usedBy.agent_name}</span>}
-                      {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}
+                      {isSelected && <Check className="size-3.5 shrink-0 text-foreground-accent" />}
                     </button>
                   );
                 })
@@ -281,7 +281,7 @@ export function RepoPicker({ account, githubLogin, enabled = true, onChange }: P
                         )}
                       >
                         {branch}
-                        {selectedBranch === branch && <Check className="size-3.5 text-primary" />}
+                        {selectedBranch === branch && <Check className="size-3.5 text-foreground-accent" />}
                       </button>
                     ))}
                   </div>

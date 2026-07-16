@@ -21,7 +21,7 @@ Always use **semantic tokens** from `@astropods/theme`. They flip across light/d
 | `card` | `bg-card` | Lifted tiles (cards, list items) |
 | `popover` | `bg-popover` | Menus, dropdowns |
 
-**Foregrounds**: `text-foreground` (primary), `text-muted-foreground` (secondary), `text-faint-foreground` (uppercase labels, captions). Never pair raw greys with foreground tokens.
+**Foregrounds**: `text-foreground` (primary), `text-muted-foreground` (secondary), `text-faint-foreground` (uppercase labels, captions), `text-foreground-accent` (links/icons). Reserve `bg-primary text-primary-foreground` for filled primary actions.
 
 **`<Card>` primitive** — for any tile that needs the card chrome, import `Card` from `@/components/ui/card` rather than rolling `border border-border bg-card rounded-…` by hand. The primitive applies the rounded `bg-card` chrome and forwards everything else through `className`:
 

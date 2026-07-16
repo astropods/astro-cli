@@ -197,7 +197,7 @@ export function ImportVariables({ onImport }: ImportVariablesProps) {
               <Upload className="size-5 text-muted-foreground" />
               <div className="text-center">
                 <p className="text-sm text-foreground">
-                  Drop a file here or <span className="text-primary underline">browse</span>
+                  Drop a file here or <span className="text-foreground-accent underline">browse</span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Supports .env, .json, and .txt files

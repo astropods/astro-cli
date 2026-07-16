@@ -122,7 +122,7 @@ export function InterfacesPicker({
                 <div className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-sm shrink-0 transition-colors",
                   isSelected ? "bg-primary/10 dark:bg-primary/25" : "bg-muted",
-                  !isBrand && (isSelected ? "text-primary dark:text-indigo-300" : "text-muted-foreground"),
+                  !isBrand && (isSelected ? "text-foreground-accent" : "text-muted-foreground"),
                 )}>
                   {icon}
                 </div>

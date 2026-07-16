@@ -9,7 +9,7 @@
  * typed as `Record<SemanticToken, string>` so any drift between the two
  * themes is a compile error (caught by `astro-theme:typecheck`).
  *
- * Elevation ladder (background tokens, lightest → most-lifted):
+ * Elevation ladder (background tokens, lowest → most-lifted):
  *   background  - page chrome (rarely used directly)
  *   surface     - page body / panels (set on <html>/<body>)
  *   card        - lifted tiles (MetricCard, list cards, etc.)
@@ -21,8 +21,10 @@ export const lightTheme = {
   foreground: "var(--color-slate-950)",
   popover: "#fff",
   "popover-foreground": "var(--foreground)",
+  // primary is action fill; primary-foreground is text on that fill; foreground-accent is standalone link/brand foreground.
   primary: "var(--color-indigo-700)",
   "primary-foreground": "#fff",
+  "foreground-accent": "var(--color-indigo-600)",
   secondary: "var(--color-slate-200)",
   "secondary-foreground": "var(--color-slate-800)",
   muted: "var(--color-slate-200)",
@@ -33,7 +35,7 @@ export const lightTheme = {
   "faint-foreground": "var(--color-slate-500)",
   "border-strong": "var(--color-slate-400)",
   "code-text": "oklch(82.90% 0.0224 182.6)",
-  accent: "var(--color-slate-200)",
+  accent: "color-mix(in oklch, #fff 55%, var(--color-slate-200) 45%)",
   "accent-foreground": "var(--color-slate-800)",
   destructive: "var(--color-red-700)",
   border: "var(--color-slate-300)",
@@ -52,21 +54,26 @@ export type SemanticToken = keyof typeof lightTheme;
 export const darkTheme: Record<SemanticToken, string> = {
   background: "var(--color-slate-950)",
   foreground: "var(--color-slate-100)",
-  popover: "var(--color-slate-800)",
+  popover:
+    "color-mix(in oklch, var(--color-slate-950) 35%, var(--color-slate-900) 65%)",
   "popover-foreground": "var(--color-slate-100)",
   primary: "var(--color-indigo-600)",
   "primary-foreground": "#fff",
+  "foreground-accent": "var(--color-indigo-400)",
   secondary: "var(--color-slate-800)",
   "secondary-foreground": "var(--color-slate-100)",
-  muted: "var(--color-slate-800)",
+  muted: "var(--card)",
   "muted-foreground": "var(--color-slate-300)",
-  surface: "var(--color-slate-900)",
-  card: "var(--color-slate-800)",
+  surface:
+    "color-mix(in oklch, var(--color-slate-950) 80%, var(--color-slate-900) 20%)",
+  card:
+    "color-mix(in oklch, var(--color-slate-950) 60%, var(--color-slate-900) 40%)",
   "card-foreground": "var(--foreground)",
   "faint-foreground": "var(--color-slate-400)",
   "border-strong": "color-mix(in oklch, var(--color-slate-300) 25%, transparent)",
   "code-text": "var(--color-teal-300)",
-  accent: "var(--color-slate-700)",
+  accent:
+    "color-mix(in oklch, var(--color-slate-900) 40%, var(--color-slate-800) 60%)",
   "accent-foreground": "var(--color-slate-100)",
   destructive: "var(--color-red-400)",
   border: "color-mix(in oklch, var(--color-slate-300) 15%, transparent)",

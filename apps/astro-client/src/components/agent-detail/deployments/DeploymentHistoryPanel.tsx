@@ -111,7 +111,7 @@ function ActiveTileMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => void copy(deployment.id)}>
-            {copied ? <Check className="size-4 text-primary" /> : <Copy className="size-4" />}
+            {copied ? <Check className="size-4 text-foreground-accent" /> : <Copy className="size-4" />}
             {copied ? "Copied!" : "Copy deploy ID"}
           </DropdownMenuItem>
           {paused ? (

@@ -126,11 +126,11 @@ export default function Onboarding() {
             />
             <span>
               I agree to the Astro AI{' '}
-              <a href="https://www.postman.com/legal/astro-ai-terms-of-service/" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+              <a href="https://www.postman.com/legal/astro-ai-terms-of-service/" target="_blank" rel="noopener noreferrer" className="text-foreground-accent underline hover:text-foreground-accent/80">
                 terms of service
               </a>{' '}
               and{' '}
-              <a href="https://privacy.postman.com/policies/" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+              <a href="https://privacy.postman.com/policies/" target="_blank" rel="noopener noreferrer" className="text-foreground-accent underline hover:text-foreground-accent/80">
                 privacy policy
               </a>
             </span>

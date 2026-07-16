@@ -172,7 +172,7 @@ function TraceDetailHoverLink({
       onClick={onOpenTrace}
       className={cn(
         "group/trace inline-flex cursor-pointer items-center gap-1.5 rounded-sm py-1 text-foreground transition-colors",
-        "hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "hover:text-foreground-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
     >
       <span className="font-sans text-body-sm font-medium">

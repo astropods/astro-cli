@@ -31,7 +31,7 @@ export function Toaster(props: ToasterProps) {
           closeButton: "text-muted-foreground",
           success: "[&_[data-icon]]:text-success",
           error: "[&_[data-icon]]:text-destructive",
-          info: "[&_[data-icon]]:text-primary",
+          info: "[&_[data-icon]]:text-foreground-accent",
         },
       }}
       {...props}

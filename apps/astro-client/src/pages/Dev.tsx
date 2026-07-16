@@ -39,7 +39,7 @@ export function Dev() {
             <li key={name}>
               <a
                 href={`${origin}/download/${name}`}
-                className="text-primary hover:underline"
+                className="text-foreground-accent hover:underline"
                 download={name}
               >
                 {label}

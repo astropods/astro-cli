@@ -192,7 +192,7 @@ export function BlueprintDetailContent({
                     </div>
                     <p className="text-muted-foreground mt-2 text-xs">
                       This creates your project locally. Fill in your{" "}
-                      <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-primary transition-colors">
+                      <Link to="https://docs.astropods.com/agent-card-spec" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-mono text-foreground hover:text-foreground-accent transition-colors">
                         agent.md<ArrowUpRight className="size-3" />
                       </Link>{" "}and configure your agent before pushing.
                     </p>

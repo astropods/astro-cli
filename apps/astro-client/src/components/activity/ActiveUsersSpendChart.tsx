@@ -120,7 +120,7 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
   const isEmpty = !data.some((p) => p.users > 0 || p.cost > 0);
 
   return (
-    <Card className="flex h-full flex-col dark:bg-surface p-5">
+    <Card className="flex h-full flex-col p-5">
       <div className="mb-4 shrink-0">
         <h3 className="text-heading-4 text-foreground">People spend over time</h3>
       </div>

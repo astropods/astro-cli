@@ -216,7 +216,7 @@ export function BlueprintCard({
         <div className="relative z-[1] flex min-w-0 flex-1 flex-col gap-1" style={contentShadowStyle}>
           <h3 className={cn(
             "truncate text-heading-4 text-foreground transition-colors",
-            hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-primary dark:group-hover:text-indigo-400"
+            hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-foreground-accent"
           )}>
             {name}
           </h3>
@@ -397,7 +397,7 @@ export function BlueprintCard({
           <div className={cn("flex min-w-0 flex-1 flex-col gap-1 min-h-[83px]", (onArchive || onHeartToggle) ? "pr-8" : "pr-1")}>
             <h3 className={cn(
               "flex min-w-0 items-center gap-1.5 text-heading-4 text-foreground transition-colors",
-              hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-primary dark:group-hover:text-indigo-400"
+              hasAccent ? "group-hover:[color:var(--card-accent)] dark:group-hover:[color:var(--card-accent-light)]" : "group-hover:text-foreground-accent"
             )}>
               <span className="truncate">{name}</span>
               {isDraft

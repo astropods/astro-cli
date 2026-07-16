@@ -114,12 +114,12 @@ function ToggleGroupItem({
       className={cn(
         "relative z-10 inline-flex items-center justify-center transition-colors",
         variant === "icon"
-          ? "size-6 rounded-[4px] text-muted-foreground hover:text-primary"
+          ? "size-6 rounded-[4px] text-muted-foreground hover:text-foreground-accent"
           : "rounded-[6px] px-3.5 py-1.5 text-body leading-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
         variant === "icon"
-          ? isActive && "text-primary"
+          ? isActive && "text-foreground-accent"
           : isActive
             ? "text-foreground font-medium"
             : "text-faint-foreground hover:text-foreground",

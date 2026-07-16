@@ -622,7 +622,7 @@ function NewBlueprintContent() {
                               <BlueprintIdentity account={selectedOrg} name={slug} size={64} className="size-full" />
                             ) : (
                               <div className="flex size-full items-center justify-center bg-muted">
-                                <ArrowPathIcon className="size-7 animate-spin text-primary" />
+                                <ArrowPathIcon className="size-7 animate-spin text-foreground-accent" />
                               </div>
                             )}
                           </div>
@@ -649,7 +649,7 @@ function NewBlueprintContent() {
                               <p className="text-xs text-muted-foreground">
                                 <button
                                   type="button"
-                                  className="font-medium text-primary underline underline-offset-2 cursor-pointer"
+                                  className="font-medium text-foreground-accent underline underline-offset-2 cursor-pointer"
                                   onClick={() => setQuotaDialogOpen(true)}
                                 >
                                   Request a quota increase
@@ -657,7 +657,7 @@ function NewBlueprintContent() {
                                 or{" "}
                                 <Link
                                   to={publishError.usageUrl}
-                                  className="font-medium text-primary underline underline-offset-2"
+                                  className="font-medium text-foreground-accent underline underline-offset-2"
                                 >
                                   review your usage in Settings
                                 </Link>.

@@ -343,7 +343,7 @@ function OverviewTab({
             asChild
             variant="ghost"
             size="sm"
-            className="-mr-2 h-7 px-2 text-body-sm font-medium text-primary hover:bg-primary/10 hover:text-primary active:bg-primary/15 dark:text-primary-300 dark:hover:bg-primary-400/10 dark:hover:text-primary-300"
+            className="-mr-2 h-7 px-2 text-body-sm font-medium text-foreground-accent hover:bg-foreground-accent/10 hover:text-foreground-accent active:bg-foreground-accent/15"
           >
             <Link
               to={deploymentTracesPath(account, deploymentId)}
@@ -487,7 +487,7 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
                 <button
                   type="button"
                   onClick={() => setExpanded((e) => !e)}
-                  className="mt-2 text-body-sm font-medium text-primary transition-colors hover:text-primary/80"
+                  className="mt-2 text-body-sm font-medium text-foreground-accent transition-colors hover:text-foreground-accent/80"
                 >
                   {expanded ? "Show less" : "Show more"}
                 </button>

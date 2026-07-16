@@ -35,7 +35,7 @@ function CopyIdButton({ traceId }: { traceId: string }) {
       aria-label="Copy trace ID"
       className={ID_BUTTON_CLASS}
     >
-      {copied ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}
+      {copied ? <Check className="size-3 text-foreground-accent" /> : <Copy className="size-3" />}
     </button>
   );
 }
@@ -72,7 +72,7 @@ export function TracePanelHeader({
               className={ID_BUTTON_CLASS}
             >
               {shareCopied ? (
-                <Check className="size-3 text-primary" />
+                <Check className="size-3 text-foreground-accent" />
               ) : (
                 <Link className="size-3" />
               )}

@@ -28,7 +28,7 @@ export function ChatAgentSwitchCoachmark({ onClose }: { onClose: () => void }) {
           aria-hidden
           className="absolute -top-1 left-5 size-2 rotate-45 rounded-[2px] border-l border-t border-border bg-popover"
         />
-        <ArrowLeftRight className="size-4 shrink-0 text-primary dark:text-primary-400" />
+        <ArrowLeftRight className="size-4 shrink-0 text-foreground-accent" />
         <span className="whitespace-nowrap font-medium">
           Switch agents here
         </span>

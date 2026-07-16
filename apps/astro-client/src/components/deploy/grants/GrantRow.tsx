@@ -69,7 +69,7 @@ function GrantBadge({
 }) {
   if (grant.anyone) {
     return (
-      <span className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+      <span className="size-6 rounded-full bg-primary/10 flex items-center justify-center text-foreground-accent shrink-0">
         <Globe className="h-3.5 w-3.5" />
       </span>
     );

@@ -145,7 +145,7 @@ export function BlueprintListView({
             href="https://docs.astropods.com/publish-to-registry"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline text-primary hover:text-primary/70"
+            className="underline text-foreground-accent hover:text-foreground-accent/70"
           >
             Learn how to push a blueprint
           </a>

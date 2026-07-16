@@ -36,7 +36,7 @@ export function StatCards({ data, showChange, range }: StatCardsProps) {
   // sits comfortably inside the all-time payload).
   const changeLabel = showChange && RANGE_LABELS[range] ? `vs. ${RANGE_LABELS[range]}` : undefined;
   // showTrend={false} keeps the TrendIndicator fallback from rendering "— —".
-  const shared = { changeLabel, showChange, showTrend: false };
+  const shared = { changeLabel, showChange, showTrend: false, className: "dark:bg-card" };
 
   return (
     <div className="mb-6 grid grid-cols-1 gap-3 @sm:grid-cols-3">

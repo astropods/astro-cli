@@ -155,7 +155,7 @@ export function AgentDeploymentMenu({
                   className="size-5 shrink-0 rounded-sm"
                 />
                 <span className="truncate">{displayName}</span>
-                <Check className="ml-auto size-4 shrink-0 text-primary dark:text-primary-300" />
+                <Check className="ml-auto size-4 shrink-0 text-foreground-accent" />
               </div>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -193,7 +193,7 @@ export function AgentDeploymentMenu({
                         {dep.display_name || dep.name}
                       </span>
                       {isCurrent && (
-                        <Check className="ml-auto size-4 shrink-0 text-primary dark:text-primary-300" />
+                        <Check className="ml-auto size-4 shrink-0 text-foreground-accent" />
                       )}
                     </>
                   );

@@ -22,7 +22,7 @@ export function SettingsPanel({ store, account }: { store: KnowledgeStore; accou
           description={
             <>
               These settings can&apos;t be changed after creation.{" "}
-              <a href="mailto:support@astropods.com" className="text-primary dark:text-indigo-300 underline">Contact us</a>{" "}
+              <a href="mailto:support@astropods.com" className="text-foreground-accent underline">Contact us</a>{" "}
               if you need to make changes.
             </>
           }

@@ -131,7 +131,7 @@ export function ContentSection({
           >
             {copied ? (
               <>
-                <Check className="size-3 text-primary" />
+                <Check className="size-3 text-foreground-accent" />
                 Copied
               </>
             ) : (

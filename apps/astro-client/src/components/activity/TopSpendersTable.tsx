@@ -177,7 +177,7 @@ function SpendersTableShell({
   children: ReactNode;
 }) {
   return (
-    <Table header={panelHeader} containerClassName="bg-card dark:bg-surface" footer={footer}>
+    <Table header={panelHeader} containerClassName="bg-card" footer={footer}>
       <TableHeader>
         <TableRow>{head}</TableRow>
       </TableHeader>

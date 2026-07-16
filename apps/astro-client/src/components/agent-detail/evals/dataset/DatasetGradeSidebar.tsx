@@ -74,7 +74,7 @@ function GradeGuidanceCard({ summary }: { summary: EvalDatasetResponse }) {
       <div className="flex items-center gap-2">
         <Lightbulb
           aria-hidden
-          className="size-3.5 flex-none text-primary"
+          className="size-3.5 flex-none text-foreground-accent"
         />
         <div className="min-w-0 text-body-sm font-semibold leading-5 text-foreground">
           {guidance.title}
