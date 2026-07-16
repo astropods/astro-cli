@@ -19,12 +19,46 @@ import (
 // redeploys, revoked on undeploy. No rotation today — a future
 // deployment-template API will trigger explicit rotation.
 type Provisioner struct {
-	client *Client
+	client    *Client
+	customers CustomerStore
 }
 
-// NewProvisioner constructs a Provisioner.
-func NewProvisioner(client *Client) *Provisioner {
-	return &Provisioner{client: client}
+// CustomerStore persists the per-account Bifrost customer id (the accounts
+// table's bifrost_customer_id column). Satisfied by *account.AccountStore.
+type CustomerStore interface {
+	GetBifrostCustomerID(accountID string) (string, error)
+	SetBifrostCustomerID(accountID, customerID string) error
+}
+
+// NewProvisioner constructs a Provisioner. customers may be nil in setups that
+// never mint keys (feature disabled); ensureCustomer guards against that.
+func NewProvisioner(client *Client, customers CustomerStore) *Provisioner {
+	return &Provisioner{client: client, customers: customers}
+}
+
+// ensureCustomer resolves the account's Bifrost customer id, creating the
+// customer (with the per-account budget) on first use and persisting the id on
+// the account. The budget lives on the customer, so every VK under it shares
+// one per-account cap.
+func (p *Provisioner) ensureCustomer(ctx context.Context, accountID string) (string, error) {
+	if p.customers == nil {
+		return "", fmt.Errorf("ai gateway: customer store not configured")
+	}
+	customerID, err := p.customers.GetBifrostCustomerID(accountID)
+	if err != nil {
+		return "", fmt.Errorf("get customer id: %w", err)
+	}
+	if customerID != "" {
+		return customerID, nil
+	}
+	customerID, err = p.client.CreateCustomer(ctx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("create customer: %w", err)
+	}
+	if err := p.customers.SetBifrostCustomerID(accountID, customerID); err != nil {
+		return "", fmt.Errorf("persist customer id: %w", err)
+	}
+	return customerID, nil
 }
 
 // Client returns the underlying LiteLLM client (used for the public base URL
@@ -43,12 +77,12 @@ type DeploymentKeyParams struct {
 
 // EnsureDeploymentKey returns the (plaintext API key, public base URL) for
 // the deployment. Idempotent: if a row already exists, the stored ciphertext
-// is decrypted and returned. Otherwise a new key is minted upstream via
-// /key/generate, KMS-encrypted, and persisted.
+// is decrypted and returned. Otherwise a new virtual key is minted upstream,
+// KMS-encrypted, and persisted.
 //
-// UserID and TeamID stay pinned to accountID — OpenMeter chargeback keys off
-// metadata.user_api_key_user_id, which must remain stable per account or the
-// ledger silently corrupts. Deployment scope lives in metadata.tags instead.
+// AccountID becomes the Bifrost customer_id (and rides in the VK name), so
+// per-account usage + budget roll up correctly. Deployment scope lives in the
+// metadata tags (folded into the VK name/description).
 //
 // No rotation: the key minted here lives for the lifetime of the deployment.
 // Redeploys reuse it; Teardown revokes it. A future deployment-template API
@@ -76,10 +110,14 @@ func (p *Provisioner) EnsureDeploymentKey(
 		return pk, p.client.URL(), nil
 	}
 
+	customerID, err := p.ensureCustomer(ctx, params.AccountID)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure customer: %w", err)
+	}
 	resp, err := p.client.GenerateKey(ctx, KeyRequest{
-		UserID:   params.AccountID,
-		TeamID:   params.AccountID,
-		Metadata: deploymentKeyMetadata(params),
+		AccountID:  params.AccountID,
+		CustomerID: customerID,
+		Metadata:   deploymentKeyMetadata(params),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("generate key: %w", err)
@@ -189,11 +227,14 @@ func (p *Provisioner) RevokeAccountDevKeys(ctx context.Context, devStore *DevSto
 	return errors.Join(errs...)
 }
 
-// DevKeyDuration is the LiteLLM-side TTL set when minting an `astro dev`
-// key. Reused across CLI invocations while non-expired (per DevKey.IsUsable)
-// so a developer running `ast dev` repeatedly in the same working day
-// gets the same key each time.
-const DevKeyDuration = 8 * time.Hour
+// Dev-key TTLs. The gateway virtual key is minted with the longer upstream TTL
+// (expires_at), while astro-server treats it as reusable for the shorter local
+// window (per DevKey.IsUsable) and re-mints after that — deliberately shorter
+// than upstream so we always rotate before the gateway key actually expires.
+const (
+	DevKeyUpstreamTTL = 48 * time.Hour // gateway expires_at (2 days)
+	DevKeyLocalTTL    = 24 * time.Hour // local reuse window (1 day)
+)
 
 // EnsureDevKey returns a usable dev key for (accountID, actorUserID),
 // minting a fresh one only when the previous has expired (or doesn't
@@ -223,16 +264,20 @@ func (p *Provisioner) EnsureDevKey(
 	}
 
 	// Mint fresh.
+	customerID, err := p.ensureCustomer(ctx, accountID)
+	if err != nil {
+		return "", "", time.Time{}, fmt.Errorf("ensure customer: %w", err)
+	}
 	resp, err := p.client.GenerateKey(ctx, KeyRequest{
-		UserID: accountID,
-		TeamID: accountID,
+		AccountID:  accountID,
+		CustomerID: customerID,
 		Metadata: map[string]any{
-			// kind separates dev keys from deploy keys in LiteLLM /key/list.
+			// kind separates dev keys from deploy keys in the admin view.
 			// actor_user_id is the only user identifier we store (no PII).
 			"kind":          "dev",
 			"actor_user_id": actorUserID,
 		},
-		Duration: DevKeyDuration.String(),
+		Duration: DevKeyUpstreamTTL.String(),
 	})
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("generate dev key: %w", err)
@@ -243,7 +288,7 @@ func (p *Provisioner) EnsureDevKey(
 		return "", "", time.Time{}, fmt.Errorf("encrypt dev key: %w", err)
 	}
 
-	expires := time.Now().UTC().Add(DevKeyDuration)
+	expires := time.Now().UTC().Add(DevKeyLocalTTL)
 	prev, err := devStore.Upsert(&DevKey{
 		AccountID:        accountID,
 		UserID:           actorUserID,

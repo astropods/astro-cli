@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,23 +23,26 @@ var devKeyColumns = []string{
 }
 
 // fakeGateway returns a test LiteLLM stub that counts /key/generate hits.
-// Each call returns the same (sk-astro-fresh, tok-fresh) — tests assert
+// Each call returns the same (sk-bf-fresh, tok-fresh) — tests assert
 // the number of generate calls to distinguish reuse vs mint paths.
 func fakeGateway(t *testing.T) (*httptest.Server, *int32) {
 	t.Helper()
 	var generateCalls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/key/generate":
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/virtual-keys":
 			atomic.AddInt32(&generateCalls, 1)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"key":   "sk-astro-fresh",
-				"token": "tok-fresh",
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"virtual_key": map[string]string{"id": "tok-fresh", "value": "sk-bf-fresh"},
 			})
-		case "/key/delete":
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/governance/virtual-keys/"):
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/customers":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"customer": map[string]string{"id": "cust-fresh", "name": "acct"},
+			})
 		default:
-			http.Error(w, "unexpected path "+r.URL.Path, http.StatusBadRequest)
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusBadRequest)
 		}
 	}))
 	return srv, &generateCalls
@@ -60,7 +64,7 @@ func TestEnsureDevKey_MintsFreshWhenAbsent(t *testing.T) {
 	mock.ExpectQuery("WITH existing AS").
 		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow(nil))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(
@@ -68,7 +72,7 @@ func TestEnsureDevKey_MintsFreshWhenAbsent(t *testing.T) {
 		"acct-1", "user-7",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "sk-astro-fresh", apiKey)
+	assert.Equal(t, "sk-bf-fresh", apiKey)
 	assert.Equal(t, srv.URL, baseURL)
 	assert.True(t, time.Until(expiresAt) > 7*time.Hour, "expires_at should be ~8h out")
 	assert.Equal(t, int32(1), atomic.LoadInt32(generateCalls),
@@ -94,7 +98,7 @@ func TestEnsureDevKey_ReusesWhenNotExpired(t *testing.T) {
 			nil, nil, expiresAt, time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, gotExpiresAt, err := provisioner.EnsureDevKey(
@@ -131,7 +135,7 @@ func TestEnsureDevKey_ReplacesWhenExpiring(t *testing.T) {
 	mock.ExpectQuery("WITH existing AS").
 		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("tok-old"))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	devStore := NewDevStore(db)
 
 	apiKey, _, _, err := provisioner.EnsureDevKey(
@@ -139,7 +143,7 @@ func TestEnsureDevKey_ReplacesWhenExpiring(t *testing.T) {
 		"acct-1", "user-7",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "sk-astro-fresh", apiKey)
+	assert.Equal(t, "sk-bf-fresh", apiKey)
 	assert.Equal(t, int32(1), atomic.LoadInt32(generateCalls),
 		"expiring-key path must mint exactly one fresh key")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -171,7 +175,7 @@ func TestEnsureDevKey_PerUserIsolation(t *testing.T) {
 			nil, nil, expiresAt, time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	devStore := NewDevStore(db)
 
 	aliceKey, _, _, err := provisioner.EnsureDevKey(
@@ -183,7 +187,7 @@ func TestEnsureDevKey_PerUserIsolation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, "sk-astro-fresh", aliceKey)
+	assert.Equal(t, "sk-bf-fresh", aliceKey)
 	assert.Equal(t, "sk-bob", bobKey)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -195,12 +199,12 @@ func TestRevokeAccountDevKeys_SweepsUpstreamThenDeletesRows(t *testing.T) {
 	// LiteLLM keys lingering until their 8h TTL.
 	var deleteCalls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/key/delete" {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/governance/virtual-keys/") {
 			atomic.AddInt32(&deleteCalls, 1)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		http.Error(w, "unexpected path "+r.URL.Path, http.StatusBadRequest)
+		http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusBadRequest)
 	}))
 	defer srv.Close()
 
@@ -217,7 +221,7 @@ func TestRevokeAccountDevKeys_SweepsUpstreamThenDeletesRows(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	devStore := NewDevStore(db)
 
 	err = provisioner.RevokeAccountDevKeys(context.Background(), devStore, "acct-1")

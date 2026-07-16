@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,25 +22,42 @@ var deploymentKeyColumns = []string{
 	"encrypted_data_key", "nonce", "issued_at", "created_at", "updated_at",
 }
 
+// fakeCustomerStore is an in-memory CustomerStore for provisioner tests.
+type fakeCustomerStore struct{ ids map[string]string }
+
+func newFakeCustomerStore() *fakeCustomerStore { return &fakeCustomerStore{ids: map[string]string{}} }
+
+func (f *fakeCustomerStore) GetBifrostCustomerID(accountID string) (string, error) {
+	return f.ids[accountID], nil
+}
+
+func (f *fakeCustomerStore) SetBifrostCustomerID(accountID, customerID string) error {
+	f.ids[accountID] = customerID
+	return nil
+}
+
 // fakeDeploymentGateway returns a test LiteLLM stub that records the
 // /key/generate body so tests can assert metadata content.
-func fakeDeploymentGateway(t *testing.T) (*httptest.Server, *int32, *KeyRequest) {
+func fakeDeploymentGateway(t *testing.T) (*httptest.Server, *int32, *bifrostVKRequest) {
 	t.Helper()
 	var generateCalls int32
-	var captured KeyRequest
+	var captured bifrostVKRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/key/generate":
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/virtual-keys":
 			atomic.AddInt32(&generateCalls, 1)
 			_ = json.NewDecoder(r.Body).Decode(&captured)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"key":   "sk-astro-fresh",
-				"token": "tok-fresh",
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"virtual_key": map[string]string{"id": "tok-fresh", "value": "sk-bf-fresh"},
 			})
-		case "/key/delete":
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/governance/virtual-keys/"):
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/governance/customers":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"customer": map[string]string{"id": "cust-fresh", "name": "acct"},
+			})
 		default:
-			http.Error(w, "unexpected path "+r.URL.Path, http.StatusBadRequest)
+			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusBadRequest)
 		}
 	}))
 	return srv, &generateCalls, &captured
@@ -59,10 +77,10 @@ func TestEnsureDeploymentKey_MintsWhenAbsentAndStampsMetadata(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(deploymentKeyColumns))
 	// Save (insert).
 	mock.ExpectExec("INSERT INTO deployment_ai_gateway").
-		WithArgs("dep-1", "acct-1", "tok-fresh", "sk-astro-fresh", []byte(nil), []byte(nil), sqlmock.AnyArg()).
+		WithArgs("dep-1", "acct-1", "tok-fresh", "sk-bf-fresh", []byte(nil), []byte(nil), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	store := NewStore(db)
 
 	apiKey, baseURL, err := provisioner.EnsureDeploymentKey(
@@ -76,26 +94,22 @@ func TestEnsureDeploymentKey_MintsWhenAbsentAndStampsMetadata(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "sk-astro-fresh", apiKey)
+	assert.Equal(t, "sk-bf-fresh", apiKey)
 	assert.Equal(t, srv.URL, baseURL)
 	assert.Equal(t, int32(1), atomic.LoadInt32(generateCalls))
 
-	// UserID/TeamID are the account-id — load-bearing for OpenMeter attribution.
-	assert.Equal(t, "acct-1", captured.UserID)
-	assert.Equal(t, "acct-1", captured.TeamID)
+	// account-id rides in the VK name (attribution); deployment scope + cluster
+	// land in name/description so they're visible in the Bifrost admin view.
+	assert.Contains(t, captured.Name, "acct-1")
+	assert.Contains(t, captured.Name, "deployment:dep-1")
+	assert.Contains(t, captured.Description, "cluster-a")
+	assert.Contains(t, captured.Description, "support-bot")
+	assert.Contains(t, captured.Description, "v1.2.3")
 
-	// Metadata: deployment-scoped tags + cluster_id.
-	tags, _ := captured.Metadata["tags"].([]any)
-	tagStrs := make([]string, 0, len(tags))
-	for _, t := range tags {
-		if s, ok := t.(string); ok {
-			tagStrs = append(tagStrs, s)
-		}
-	}
-	assert.Contains(t, tagStrs, "deployment:dep-1")
-	assert.Contains(t, tagStrs, "agent:support-bot")
-	assert.Contains(t, tagStrs, "version:v1.2.3")
-	assert.Equal(t, "cluster-a", captured.Metadata["cluster_id"])
+	// Grant is Bedrock with all provider keys.
+	assert.Len(t, captured.ProviderConfigs, 1)
+	assert.Equal(t, "bedrock", captured.ProviderConfigs[0].Provider)
+	assert.Equal(t, []string{"*"}, captured.ProviderConfigs[0].KeyIDs)
 
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -116,7 +130,7 @@ func TestEnsureDeploymentKey_IsIdempotentOnExistingRow(t *testing.T) {
 			nil, nil, time.Now(), time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	store := NewStore(db)
 
 	apiKey, _, err := provisioner.EnsureDeploymentKey(
@@ -132,7 +146,7 @@ func TestEnsureDeploymentKey_IsIdempotentOnExistingRow(t *testing.T) {
 }
 
 func TestEnsureDeploymentKey_RequiresAccountAndDeployment(t *testing.T) {
-	provisioner := NewProvisioner(NewClient("http://nope", "master"))
+	provisioner := NewProvisioner(NewClient("http://nope", "", ""), newFakeCustomerStore())
 	store := NewStore(nil)
 
 	_, _, err := provisioner.EnsureDeploymentKey(
@@ -151,7 +165,7 @@ func TestEnsureDeploymentKey_RequiresAccountAndDeployment(t *testing.T) {
 func TestRevokeDeploymentKey_DeletesUpstreamAndRow(t *testing.T) {
 	var deleteCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/key/delete" {
+		if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/governance/virtual-keys/") {
 			deleteCalls.Add(1)
 			w.WriteHeader(http.StatusOK)
 			return
@@ -174,7 +188,7 @@ func TestRevokeDeploymentKey_DeletesUpstreamAndRow(t *testing.T) {
 		WithArgs("dep-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	store := NewStore(db)
 	require.NoError(t, provisioner.RevokeDeploymentKey(context.Background(), store, "dep-1"))
 	assert.Equal(t, int32(1), deleteCalls.Load())
@@ -195,7 +209,7 @@ func TestRevokeDeploymentKey_NoopWhenRowMissing(t *testing.T) {
 		WithArgs("dep-missing").
 		WillReturnRows(sqlmock.NewRows(deploymentKeyColumns))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "master"))
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
 	store := NewStore(db)
 	require.NoError(t, provisioner.RevokeDeploymentKey(context.Background(), store, "dep-missing"))
 	require.NoError(t, mock.ExpectationsWereMet())

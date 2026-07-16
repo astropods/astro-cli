@@ -184,8 +184,10 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 			dep.AIGatewayProvisioner = aigateway.NewProvisioner(
 				aigateway.NewClient(
 					cfg.ServerConfig.Deployment.AIGatewayURL,
-					cfg.ServerConfig.Deployment.AIGatewayMasterKey,
+					cfg.ServerConfig.Deployment.AIGatewayAdminURL,
+					cfg.ServerConfig.Deployment.AIGatewayAdminAuth,
 				),
+				cfg.AccountStore,
 			)
 		}
 	}

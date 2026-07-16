@@ -799,6 +799,38 @@ func (s *AccountStore) SetOpenMeterCustomerID(accountID, customerID string) erro
 	return nil
 }
 
+// GetBifrostCustomerID returns the linked Bifrost (AI Gateway) customer ID for
+// an account, or "" if unset. The account is the Bifrost customer; per-account
+// budget lives on that customer and its virtual keys inherit it.
+func (s *AccountStore) GetBifrostCustomerID(accountID string) (string, error) {
+	var customerID sql.NullString
+	err := s.db.QueryRow(`
+		SELECT bifrost_customer_id FROM accounts WHERE id = $1
+	`, accountID).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get bifrost_customer_id: %w", err)
+	}
+	if !customerID.Valid {
+		return "", nil
+	}
+	return customerID.String, nil
+}
+
+// SetBifrostCustomerID stores the Bifrost customer ID for an account.
+func (s *AccountStore) SetBifrostCustomerID(accountID, customerID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET bifrost_customer_id = $1, updated_at = $2
+		WHERE id = $3
+	`, customerID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set bifrost_customer_id: %w", err)
+	}
+	return nil
+}
+
 // GetAccountsMissingOpenMeterCustomer returns accounts that don't have an OpenMeter customer yet.
 func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account, error) {
 	rows, err := s.db.Query(`

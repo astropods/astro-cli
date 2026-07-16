@@ -59,6 +59,7 @@ CREATE TABLE public.accounts (
     name varchar(39) NOT NULL,
     type varchar(20) NOT NULL DEFAULT 'personal',
     openmeter_customer_id text,
+    bifrost_customer_id text,
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),

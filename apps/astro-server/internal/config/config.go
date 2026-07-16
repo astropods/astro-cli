@@ -215,8 +215,9 @@ type DeploymentConfig struct {
 	// containers) uses to reach the gateway. The gateway is publicly
 	// reachable over TLS; auth is the gate, not the network. Empty
 	// AIGatewayURL disables the feature.
-	AIGatewayURL       string // AI_GATEWAY_URL — LiteLLM public endpoint, used everywhere
-	AIGatewayMasterKey string // AI_GATEWAY_MASTER_KEY — LiteLLM master key (ESO-delivered)
+	AIGatewayURL      string // AI_GATEWAY_URL — public gateway base_url tenants use (e.g. https://aig.astropod.ai)
+	AIGatewayAdminURL string // AI_GATEWAY_ADMIN_URL — in-cluster Bifrost governance API (e.g. http://bifrost.bifrost.svc.cluster.local:8080)
+	AIGatewayAdminAuth string // AI_GATEWAY_ADMIN_AUTH — full Authorization header (Basic base64(admin:pass)), ESO-delivered
 	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
 	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
@@ -285,7 +286,8 @@ func Load() (*Config, error) {
 			CPSubnetCIDRs:               getEnvSlice("CP_SUBNET_CIDRS", nil),
 			KMSKeyARN:                   getEnv("KMS_KEY_ARN", ""),
 			AIGatewayURL:                getEnv("AI_GATEWAY_URL", ""),
-			AIGatewayMasterKey:          getEnv("AI_GATEWAY_MASTER_KEY", ""),
+			AIGatewayAdminURL:           getEnv("AI_GATEWAY_ADMIN_URL", ""),
+			AIGatewayAdminAuth:          getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
 			MessagingURLOverride:        getEnv("MESSAGING_URL_OVERRIDE", ""),
 			LangfuseDBURL:               getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:                getEnv("LANGFUSE_SALT", ""),
