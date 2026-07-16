@@ -19,7 +19,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -90,15 +89,17 @@ func TestDevChatEmbedSmoke(t *testing.T) {
 
 	// The volume-ownership bug only manifests on a *fresh* (root-owned) named
 	// volume, so the test must start from one. Docker's Down keeps named volumes,
-	// so remove the chat-data volume up front and in cleanup; otherwise a volume
-	// chowned by a prior run would mask a regression.
+	// so remove the shared data volume up front and in cleanup; otherwise a volume
+	// chowned by a prior run would mask a regression. The sidecar's SQLite chat
+	// store lives on the agent's shared /data volume (matching the single shared
+	// PVC in Kubernetes), which is the volume the init container chowns.
 	var chatVol string
 	for name := range project.Volumes {
-		if strings.HasSuffix(name, "-chat-data") {
+		if name == "agent-data" {
 			chatVol = name
 		}
 	}
-	require.NotEmpty(t, chatVol, "expected a *-chat-data volume in the built project")
+	require.NotEmpty(t, chatVol, "expected the shared agent-data volume in the built project")
 	removeVolume(chatVol)
 
 	upCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

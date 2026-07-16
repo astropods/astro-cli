@@ -15,6 +15,17 @@ import (
 	"github.com/docker/compose/v5/pkg/api"
 )
 
+// agentDataVolume is the shared named volume every agent gets at
+// spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
+// volume so its files API and the agent see one filesystem — the local-dev
+// analogue of the shared PVC used in Kubernetes deployments.
+const agentDataVolume = "agent-data"
+
+// messagingFilesDir is where the messaging sidecar reads/writes the files API
+// data in dev. It lives under the shared /data volume so the agent sees the same
+// bytes at /data/files (matching the deployed agent's view).
+const messagingFilesDir = "/data/files"
+
 const (
 	// MessagingWebHostPort is the host port the messaging sidecar's HTTP API is
 	// published on. The astro CLI serves the chat UI on its own port and proxies
@@ -554,28 +565,43 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				},
 				Environment: buildMessagingEnvironment(s, envVars),
 				Ports:       buildMessagingPorts(s),
+				// Share the agent's /data volume so the files API (FILES_DIR)
+				// writes to the same disk the agent reads at /data/files — the
+				// dev analogue of the shared PVC in Kubernetes. The volume is
+				// declared in the agent section below.
+				Volumes: []types.ServiceVolumeConfig{
+					{
+						Type:   types.VolumeTypeVolume,
+						Source: agentDataVolume,
+						Target: spec.DefaultAgentVolumeMount,
+					},
+				},
 			}
 			// Persist the sidecar's SQLite chat store on a named volume so chat
 			// history survives container restarts and across `ast dev` sessions
 			// (CHAT_DB_PATH is set in buildMessagingEnvironment). Only needed for
 			// the web adapter, which is the chat path.
 			if slices.Contains(adapters, "web") {
-				chatVolume := fmt.Sprintf("%s-chat-data", agentName)
-				project.Volumes[chatVolume] = types.VolumeConfig{Name: chatVolume}
-				chatVolumeMount := types.ServiceVolumeConfig{
+				// The web/chat path persists two things under /data: the SQLite chat
+				// store (chatDBPath) and the files API data (messagingFilesDir). Both
+				// live on the shared agentDataVolume — already mounted on the sidecar
+				// above — so the agent and sidecar see one filesystem, mirroring the
+				// single shared PVC used in Kubernetes (rather than a chat-only volume
+				// that would collide with the files mount at the same /data path).
+				sharedDataMount := types.ServiceVolumeConfig{
 					Type:   types.VolumeTypeVolume,
-					Source: chatVolume,
-					Target: chatDataMountPath,
+					Source: agentDataVolume,
+					Target: spec.DefaultAgentVolumeMount,
 				}
-				messagingService.Volumes = append(messagingService.Volumes, chatVolumeMount)
 
 				// The published messaging image runs as the non-root "astro" user
 				// and does not pre-create /data. Docker initializes a fresh named
 				// volume's mountpoint as root:root, so the sidecar cannot create its
-				// SQLite chat DB there (SQLITE_CANTOPEN) and crashes on startup.
-				// Mirror the deployed sidecar's fsGroup/init behavior with a one-shot
-				// init container that chowns the volume to the astro uid before the
-				// sidecar starts. Reuses the messaging image so no extra pull.
+				// SQLite chat DB or write uploaded files there (SQLITE_CANTOPEN /
+				// EACCES) and crashes on startup. Mirror the deployed sidecar's
+				// fsGroup/init behavior with a one-shot init container that chowns the
+				// shared volume to the astro uid before the sidecar starts. Reuses the
+				// messaging image so no extra pull.
 				initName := "astro-messaging-init"
 				project.Services[initName] = types.ServiceConfig{
 					Name:       initName,
@@ -586,7 +612,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 						"/bin/sh", "-c",
 						fmt.Sprintf("mkdir -p %s && chown -R %s %s", chatDataMountPath, messagingUserUIDGID, chatDataMountPath),
 					},
-					Volumes: []types.ServiceVolumeConfig{chatVolumeMount},
+					Volumes: []types.ServiceVolumeConfig{sharedDataMount},
 					Networks: map[string]*types.ServiceNetworkConfig{
 						"astro-dev": nil,
 					},
@@ -690,7 +716,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	// Persistent disk: every agent gets a /data volume, matching the default
 	// persistent disk provisioned in production. Keeps local state (e.g. a
 	// SQLite database under /data) across `ast dev` restarts.
-	const agentDataVolume = "agent-data"
 	project.Volumes[agentDataVolume] = types.VolumeConfig{Name: agentDataVolume}
 	agentService.Volumes = []types.ServiceVolumeConfig{
 		{
@@ -716,6 +741,18 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Environment variables
 	agentService.Environment = BuildEnvironment(s, envVars, opt)
+
+	// Mirror the K8s deployer: when the messaging web adapter (and thus the files
+	// API) is enabled, tell the agent where the shared files slice is mounted so
+	// the SDK can resolve message attachments by key. In dev the agent and sidecar
+	// mount the same volume at the same path, so this equals the sidecar's FILES_DIR.
+	if s.Dev != nil && slices.Contains(s.Dev.MessagingAdapters(), "web") {
+		filesDir := messagingFilesDir
+		if agentService.Environment == nil {
+			agentService.Environment = types.MappingWithEquals{}
+		}
+		agentService.Environment["AGENT_FILES_DIR"] = &filesDir
+	}
 
 	// Dependencies - depend on all other services
 	dependsOn := make(types.DependsOnConfig)
@@ -995,6 +1032,12 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	// Dev mode — lets the messaging service tag outgoing messages
 	devMode := "true"
 	env["DEV"] = &devMode
+
+	// Files API: point at the shared /data volume (mounted into the sidecar) so
+	// uploads land where the agent can read them and agent-written files surface
+	// back to the user. Mirrors the FILES_DIR the K8s deployer injects.
+	filesDir := messagingFilesDir
+	env["FILES_DIR"] = &filesDir
 
 	// Configure adapters based on interfaces
 	for _, name := range s.Dev.MessagingAdapters() {
