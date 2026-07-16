@@ -48,6 +48,22 @@ export function isChatListEligible(
   return summary?.messaging_web_configured === true;
 }
 
+export function hasNewerBuild(deployment: {
+  build_id?: string;
+  latest_build_id?: string;
+}): boolean {
+  return !!deployment.latest_build_id && deployment.latest_build_id !== deployment.build_id;
+}
+
+export function withLatestBuildId(
+  deployment: AgentDeployment | null | undefined,
+  latestBuildId?: string,
+) {
+  return deployment && !deployment.latest_build_id && latestBuildId
+    ? { ...deployment, latest_build_id: latestBuildId }
+    : deployment;
+}
+
 /**
  * The chat composer's high-level state, derived from the deployment's coarse
  * status, its reason code, and the live messaging reachability. Drives both the

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useParams, Link, useNavigate } from "react-router";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router";
 import type { Route } from "./+types/DeployBlueprint";
 import { ArrowLeft, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import type { AvatarColors } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
+import { BlueprintVersionPicker } from "@/components/deploy/BlueprintVersionPicker";
 import { useAccountUsage } from "@/api/queries/usage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
@@ -49,15 +50,27 @@ export const meta: Route.MetaFunction = ({ data }) => {
 export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account: string; agentSlug: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const { data: agent, isError } = useBlueprint(account ?? "", agentSlug ?? "", {
     initialData: loaderData?.agent ?? undefined,
   });
 
+  const latestBuildId = agent?.versions[0]?.build_id;
+  const selectedBuildId = searchParams.get("build") ?? latestBuildId;
+  const selectedHistoricalBuild = !!selectedBuildId && selectedBuildId !== latestBuildId;
+
   const form = useDeployForm(account ?? "", agentSlug ?? "", {
-    initialTemplateResponse: loaderData?.templateResponse ?? undefined,
+    initialTemplateResponse:
+      !selectedHistoricalBuild &&
+      loaderData?.templateResponse &&
+      loaderData.templateResponse.template.source.build === selectedBuildId
+        ? loaderData.templateResponse
+        : undefined,
+    build: selectedBuildId,
     allowedTargetAccounts: agent?.visibility === "private" && account ? [account] : undefined,
   });
+  const hasTemplateSwitchError = !!form.template && !!form.templateError;
 
   const { data: usageData } = useAccountUsage(form.targetAccount);
   const computeMeter = usageData?.meters?.compute;
@@ -116,6 +129,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (hasTemplateSwitchError) return;
     if (!form.trySubmit()) return;
     try {
       const result = await form.deploy();
@@ -187,16 +201,46 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
 
         <div className="flex-1 overflow-y-auto">
         <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto px-6 pt-10 pb-20 md:px-8">
-          <DeployFormFields
-            form={form}
-            avatar={{
-              url: agent.avatar_url,
-              account: agent.account,
-              blueprintName: agent.name,
-              onStage: handleStageAvatar,
-              stagedPreviewUrl: stagedPreviewUrl ?? undefined,
-            }}
-          />
+          {selectedBuildId && (
+            <BlueprintVersionPicker
+              versions={agent.versions}
+              selectedBuildId={selectedBuildId}
+              latestBuildId={latestBuildId}
+              onBuildChange={(buildId) => {
+                setSearchParams(
+                  buildId === latestBuildId ? {} : { build: buildId },
+                  { replace: true },
+                );
+              }}
+              loading={form.templateLoading}
+              error={hasTemplateSwitchError ? form.templateError : undefined}
+              recovery={selectedHistoricalBuild ? {
+                label: "Use latest build",
+                onClick: () => setSearchParams({}, { replace: true }),
+              } : undefined}
+            />
+          )}
+          <fieldset
+            disabled={form.templateLoading || hasTemplateSwitchError}
+            aria-busy={form.templateLoading || hasTemplateSwitchError}
+            className={
+              form.templateLoading || hasTemplateSwitchError
+                ? "min-w-0 border-0 p-0 pointer-events-none opacity-55 transition-opacity duration-200"
+                : "min-w-0 border-0 p-0 opacity-100 transition-opacity duration-200"
+            }
+          >
+            <DeployFormFields
+              form={form}
+              hideTemplateError={hasTemplateSwitchError}
+              avatar={{
+                url: agent.avatar_url,
+                account: agent.account,
+                blueprintName: agent.name,
+                onStage: handleStageAvatar,
+                stagedPreviewUrl: stagedPreviewUrl ?? undefined,
+              }}
+            />
+          </fieldset>
 
           {form.template && (
             <>
@@ -218,7 +262,11 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
                         <Button
                           type="submit"
                           size="default"
-                          disabled={form.isDeploying || isAtComputeLimit}
+                          disabled={
+                            form.isDeploying
+                            || form.templateLoading
+                            || isAtComputeLimit
+                          }
                           className="px-6 has-[>svg]:px-6"
                         >
                           {form.isDeploying ? (

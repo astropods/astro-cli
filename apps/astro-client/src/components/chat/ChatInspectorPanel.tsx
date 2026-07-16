@@ -42,7 +42,7 @@ import {
   slackIdentityDisplay,
 } from "@/components/activity/insights-user-identity";
 import type { DayRange } from "@/components/agent-detail/charts/chart-utils";
-import { DeploymentStatusBadge } from "@/components/agent-detail/deployments/DeploymentTile";
+import { DeploymentStatusBadge } from "@/components/agent-detail/deployments/DeploymentStatusBadge";
 import {
   type TraceStatus,
   STATUS_CONFIG,

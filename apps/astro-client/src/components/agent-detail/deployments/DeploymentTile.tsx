@@ -1,85 +1,11 @@
 import type { ReactNode } from "react";
-import { Loader2, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
 import { commitUrl } from "@/lib/github-utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
-
-type StatusColor = { bg: string; border: string; badgeBg: string; badgeText: string };
-
-const SUCCESS_COLORS: StatusColor = {
-  bg: "color-mix(in oklch, var(--success) 12%, transparent)",
-  border: "color-mix(in oklch, var(--success) 25%, transparent)",
-  badgeBg: "color-mix(in oklch, var(--success) 20%, transparent)",
-  badgeText: "var(--success)",
-};
-export const WARNING_COLORS: StatusColor = {
-  bg: "color-mix(in oklch, var(--warning) 12%, transparent)",
-  border: "color-mix(in oklch, var(--warning) 25%, transparent)",
-  badgeBg: "color-mix(in oklch, var(--warning) 22%, transparent)",
-  badgeText: "var(--warning)",
-};
-// The build phase (Preparing/Building) uses blue (--info) so its card reads as
-// distinct from the amber Deploying card it stacks above; deploying keeps the
-// amber warning treatment. --info adapts per theme (blue-600 light, blue-400
-// dark) so the badge text stays legible on both surfaces.
-export const INFO_COLORS: StatusColor = {
-  bg: "color-mix(in oklch, var(--info) 12%, transparent)",
-  border: "color-mix(in oklch, var(--info) 28%, transparent)",
-  badgeBg: "color-mix(in oklch, var(--info) 22%, transparent)",
-  badgeText: "var(--info)",
-};
-const ERROR_COLORS: StatusColor = {
-  bg: "color-mix(in oklch, var(--error) 12%, transparent)",
-  border: "color-mix(in oklch, var(--error) 25%, transparent)",
-  badgeBg: "color-mix(in oklch, var(--error) 20%, transparent)",
-  badgeText: "var(--error)",
-};
-const NEUTRAL_COLORS: StatusColor = {
-  bg: "var(--color-muted)",
-  border: "var(--color-border)",
-  badgeBg: "var(--color-muted)",
-  badgeText: "var(--color-muted-foreground)",
-};
-
-const STATUS_COLORS: Record<DeploymentStatusValue, StatusColor> = {
-  active:      SUCCESS_COLORS,
-  deploying:   WARNING_COLORS,
-  error:       ERROR_COLORS,
-  undeploying: NEUTRAL_COLORS,
-  inactive:    NEUTRAL_COLORS,
-};
-
-const STATUS_LABELS: Record<DeploymentStatusValue, string> = {
-  active: "Active",
-  deploying: "Deploying",
-  error: "Error",
-  undeploying: "Undeploying",
-  inactive: "Inactive",
-};
-
-const SPINNING_STATUSES: ReadonlySet<DeploymentStatusValue> = new Set(["deploying", "undeploying"]);
-
-export function DeploymentStatusBadge({
-  status,
-  label,
-}: {
-  status: DeploymentStatusValue;
-  label?: string;
-}) {
-  const colors = STATUS_COLORS[status] ?? NEUTRAL_COLORS;
-
-  return (
-    <span
-      className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
-      style={{ backgroundColor: colors.badgeBg, color: colors.badgeText }}
-    >
-      {SPINNING_STATUSES.has(status) && <Loader2 className="size-3 animate-spin" />}
-      {label ?? STATUS_LABELS[status]}
-    </span>
-  );
-}
+import { DeploymentStatusBadge, getDeploymentStatusColors } from "./DeploymentStatusBadge";
 
 export interface DeploymentTileProps {
   /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
@@ -121,7 +47,7 @@ export function DeploymentTile({
   // without a status badge.
   const { data: statusData } = useDeploymentStatus(deployment?.id ?? "", !!active && !!deployment);
   const status: DeploymentStatusValue | null = active && deployment ? statusData?.value ?? null : null;
-  const colors = status ? (STATUS_COLORS[status] ?? NEUTRAL_COLORS) : NEUTRAL_COLORS;
+  const colors = getDeploymentStatusColors(status);
   const shortBuild = shortBuildId(buildId);
   const commitLink = commitUrl(repoFullName, commitSha);
   const errorMessage = status === "error" ? deployment?.error_message : undefined;

@@ -6,7 +6,7 @@ import { Outlet } from "react-router";
 import { server } from "@/test/msw/server";
 import { mockTemplate, wrapTemplateResponse } from "@/test/msw/handlers";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
-import type { AgentDeployment } from "@/lib/api";
+import type { AgentDeployment, TemplateRequest } from "@/lib/api";
 import type { AuthContextType } from "@/lib/auth-context";
 import { DEPLOYMENT_DISPLAY_NAME_MAX_LENGTH } from "@/components/deploy/constants";
 import AgentConfigure from "./AgentConfigure";
@@ -31,6 +31,14 @@ function makeDeployment(overrides?: Partial<AgentDeployment>): AgentDeployment {
   };
 }
 
+const anthropicVariable = {
+  default: "",
+  targets: ["agent"],
+  secret: true,
+  optional: false,
+  label: "Anthropic API Key",
+};
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -40,6 +48,23 @@ beforeEach(() => {
   server.use(
     http.get("/api/v1/accounts/:account/variables", () =>
       HttpResponse.json({ variables: [] }),
+    ),
+    http.get("/api/v1/agents/:account/:name", ({ params }) =>
+      HttpResponse.json({
+        name: params.name,
+        account: params.account,
+        registry: "registry.example.com",
+        visibility: "public",
+        status: "active",
+        versions: [
+          {
+            build_id: "b2c3d4e5f6a7",
+            published_at: "2026-07-12T12:00:00Z",
+            commit_message: "Current build",
+            spec: {},
+          },
+        ],
+      }),
     ),
     http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
       const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
@@ -68,7 +93,6 @@ function renderConfigure(
   const user = userEvent.setup();
   const account = opts?.account ?? "testuser";
   const path = `/${account}/agents/${dep.id}/configure${searchParams ? `?${searchParams}` : ""}`;
-
   const result = renderRoute(
     [
       {
@@ -305,11 +329,16 @@ describe("user edits configuration variables", () => {
 });
 
 describe("user submits a deployment", () => {
-  it("successful deploy posts to /api/v1/deploy and navigates to the deployments tab", async () => {
+  it("shows progress and navigates after the deploy succeeds", async () => {
     const deployHandler = vi.fn();
+    let releaseDeploy!: () => void;
+    const deployGate = new Promise<void>((resolve) => {
+      releaseDeploy = resolve;
+    });
     server.use(
       http.post("/api/v1/deploy", async ({ request }) => {
         deployHandler(await request.json());
+        await deployGate;
         return HttpResponse.json({
           status: "deployed",
           name: "code-reviewer",
@@ -326,11 +355,16 @@ describe("user submits a deployment", () => {
     await user.type(screen.getByLabelText("OpenAI API Key"), "sk-test-key");
     await user.click(screen.getByRole("button", { name: /redeploy/i }));
 
+    expect(await screen.findByRole("button", { name: /redeploying/i })).toBeDisabled();
+    expect(screen.queryByTestId("deployments-page")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(deployHandler).toHaveBeenCalledTimes(1);
+    });
+    releaseDeploy();
     expect(await screen.findByTestId("deployments-page")).toBeInTheDocument();
-    expect(deployHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("deploy error keeps the user on the form and surfaces the error", async () => {
+  it("keeps deploy errors inline and preserves the form", async () => {
     const deployHandler = vi.fn();
     server.use(
       http.post("/api/v1/deploy", () => {
@@ -350,8 +384,8 @@ describe("user submits a deployment", () => {
     await waitFor(() => {
       expect(screen.getByText("Insufficient resources")).toBeInTheDocument();
     });
-    // Did NOT navigate away
     expect(screen.queryByTestId("deployments-page")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("sk-test-key")).toBeInTheDocument();
     expect(deployHandler).toHaveBeenCalledTimes(1);
   });
 
@@ -469,27 +503,239 @@ describe("rollback mode", () => {
   // is correct; the routing stub limitation prevents testing the full flow.
 });
 
-describe("upgrade mode", () => {
-  it("shows upgrade banner with build comparison", async () => {
+describe("blueprint version selection", () => {
+  it("shows a build supplied by the update URL as selected", async () => {
     renderConfigure(
       makeDeployment({ build_id: "oldbuild1" }),
       "build=newbuild2",
     );
     await waitForForm();
 
-    expect(screen.getByText("Update")).toBeInTheDocument();
-    // Shows old → new build hash comparison
-    expect(screen.getByText(/oldbuild/)).toBeInTheDocument();
-    expect(screen.getByText("newbuild")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Blueprint version" })).toHaveTextContent("newbuild");
+    expect(screen.getByText(/redeploy with the selected build/i)).toBeInTheDocument();
   });
 
-  it("footer shows upgrade context", async () => {
-    renderConfigure(undefined, "build=newbuild2");
+  it("defaults back to the current build after Configure is remounted", async () => {
+    server.use(
+      http.get("/api/v1/agents/:account/:name", ({ params }) =>
+        HttpResponse.json({
+          name: params.name,
+          account: params.account,
+          registry: "registry.example.com",
+          visibility: "public",
+          status: "active",
+          versions: [
+            {
+              build_id: "newbuild2",
+              published_at: "2026-07-13T12:00:00Z",
+              commit_message: "Latest fixes",
+              spec: {},
+            },
+            {
+              build_id: "oldbuild1",
+              published_at: "2026-07-12T12:00:00Z",
+              commit_message: "Currently deployed",
+              spec: {},
+            },
+          ],
+        }),
+      ),
+    );
+    const deployment = makeDeployment({
+      build_id: "oldbuild1",
+      latest_build_id: "newbuild2",
+    });
+    const firstRender = renderConfigure(deployment);
     await waitForForm();
 
-    expect(screen.getByText(/update to new build/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /redeploy/i })).toBeInTheDocument();
+    await firstRender.user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await firstRender.user.click(
+      await screen.findByRole("option", { name: /latest fixes/i }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Blueprint version" })).toHaveTextContent(
+        "Latest fixes",
+      );
+    });
+
+    firstRender.unmount();
+    renderConfigure(deployment);
+    await waitForForm();
+
+    expect(screen.getByRole("combobox", { name: "Blueprint version" })).toHaveTextContent(
+      "Currently deployed",
+    );
   });
+
+  it("replaces form fields with the selected build template", async () => {
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as TemplateRequest;
+        const template = body.build === "newbuild2"
+          ? {
+              ...mockTemplate,
+              variables: {
+                ...mockTemplate.variables,
+                ANTHROPIC_API_KEY: anthropicVariable,
+              },
+            }
+          : mockTemplate;
+        return HttpResponse.json(wrapTemplateResponse(template, body));
+      }),
+    );
+    const { user } = renderConfigure(
+      makeDeployment({ build_id: "oldbuild1", latest_build_id: "newbuild2" }),
+    );
+    await waitForForm();
+
+    expect(screen.queryByLabelText("Anthropic API Key")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await user.click(screen.getByRole("option", { name: /newbuild.*latest/i }));
+
+    expect(await screen.findByLabelText("Anthropic API Key")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await user.click(screen.getByRole("option", { name: /oldbuild.*current/i }));
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Anthropic API Key")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await user.click(screen.getByRole("option", { name: /newbuild.*latest/i }));
+    expect(await screen.findByLabelText("Anthropic API Key")).toBeInTheDocument();
+  });
+
+  it("ignores a stale reshape response after switching builds", async () => {
+    let releaseOldReshape!: () => void;
+    let oldReshapeStarted = false;
+    let oldReshapeCompleted = false;
+    const oldReshapeGate = new Promise<void>((resolve) => {
+      releaseOldReshape = resolve;
+    });
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as TemplateRequest;
+        const isOldBuildReshape = body.build === "oldbuild1"
+          && body.interfaces?.adapters?.includes("slack");
+        if (isOldBuildReshape) {
+          oldReshapeStarted = true;
+          await oldReshapeGate;
+          oldReshapeCompleted = true;
+        }
+        const template = body.build === "newbuild2"
+          ? {
+              ...mockTemplate,
+              variables: {
+                ...mockTemplate.variables,
+                ANTHROPIC_API_KEY: anthropicVariable,
+              },
+            }
+          : mockTemplate;
+        return HttpResponse.json(wrapTemplateResponse(template, body));
+      }),
+    );
+    const { user } = renderConfigure(
+      makeDeployment({ build_id: "oldbuild1", latest_build_id: "newbuild2" }),
+    );
+    await waitForForm();
+
+    await user.click(screen.getByRole("button", { name: /slack/i }));
+    await waitFor(() => expect(oldReshapeStarted).toBe(true));
+    await user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await user.click(screen.getByRole("option", { name: /newbuild.*latest/i }));
+    expect(await screen.findByLabelText("Anthropic API Key")).toBeInTheDocument();
+
+    releaseOldReshape();
+    await waitFor(() => {
+      expect(oldReshapeCompleted).toBe(true);
+      expect(screen.getByLabelText("Anthropic API Key")).toBeInTheDocument();
+    });
+  });
+
+  it("keeps a failed adapter reshape non-blocking and clears it after success", async () => {
+    let reshapeAttempts = 0;
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as TemplateRequest;
+        if (body.interfaces) {
+          reshapeAttempts += 1;
+          if (reshapeAttempts === 1) {
+            return HttpResponse.json(
+              { error_description: "Adapter options unavailable" },
+              { status: 500 },
+            );
+          }
+        }
+        return HttpResponse.json(wrapTemplateResponse(mockTemplate, body));
+      }),
+    );
+    const { user } = renderConfigure();
+    await waitForForm();
+
+    await user.click(screen.getByRole("button", { name: /slack/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Adapter options unavailable",
+    );
+    expect(screen.queryByText("Couldn’t load this build")).not.toBeInTheDocument();
+    expect(screen.getByText("General").closest("fieldset")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /^redeploy$/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /slack/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+    expect(reshapeAttempts).toBe(2);
+  });
+
+  it("surfaces a failed build switch and can return to the current build", async () => {
+    const deployHandler = vi.fn();
+    server.use(
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as TemplateRequest;
+        if (body.build === "newbuild2") {
+          return HttpResponse.json(
+            { error: "The selected build is unavailable" },
+            { status: 404 },
+          );
+        }
+        return HttpResponse.json(wrapTemplateResponse(mockTemplate, body));
+      }),
+      http.post("/api/v1/deploy", () => {
+        deployHandler();
+        return HttpResponse.json({ status: "deployed" });
+      }),
+    );
+    const { user } = renderConfigure(
+      makeDeployment({ build_id: "oldbuild1", latest_build_id: "newbuild2" }),
+    );
+    await waitForForm();
+
+    await user.click(screen.getByRole("combobox", { name: "Blueprint version" }));
+    await user.click(screen.getByRole("option", { name: /newbuild.*latest/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load this build");
+    expect(screen.getByRole("alert")).toHaveTextContent("The selected build is unavailable");
+    const fields = screen.getByText("General").closest("fieldset");
+    expect(fields).toHaveClass("pointer-events-none");
+    expect(fields).toBeDisabled();
+    expect(fields).toHaveAttribute("aria-busy", "true");
+    const redeployButton = screen.getByRole("button", { name: /^redeploy$/i });
+    expect(redeployButton).toBeEnabled();
+    await user.click(redeployButton);
+    expect(deployHandler).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Use current build" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Blueprint version" })).toBeEnabled();
+    });
+    expect(screen.getByRole("combobox", { name: "Blueprint version" })).toHaveTextContent(
+      "oldbuild",
+    );
+  });
+
 });
 
 // Regression: redeploying an org deployment was building target.account from

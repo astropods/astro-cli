@@ -6,6 +6,7 @@ import {
   isPausedState,
   launchUnavailableMessage,
   getLaunchDisabledMessage,
+  withLatestBuildId,
 } from "./deployment-utils";
 import type {
   AgentDeployment,
@@ -36,6 +37,14 @@ const baseRecord: AgentDeployment = {
 function make(overrides: Partial<AgentDeployment>): AgentDeployment {
   return { ...baseRecord, ...overrides };
 }
+
+describe("withLatestBuildId", () => {
+  it("backfills a missing latest build without replacing an authoritative value", () => {
+    expect(withLatestBuildId(baseRecord, "latest")?.latest_build_id).toBe("latest");
+    expect(withLatestBuildId(make({ latest_build_id: "detail" }), "summary")?.latest_build_id)
+      .toBe("detail");
+  });
+});
 
 const baseSummary: AgentDeploymentSummary = {
   id: "dep-1",

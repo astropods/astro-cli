@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link, Outlet, useParams, useOutletContext, useLocation } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import type { Route } from "./+types/AgentDetail";
@@ -12,7 +13,7 @@ import { chatDeploymentPath } from "@/lib/routes";
 import { ArrowUpRight } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { getLaunchDisabledMessage, isChatListEligible } from "@/lib/deployment-utils";
+import { getLaunchDisabledMessage, isChatListEligible, withLatestBuildId } from "@/lib/deployment-utils";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const account = params.account ?? "";
@@ -68,14 +69,18 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { data: runtimeData } = useDeploymentRuntime(deploymentId ?? "");
   const { data: statusData } = useDeploymentStatus(deploymentId ?? "");
   const { data: deploymentsData } = useDeployments(account ?? "");
-  const deployment = data?.deployment ?? loaderData.deployment;
   const runtime = runtimeData?.runtime;
   const isActive = statusData?.value === "active";
   // Gate Launch on the web (chat) adapter — same signal the agents list and
   // chat surface use (messaging_web_configured), since Launch deep-links into
   // the web chat. The record endpoint only carries messaging_configured (true
   // even for slack-only agents), so read the summary from the list endpoint.
+  const rawDeployment = data?.deployment ?? loaderData.deployment;
   const deploymentSummary = deploymentsData?.deployments.find((d) => d.id === deploymentId);
+  const deployment = useMemo(
+    () => withLatestBuildId(rawDeployment, deploymentSummary?.latest_build_id),
+    [rawDeployment, deploymentSummary?.latest_build_id],
+  );
   const canLaunch = isChatListEligible(deploymentSummary);
   const launchDisabled = !isActive;
 

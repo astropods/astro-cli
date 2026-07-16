@@ -1,6 +1,6 @@
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
-import { isChatListEligible } from "@/lib/deployment-utils";
+import { hasNewerBuild, isChatListEligible } from "@/lib/deployment-utils";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
 // Thin adapter: maps an AgentDeployment row into the neutral props that
@@ -22,8 +22,7 @@ export function DeploymentAgentCard({
   const hasMessaging = isChatListEligible(deployment);
   const canLaunch = hasMessaging;
   const launchDisabled = deployment.status !== "Running";
-  const hasUpdateAvailable =
-    !!deployment.latest_build_id && deployment.latest_build_id !== deployment.build_id;
+  const hasUpdateAvailable = hasNewerBuild(deployment);
   const hasError = deployment.status === "error";
 
   return (

@@ -10,7 +10,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/lib/auth";
-import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
+import { formatRelativeTime, hasNewerBuild, shortBuildId } from "@/lib/deployment-utils";
 import { deploymentConfigurePath, deploymentPath } from "@/lib/routes";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { SidebarSection } from "./SidebarSection";
@@ -113,7 +113,7 @@ function DeployedAgentRow({
 }) {
   const shortBuild = shortBuildId(deployment.build_id);
   const latest = deployment.latest_build_id;
-  const isBehind = !!latest && deployment.build_id !== latest;
+  const isBehind = hasNewerBuild(deployment);
   const isCurrent = !!latest && deployment.build_id === latest;
   return (
     <li className="flex items-center gap-1 rounded-[3px] pr-1.5">

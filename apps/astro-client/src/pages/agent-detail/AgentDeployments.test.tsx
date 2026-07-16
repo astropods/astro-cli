@@ -78,6 +78,14 @@ beforeEach(() => {
     http.get("/api/v1/deployments/:id/events", () =>
       HttpResponse.json<DeploymentEventsResponse>({ events: [] }),
     ),
+    http.get("/api/v1/agents/:account/:name/github", () =>
+      HttpResponse.json({
+        connected: false,
+        repo_full_name: "",
+        branch: "",
+        builds: [],
+      }),
+    ),
   );
 });
 
@@ -763,7 +771,11 @@ describe("user sees upgrade nudge", () => {
         }),
       ),
     );
-    renderDeployments(makeDeployment({ build_id: "a1b2c3d4", source_account: "testuser" }));
+    renderDeployments(makeDeployment({
+      build_id: "a1b2c3d4",
+      latest_build_id: "newer-build",
+      source_account: "testuser",
+    }));
     expect(await screen.findByText("New build available")).toBeInTheDocument();
   });
 

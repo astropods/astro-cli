@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -6,7 +6,7 @@ import { server } from '@/test/msw/server';
 import { mockTemplate, wrapTemplateResponse } from '@/test/msw/handlers';
 import { mockAuthContext, renderRoute } from '@/test/test-utils';
 import DeployBlueprint from './DeployBlueprint';
-import type { Blueprint, DeploymentSpec } from '@/lib/api';
+import type { Blueprint, DeploymentSpec, TemplateRequest } from '@/lib/api';
 import type { AuthContextType } from '@/lib/auth-context';
 
 afterEach(cleanup);
@@ -68,6 +68,148 @@ describe('DeployBlueprint page', () => {
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Deploy');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('code-reviewer');
+    });
+
+    it('replaces form fields with the selected build template', async () => {
+      const templateRequests: TemplateRequest[] = [];
+      server.use(
+        http.get('/api/v1/agents/:account/:name', () =>
+          HttpResponse.json({
+            name: AGENT,
+            account: ACCOUNT,
+            registry: 'registry.example.com',
+            visibility: 'public',
+            status: 'active',
+            versions: [
+              {
+                build_id: 'latest-build',
+                published_at: '2026-07-13T12:00:00Z',
+                commit_message: 'Latest feature build',
+                spec: {},
+              },
+              {
+                build_id: 'stable-build',
+                published_at: '2026-07-12T12:00:00Z',
+                commit_message: 'Known stable build',
+                spec: {},
+              },
+            ],
+          }),
+        ),
+        http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+          const body = (await request.json().catch(() => ({}))) as TemplateRequest;
+          templateRequests.push(body);
+          const template = body.build === 'latest-build'
+            ? {
+                ...mockTemplate,
+                variables: {
+                  ...mockTemplate.variables,
+                  ANTHROPIC_API_KEY: {
+                    default: '',
+                    targets: ['agent'],
+                    secret: true,
+                    optional: false,
+                    label: 'Anthropic API Key',
+                    description: 'Anthropic API key for the model provider',
+                  },
+                },
+              }
+            : mockTemplate;
+          return HttpResponse.json(wrapTemplateResponse(template, body));
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      expect(await screen.findByLabelText('Anthropic API Key')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('combobox', { name: 'Blueprint version' }));
+      await user.click(screen.getByRole('option', { name: /known stable build/i }));
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Anthropic API Key')).not.toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('combobox', { name: 'Blueprint version' }));
+      await user.click(screen.getByRole('option', { name: /latest feature build/i }));
+      expect(await screen.findByLabelText('Anthropic API Key')).toBeInTheDocument();
+      expect(templateRequests).toEqual(expect.arrayContaining([
+        expect.objectContaining({ build: 'latest-build' }),
+        expect.objectContaining({ build: 'stable-build' }),
+      ]));
+    });
+
+    it('keeps the form visible and surfaces an inline error when a build switch fails', async () => {
+      const deployHandler = vi.fn();
+      server.use(
+        http.get('/api/v1/agents/:account/:name', () =>
+          HttpResponse.json({
+            name: AGENT,
+            account: ACCOUNT,
+            registry: 'registry.example.com',
+            visibility: 'public',
+            status: 'active',
+            versions: [
+              {
+                build_id: 'latest-build',
+                published_at: '2026-07-13T12:00:00Z',
+                commit_message: 'Latest feature build',
+                spec: {},
+              },
+              {
+                build_id: 'stable-build',
+                published_at: '2026-07-12T12:00:00Z',
+                commit_message: 'Known stable build',
+                spec: {},
+              },
+            ],
+          }),
+        ),
+        http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+          const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          if (body.build === 'stable-build') {
+            return HttpResponse.json(
+              { error: 'The selected build is unavailable' },
+              { status: 404 },
+            );
+          }
+          return HttpResponse.json(
+            wrapTemplateResponse(mockTemplate, body as Parameters<typeof wrapTemplateResponse>[1]),
+          );
+        }),
+        http.post('/api/v1/deploy', () => {
+          deployHandler();
+          return HttpResponse.json({ status: 'deployed' });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.click(screen.getByRole('combobox', { name: 'Blueprint version' }));
+      await user.click(screen.getByRole('option', { name: /known stable build/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load this build');
+      expect(screen.getByRole('alert')).toHaveTextContent('The selected build is unavailable');
+      expect(screen.getByText('General')).toBeVisible();
+      const fields = screen.getByText('General').closest('fieldset');
+      expect(fields).toBeDisabled();
+      expect(fields).toHaveAttribute('aria-busy', 'true');
+      const deployButton = screen.getByRole('button', { name: /^deploy$/i });
+      expect(deployButton).toBeEnabled();
+      await user.click(deployButton);
+      expect(deployHandler).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Use latest build' }));
+      await waitFor(() => {
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: 'Blueprint version' })).toBeEnabled();
+      });
+      expect(screen.getByRole('combobox', { name: 'Blueprint version' })).toHaveTextContent(
+        'Latest feature build',
+      );
     });
 
     it('shows agent not found when agent does not exist', async () => {

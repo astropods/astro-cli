@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { resetMockBackend } from "./helpers";
 
 const ACCOUNT = "testuser";
@@ -7,6 +7,13 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_XACCT_UPGRADE_ID = "dep-xacct-upgrade-1";
 const DEPLOYMENT_XACCT_COLLISION_ID = "dep-xacct-collision-1";
 const DEPLOYMENT_XACCT_PRIVATE_ID = "dep-xacct-private-1";
+const SELECTED_BUILD_MESSAGE = "Redeploy with the selected build.";
+
+async function expectLatestBuildSelected(page: Page) {
+  const versionPicker = page.getByRole("combobox", { name: "Blueprint version" });
+  await expect(versionPicker.getByText("Latest", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(SELECTED_BUILD_MESSAGE, { exact: true })).toBeVisible();
+}
 
 // The mock backend is stateful (deploys update build_id), so reset between tests.
 test.beforeEach(async () => {
@@ -129,16 +136,16 @@ test("up-to-date deployment does not show new build badge", async ({ page }) => 
 });
 
 
-// Build-only upgrade flow: navigating to configure with ?build= shows the upgrade
-// banner and Redeploy button. Submitting without edits redeploys the current config
+// Build-only upgrade flow: navigating to configure with ?build= selects the latest
+// build and shows the Redeploy button. Submitting without edits redeploys the current config
 // against the latest build.
-test("configure page shows upgrade banner and redeploys without edits", async ({ page }) => {
+test("configure page selects latest build and redeploys without edits", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure?build=build-124`, {
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expectLatestBuildSelected(page);
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   const redeployRequest = page.waitForRequest(
@@ -166,7 +173,7 @@ test("new build nudge clears after successful upgrade redeploy", async ({ page }
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expectLatestBuildSelected(page);
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   await Promise.all([
@@ -186,7 +193,7 @@ test("editing config on upgrade page keeps redeploy and discard reverts", async 
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expectLatestBuildSelected(page);
   await expect(page.getByRole("button", { name: /^redeploy$/i })).toBeVisible();
 
   await page.getByLabel("Slack Bot Token").fill("xoxb-changed-value");
@@ -198,8 +205,11 @@ test("editing config on upgrade page keeps redeploy and discard reverts", async 
   // Clicking Discard removes the build override, returning to normal configure
   await page.getByRole("button", { name: /discard/i }).click();
 
-  // After discard the upgrade override is cleared, footer disappears
-  await expect(page.getByText("Update", { exact: true })).toHaveCount(0, { timeout: 5_000 });
+  // After discard the upgrade override is cleared and the picker returns to the current build.
+  await expect(page.getByText(SELECTED_BUILD_MESSAGE, { exact: true })).toHaveCount(0, { timeout: 5_000 });
+  await expect(
+    page.getByRole("combobox", { name: "Blueprint version" }).getByText("Current", { exact: true }),
+  ).toBeVisible();
 });
 
 // When the deploy API rejects a redeploy, the user should stay on the configure
@@ -210,7 +220,7 @@ test("failed redeploy keeps user on configure page with action bar", async ({ pa
     waitUntil: "domcontentloaded",
   });
 
-  await expect(page.getByText("Update", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expectLatestBuildSelected(page);
 
   // Change the bot token to the sentinel that triggers a 400 from the mock backend
   await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");

@@ -12,10 +12,11 @@ import {
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useGitHubStatus } from "@/api/queries/github";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
-import { isPausedState } from "@/lib/deployment-utils";
+import { hasNewerBuild, isPausedState } from "@/lib/deployment-utils";
 import { commitTitle, commitUrl, shortSha } from "@/lib/github-utils";
 import type { AgentDeployment, DeploymentHistoryRecord, GitHubBuild } from "@/lib/api";
-import { DeploymentTile, INFO_COLORS } from "./DeploymentTile";
+import { INFO_COLORS } from "./DeploymentStatusBadge";
+import { DeploymentTile } from "./DeploymentTile";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -392,21 +393,21 @@ export function DeploymentHistoryPanel({
   const { data: statusData } = useDeploymentStatus(deployment.id);
   const deploying = statusData?.value === "deploying" || statusData?.value === "undeploying";
   const upgrade = useMemo(() => {
-    if (!sourceBlueprint?.versions?.length) return null;
-    const latest = sourceBlueprint.versions.reduce((best, cur) =>
-      new Date(cur.published_at).getTime() > new Date(best.published_at).getTime() ? cur : best,
-    );
-    // Only show upgrade if the source account matches or the blueprint is public
-    if (sourceAccount !== account && sourceBlueprint.visibility === "private") return null;
-    if (latest.build_id === deployment.build_id) return null;
-    return {
-      buildId: latest.build_id,
-      commitMessage: latest.commit_message,
-      commitSha: latest.commit_sha,
-      repoFullName: latest.repo_full_name,
-    };
-  }, [sourceBlueprint, sourceAccount, account, deployment.build_id]);
+    if (!hasNewerBuild(deployment)) return null;
 
+    // latest_build_id is the shared authority for upgrade availability and is
+    // omitted by the server for cross-account private blueprints. Readable
+    // blueprint versions only enrich the nudge with optional commit metadata.
+    const latest = sourceBlueprint?.versions?.find(
+      (version) => version.build_id === deployment.latest_build_id,
+    );
+    return {
+      buildId: deployment.latest_build_id!,
+      commitMessage: latest?.commit_message,
+      commitSha: latest?.commit_sha,
+      repoFullName: latest?.repo_full_name,
+    };
+  }, [sourceBlueprint, deployment]);
   return (
     <DeploymentHistoryPanelContent
       expanded={expanded}

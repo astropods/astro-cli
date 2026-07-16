@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Loader2, Rocket, Save, History, ArrowUp, X, Play, Check } from "lucide-react";
+import { Loader2, Rocket, Save, History, X, Play, Check } from "lucide-react";
 import { motion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useAgentDetailContext } from "../AgentDetail";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
+import { BlueprintVersionPicker } from "@/components/deploy/BlueprintVersionPicker";
+import { useBlueprint } from "@/api/queries/blueprints";
 import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIngestion } from "@/api/queries/deployments";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentKeys } from "@/api/queries/keys";
@@ -23,17 +25,28 @@ export default function AgentConfigure() {
   const rollbackRevision = searchParams.get("revision");
   const rollbackBuild = searchParams.get("build");
   const isRollback = rollbackRevision !== null;
-  const isUpgrade = !isRollback && rollbackBuild !== null;
-  const hasOverride = isRollback || isUpgrade;
+  const isBuildHandoff = !isRollback && rollbackBuild !== null;
+  const [selectedBuildOverride, setSelectedBuildOverride] = useState<string | null>(() =>
+    isBuildHandoff && rollbackBuild !== deployment.build_id ? rollbackBuild : null,
+  );
+  const isBuildOverride = !isRollback && selectedBuildOverride !== null;
+  const hasOverride = isRollback || isBuildOverride;
+  const selectedBuildId = rollbackBuild ?? selectedBuildOverride ?? deployment.build_id;
+  const sourceAccount = deployment.source_account || account;
+  const blueprintReadable = sourceAccount === account || !!deployment.latest_build_id;
+  const { data: blueprint, isLoading: versionsLoading } = useBlueprint(
+    sourceAccount,
+    deployment.name,
+    { enabled: blueprintReadable },
+  );
 
   const formOpts = useMemo(() => ({
     deploymentId: deployment.id,
-    // Pin to the deployment's account; without this, personalAccount fallback
-    // breaks private-blueprint redeploys from a different account.
+    build: selectedBuildId,
+    // Pin redeploys to the deployment's account.
     allowedTargetAccounts: account ? [account] : undefined,
     ...(rollbackRevision ? { revision: Number(rollbackRevision) } : {}),
-    ...(rollbackBuild ? { build: rollbackBuild } : {}),
-  }), [account, deployment.id, rollbackRevision, rollbackBuild]);
+  }), [account, deployment.id, rollbackRevision, selectedBuildId]);
 
   const form = useDeployForm(account, deployment.name, formOpts);
 
@@ -41,24 +54,41 @@ export default function AgentConfigure() {
   const avatarBust = useDeploymentAvatarBust(deployment.id);
   const renameMutation = useUpdateDeploymentDisplayName(deployment.id);
 
+  // Build links are one-time handoffs into upgrade mode. Keeping the temporary
+  // selection out of the URL makes refreshes and future tab visits start from
+  // the agent's currently deployed build.
+  useEffect(() => {
+    if (isBuildHandoff) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [isBuildHandoff, setSearchParams]);
+
   const clearOverrideParams = useCallback(() => {
     if (hasOverride) {
+      setSelectedBuildOverride(null);
       setSearchParams({}, { replace: true });
     }
   }, [hasOverride, setSearchParams]);
 
-  const handleRedeploy = useCallback(() => {
+  const handleBuildChange = useCallback((buildId: string) => {
+    setSelectedBuildOverride(buildId === deployment.build_id ? null : buildId);
+    setSearchParams({}, { replace: true });
+  }, [deployment.build_id, setSearchParams]);
+
+  const navigateToDeployments = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deploymentId) });
     void navigate("../deployments", { relative: "path" });
   }, [queryClient, deploymentId, navigate]);
 
-  const isBusy = form.isDeploying || renameMutation.isPending;
+  const isBusy = form.isDeploying || renameMutation.isPending || form.templateLoading;
+  const hasTemplateSwitchError = !!form.templateError && hasOverride;
 
   const isNameOnly = form.nameChanged && !form.deployChanged && !hasOverride;
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isBusy) return;
+    if (hasTemplateSwitchError) return;
     if (isNameOnly) {
       if (form.errors.deployName) return;
       try {
@@ -72,9 +102,9 @@ export default function AgentConfigure() {
       try {
         const result = await form.deploy();
         if (!result) return;
-        handleRedeploy();
+        navigateToDeployments();
       } catch {
-        // captured in form.deployError
+        // captured in form.deployError and rendered inline
       }
     }
   };
@@ -89,7 +119,7 @@ export default function AgentConfigure() {
   }, [form, isBusy, hasOverride, clearOverrideParams]);
 
   // Wait for initialValues — Radix Select wipes its value on the "" → seeded transition.
-  if (form.templateLoading || !form.template || !form.initialValues) {
+  if (!form.template || !form.initialValues) {
     return (
       <div className="relative z-10 flex flex-1 items-center justify-center">
         {form.templateErrorMessage ? (
@@ -109,7 +139,6 @@ export default function AgentConfigure() {
         style={{ maskImage: "linear-gradient(to bottom, transparent, black 2rem)", WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)" }}
       >
         <motion.form
-          key={rollbackRevision ?? rollbackBuild ?? "current"}
           id={FORM_ID}
           onSubmit={handleSubmit}
           className="mx-auto w-full max-w-3xl px-6 py-8 pb-32 @max-[600px]/scroll:pb-44 @max-[400px]/scroll:pb-56"
@@ -117,6 +146,16 @@ export default function AgentConfigure() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
         >
+          <BlueprintVersionPicker
+            versions={blueprint?.versions ?? []}
+            selectedBuildId={selectedBuildId}
+            latestBuildId={deployment.latest_build_id}
+            currentBuildId={deployment.build_id}
+            onBuildChange={handleBuildChange}
+            loading={versionsLoading || form.templateLoading}
+            error={hasTemplateSwitchError ? form.templateError : undefined}
+            recovery={{ label: "Use current build", onClick: clearOverrideParams }}
+          />
           {isRollback && (
             <div className="mb-6 flex items-center gap-3 rounded-md border border-indigo-600/30 bg-indigo-300/80 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-500/18">
               <History className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
@@ -140,44 +179,36 @@ export default function AgentConfigure() {
               </button>
             </div>
           )}
-          {isUpgrade && (
-            <div className="mb-6 flex items-center gap-3 rounded-md border border-indigo-600/30 bg-indigo-300/80 px-4 py-3 dark:border-indigo-500/20 dark:bg-indigo-500/18">
-              <ArrowUp className="size-4 shrink-0 text-indigo-700 dark:text-indigo-300" />
-              <div className="flex min-w-0 flex-1 items-center gap-2 text-body-sm text-indigo-950 dark:text-indigo-100">
-                <span className="font-medium">Update</span>
-                <span className="text-indigo-950/50 dark:text-indigo-100/50">·</span>
-                <span>
-                  {deployment.build_id.slice(0, 8)} → <span className="font-mono">{rollbackBuild!.slice(0, 8)}</span>
-                </span>
-              </div>
-              <button
-                type="button"
-                className="shrink-0 rounded p-0.5 text-indigo-700/60 transition-colors hover:text-indigo-900 dark:text-indigo-300/60 dark:hover:text-indigo-100"
-                onClick={clearOverrideParams}
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )}
-          <DeployFormFields
-            form={form}
-            hideAccountPicker
-            avatar={{
-              url: avatarBust ?? deployment.avatar_url,
-              account,
-              blueprintName: deployment.name,
-              onUpload: async (file) => {
-                await uploadAvatar.mutateAsync({ id: deployment.id, file });
-                bustDeploymentAvatar(deployment.id, file);
-              },
-              isPending: uploadAvatar.isPending,
-            }}
-            ingestionExtra={
-              manualIngestions.length > 0
-                ? <ManualTriggers deploymentId={deployment.id} names={manualIngestions} account={account} hasBorderTop={form.scheduleIngestions.length > 0} />
-                : undefined
+          <fieldset
+            disabled={form.templateLoading || hasTemplateSwitchError}
+            aria-busy={form.templateLoading || hasTemplateSwitchError}
+            className={
+              form.templateLoading || hasTemplateSwitchError
+                ? "min-w-0 border-0 p-0 pointer-events-none opacity-55 transition-opacity duration-200"
+                : "min-w-0 border-0 p-0 opacity-100 transition-opacity duration-200"
             }
-          />
+          >
+            <DeployFormFields
+              form={form}
+              hideTemplateError={hasTemplateSwitchError}
+              hideAccountPicker
+              avatar={{
+                url: avatarBust ?? deployment.avatar_url,
+                account,
+                blueprintName: deployment.name,
+                onUpload: async (file) => {
+                  await uploadAvatar.mutateAsync({ id: deployment.id, file });
+                  bustDeploymentAvatar(deployment.id, file);
+                },
+                isPending: uploadAvatar.isPending,
+              }}
+              ingestionExtra={
+                manualIngestions.length > 0
+                  ? <ManualTriggers deploymentId={deployment.id} names={manualIngestions} account={account} hasBorderTop={form.scheduleIngestions.length > 0} />
+                  : undefined
+              }
+            />
+          </fieldset>
         </motion.form>
       </div>
 
@@ -201,8 +232,8 @@ export default function AgentConfigure() {
             <p className="text-body text-muted-foreground @max-[600px]/footer:text-center">
               {isRollback
                 ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
-                : isUpgrade
-                ? "Update to new build. Review and redeploy."
+                : isBuildOverride
+                ? "Redeploy with the selected build."
                 : form.deployChanged
                 ? `Redeploy to apply ${form.changeCount} ${form.changeCount === 1 ? "change" : "changes"}.`
                 : isNameOnly

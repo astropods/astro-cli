@@ -26,6 +26,7 @@ type DeployForm = ReturnType<typeof useDeployForm>;
 
 export interface DeployFormFieldsProps {
   form: DeployForm;
+  hideTemplateError?: boolean;
   /** Hide the account picker (e.g. on settings page where account is fixed). */
   hideAccountPicker?: boolean;
   /** Extra content rendered at the end of the Ingestion section (e.g. manual trigger buttons). */
@@ -45,7 +46,7 @@ export interface DeployFormFieldsProps {
   };
 }
 
-export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
+export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const deployNameErrorId = "agent-name-error";
@@ -65,7 +66,7 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
     ...Object.values(form.adapterDisplayFields).flatMap((defs) => defs.map(([key]) => key)),
   ]);
   const showImport = importableKeys.size > 1;
-  if (form.templateErrorMessage) {
+  if (form.templateErrorMessage && !hideTemplateError) {
     return <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>;
   }
 
@@ -73,6 +74,13 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
 
   return (
     <div className="space-y-12">
+      {form.reshapeErrorMessage && (
+        <div role="alert">
+          <ErrorPanel title="Couldn't update configuration" variant="inline">
+            {form.reshapeErrorMessage}
+          </ErrorPanel>
+        </div>
+      )}
       {/* Agent name & account */}
       <FormSection title="General" description="Choose what to call your agent and where to deploy it.">
         <div className="space-y-5">

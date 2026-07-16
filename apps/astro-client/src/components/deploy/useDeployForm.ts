@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { usePostDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateProvisioning, TemplateInterfaces, AuthGrant } from "@/lib/api";
-import { ApiRequestError } from "@/lib/api";
+import { ApiRequestError, getApiErrorMessage } from "@/lib/api";
 import { accountSettingsPath } from "@/lib/settings-paths";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
@@ -472,19 +472,21 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   );
 
   const [initialValues, setInitialValues] = useState<DeployFormInitialValues | null>(null);
-  const seededRef = useRef(false);
 
   // Fetch template via interactive POST endpoint.
   const templateMutation = usePostDeploymentTemplate(account, name);
   const [templateResponse, setTemplateResponse] = useState<TemplateResponse | null>(
     opts?.initialTemplateResponse ?? null,
   );
+  const [bootstrapRevision, setBootstrapRevision] = useState(opts?.initialTemplateResponse ? 1 : 0);
+  const [templateLoading, setTemplateLoading] = useState(!opts?.initialTemplateResponse);
   const lastBootstrapKeyRef = useRef<string | null>(
     opts?.initialTemplateResponse
       ? templateBootstrapKey(account, name, opts?.deploymentId, opts?.build, opts?.revision)
       : null,
   );
-  const [fetchError, setFetchError] = useState<Error | null>(null);
+  const [templateError, setTemplateError] = useState<Error | null>(null);
+  const [reshapeError, setReshapeError] = useState<Error | null>(null);
 
   useEffect(() => {
     if (!account || !name) return;
@@ -499,18 +501,29 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (lastBootstrapKeyRef.current === bootstrapKey) return;
 
     lastBootstrapKeyRef.current = bootstrapKey;
-    seededRef.current = false;
-    setTemplateResponse(null);
-    setFetchError(null);
+    setTemplateLoading(true);
+    setTemplateError(null);
+    setReshapeError(null);
     const body: TemplateRequest = {};
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     if (opts?.revision !== undefined) body.revision = opts.revision;
-    void templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
+    void templateMutation.mutateAsync(body).then(
+      (response) => {
+        if (lastBootstrapKeyRef.current === bootstrapKey) {
+          setTemplateError(null);
+          setTemplateResponse(response);
+          setBootstrapRevision((revision) => revision + 1);
+        }
+      },
+      (error) => {
+        if (lastBootstrapKeyRef.current === bootstrapKey) {
+          setTemplateError(error);
+          setTemplateLoading(false);
+        }
+      },
+    );
   }, [account, name, opts?.deploymentId, opts?.build, opts?.revision, templateMutation]);
-
-  const templateLoading = !templateResponse && !fetchError;
-  const templateError = fetchError;
 
   // Derive legacy DeploymentTemplate shape for existing form logic.
   const template: DeploymentTemplate | null = useMemo(() => {
@@ -532,7 +545,6 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // first render. When initialValues are provided (settings page), use those.
   // Otherwise, derive defaults from the template (fresh deploy page).
   // The POST-based seeding effect will override these once the template loads.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
   const computedDefaults = useMemo(() => {
     if (iv) return iv;
     if (opts?.initialTemplateResponse) {
@@ -543,6 +555,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       );
     }
     return computeFormDefaults(null, name);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally computed once at mount
   }, []);
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
@@ -573,6 +586,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     () => !!opts?.deploymentId && !!opts?.initialTemplateResponse?.provisioning?.agent?.volume?.mount,
   );
   const [deployError, setDeployError] = useState<{ message: string; details?: string } | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   // Applies a set of form values to all state variables at once.
@@ -618,8 +632,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // Uses v.value (existing deployment values) not just v.default, so both
   // fresh deploys and configure pages work correctly without manual seeding.
   useEffect(() => {
-    if (!template || seededRef.current) return;
-    seededRef.current = true;
+    if (!template || !bootstrapRevision) return;
 
     const extracted = templateResponse
       ? initialValuesFromTemplateResponse(
@@ -690,17 +703,32 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setInitialValues(merged);
     applyValues(merged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when template first loads
-  }, [template]);
+    setTemplateLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap responses, not reshapes, reseed the form
+  }, [bootstrapRevision]);
 
   // Re-POST template with new inputs to reshape variable optionality etc.
   // Does NOT reset form values — only updates the template schema.
   const reshapeTemplate = useCallback((inputs: TemplateRequest) => {
+    const bootstrapKey = lastBootstrapKeyRef.current;
     const body: TemplateRequest = { ...inputs };
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     if (opts?.revision !== undefined) body.revision = opts.revision;
-    templateMutation.mutateAsync(body).then(setTemplateResponse, setFetchError);
+    setReshapeError(null);
+    templateMutation.mutateAsync(body).then(
+      (response) => {
+        if (lastBootstrapKeyRef.current === bootstrapKey) {
+          setReshapeError(null);
+          setTemplateResponse(response);
+        }
+      },
+      (error) => {
+        if (lastBootstrapKeyRef.current === bootstrapKey) {
+          setReshapeError(error);
+        }
+      },
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
   }, [opts?.deploymentId, opts?.build, opts?.revision]);
 
@@ -1015,12 +1043,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   };
 
   // Submission: POST template with all inputs, then deploy with the fulfilled spec.
-  const deploy = async () => {
-    if (!template || !account || !name) {
-      console.warn('[useDeployForm] deploy() called before template loaded');
-      return;
-    }
-
+  const performDeploy = async (loadedTemplate: NonNullable<typeof template>) => {
     setDeployError(null);
 
     // Build the variables payload from form values.
@@ -1032,7 +1055,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       }
     }
     // Serialize object variables: re-assemble sub-field form values into JSON.
-    for (const [key, v] of Object.entries(template.variables ?? {})) {
+    for (const [key, v] of Object.entries(loadedTemplate.variables ?? {})) {
       if (isObjectVariable(v)) {
         variableInputs[key] = { value: serializeObjectVariable(key, v.fields!, allFormValues) };
       }
@@ -1104,10 +1127,27 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
   };
 
+  const deploy = async () => {
+    if (!template || !account || !name) {
+      console.warn('[useDeployForm] deploy() called before template loaded');
+      return;
+    }
+
+    setIsDeploying(true);
+    try {
+      return await performDeploy(template);
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
   const templateErrorMessage = templateError
     ? ((templateError as ApiError).error_description ??
       (templateError instanceof Error ? templateError.message : null) ??
       "Failed to load deployment configuration")
+    : null;
+  const reshapeErrorMessage = reshapeError
+    ? getApiErrorMessage(reshapeError, "Couldn't update deployment options")
     : null;
 
   // Dirty detection — compare current state against initial values
@@ -1192,7 +1232,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   return {
     template,
     templateLoading,
+    templateError,
     templateErrorMessage,
+    reshapeErrorMessage,
     serverValidation: templateResponse?.validation ?? null,
     initialValues,
     isExistingDeployment: !!opts?.deploymentId,
@@ -1271,7 +1313,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     isValid,
     trySubmit,
     deploy,
-    isDeploying: deployMutation.isPending,
+    isDeploying,
     deployError,
 
     /**
