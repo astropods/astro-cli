@@ -2447,8 +2447,21 @@ func GetLangfuseSummary(
 			return
 		}
 
+		// Token totals come from daily metrics, not the trace list (which has no
+		// per-trace usage). A daily-metrics failure leaves tokens at 0 rather
+		// than failing the whole summary.
+		totalTokens := 0
+		dailyMetrics, dmErr := lctx.Client.GetDailyMetrics(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"))
+		if dmErr != nil {
+			log.Warn("Failed to get Langfuse daily metrics for summary", "error", dmErr)
+		} else {
+			for _, m := range dailyMetrics {
+				totalTokens += m.InputTokens() + m.OutputTokens()
+			}
+		}
+
 		c.JSON(http.StatusOK, computeLangfuseSummary(
-			traces.Data, traces.Meta.TotalItems,
+			traces.Data, traces.Meta.TotalItems, totalTokens,
 			c.Query("start_time"), c.Query("end_time"),
 		))
 	}
@@ -2802,8 +2815,10 @@ func projectScores(scores []langfuse.Score) []gin.H {
 }
 
 // computeLangfuseSummary aggregates Langfuse traces into summary statistics
-// matching the standardized observability response contract.
-func computeLangfuseSummary(traces []langfuse.Trace, totalItems int, startTime, endTime string) gin.H {
+// matching the standardized observability response contract. totalTokens comes
+// from the daily-metrics endpoint since the trace list carries no per-trace
+// usage.
+func computeLangfuseSummary(traces []langfuse.Trace, totalItems, totalTokens int, startTime, endTime string) gin.H {
 	if totalItems == 0 {
 		return gin.H{
 			"total_traces": 0,
@@ -2849,7 +2864,7 @@ func computeLangfuseSummary(traces []langfuse.Trace, totalItems int, startTime, 
 		"metrics": gin.H{
 			"avg_latency_ms":  math.Round(avgLatency*100) / 100,
 			"p95_latency_ms":  math.Round(p95Latency*100) / 100,
-			"total_tokens":    0, // Langfuse doesn't provide per-trace token counts
+			"total_tokens":    totalTokens,
 			"error_rate":      0, // Langfuse doesn't expose error status in trace list
 			"traces_per_hour": math.Round(tracesPerHour*100) / 100,
 		},

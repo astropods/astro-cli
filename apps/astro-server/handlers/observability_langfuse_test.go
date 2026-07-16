@@ -80,7 +80,7 @@ func TestGetAccountLangfuseSummary_NotConfigured(t *testing.T) {
 }
 
 func TestComputeLangfuseSummary_Empty(t *testing.T) {
-	result := computeLangfuseSummary(nil, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(nil, 0, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	b, _ := json.Marshal(result)
 	var out ObservabilitySummaryResponse
@@ -95,11 +95,68 @@ func TestComputeLangfuseSummary_Empty(t *testing.T) {
 	}
 }
 
+func TestComputeLangfuseSummary_TotalTokens(t *testing.T) {
+	traces := []langfuse.Trace{{Latency: 0.1}}
+	result := computeLangfuseSummary(traces, 1, 4200, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+
+	b, _ := json.Marshal(result)
+	var out ObservabilitySummaryResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Metrics.TotalTokens != 4200 {
+		t.Errorf("total_tokens = %d, want 4200", out.Metrics.TotalTokens)
+	}
+}
+
+func TestLangfuseSummary_TokensFromDailyMetrics(t *testing.T) {
+	// The trace list carries no per-trace usage, so the summary sources token
+	// totals from the daily-metrics endpoint, the same as the refresh worker.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"date": "2026-03-19", "countTraces": 2, "usage": []map[string]any{
+					{"model": "gpt-4o", "inputUsage": 100, "outputUsage": 50},
+				}},
+				{"date": "2026-03-20", "countTraces": 3, "usage": []map[string]any{
+					{"model": "gpt-4o", "inputUsage": 200, "outputUsage": 75},
+				}},
+			},
+			"meta": map[string]any{"page": 1, "totalPages": 1},
+		})
+	}))
+	defer srv.Close()
+	client := langfuse.NewClient(srv.URL, "pk", "sk")
+
+	dailyMetrics, err := client.GetDailyMetrics(context.Background(), "dep-a", "2026-03-19T00:00:00Z", "2026-03-21T00:00:00Z")
+	if err != nil {
+		t.Fatalf("get daily metrics: %v", err)
+	}
+	totalTokens := 0
+	for _, m := range dailyMetrics {
+		totalTokens += m.InputTokens() + m.OutputTokens()
+	}
+
+	result := computeLangfuseSummary([]langfuse.Trace{{Latency: 0.1}}, 5, totalTokens,
+		"2026-03-19T00:00:00Z", "2026-03-21T00:00:00Z")
+
+	b, _ := json.Marshal(result)
+	var out ObservabilitySummaryResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// 100+50 + 200+75 = 425
+	if out.Metrics.TotalTokens != 425 {
+		t.Errorf("total_tokens = %d, want 425", out.Metrics.TotalTokens)
+	}
+}
+
 func TestComputeLangfuseSummary_SingleTrace(t *testing.T) {
 	traces := []langfuse.Trace{
 		{Latency: 0.250}, // 250ms
 	}
-	result := computeLangfuseSummary(traces, 1, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(traces, 1, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	b, _ := json.Marshal(result)
 	var out ObservabilitySummaryResponse
@@ -124,7 +181,7 @@ func TestComputeLangfuseSummary_MultipleTraces(t *testing.T) {
 	for i := range traces {
 		traces[i].Latency = float64(i+1) * 0.1
 	}
-	result := computeLangfuseSummary(traces, 20, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(traces, 20, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	b, _ := json.Marshal(result)
 	var out ObservabilitySummaryResponse
@@ -146,7 +203,7 @@ func TestComputeLangfuseSummary_P95_TwoTraces(t *testing.T) {
 		{Latency: 0.1}, // 100ms
 		{Latency: 0.5}, // 500ms
 	}
-	result := computeLangfuseSummary(traces, 2, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(traces, 2, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	b, _ := json.Marshal(result)
 	var out ObservabilitySummaryResponse
@@ -161,7 +218,7 @@ func TestComputeLangfuseSummary_P95_TwoTraces(t *testing.T) {
 func TestComputeLangfuseSummary_TracesPerHour(t *testing.T) {
 	traces := []langfuse.Trace{{Latency: 0.1}, {Latency: 0.1}}
 	// 48 traces over 24 hours = 2.0 traces/hr
-	result := computeLangfuseSummary(traces, 48, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(traces, 48, 0, "2026-03-19T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	m := result["metrics"].(gin.H)
 	if m["traces_per_hour"] != 2.0 {
@@ -171,7 +228,7 @@ func TestComputeLangfuseSummary_TracesPerHour(t *testing.T) {
 
 func TestComputeLangfuseSummary_InvalidTimeRange(t *testing.T) {
 	traces := []langfuse.Trace{{Latency: 0.1}}
-	result := computeLangfuseSummary(traces, 1, "not-a-time", "also-not-a-time")
+	result := computeLangfuseSummary(traces, 1, 0, "not-a-time", "also-not-a-time")
 
 	m := result["metrics"].(gin.H)
 	if m["traces_per_hour"] != 0.0 {
@@ -181,7 +238,7 @@ func TestComputeLangfuseSummary_InvalidTimeRange(t *testing.T) {
 
 func TestComputeLangfuseSummary_ZeroDurationRange(t *testing.T) {
 	traces := []langfuse.Trace{{Latency: 0.1}}
-	result := computeLangfuseSummary(traces, 1, "2026-03-20T00:00:00Z", "2026-03-20T00:00:00Z")
+	result := computeLangfuseSummary(traces, 1, 0, "2026-03-20T00:00:00Z", "2026-03-20T00:00:00Z")
 
 	m := result["metrics"].(gin.H)
 	if m["traces_per_hour"] != 0.0 {
