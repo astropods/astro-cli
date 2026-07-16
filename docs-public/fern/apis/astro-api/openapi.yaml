@@ -24,6 +24,8 @@ tags:
     description: Traces and metrics
   - name: chat
     description: Deployment chat conversations (persisted in the deployment's messaging sidecar)
+  - name: files
+    description: User-scoped file transfer for deployment chat
 
 security:
   - BearerAuth: []
@@ -1161,10 +1163,12 @@ paths:
       tags: [chat]
       summary: Send a chat message
       description: |
-        Sends a user message to the agent. The sidecar persists the user turn, then
-        forwards it to the agent; the assistant reply streams over the SSE endpoint
-        and is persisted as it arrives. Subscribe to the stream endpoint for live
-        chunks. A conversation owned by another user returns 404.
+        Sends a user message to the agent. `attachments` contains ready Files API
+        keys owned by the caller; file bytes are never inlined. The sidecar reloads
+        authoritative metadata, persists the user turn, then forwards it to the
+        agent. The assistant reply streams over the SSE endpoint and is persisted as
+        it arrives. Subscribe to the stream endpoint for live chunks. A conversation
+        owned by another user returns 404.
       operationId: sendChatMessage
       parameters:
         - $ref: "#/components/parameters/DeploymentId"
@@ -1190,6 +1194,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          description: More than 16 files were attached to one message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: |
             The conversation has reached its per-thread message limit and is
@@ -1235,8 +1245,9 @@ paths:
       description: |
         Server-Sent Events stream of the assistant's reply for the current turn.
         Emits a `connected` event, incremental content chunks, and a terminal
-        `finish` (or `error`) event. Subscribe after sending a message. Ownership-
-        scoped: a conversation owned by another user returns 404.
+        `finish` (or `error`) event. Agent-produced file metadata appears in
+        `attachments` on the terminal chunk. Subscribe after sending a message.
+        Ownership-scoped: a conversation owned by another user returns 404.
       operationId: streamChatConversation
       parameters:
         - $ref: "#/components/parameters/DeploymentId"
@@ -1254,6 +1265,251 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Deployment files ────────────────────────────────────────────────────────
+  # Bytes move through this API; chat messages carry only an opaque file key.
+
+  /deployments/{deploymentId}/files:
+    get:
+      tags: [files]
+      summary: List deployment files
+      description: |
+        Lists ready files owned by the authenticated user for this deployment.
+        Files belonging to other users of the same deployment are never returned.
+      operationId: listDeploymentFiles
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: User-owned ready files
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentFilesList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [files]
+      summary: Reserve a deployment file
+      description: |
+        Starts a two-step upload. Reserves an opaque key and returns an upload
+        descriptor; no file bytes are sent in this request. The client must upload
+        the bytes successfully before the key can be listed, downloaded, or attached
+        to a chat message. A relative upload URL is resolved against this collection
+        URL; an absolute URL is a presigned object-store target and is used unchanged.
+      operationId: createDeploymentFile
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeploymentFileRequest"
+      responses:
+        "200":
+          description: Reserved key and upload target
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateDeploymentFileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: Declared file size exceeds the active upload limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "507":
+          description: The deployment volume cannot fit the file and required reserve
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/files/usage:
+    get:
+      tags: [files]
+      summary: Get deployment file storage usage
+      description: |
+        Returns capacity for the persistent volume shared by chat data and files.
+        `available` is false when the active storage backend cannot report a fixed
+        capacity; clients should hide capacity warnings in that case.
+      operationId: getDeploymentFileStorageUsage
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: Storage usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentFileStorageUsage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/files/{fileKey}:
+    get:
+      tags: [files]
+      summary: Get deployment file metadata
+      description: Returns metadata only when the file is ready and owned by the authenticated user.
+      operationId: getDeploymentFile
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/FileKey"
+      responses:
+        "200":
+          description: File metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentFile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [files]
+      summary: Delete a deployment file
+      description: Deletes the authenticated user's file. Deleting a missing file is idempotent.
+      operationId: deleteDeploymentFile
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/FileKey"
+      responses:
+        "204":
+          description: File deleted or already absent
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{deploymentId}/files/{fileKey}/content:
+    put:
+      tags: [files]
+      summary: Upload deployment file content
+      description: |
+        Streams bytes into a previously reserved key. The declared reservation
+        size is a hard ceiling. The file becomes ready and attachable only after
+        this request succeeds.
+      operationId: uploadDeploymentFileContent
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/FileKey"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Reconciled ready-file metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentFile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: Uploaded bytes exceed the reserved size or active upload limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "507":
+          description: The deployment volume cannot fit the upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags: [files]
+      summary: Download deployment file content
+      description: |
+        Streams file bytes or redirects to a presigned object-store URL. Clients
+        must follow redirects. Missing, incomplete, and differently owned files
+        all return 404.
+      operationId: downloadDeploymentFileContent
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+        - $ref: "#/components/parameters/FileKey"
+      responses:
+        "200":
+          description: File bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "302":
+          description: Redirect to a presigned object-store URL
+          headers:
+            Location:
+              description: Presigned download URL
+              schema:
+                type: string
+                format: uri
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1307,6 +1563,13 @@ components:
       in: path
       required: true
       description: Conversation ID (client-chosen UUID v4)
+      schema:
+        type: string
+    FileKey:
+      name: fileKey
+      in: path
+      required: true
+      description: Opaque Files API key returned at reservation time, or an agent-produced filename
       schema:
         type: string
 
@@ -1379,6 +1642,10 @@ components:
           enum: [user, assistant]
         content:
           type: string
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatFileAttachment"
     ChatConversation:
       type: object
       properties:
@@ -1425,11 +1692,17 @@ components:
           format: date-time
     MessagingSendMessageRequest:
       type: object
-      required: [content]
+      description: At least one of `content` or `attachments` must be non-empty.
       properties:
         content:
           type: string
           description: The user's message text.
+        attachments:
+          type: array
+          maxItems: 16
+          description: Ready Files API keys owned by the caller. File bytes are not inlined.
+          items:
+            $ref: "#/components/schemas/ChatFileReference"
     MessagingSendMessageResponse:
       type: object
       properties:
@@ -1438,6 +1711,112 @@ components:
         timestamp:
           type: string
           format: date-time
+    ChatFileReference:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: Opaque key of a ready file owned by the caller.
+    ChatFileAttachment:
+      type: object
+      required: [key, name, content_type, size]
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+          description: User-facing filename.
+        content_type:
+          type: string
+        size:
+          type: integer
+          format: int64
+    CreateDeploymentFileRequest:
+      type: object
+      required: [name, size]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Display filename. Must not contain path separators or control characters.
+        content_type:
+          type: string
+          description: MIME type; defaults to application/octet-stream when empty.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Exact declared byte size. Used as the upload ceiling and capacity reservation.
+    DeploymentFile:
+      type: object
+      required: [key, name, size, content_type, updated_at]
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        content_type:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        uploaded_by:
+          type: string
+          description: Opaque owner identity. Omitted when not applicable.
+    DeploymentFileUploadDescriptor:
+      type: object
+      required: [url, method]
+      properties:
+        url:
+          type: string
+          description: Relative Files API content path or absolute presigned URL.
+        method:
+          type: string
+          example: PUT
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+    CreateDeploymentFileResponse:
+      type: object
+      required: [key, file, upload]
+      properties:
+        key:
+          type: string
+        file:
+          $ref: "#/components/schemas/DeploymentFile"
+        upload:
+          $ref: "#/components/schemas/DeploymentFileUploadDescriptor"
+    DeploymentFilesList:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeploymentFile"
+    DeploymentFileStorageUsage:
+      type: object
+      required: [available, total_bytes, used_bytes, available_bytes, percent_used]
+      properties:
+        available:
+          type: boolean
+        total_bytes:
+          type: integer
+          format: int64
+        used_bytes:
+          type: integer
+          format: int64
+        available_bytes:
+          type: integer
+          format: int64
+        percent_used:
+          type: number
+          format: double
     Error:
       type: object
       properties:

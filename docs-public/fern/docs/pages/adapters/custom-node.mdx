@@ -89,6 +89,7 @@ Call these from inside `stream()` and `streamAudio()`. They translate directly i
 | `onTranscript(text)`            | `Transcript`                                           | After STT — replaces the "[audio]" placeholder.                   |
 | `onAudioChunk(data)`            | `AudioChunk`                                           | TTS bytes back to the platform.                                    |
 | `onAudioEnd()`                  | `AudioChunk { done: true }`                            | End-of-segment marker after TTS.                                   |
+| `onFile(file)`                  | `FileAttachment` on the terminal `ContentChunk`        | After writing an output inside `AGENT_FILES_DIR`; call before `onFinish()`. |
 | `onError(error)`                | `ErrorResponse`                                        | Generation failed. **Do not also call `onFinish()`.**             |
 | `onFinish()`                    | `ContentChunk END`                                     | Response complete. **Call exactly once per request.**             |
 
@@ -103,6 +104,7 @@ The bridge passes this to every `stream()` / `streamAudio()` call.
 | `conversationId`  | string            | Stable across the conversation. Use as the memory/session key.              |
 | `userId`          | string            | Sender's user ID. Use for memory scoping and trace attribution.            |
 | `platformContext` | `PlatformContext` | Channel/thread IDs, workspace, event kind, raw platform user ID. Undefined when the message did not originate from a platform adapter (e.g. direct gRPC). See [Messaging SDK — PlatformContext](../messaging-sdk/node#inbound-message-anatomy). |
+| `attachments`     | `AttachmentInput[]` | Files attached to this turn. Read the provided `path`; do not derive a path from the display name or scan the shared directory. See [Files in chat](../messaging-sdk/files-in-chat). |
 
 ### `AudioInput`
 
@@ -215,6 +217,7 @@ serve(adapter);
 - Catch your own exceptions inside `stream()`. If you let the promise reject, the user sees nothing.
 - Don't block in `onFeedback()` — push to a queue or trigger async work and return.
 - Use `options.conversationId` (not `platformContext.threadId`) as your memory key.
+- Use only `options.attachments` as file input for the turn. Write output files to `AGENT_FILES_DIR` and call `onFile` before `onFinish`; see [Files in chat](../messaging-sdk/files-in-chat).
 - Set up OTEL manually before calling `serve()` if you want traces. Framework adapters auto-configure this; the raw core does not.
 
 ## Re-exported types

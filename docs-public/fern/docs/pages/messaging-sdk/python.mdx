@@ -125,7 +125,7 @@ An incoming message is a `Message`. The same shape applies whether it came from 
 | Field        | Type   | Required | Notes                                  |
 | ------------ | ------ | -------- | -------------------------------------- |
 | `type`       | enum   | yes      | See `Attachment.Type` below.           |
-| `url`        | string | yes      | Authenticated direct-download URL.     |
+| `url`        | string | no       | Download URL when the source provides one. Filesystem-backed web uploads leave this empty. |
 | `filename`   | string | no       | Original filename.                     |
 | `size_bytes` | int64  | no       | File size in bytes.                    |
 | `mime_type`  | string | no       | MIME type.                             |
@@ -133,8 +133,11 @@ An incoming message is a `Message`. The same shape applies whether it came from 
 | `description`| string | no       | Display description.                   |
 | `width`      | int32  | no       | For images/videos.                     |
 | `height`     | int32  | no       | For images/videos.                     |
+| `storage_key`| string | no       | Opaque Files API key for a web-chat upload. Resolve it through `AGENT_FILES_DIR`; never construct an input path from `filename`. |
 
 **`Attachment.Type`**: `TYPE_UNSPECIFIED` (0), `IMAGE` (1), `FILE` (2), `VIDEO` (3), `AUDIO` (4), `LINK` (5). Access via `Attachment.IMAGE` etc.
+
+For web-chat file input and agent-produced downloads, see [Files in chat](./files-in-chat).
 
 **`PlatformContext`**
 
@@ -226,7 +229,7 @@ An incoming message is a `Message`. The same shape applies whether it came from 
 | Variant | Type              | Fields                                                              |
 | ------- | ----------------- | ------------------------------------------------------------------- |
 | `image` | `ImageAttachment` | `url`, `alt_text`, `title`, `width`, `height`                       |
-| `file`  | `FileAttachment`  | `url`, `filename`, `mime_type`, `size_bytes`                        |
+| `file`  | `FileAttachment`  | `url`, `filename`, `mime_type`, `size_bytes`. For a filesystem output, write `filename` inside `AGENT_FILES_DIR` before sending `END` and leave `url` empty. |
 | `card`  | `CardAttachment`  | `platform_card_json` — Slack Block Kit, Discord Embeds, Teams cards |
 | `link`  | `LinkPreview`     | `url`, `title`, `description`, `image_url`                          |
 
@@ -580,6 +583,8 @@ dev:
 ```
 
 Open the chat interface at `http://localhost:3100` to drive your agent end-to-end without touching Slack. See the [package spec](./astropods-package-spec) for the full `dev.interfaces.messaging` schema.
+
+The chat also supports user uploads and agent-produced download files. See [Files in chat](./files-in-chat) for the filesystem and message contract.
 
 ## Worked examples
 

@@ -110,6 +110,9 @@ navigation:
           - section: Messaging SDK
             icon: fa-duotone fa-messages
             contents:
+              - page: Files in chat
+                path: docs/pages/messaging-sdk/files-in-chat.mdx
+                icon: fa-duotone fa-file-arrow-up
               - page: Node
                 path: docs/pages/messaging-sdk/node.mdx
                 icon: fa-brands fa-node-js

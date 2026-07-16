@@ -65,6 +65,7 @@ All adapters share the same environment contract:
 | Variable                          | Default            | Notes                                                            |
 | --------------------------------- | ------------------ | ---------------------------------------------------------------- |
 | `GRPC_SERVER_ADDR`                | `localhost:9090`   | Messaging sidecar address. `ast dev` injects this automatically. |
+| `AGENT_FILES_DIR`                 | `/data/files`      | Shared file store for web-chat uploads and agent-produced downloads. See [Files in chat](../messaging-sdk/files-in-chat). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`     | unset              | When set, the framework adapter wires OTEL tracing automatically.|
 | `DEBUG`                           | unset              | When set, adapter-core logs at debug level.                      |
 

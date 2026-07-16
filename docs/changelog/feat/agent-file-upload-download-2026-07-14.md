@@ -81,7 +81,8 @@ An upload that wouldn't fit (declared size + reserve) is rejected up front with
 full" rather than a generic error. Uploads follow a **reserved → ready**
 lifecycle so the reserve is enforceable: create reserves the key and capacity by
 the declared size, the server-received PUT treats that declared size as a hard
-ceiling (a client can't declare one byte to pass the check then stream 100 MiB)
+ceiling (a client can't under-declare the size to pass the capacity check and
+then stream a larger payload)
 and rechecks capacity before writing, and the file is promoted to ready only once
 its bytes are committed. Only ready files are listable, downloadable, or
 attachable, so an abandoned or in-flight upload never appears as a broken download
