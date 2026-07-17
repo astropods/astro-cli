@@ -15,7 +15,7 @@ import {
   serverTurnInFlight,
 } from "@/lib/chat/message";
 import { useDeploymentChatConversation } from "@/api/queries/chat";
-import { chatKeys } from "@/api/queries/keys";
+import { chatKeys, fileKeys } from "@/api/queries/keys";
 import {
   CHAT_INITIAL_PAGE_LIMIT,
   mergeConversationOlder,
@@ -255,6 +255,10 @@ export function useDeploymentChat(
               }
             : old,
       );
+      // A finished turn may have written files; refresh the usage reading.
+      void queryClient.invalidateQueries({
+        queryKey: fileKeys.usage(deploymentId),
+      });
     },
     [closeStream, conversationKey, deploymentId, queryClient],
   );

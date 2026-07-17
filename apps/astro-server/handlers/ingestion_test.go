@@ -91,12 +91,17 @@ var testDeploymentColumns = []string{
 
 // expectDeploymentLookup sets up sqlmock to return a deployment for GetDeploymentByID.
 func expectDeploymentLookup(mock sqlmock.Sqlmock, deploymentID, accountID, agentName, buildID, namespace string) {
+	expectDeploymentLookupWithStatus(mock, deploymentID, accountID, agentName, buildID, namespace, "active")
+}
+
+// expectDeploymentLookup with an explicit status column.
+func expectDeploymentLookupWithStatus(mock sqlmock.Sqlmock, deploymentID, accountID, agentName, buildID, namespace, status string) {
 	mock.ExpectQuery("SELECT .+ FROM deployments").
 		WithArgs(deploymentID).
 		WillReturnRows(sqlmock.NewRows(testDeploymentColumns).
 			AddRow(deploymentID, accountID, nil, agentName, buildID, namespace, agentName,
 				"{}", nil, nil, nil,
-				"active", nil, nil, time.Now(), 1,
+				status, nil, nil, time.Now(), 1,
 				time.Now(), nil, nil, nil))
 }
 

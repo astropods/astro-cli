@@ -2,7 +2,6 @@
  *  /deployments/:id/files). Backed by the deployment's persistent disk today;
  *  the same hooks work unchanged once a presigned object store lands. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiRequestError } from "@/lib/api";
 import { useApiClient } from "@/lib/api-context";
 import { fileKeys } from "./keys";
 
@@ -15,22 +14,14 @@ export function useDeploymentFiles(deploymentId: string, enabled = true) {
   });
 }
 
-/** Volume capacity for the deployment's file store, polled on a slow cadence
- *  (usage changes gradually) so the storage-capacity banner stays current
- *  without hammering the sidecar. Failures are swallowed by callers — a missing
- *  reading just hides the banner. */
+/** Volume capacity for the deployment's file store. Event-driven, not polled:
+ *  refreshed by invalidation on file upload/delete and chat-turn finish. */
 export function useDeploymentStorageUsage(deploymentId: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: fileKeys.usage(deploymentId),
     queryFn: () => api.getDeploymentStorageUsage(deploymentId),
     enabled: enabled && !!deploymentId,
-    // Stop polling once files are unavailable (404 = no web adapter).
-    refetchInterval: (query) =>
-      query.state.error instanceof ApiRequestError &&
-      query.state.error.status === 404
-        ? false
-        : 60_000,
     staleTime: 30_000,
     retry: false,
   });
@@ -42,9 +33,8 @@ export function useUploadDeploymentFile(deploymentId: string) {
   return useMutation({
     mutationFn: (file: File) => api.uploadDeploymentFile(deploymentId, file),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: fileKeys.all(deploymentId),
-      });
+      void queryClient.invalidateQueries({ queryKey: fileKeys.all(deploymentId) });
+      void queryClient.invalidateQueries({ queryKey: fileKeys.usage(deploymentId) });
     },
   });
 }
@@ -55,9 +45,8 @@ export function useDeleteDeploymentFile(deploymentId: string) {
   return useMutation({
     mutationFn: (key: string) => api.deleteDeploymentFile(deploymentId, key),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: fileKeys.all(deploymentId),
-      });
+      void queryClient.invalidateQueries({ queryKey: fileKeys.all(deploymentId) });
+      void queryClient.invalidateQueries({ queryKey: fileKeys.usage(deploymentId) });
     },
   });
 }

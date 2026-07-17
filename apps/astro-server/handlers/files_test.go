@@ -96,6 +96,33 @@ func setupFilesRouter(upstreamURL string, withAuth bool) (*gin.Engine, sqlmock.S
 	return router, accountMock, deployMock
 }
 
+// A stopped deployment must 404 before any upstream dial.
+func TestFilesProxy_NotRunningDeploymentReturns404(t *testing.T) {
+	var upstreamHit atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	router, accountMock, deployMock := setupFilesRouter(upstream.URL, true)
+	expectDeploymentLookupWithStatus(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns", "stopped")
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-workos-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest(http.MethodGet, "/deployments/dep-1/files/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for stopped deployment, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if upstreamHit.Load() {
+		t.Error("upstream was dialed for a stopped deployment; expected 404 before proxying")
+	}
+}
+
 func TestFilesProxy_NoAuth(t *testing.T) {
 	router, _, _ := setupFilesRouter("", false)
 

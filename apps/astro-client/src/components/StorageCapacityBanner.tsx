@@ -3,6 +3,7 @@
  *  Driven off the sidecar's statfs-based usage reading, so it works both in
  *  cluster deployments and local `ast dev`. Renders nothing until usage crosses
  *  the warning threshold, and auto-clears once space is freed. */
+import { useDeploymentStatus } from "@/api/queries/deployments";
 import { useDeploymentStorageUsage } from "@/api/queries/files";
 import { ErrorPanel, WarningPanel } from "@/components/ui/status-panel";
 import { formatBytes } from "@/lib/format-utils";
@@ -19,7 +20,9 @@ export function StorageCapacityBanner({
   deploymentId: string;
   className?: string;
 }) {
-  const { data } = useDeploymentStorageUsage(deploymentId);
+  // Only fetch usage while the deployment is active.
+  const { data: status } = useDeploymentStatus(deploymentId);
+  const { data } = useDeploymentStorageUsage(deploymentId, status?.value === "active");
 
   if (!data?.available || data.percent_used < WARN_THRESHOLD) {
     return null;

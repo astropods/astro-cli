@@ -1,12 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { DeploymentStorageUsage } from "@/lib/api";
 import { StorageCapacityBanner } from "./StorageCapacityBanner";
 
 const mockUsage = vi.fn();
+const mockStatus = vi.fn();
 vi.mock("@/api/queries/files", () => ({
-  useDeploymentStorageUsage: () => mockUsage(),
+  useDeploymentStorageUsage: (id: string, enabled?: boolean) =>
+    mockUsage(id, enabled),
 }));
+vi.mock("@/api/queries/deployments", () => ({
+  useDeploymentStatus: () => mockStatus(),
+}));
+
+beforeEach(() => {
+  mockUsage.mockReset();
+  // Default to an active deployment so usage is fetched; tests override as needed.
+  mockStatus.mockReturnValue({ data: { value: "active" } });
+});
 
 function usage(partial: Partial<DeploymentStorageUsage>): DeploymentStorageUsage {
   return {
@@ -52,6 +63,14 @@ describe("StorageCapacityBanner", () => {
   it("renders nothing while the reading is still loading", () => {
     mockUsage.mockReturnValue({ data: undefined });
     const { container } = renderBanner();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("does not fetch usage when the deployment isn't active", () => {
+    mockStatus.mockReturnValue({ data: { value: "inactive" } });
+    mockUsage.mockReturnValue({ data: undefined });
+    const { container } = renderBanner();
+    expect(mockUsage).toHaveBeenCalledWith("d1", false);
     expect(container).toBeEmptyDOMElement();
   });
 });

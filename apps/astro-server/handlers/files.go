@@ -135,6 +135,12 @@ func forwardFiles(
 		return
 	}
 
+	// Not running → nothing to reach; 404 instead of forwarding the backend's 5xx.
+	if dep.Status != deploymentstore.StatusActive {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file storage is not available for this deployment"})
+		return
+	}
+
 	// Reject oversized uploads before we open the upstream connection, but only
 	// when the client declared a length; chunked/unknown-length bodies are
 	// bounded by the sidecar's own MaxBytesReader.
