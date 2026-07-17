@@ -145,6 +145,12 @@ func forwardFiles(
 
 	target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
+		// No web adapter → no files endpoint. Expected, so 404 not 503.
+		if errors.Is(resolveErr, errMessagingNoHTTPPort) {
+			log.Debug("files not available: messaging service has no http port", "deployment", dep.ID)
+			c.JSON(http.StatusNotFound, gin.H{"error": "file storage is not enabled for this deployment"})
+			return
+		}
 		log.Warn("files proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "files endpoint unavailable"})
 		return

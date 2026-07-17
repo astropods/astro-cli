@@ -2,6 +2,7 @@
  *  /deployments/:id/files). Backed by the deployment's persistent disk today;
  *  the same hooks work unchanged once a presigned object store lands. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiRequestError } from "@/lib/api";
 import { useApiClient } from "@/lib/api-context";
 import { fileKeys } from "./keys";
 
@@ -24,7 +25,12 @@ export function useDeploymentStorageUsage(deploymentId: string, enabled = true) 
     queryKey: fileKeys.usage(deploymentId),
     queryFn: () => api.getDeploymentStorageUsage(deploymentId),
     enabled: enabled && !!deploymentId,
-    refetchInterval: 60_000,
+    // Stop polling once files are unavailable (404 = no web adapter).
+    refetchInterval: (query) =>
+      query.state.error instanceof ApiRequestError &&
+      query.state.error.status === 404
+        ? false
+        : 60_000,
     staleTime: 30_000,
     retry: false,
   });

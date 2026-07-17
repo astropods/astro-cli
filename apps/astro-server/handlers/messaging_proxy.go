@@ -233,6 +233,10 @@ func resolveMessagingProxyTarget(
 	return baseURL, &http.Client{Transport: transport}, nil
 }
 
+// errMessagingNoHTTPPort means the deployment has no web adapter, so there is no
+// files endpoint. Callers should map it to a 4xx, not a 5xx.
+var errMessagingNoHTTPPort = errors.New("messaging service has no http port")
+
 func messagingHTTPPort(svc *corev1.Service) (int32, error) {
 	for _, p := range svc.Spec.Ports {
 		if p.Name == "http" {
@@ -244,7 +248,7 @@ func messagingHTTPPort(svc *corev1.Service) (int32, error) {
 			return p.Port, nil
 		}
 	}
-	return 0, fmt.Errorf("messaging service %q has no http port", svc.Name)
+	return 0, fmt.Errorf("%w (service %q)", errMessagingNoHTTPPort, svc.Name)
 }
 
 func copyMessagingRequestHeaders(src, dst http.Header) {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -228,5 +229,28 @@ func TestMessagingHTTPPort(t *testing.T) {
 	})
 	if err != nil || port != 8090 {
 		t.Fatalf("expected http port 8090, got %d err=%v", port, err)
+	}
+}
+
+// TestMessagingHTTPPortMissing: a grpc-only or portless Service yields
+// errMessagingNoHTTPPort, so files answer 4xx rather than 5xx.
+func TestMessagingHTTPPortMissing(t *testing.T) {
+	tests := []struct {
+		name  string
+		ports []corev1.ServicePort
+	}{
+		{"grpc only", []corev1.ServicePort{{Name: "grpc", Port: 50051}}},
+		{"no ports", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := messagingHTTPPort(&corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "coach-messaging"},
+				Spec:       corev1.ServiceSpec{Ports: tc.ports},
+			})
+			if !errors.Is(err, errMessagingNoHTTPPort) {
+				t.Fatalf("expected errMessagingNoHTTPPort, got %v", err)
+			}
+		})
 	}
 }
