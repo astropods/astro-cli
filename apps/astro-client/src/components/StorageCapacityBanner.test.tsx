@@ -4,19 +4,19 @@ import type { DeploymentStorageUsage } from "@/lib/api";
 import { StorageCapacityBanner } from "./StorageCapacityBanner";
 
 const mockUsage = vi.fn();
-const mockStatus = vi.fn();
+const mockRuntime = vi.fn();
 vi.mock("@/api/queries/files", () => ({
   useDeploymentStorageUsage: (id: string, enabled?: boolean) =>
     mockUsage(id, enabled),
 }));
 vi.mock("@/api/queries/deployments", () => ({
-  useDeploymentStatus: () => mockStatus(),
+  useDeploymentRuntime: () => mockRuntime(),
 }));
 
 beforeEach(() => {
   mockUsage.mockReset();
-  // Default to an active deployment so usage is fetched; tests override as needed.
-  mockStatus.mockReturnValue({ data: { value: "active" } });
+  // Default to a reachable messaging sidecar so usage is fetched; tests override.
+  mockRuntime.mockReturnValue({ data: { runtime: { messaging_reachable: true } } });
 });
 
 function usage(partial: Partial<DeploymentStorageUsage>): DeploymentStorageUsage {
@@ -66,8 +66,16 @@ describe("StorageCapacityBanner", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("does not fetch usage when the deployment isn't active", () => {
-    mockStatus.mockReturnValue({ data: { value: "inactive" } });
+  it("does not fetch usage when the messaging sidecar is unreachable", () => {
+    mockRuntime.mockReturnValue({ data: { runtime: { messaging_reachable: false } } });
+    mockUsage.mockReturnValue({ data: undefined });
+    const { container } = renderBanner();
+    expect(mockUsage).toHaveBeenCalledWith("d1", false);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("does not fetch usage until the runtime signal has loaded", () => {
+    mockRuntime.mockReturnValue({ data: undefined });
     mockUsage.mockReturnValue({ data: undefined });
     const { container } = renderBanner();
     expect(mockUsage).toHaveBeenCalledWith("d1", false);

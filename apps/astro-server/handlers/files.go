@@ -28,7 +28,16 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
+
+// filesEndpointAbsent reports whether a messaging-proxy resolve error means the
+// deployment simply has no files endpoint — a non-web agent has no messaging
+// Service (NotFound), or one without an http port. Both are permanent, expected
+// conditions the files routes answer with 404 rather than a 503 fault.
+func filesEndpointAbsent(err error) bool {
+	return errors.Is(err, errMessagingNoHTTPPort) || apierrors.IsNotFound(err)
+}
 
 // filesProxyMaxUploadBytes bounds a single uploaded file at the proxy. It
 // matches the sidecar's own cap so an oversized upload is rejected early (before
@@ -151,9 +160,11 @@ func forwardFiles(
 
 	target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		// No web adapter → no files endpoint. Expected, so 404 not 503.
-		if errors.Is(resolveErr, errMessagingNoHTTPPort) {
-			log.Debug("files not available: messaging service has no http port", "deployment", dep.ID)
+		// A non-web agent has no messaging Service (or one without an http port),
+		// so it has no files endpoint. That's expected, not a fault: answer 404,
+		// not the 503 that would trip the per-route 5xx alert.
+		if filesEndpointAbsent(resolveErr) {
+			log.Debug("files not available", "deployment", dep.ID, "reason", resolveErr)
 			c.JSON(http.StatusNotFound, gin.H{"error": "file storage is not enabled for this deployment"})
 			return
 		}
