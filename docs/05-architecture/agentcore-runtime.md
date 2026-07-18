@@ -1,6 +1,6 @@
 # Running Astro Agents on AWS Bedrock AgentCore
 
-Integration notes and open questions — shared with the AWS Bedrock AgentCore team.
+Integration notes, questions, and AWS's answers — shared with the AWS Bedrock AgentCore team.
 
 Astro is a platform for deploying and running AI agents. Users package an agent as a container, and we run it alongside managed models, knowledge / vector stores, tool integrations, messaging, identity, and observability. Today agents run as containers on Amazon EKS. We are evaluating **AgentCore Runtime as an alternative place to run the agent's container**, keeping the rest of the platform as-is. This note describes how we'd integrate it and the questions we'd like AWS's input on. Where we state how AgentCore behaves, it's our current understanding — please correct anything wrong.
 
@@ -142,17 +142,19 @@ The EKS implementation returns all `true` (it accepts every spec it does today);
 
 ---
 
-## Open questions for the AgentCore team
+## Answers from the AgentCore team
 
-1. **VPC attachment.** Can an AgentCore Runtime run attached to (or peered with) a customer-owned VPC so it can reach private resources (in-EKS services, RDS) by private IP / DNS? Or is outbound limited to the public internet / NAT?
-2. **Private DNS resolution.** Can the runtime resolve private Route 53 zones or in-cluster service names, or must every dependency be exposed as a public or PrivateLink endpoint?
-3. **PrivateLink path.** Is there a supported pattern to reach a service fronted by a VPC endpoint / PrivateLink from inside the runtime, and are there per-session connection limits?
-4. **Persistent outbound connections.** Can the agent hold a long-lived outbound connection (e.g. a gRPC stream to a messaging service) for the duration of a session, or is networking torn down between `/invocations` calls? This decides whether messaging can keep an "agent dials in" model or must invert to "platform invokes the agent."
-5. **Private inbound invoke.** Can a component inside the VPC call `InvokeAgentRuntime` over a private path (PrivateLink to the `bedrock-agentcore` endpoint), or only via the public endpoint? Needed if messaging stays in-cluster and invokes the agent.
-6. **Egress controls.** What outbound filtering / allowlisting is available — can we restrict egress to specific destinations (DNS included) and deny the rest?
-7. **Stable egress identity.** Is there a stable source identity (IP or PrivateLink principal) the VPC side can authorize, so private dependencies can authenticate the runtime's connections?
-8. **Per-invocation latency.** For an agent that makes many calls to private dependencies within a single invocation, what is the added round-trip of egressing the runtime back into a VPC, and is connection reuse available across the session?
-9. **Hosting agent-served web UIs.** Some agents serve their own browser-facing web app, reached today at a stable HTTPS URL through our ingress. Can AgentCore expose an agent's HTTP server as a browser-reachable site — stable URL, standard browser auth (cookies / redirects), static assets, WebSocket — or is the only inbound path `InvokeAgentRuntime`, which assumes a programmatic caller rather than a browser? If direct browser hosting isn't supported, what's the recommended pattern for a customer-facing web UI backed by an AgentCore agent?
+AWS's responses to the questions above (AgentCore team, Jul 2026). Each item pairs our question with their answer. The crux — reaching a private VPC from the runtime — is confirmed supported via **VPC network mode**, which puts the runtime's ENIs directly in our subnets.
+
+1. **VPC attachment.** *Reach private resources by private IP/DNS, or public-only?* **Yes.** A VPC network mode creates ENIs directly in your subnets, giving the agent a network presence to reach private resources (in-EKS services, RDS) by private IP/DNS without traversing the public internet. Security groups on the ENIs govern reachability; the target's SG must allow inbound from the AgentCore ENI's SG. (See the AWS networking blog, Pattern 2 onward for VPC egress.)
+2. **Private DNS resolution.** *Resolve private Route 53 / in-cluster names, or public/PrivateLink only?* **Yes, with the VPC attachment.** Because the ENIs live in your subnets, they inherit the VPC's DNS config, including private Route 53 hosted zones. In-cluster Kubernetes service DNS (`*.svc.cluster.local`) is *not* directly resolvable — it must be mirrored into a private hosted zone or fronted by a load balancer with a resolvable name.
+3. **PrivateLink path.** *Supported pattern to reach a VPC endpoint, and per-session connection limits?* **Yes.** In VPC mode the runtime can reach any VPC endpoint in that VPC, including PrivateLink-fronted services (Agent → ENI → endpoint → target), with no config beyond standard endpoint setup and SG rules. No documented per-session connection-count limits, but note the hard runtime limits: synchronous request timeout **15 min**, streaming **60 min**, async job **8 h**, session storage **1 GB**.
+4. **Persistent outbound connections.** *Hold a long-lived outbound connection for a session, or is networking torn down between invocations?* **Yes, within a session's compute lifecycle.** Each session gets a dedicated microVM that persists across multiple `/invocations` calls (idle timeout default 15 min, max lifetime up to 8 h); networking (ENIs, routes) stays up while it runs, so a gRPC stream, WebSocket, or persistent TCP connection can be held for the life of that microVM. The agent can answer `HealthyBusy` to health pings to avoid idle termination. The "agent dials in" model works within a session; for connections beyond the 8 h ceiling, chain sessions or invert to "platform invokes the agent."
+5. **Private inbound invoke.** *Call `InvokeAgentRuntime` over a private path, or public endpoint only?* **Yes.** Create an interface VPC endpoint for `com.amazonaws.<region>.bedrock-agentcore` (data plane) and call `InvokeAgentRuntime` entirely over PrivateLink. Pair it with a resource-based policy (condition keys `aws:SourceVpc`, `aws:SourceVpce`, `aws:SourceIp`) to block public invocation. Both SigV4 and OAuth are supported. Endpoints available: data plane (`bedrock-agentcore`), control plane (`bedrock-agentcore-control`), gateway (`bedrock-agentcore.gateway`).
+6. **Egress controls.** *Restrict egress to specific destinations (DNS included) and deny the rest?* **Layered.** Security groups on the ENIs (restrict outbound by IP/port/SG), route tables (an isolated VPC with no NAT/IGW = zero public egress), and VPC endpoint policies (scope reachable services). For DNS-based allow/deny, add Route 53 Resolver DNS Firewall. The fully isolated VPC (Pattern 4) is the highest documented network isolation.
+7. **Stable egress identity.** *A stable source identity the VPC side can authorize?* **Yes — via security-group authorization.** Private dependencies can authorize inbound on the AgentCore ENI's SG ID (e.g. "allow from `sg-agentcore-runtime` on 3306"), the recommended pattern. If a stable egress *IP* is required (e.g. a third party with IP allowlists), place a NAT Gateway in the egress path — at added cost and stepping away from full isolation.
+8. **Per-invocation latency.** *Added round-trip egressing into a VPC, and connection reuse across the session?* ENIs sit directly in your subnets, so traffic to private dependencies is ordinary VPC-internal networking — no tunnel or proxy hop, equivalent to any in-VPC service-to-service call. Connection reuse: within a session the microVM persists, so agent code can hold connection pools (DB pools, HTTP keep-alive, gRPC channels) across invocations; pools do *not* survive across sessions. Connection pooling in the container is recommended for agents making many private calls.
+9. **Hosting agent-served web UIs.** *Expose an agent's HTTP server as a browser-reachable site, or is `InvokeAgentRuntime` the only inbound path?* **Not directly; use a BFF.** The inbound contract is `InvokeAgentRuntime` (plus AG-UI over SSE/WebSocket on port 8080 with SigV4/OAuth) — oriented toward programmatic, authenticated callers, not a browser hitting a stable URL. For a customer-facing web app (stable HTTPS URL, cookies/redirects, static assets, WebSocket), the recommended pattern is a Backend-for-Frontend: CloudFront + S3 for the static frontend; an API Gateway/ALB + Lambda/ECS BFF that handles browser auth (e.g. Cognito) and calls `InvokeAgentRuntime` via PrivateLink, streaming responses back over WebSocket/SSE.
 
 ---
 
@@ -162,3 +164,13 @@ The EKS implementation returns all `true` (it accepts every spec it does today);
 - [What is AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html)
 - [Inbound & Outbound Auth](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-oauth.html)
 - [Observability](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-configure.html)
+
+Cited by the AgentCore team in the answers above (titles as given by AWS):
+
+- Network connectivity patterns for agents deployed on Amazon Bedrock AgentCore Runtime (AWS networking blog)
+- Configure AgentCore Runtime and tools for VPC
+- AgentCore Runtime limits
+- Use isolated sessions for agents (session lifecycle)
+- Use interface VPC endpoints (AWS PrivateLink) with AgentCore
+- Deploy AG-UI servers in AgentCore Runtime
+- re:Post — AgentCore inbound JWT authorizer & private OpenID discovery URL
