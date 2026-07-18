@@ -25,7 +25,7 @@ from astropods_adapter_langchain import LangChainAdapter, serve
 # No provider key needed — the platform injects URL + credential at runtime.
 llm = ChatOpenAI(
     api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
-    base_url=os.environ["ASTRO_GATEWAY_URL"],
+    base_url=f"{os.environ['ASTRO_GATEWAY_URL']}/v1",
     model="claude-sonnet-4-6",
 )
 {{- else if .HasIntegration "anthropic"}}

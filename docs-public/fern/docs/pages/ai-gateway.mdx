@@ -4,7 +4,7 @@ subtitle: Use Astro-provided LLM access without managing your own provider keys
 slug: ai-gateway
 ---
 
-Set one line in your spec and your agent gets a managed API key for calling supported models — no provider account, no API keys to store, no key rotation to manage.
+Set one line in your spec and your agent gets a managed API key for calling supported models — no provider account, no API keys to store, no key rotation to manage. The gateway is OpenAI-API-compatible, so it works with the SDKs and frameworks you already use.
 
 ## Quick start
 
@@ -26,10 +26,16 @@ On `ast deploy` (and `ast dev`), your agent container receives two environment v
 
 | Env var                 | Purpose                                  |
 | ----------------------- | ---------------------------------------- |
-| `ASTRO_GATEWAY_URL`     | Base URL to call.                        |
+| `ASTRO_GATEWAY_URL`     | Gateway host. Append `/v1` for the OpenAI-compatible API (see below). |
 | `ASTRO_GATEWAY_API_KEY` | Bearer credential. Treat as a secret.    |
 
-Wire them into the SDK or framework you're already using. The gateway is OpenAI-API-compatible — anything that accepts a custom base URL works:
+## Calling the gateway
+
+The OpenAI-compatible API lives under the **`/v1`** path, so set your client's base URL to `${ASTRO_GATEWAY_URL}/v1`. Everything else is a standard OpenAI-style request — pass one of the [supported models](#supported-models) as `model` and authenticate with `ASTRO_GATEWAY_API_KEY` as a bearer token.
+
+<Callout intent="warning">
+**Append `/v1` to `ASTRO_GATEWAY_URL`.** The env var is the host only (e.g. `https://aig.example`); the OpenAI-compatible endpoints are served under `/v1` (`/v1/chat/completions`, `/v1/embeddings`). Pointing a client at the bare host returns `404`.
+</Callout>
 
 <CodeBlocks>
 
@@ -39,13 +45,14 @@ import os
 
 client = OpenAI(
     api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
-    base_url=os.environ["ASTRO_GATEWAY_URL"],
+    base_url=f"{os.environ['ASTRO_GATEWAY_URL']}/v1",
 )
 
 response = client.chat.completions.create(
     model="claude-sonnet-4-6",
     messages=[{"role": "user", "content": "Hello"}],
 )
+print(response.choices[0].message.content)
 ```
 
 ```typescript title="OpenAI SDK (TypeScript)"
@@ -53,13 +60,14 @@ import OpenAI from "openai";
 
 const client = new OpenAI({
     apiKey: process.env.ASTRO_GATEWAY_API_KEY!,
-    baseURL: process.env.ASTRO_GATEWAY_URL!,
+    baseURL: `${process.env.ASTRO_GATEWAY_URL}/v1`,
 });
 
 const response = await client.chat.completions.create({
     model: "claude-sonnet-4-6",
     messages: [{ role: "user", content: "Hello" }],
 });
+console.log(response.choices[0].message.content);
 ```
 
 ```typescript title="Mastra"
@@ -68,7 +76,7 @@ import { Agent } from "@mastra/core/agent";
 
 const gateway = createOpenAI({
     apiKey: process.env.ASTRO_GATEWAY_API_KEY,
-    baseURL: process.env.ASTRO_GATEWAY_URL,
+    baseURL: `${process.env.ASTRO_GATEWAY_URL}/v1`,
 });
 
 export const agent = new Agent({
@@ -84,7 +92,7 @@ import os
 
 llm = ChatOpenAI(
     api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
-    base_url=os.environ["ASTRO_GATEWAY_URL"],
+    base_url=f"{os.environ['ASTRO_GATEWAY_URL']}/v1",
     model="claude-sonnet-4-6",
 )
 
@@ -98,11 +106,21 @@ const llm = new ChatOpenAI({
     apiKey: process.env.ASTRO_GATEWAY_API_KEY,
     model: "claude-sonnet-4-6",
     configuration: {
-        baseURL: process.env.ASTRO_GATEWAY_URL,
+        baseURL: `${process.env.ASTRO_GATEWAY_URL}/v1`,
     },
 });
 
 const response = await llm.invoke("Hello");
+```
+
+```bash title="curl"
+curl "$ASTRO_GATEWAY_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $ASTRO_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
 ```
 
 </CodeBlocks>
@@ -122,11 +140,115 @@ Pass any of these strings as `model` on the SDK call:
 | `claude-opus-4-8`    | Most capable; longer reasoning, agentic workflows.      |
 | `claude-sonnet-4-6`  | Workhorse; balanced cost / quality. Good default.       |
 | `claude-haiku-4-5`   | Fast and cheap; tool-use loops, classification.         |
+| `nova-pro`           | Amazon Nova; balanced general use with low latency.     |
+| `nova-lite`          | Amazon Nova; cheaper and faster for high-volume calls.  |
+| `nova-micro`         | Amazon Nova; lowest-cost text tier.                     |
+| `mistral-large-3`    | Mistral flagship; strong general reasoning and coding.  |
+| `pixtral-large`      | Mistral vision-language; accepts image + text input.    |
 | `titan-embed-text-v2`| Text embeddings (RAG, vector search).                   |
 
+All chat models are called the same way — swap the `model` string. `titan-embed-text-v2` is an embeddings model (use the embeddings endpoint, below).
+
+## Streaming
+
+Set `stream: true` to receive tokens incrementally as they're generated.
+
+<CodeBlocks>
+
+```python title="Python"
+stream = client.chat.completions.create(
+    model="claude-sonnet-4-6",
+    messages=[{"role": "user", "content": "Write a haiku about the sea."}],
+    stream=True,
+)
+for chunk in stream:
+    delta = chunk.choices[0].delta.content
+    if delta:
+        print(delta, end="", flush=True)
+```
+
+```typescript title="TypeScript"
+const stream = await client.chat.completions.create({
+    model: "claude-sonnet-4-6",
+    messages: [{ role: "user", content: "Write a haiku about the sea." }],
+    stream: true,
+});
+for await (const chunk of stream) {
+    process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
+}
+```
+
+</CodeBlocks>
+
+## Embeddings
+
+Use `titan-embed-text-v2` on the embeddings endpoint for RAG and vector search. It returns a 1024-dimension vector per input.
+
+<CodeBlocks>
+
+```python title="Python"
+resp = client.embeddings.create(
+    model="titan-embed-text-v2",
+    input="Astro deploys agents as containers.",
+)
+vector = resp.data[0].embedding   # list[float], length 1024
+```
+
+```typescript title="TypeScript"
+const resp = await client.embeddings.create({
+    model: "titan-embed-text-v2",
+    input: "Astro deploys agents as containers.",
+});
+const vector = resp.data[0].embedding; // number[], length 1024
+```
+
+</CodeBlocks>
+
+## Images (vision)
+
+`pixtral-large` accepts image input alongside text. Pass the image as a base64 **data URI** in an `image_url` content block — the gateway forwards the image bytes to the model, so remote URLs are not fetched server-side.
+
+```python title="Python"
+import base64
+
+with open("chart.png", "rb") as f:
+    data_uri = "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+response = client.chat.completions.create(
+    model="pixtral-large",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "What does this chart show?"},
+            {"type": "image_url", "image_url": {"url": data_uri}},
+        ],
+    }],
+)
+print(response.choices[0].message.content)
+```
+
+## Structured output
+
 <Callout intent="tip">
-**Structured output.** Prompting for a JSON object and parsing it (with a fallback for the occasional non-JSON reply) is a portable way to get structured output that works regardless of which structured-output features a given model exposes through the gateway.
+Prompting for a JSON object and parsing it (with a fallback for the occasional non-JSON reply) is a portable way to get structured output that works regardless of which structured-output features a given model exposes through the gateway.
 </Callout>
+
+```python title="Python"
+import json
+
+response = client.chat.completions.create(
+    model="claude-sonnet-4-6",
+    messages=[
+        {"role": "system", "content": "Reply with only a JSON object: {\"sentiment\": \"positive|negative|neutral\"}."},
+        {"role": "user", "content": "I love this product."},
+    ],
+)
+raw = response.choices[0].message.content
+try:
+    result = json.loads(raw)
+except json.JSONDecodeError:
+    result = {"sentiment": "unknown"}
+```
 
 ## Local development
 
@@ -158,8 +280,18 @@ models:
 
 Your agent code reads `ASTRO_GATEWAY_API_KEY` for gateway calls and `OPENAI_API_KEY` for the BYOK provider.
 
+## Errors and limits
+
+The gateway returns standard OpenAI-style error responses. Common cases:
+
+| Status | Meaning                                   | What to do                                             |
+| ------ | ----------------------------------------- | ------------------------------------------------------ |
+| `401`  | Missing/invalid `ASTRO_GATEWAY_API_KEY`.  | Redeploy so the key is re-injected; don't hardcode it. |
+| `404`  | Wrong path.                               | Ensure your base URL ends in `/v1`.                    |
+| `429`  | Rate or usage limit reached.              | Back off and retry; the OpenAI SDKs retry `429`/`5xx` automatically. |
+
 ## What it doesn't cover
 
-- **The native Anthropic SDK (`@anthropic-ai/sdk`).** The gateway's models are Anthropic's Claude, but you call them through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with an `anthropic/` provider prefix and not via Anthropic's native `messages` endpoint.
-- **Vision / image generation.** The supported model list is text-only.
+- **Provider-native SDKs and prefixes.** The gateway serves models from several providers (Anthropic Claude, Amazon Nova/Titan, Mistral), but you call them all through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with a provider prefix such as `anthropic/`.
+- **Image generation.** No image-generation models are offered. Image *input* (vision) is supported by `pixtral-large`.
 - **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; reach out to support.
