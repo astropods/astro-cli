@@ -28,7 +28,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 // No provider key needed — the platform injects URL + credential at runtime.
 const gateway = createOpenAI({
   apiKey: process.env.ASTRO_GATEWAY_API_KEY,
-  baseURL: process.env.ASTRO_GATEWAY_URL,
+  baseURL: `${process.env.ASTRO_GATEWAY_URL}/v1`,
 });
 {{- end}}
 
