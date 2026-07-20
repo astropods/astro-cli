@@ -1,5 +1,5 @@
 /** TanStack Query bindings for GET/PUT/POST /deployments/:id/chat (web /chat UI). */
-import { useCallback, useMemo, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, type MutableRefObject } from "react";
 import {
   useMutation,
   useQueries,
@@ -41,6 +41,7 @@ export function useChatAgents(enabled = true): {
   refetch: () => void;
 } {
   const api = useApiClient();
+  const queryClient = useQueryClient();
   const summary = useDeploymentsSummary();
 
   const accountNames = useMemo(
@@ -70,6 +71,42 @@ export function useChatAgents(enabled = true): {
     // deploymentQueries identity changes per render; the data it carries is the
     // real input, so recomputing the merge is intentional.
   }, [accountNames, deploymentQueries]);
+
+  // The chat agent switcher (AgentDeploymentMenu) lists its candidates from the
+  // deployments summary, but eligibility is computed here off the fresher
+  // per-account lists. The summary doesn't poll and is only invalidated on
+  // undeploy, so a newly deployed/activated agent can be chat-eligible (and
+  // reachable) here yet absent from the summary — missing from the switcher until
+  // a manual refresh. When an eligible agent isn't in the summary yet, refetch it
+  // so the two sources reconcile on their own. Keyed on sorted id strings so a
+  // refetch that returns the same set doesn't re-trigger (no invalidation loop).
+  const eligibleIdsKey = useMemo(
+    () =>
+      entries
+        .map((e) => e.deployment.id)
+        .sort()
+        .join(","),
+    [entries],
+  );
+  const summaryIdsKey = useMemo(
+    () =>
+      (summary.data?.accounts ?? [])
+        .flatMap((a) => a.deployments.map((d) => d.id))
+        .sort()
+        .join(","),
+    [summary.data],
+  );
+  const summaryLoaded = summary.isSuccess;
+  useEffect(() => {
+    if (!summaryLoaded || !eligibleIdsKey) return;
+    const summaryIds = new Set(summaryIdsKey ? summaryIdsKey.split(",") : []);
+    const missingFromSummary = eligibleIdsKey
+      .split(",")
+      .some((id) => !summaryIds.has(id));
+    if (missingFromSummary) {
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.summary });
+    }
+  }, [eligibleIdsKey, summaryIdsKey, summaryLoaded, queryClient]);
 
   const totalDeployments = useMemo(
     () =>
