@@ -102,7 +102,7 @@ export function AgentDeploymentMenu({
           type="button"
           aria-label="Agent menu"
           className={cn(
-            "flex cursor-pointer items-center gap-3 rounded-[8px] bg-transparent p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5",
+            "flex min-w-0 max-w-full cursor-pointer items-center gap-3 rounded-[8px] bg-transparent p-1 pl-1 pr-2.5 outline-none transition-colors hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-ring/50 dark:-ml-2 dark:-mt-1.5 dark:rounded-md dark:bg-transparent dark:p-1.5 dark:pl-2 dark:pr-3 dark:hover:bg-white/5",
             triggerClassName,
           )}
         >
@@ -113,7 +113,7 @@ export function AgentDeploymentMenu({
           />
           <span
             className={cn(
-              "whitespace-nowrap text-base font-medium tracking-wide text-foreground @max-[500px]:hidden",
+              "min-w-0 whitespace-nowrap text-base font-medium tracking-wide text-foreground max-[500px]:hidden",
               showFullName
                 ? "max-w-[calc(100vw-8rem)] overflow-hidden text-ellipsis min-[900px]:max-w-[42rem]"
                 : "max-w-[6rem] overflow-hidden [--fade-start:4rem] [--fade-end:6rem] min-[600px]:max-w-[8rem] min-[600px]:[--fade-start:6rem] min-[600px]:[--fade-end:8rem] min-[820px]:max-w-[10rem] min-[820px]:[--fade-start:8rem] min-[820px]:[--fade-end:10rem] min-[1100px]:max-w-[18rem] min-[1100px]:[--fade-start:16rem] min-[1100px]:[--fade-end:18rem]",

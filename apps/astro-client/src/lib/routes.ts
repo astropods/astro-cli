@@ -16,6 +16,7 @@ export function accountProfilePath(account: string) {
 // (`DeploymentTab.Monitor`) and is fully erasable.
 export const DeploymentTab = {
   Monitor: "monitor",
+  Traces: "traces",
   Deployment: "deployments",
   Dataset: "dataset",
   Configure: "configure",
@@ -36,18 +37,13 @@ export function deploymentTracePath(
   traceId: string,
 ) {
   return [
-    `${deploymentPath(account, deploymentId, DeploymentTab.Monitor)}?trace=${encodeURIComponent(traceId)}`,
+    `${deploymentPath(account, deploymentId, DeploymentTab.Traces)}?trace=${encodeURIComponent(traceId)}`,
     traceRowAnchorId(traceId),
   ].join("#");
 }
 
-export const monitorTracesAnchorId = "traces";
-
 export function deploymentTracesPath(account: string, deploymentId: string) {
-  return [
-    deploymentPath(account, deploymentId, DeploymentTab.Monitor),
-    monitorTracesAnchorId,
-  ].join("#");
+  return deploymentPath(account, deploymentId, DeploymentTab.Traces);
 }
 
 export function traceRowAnchorId(traceId: string) {

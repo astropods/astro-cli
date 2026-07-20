@@ -108,48 +108,52 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           />
         )}
       </AnimatePresence>
-      {deployment && (
-        <AgentIdentity
-          account={account ?? ""}
-          deployment={deployment}
-        />
-      )}
-      <AgentTabBar />
-      {deployment && (
-        <div className="absolute top-4 right-0 z-20 flex items-center pr-6 max-[700px]:hidden">
-          <div className="flex items-center gap-4 rounded-[8px] dark:rounded-md bg-background p-1 pl-3 pr-1 dark:bg-transparent dark:p-0 dark:pl-0 dark:pr-0">
-            <AgentStatusToggle deployment={deployment} account={account ?? ""} />
-            {canLaunch && deploymentId && (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button asChild={!launchDisabled} disabled={launchDisabled}>
-                        {launchDisabled ? (
-                          <>
-                            Launch
-                            <ArrowUpRight className="size-3.5" />
-                          </>
-                        ) : (
-                          <Link to={chatDeploymentPath(deploymentId)}>
-                            Launch
-                            <ArrowUpRight className="size-3.5" />
-                          </Link>
-                        )}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {launchDisabled && (
-                    <TooltipContent side="bottom" className="max-w-[240px] py-1.5" collisionPadding={8}>
-                      {getLaunchDisabledMessage(statusData?.value)}
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
+      <header className="pointer-events-none absolute inset-x-0 top-4 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)] items-start gap-3 px-5 max-[700px]:grid-cols-[minmax(0,1fr)_auto] max-[700px]:px-3">
+        <div className="min-w-0">
+          {deployment && (
+            <AgentIdentity
+              account={account ?? ""}
+              deployment={deployment}
+            />
+          )}
         </div>
-      )}
+        <AgentTabBar />
+        {deployment && (
+          <div className="pointer-events-auto flex items-center justify-self-end max-[700px]:hidden">
+            <div className="flex items-center gap-4 rounded-[8px] bg-background p-1 pl-3 pr-1 dark:rounded-md dark:bg-transparent dark:p-0 dark:pl-0 dark:pr-0">
+              <AgentStatusToggle deployment={deployment} account={account ?? ""} />
+              {canLaunch && deploymentId && (
+                <TooltipProvider delayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button asChild={!launchDisabled} disabled={launchDisabled}>
+                          {launchDisabled ? (
+                            <>
+                              Launch
+                              <ArrowUpRight className="size-3.5" />
+                            </>
+                          ) : (
+                            <Link to={chatDeploymentPath(deploymentId)}>
+                              Launch
+                              <ArrowUpRight className="size-3.5" />
+                            </Link>
+                          )}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    {launchDisabled && (
+                      <TooltipContent side="bottom" className="max-w-[240px] py-1.5" collisionPadding={8}>
+                        {getLaunchDisabledMessage(statusData?.value)}
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+          </div>
+        )}
+      </header>
       <div className="relative z-10 flex min-h-0 flex-1">
         <Outlet context={context} />
       </div>

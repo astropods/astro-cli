@@ -56,10 +56,18 @@ export const observabilityKeys = {
     ['observability', 'metrics', deploymentId, window] as const,
   summary: (deploymentId: string, window?: string) =>
     ['observability', 'summary', deploymentId, window] as const,
-  traces: (deploymentId: string, window?: string) =>
-    ['observability', 'traces', deploymentId, window] as const,
-  tracesPaged: (deploymentId: string, window?: string) =>
-    ['observability', 'traces', 'paged', deploymentId, window] as const,
+  traces: (
+    deploymentId: string,
+    window?: string,
+    params?: Record<string, string>,
+  ) => ['observability', 'traces', deploymentId, window, params] as const,
+  tracesPaged: (
+    deploymentId: string,
+    window?: string,
+    params?: Record<string, string>,
+  ) => ['observability', 'traces', 'paged', deploymentId, window, params] as const,
+  traceUsers: (deploymentId: string, window?: string) =>
+    ['observability', 'trace-users', deploymentId, window] as const,
   traceDetail: (deploymentId: string, traceId: string) =>
     ['observability', 'trace-detail', deploymentId, traceId] as const,
   observationDetail: (deploymentId: string, observationId: string) =>

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { resetMockBackend } from "./helpers";
 
-const MONITOR = "/testuser/agents/dep-slack-full-1/monitor";
+const TRACES = "/testuser/agents/dep-slack-full-1/traces";
 
 test.beforeEach(async () => {
   await resetMockBackend();
@@ -12,7 +12,7 @@ test.beforeEach(async () => {
 // the (non-visible) span name.
 test("search filters the trace list by name and id", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(MONITOR, { waitUntil: "domcontentloaded" });
+  await page.goto(TRACES, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("trace-1")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("trace-2")).toBeVisible();
@@ -42,7 +42,7 @@ test("search filters the trace list by name and id", async ({ page }) => {
 
 test("search shows an empty state when nothing matches", async ({ page }) => {
   test.setTimeout(60_000);
-  await page.goto(MONITOR, { waitUntil: "domcontentloaded" });
+  await page.goto(TRACES, { waitUntil: "domcontentloaded" });
   await expect(page.getByText("trace-1")).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("textbox", { name: /search traces/i }).fill("zzz-no-match");

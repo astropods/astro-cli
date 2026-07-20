@@ -6,6 +6,12 @@ import { ACTIVITY_RANGES } from "./ranges";
 afterEach(cleanup);
 
 describe("TimeRangeSelector", () => {
+  it("stays content-sized in vertically stacked mobile headers", () => {
+    render(<TimeRangeSelector value="7d" onChange={() => {}} />);
+
+    expect(screen.getByRole("button", { name: "7D" }).parentElement).toHaveClass("w-fit");
+  });
+
   it("renders all range labels", () => {
     render(<TimeRangeSelector value="7d" onChange={() => {}} />);
     for (const { label } of ACTIVITY_RANGES) {

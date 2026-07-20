@@ -15,9 +15,7 @@ import (
 //   - Astro-kind rows resolve through the per-user personal-account row
 //     (account.GetPersonalProfiles) for display_name + username slug.
 //
-// Both lookups are batched per resolver call. The data sits outside the
-// Insights cache so display-layer churn (renames, avatar swaps) shows
-// up on the next page load instead of waiting on a 6h refresh tick.
+// Both lookups are deduplicated and batched per resolver call.
 
 // userDetailsHydrator pre-fetches the directory + profile data for a
 // batch of user_ids and exposes a stamp() that applies it row by row.
@@ -38,7 +36,12 @@ func newUserDetailsHydrator(
 		astro: map[string]account.PersonalProfile{},
 	}
 	var slackIDs, astroIDs []string
+	seen := make(map[string]struct{}, len(userIDs))
 	for _, uid := range userIDs {
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
 		switch classifyUserID(uid) {
 		case UserDetailsKindSlack:
 			slackIDs = append(slackIDs, uid)

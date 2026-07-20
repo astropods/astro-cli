@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { screen, cleanup } from "@testing-library/react";
+import { screen, cleanup, render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { UserBadge } from "./UserBadge";
-import { renderWithProviders } from "@/test/test-utils";
+import { createHookWrapper } from "@/test/test-utils";
 import { accountKeys } from "@/api/queries/keys";
 
 afterEach(cleanup);
@@ -19,7 +20,12 @@ const ACCOUNT = "acme";
 // The tests below pin the precedence and verify the avatar URL + profile
 // link target track whichever source won.
 
-function seedMembers(qc: ReturnType<typeof renderWithProviders>["queryClient"], members: Array<{ user_id: string; username: string; display_name: string }>) {
+type Member = { user_id: string; username: string; display_name: string };
+
+function seedMembers(
+  qc: ReturnType<typeof createHookWrapper>["queryClient"],
+  members: Member[],
+) {
   qc.setQueryData(accountKeys.members(ACCOUNT), {
     members: members.map((m) => ({
       account_id: "acct-acme",
@@ -34,9 +40,15 @@ function seedMembers(qc: ReturnType<typeof renderWithProviders>["queryClient"], 
   });
 }
 
+function renderWithMembers(ui: ReactNode, members: Member[]) {
+  const { wrapper, queryClient } = createHookWrapper();
+  seedMembers(queryClient, members);
+  return render(ui, { wrapper });
+}
+
 describe("UserBadge", () => {
   it("uses the in-account member when one is found", async () => {
-    const { queryClient } = renderWithProviders(
+    renderWithMembers(
       <UserBadge
         userId="user_01HXX_bob"
         account={ACCOUNT}
@@ -46,10 +58,10 @@ describe("UserBadge", () => {
         username="stale-bob"
         linkToProfile
       />,
+      [
+        { user_id: "user_01HXX_bob", username: "bob", display_name: "Bob Smith" },
+      ],
     );
-    seedMembers(queryClient, [
-      { user_id: "user_01HXX_bob", username: "bob", display_name: "Bob Smith" },
-    ]);
 
     expect(await screen.findByText("Bob Smith")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Bob Smith/ });
@@ -60,7 +72,7 @@ describe("UserBadge", () => {
   });
 
   it("falls back to user_details props when no member is found", async () => {
-    const { queryClient } = renderWithProviders(
+    renderWithMembers(
       <UserBadge
         userId="user_01HXX_carol"
         account={ACCOUNT}
@@ -68,9 +80,8 @@ describe("UserBadge", () => {
         username="carol"
         linkToProfile
       />,
+      [],
     );
-    // No matching member — exercises the fallback path (cross-account user).
-    seedMembers(queryClient, []);
 
     expect(await screen.findByText("Carol Chen")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Carol Chen/ });
@@ -78,15 +89,15 @@ describe("UserBadge", () => {
   });
 
   it("uses the username when no displayName is provided", async () => {
-    const { queryClient } = renderWithProviders(
+    renderWithMembers(
       <UserBadge
         userId="user_01HXX_dave"
         account={ACCOUNT}
         username="dave"
         linkToProfile
       />,
+      [],
     );
-    seedMembers(queryClient, []);
 
     // No display name → handle shows up as both the label and the slug.
     expect(await screen.findByText("dave")).toBeInTheDocument();
@@ -94,10 +105,10 @@ describe("UserBadge", () => {
   });
 
   it("renders Unknown user when neither member nor fallback resolves", async () => {
-    const { queryClient } = renderWithProviders(
+    renderWithMembers(
       <UserBadge userId="user_01HXX_ghost" account={ACCOUNT} />,
+      [],
     );
-    seedMembers(queryClient, []);
 
     expect(await screen.findByText("Unknown user")).toBeInTheDocument();
     // No link should be rendered — there's no slug to route to.
@@ -105,7 +116,10 @@ describe("UserBadge", () => {
   });
 
   it("renders nothing useful when userId is empty", () => {
-    renderWithProviders(<UserBadge userId={undefined} account={ACCOUNT} displayName="Ignored" username="ignored" />);
+    renderWithMembers(
+      <UserBadge userId={undefined} account={ACCOUNT} displayName="Ignored" username="ignored" />,
+      [],
+    );
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("Ignored")).not.toBeInTheDocument();
   });

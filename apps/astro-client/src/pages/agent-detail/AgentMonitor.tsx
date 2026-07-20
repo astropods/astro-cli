@@ -1,43 +1,30 @@
-import { useState, useMemo, useCallback } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useState, useMemo } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { motion } from "motion/react";
-import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/theme";
 import { useAgentDetailContext } from "../AgentDetail";
-import {
-  useObservabilityMetrics,
-  useObservabilityTracesInfinite,
-  useObservabilityTraceDetail,
-} from "@/api/queries/observability";
+import { useObservabilityMetrics } from "@/api/queries/observability";
 import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
 import { StorageCapacityBanner } from "@/components/StorageCapacityBanner";
 import { TokenUsageChart } from "@/components/agent-detail/charts/TokenUsageChart";
 import {
   CHART_COLORS,
+  DAY_RANGES,
+  buildTimeParams,
   formatCompactNumber,
   type DayRange,
 } from "@/components/agent-detail/charts/chart-utils";
 import { RequestVolumeChart } from "@/components/agent-detail/charts/RequestVolumeChart";
 import { LatencyCard } from "@/components/agent-detail/charts/LatencyCard";
-import { TracesTable } from "@/components/agent-detail/traces/TracesTable";
-import { TraceDetailPanel } from "@/components/agent-detail/traces/TraceDetailPanel";
 import { NetworkSummaryCard } from "@/components/agent-detail/network/NetworkSummaryCard";
 import { NetworkFlowsTable } from "@/components/agent-detail/network/NetworkFlowsTable";
-import type { NetworkDirection, TraceEntry } from "@/lib/api";
-import { useContainerSize } from "@/hooks/use-container-size";
+import type { NetworkDirection } from "@/lib/api";
 import {
   aggregateByLocalDay,
   aggregateRequestsByLocalDay,
 } from "@/components/agent-detail/charts/aggregate-token-buckets";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
-import { monitorTracesAnchorId } from "@/lib/routes";
-
-const RANGES: { key: DayRange; label: string; days: number }[] = [
-  { key: "7d", label: "7D", days: 7 },
-  { key: "14d", label: "14D", days: 14 },
-  { key: "30d", label: "30D", days: 30 },
-];
+import { deploymentPath, DeploymentTab } from "@/lib/routes";
 
 const NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
   { key: "inbound", label: "Inbound" },
@@ -45,24 +32,38 @@ const NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
   { key: "database", label: "Database" },
 ];
 
-function buildTimeParams(days: number) {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - days);
-  return {
-    start_time: start.toISOString(),
-    end_time: end.toISOString(),
-    granularity: "hour",
-  };
-}
-
 export default function AgentMonitor() {
   const { deploymentId, account } = useAgentDetailContext();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Keep the time window in the URL so a shared trace link reproduces the same
-  // time context. Fall back to the default for a missing or unknown value.
+  const legacyTraceId = searchParams.get("trace");
+  const legacyTracesAnchor = location.hash === "#traces";
+  useEffect(() => {
+    if (!legacyTraceId && !legacyTracesAnchor) return;
+    const next = new URLSearchParams();
+    if (legacyTraceId) next.set("trace", legacyTraceId);
+    const windowParam = searchParams.get("window");
+    if (windowParam) next.set("window", windowParam);
+    const query = next.toString();
+    navigate(
+      `${deploymentPath(account, deploymentId, DeploymentTab.Traces)}${
+        query ? `?${query}` : ""
+      }`,
+      { replace: true },
+    );
+  }, [
+    account,
+    deploymentId,
+    legacyTraceId,
+    legacyTracesAnchor,
+    navigate,
+    searchParams,
+  ]);
+  // Keep the metrics time window in the URL so shared monitor links preserve
+  // their context. Fall back to the default for a missing or unknown value.
   const rangeParam = searchParams.get("window");
-  const range: DayRange = RANGES.some((r) => r.key === rangeParam)
+  const range: DayRange = DAY_RANGES.some((r) => r.key === rangeParam)
     ? (rangeParam as DayRange)
     : "7d";
   const setRange = (r: DayRange) => {
@@ -75,22 +76,13 @@ export default function AgentMonitor() {
       { replace: true },
     );
   };
-  const { days } = RANGES.find((r) => r.key === range)!;
+  const { days } = DAY_RANGES.find((r) => r.key === range)!;
 
-  const timeParams = useMemo(() => buildTimeParams(days), [days]);
-  const { data, isLoading } = useObservabilityMetrics(deploymentId, timeParams, { window: range });
-
-  const traceParams = useMemo(
-    () => ({ start_time: timeParams.start_time, end_time: timeParams.end_time }),
-    [timeParams],
+  const timeParams = useMemo(
+    () => buildTimeParams(days, { granularity: "hour" }),
+    [days],
   );
-  const {
-    data: tracesData,
-    isLoading: tracesLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useObservabilityTracesInfinite(deploymentId, traceParams, { window: range });
+  const { data, isLoading } = useObservabilityMetrics(deploymentId, timeParams, { window: range });
 
   const rawBuckets = data?.buckets ?? [];
   const bars = useMemo(() => aggregateByLocalDay(rawBuckets, days), [rawBuckets, days]);
@@ -119,111 +111,12 @@ export default function AgentMonitor() {
     networkWindow,
   );
 
-  // Trace detail panel
-  const allTraces = useMemo(
-    () => tracesData?.pages.flatMap((p) => p.traces) ?? [],
-    [tracesData],
-  );
-  const selectedTraceId = searchParams.get("trace");
-  const traceFromList = useMemo(
-    () => selectedTraceId
-      ? allTraces.find((t) => t.trace_id === selectedTraceId) ?? null
-      : null,
-    [allTraces, selectedTraceId],
-  );
-
-  // A deep link (?trace=<id>) can target a trace outside the loaded window
-  // (traces are capped at limit:500). When the ID isn't in the list, hydrate a
-  // minimal TraceEntry from the detail endpoint so the panel can still open —
-  // TraceDetailPanel refetches the same detail (deduped by react-query) for the
-  // full body content.
-  const needsHydration = !!selectedTraceId && !tracesLoading && !traceFromList;
-  const {
-    data: hydratedDetail,
-    isError: hydrationError,
-  } = useObservabilityTraceDetail(
-    deploymentId,
-    needsHydration ? selectedTraceId : null,
-  );
-
-  const hydratedTrace = useMemo<TraceEntry | null>(() => {
-    const t = hydratedDetail?.trace;
-    if (!needsHydration || !t) return null;
-    // The detail endpoint doesn't carry status/total_tokens; the panel defaults
-    // status to "success" and sums tokens from observations. input/output here
-    // are placeholders — the panel prefers the detail body once it loads.
-    return {
-      trace_id: t.trace_id,
-      name: t.name,
-      status: "",
-      latency_ms: t.latency_ms,
-      total_cost: t.total_cost,
-      input: "",
-      output: "",
-      timestamp: t.timestamp,
-      user_id: t.user_id,
-      user_details: t.user_details,
-    };
-  }, [needsHydration, hydratedDetail]);
-
-  const selectedTrace = traceFromList ?? hydratedTrace;
-
-  const selectedIndex = traceFromList
-    ? allTraces.findIndex((t) => t.trace_id === traceFromList.trace_id)
-    : -1;
-
-  const setSelectedTraceId = useCallback(
-    (traceId: string | null, options?: { replace?: boolean }) => {
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        if (traceId) {
-          next.set("trace", traceId);
-        } else {
-          next.delete("trace");
-        }
-        return next;
-      }, options);
-    },
-    [setSearchParams],
-  );
-
-  const handleSelectTrace = useCallback(
-    (trace: TraceEntry) => setSelectedTraceId(trace.trace_id),
-    [setSelectedTraceId],
-  );
-
-  const handleNavigate = useCallback(
-    (dir: "prev" | "next") => {
-      const nextIdx = dir === "prev" ? selectedIndex - 1 : selectedIndex + 1;
-      if (nextIdx >= 0 && nextIdx < allTraces.length) {
-        setSelectedTraceId(allTraces[nextIdx].trace_id, { replace: true });
-      }
-    },
-    [allTraces, selectedIndex, setSelectedTraceId],
-  );
-
-  // Track container width for responsive panel behavior
-  const { ref: outerRef, width: outerWidth } = useContainerSize();
-
-  const OVERLAY_THRESHOLD = 900;
-  const PANEL_WIDTH_REM = 41; // 40rem panel + 1rem gap
-  // The panel slides in whenever a trace is requested via the URL — even before
-  // it resolves — so a deep link shows a loading or not-found state rather than
-  // silently doing nothing while leaving a stale ?trace= behind.
-  const traceNotFound = needsHydration && hydrationError;
-  const traceHydrating = !!selectedTraceId && !selectedTrace && !traceNotFound;
-  const panelOpen = selectedTraceId !== null;
-  const shouldOverlay = outerWidth > 0 && outerWidth < OVERLAY_THRESHOLD;
-  const [panelExpanded, setPanelExpanded] = useState(false);
-  const isFullWidth = panelExpanded || shouldOverlay;
-
   return (
-    <div ref={outerRef} className="relative z-10 flex flex-1 overflow-hidden pt-16">
+    <div className="relative z-10 flex flex-1 overflow-hidden pt-16">
       {/* Main content */}
       <div
-        className="relative z-10 min-h-0 flex-1 overflow-y-auto transition-[padding] duration-300 ease-out"
+        className="relative z-10 min-h-0 flex-1 overflow-y-auto"
         style={{
-          paddingRight: panelOpen && !isFullWidth ? `${PANEL_WIDTH_REM}rem` : undefined,
           maskImage: "linear-gradient(to bottom, transparent, black 2rem)",
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
@@ -248,7 +141,7 @@ export default function AgentMonitor() {
 
             <TimeRangeSelector
               value={range}
-              ranges={RANGES}
+              ranges={DAY_RANGES}
               onChange={(r) => setRange(r as DayRange)}
               layoutId="monitor-range-pill"
             />
@@ -337,68 +230,7 @@ export default function AgentMonitor() {
               />
             </div>
           </div>
-
-          {/* Traces */}
-          <div id={monitorTracesAnchorId} className="mt-10 scroll-mt-6">
-            <div className="mb-6">
-              <h2 className="text-heading-4 text-foreground">Traces</h2>
-            </div>
-
-            <TracesTable
-              traces={allTraces}
-              account={account}
-              loading={tracesLoading}
-              selectedTraceId={selectedTraceId}
-              onSelectTrace={handleSelectTrace}
-              hasMore={hasNextPage}
-              onLoadMore={() => fetchNextPage()}
-              loadingMore={isFetchingNextPage}
-            />
-          </div>
         </motion.div>
-      </div>
-
-      {/* Trace detail panel */}
-      <div
-        className={cn(
-          "absolute z-20 transition-[transform,inset,width] duration-300 ease-out",
-          isFullWidth
-            ? "inset-3 top-20"
-            : "bottom-3 right-3 top-20 w-[40rem]",
-        )}
-        style={{ transform: panelOpen ? "translateX(0)" : "translateX(calc(100% + 0.75rem))" }}
-      >
-        {selectedTrace ? (
-          <TraceDetailPanel
-            deploymentId={deploymentId}
-            trace={selectedTrace}
-            account={account}
-            onClose={() => setSelectedTraceId(null, { replace: true })}
-            canGoPrev={selectedIndex > 0}
-            canGoNext={selectedIndex >= 0 && selectedIndex < allTraces.length - 1}
-            onNavigate={handleNavigate}
-            expanded={panelExpanded}
-            onToggleExpanded={shouldOverlay ? undefined : () => setPanelExpanded((v) => !v)}
-          />
-        ) : traceNotFound ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface px-6 text-center">
-            <p className="text-body-sm text-foreground">Trace not found.</p>
-            <p className="text-body-sm text-muted-foreground">
-              It may be outside the selected time range or no longer available.
-            </p>
-            <button
-              type="button"
-              onClick={() => setSelectedTraceId(null, { replace: true })}
-              className="mt-1 rounded-md border border-border px-3 py-1.5 text-body-sm text-foreground transition-colors hover:bg-muted"
-            >
-              Close
-            </button>
-          </div>
-        ) : traceHydrating ? (
-          <div className="flex h-full w-full items-center justify-center rounded-md border border-border bg-surface">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : null}
       </div>
     </div>
   );

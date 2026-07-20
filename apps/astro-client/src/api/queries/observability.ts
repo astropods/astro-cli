@@ -104,7 +104,7 @@ export function useObservabilityTraces(
   opts?: { enabled?: boolean; window?: string },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.traces(deploymentId, opts?.window),
+    queryKey: observabilityKeys.traces(deploymentId, opts?.window, params),
     queryFn: () => api.getObservabilityTraces(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     ...LIVE_QUERY_OPTS,
@@ -113,7 +113,7 @@ export function useObservabilityTraces(
 
 // TRACES_PAGE_SIZE matches the server's max traces limit; larger windows are
 // assembled by paging through offsets rather than one oversized request.
-const TRACES_PAGE_SIZE = 100;
+export const TRACES_PAGE_SIZE = 100;
 
 // useObservabilityTracesInfinite pages the traces endpoint by offset so callers
 // can assemble a window wider than a single request allows. Flatten
@@ -125,7 +125,7 @@ export function useObservabilityTracesInfinite(
   opts?: { enabled?: boolean; window?: string },
 ) {
   return useInfiniteQuery({
-    queryKey: observabilityKeys.tracesPaged(deploymentId, opts?.window),
+    queryKey: observabilityKeys.tracesPaged(deploymentId, opts?.window, params),
     queryFn: ({ pageParam }) =>
       api.getObservabilityTraces(deploymentId, {
         ...params,
@@ -139,6 +139,19 @@ export function useObservabilityTracesInfinite(
     },
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     ...LIVE_QUERY_OPTS,
+  });
+}
+
+export function useObservabilityTraceUsers(
+  deploymentId: string,
+  params?: Record<string, string>,
+  opts?: { enabled?: boolean; window?: string },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.traceUsers(deploymentId, opts?.window),
+    queryFn: () => api.getObservabilityTraceUsers(deploymentId, params),
+    enabled: (opts?.enabled ?? true) && !!deploymentId,
+    ...ACTIVITY_QUERY_OPTS,
   });
 }
 

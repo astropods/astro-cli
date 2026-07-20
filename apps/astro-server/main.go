@@ -1758,6 +1758,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
+			api.GET(protected, "/deployments/:id/observability/trace-users", "Get deployment trace users", handlers.GetLangfuseTraceUsers(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.Response(200, &handlers.TraceUserFacetsResponse{}),
+			)
 			api.GET(protected, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),

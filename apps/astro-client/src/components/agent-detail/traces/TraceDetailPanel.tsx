@@ -4,14 +4,6 @@ import { toast } from "sonner";
 import type { TraceEntry } from "@/lib/api";
 import { useObservabilityTraceDetail } from "@/api/queries/observability";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-
-function hasContent(v: unknown): boolean {
-  if (v == null) return false;
-  if (typeof v === "string") return v.length > 0;
-  if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === "object") return Object.keys(v as object).length > 0;
-  return true;
-}
 import { TracePanelHeader } from "./detail/TracePanelHeader";
 import { TraceMetaGrid } from "./detail/TraceMetaGrid";
 import { TraceTabs, type TraceTab } from "./detail/TraceTabs";
@@ -86,8 +78,8 @@ export function TraceDetailPanel({
       timestamp: trace.timestamp,
       latency_ms: trace.latency_ms,
       total_cost: trace.total_cost ?? base?.total_cost ?? 0,
-      input: hasContent(base?.input) ? base!.input : trace.input,
-      output: hasContent(base?.output) ? base!.output : trace.output,
+      input: base?.input,
+      output: base?.output,
       session_id: base?.session_id,
       user_id: base?.user_id ?? trace.user_id,
       user_details: base?.user_details ?? trace.user_details,
@@ -124,7 +116,6 @@ export function TraceDetailPanel({
       />
 
       <TraceMetaGrid
-        status={trace.status}
         latencyMs={traceForDisplay.latency_ms}
         totalCost={traceForDisplay.total_cost}
         totalTokens={totalTokens}

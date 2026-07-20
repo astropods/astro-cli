@@ -1387,6 +1387,29 @@ Bun.serve({
       return json(level ? lines.filter((l) => l.level === level) : lines);
     }
 
+    const traceDetailMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/observability\/traces\/(trace-[12])$/,
+    );
+    if (traceDetailMatch && request.method === "GET") {
+      const traceId = traceDetailMatch[2]!;
+      const first = traceId === "trace-1";
+      return json({
+        trace: {
+          trace_id: traceId,
+          name: first ? "chat completion" : "tool call",
+          timestamp: nowIso,
+          latency_ms: first ? 523 : 200,
+          total_cost: 0,
+          input: first ? "What is the weather today?" : "Search for flights to NYC",
+          output: first
+            ? "I don't have access to real-time weather data."
+            : "Found 5 available flights.",
+        },
+        observations: [],
+        scores: [],
+      });
+    }
+
     const deploymentObsMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/observability\/(metrics|summary|traces)$/);
     if (deploymentObsMatch && request.method === "GET") {
       const [, , obsType] = deploymentObsMatch;
@@ -1414,32 +1437,39 @@ Bun.serve({
         });
       }
       if (obsType === "traces") {
+        const traces = [
+          {
+            trace_id: "trace-1",
+            name: "chat completion",
+            status: "success",
+            latency_ms: 523,
+            total_tokens: 150,
+            timestamp: nowIso,
+          },
+          {
+            trace_id: "trace-2",
+            name: "tool call",
+            status: "success",
+            latency_ms: 200,
+            total_tokens: 80,
+            timestamp: nowIso,
+          },
+        ];
+        const search = url.searchParams.get("search")?.trim().toLowerCase();
+        const filtered = search
+          ? traces.filter((trace) =>
+              [trace.trace_id, trace.name].some((value) =>
+                value.toLowerCase().includes(search),
+              ),
+            )
+          : traces;
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const offset = Number(url.searchParams.get("offset") ?? 0);
         return json({
-          traces: [
-            {
-              trace_id: "trace-1",
-              name: "chat completion",
-              status: "success",
-              latency_ms: 523,
-              total_tokens: 150,
-              input: "What is the weather today?",
-              output: "I don't have access to real-time weather data.",
-              timestamp: nowIso,
-            },
-            {
-              trace_id: "trace-2",
-              name: "tool call",
-              status: "success",
-              latency_ms: 200,
-              total_tokens: 80,
-              input: "Search for flights to NYC",
-              output: "Found 5 available flights.",
-              timestamp: nowIso,
-            },
-          ],
-          total: 2,
-          limit: 100,
-          offset: 0,
+          traces: filtered.slice(offset, offset + limit),
+          total: filtered.length,
+          limit,
+          offset,
         });
       }
     }

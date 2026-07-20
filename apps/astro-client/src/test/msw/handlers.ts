@@ -12,6 +12,7 @@ import type {
   UndeployResponse,
   ObservabilitySummaryResponse,
   ObservabilityTracesResponse,
+  TraceUserFacetsResponse,
   TraceDetailResponse,
   AccountUsageResponse,
   DeploymentEventsResponse,
@@ -457,6 +458,14 @@ export const handlers = [
       limit: 1,
       offset: 0,
     });
+  }),
+
+  http.get('/api/v1/deployments/:id/observability/trace-users', () => {
+    return HttpResponse.json<TraceUserFacetsResponse>({ users: [] });
+  }),
+
+  http.get('/api/v1/accounts/:account/members', () => {
+    return HttpResponse.json({ members: [] });
   }),
 
   // GET /api/v1/deployments/:id/observability/traces/:traceId

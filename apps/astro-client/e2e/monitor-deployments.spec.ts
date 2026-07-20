@@ -15,12 +15,11 @@ test("monitor tab: charts and headings are populated from observability metrics"
   await expect(async () => {
     await expect(page.getByText("Token Usage")).toBeVisible();
     await expect(page.getByText("Requests & Latency")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Traces" })).toBeVisible();
   }).toPass();
 });
 
-test("monitor tab: trace rows are visible and clicking a row opens the detail panel", async ({ page }) => {
-  await page.goto(`${AGENT_DETAIL}/monitor`, { waitUntil: "domcontentloaded" });
+test("traces tab: trace rows are visible and clicking a row opens the detail panel", async ({ page }) => {
+  await page.goto(`${AGENT_DETAIL}/traces`, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("trace-1")).toBeVisible();
   await expect(page.getByText("trace-2")).toBeVisible();

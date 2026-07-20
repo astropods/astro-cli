@@ -49,25 +49,8 @@ export function reviewQueueItemToTraceEntry(item: ReviewQueueItem): TraceEntry {
     status: "success",
     latency_ms: 0,
     total_cost: 0,
-    input: traceEntryContent(item.input),
-    output: traceEntryContent(item.output),
     timestamp: item.timestamp,
   };
-}
-
-function traceEntryContent(content: unknown) {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (content == null) {
-    return "";
-  }
-
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return String(content);
-  }
 }
 
 export function getAdjacentTraceIds(

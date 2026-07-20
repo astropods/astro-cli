@@ -373,7 +373,7 @@ describe("ChatInspectorPanel", () => {
     expect(screen.queryByText("Trace rate")).not.toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "View all traces" }),
-    ).toHaveAttribute("href", "/acme/agents/dep-1/monitor#traces");
+    ).toHaveAttribute("href", "/acme/agents/dep-1/traces");
     expect(screen.queryByText("P95 latency")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Error")).toBeInTheDocument();
     const cost = screen.getByText("$0.0042");

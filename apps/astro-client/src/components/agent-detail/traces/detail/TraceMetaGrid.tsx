@@ -1,36 +1,15 @@
-import { StatusBadge } from "@/components/StatusBadge";
-import {
-  STATUS_BADGE_COLOR,
-  STATUS_CONFIG,
-  formatCost,
-  formatLatency,
-  normalizeStatus,
-} from "../trace-utils";
+import { formatCost, formatLatency } from "../trace-utils";
 
 export interface TraceMetaGridProps {
-  status?: string;
   latencyMs: number;
   totalCost?: number;
   totalTokens?: number;
 }
 
-export function TraceMetaGrid({
-  status,
-  latencyMs,
-  totalCost,
-  totalTokens,
-}: TraceMetaGridProps) {
-  const normalized = normalizeStatus(status ?? "success");
-  const cfg = STATUS_CONFIG[normalized];
-
+export function TraceMetaGrid({ latencyMs, totalCost, totalTokens }: TraceMetaGridProps) {
   return (
     <div className="border-b border-border px-4 py-3">
-      <div className="grid grid-cols-4 gap-3">
-        <MetaTile label="Status">
-          <StatusBadge color={STATUS_BADGE_COLOR[normalized]}>
-            {cfg.label}
-          </StatusBadge>
-        </MetaTile>
+      <div className="grid grid-cols-3 gap-3">
         <MetaTile label="Latency">
           <span className="font-mono text-body-sm text-foreground">
             {formatLatency(latencyMs, true)}

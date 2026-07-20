@@ -95,7 +95,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
 
   return (
     <>
-      <div className="absolute top-4 left-0 z-20 flex items-center gap-1 pl-5 dark:-mt-1.5 dark:-ml-2">
+      <div className="pointer-events-auto flex min-w-0 max-w-full items-center gap-1 dark:-ml-2 dark:-mt-1.5">
         <AgentDeploymentMenu
           deployment={deployment}
           showFullName

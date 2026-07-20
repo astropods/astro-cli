@@ -201,16 +201,70 @@ type traceFilter struct {
 	offset       int
 	fields       string
 	orderBy      string
+	filters      []TraceFilter
+}
+
+// TraceFilter is one condition accepted by Langfuse's JSON-encoded trace
+// filter parameter. Value is omitted for null predicates.
+type TraceFilter struct {
+	Type     string `json:"type"`
+	Column   string `json:"column"`
+	Operator string `json:"operator"`
+	Value    any    `json:"value,omitempty"`
 }
 
 // GetTraces returns traces filtered by deployment ID tag.
 func (c *Client) GetTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
+	return c.GetTracesOrdered(ctx, deploymentID, startTime, endTime, limit, offset, "")
+}
+
+// GetTracesOrdered returns one trace page using a Langfuse-supported order.
+func (c *Client) GetTracesOrdered(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int, orderBy string) (*TracesResponse, error) {
 	return c.getTraces(ctx, traceFilter{
 		deploymentID: deploymentID,
 		startTime:    startTime,
 		endTime:      endTime,
 		limit:        limit,
 		offset:       offset,
+		fields:       "core,metrics",
+		orderBy:      orderBy,
+	})
+}
+
+// GetUserTracesOrdered returns one ordered trace page for a deployment user.
+func (c *Client) GetUserTracesOrdered(ctx context.Context, deploymentID, userID, startTime, endTime string, limit, offset int, orderBy string) (*TracesResponse, error) {
+	return c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		userID:       userID,
+		startTime:    startTime,
+		endTime:      endTime,
+		limit:        limit,
+		offset:       offset,
+		fields:       "core,metrics",
+		orderBy:      orderBy,
+	})
+}
+
+// GetTracesFilteredOrdered returns one trace page using Langfuse's advanced
+// filter contract. Callers supply the complete deployment/time/user filter so
+// multiple predicates on the same field compose instead of replacing legacy
+// query parameters.
+func (c *Client) GetTracesFilteredOrdered(
+	ctx context.Context,
+	deploymentID, startTime, endTime string,
+	filters []TraceFilter,
+	limit, offset int,
+	orderBy string,
+) (*TracesResponse, error) {
+	return c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		startTime:    startTime,
+		endTime:      endTime,
+		limit:        limit,
+		offset:       offset,
+		fields:       "core,metrics",
+		orderBy:      orderBy,
+		filters:      filters,
 	})
 }
 
@@ -275,6 +329,13 @@ func (c *Client) getTraces(ctx context.Context, f traceFilter) (*TracesResponse,
 	}
 	if f.orderBy != "" {
 		params.Set("orderBy", f.orderBy)
+	}
+	if len(f.filters) > 0 {
+		encoded, err := json.Marshal(f.filters)
+		if err != nil {
+			return nil, fmt.Errorf("langfuse: marshal trace filters: %w", err)
+		}
+		params.Set("filter", string(encoded))
 	}
 
 	var result TracesResponse

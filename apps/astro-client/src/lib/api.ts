@@ -1523,8 +1523,6 @@ export interface TraceEntry {
   latency_ms: number;
   total_tokens?: number;
   total_cost?: number;
-  input: string;
-  output: string;
   timestamp: string;
   user_id?: string;
   user_details?: UserDetails;
@@ -1535,6 +1533,18 @@ export interface ObservabilityTracesResponse {
   total: number;
   limit: number;
   offset: number;
+  truncated?: boolean;
+  scanned_count?: number;
+}
+
+export interface TraceUserFacet {
+  user_id?: string;
+  user_details?: UserDetails;
+  count: number;
+}
+
+export interface TraceUserFacetsResponse {
+  users: TraceUserFacet[];
 }
 
 export type ObservationType = 'span' | 'generation' | 'event';
@@ -1585,8 +1595,8 @@ export interface TraceDetail {
   timestamp: string;
   latency_ms: number;
   total_cost: number;
-  input: unknown;
-  output: unknown;
+  input?: unknown;
+  output?: unknown;
   session_id?: string;
   user_id?: string;
   user_details?: UserDetails;
@@ -2886,6 +2896,15 @@ class ApiClient {
   ): Promise<ObservabilityTracesResponse> {
     return this.request<ObservabilityTracesResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${buildQS(params)}`
+    );
+  }
+
+  async getObservabilityTraceUsers(
+    deploymentId: string,
+    params?: Record<string, string>,
+  ): Promise<TraceUserFacetsResponse> {
+    return this.request<TraceUserFacetsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/trace-users${buildQS(params)}`
     );
   }
 

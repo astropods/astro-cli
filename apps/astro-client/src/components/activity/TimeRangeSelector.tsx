@@ -1,5 +1,6 @@
 import { ACTIVITY_RANGES } from "./ranges";
 import { PillToggle, type PillOption } from "./PillToggle";
+import { cn } from "@/lib/utils";
 
 interface RangeOption {
   key: string;
@@ -12,6 +13,7 @@ interface TimeRangeSelectorProps {
   ranges?: RangeOption[];
   onChange: (r: string) => void;
   layoutId?: string;
+  className?: string;
 }
 
 export function TimeRangeSelector({
@@ -19,6 +21,7 @@ export function TimeRangeSelector({
   ranges = ACTIVITY_RANGES,
   onChange,
   layoutId = "range-pill",
+  className,
 }: TimeRangeSelectorProps) {
   const options: PillOption<string>[] = ranges.map((r) => ({
     key: r.key,
@@ -31,6 +34,7 @@ export function TimeRangeSelector({
       options={options}
       onChange={onChange}
       layoutId={layoutId}
+      className={cn("w-fit", className)}
     />
   );
 }

@@ -1,14 +1,6 @@
-// Shared helpers for trace status display, formatting, and normalisation.
-
-import type { StatusBadgeColor } from "@/components/StatusBadge";
+// Shared helpers for trace status display and formatting.
 
 export type TraceStatus = "success" | "error" | "timeout";
-
-export const STATUS_BADGE_COLOR: Record<TraceStatus, StatusBadgeColor> = {
-  success: "success",
-  error: "error",
-  timeout: "warning",
-};
 
 export const STATUS_CONFIG: Record<TraceStatus, { label: string }> = {
   success: { label: "Success" },

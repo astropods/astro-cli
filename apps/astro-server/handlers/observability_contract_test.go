@@ -135,14 +135,18 @@ func TestObservabilityResponseContract_Traces(t *testing.T) {
 	if len(out.Traces) == 0 {
 		t.Errorf("expected at least one trace")
 	}
-
 	traceJSON, _ := json.Marshal(out.Traces[0])
 	var traceMap map[string]any
 	json.Unmarshal(traceJSON, &traceMap)
 
-	for _, key := range []string{"trace_id", "name", "status", "latency_ms", "input", "output", "timestamp"} {
+	for _, key := range []string{"trace_id", "name", "status", "latency_ms", "timestamp"} {
 		if _, ok := traceMap[key]; !ok {
 			t.Errorf("trace entry missing key %q", key)
+		}
+	}
+	for _, key := range []string{"input", "output"} {
+		if _, ok := traceMap[key]; ok {
+			t.Errorf("trace list entry retained detail-only key %q", key)
 		}
 	}
 }

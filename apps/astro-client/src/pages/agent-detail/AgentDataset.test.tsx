@@ -13,11 +13,15 @@ import type {
   EvalDatasetResponse,
   ReviewQueueItem,
   ReviewQueueResponse,
+  TraceDetailResponse,
 } from "@/lib/api";
 import AgentDataset from "./AgentDataset";
 
 afterEach(cleanup);
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  reviewQueueFixtures.clear();
+  server.resetHandlers();
+});
 afterEach(() => vi.restoreAllMocks());
 
 function makeDatasetResponse(
@@ -64,8 +68,10 @@ function reviewQueueResponse(
 
 const REVIEW_QUEUE_PAGE_SIZE = "50";
 
+const reviewQueueFixtures = new Map<string, ReviewQueueItem>();
+
 function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
-  return {
+  const item: ReviewQueueItem = {
     trace_id: "trace_000001",
     timestamp: "2026-06-01T12:00:00Z",
     input: "How do I deploy?",
@@ -73,6 +79,8 @@ function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
     sentiment: "positive",
     ...overrides,
   };
+  reviewQueueFixtures.set(item.trace_id, item);
+  return item;
 }
 
 function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
@@ -104,6 +112,29 @@ function setupDataset(
     ),
     http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
       HttpResponse.json(queue),
+    ),
+    http.get(
+      "/api/v1/deployments/:id/observability/traces/:traceId",
+      ({ params }) => {
+        const traceId = String(params.traceId);
+        const item = reviewQueueFixtures.get(traceId);
+        if (!item) {
+          return HttpResponse.json({ error: "not found" }, { status: 404 });
+        }
+        return HttpResponse.json<TraceDetailResponse>({
+          trace: {
+            trace_id: item.trace_id,
+            name: item.trace_id,
+            timestamp: item.timestamp,
+            latency_ms: 0,
+            total_cost: 0,
+            input: item.input,
+            output: item.output,
+          },
+          observations: [],
+          scores: [],
+        });
+      },
     ),
     http.get("/api/v1/accounts/:account/members", () =>
       HttpResponse.json({ members: [] }),

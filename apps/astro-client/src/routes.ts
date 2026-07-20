@@ -59,6 +59,7 @@ export default [
         layout("pages/AgentDetail.tsx", [
           index("pages/agent-detail/AgentDetailRedirect.tsx"),
           route("monitor", "pages/agent-detail/AgentMonitor.tsx"),
+          route("traces", "pages/agent-detail/AgentTraces.tsx"),
           route("deployments", "pages/agent-detail/AgentDeployments.tsx"),
           route("dataset", "pages/agent-detail/AgentDataset.tsx"),
           route("configure", "pages/agent-detail/AgentConfigure.tsx"),

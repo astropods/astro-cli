@@ -28,7 +28,7 @@ import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import { formatDate, getLaunchDisabledMessage } from "@/lib/deployment-utils";
 import type { CardData } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { DeploymentTab, chatDeploymentPath, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
+import { chatDeploymentPath, deploymentConfigurePath, deploymentPath } from "@/lib/routes";
 import type { AvatarColors } from "@/lib/api";
 import cloud1 from "@/assets/clouds/cloud-1.png";
 import cloud2 from "@/assets/clouds/cloud-2.png";
@@ -386,13 +386,10 @@ export function DeployedAgentCard({
       qrUrl: `${origin}/${account}/${name}`,
     };
   }, [name, displayName, account, avatarUrl, installedAt, deploymentId]);
-  // Card-level click goes to the deployment's Monitor tab — the card's headline
-  // visual is the requests sparkline, so Monitor is the natural expanded view.
-  // The "Manage agent" button below the card stays pointed at
-  // `deploymentPath(...)` (the default detail panel), so users who need the
-  // full management surface still have a one-click route to it.
+  // Card-level clicks and the Manage action share the builder-focused default:
+  // the deployment history and controls page.
   const detailPath = deploymentId
-    ? deploymentPath(account, deploymentId, DeploymentTab.Monitor)
+    ? deploymentPath(account, deploymentId)
     : undefined;
   const copyId = () => {
     if (deploymentId) void copyToClipboard(deploymentId);
@@ -545,7 +542,7 @@ export function DeployedAgentCard({
           card has no requestSeries this region is empty but still expands,
           so the action row below stays pinned to the bottom. The sparkline
           itself isn't wrapped in a Link — the whole card is the click target
-          for Monitor (see `detailPath` / `handleCardClick`). */}
+          for the default deployment detail (see `detailPath` / `handleCardClick`). */}
       <div className="relative z-[1] flex w-full flex-1 items-center justify-center">
         <RequestSparkline
           // When the cache hasn't populated for this deployment yet (or the

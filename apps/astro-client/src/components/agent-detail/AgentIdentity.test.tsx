@@ -93,6 +93,15 @@ afterEach(() => {
 });
 
 describe("AgentIdentity actions menu", () => {
+  it("allows the selector to shrink inside the shared top bar", () => {
+    setViewport(false);
+    renderIdentity();
+
+    const trigger = screen.getByRole("button", { name: /agent menu/i });
+    expect(trigger).toHaveClass("min-w-0", "max-w-full");
+    expect(trigger.parentElement).toHaveClass("min-w-0", "max-w-full");
+  });
+
   it("shows a standalone actions kebab with all actions on desktop", async () => {
     setViewport(false);
     renderIdentity();

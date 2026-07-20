@@ -246,6 +246,326 @@ func TestComputeLangfuseSummary_ZeroDurationRange(t *testing.T) {
 	}
 }
 
+func TestFilterAndSortTraceEntries(t *testing.T) {
+	traces := []TraceEntry{
+		{
+			TraceID:   "trace-ada-slow",
+			Name:      "Chat completion",
+			LatencyMs: 900,
+			TotalCost: 0.03,
+			Timestamp: "2026-07-15T03:00:00Z",
+			UserID:    "U-ADA",
+			UserDetails: &UserDetails{
+				Kind:        UserDetailsKindSlack,
+				DisplayName: "Ada Lovelace",
+				Username:    "ada",
+			},
+		},
+		{
+			TraceID:   "trace-bob-fast",
+			Name:      "Tool call",
+			LatencyMs: 100,
+			TotalCost: 0.01,
+			Timestamp: "2026-07-15T01:00:00Z",
+			UserID:    "U-BOB",
+		},
+		{
+			TraceID:   "trace-no-user",
+			Name:      "Background task",
+			LatencyMs: 400,
+			TotalCost: 0.02,
+			Timestamp: "2026-07-15T02:00:00Z",
+		},
+	}
+
+	t.Run("searches enriched user fields", func(t *testing.T) {
+		got := filterAndSortTraceEntries(traces, traceListCriteria{
+			search: "lovelace", sortKey: "timestamp", direction: "desc",
+		})
+		if len(got) != 1 || got[0].TraceID != "trace-ada-slow" {
+			t.Fatalf("got trace IDs %v, want [trace-ada-slow]", traceEntryIDs(got))
+		}
+	})
+
+	t.Run("filters traces without a user", func(t *testing.T) {
+		got := filterAndSortTraceEntries(traces, traceListCriteria{
+			noUser: true, sortKey: "timestamp", direction: "desc",
+		})
+		if len(got) != 1 || got[0].TraceID != "trace-no-user" {
+			t.Fatalf("got trace IDs %v, want [trace-no-user]", traceEntryIDs(got))
+		}
+	})
+
+	t.Run("orders the complete result before pagination", func(t *testing.T) {
+		ordered := filterAndSortTraceEntries(traces, traceListCriteria{
+			sortKey: "latency", direction: "asc",
+		})
+		got := pageTraceEntries(ordered, 1, 1)
+		if len(got) != 1 || got[0].TraceID != "trace-no-user" {
+			t.Fatalf("got trace IDs %v, want [trace-no-user]", traceEntryIDs(got))
+		}
+	})
+}
+
+func TestTraceEntryFromLangfuseOmitsBodies(t *testing.T) {
+	entry := traceEntryFromLangfuse(langfuse.Trace{
+		ID:     "trace-1",
+		Input:  map[string]any{"large": "request"},
+		Output: map[string]any{"large": "response"},
+	}, nil)
+	encoded, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["input"]; ok {
+		t.Fatal("trace list entry retained input")
+	}
+	if _, ok := payload["output"]; ok {
+		t.Fatal("trace list entry retained output")
+	}
+}
+
+func TestTraceListCriteriaUpstreamOrderBy(t *testing.T) {
+	tests := []struct {
+		name     string
+		criteria traceListCriteria
+		want     string
+		ok       bool
+	}{
+		{name: "default", criteria: traceListCriteria{sortKey: "timestamp", direction: "desc"}, want: "timestamp.desc", ok: true},
+		{name: "ascending", criteria: traceListCriteria{sortKey: "timestamp", direction: "asc"}, want: "timestamp.asc", ok: true},
+		{name: "exact user", criteria: traceListCriteria{userID: "U-ADA", sortKey: "timestamp", direction: "desc"}, want: "timestamp.desc", ok: true},
+		{name: "identity search", criteria: traceListCriteria{search: "ada", sortKey: "timestamp", direction: "desc"}},
+		{name: "latency", criteria: traceListCriteria{sortKey: "latency", direction: "asc"}},
+		{name: "missing user", criteria: traceListCriteria{noUser: true, sortKey: "timestamp", direction: "desc"}, want: "timestamp.desc", ok: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := tt.criteria.upstreamOrderBy()
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("upstreamOrderBy() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestTraceListCriteriaUpstreamFilters(t *testing.T) {
+	filters := (traceListCriteria{noUser: true}).upstreamFilters(
+		"dep-1", "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z",
+	)
+	if len(filters) != 4 {
+		t.Fatalf("got %d filters, want 4", len(filters))
+	}
+	if filters[0].Column != "tags" || filters[0].Operator != "all of" {
+		t.Fatalf("deployment filter = %+v", filters[0])
+	}
+	if filters[1].Column != "timestamp" || filters[1].Operator != ">=" {
+		t.Fatalf("start filter = %+v", filters[1])
+	}
+	if filters[2].Column != "timestamp" || filters[2].Operator != "<" {
+		t.Fatalf("end filter = %+v", filters[2])
+	}
+	if filters[3].Type != "null" || filters[3].Column != "userId" || filters[3].Operator != "is null" {
+		t.Fatalf("missing-user filter = %+v", filters[3])
+	}
+}
+
+func TestTraceFilterSourcesPushSearchPredicatesUpstream(t *testing.T) {
+	base := (traceListCriteria{noUser: true}).upstreamFilters("dep-1", "", "")
+	sources := traceFilterSources(base, traceListCriteria{search: "ada", noUser: true}, nil)
+
+	if len(sources) != 3 {
+		t.Fatalf("got %d sources, want bounded fallback plus id and name filters", len(sources))
+	}
+	for index, column := range []string{"id", "name"} {
+		filters := sources[index+1]
+		searchFilter := filters[len(filters)-1]
+		if searchFilter.Column != column || searchFilter.Operator != "contains" || searchFilter.Value != "ada" {
+			t.Fatalf("source %d search filter = %+v", index+1, searchFilter)
+		}
+		if filters[len(filters)-2].Type != "null" {
+			t.Fatalf("source %d lost missing-user predicate: %+v", index+1, filters)
+		}
+	}
+}
+
+func TestMatchingTraceIdentityUserIDsUsesEnrichedIdentity(t *testing.T) {
+	facets := []TraceUserFacet{
+		{UserID: "U-ADA", UserDetails: &UserDetails{DisplayName: "Ada Lovelace", Username: "ada"}},
+		{UserID: "U-GRACE", UserDetails: &UserDetails{DisplayName: "Grace Hopper", Username: "grace"}},
+	}
+
+	got, truncated := matchingTraceIdentityUserIDs(facets, traceListCriteria{search: "lovelace"})
+	if truncated || len(got) != 1 || got[0] != "U-ADA" {
+		t.Fatalf("matching identity IDs = %v, truncated=%v; want [U-ADA], false", got, truncated)
+	}
+}
+
+func TestParseTraceListCriteriaUsesStructuredUserParams(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		wantUserID string
+		wantNoUser bool
+	}{
+		{name: "user ID", query: "?user_id=U-ADA", wantUserID: "U-ADA"},
+		{name: "no user", query: "?no_user=true", wantNoUser: true},
+		{name: "no user takes precedence", query: "?user_id=U-ADA&no_user=true", wantNoUser: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = httptest.NewRequest(http.MethodGet, "/traces"+tt.query, nil)
+
+			criteria := parseTraceListCriteria(context)
+			if criteria.userID != tt.wantUserID || criteria.noUser != tt.wantNoUser {
+				t.Fatalf(
+					"user criteria = (userID %q, noUser %v), want (%q, %v)",
+					criteria.userID, criteria.noUser, tt.wantUserID, tt.wantNoUser,
+				)
+			}
+		})
+	}
+}
+
+func TestTraceCriteriaCacheReusesResolvedResult(t *testing.T) {
+	cache := newTraceCriteriaCache()
+	loads := 0
+	load := func() (traceCriteriaResult, error) {
+		loads++
+		return traceCriteriaResult{
+			traces:       []TraceEntry{{TraceID: "trace-1"}, {TraceID: "trace-2"}},
+			truncated:    true,
+			scannedCount: 2000,
+		}, nil
+	}
+
+	first, err := cache.getOrLoad("same-window", load)
+	if err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+	second, err := cache.getOrLoad("same-window", load)
+	if err != nil {
+		t.Fatalf("cached load: %v", err)
+	}
+	if loads != 1 {
+		t.Fatalf("load called %d times, want 1", loads)
+	}
+	if len(first.traces) != 2 || len(second.traces) != 2 {
+		t.Fatalf("cache returned lengths %d and %d, want 2", len(first.traces), len(second.traces))
+	}
+	if !second.truncated || second.scannedCount != 2000 {
+		t.Fatalf("cache lost criteria metadata: %+v", second)
+	}
+}
+
+func TestTraceCriteriaCacheEvictsOldestEntry(t *testing.T) {
+	cache := newTraceCriteriaCache()
+	now := time.Now()
+	for index := range traceCriteriaCacheMaxEntries {
+		key := "entry-" + strconv.Itoa(index)
+		cache.entries[key] = traceCriteriaCacheEntry{
+			result:    traceCriteriaResult{traces: []TraceEntry{{TraceID: key}}},
+			expiresAt: now.Add(time.Duration(index+1) * time.Minute),
+		}
+	}
+
+	cache.put("new-entry", traceCriteriaResult{traces: []TraceEntry{{TraceID: "new-entry"}}})
+
+	if _, ok := cache.entries["entry-0"]; ok {
+		t.Fatal("oldest cache entry was not evicted")
+	}
+	if _, ok := cache.entries["new-entry"]; !ok {
+		t.Fatal("new cache entry was not stored")
+	}
+	if len(cache.entries) != traceCriteriaCacheMaxEntries {
+		t.Fatalf("cache contains %d entries, want %d", len(cache.entries), traceCriteriaCacheMaxEntries)
+	}
+}
+
+func TestTraceCriteriaLoadContextOutlivesRequestCancellation(t *testing.T) {
+	type contextKey string
+	requestCtx, cancelRequest := context.WithCancel(
+		context.WithValue(context.Background(), contextKey("viewer"), "viewer-1"),
+	)
+	cancelRequest()
+
+	loadCtx, cancelLoad := newTraceCriteriaLoadContext(requestCtx)
+	defer cancelLoad()
+
+	select {
+	case <-loadCtx.Done():
+		t.Fatalf("shared load context ended with request: %v", loadCtx.Err())
+	default:
+	}
+	if _, ok := loadCtx.Deadline(); !ok {
+		t.Fatal("shared load context must have a deadline")
+	}
+	if got := loadCtx.Value(contextKey("viewer")); got != "viewer-1" {
+		t.Fatalf("shared load context lost request values: got %v", got)
+	}
+}
+
+func traceEntryIDs(traces []TraceEntry) []string {
+	ids := make([]string, 0, len(traces))
+	for _, trace := range traces {
+		ids = append(ids, trace.TraceID)
+	}
+	return ids
+}
+
+func TestLoadAllTracePages(t *testing.T) {
+	first := &langfuse.TracesResponse{Data: []langfuse.Trace{{ID: "page-1"}}}
+	first.Meta.TotalItems = 250
+	fetch := func(_ context.Context, _ int, offset int) (*langfuse.TracesResponse, error) {
+		return &langfuse.TracesResponse{Data: []langfuse.Trace{{ID: "page-" + strconv.Itoa(offset/maxTracesLimit+1)}}}, nil
+	}
+
+	got, truncated, err := loadAllTracePages(context.Background(), first, fetch)
+	if err != nil {
+		t.Fatalf("loadAllTracePages returned error: %v", err)
+	}
+	if truncated {
+		t.Fatal("loadAllTracePages unexpectedly truncated a three-page result")
+	}
+	want := []string{"page-1", "page-2", "page-3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d traces, want %d", len(got), len(want))
+	}
+	for i, trace := range got {
+		if trace.ID != want[i] {
+			t.Fatalf("trace %d = %q, want %q", i, trace.ID, want[i])
+		}
+	}
+}
+
+func TestLoadAllTracePagesCapsCriteriaWindow(t *testing.T) {
+	const pageCount = 101
+	first := &langfuse.TracesResponse{Data: []langfuse.Trace{{ID: "page-1"}}}
+	first.Meta.TotalItems = pageCount * maxTracesLimit
+	fetch := func(_ context.Context, _ int, offset int) (*langfuse.TracesResponse, error) {
+		return &langfuse.TracesResponse{
+			Data: []langfuse.Trace{{ID: "page-" + strconv.Itoa(offset/maxTracesLimit+1)}},
+		}, nil
+	}
+
+	got, truncated, err := loadAllTracePages(context.Background(), first, fetch)
+	if err != nil {
+		t.Fatalf("loadAllTracePages returned error: %v", err)
+	}
+	if !truncated {
+		t.Fatal("loadAllTracePages did not report truncation")
+	}
+	wantPages := maxTraceCriteriaItems / maxTracesLimit
+	if len(got) != wantPages || got[len(got)-1].ID != "page-10" {
+		t.Fatalf("loaded %d page markers, last=%q; want %d/page-10", len(got), got[len(got)-1].ID, wantPages)
+	}
+}
+
 func TestLangfuseMetricsBucketFiltering(t *testing.T) {
 	metrics := []langfuse.DailyMetric{
 		{Date: "2026-03-18", CountTraces: 10, Usage: []langfuse.DailyMetricUsage{{InputUsage: 100, OutputUsage: 50}}},
@@ -1033,5 +1353,42 @@ func TestAccountDailyMetrics_NoTagsReturnsEmpty(t *testing.T) {
 	}
 	if len(out) != 0 || len(active) != 0 {
 		t.Errorf("expected empty results, got out=%d active=%d", len(out), len(active))
+	}
+}
+
+func TestBuildTraceUserFacetsAggregatesFullWindowCounts(t *testing.T) {
+	rows := []map[string]any{
+		{"userId": "user_sohum", "count_count": float64(120)},
+		{"userId": "user_sohum", "count_count": "30"},
+		{"userId": "-", "count_count": float64(7)},
+	}
+
+	got := buildTraceUserFacets(nil, nil, nil, rows)
+	if len(got) != 2 {
+		t.Fatalf("expected two facets, got %#v", got)
+	}
+	if got[0].UserID != "" || got[0].Count != 7 || got[0].UserDetails != nil {
+		t.Errorf("unexpected no-user facet: %#v", got[0])
+	}
+	if got[1].UserID != "user_sohum" || got[1].Count != 150 {
+		t.Errorf("unexpected Astro user facet: %#v", got[1])
+	}
+	if got[1].UserDetails == nil || got[1].UserDetails.Kind != UserDetailsKindAstro {
+		t.Errorf("expected resolved Astro identity kind, got %#v", got[1].UserDetails)
+	}
+}
+
+func TestAstroProfileDetailsParticipateInTraceSearch(t *testing.T) {
+	hydrator := &userDetailsHydrator{astro: map[string]account.PersonalProfile{
+		"user_sohum": {UserID: "user_sohum", Name: "sohum", DisplayName: "Sohum Dalal"},
+	}}
+	details := traceUserDetailsFromHydrator("user_sohum", hydrator)
+	trace := TraceEntry{TraceID: "trace-1", UserID: "user_sohum", UserDetails: details}
+
+	if details == nil || details.DisplayName != "Sohum Dalal" || details.Username != "sohum" {
+		t.Fatalf("unexpected Astro details: %#v", details)
+	}
+	if !traceEntryMatchesSearch(trace, "sohum dalal") {
+		t.Fatal("resolved Astro display name did not match trace search")
 	}
 }

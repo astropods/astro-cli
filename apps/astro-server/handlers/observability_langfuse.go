@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 )
 
 // langfuseContext holds the resolved Langfuse client and deployment metadata.
@@ -1001,6 +1003,14 @@ func traceUserDetailsFromDirectory(userID string, entries slackDirectoryEntries)
 	}
 	d := userDetailsFromEntry(userID, nil)
 	return &d
+}
+
+func traceUserDetailsFromHydrator(userID string, hydrator *userDetailsHydrator) *UserDetails {
+	details := traceUserDetailsFromDirectory(userID, hydrator.slack)
+	if details != nil {
+		hydrator.stamp(userID, details)
+	}
+	return details
 }
 
 // tagStrings flattens a Langfuse `tags` group-by value, which can come back
@@ -2548,7 +2558,566 @@ func GetLangfuseSummaries(
 // rejects anything greater. Callers wanting a wider window paginate via offset.
 const maxTracesLimit = 100
 
+type traceListCriteria struct {
+	search    string
+	userID    string
+	noUser    bool
+	sortKey   string
+	direction string
+}
+
+func parseTraceListCriteria(c *gin.Context) traceListCriteria {
+	criteria := traceListCriteria{
+		search:    strings.ToLower(strings.TrimSpace(c.Query("search"))),
+		userID:    strings.TrimSpace(c.Query("user_id")),
+		noUser:    c.Query("no_user") == "true",
+		sortKey:   c.DefaultQuery("sort", "timestamp"),
+		direction: c.DefaultQuery("direction", "desc"),
+	}
+	if criteria.noUser {
+		criteria.userID = ""
+	}
+	if criteria.sortKey != "timestamp" && criteria.sortKey != "latency" && criteria.sortKey != "cost" {
+		criteria.sortKey = "timestamp"
+	}
+	if criteria.direction != "asc" && criteria.direction != "desc" {
+		criteria.direction = "desc"
+	}
+	return criteria
+}
+
+func (c traceListCriteria) upstreamOrderBy() (string, bool) {
+	if c.search != "" || c.sortKey != "timestamp" {
+		return "", false
+	}
+	return "timestamp." + c.direction, true
+}
+
+func (c traceListCriteria) upstreamFilters(
+	deploymentID, startTime, endTime string,
+) []langfuse.TraceFilter {
+	filters := []langfuse.TraceFilter{{
+		Type: "arrayOptions", Column: "tags", Operator: "all of",
+		Value: []string{"deployment:" + deploymentID},
+	}}
+	if startTime != "" {
+		filters = append(filters, langfuse.TraceFilter{
+			Type: "datetime", Column: "timestamp", Operator: ">=", Value: startTime,
+		})
+	}
+	if endTime != "" {
+		filters = append(filters, langfuse.TraceFilter{
+			Type: "datetime", Column: "timestamp", Operator: "<", Value: endTime,
+		})
+	}
+	if c.noUser {
+		filters = append(filters, langfuse.TraceFilter{
+			Type: "null", Column: "userId", Operator: "is null",
+		})
+	} else if c.userID != "" {
+		filters = append(filters, langfuse.TraceFilter{
+			Type: "string", Column: "userId", Operator: "=", Value: c.userID,
+		})
+	}
+	return filters
+}
+
+func appendTraceFilter(
+	base []langfuse.TraceFilter,
+	filter langfuse.TraceFilter,
+) []langfuse.TraceFilter {
+	result := make([]langfuse.TraceFilter, len(base), len(base)+1)
+	copy(result, base)
+	return append(result, filter)
+}
+
+func traceEntryFromLangfuse(t langfuse.Trace, details *UserDetails) TraceEntry {
+	return TraceEntry{
+		TraceID:     t.ID,
+		Name:        t.Name,
+		Status:      "ok",
+		LatencyMs:   t.Latency * 1000,
+		TotalCost:   t.TotalCost,
+		Timestamp:   t.CreatedAt,
+		UserID:      t.UserID,
+		UserDetails: details,
+	}
+}
+
+func traceEntryMatchesSearch(trace TraceEntry, query string) bool {
+	if query == "" {
+		return true
+	}
+	terms := []string{trace.Name, trace.TraceID, trace.UserID}
+	if trace.UserDetails != nil {
+		terms = append(terms, trace.UserDetails.DisplayName, trace.UserDetails.Username)
+	}
+	for _, term := range terms {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(term)), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func compareTraceEntries(a, b TraceEntry, criteria traceListCriteria) int {
+	var comparison int
+	if criteria.sortKey == "timestamp" {
+		comparison = strings.Compare(a.Timestamp, b.Timestamp)
+	} else {
+		aValue, bValue := a.LatencyMs, b.LatencyMs
+		if criteria.sortKey == "cost" {
+			aValue, bValue = a.TotalCost, b.TotalCost
+		}
+		comparison = cmp.Compare(aValue, bValue)
+	}
+	if criteria.direction == "desc" {
+		comparison = -comparison
+	}
+	if comparison != 0 {
+		return comparison
+	}
+	return strings.Compare(a.TraceID, b.TraceID)
+}
+
+func filterAndSortTraceEntries(traces []TraceEntry, criteria traceListCriteria) []TraceEntry {
+	filtered := make([]TraceEntry, 0, len(traces))
+	for _, trace := range traces {
+		if criteria.noUser && trace.UserID != "" {
+			continue
+		}
+		if criteria.userID != "" && trace.UserID != criteria.userID {
+			continue
+		}
+		if !traceEntryMatchesSearch(trace, criteria.search) {
+			continue
+		}
+		filtered = append(filtered, trace)
+	}
+	slices.SortFunc(filtered, func(a, b TraceEntry) int {
+		return compareTraceEntries(a, b, criteria)
+	})
+	return filtered
+}
+
+func pageTraceEntries(traces []TraceEntry, offset, limit int) []TraceEntry {
+	if offset >= len(traces) {
+		return []TraceEntry{}
+	}
+	end := min(offset+limit, len(traces))
+	return traces[offset:end]
+}
+
+type tracePageFetcher func(context.Context, int, int) (*langfuse.TracesResponse, error)
+
+const (
+	traceCriteriaCacheTTL         = 5 * time.Minute
+	traceCriteriaCacheMaxEntries  = 16
+	traceCriteriaLoadTimeout      = 2 * time.Minute
+	maxTraceCriteriaItems         = 1000
+	maxTraceSearchIdentitySources = 5
+)
+
+type traceCriteriaResult struct {
+	traces       []TraceEntry
+	truncated    bool
+	scannedCount int
+}
+
+type traceCriteriaCacheEntry struct {
+	result    traceCriteriaResult
+	expiresAt time.Time
+}
+
+type traceCriteriaCache struct {
+	mu      sync.Mutex
+	entries map[string]traceCriteriaCacheEntry
+	loads   singleflight.Group
+}
+
+func newTraceCriteriaCache() *traceCriteriaCache {
+	return &traceCriteriaCache{entries: make(map[string]traceCriteriaCacheEntry)}
+}
+
+func (cache *traceCriteriaCache) getOrLoad(
+	key string,
+	load func() (traceCriteriaResult, error),
+) (traceCriteriaResult, error) {
+	if result, ok := cache.get(key); ok {
+		return result, nil
+	}
+	value, err, _ := cache.loads.Do(key, func() (any, error) {
+		if result, ok := cache.get(key); ok {
+			return result, nil
+		}
+		result, err := load()
+		if err != nil {
+			return nil, err
+		}
+		cache.put(key, result)
+		return result, nil
+	})
+	if err != nil {
+		return traceCriteriaResult{}, err
+	}
+	return value.(traceCriteriaResult), nil
+}
+
+func (cache *traceCriteriaCache) get(key string) (traceCriteriaResult, bool) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	entry, ok := cache.entries[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		delete(cache.entries, key)
+		return traceCriteriaResult{}, false
+	}
+	return entry.result, true
+}
+
+func (cache *traceCriteriaCache) put(key string, result traceCriteriaResult) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	now := time.Now()
+	for entryKey, entry := range cache.entries {
+		if now.After(entry.expiresAt) {
+			delete(cache.entries, entryKey)
+		}
+	}
+	if len(cache.entries) >= traceCriteriaCacheMaxEntries {
+		var oldestKey string
+		var oldestExpiry time.Time
+		for entryKey, entry := range cache.entries {
+			if oldestKey == "" || entry.expiresAt.Before(oldestExpiry) {
+				oldestKey = entryKey
+				oldestExpiry = entry.expiresAt
+			}
+		}
+		delete(cache.entries, oldestKey)
+	}
+	cache.entries[key] = traceCriteriaCacheEntry{
+		result:    result,
+		expiresAt: now.Add(traceCriteriaCacheTTL),
+	}
+}
+
+func traceCriteriaKey(
+	deploymentID, startTime, endTime string,
+	criteria traceListCriteria,
+) string {
+	return strings.Join([]string{
+		deploymentID,
+		startTime,
+		endTime,
+		criteria.search,
+		criteria.userID,
+		strconv.FormatBool(criteria.noUser),
+		criteria.sortKey,
+		criteria.direction,
+	}, "\x00")
+}
+
+func newTraceCriteriaLoadContext(requestCtx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(requestCtx), traceCriteriaLoadTimeout)
+}
+
+func loadAllTracePages(
+	ctx context.Context,
+	first *langfuse.TracesResponse,
+	fetch tracePageFetcher,
+) ([]langfuse.Trace, bool, error) {
+	totalPageCount := (first.Meta.TotalItems + maxTracesLimit - 1) / maxTracesLimit
+	maxPageCount := (maxTraceCriteriaItems + maxTracesLimit - 1) / maxTracesLimit
+	pageCount := min(totalPageCount, maxPageCount)
+	truncated := first.Meta.TotalItems > maxTraceCriteriaItems
+	if pageCount <= 1 {
+		return first.Data, truncated, nil
+	}
+	pages := make([][]langfuse.Trace, pageCount)
+	pages[0] = first.Data
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for pageIndex := 1; pageIndex < pageCount; pageIndex++ {
+		group.Go(func() error {
+			page, err := fetch(groupCtx, maxTracesLimit, pageIndex*maxTracesLimit)
+			if err != nil {
+				return err
+			}
+			pages[pageIndex] = page.Data
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, false, err
+	}
+	all := make([]langfuse.Trace, 0, min(first.Meta.TotalItems, maxTraceCriteriaItems))
+	for _, page := range pages {
+		all = append(all, page...)
+	}
+	if len(all) > maxTraceCriteriaItems {
+		all = all[:maxTraceCriteriaItems]
+		truncated = true
+	}
+	return all, truncated, nil
+}
+
+func resolveTraceEntries(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
+	traces []langfuse.Trace,
+) []TraceEntry {
+	identityRows := traceIdentityLookupRows(traces)
+	userIDs := make([]string, 0, len(identityRows))
+	for _, row := range identityRows {
+		userIDs = append(userIDs, row.UserID)
+	}
+	hydrator := newUserDetailsHydrator(log, slackStore, accountStore, userIDs, "deployment-traces")
+	result := make([]TraceEntry, 0, len(traces))
+	for _, trace := range traces {
+		result = append(result, traceEntryFromLangfuse(
+			trace,
+			traceUserDetailsFromHydrator(trace.UserID, hydrator),
+		))
+	}
+	return result
+}
+
+func buildTraceUserFacets(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
+	rows []map[string]any,
+) []TraceUserFacet {
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		userID, _ := row["userId"].(string)
+		counts[normalizeUserID(userID)] += toInt(row["count_count"])
+	}
+
+	userIDs := make([]string, 0, len(counts))
+	for userID := range counts {
+		if userID != "" {
+			userIDs = append(userIDs, userID)
+		}
+	}
+	hydrator := newUserDetailsHydrator(log, slackStore, accountStore, userIDs, "deployment-trace-users")
+
+	result := make([]TraceUserFacet, 0, len(counts))
+	for userID, count := range counts {
+		if count <= 0 {
+			continue
+		}
+		result = append(result, TraceUserFacet{
+			UserID:      userID,
+			UserDetails: traceUserDetailsFromHydrator(userID, hydrator),
+			Count:       count,
+		})
+	}
+	slices.SortFunc(result, func(a, b TraceUserFacet) int {
+		return strings.Compare(a.UserID, b.UserID)
+	})
+	return result
+}
+
+func getTraceUserFacets(
+	ctx context.Context,
+	client *langfuse.Client,
+	deploymentID, startTime, endTime string,
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
+) ([]TraceUserFacet, error) {
+	from, to := metricsTimeRange(startTime, endTime)
+	response, err := client.GetMetrics(ctx, langfuse.MetricsQuery{
+		View:       "traces",
+		Metrics:    []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
+		Dimensions: []langfuse.MetricsDimension{{Field: "userId"}},
+		Filters: []langfuse.MetricsFilter{{
+			Type: "arrayOptions", Column: "tags", Operator: "any of",
+			Value: []string{"deployment:" + deploymentID},
+		}},
+		FromTimestamp: from,
+		ToTimestamp:   to,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildTraceUserFacets(log, accountStore, slackStore, response.Data), nil
+}
+
+func matchingTraceIdentityUserIDs(
+	facets []TraceUserFacet,
+	criteria traceListCriteria,
+) ([]string, bool) {
+	if criteria.noUser || criteria.search == "" {
+		return nil, false
+	}
+	result := make([]string, 0)
+	for _, facet := range facets {
+		if facet.UserID == "" || facet.UserDetails == nil {
+			continue
+		}
+		if criteria.userID != "" && facet.UserID != criteria.userID {
+			continue
+		}
+		terms := []string{facet.UserDetails.DisplayName, facet.UserDetails.Username}
+		matches := false
+		for _, term := range terms {
+			if strings.Contains(strings.ToLower(strings.TrimSpace(term)), criteria.search) {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		if len(result) == maxTraceSearchIdentitySources {
+			return result, true
+		}
+		result = append(result, facet.UserID)
+	}
+	return result, false
+}
+
+func traceFilterSources(
+	base []langfuse.TraceFilter,
+	criteria traceListCriteria,
+	identityUserIDs []string,
+) [][]langfuse.TraceFilter {
+	if criteria.search == "" {
+		return [][]langfuse.TraceFilter{base}
+	}
+
+	columns := []string{"id", "name"}
+	if !criteria.noUser {
+		columns = append(columns, "userId")
+	}
+	// Langfuse's string "contains" predicate is case-sensitive while Astro's
+	// search contract is not. Keep one bounded base stream as a compatibility
+	// fallback, then union it with complete server-filtered streams for raw
+	// fields and identity-specific streams for enriched names.
+	sources := make([][]langfuse.TraceFilter, 0, 1+len(columns)+len(identityUserIDs))
+	sources = append(sources, slices.Clone(base))
+	for _, column := range columns {
+		sources = append(sources, appendTraceFilter(base, langfuse.TraceFilter{
+			Type: "string", Column: column, Operator: "contains", Value: criteria.search,
+		}))
+	}
+	for _, userID := range identityUserIDs {
+		if criteria.userID != "" {
+			// The base already contains the selected user. Adding it without a
+			// raw-field search includes every trace whose enriched identity matched.
+			sources = append(sources, slices.Clone(base))
+			continue
+		}
+		sources = append(sources, appendTraceFilter(base, langfuse.TraceFilter{
+			Type: "string", Column: "userId", Operator: "=", Value: userID,
+		}))
+	}
+	return sources
+}
+
+func loadFilteredTraceCriteria(
+	ctx context.Context,
+	client *langfuse.Client,
+	deploymentID, startTime, endTime string,
+	criteria traceListCriteria,
+	sources [][]langfuse.TraceFilter,
+	identitySourcesTruncated bool,
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	slackStore *slackidentity.Store,
+) (traceCriteriaResult, error) {
+	orderBy := "timestamp.desc"
+	if criteria.sortKey == "timestamp" {
+		orderBy = "timestamp." + criteria.direction
+	}
+
+	pages := make([][]langfuse.Trace, len(sources))
+	truncatedSources := make([]bool, len(sources))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for sourceIndex, filters := range sources {
+		group.Go(func() error {
+			fetch := func(fetchCtx context.Context, limit, offset int) (*langfuse.TracesResponse, error) {
+				return client.GetTracesFilteredOrdered(
+					fetchCtx,
+					deploymentID, startTime, endTime,
+					filters,
+					limit, offset,
+					orderBy,
+				)
+			}
+			first, err := fetch(groupCtx, maxTracesLimit, 0)
+			if err != nil {
+				return err
+			}
+			pages[sourceIndex], truncatedSources[sourceIndex], err = loadAllTracePages(groupCtx, first, fetch)
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return traceCriteriaResult{}, err
+	}
+
+	unique := make(map[string]langfuse.Trace)
+	truncated := identitySourcesTruncated
+	for sourceIndex, traces := range pages {
+		truncated = truncated || truncatedSources[sourceIndex]
+		for _, trace := range traces {
+			unique[trace.ID] = trace
+		}
+	}
+	candidates := make([]langfuse.Trace, 0, len(unique))
+	for _, trace := range unique {
+		candidates = append(candidates, trace)
+	}
+	scannedCount := len(candidates)
+	resolved := filterAndSortTraceEntries(
+		resolveTraceEntries(log, accountStore, slackStore, candidates),
+		criteria,
+	)
+	if len(resolved) > maxTraceCriteriaItems {
+		resolved = resolved[:maxTraceCriteriaItems]
+		truncated = true
+	}
+	return traceCriteriaResult{
+		traces: resolved, truncated: truncated, scannedCount: scannedCount,
+	}, nil
+}
+
+// GetLangfuseTraceUsers returns complete user facets for the selected window.
+// GET /api/v1/deployments/:id/observability/trace-users
+func GetLangfuseTraceUsers(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	langfuseStore *langfuse.Store,
+	slackStore *slackidentity.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+		facets, err := getTraceUserFacets(
+			c.Request.Context(), lctx.Client, lctx.DeploymentID,
+			c.Query("start_time"), c.Query("end_time"),
+			log, accountStore, slackStore,
+		)
+		if err != nil {
+			log.Error("Failed to get Langfuse trace user facets", "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse trace users"})
+			return
+		}
+		c.JSON(http.StatusOK, TraceUserFacetsResponse{Users: facets})
+	}
+}
+
 // GetLangfuseTraces returns a paginated list of traces from Langfuse.
+// Filter by one identity with user_id, or by traces without an identity with
+// no_user=true. If both are provided, no_user takes precedence.
 // GET /api/v1/deployments/:id/observability/traces
 func GetLangfuseTraces(
 	log *logger.Logger,
@@ -2558,6 +3127,7 @@ func GetLangfuseTraces(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 ) gin.HandlerFunc {
+	criteriaCache := newTraceCriteriaCache()
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
 		if !ok {
@@ -2575,39 +3145,95 @@ func GetLangfuseTraces(
 
 		offsetStr := c.DefaultQuery("offset", "0")
 		offset, _ := strconv.Atoi(offsetStr)
-
-		traces, err := lctx.Client.GetTraces(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), limit, offset)
-		if err != nil {
-			log.Error("Failed to get Langfuse traces", "error", err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
-			return
+		if offset < 0 {
+			offset = 0
+		}
+		criteria := parseTraceListCriteria(c)
+		startTime, endTime := c.Query("start_time"), c.Query("end_time")
+		fetchDeploymentPage := func(orderBy string) tracePageFetcher {
+			return func(ctx context.Context, pageLimit, pageOffset int) (*langfuse.TracesResponse, error) {
+				return lctx.Client.GetTracesOrdered(ctx, lctx.DeploymentID, startTime, endTime, pageLimit, pageOffset, orderBy)
+			}
 		}
 
-		slackEntries := lookupSlackDirectoryEntries(log, slackStore, traceIdentityLookupRows(traces.Data), "deployment-traces")
-		result := make([]gin.H, 0, len(traces.Data))
-		for _, t := range traces.Data {
-			row := gin.H{
-				"trace_id":   t.ID,
-				"name":       t.Name,
-				"status":     "ok",
-				"latency_ms": t.Latency * 1000,
-				"total_cost": t.TotalCost,
-				"input":      t.Input,
-				"output":     t.Output,
-				"timestamp":  t.CreatedAt,
-				"user_id":    t.UserID,
+		var result []TraceEntry
+		var total int
+		var truncated bool
+		var scannedCount int
+		if orderBy, supported := criteria.upstreamOrderBy(); supported {
+			var traces *langfuse.TracesResponse
+			var err error
+			if criteria.noUser {
+				traces, err = lctx.Client.GetTracesFilteredOrdered(
+					c.Request.Context(),
+					lctx.DeploymentID, startTime, endTime,
+					criteria.upstreamFilters(lctx.DeploymentID, startTime, endTime),
+					limit, offset, orderBy,
+				)
+			} else if criteria.userID != "" {
+				traces, err = lctx.Client.GetUserTracesOrdered(
+					c.Request.Context(), lctx.DeploymentID,
+					criteria.userID,
+					startTime, endTime, limit, offset, orderBy,
+				)
+			} else {
+				traces, err = fetchDeploymentPage(orderBy)(c.Request.Context(), limit, offset)
 			}
-			if details := traceUserDetailsFromDirectory(t.UserID, slackEntries); details != nil {
-				row["user_details"] = details
+			if err != nil {
+				log.Error("Failed to get ordered Langfuse traces", "error", err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
+				return
 			}
-			result = append(result, row)
+			result = resolveTraceEntries(log, accountStore, slackStore, traces.Data)
+			total = traces.Meta.TotalItems
+		} else {
+			cacheKey := traceCriteriaKey(lctx.DeploymentID, startTime, endTime, criteria)
+			resolved, err := criteriaCache.getOrLoad(cacheKey, func() (traceCriteriaResult, error) {
+				loadCtx, cancel := newTraceCriteriaLoadContext(c.Request.Context())
+				defer cancel()
+
+				var identityUserIDs []string
+				var identitySourcesTruncated bool
+				if criteria.search != "" && !criteria.noUser {
+					facets, err := getTraceUserFacets(
+						loadCtx, lctx.Client, lctx.DeploymentID,
+						startTime, endTime,
+						log, accountStore, slackStore,
+					)
+					if err != nil {
+						return traceCriteriaResult{}, err
+					}
+					identityUserIDs, identitySourcesTruncated = matchingTraceIdentityUserIDs(facets, criteria)
+				}
+
+				baseFilters := criteria.upstreamFilters(lctx.DeploymentID, startTime, endTime)
+				return loadFilteredTraceCriteria(
+					loadCtx, lctx.Client,
+					lctx.DeploymentID, startTime, endTime,
+					criteria,
+					traceFilterSources(baseFilters, criteria, identityUserIDs),
+					identitySourcesTruncated,
+					log, accountStore, slackStore,
+				)
+			})
+			if err != nil {
+				log.Error("Failed to resolve filtered Langfuse traces", "error", err)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
+				return
+			}
+			total = len(resolved.traces)
+			result = pageTraceEntries(resolved.traces, offset, limit)
+			truncated = resolved.truncated
+			scannedCount = resolved.scannedCount
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"traces": result,
-			"total":  traces.Meta.TotalItems,
-			"limit":  traces.Meta.Limit,
-			"offset": (traces.Meta.Page - 1) * traces.Meta.Limit,
+			"traces":        result,
+			"total":         total,
+			"limit":         limit,
+			"offset":        offset,
+			"truncated":     truncated,
+			"scanned_count": scannedCount,
 		})
 	}
 }

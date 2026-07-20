@@ -406,8 +406,8 @@ type UserAgentRef struct {
 
 // UserDetailsKind is the discriminator for UserDetails — every row that
 // represents a user carries one of these three values.
-//   - astro: a WorkOS-shaped user_id (an Astro account). No Slack
-//     metadata; the frontend resolves name + avatar via the members API.
+//   - astro: a WorkOS-shaped user_id (an Astro account). Display name and
+//     username may be populated from the user's personal account profile.
 //   - slack: a bare-Slack-shaped user_id. Profile + workspace fields may
 //     be populated when the Slack directory has the user observed.
 //   - unknown: anything else (opaque session tokens, system actors, etc.).
@@ -420,20 +420,19 @@ const (
 	UserDetailsKindUnknown UserDetailsKind = "unknown"
 )
 
-// UserDetails is the discriminated union of identity facts for one user
-// row. Kind is always set; the Slack-specific fields are populated only
-// when Kind == "slack" (and even then only when the directory has the
-// data — e.g. a known Slack id whose profile hasn't been synced yet
-// will surface kind="slack" with team_id + profile empty).
+// UserDetails is the discriminated union of identity facts for one user row.
+// Kind is always set. Shared profile fields may be present for Astro or Slack;
+// team and bot state are populated only for Slack directory matches.
 type UserDetails struct {
 	Kind UserDetailsKind `json:"kind"`
-	// Slack fields — populated only for Kind == "slack".
-	TeamID      string `json:"team_id,omitempty"`
+	// Shared profile fields may be populated for Astro or Slack identities.
 	DisplayName string `json:"display_name,omitempty"`
 	Username    string `json:"username,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
-	IsBot       bool   `json:"is_bot,omitempty"`
-	Deleted     bool   `json:"deleted,omitempty"`
+	// Slack-only fields.
+	TeamID  string `json:"team_id,omitempty"`
+	IsBot   bool   `json:"is_bot,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
 }
 
 // UserIdentity is the user_id + user_details pair surfaced by every
@@ -669,14 +668,15 @@ type InsightsPersonRow struct {
 // TraceEntry represents a single trace in the traces list. UserID is the
 // raw Langfuse user_id; UserDetails is the resolved discriminated identity
 // (nil when the trace has no user attached or when classification can't
-// produce useful data).
+// produce useful data). Status remains a compatibility placeholder for legacy
+// consumers such as Chat Inspector: Langfuse does not expose a reliable
+// trace-level status, so new list consumers must not display or filter on it.
 type TraceEntry struct {
 	TraceID     string       `json:"trace_id"`
 	Name        string       `json:"name"`
 	Status      string       `json:"status"`
 	LatencyMs   float64      `json:"latency_ms"`
-	Input       string       `json:"input"`
-	Output      string       `json:"output"`
+	TotalCost   float64      `json:"total_cost"`
 	Timestamp   string       `json:"timestamp"`
 	UserID      string       `json:"user_id,omitempty"`
 	UserDetails *UserDetails `json:"user_details,omitempty"`
@@ -752,10 +752,24 @@ type TraceDetailResponse struct {
 
 // ObservabilityTracesResponse is returned by the traces endpoint.
 type ObservabilityTracesResponse struct {
-	Traces []TraceEntry `json:"traces"`
-	Total  int          `json:"total"`
-	Limit  int          `json:"limit"`
-	Offset int          `json:"offset"`
+	Traces       []TraceEntry `json:"traces"`
+	Total        int          `json:"total"`
+	Limit        int          `json:"limit"`
+	Offset       int          `json:"offset"`
+	Truncated    bool         `json:"truncated,omitempty"`
+	ScannedCount int          `json:"scanned_count,omitempty"`
+}
+
+// TraceUserFacet is one user and their trace count for a deployment window.
+type TraceUserFacet struct {
+	UserID      string       `json:"user_id,omitempty"`
+	UserDetails *UserDetails `json:"user_details,omitempty"`
+	Count       int          `json:"count"`
+}
+
+// TraceUserFacetsResponse is returned by the trace-user facets endpoint.
+type TraceUserFacetsResponse struct {
+	Users []TraceUserFacet `json:"users"`
 }
 
 // --- Network (Beyla eBPF) ---
