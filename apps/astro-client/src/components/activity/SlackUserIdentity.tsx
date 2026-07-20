@@ -52,19 +52,16 @@ export function SlackUserIdentity({
   const display = slackIdentityDisplay(user);
   const isTrace = variant === "trace";
   const label = (
-    <span className={cn("inline-flex min-w-0 max-w-full items-center", isTrace ? "gap-1.5" : "gap-2")}>
+    <span className="inline-flex min-w-0 max-w-full items-center gap-2">
       <SlackIdentityAvatar
         details={user.user_details}
-        className={cn(
-          "opacity-60 transition-opacity group-hover:opacity-100",
-          isTrace ? "size-4" : "size-5",
-        )}
-        iconClassName={isTrace ? "size-3" : "size-4"}
+        className={cn("size-5", !isTrace && "opacity-60 transition-opacity group-hover:opacity-100")}
+        iconClassName="size-4"
       />
       <span
         className={cn(
           "truncate transition-colors group-hover:text-foreground",
-          isTrace ? "text-body-sm text-muted-foreground" : "text-faint-foreground",
+          isTrace ? "text-body-sm text-foreground" : "text-faint-foreground",
         )}
         title={display.primary}
       >
