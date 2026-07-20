@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/workos/workos-go/v6/pkg/events"
 )
 
@@ -24,6 +25,7 @@ type EventsConsumer struct {
 	eventsClient *events.Client
 	orgClient    *Client
 	accountStore *account.AccountStore
+	memberEmails *memberemails.Store
 	agentIdx     *agentindex.Index
 	avatarStore  *avatar.Store
 	db           *sql.DB
@@ -31,11 +33,12 @@ type EventsConsumer struct {
 }
 
 // NewEventsConsumer creates a new events consumer.
-func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, db *sql.DB, log *logger.Logger) *EventsConsumer {
+func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, memberEmails *memberemails.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, db *sql.DB, log *logger.Logger) *EventsConsumer {
 	return &EventsConsumer{
 		eventsClient: &events.Client{APIKey: apiKey},
 		orgClient:    orgClient,
 		accountStore: accountStore,
+		memberEmails: memberEmails,
 		agentIdx:     agentIdx,
 		avatarStore:  avatarStore,
 		db:           db,
@@ -131,7 +134,9 @@ type organizationEventData struct {
 
 // userEventData represents the data payload for user events.
 type userEventData struct {
-	ID string `json:"id"`
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
 }
 
 func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) error {
@@ -141,7 +146,7 @@ func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) 
 	case strings.HasPrefix(event.Event, "organization."):
 		return ec.processOrganizationEvent(ctx, event)
 	case strings.HasPrefix(event.Event, "user."):
-		return ec.processUserEvent(event)
+		return ec.processUserEvent(ctx, event)
 	}
 	return nil
 }
@@ -320,7 +325,7 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 	return nil
 }
 
-func (ec *EventsConsumer) processUserEvent(event events.Event) error {
+func (ec *EventsConsumer) processUserEvent(ctx context.Context, event events.Event) error {
 	var data userEventData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		return fmt.Errorf("unmarshal user event data: %w", err)
@@ -328,8 +333,12 @@ func (ec *EventsConsumer) processUserEvent(event events.Event) error {
 
 	switch event.Event {
 	case "user.created", "user.updated":
-		// No local user table — nothing to do
-		return nil
+		// Mirror the member's email locally for dev-tool attribution. Best-effort:
+		// the reconcile job backfills any miss, so a mirror write must never wedge
+		// the in-order events poller. No-ops when the event carries no email.
+		if err := ec.memberEmails.UpsertWorkOS(ctx, data.ID, data.Email, data.EmailVerified); err != nil {
+			ec.log.Warn("mirror user email failed", "user_id", data.ID, "error", err)
+		}
 
 	case "user.deleted":
 		n, err := ec.accountStore.RemoveUserFromAllAccounts(data.ID)
@@ -339,6 +348,9 @@ func (ec *EventsConsumer) processUserEvent(event events.Event) error {
 		if n > 0 {
 			ec.log.Info("Removed deleted user from accounts",
 				"user_id", data.ID, "memberships_removed", n)
+		}
+		if err := ec.memberEmails.DeleteForUser(ctx, data.ID); err != nil {
+			ec.log.Warn("delete emails for user failed", "user_id", data.ID, "error", err)
 		}
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -131,16 +132,26 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "OpenmeterWorker", "period", "5m")
 
+	memberEmailStore := memberemails.NewStore(cfg.DB)
+
 	addWorkerWithCatalogCheck(log, workers, &WorkOSEventsWorker{
 		workOSAPIKey: cfg.WorkOSAPIKey,
 		orgClient:    cfg.OrgClient,
 		accountStore: cfg.AccountStore,
+		memberEmails: memberEmailStore,
 		agentIdx:     cfg.AgentIndex,
 		avatarStore:  cfg.AvatarStore,
 		db:           cfg.DB,
 		log:          log,
 	})
 	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "15s")
+
+	addWorkerWithCatalogCheck(log, workers, &MemberEmailReconcileWorker{
+		workosClient: cfg.WorkOSClient,
+		emails:       memberEmailStore,
+		log:          log,
+	})
+	log.Info("river: registered worker", "worker", "MemberEmailReconcileWorker", "period", "10m")
 
 	store := deploymentstore.NewStore(cfg.DB)
 

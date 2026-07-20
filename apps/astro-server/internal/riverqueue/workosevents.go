@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 )
 
@@ -34,6 +35,7 @@ type WorkOSEventsWorker struct {
 	workOSAPIKey string
 	orgClient    *org.Client
 	accountStore *account.AccountStore
+	memberEmails *memberemails.Store
 	agentIdx     *agentindex.Index
 	avatarStore  *avatar.Store
 	db           *sql.DB
@@ -41,7 +43,7 @@ type WorkOSEventsWorker struct {
 }
 
 func (w *WorkOSEventsWorker) Work(ctx context.Context, _ *river.Job[WorkOSEventsArgs]) error {
-	consumer := org.NewEventsConsumer(w.workOSAPIKey, w.orgClient, w.accountStore, w.agentIdx, w.avatarStore, w.db, w.log)
+	consumer := org.NewEventsConsumer(w.workOSAPIKey, w.orgClient, w.accountStore, w.memberEmails, w.agentIdx, w.avatarStore, w.db, w.log)
 	processed, err := consumer.Poll(ctx)
 	if err != nil {
 		w.log.Error("WorkOS events poll failed", "processed", processed, "error", err)

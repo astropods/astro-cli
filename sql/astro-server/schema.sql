@@ -130,6 +130,38 @@ CREATE TABLE public.account_member_workos (
     CONSTRAINT account_member_workos_workos_membership_id_key UNIQUE (workos_membership_id)
 );
 
+-- Local mirror of member (WorkOS user) email addresses. This is the join key
+-- for attributing external dev-tool telemetry (stamped with user.email) to a
+-- member without a per-request WorkOS lookup. One-to-many: a user may have
+-- several emails; `source` distinguishes WorkOS-synced emails from ones added
+-- directly (direct-add is not yet implemented). Kept fresh by the WorkOS events
+-- poller and a periodic reconcile (internal/org, internal/riverqueue).
+CREATE TABLE public.member_emails (
+    id         uuid        NOT NULL DEFAULT gen_random_uuid(),
+    user_id    text        NOT NULL,
+    email      text        NOT NULL,
+    source     text        NOT NULL DEFAULT 'workos',
+    verified   boolean     NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT member_emails_pkey PRIMARY KEY (id),
+    CONSTRAINT member_emails_email_key UNIQUE (email)
+);
+
+CREATE INDEX idx_member_emails_user ON public.member_emails(user_id);
+
+-- At most one WorkOS-synced email per user. Other sources (future direct-add)
+-- are intentionally not covered, so a user may still hold several such emails.
+CREATE UNIQUE INDEX member_emails_user_workos_key ON public.member_emails(user_id) WHERE source = 'workos';
+
+-- Records reconcile attempts for members whose email couldn't be resolved from
+-- WorkOS, so the backfill job backs off instead of re-querying them every run.
+CREATE TABLE public.member_email_reconcile_attempts (
+    user_id      text        NOT NULL,
+    attempted_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT member_email_reconcile_attempts_pkey PRIMARY KEY (user_id)
+);
+
 CREATE TABLE public.agents (
     account_id uuid NOT NULL,
     name text NOT NULL,

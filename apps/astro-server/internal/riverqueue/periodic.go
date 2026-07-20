@@ -133,6 +133,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
+
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(10*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				// Default queue (not queueWorkOS) so a long backfill run never
+				// stalls the strictly-ordered, single-worker events poller.
+				return MemberEmailReconcileArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 10 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	jobs = append(jobs, river.NewPeriodicJob(

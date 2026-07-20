@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/workos/workos-go/v6/pkg/events"
 )
 
@@ -22,6 +23,7 @@ func newTestConsumer(t *testing.T) (*EventsConsumer, sqlmock.Sqlmock) {
 	store := account.NewAccountStore(db)
 	ec := &EventsConsumer{
 		accountStore: store,
+		memberEmails: memberemails.NewStore(db),
 		orgClient:    nil, // no WorkOS calls in unit tests
 		db:           db,
 		log:          log,
@@ -450,6 +452,33 @@ func TestProcessEvent_UserUpdated_NoOp(t *testing.T) {
 	}
 }
 
+func TestProcessEvent_UserUpdated_MirrorsEmail(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+
+	// UpsertWorkOS: prune stale workos rows, then upsert the current email.
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM member_emails").
+		WithArgs("user-1", "dev@x.com").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO member_emails").
+		WithArgs("user-1", "dev@x.com", true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	event := makeEvent("user.updated", map[string]any{
+		"id":             "user-1",
+		"email":          "dev@x.com",
+		"email_verified": true,
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestProcessEvent_UserDeleted(t *testing.T) {
 	ec, mock := newTestConsumer(t)
 
@@ -457,6 +486,13 @@ func TestProcessEvent_UserDeleted(t *testing.T) {
 	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
 		WithArgs("user-1").
 		WillReturnResult(sqlmock.NewResult(0, 3))
+	// DeleteForUser (member_emails mirror + reconcile-backoff record)
+	mock.ExpectExec("DELETE FROM member_emails").
+		WithArgs("user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM member_email_reconcile_attempts").
+		WithArgs("user-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	event := makeEvent("user.deleted", map[string]any{
 		"id": "user-1",
@@ -475,6 +511,13 @@ func TestProcessEvent_UserDeleted_NoMemberships(t *testing.T) {
 
 	// RemoveUserFromAllAccounts — no rows
 	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
+		WithArgs("user-gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// DeleteForUser (member_emails mirror + reconcile-backoff record)
+	mock.ExpectExec("DELETE FROM member_emails").
+		WithArgs("user-gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM member_email_reconcile_attempts").
 		WithArgs("user-gone").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
