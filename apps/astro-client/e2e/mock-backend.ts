@@ -658,6 +658,30 @@ const makeInitialDeployments = () => [
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
 let createdBlueprints = new Set<string>();
+
+// In-app chat threads keyed by conversation id. Seeded with the demo thread the
+// chat specs read; sending a message appends the user turn plus a canned
+// assistant reply, and the SSE stream replays that reply chunk by chunk. Keeping
+// the persisted thread in sync with the stream is what lets the post-finish
+// history refetch (finalizeConversation) land on the same content.
+type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
+const CHAT_SEED_CONV = "conv-demo-1";
+const CHAT_SEED_TITLE = "Trip planning to Lisbon";
+const ASSISTANT_REPLY_CHUNKS = ["Sure, ", "here is a quick plan for your trip."];
+const ASSISTANT_REPLY = ASSISTANT_REPLY_CHUNKS.join("");
+const makeInitialChatThreads = (): Record<string, ChatMessage[]> => ({
+  [CHAT_SEED_CONV]: [
+    { id: "m1", role: "user", content: "Plan me a weekend in Lisbon." },
+    {
+      id: "m2",
+      role: "assistant",
+      content: "Sure! Start in Alfama, then Belem the next morning.",
+    },
+  ],
+});
+let chatThreads = makeInitialChatThreads();
+let chatMessageSeq = 0;
+const nextChatMessageId = (prefix: string) => `${prefix}-${(chatMessageSeq += 1)}`;
 const knowledgeStores = [
   {
     id: "ks-shared-postgres",
@@ -798,6 +822,8 @@ Bun.serve({
     if (pathname === "/test/reset" && request.method === "POST") {
       deployments = makeInitialDeployments();
       storedPayloads = {};
+      chatThreads = makeInitialChatThreads();
+      chatMessageSeq = 0;
       currentOrgRole = "admin";
       forceUnauth = false;
       createdBlueprints = new Set();
@@ -1240,32 +1266,101 @@ Bun.serve({
       return json({
         conversations: [
           {
-            conversation_id: "conv-demo-1",
-            title: "Trip planning to Lisbon",
+            conversation_id: CHAT_SEED_CONV,
+            title: CHAT_SEED_TITLE,
             updated_at: "2026-07-10T12:00:00Z",
           },
         ],
       });
     }
 
-    // A single conversation's messages (renders the thread + its title).
+    // A single conversation's messages (renders the thread + its title). Reads
+    // the stateful store so a just-sent turn survives the post-stream refetch.
     const chatConversationDetailMatch = pathname.match(
       /^\/api\/v1\/deployments\/([^/]+)\/chat\/conversations\/([^/]+)$/,
     );
     if (chatConversationDetailMatch && request.method === "GET") {
+      const convId = chatConversationDetailMatch[2];
       return json({
-        conversation_id: chatConversationDetailMatch[2],
-        title: "Trip planning to Lisbon",
+        conversation_id: convId,
+        title: convId === CHAT_SEED_CONV ? CHAT_SEED_TITLE : "New conversation",
         updated_at: "2026-07-10T12:00:00Z",
-        messages: [
-          { id: "m1", role: "user", content: "Plan me a weekend in Lisbon." },
-          {
-            id: "m2",
-            role: "assistant",
-            content: "Sure! Start in Alfama, then Belem the next morning.",
-          },
-        ],
+        messages: chatThreads[convId] ?? [],
         has_more: false,
+      });
+    }
+
+    // Messaging proxy: create a conversation. The full-page chat generates its
+    // own conversation id client-side, so this is only hit when a caller sends
+    // without one; return a fresh id and seed an empty thread.
+    const messagingCreateConvMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/messaging\/conversations$/,
+    );
+    if (messagingCreateConvMatch && request.method === "POST") {
+      const convId = nextChatMessageId("conv");
+      chatThreads[convId] = [];
+      return json({ conversation_id: convId, created_at: nowIso });
+    }
+
+    // Messaging proxy: send a message. Append the user turn plus the canned
+    // assistant reply so the history refetch after the stream finishes matches
+    // what was streamed.
+    const messagingSendMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/messaging\/conversations\/([^/]+)\/messages$/,
+    );
+    if (messagingSendMatch && request.method === "POST") {
+      const convId = messagingSendMatch[2];
+      const body = (await request.json().catch(() => ({}))) as { content?: string };
+      const thread = (chatThreads[convId] ??= []);
+      thread.push({
+        id: nextChatMessageId("u"),
+        role: "user",
+        content: body.content ?? "",
+      });
+      thread.push({
+        id: nextChatMessageId("a"),
+        role: "assistant",
+        content: ASSISTANT_REPLY,
+      });
+      return json({ message_id: nextChatMessageId("m"), timestamp: nowIso });
+    }
+
+    // Messaging proxy: cancel an in-flight turn. Nothing to tear down here.
+    const messagingCancelMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/messaging\/conversations\/([^/]+)\/cancel$/,
+    );
+    if (messagingCancelMatch && request.method === "POST") {
+      return json({ ok: true });
+    }
+
+    // Messaging proxy: SSE response stream. Replays the canned assistant reply
+    // as `chunk` events, then a `finish` event, mirroring the sidecar's wire
+    // format (see lib/messaging/transport.ts).
+    const messagingStreamMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/messaging\/conversations\/([^/]+)\/stream$/,
+    );
+    if (messagingStreamMatch && request.method === "GET") {
+      const enc = new TextEncoder();
+      const sse = (event: string, data: unknown) =>
+        enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const stream = new ReadableStream({
+        async start(controller) {
+          for (const chunk of ASSISTANT_REPLY_CHUNKS) {
+            controller.enqueue(sse("chunk", { type: "chunk", content: chunk }));
+            await new Promise((r) => setTimeout(r, 40));
+          }
+          controller.enqueue(sse("finish", { type: "finish" }));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+          ...corsHeaders(_currentOrigin),
+        },
       });
     }
 

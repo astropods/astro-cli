@@ -91,6 +91,12 @@ export function useDeploymentChat(
       return data ? serverTurnInFlight(data) : false;
     },
     useTailPollRef,
+    // A fresh conversation activates this query mid-send (its id lands the moment
+    // the first turn starts), and react-query still runs an initial fetch for the
+    // optimistically-seeded cache — a full replace that races the user row + live
+    // SSE chunks and flickers the thread. While the stream is live the cache is
+    // authoritative, so the query serves it instead of fetching.
+    liveStreamRef: sseActiveRef,
   });
 
   const conversationKey = useCallback(

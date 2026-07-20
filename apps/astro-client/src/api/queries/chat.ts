@@ -169,6 +169,13 @@ export function useDeploymentChatConversation(
     shouldPoll?: (data: GetDeploymentChatConversationResponse | undefined) => boolean;
     /** When true, poll refetches only the message tail and merges into cache. */
     useTailPollRef?: MutableRefObject<boolean>;
+    /** While true, a live SSE stream is feeding this conversation and the cache —
+     *  optimistic user row + streamed chunks — is authoritative. Any fetch that
+     *  fires (notably a fresh conversation's mount fetch, which refetchOnMount
+     *  can't suppress for a setQueryData-seeded query) returns the cache instead
+     *  of a full replace that would clobber the in-flight turn and flicker the
+     *  thread. The turn's finish invalidation reconciles server ids afterward. */
+    liveStreamRef?: MutableRefObject<boolean>;
   },
 ) {
   const api = useApiClient();
@@ -178,6 +185,12 @@ export function useDeploymentChatConversation(
   return useQuery({
     queryKey: key,
     queryFn: async () => {
+      // A live stream owns the cache; serve it rather than a clobbering replace.
+      if (options?.liveStreamRef?.current) {
+        const cached =
+          queryClient.getQueryData<GetDeploymentChatConversationResponse>(key);
+        if (cached) return cached;
+      }
       if (options?.useTailPollRef?.current) {
         const merged = await refreshDeploymentChatTail(
           queryClient,

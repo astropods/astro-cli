@@ -120,6 +120,72 @@ describe("useDeploymentChat", () => {
     });
   });
 
+  it("does not clobber a fresh conversation's streamed reply with a racing history refetch", async () => {
+    // A brand-new conversation activates the history query mid-send, and its GET
+    // lags the live stream (nothing persisted yet). refetchOnMount:"always" must
+    // be suppressed while the stream feeds the cache, or its full replace wipes
+    // the optimistic user row and the streamed assistant chunks — the fresh-chat
+    // flicker. Regression guard.
+    let historyGets = 0;
+    server.use(
+      http.post(
+        `/api/v1/deployments/${deploymentId}/messaging/conversations`,
+        () => HttpResponse.json({ conversation_id: newConversationId }),
+      ),
+      http.post(
+        `/api/v1/deployments/${deploymentId}/messaging/conversations/${newConversationId}/messages`,
+        () => HttpResponse.json({ status: "ok" }),
+      ),
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${newConversationId}`,
+        () => {
+          historyGets += 1;
+          return HttpResponse.json({
+            conversation_id: newConversationId,
+            messages: [],
+            assistant_streaming: false,
+          });
+        },
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+    expect(result.current.messages.at(-1)?.content).toBe("hello");
+
+    act(() => {
+      MockEventSource.latest().emit(
+        "chunk",
+        JSON.stringify({ type: "chunk", content: "streamed reply" }),
+      );
+    });
+    await waitFor(() =>
+      expect(
+        result.current.messages.some((m) => m.content === "streamed reply"),
+      ).toBe(true),
+    );
+
+    // Let any racing refetch settle; with the fix it never fires.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // Both the optimistic user row and the streamed reply survive, and the
+    // clobbering mount fetch was served from cache instead of the network.
+    expect(result.current.messages.some((m) => m.content === "hello")).toBe(true);
+    expect(
+      result.current.messages.some((m) => m.content === "streamed reply"),
+    ).toBe(true);
+    expect(historyGets).toBe(0);
+  });
+
   it("reflects the switched-to conversation's streaming state in place (no remount)", async () => {
     // Guards the fix in ChatWorkspace that keys the chat runtime on the agent, not
     // the conversation, so switching conversations re-scopes this hook in place
