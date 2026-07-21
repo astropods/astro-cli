@@ -107,10 +107,16 @@ func computeDevtoolInsights(ctx context.Context, log *logger.Logger, pc *promque
 		return resp // no metrics backend — graceful empty
 	}
 	now := time.Now()
+	// Today's overlay cost is range-independent, so query it once per source rather
+	// than re-issuing the identical instant query for every range.
+	todayCost := make(map[string]float64, len(devtoolAdapters))
+	for _, ad := range devtoolAdapters {
+		todayCost[ad.Key] = devtoolTodayCost(ctx, log, pc, ad, accountID, now)
+	}
 	for _, spec := range specs {
 		sources := map[string]DevtoolSource{}
 		for _, ad := range devtoolAdapters {
-			if src, ok := computeDevtoolSource(ctx, log, pc, ad, accountID, spec.days, now, emailToUserID); ok {
+			if src, ok := computeDevtoolSource(ctx, log, pc, ad, accountID, spec.days, now, emailToUserID, todayCost[ad.Key]); ok {
 				sources[ad.Key] = src
 			}
 		}
@@ -121,45 +127,53 @@ func computeDevtoolInsights(ctx context.Context, log *logger.Logger, pc *promque
 	return resp
 }
 
-// computeDevtoolSource queries cost and tokens for one source/range; ok=false omits it.
-func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, days int, now time.Time, emailToUserID map[string]string) (DevtoolSource, bool) {
-	start := now.AddDate(0, 0, -days)
-
-	// cost is a cumulative Sum → increase() per day gives the daily delta.
-	costQ := fmt.Sprintf("sum(increase(%s[1d]))", devtoolMatcher(ad.CostMetric, ad.Key, accountID))
-	costSeries, err := pc.QueryRange(ctx, costQ, start, now, 24*time.Hour)
+// devtoolWindowTotal returns a metric's total increase() over the whole window
+// via an instant query. The per-day range query used for the chart drops the
+// current (partial) day for wide windows and so undercounts recent usage; the
+// instant query captures it, so it — not the daily sum — decides totals and
+// presence.
+func devtoolWindowTotal(ctx context.Context, log *logger.Logger, pc *promquery.Client, metric, source, accountID, window string) float64 {
+	q := fmt.Sprintf("sum(increase(%s[%s]))", devtoolMatcher(metric, source, accountID), window)
+	samples, err := pc.Query(ctx, q)
 	if err != nil {
-		log.Warn("devtool cost query failed", "source", ad.Key, "days", days, "error", err)
+		log.Warn("devtool window total query failed", "source", source, "window", window, "error", err)
+		return 0
+	}
+	var total float64
+	for _, s := range samples {
+		if s.Value > 0 {
+			total += s.Value
+		}
+	}
+	return total
+}
+
+// computeDevtoolSource builds one source/range block; ok=false omits it.
+// todayCost is the precomputed current-day spend (see devtoolTodayCost).
+func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, days int, now time.Time, emailToUserID map[string]string, todayCost float64) (DevtoolSource, bool) {
+	window := fmt.Sprintf("%dd", days)
+	totalCost := devtoolWindowTotal(ctx, log, pc, ad.CostMetric, ad.Key, accountID, window)
+	totalTokens := int(devtoolWindowTotal(ctx, log, pc, ad.TokenMetric, ad.Key, accountID, window) + 0.5)
+	if totalCost <= 0 && totalTokens == 0 {
 		return DevtoolSource{}, false
 	}
 
+	// Per-day series for the chart. The range query drops the current (partial) day
+	// for wide windows, so applyTodayBucket adds it back from the precomputed value.
+	start := now.AddDate(0, 0, -days)
 	spend := make([]DevtoolSpendPoint, 0, days)
-	var totalCost float64
-	if len(costSeries) > 0 {
+	costQ := fmt.Sprintf("sum(increase(%s[1d]))", devtoolMatcher(ad.CostMetric, ad.Key, accountID))
+	if costSeries, err := pc.QueryRange(ctx, costQ, start, now, 24*time.Hour); err != nil {
+		log.Warn("devtool daily cost query failed", "source", ad.Key, "days", days, "error", err)
+	} else if len(costSeries) > 0 {
 		for _, p := range costSeries[0].Points {
 			if p.Value <= 0 {
 				continue
 			}
 			spend = append(spend, DevtoolSpendPoint{Date: p.Timestamp.UTC().Format("2006-01-02"), CostUSD: round2(p.Value)})
-			totalCost += p.Value
 		}
 	}
-
-	tokenQ := fmt.Sprintf("sum(increase(%s[1d]))", devtoolMatcher(ad.TokenMetric, ad.Key, accountID))
-	var totalTokens int
-	if tokSeries, err := pc.QueryRange(ctx, tokenQ, start, now, 24*time.Hour); err != nil {
-		log.Warn("devtool token query failed", "source", ad.Key, "days", days, "error", err)
-	} else if len(tokSeries) > 0 {
-		for _, p := range tokSeries[0].Points {
-			if p.Value > 0 {
-				totalTokens += int(p.Value + 0.5)
-			}
-		}
-	}
-
-	if len(spend) == 0 && totalTokens == 0 {
-		return DevtoolSource{}, false // nothing to show for this source/range
-	}
+	spend = applyTodayBucket(spend, now, todayCost)
 
 	totals := DevtoolTotals{CostUSD: round2(totalCost), Requests: 0, TotalTokens: totalTokens}
 	return DevtoolSource{
@@ -169,6 +183,39 @@ func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery
 		ByUser:     computeDevtoolByUser(ctx, log, pc, ad, accountID, days, emailToUserID),
 		AgentRow:   devtoolAgentRow(ad, totals),
 	}, true
+}
+
+// devtoolTodayCost queries the current UTC day's spend (instant increase since
+// midnight). It's range-independent, so callers query it once per source.
+func devtoolTodayCost(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, now time.Time) float64 {
+	utcNow := now.UTC()
+	midnight := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), 0, 0, 0, 0, time.UTC)
+	if utcNow.Sub(midnight) <= time.Minute {
+		return 0 // just past midnight — nothing meaningful for today yet
+	}
+	since := int(utcNow.Sub(midnight).Seconds())
+	return devtoolWindowTotal(ctx, log, pc, ad.CostMetric, ad.Key, accountID, fmt.Sprintf("%ds", since))
+}
+
+// applyTodayBucket ensures the current UTC day is in the per-day series (the daily
+// range query drops it for wide windows), keyed with the same UTC day the agent
+// chart uses. It keeps the larger of any existing bucket and today's value, so it
+// never drops a trailing-day span the range query may already have counted.
+func applyTodayBucket(spend []DevtoolSpendPoint, now time.Time, cost float64) []DevtoolSpendPoint {
+	if cost <= 0 {
+		return spend
+	}
+	today := now.UTC().Format("2006-01-02")
+	c := round2(cost)
+	for i := range spend {
+		if spend[i].Date == today {
+			if c > spend[i].CostUSD {
+				spend[i].CostUSD = c
+			}
+			return spend
+		}
+	}
+	return append(spend, DevtoolSpendPoint{Date: today, CostUSD: c})
 }
 
 // computeDevtoolByUser attributes a source's spend to developers by user.email.
