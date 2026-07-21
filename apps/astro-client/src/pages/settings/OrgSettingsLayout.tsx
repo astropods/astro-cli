@@ -132,12 +132,14 @@ function OrgSettingsContent() {
                 Members
               </span>
             </SidebarNavItem>
-            <SidebarNavItem to={`/settings/org/${orgSlug}/billing`}>
-              <span className="flex items-center gap-2">
-                <CreditCardIcon className="size-3.5" />
-                Billing
-              </span>
-            </SidebarNavItem>
+            {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/billing`}>
+                <span className="flex items-center gap-2">
+                  <CreditCardIcon className="size-3.5" />
+                  Billing
+                </span>
+              </SidebarNavItem>
+            )}
             {isAdmin && (
               <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>
                 <span className="flex items-center gap-2">

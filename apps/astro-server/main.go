@@ -1064,7 +1064,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 			}
 
-			// Account-scoped routes (admin or owner — org:manage)
+			// Account-scoped routes (admin or owner — org:manage).
+			// Billing (usage, invoices, balances, payment methods) lives here:
+			// financial data and card management are restricted to org
+			// admins/owners. Personal accounts have a single member who is the
+			// owner and thus holds org:manage implicitly.
 			accountManage := protected.Group("/accounts/:account")
 			accountManage.Use(middleware.ResolveAccount(accountStore))
 			accountManage.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
@@ -1081,6 +1085,71 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountManage, "/billing/usage", "Get billing usage", handlers.GetBillingUsage(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountManage, "/billing/invoices", "Get billing invoices", handlers.GetBillingInvoices(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				// Binary PDF stream — registered directly (not via the OpenAPI
+				// helper) since it returns application/pdf, not JSON.
+				accountManage.GET("/billing/invoices/:invoiceId/pdf", handlers.GetBillingInvoicePDF(log, accountStore, billingProvider, cfg.BillingBackend()))
+
+				api.GET(accountManage, "/billing/balances", "Get billing credits and commits", handlers.GetBillingBalances(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				// Payment method (Stripe card vault). A SetupIntent collects the
+				// card client-side; the confirm endpoint saves it and links the
+				// Stripe customer to the billing provider for charging.
+				api.POST(accountManage, "/billing/setup-intent", "Start payment-method setup", handlers.CreateSetupIntent(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.SetupIntentResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.POST(accountManage, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountManage, "/billing/payment-method", "Get the saved payment method", handlers.GetPaymentMethod(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 			}
 
@@ -1144,71 +1213,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
-				)
-
-				api.GET(accountMember, "/billing/usage", "Get billing usage", handlers.GetBillingUsage(log, accountStore, billingProvider, cfg.BillingBackend()),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
-					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
-					oapispec.Response(200, &handlers.BillingDataResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				api.GET(accountMember, "/billing/invoices", "Get billing invoices", handlers.GetBillingInvoices(log, accountStore, billingProvider, cfg.BillingBackend()),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.BillingDataResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				// Binary PDF stream — registered directly (not via the OpenAPI
-				// helper) since it returns application/pdf, not JSON.
-				accountMember.GET("/billing/invoices/:invoiceId/pdf", handlers.GetBillingInvoicePDF(log, accountStore, billingProvider, cfg.BillingBackend()))
-
-				api.GET(accountMember, "/billing/balances", "Get billing credits and commits", handlers.GetBillingBalances(log, accountStore, billingProvider, cfg.BillingBackend()),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.BillingDataResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				// Payment method (Stripe card vault). A SetupIntent collects the
-				// card client-side; the confirm endpoint saves it and links the
-				// Stripe customer to the billing provider for charging.
-				api.POST(accountMember, "/billing/setup-intent", "Start payment-method setup", handlers.CreateSetupIntent(log, accountStore, paymentProvider),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.SetupIntentResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				api.POST(accountMember, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend()),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				api.GET(accountMember, "/billing/payment-method", "Get the saved payment method", handlers.GetPaymentMethod(log, accountStore, paymentProvider),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
-
-				api.DELETE(accountMember, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.MessageResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
 				// AI Gateway dev key issuance — astro CLI calls this on `astro

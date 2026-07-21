@@ -70,6 +70,26 @@ describe('OrgSettingsLayout', () => {
     expect(screen.queryAllByText('Secrets & Variables')).toHaveLength(0);
   });
 
+  it('shows Billing nav for admin and owner', async () => {
+    renderLayout('admin');
+    await waitFor(() => {
+      expect(screen.getAllByText('Billing').length).toBeGreaterThan(0);
+    });
+    cleanup();
+    renderLayout('owner');
+    await waitFor(() => {
+      expect(screen.getAllByText('Billing').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('hides Billing nav for member', async () => {
+    renderLayout('member');
+    await waitFor(() => {
+      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryAllByText('Billing')).toHaveLength(0);
+  });
+
   it('always shows General and Members nav for member', async () => {
     renderLayout('member');
     await waitFor(() => {
