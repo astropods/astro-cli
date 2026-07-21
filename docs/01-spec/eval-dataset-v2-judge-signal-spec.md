@@ -8,9 +8,9 @@ The eval dataset review queue currently shows a positive, negative, or no-signal
 
 The product needs a stronger queue signal that predicts the dataset review verdict a human reviewer is likely to choose for a trace. This is a dataset-admission judge, not an eval judge for experiment runs over an existing dataset. A trace can be `bad` because it is a useful failure example, and `unknown` when it is not useful for the dataset even if the agent response is acceptable.
 
-This spec uses an Astro-managed judge. `astro-server` owns prompt construction, quota checks, model execution, prediction storage, and queue ordering. Langfuse remains the source of traces, trace scores, and accepted dataset items, but Langfuse does not run the judge.
+This spec uses an Astro-managed judge. `astro-server` owns prompt construction, model execution, prediction storage, and queue ordering. Langfuse remains the source of traces, trace scores, and accepted dataset items, but Langfuse does not run the judge.
 
-Astro-managed execution gives request-time quota control, avoids scoring traces users may never review, keeps queue ordering tied to the loaded candidate window, and lets the judge use Astro-local context without copying it into Langfuse metadata.
+Astro-managed execution runs the judge at queue load rather than trace ingestion, avoids scoring traces users may never review, keeps queue ordering tied to the loaded candidate window, and lets the judge use Astro-local context without copying it into Langfuse metadata.
 
 ---
 
@@ -18,7 +18,7 @@ Astro-managed execution gives request-time quota control, avoids scoring traces 
 
 - Predict a numeric verdict score from `-1` to `1`, then infer whether a queue trace is likely to be marked `good`, `bad`, or `unknown`.
 - Use trace input/output, sentiment inferred from the next user message, thumbs feedback stored as Langfuse trace scores, dataset criteria, and prior resolved verdicts.
-- Apply judge-specific quota through OpenMeter with a dedicated judge token usage meter.
+- Give judge traffic a stable account-scoped gateway identity so future platform AI-token metering can distinguish it from ordinary AI Gateway traffic.
 - Avoid duplicate spend by reusing stored predictions when present.
 - Use prediction quality against later resolved verdicts to improve prompts, calibration, and future model behavior.
 
@@ -28,6 +28,7 @@ Astro-managed execution gives request-time quota control, avoids scoring traces 
 - Do not train or fine-tune a model for the first version.
 - Do not replace Langfuse as the source of traces, trace scores, or accepted dataset items.
 - Do not require every trace to have a prediction before it can appear in the queue.
+- Do not implement or fully specify the Bifrost metering plugin, Metronome AI-token metrics, products, rate cards, invoice presentation, or pricing. That platform work requires its own spec.
 
 ---
 
@@ -158,83 +159,139 @@ Column notes:
 
 ## Model execution
 
-Today, Astro uses AI Gateway for deployed agents and local dev agent runs. In those flows, `astro-server` only provisions virtual keys and injects them into agent environments; the agent process makes the model call. This feature expands AI Gateway usage to a platform-internal caller: `astro-server` will make the judge model call directly for dataset review predictions.
+Astro calls the judge model through the Bifrost AI Gateway. Today `astro-server` only provisions virtual keys for agent and development environments; this feature also makes model calls from `astro-server`. The two gateway interactions use different URLs and authentication:
 
-Required AI Gateway changes:
+- Governance (control plane): mint/revoke the judge virtual key via Bifrost's governance API at `AI_GATEWAY_ADMIN_URL` with the Basic admin header (`AI_GATEWAY_ADMIN_AUTH`). This reuses the existing `internal/aigateway` client (`GenerateKey`, `DeleteKey`, `CreateCustomer`).
+- Model invocation: POST `${AI_GATEWAY_URL}/v1/chat/completions` with the judge virtual key as the bearer token. Use a separate invocation client; see below.
 
-1. Add an account-scoped AI Gateway key table and store.
-2. Add an account-scoped key provisioner for `eval_dataset_judge`.
-3. Add an AI Gateway invocation client for OpenAI-compatible chat completions.
+### Budget and metering
 
-### 1. Account key table and store
+**The judge service does no metering and no spend gating of its own.** For the current launch, the judge key shares the account's temporary Bifrost customer budget with agent-runtime and development keys. `astro-server` never calls the billing seam and does not depend on the response `usage` (a missing `usage` never fails a prediction; record counts locally for observability if present).
 
-Create a new account-scoped AI Gateway key table. Do not reuse `deployment_ai_gateway`, because that table is deployment-scoped and tied to agent runtime usage. This table should follow the same encrypted-key storage approach as `deployment_ai_gateway`, but the primary key is account and purpose scoped instead of deployment scoped.
+Astro's billing integration is moving from OpenMeter to Metronome behind the provider-neutral `billing.BillingProvider` seam. AI Gateway tokens are not tracked by either integration today, so token metering will be new platform-wide work rather than judge-specific work. See `docs/01-spec/metronome-billing-spec.md`.
+
+Only a confirmed customer-budget exhaustion response maps to `quota_exhausted` and stops a prediction batch. Judge tokens are not tracked in Metronome today, matching other AI Gateway traffic. Eventually, AI-token usage will be tracked in Metronome through separately specified platform-wide gateway metering; the plugin, event, metric, product, pricing, and invoice design are out of scope here.
+
+Notes:
+
+- The judge virtual key is deterministically named `eval-judge/<account-id>`, giving future platform metering a stable authenticated key ID/name with which to recognize judge traffic. Future work must not depend on parsing the free-form Bifrost description.
+- No separate Bifrost customer or judge-specific budget is needed; the judge uses the same account-level gateway controls as other AI traffic.
+
+### Future AI-token metering considerations — out of scope
+
+The judge launch does not require the Bifrost metering plugin, Metronome AI-token metrics, usage-component events, or any Metronome product/rate-card changes. Those dependencies must not block enabling the judge behind its capability flag while the temporary Bifrost customer budget is active.
+
+The separate platform AI-token metering spec must account for judge traffic and decide:
+
+- how the plugin classifies the authenticated `eval-judge/<account-id>` key without parsing its description
+- which event properties preserve account, model, judge-versus-ordinary usage, and optional `judge_version` attribution
+- which Metronome group keys must be present when the AI-token metrics are created so usage can remain combined or be reported or priced separately later
+- how input/output usage is represented and how the plugin prevents duplicate events or double billing
+- how initial pricing and invoice presentation combine judge and ordinary AI usage while preserving the option to differentiate them later
+
+The judge service does not emit billing events and does not require response-level `usage` for prediction success. The future platform-metering spec owns the exact plugin, event, metric, group-key, product, rate-card, and validation contracts.
+
+### Gateway implementation
+
+The gateway integration requires an account-scoped judge key store, a provisioner that reuses the account's Bifrost customer, and a model invocation client for OpenAI-compatible chat completions.
+
+#### Judge key table and store
+
+Add `account_llm_judge_keys`, one row per account, following the encrypted-key shape of the existing `deployment_ai_gateway` and `account_ai_gateway_dev_keys` tables. Do not reuse those tables (deployment- and user-scoped respectively) and do not reintroduce a generic account-scoped key table — the prior `account_ai_gateway` was already retired in favor of `deployment_ai_gateway`.
 
 ```sql
-CREATE TABLE account_ai_gateway_keys (
-  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  key_id TEXT NOT NULL,
-  encrypted_api_key TEXT NOT NULL,
-  encrypted_data_key BYTEA,
-  nonce BYTEA,
-  issued_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (account_id, kind)
+CREATE TABLE account_llm_judge_keys (
+  account_id uuid NOT NULL,
+  key_id text NOT NULL,
+  encrypted_api_key text NOT NULL,
+  encrypted_data_key bytea,
+  nonce bytea,
+  issued_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT account_llm_judge_keys_pkey PRIMARY KEY (account_id),
+  CONSTRAINT account_llm_judge_keys_account_id_fkey
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
 ```
 
 Column notes:
 
-- `kind` is the key purpose, initially `eval_dataset_judge`.
-- `key_id` is the LiteLLM key ID used for revoke/delete.
-- `encrypted_api_key`, `encrypted_data_key`, and `nonce` follow the existing KMS envelope pattern used by deployment AI Gateway keys.
+- `key_id` is the Bifrost virtual-key UUID, used for revoke/delete.
+- `encrypted_api_key`, `encrypted_data_key`, and `nonce` follow the KMS envelope pattern used by the existing gateway key tables.
 
-Add a store under `internal/aigateway` with:
+Add a store under `internal/aigateway` with `Get(accountID)`, `Save(row)`, `Delete(accountID)`, and `ListKeyIDsByAccount(accountID)`. Account purge must revoke the upstream Bifrost `key_id` before deleting the row, alongside the existing `RevokeAccount` / `RevokeAccountDevKeys` sweeps — Bifrost has no FK back to Astro, so the DB cascade alone leaves an orphaned upstream key.
 
-- `Get(accountID, kind)`
-- `Save(row)`
-- `Delete(accountID, kind)`
-- `ListByAccount(accountID)`
+#### Judge key provisioner
 
-Account purge should revoke all listed LiteLLM `key_id` values before deleting the rows.
+Add a judge key method on `aigateway.Provisioner`, modeled on `EnsureDevKey`:
 
-### 2. Eval-judge key provisioner
+- Resolve the account's Bifrost customer via the existing `ensureCustomer` (creates once, persists `accounts.bifrost_customer_id`). Attach the judge key to this customer — do not create a separate customer. The key therefore shares the account's current gateway budget (see [Budget and metering](#budget-and-metering)).
+- Reuse the stored judge key when present; otherwise call `GenerateKey`, KMS-encrypt, and persist. Extend `KeyRequest`/`GenerateKey` so this key is named `eval-judge/<account-id>` and its Bifrost provider config restricts `allowed_models` to `EvalDatasetJudgeModel` rather than `*`.
+- Return plaintext key plus the public gateway base URL for immediate invocation.
+- Treat as long-lived like deployment keys: no TTL, no rotation. Revoke upstream on account purge.
 
-Add an account-scoped provisioner method, separate from deployment and dev key provisioning. Follow the `EnsureDeploymentKey` lifecycle:
+The deterministic name distinguishes the key in the Bifrost admin view and preserves a stable identity for future platform metering. Do not put dataset- or trace-specific values on the long-lived key name or description.
 
-- Reuse an existing `(account_id, eval_dataset_judge)` row when present.
-- Otherwise call LiteLLM `/key/generate` using the existing `internal/aigateway.Client.GenerateKey`.
-- Encrypt and store the returned plaintext key.
-- Return plaintext key plus AI Gateway base URL for immediate invocation.
-- Revoke upstream keys during account cleanup.
+#### Model invocation client
 
-Key generation shape:
+Add a model invocation client in `internal/aigateway`, separate from the governance client, which only covers Bifrost admin APIs.
 
-```go
-resp, err := client.GenerateKey(ctx, aigateway.KeyRequest{
-  UserID: accountID,
-  TeamID: accountID,
-  Metadata: map[string]any{
-    "kind": "eval_dataset_judge",
-    "source": "astro-server",
-  },
-})
-```
+- POST `${AI_GATEWAY_URL}/v1/chat/completions`. The gateway base URL is the host only; append `/v1` (the bare host returns 404).
+- Bearer token is the judge VK plaintext, not the Basic admin auth.
+- OpenAI-compatible body with `stream=false`. The model is a Bedrock model served by the gateway (`EvalDatasetJudgeModel`).
 
-`user_id` and `team_id` must be `accounts.id`, not the authenticated human user ID. This preserves the existing AI Gateway attribution invariant. Do not put dataset-specific values on the long-lived LiteLLM key metadata.
-
-### 3. AI Gateway invocation client
-
-Add a runtime invocation client in `internal/aigateway`. The existing client only covers LiteLLM admin APIs such as `/key/generate` and `/key/delete`. Runtime judge calls must use the eval-judge virtual key as the bearer token, not the AI Gateway master key.
-
-Example request shape:
+Request schema-enforced output through Bifrost with `response_format.type=json_schema`. Use the complete prediction schema below: every property is required, `additionalProperties=false` at each object level, and `dimension_key` is restricted to the existing criterion enum. Numeric ranges, the 240-character explanation cap, and the requirement for exactly one unique result for each of the five dimensions remain server validations.
 
 ```json
 {
   "model": "<configured judge model>",
   "stream": false,
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "eval_dataset_judgment_prediction",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "verdict_score": { "type": "number" },
+          "confidence": { "type": "integer" },
+          "explanation": { "type": "string" },
+          "criteria": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "dimension_key": {
+                  "type": "string",
+                  "enum": [
+                    "accuracy",
+                    "completeness",
+                    "instruction_following",
+                    "scope_clarity",
+                    "tone"
+                  ]
+                },
+                "dimension_value": { "type": "number" }
+              },
+              "required": ["dimension_key", "dimension_value"]
+            }
+          }
+        },
+        "required": [
+          "verdict_score",
+          "confidence",
+          "explanation",
+          "criteria"
+        ]
+      }
+    }
+  },
   "messages": [
     { "role": "system", "content": "<judge instructions>" },
     { "role": "user", "content": "<structured judge input>" }
@@ -242,7 +299,9 @@ Example request shape:
 }
 ```
 
-Return the raw assistant output, parsed prediction, and token usage from the response `usage` object. If `usage.total_tokens` is missing, treat the call as a metering failure.
+Before enabling the capability in an environment, smoke-test this exact model and schema through Bifrost's OpenAI-to-Bedrock translation. Do not silently fall back to free-text parsing: an absent or malformed structured result is `prediction_failed`.
+
+Success is a valid parsed prediction; `prediction_failed` covers HTTP errors, timeouts, and unparseable or invalid output. The judge does not require `usage` — it is billing telemetry the gateway owns, so a missing `usage` never fails a prediction (record counts locally for observability if present).
 
 ---
 
@@ -255,7 +314,7 @@ Default queue load:
 1. `GET /dataset/review-queue` returns queue items sorted by trace recency only.
 2. Include stored predictions when available.
 3. Return `prediction: null` when no stored prediction exists.
-4. The client automatically calls `POST /dataset/review-queue/predictions` for rows with no prediction in the loaded window.
+4. The client automatically calls `POST /dataset/review-queue/predictions` for rows with no prediction in the loaded window, chunked into at most 10 trace IDs per request.
 5. The client shows those rows as `pending` while the POST is in flight.
 6. When the prediction response returns, update row signals in place without changing the default order.
 
@@ -281,7 +340,7 @@ Keep the existing queue endpoint read-only. It should continue fetching and filt
 Changes:
 
 1. Sort queue items by trace recency only.
-2. Replace the existing `sentiment` field with a nullable `prediction` field.
+2. Add a nullable `prediction` field. Retain the existing `sentiment` field until the client migration is complete, then remove it.
 3. Populate `prediction` from stored predictions for returned trace IDs, or `null` when none exists.
 
 Response shape change:
@@ -313,15 +372,16 @@ Response shape change:
 
 ### `POST /dataset/review-queue/predictions`
 
-Add a quota-consuming prediction endpoint that accepts trace IDs from the loaded queue window, generates missing predictions, and stores the results.
+Add a prediction endpoint that accepts at most 10 trace IDs from the loaded queue window, generates missing predictions, and stores the results.
 
 Flow:
 
-1. Resolve account, deployment, dataset, and requested trace IDs. Validate ownership, candidate review scope, judgment state, and max batch size.
-2. Load stored predictions for the requested trace IDs. Return cached predictions with `error: null`; cached predictions do not require quota and do not emit new usage.
-3. Process cache misses one trace at a time in V1. Before each model call, check OpenMeter access. If quota is exhausted, stop and return `error: "quota_exhausted"` for remaining misses.
-4. For each allowed miss, ensure the account has an eval-judge AI Gateway key, call the AI Gateway with `stream=false`, parse and validate the output, store the prediction and predicted criteria, then emit `eval_judge_token_usage` immediately from the response usage.
-5. Return one result per requested trace with a nullable `prediction` and nullable `error`.
+1. Resolve account, deployment, dataset, and requested trace IDs. Validate ownership, candidate review scope, judgment state, uniqueness, and the 10-ID batch limit.
+2. Load stored predictions for the requested trace IDs. Return cached predictions with `error: null`; cached predictions make no gateway call and produce no duplicate usage.
+3. Process cache misses serially in request order. If the request context is canceled, stop before the next model call and do not persist or return a synthetic result for work that did not complete.
+4. For each miss, ensure the account has its judge gateway key, POST to `${AI_GATEWAY_URL}/v1/chat/completions` with `stream=false`, validate the structured output, and atomically store the prediction and criteria.
+5. Treat gateway or provider throttling as transient. If it cannot be recovered, return `prediction_failed` for that trace and continue the batch. While the shared gateway budget is configured, return `quota_exhausted` for the current and remaining misses only for a distinct structured Bifrost customer-budget exhaustion error; do not infer budget exhaustion from a generic HTTP 429 or message text.
+6. Return one result per completed requested trace with a nullable `prediction` and nullable `error`. The capability flag controls whether generation is available during rollout; it is not a billing gate.
 
 Response shape:
 
@@ -357,40 +417,6 @@ Response shape:
 
 ---
 
-## OpenMeter meter
-
-Add a new OpenMeter meter and feature for judge token usage. Astro emits this event after each successful non-streaming judge model call using the usage fields returned by AI Gateway/LiteLLM.
-
-Meter definition:
-
-- slug: `eval_judge_tokens`
-- event type: `eval_judge_token_usage`, emitted by `astro-server`
-- aggregation: `SUM`
-- value: `$.total_tokens`
-- subject: Astro account ID
-- group-by fields: `model`, `judge_version`
-
-Event shape:
-
-```json
-{
-  "type": "eval_judge_token_usage",
-  "subject": "<account_id>",
-  "data": {
-    "total_tokens": 1240,
-    "input_tokens": 1100,
-    "output_tokens": 140,
-    "model": "claude-haiku-...",
-    "judge_version": "dataset-review-v1",
-    "deployment_id": "dep_...",
-    "eval_dataset_id": "...",
-    "trace_id": "..."
-  }
-}
-```
-
----
-
 ## Other solutions considered
 
 ### Langfuse-managed evaluator
@@ -417,27 +443,29 @@ It was not chosen for V1 because:
 - Evaluation rules target observations/experiments, while the review queue is trace-level and would need a reliable root/final observation target.
 - Confidence and a capped explanation are not first-class fields on one judge result without extra parsing or additional scores.
 
-Langfuse-managed evaluation remains a possible future path if async pre-scoring and soft quota enforcement become acceptable.
+Langfuse-managed evaluation remains a possible future path if async pre-scoring and less direct spend attribution become acceptable.
 
 ### Astro-managed direct provider credentials
 
 Astro could call OpenAI, Anthropic, or another provider directly using server-held credentials instead of the AI Gateway.
 
-This is simpler than adding an eval-judge AI Gateway key store and invocation client, and it still gives Astro request-time quota checks. It was not chosen as the preferred path because it duplicates provider routing and credential management outside the AI Gateway. It is still a reasonable fallback if the AI Gateway changes are not worth the extra platform work for V1.
+This is simpler than adding an eval-judge AI Gateway key store and invocation client. It was not chosen because it duplicates provider routing and credential management outside the AI Gateway and would not share the account's gateway budget. It remains a possible fallback if the gateway integration is not viable for V1.
 
 ---
 
 ## Rollout
 
-OpenMeter meter, feature, and plan grants are created outside the application PR sequence. Before enabling prediction generation, each environment that will run the feature must have the `eval_judge_tokens` meter and related feature/grants configured, and `docs/03-architecture/openmeter-integration.md` must be updated to document the new meter, event shape, feature, and entitlement behavior.
+Prediction generation has no external metering prerequisite: implement the prediction tables, Bifrost judge key and invocation path, judge service, APIs, and client experience in PRs 1–6. The existing temporary Bifrost customer budget covers judge spend; do not create the metering plugin or any Metronome AI-token objects as part of these PRs.
+
+Platform-wide AI-token metering is deferred to its own spec and rollout. That work must consume the stable judge-key identity and address the considerations above, but it does not block the judge launch.
 
 ### PR 1 — Prediction storage
 
 Add `eval_dataset_judgment_predictions` and `eval_dataset_judgment_prediction_criteria`, plus the store methods needed to read, upsert, and replace stored predictions and predicted criteria. This PR should not call a model or change queue behavior.
 
-### PR 2 — AI Gateway platform invocation
+### PR 2 — Bifrost platform invocation
 
-Add `account_ai_gateway_keys`, account-scoped eval-judge key provisioning, account cleanup revoke behavior, and the AI Gateway chat-completions invocation client. This expands AI Gateway from deployed-agent runtime use to platform-internal model calls from `astro-server`.
+Add `account_llm_judge_keys`, the judge key provisioner (reusing `ensureCustomer`, deterministic `eval-judge/<account-id>` naming, judge-model allow-list), account-purge revoke behavior, and the `/v1/chat/completions` model invocation client. This expands Bifrost gateway use from deployed-agent and development runtime to platform-internal model calls from `astro-server`.
 
 ### PR 3 — Judge service
 
@@ -445,16 +473,12 @@ Add `internal/evaljudge` with the judge constants, input assembly, prior-example
 
 ### PR 4 — Queue prediction API
 
-Add `POST /dataset/review-queue/predictions`, reuse stored predictions, process cache misses one trace at a time, call the judge service, store successful predictions, and return per-trace `prediction` / `error` results. Keep prediction generation behind a disabled server capability until Astro-side OpenMeter integration is wired.
+Add `POST /dataset/review-queue/predictions`, enforce the 10-ID limit, reuse stored predictions, process cache misses serially with cancellation and typed gateway errors, store successful predictions, and return per-trace `prediction` / `error` results. Judge calls go through Bifrost with the account's current shared temporary budget; keep generation behind a disabled server capability until the judge service and key provisioning land.
 
 ### PR 5 — Queue read API
 
-Update `GET /dataset/review-queue` to sort by trace recency and include nullable `prediction` with stored predictions and predicted criteria for returned trace IDs. Keep the response backward-compatible until the client is updated in PR 7+; the existing client should continue to render without requiring the new prediction payload.
+Update `GET /dataset/review-queue` to sort by trace recency and include nullable `prediction` with stored predictions and predicted criteria for returned trace IDs. Retain `sentiment` temporarily so the existing client continues to render without requiring the new prediction payload.
 
-### PR 6 — Astro OpenMeter integration
+### PR 6+ — Client queue experience
 
-Add Astro-side support for the externally configured `eval_judge_tokens` feature: entitlement copy, quota check helper, and `eval_judge_token_usage` event emission helper. Wire the quota check into the prediction endpoint, emit usage after successful model calls, enable the quota-consuming prediction flow, and update `docs/03-architecture/openmeter-integration.md`.
-
-### PR 7+ — Client queue experience
-
-After final UI design, update the review queue to automatically request predictions for visible rows without stored predictions, show pending state from client request state, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence.
+After final UI design, update the review queue to request predictions for visible rows without stored predictions in chunks of at most 10, show pending state from client request state, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence. Remove `sentiment` from the queue response after the client migration is deployed.
