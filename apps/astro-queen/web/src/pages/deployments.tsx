@@ -17,7 +17,7 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { AdminDeployment } from "@/types/admin";
 
-type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "stopped";
+type StatusFilter = "all" | "active" | "pending" | "provisioning" | "deploying" | "failed" | "undeploying" | "stopped";
 
 const PAGE_SIZE = 25;
 
@@ -140,6 +140,7 @@ export function DeploymentsPage() {
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="provisioning">Provisioning</SelectItem>
+            <SelectItem value="deploying">Deploying</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
             <SelectItem value="undeploying">Undeploying</SelectItem>
             <SelectItem value="stopped">Stopped</SelectItem>
@@ -406,6 +407,7 @@ function StatusBadge({ status }: { status: string }) {
     running: "bg-green-100/60 backdrop-blur-sm text-green-700",
     pending: "bg-yellow-100/60 backdrop-blur-sm text-yellow-700",
     provisioning: "bg-blue-100/60 backdrop-blur-sm text-blue-700",
+    deploying: "bg-blue-100/60 backdrop-blur-sm text-blue-700",
     failed: "bg-red-100/60 backdrop-blur-sm text-red-700",
     undeploying: "bg-orange-100/60 backdrop-blur-sm text-orange-700",
     stopped: "bg-gray-100/60 backdrop-blur-sm text-gray-700",

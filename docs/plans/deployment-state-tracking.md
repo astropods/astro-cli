@@ -281,8 +281,9 @@ graph LR
   L1 --> N1["Controller health derivation<br/>(K8s signals)"]
   L2 --> N2["Controller deadline check<br/>+ River retries"]
   L4 --> N4["Dropped (legacy)"]
-  L5 --> N5["Namespace informer<br/>(orphan detection)"]
+  L5 --> N5["Dropped<br/>(orphan cleanup is a separate concern)"]
   style N4 fill:#e5e7eb,stroke:#9ca3af
+  style N5 fill:#e5e7eb,stroke:#9ca3af
 ```
 
 | Legacy step | Fate |
@@ -290,7 +291,7 @@ graph LR
 | `escalatePodFailures` (age>2m, restart>5) | Replaced by controller health derivation from K8s rollout signals |
 | `detectStaleJobs` (provisioning>15m, pending>30m, re-enqueue) | Controller deadline check on `deploying`/`pending` via `status_changed_at`; River `MaxAttempts` covers apply retries |
 | `reconcileActive` drift report | Dropped as legacy (rebuild on `deployment_build_env` later only if operators need it) |
-| `maintainNamespaceOwnership` orphans | Namespace informer detects namespaces with no DB row |
+| `maintainNamespaceOwnership` orphans | Dropped — orphaned-namespace cleanup is a separate operational concern, not part of this initiative |
 
 Deleting it also removes the `deployment_resolved_keys` coupling that blocked
 re-enabling it.
@@ -302,8 +303,8 @@ graph LR
   P0["Phase 0<br/>Delete legacy reconcile worker<br/>+ dead resolved_keys coupling"]
   P1["Phase 1<br/>Controller skeleton<br/>informers + workqueue +<br/>deployment_workload_status<br/>(observe + persist only)"]
   P2["Phase 2<br/>Drive lifecycle<br/>deploying gate, active/failed<br/>from observed health,<br/>progressDeadlineSeconds"]
-  P3["Phase 3<br/>Subsume legacy duties<br/>orphan detection + deadline;<br/>API reads persisted status"]
-  P4["Phase 4<br/>UX + taxonomy<br/>reason codes, CLI --wait,<br/>client workaround removal"]
+  P3["Phase 3<br/>Read persisted status<br/>(/status; /runtime stays live)"]
+  P4["Phase 4<br/>UX + taxonomy<br/>pod-reason enrichment,<br/>reason codes, client workaround removal<br/>(CLI --wait deferred)"]
   P0 --> P1 --> P2 --> P3 --> P4
   style P0 fill:#fde68a,stroke:#d97706
   style P1 fill:#bfdbfe,stroke:#2563eb
@@ -320,12 +321,16 @@ graph LR
 - **Phase 2 — Drive the lifecycle.** Introduce `deploying`; controller drives
   `deploying → active/failed` from observed health; set
   `progressDeadlineSeconds`; move billing to the real transition.
-- **Phase 3 — Subsume legacy duties.** Orphan detection and stale-deadline
-  recovery via informers; switch API `/status` + `/runtime` to read persisted
-  status.
-- **Phase 4 — UX + taxonomy.** Reason codes end-to-end; CLI `--wait` waits for a
-  real terminal state; remove client grace-window / stuck-deploy / probing
-  workarounds.
+- **Phase 3 — Read persisted status.** Switch API `/status` to trust the
+  controller-maintained status instead of probing K8s per request. `/runtime`
+  stays live — it serves per-container detail the persisted table doesn't hold.
+  Orphan detection is dropped (orphaned-namespace cleanup is a separate concern);
+  stale-`pending`/`provisioning` recovery is cut for now.
+- **Phase 4 — UX + taxonomy.** Pod-reason enrichment (ImagePullBackOff /
+  CrashLoopBackOff / OOMKilled → specific `failed` reason, fast, before the
+  progress deadline); reason codes threaded end-to-end; remove the client status
+  workarounds (resume grace window + stuck-by-age heuristic). CLI `--wait`
+  repoint deferred.
 
 ## Open Decisions
 

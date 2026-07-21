@@ -6,18 +6,31 @@ const STATUS_ROUTE = /\/deployments\/[^/]+\/status$/;
 const EVENTS_ROUTE = /\/deployments\/[^/]+\/events$/;
 const HISTORY_ROUTE = /\/deployment\/history(\?|$)/;
 
-// A deploying status whose status_changed_at is well in the past, so the
-// real-age stuck backstop fires immediately. Measuring from a server timestamp
-// (not page load) is the point of the mechanism, so no clock manipulation is
-// needed to exercise it.
-const LONG_AGO = "2020-01-01T00:00:00Z";
-
-function deployingStatus(statusChangedAt?: string) {
+function deployingStatus() {
   return {
     value: "deploying",
     reason: "provisioning",
     details: "Pods are being provisioned",
-    ...(statusChangedAt ? { status_changed_at: statusChangedAt } : {}),
+  };
+}
+
+// A stuck-severity deployment event. Status is now controller-driven and the
+// client-side real-age backstop is gone, so a stuck event is the only thing
+// that surfaces the banner.
+function stuckEvent() {
+  return {
+    type: "Warning",
+    reason: "FailedScheduling",
+    message: "0/3 nodes are available: insufficient cpu",
+    object_kind: "Pod",
+    object_name: "agent-xyz",
+    count: 1,
+    first_timestamp: "2026-07-08T00:00:00Z",
+    last_timestamp: "2026-07-08T00:05:00Z",
+    title: "Action required: Deployment stuck",
+    guidance:
+      "This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure and redeploy.",
+    severity: "stuck",
   };
 }
 
@@ -86,14 +99,13 @@ test("a stuck deploy names the specific cause from a humanized event", async ({ 
   await expect(page.getByText("Fix prompt copied")).toBeVisible();
 });
 
-test("a deploy stuck past the timeout shows the banner (real deploy age)", async ({ page }) => {
+test("a stuck deploy with no earlier good version offers Pause as the primary action", async ({ page }) => {
   test.setTimeout(60_000);
-  // No stuck event, but the deploy has been in "deploying" far longer than the
-  // threshold (status_changed_at long ago), so the defensive age backstop fires.
-  await routeJson(page, STATUS_ROUTE, deployingStatus(LONG_AGO));
+  await routeJson(page, STATUS_ROUTE, deployingStatus());
+  await routeJson(page, EVENTS_ROUTE, { events: [stuckEvent()] });
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByText("This deploy is stuck")).toBeVisible();
+  await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
   await expect(page.getByRole("link", { name: "Why deploys get stuck" })).toBeVisible();
 
   // With no earlier good version (the default fixture has one revision), the
@@ -105,7 +117,8 @@ test("a deploy stuck past the timeout shows the banner (real deploy age)", async
 
 test("a stuck deploy with an earlier good version offers a rollback", async ({ page }) => {
   test.setTimeout(60_000);
-  await routeJson(page, STATUS_ROUTE, deployingStatus(LONG_AGO));
+  await routeJson(page, STATUS_ROUTE, deployingStatus());
+  await routeJson(page, EVENTS_ROUTE, { events: [stuckEvent()] });
   // History: the current (stuck) revision plus an earlier healthy one to roll
   // back to. No `$` anchor: the request carries a `?deployment_id=` query.
   await routeJson(page, HISTORY_ROUTE, {

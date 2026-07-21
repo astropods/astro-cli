@@ -760,6 +760,55 @@ func (s *Store) UpdateStatus(id string, u StatusUpdate) error {
 	return tx.Commit()
 }
 
+// UpdateStatusIfCurrent updates the deployment's status and records an event
+// only when its current status is one of allowedCurrent — a compare-and-set so
+// a concurrent stop/undeploy that already moved the row wins the race. Returns
+// true when the transition was applied, false when the row's status was not in
+// allowedCurrent (no-op). Used by the deployment controller, which must never
+// resurrect a stopping/undeploying/undeployed deployment.
+func (s *Store) UpdateStatusIfCurrent(id string, u StatusUpdate, allowedCurrent ...string) (bool, error) {
+	if len(allowedCurrent) == 0 {
+		return false, fmt.Errorf("UpdateStatusIfCurrent: allowedCurrent must be non-empty")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	details := nilIfEmptyJSON(u.ErrorDetails)
+	res, err := tx.Exec(`
+		UPDATE deployments
+		SET status = $2::text,
+		    error_message = $3,
+		    error_details = $4,
+		    status_changed_at = NOW()
+		WHERE id = $1 AND status = ANY($5)
+	`, id, u.Status, nilIfEmpty(u.ErrorMsg), details, pq.Array(allowedCurrent))
+	if err != nil {
+		return false, fmt.Errorf("failed to update deployment status: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil
+	}
+
+	msg := u.EventMsg
+	if msg == "" {
+		msg = u.ErrorMsg
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO deployment_events (deployment_id, status, message, details)
+		VALUES ($1, $2, $3, $4)
+	`, id, u.Status, nilIfEmpty(msg), details); err != nil {
+		return false, fmt.Errorf("failed to insert deployment event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return true, nil
+}
+
 // SaveDeploymentPending saves a new deployment with status='pending' and creates revision 1.
 // The txFn callback runs in the same transaction, allowing the caller to enqueue a River
 // job and save normalized spec data atomically.

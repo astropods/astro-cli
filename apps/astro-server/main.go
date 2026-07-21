@@ -688,9 +688,11 @@ func runWorker(
 	}
 
 	// Start the event-driven deployment controller: it watches managed K8s
-	// workloads via informers and persists their observed health to
-	// deployment_workload_status. Phase 1 is observe + persist only (shadow
-	// mode). Wired to workerCtx so it shuts down with the worker process.
+	// workloads via informers, persists their observed health to
+	// deployment_workload_status, and drives the deployment lifecycle
+	// (deploying → active/failed) from that observed health — starting compute
+	// billing on the real active transition. Wired to workerCtx so it shuts
+	// down with the worker process.
 	//
 	// ASSUMES a single astro-worker replica: it runs unconditionally, so N>1
 	// replicas would each run their own informers + writes (wasteful, and
@@ -698,7 +700,8 @@ func runWorker(
 	// ctx-driven, so before scaling the worker, wrap this in leader election
 	// (e.g. a Postgres advisory lock) and pass it a leader-scoped context.
 	if k8sReg != nil {
-		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore)
+		billingState := openmeter.NewBillingStateManager(billingProvider, db, log)
+		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore, billingState)
 		go controller.Run(workerCtx)
 	}
 

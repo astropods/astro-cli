@@ -8,7 +8,6 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -61,7 +60,6 @@ type DeployWorker struct {
 	langfuseBaseURL string
 	log             *logger.Logger
 	cache           k8scache.Cache
-	billing         *openmeter.BillingStateManager
 }
 
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
@@ -129,22 +127,14 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		)
 		return nil
 	}
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive}); err != nil {
-		return fmt.Errorf("set active: %w", err)
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusDeploying}); err != nil {
+		return fmt.Errorf("set deploying: %w", err)
 	}
-	// Active → external_urls / messaging_available are now populated;
-	// invalidate so the agents page picks up the Launch button.
+	// Manifests applied. The deployment controller now drives deploying →
+	// active/failed from observed workload health and starts compute billing on
+	// the real active transition. Invalidate so the agents page reflects the
+	// deploying state immediately.
 	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
-
-	// Start event-driven compute billing for all workloads in this deployment.
-	if w.billing != nil {
-		workloads, err := workloadInfoFromStore(w.store, dep.ID)
-		if err != nil {
-			w.log.Error("Failed to load workloads for billing, heartbeat will recover", "error", err, "deployment_id", dep.ID)
-		} else {
-			go w.billing.StartBilling(context.Background(), dep.ID, workloads) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
-		}
-	}
 
 	if w.langfuseStore != nil && w.datasetStore != nil {
 		go w.provisionDataset(dep) //nolint:gosec
@@ -177,27 +167,4 @@ func statusOrNil(dep *deploymentstore.Deployment) string {
 		return "<nil>"
 	}
 	return dep.Status
-}
-
-// workloadInfoFromStore reads normalized workloads for a deployment and converts
-// them to billing WorkloadInfo entries.
-func workloadInfoFromStore(store *deploymentstore.Store, deploymentID string) ([]openmeter.WorkloadInfo, error) {
-	workloads, err := store.GetWorkloads(deploymentID)
-	if err != nil {
-		return nil, err
-	}
-	infos := make([]openmeter.WorkloadInfo, 0, len(workloads))
-	for _, w := range workloads {
-		component := w.ComponentKind
-		if w.ComponentKey != "" {
-			component += "/" + w.ComponentKey
-		}
-		infos = append(infos, openmeter.WorkloadInfo{
-			Component:     component,
-			CPURequest:    w.CPURequest,
-			MemoryRequest: w.MemoryRequest,
-			Replicas:      w.Replicas,
-		})
-	}
-	return infos, nil
 }

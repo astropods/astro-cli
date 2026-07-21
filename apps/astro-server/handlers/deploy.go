@@ -50,7 +50,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 )
@@ -1252,13 +1251,11 @@ type DeploymentStatus struct {
 // type. Adding a new reason requires a client type change but never breaks
 // existing consumers (they branch on the union and ignore unknown codes).
 const (
-	StatusReasonPaused             = "paused"              // DB stopped
-	StatusReasonUndeploying        = "undeploying"         // DB undeploying
-	StatusReasonFailed             = "failed"              // DB failed
-	StatusReasonProvisioning       = "provisioning"        // DB pending/provisioning
-	StatusReasonReady              = "ready"               // DB active, K8s ready >= desired
-	StatusReasonReadyLag           = "ready_lag"           // DB active, K8s ready < desired
-	StatusReasonClusterUnreachable = "cluster_unreachable" // DB active, K8s probe failed/skipped
+	StatusReasonPaused       = "paused"       // DB stopped
+	StatusReasonUndeploying  = "undeploying"  // DB undeploying
+	StatusReasonFailed       = "failed"       // DB failed
+	StatusReasonProvisioning = "provisioning" // DB pending/provisioning
+	StatusReasonReady        = "ready"        // DB active
 )
 
 // DeploymentRuntime is the K8s-sourced view — purely live state. Served by
@@ -2140,103 +2137,30 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			status.Details = "Pods are being provisioned"
 			c.JSON(http.StatusOK, status)
 			return
+		case deploymentstore.StatusDeploying:
+			status.Value, status.Reason = "deploying", StatusReasonProvisioning
+			status.Details = "Waiting for workloads to become ready"
+			c.JSON(http.StatusOK, status)
+			return
 		}
 
-		// DB status is active — probe K8s for the agent workload's readiness.
-		// A single Deployments.Get is enough; we don't need the full namespace
-		// scan that GetDeploymentRuntime does. If K8s is unreachable, fall
-		// back to "active" (record is the source of truth for the spec, and
-		// "we lost the cluster" shouldn't mask a known-good deployment).
-		if !k8sRegistryReady(k8sReg) {
-			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
-			status.Details = "Cluster unreachable; reporting active from spec"
-			c.JSON(http.StatusOK, status)
-			return
-		}
-		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dbDep)
-		if !ok {
-			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
-			status.Details = "Cluster client unavailable; reporting active from spec"
-			c.JSON(http.StatusOK, status)
-			return
-		}
-		ready, replicas, found, probeErr := probeAgentReadiness(c.Request.Context(), k8sClient, dbDep.Namespace, dbDep.AgentName)
-		if probeErr != nil {
-			log.Warn("agent readiness probe failed; falling back to DB status",
-				"deployment_id", dbDep.ID, "error", probeErr)
-			status.Value, status.Reason = "active", StatusReasonClusterUnreachable
-			status.Details = "Readiness probe failed; reporting active from spec"
-			c.JSON(http.StatusOK, status)
-			return
-		}
-		// DB says active but no agent workload exists in K8s — namespace deleted
-		// out from under us, or reconciler hasn't applied yet. Report as
-		// deploying/provisioning rather than "active" so the badge reflects the
-		// real cluster state instead of the stale spec.
-		if !found {
-			status.Value, status.Reason = "deploying", StatusReasonProvisioning
-			status.Details = "Agent workload not found in cluster"
-			c.JSON(http.StatusOK, status)
-			return
-		}
-		if replicas > 0 && ready < replicas {
-			status.Value, status.Reason = "deploying", StatusReasonReadyLag
-			status.Details = fmt.Sprintf("%d of %d replicas ready", ready, replicas)
-			c.JSON(http.StatusOK, status)
-			return
-		}
+		// DB status is active — the deployment controller made that transition
+		// only after observing every declared workload ready, and keeps it
+		// current via informers. Trust it directly instead of a per-request K8s
+		// probe; summarize from the persisted per-workload status.
 		status.Value, status.Reason = "active", StatusReasonReady
-		switch replicas {
-		case 0:
-			status.Details = "Deployment is active"
-		case 1:
-			status.Details = "1 replica ready"
-		default:
-			status.Details = fmt.Sprintf("All %d replicas ready", replicas)
+		status.Details = "Deployment is active"
+		if ws, wsErr := deployStore.GetWorkloadStatuses(dbDep.ID); wsErr == nil && len(ws) > 0 {
+			ready := 0
+			for _, w := range ws {
+				if w.Phase == deploymentstore.WorkloadPhaseReady || w.Phase == deploymentstore.WorkloadPhaseComplete {
+					ready++
+				}
+			}
+			status.Details = fmt.Sprintf("%d of %d workloads ready", ready, len(ws))
 		}
 		c.JSON(http.StatusOK, status)
 	}
-}
-
-// probeAgentReadiness reads the agent's primary K8s workload (a Deployment,
-// or — for stateful agents — a StatefulSet) and returns its observed ready
-// + desired replica counts. Used by GetDeploymentStatus instead of a full
-// namespace scan.
-//
-// The `found` return distinguishes "workload exists with 0 replicas" (true)
-// from "neither Deployment nor StatefulSet exists" (false) so the caller can
-// avoid silently reporting "active" for a missing workload. Transport
-// errors propagate as `err`; the NotFound case is the absence signal, not a
-// failure.
-func probeAgentReadiness(ctx context.Context, k8sClient k8s.ClusterClient, namespace, agentName string) (ready, replicas int32, found bool, err error) {
-	name := deployment.GenerateAgentResourceName(agentName, "agent")
-	clientset := k8sClient.Clientset()
-	dep, depErr := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-	if depErr == nil {
-		desired := int32(0)
-		if dep.Spec.Replicas != nil {
-			desired = *dep.Spec.Replicas
-		}
-		return dep.Status.ReadyReplicas, desired, true, nil
-	}
-	if !apierrors.IsNotFound(depErr) {
-		return 0, 0, false, depErr
-	}
-	// Fall through to StatefulSet for stateful agents (persistent: true).
-	sts, stsErr := clientset.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
-	if stsErr == nil {
-		desired := int32(0)
-		if sts.Spec.Replicas != nil {
-			desired = *sts.Spec.Replicas
-		}
-		return sts.Status.ReadyReplicas, desired, true, nil
-	}
-	if !apierrors.IsNotFound(stsErr) {
-		return 0, 0, false, stsErr
-	}
-	// Both NotFound — workload genuinely absent (namespace deleted / never
-	// applied). Caller decides how to report this against DB-status=active.
-	return 0, 0, false, nil
 }
 
 // messagingContainerName is the K8s container name of the messaging sidecar.
@@ -2399,7 +2323,7 @@ func dbStatusToUIStatus(s string) string {
 	switch s {
 	case deploymentstore.StatusActive:
 		return "Running"
-	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning, deploymentstore.StatusDeploying:
 		return "pending"
 	case deploymentstore.StatusStopped:
 		return "Stopped"

@@ -198,7 +198,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		langfuseBaseURL: langfuseBaseURL,
 		log:             log,
 		cache:           cfg.K8sCache,
-		billing:         billing,
 	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
 	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{
@@ -210,7 +209,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		billing:  billing,
 	})
 	log.Info("river: registered worker", "worker", "UndeployWorker")
-	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, billing: billing})
+	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
 	migrateWorker := &MigrateDeploymentClusterWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache}
 	addWorkerWithCatalogCheck(log, workers, migrateWorker)

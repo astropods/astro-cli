@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useDeployment, useDeploymentEvents, useDeploymentLogs, useUndeployAgent, useStopDeployment, useWakeUpDeployment, useRestartDeployment, markDeploymentResuming, statusRefetchInterval } from './deployments';
+import { useDeployments, useDeployment, useDeploymentEvents, useDeploymentLogs, useUndeployAgent, useStopDeployment, useWakeUpDeployment, useRestartDeployment, statusRefetchInterval } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments, mockDeploymentEvents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
@@ -278,9 +278,8 @@ describe('useWakeUpDeployment', () => {
     const list = queryClient.getQueryData<DeploymentsListResponse>(deploymentKeys.all(testAccount));
     expect(list?.deployments.find((d) => d.id === 'dep-code-reviewer')?.status).toBe('pending');
 
-    // ...and a resume grace window is opened so an interim "inactive" read
-    // from the still-lagging server doesn't terminate polling.
-    expect(statusRefetchInterval('dep-code-reviewer', 'inactive')).toBe(3000);
+    // Polling is driven by the current status value: a transitional status polls.
+    expect(statusRefetchInterval('deploying')).toBe(3000);
   });
 
   it('seeds a full in-progress status when the status cache is empty so the badge reflects it immediately', async () => {
@@ -314,82 +313,17 @@ describe('useWakeUpDeployment', () => {
   });
 });
 
-describe('statusRefetchInterval – resume grace window', () => {
-  afterEach(() => {
-    vi.useRealTimers();
+describe('statusRefetchInterval', () => {
+  it('polls while the status is transitional', () => {
+    expect(statusRefetchInterval('deploying')).toBe(3000);
+    expect(statusRefetchInterval('undeploying')).toBe(3000);
   });
 
-  it('polls while transitional regardless of any grace window', () => {
-    expect(statusRefetchInterval('dep-x', 'deploying')).toBe(3000);
-    expect(statusRefetchInterval('dep-x', 'undeploying')).toBe(3000);
-  });
-
-  it('idles on a terminal state when no resume is in flight', () => {
-    expect(statusRefetchInterval('dep-idle', 'inactive')).toBe(false);
-    expect(statusRefetchInterval('dep-idle', 'active')).toBe(false);
-  });
-
-  it('keeps polling through one or more interim non-polling reads after a resume', () => {
-    markDeploymentResuming('dep-resume');
-    // Right after a resume, a status read can still report the pre-resume
-    // terminal "inactive" (stopped) before the wakeup worker flips it to
-    // provisioning/active — these reads must NOT stop polling.
-    expect(statusRefetchInterval('dep-resume', 'inactive')).toBe(3000);
-    expect(statusRefetchInterval('dep-resume', 'inactive')).toBe(3000);
-  });
-
-  it('closes the window and idles once status converges on active', () => {
-    markDeploymentResuming('dep-converge');
-    expect(statusRefetchInterval('dep-converge', 'inactive')).toBe(3000);
-    expect(statusRefetchInterval('dep-converge', 'active')).toBe(false);
-    // Window cleared: a later spurious inactive read no longer revives polling.
-    expect(statusRefetchInterval('dep-converge', 'inactive')).toBe(false);
-  });
-
-  it('stops honoring the window after it lapses', () => {
-    vi.useFakeTimers();
-    markDeploymentResuming('dep-lapse');
-    expect(statusRefetchInterval('dep-lapse', 'inactive')).toBe(3000);
-    vi.advanceTimersByTime(31_000);
-    expect(statusRefetchInterval('dep-lapse', 'inactive')).toBe(false);
-  });
-
-  it('slides the window forward on transitional reads so a long cold start does not strand a later inactive read', () => {
-    vi.useFakeTimers();
-    markDeploymentResuming('dep-slide');
-
-    // A slow cold start (image pull) reports "deploying" for well past one
-    // RESUME_GRACE_MS (30s). Each transitional poll slides the deadline forward.
-    for (let elapsed = 0; elapsed < 90_000; elapsed += 3_000) {
-      expect(statusRefetchInterval('dep-slide', 'deploying')).toBe(3000);
-      vi.advanceTimersByTime(3_000);
-    }
-
-    // The post-active reconcile race now produces a transient "inactive" ~90s
-    // after wakeup — long past a fixed 30s deadline. Because the transitional
-    // reads kept the window fresh, polling continues instead of terminating.
-    expect(statusRefetchInterval('dep-slide', 'inactive')).toBe(3000);
-  });
-
-  it('still early-exits on active after the window has been slid forward', () => {
-    vi.useFakeTimers();
-    markDeploymentResuming('dep-slide-active');
-
-    statusRefetchInterval('dep-slide-active', 'deploying');
-    vi.advanceTimersByTime(40_000);
-    // Past the original deadline, but a fresh transitional read slides it.
-    expect(statusRefetchInterval('dep-slide-active', 'deploying')).toBe(3000);
-
-    // Convergence still wins and closes the window.
-    expect(statusRefetchInterval('dep-slide-active', 'active')).toBe(false);
-    expect(statusRefetchInterval('dep-slide-active', 'inactive')).toBe(false);
-  });
-
-  it('does not open a window for a plain deploy (transitional reads with no resume)', () => {
-    // No markDeploymentResuming: a normal deploy polls while transitional but
-    // must not grant a grace window that survives into a terminal read.
-    expect(statusRefetchInterval('dep-plain', 'deploying')).toBe(3000);
-    expect(statusRefetchInterval('dep-plain', 'inactive')).toBe(false);
+  it('idles on terminal / settled states', () => {
+    expect(statusRefetchInterval('active')).toBe(false);
+    expect(statusRefetchInterval('inactive')).toBe(false);
+    expect(statusRefetchInterval('error')).toBe(false);
+    expect(statusRefetchInterval(undefined)).toBe(false);
   });
 });
 

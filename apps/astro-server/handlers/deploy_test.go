@@ -3195,10 +3195,10 @@ func TestGetDeploymentStatus_DBStatusPrecedence(t *testing.T) {
 		{"failed", "failed", "error", StatusReasonFailed, "Deployment failed"},
 		{"pending", "pending", "deploying", StatusReasonProvisioning, "Pods are being provisioned"},
 		{"provisioning", "provisioning", "deploying", StatusReasonProvisioning, "Pods are being provisioned"},
-		// active falls through to the K8s probe path; with k8sReg=nil that's
-		// the cluster_unreachable fallback (also "active" but with a different
-		// reason and details).
-		{"active_no_cluster", "active", "active", StatusReasonClusterUnreachable, "Cluster unreachable; reporting active from spec"},
+		// active now trusts the controller-maintained DB status directly (no K8s
+		// probe). GetWorkloadStatuses isn't mocked here, so it errors and the
+		// handler falls back to the default details string.
+		{"active", "active", "active", StatusReasonReady, "Deployment is active"},
 	}
 
 	for _, tc := range cases {

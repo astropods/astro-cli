@@ -6,7 +6,6 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -39,7 +38,6 @@ type WakeUpWorker struct {
 	store    *deploymentstore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
-	billing  *openmeter.BillingStateManager
 }
 
 func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) error {
@@ -70,18 +68,11 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive}); err != nil {
-		return fmt.Errorf("set active: %w", err)
-	}
-
-	// Resume event-driven compute billing after wakeup.
-	if w.billing != nil {
-		workloads, err := workloadInfoFromStore(w.store, dep.ID)
-		if err != nil {
-			w.log.Error("Failed to load workloads for billing, heartbeat will recover", "error", err, "deployment_id", dep.ID)
-		} else {
-			go w.billing.StartBilling(context.Background(), dep.ID, workloads) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
-		}
+	// Manifests re-applied. The deployment controller drives deploying →
+	// active/failed from observed health and resumes compute billing on the
+	// real active transition (as for a fresh deploy).
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusDeploying}); err != nil {
+		return fmt.Errorf("set deploying: %w", err)
 	}
 
 	return nil

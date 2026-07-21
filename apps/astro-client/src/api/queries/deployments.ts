@@ -71,45 +71,14 @@ export function useDeployment(
   });
 }
 
-// Resume status isn't monotonic: right after a resume is requested, a status
-// read can still return the deployment's prior terminal "inactive" (stopped)
-// before the wakeup worker flips it to provisioning/active, which would halt
-// status polling. markDeploymentResuming opens a sliding grace window (each
-// transitional read pushes the deadline) so polling survives interim
-// "inactive" reads through a long cold start, until status settles on "active".
-const RESUME_GRACE_MS = 30_000;
-const resumeGraceUntil = new Map<string, number>();
-
-export function markDeploymentResuming(id: string) {
-  const now = Date.now();
-  // Sweep lapsed windows so an abandoned resume (no observer re-reading the
-  // status to prune it) can't linger past its deadline.
-  for (const [key, deadline] of resumeGraceUntil) {
-    if (deadline <= now) resumeGraceUntil.delete(key);
-  }
-  resumeGraceUntil.set(id, now + RESUME_GRACE_MS);
-}
-
-// Polling decision for the status query (extracted for unit tests). Poll while
-// transitional, sliding any open resume window forward; otherwise keep polling
-// through interim reads until status hits "active" or the window lapses.
+// Poll the status query while the deployment is transitional; idle once it
+// settles. The deployment controller owns deployments.status and keeps it
+// monotonic (pending/provisioning → deploying → active|failed), so the client
+// drives straight off the current value — no grace window / stuck heuristics.
 export function statusRefetchInterval(
-  id: string,
   value: DeploymentStatus['value'] | undefined,
 ): number | false {
-  if (value === "deploying" || value === "undeploying") {
-    if (resumeGraceUntil.has(id)) resumeGraceUntil.set(id, Date.now() + RESUME_GRACE_MS);
-    return 3000;
-  }
-  const graceUntil = resumeGraceUntil.get(id);
-  if (graceUntil !== undefined) {
-    if (value === "active" || Date.now() >= graceUntil) {
-      resumeGraceUntil.delete(id);
-      return false;
-    }
-    return 3000;
-  }
-  return false;
+  return value === "deploying" || value === "undeploying" ? 3000 : false;
 }
 
 // useDeploymentStatus fetches the coarse, server-derived deployment status
@@ -124,7 +93,7 @@ export function useDeploymentStatus(id: string, enabled = true) {
     queryKey: deploymentKeys.status(id),
     queryFn: () => api.getDeploymentStatus(id),
     enabled: !!id && enabled,
-    refetchInterval: (query) => statusRefetchInterval(id, query.state.data?.value),
+    refetchInterval: (query) => statusRefetchInterval(query.state.data?.value),
   });
 }
 
@@ -151,9 +120,6 @@ export function useDeploymentRuntime(id: string, enabled = true) {
   useEffect(() => {
     if (prevStatusRef.current && prevStatusRef.current !== "active" && status === "active") {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(id) });
-      // Resume converged — drop the grace window eagerly (don't wait for
-      // statusRefetchInterval's lazy cleanup).
-      resumeGraceUntil.delete(id);
     }
     prevStatusRef.current = status;
   }, [status, id, queryClient]);
@@ -410,9 +376,7 @@ export function useWakeUpDeployment(account: string) {
     mutationFn: api.wakeupDeployment.bind(api),
     onSuccess: (_data, variables) => {
       // Optimistically mark the deployment in-progress (list + status) so both
-      // queries poll immediately, and open the grace window so a post-resume
-      // "inactive" read doesn't strand the badge (see markDeploymentResuming).
-      markDeploymentResuming(variables.deploymentId);
+      // queries poll immediately.
       queryClient.setQueriesData(
         { queryKey: deploymentKeys.all(account) },
         (old: DeploymentsListResponse | undefined) => {

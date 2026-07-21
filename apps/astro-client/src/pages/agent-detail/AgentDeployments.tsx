@@ -7,7 +7,6 @@ import { useAgentDetailContext } from "../AgentDetail";
 import { PodGraph } from "@/components/agent-detail/pods/PodGraph";
 import { PodTile } from "@/components/agent-detail/pods/PodTile";
 import { DeploymentHistoryPanel } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
-import { useDeployStuckByAge } from "@/components/agent-detail/deployments/use-stuck-deploy";
 import { PodDetailPanel } from "@/components/agent-detail/pods/PodDetailPanel";
 import { useContainerSize } from "@/hooks/use-container-size";
 import { useDeploymentEvents, useDeploymentHistory, useDeploymentStatus, useStopDeployment } from "@/api/queries/deployments";
@@ -38,13 +37,13 @@ export default function AgentDeployments() {
   } = useAgentDetailContext();
   const paused = isPausedState(deployment);
 
-  // Stuck-deploy banner. Detection is event-driven first: while deploying, the
-  // server surfaces the blocking Kubernetes event with a humanized title +
-  // guidance and a severity, so a real cause (image pull, crash loop, failed
-  // scheduling) drives the banner immediately and names itself. A real deploy
-  // age (from the server's status_changed_at, so it survives reloads) is the
-  // backstop. A redeploy usually hits the same wall, so the headline action is
-  // a rollback to the last version that deployed cleanly, with pause alongside.
+  // Stuck-deploy banner, driven entirely by server-surfaced state: while
+  // deploying, the server emits the blocking Kubernetes event with a humanized
+  // title + guidance and a "stuck" severity, so a real cause (image pull, crash
+  // loop, failed scheduling) drives the banner and names itself. (The deployment
+  // controller also drives such a deploy to `failed` with the reason.) A
+  // redeploy usually hits the same wall, so the headline action is a rollback to
+  // the last version that deployed cleanly, with pause alongside.
   const navigate = useNavigate();
   const { data: statusData } = useDeploymentStatus(deployment.id);
   const isDeploying = statusData?.value === "deploying";
@@ -56,8 +55,7 @@ export default function AgentDeployments() {
     const stuck = (events?.events ?? []).filter((e) => e.severity === "stuck" && e.title && e.guidance);
     return stuck.sort((a, b) => b.last_timestamp.localeCompare(a.last_timestamp))[0] ?? null;
   }, [events]);
-  const stuckByAge = useDeployStuckByAge(statusData?.status_changed_at, isDeploying);
-  const showStuckBanner = isDeploying && (stuckCause !== null || stuckByAge);
+  const showStuckBanner = isDeploying && stuckCause !== null;
   // Last good version = the highest-revision past deploy that is not the current
   // one and did not fail. null on a first deploy, when the banner falls back to
   // Pause as the primary action.

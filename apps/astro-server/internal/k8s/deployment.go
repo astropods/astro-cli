@@ -100,6 +100,13 @@ const messagingFilesMount = "/files"
 // BuildDeployment creates a Kubernetes Deployment manifest.
 // Optional sidecar containers (messaging, collector) are colocated in the same
 // pod when provided, so they share localhost networking with the main container.
+// deploymentProgressDeadlineSeconds bounds how long Kubernetes waits for a
+// rollout to make progress before flipping the Deployment's Progressing
+// condition to ProgressDeadlineExceeded. Kept well below the 600s default so
+// the deployment controller observes a terminal rollout failure (bad image,
+// crash loop) within a few minutes instead of ten.
+const deploymentProgressDeadlineSeconds int32 = 180
+
 func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
@@ -108,6 +115,7 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	if replicas == 0 {
 		replicas = 1
 	}
+	progressDeadline := deploymentProgressDeadlineSeconds
 
 	// Build container spec
 	container := buildContainer(cfg)
@@ -154,7 +162,8 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
+			Replicas:                &replicas,
+			ProgressDeadlineSeconds: &progressDeadline,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: selector,
 			},
@@ -468,6 +477,7 @@ func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment 
 	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 
 	var replicas int32 = 1
+	progressDeadline := deploymentProgressDeadlineSeconds
 	container := buildCollectorContainer(cfg)
 	podSpec := corev1.PodSpec{
 		Containers: []corev1.Container{container},
@@ -485,7 +495,8 @@ func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment 
 			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
+			Replicas:                &replicas,
+			ProgressDeadlineSeconds: &progressDeadline,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: selector,
 			},

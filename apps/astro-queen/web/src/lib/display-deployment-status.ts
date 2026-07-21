@@ -34,6 +34,9 @@ export function deriveDisplayDeploymentStatus(
   if (db === "pending" || db === "provisioning") {
     return { value: "deploying", details: "Pods are being provisioned", differsFromDB: false };
   }
+  if (db === "deploying") {
+    return { value: "deploying", details: "Waiting for workloads to become ready", differsFromDB: false };
+  }
 
   if (db !== "active") {
     return { value: db, differsFromDB: false };
