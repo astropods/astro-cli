@@ -68,9 +68,9 @@ func TestAgentGet(t *testing.T) {
 		{name: "shows component name", listBody: listPayload, wantOut: "agent"},
 		{name: "json output", listBody: listPayload, jsonOutput: true, wantOut: `"namespace"`},
 		{name: "works when paused", listBody: map[string]any{
-			"deployments": []any{map[string]any{"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent", "build_id": "abc12345", "namespace": "astro-testaccount", "status": "scaled_down", "created_at": "2026-01-01T10:00:00Z"}},
+			"deployments": []any{map[string]any{"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent", "build_id": "abc12345", "namespace": "astro-testaccount", "status": "stopped", "created_at": "2026-01-01T10:00:00Z"}},
 			"count":       1,
-		}, wantOut: "scaled_down"},
+		}, wantOut: "stopped"},
 		{name: "not found", listBody: map[string]any{"deployments": []any{}, "count": 0}, wantErr: true},
 	}
 
@@ -240,7 +240,7 @@ func TestAgentPauseResume(t *testing.T) {
 
 	listPayload := map[string]any{
 		"deployments": []any{
-			map[string]any{"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent", "build_id": "abc12345", "status": "scaled_down", "created_at": "2026-01-01T10:00:00Z"},
+			map[string]any{"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent", "build_id": "abc12345", "status": "stopped", "created_at": "2026-01-01T10:00:00Z"},
 		},
 		"count": 1,
 	}
@@ -248,7 +248,7 @@ func TestAgentPauseResume(t *testing.T) {
 	detailPayload := map[string]any{
 		"deployment": map[string]any{
 			"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent",
-			"build_id": "abc12345", "status": "scaled_down", "created_at": "2026-01-01T10:00:00Z",
+			"build_id": "abc12345", "status": "stopped", "created_at": "2026-01-01T10:00:00Z",
 		},
 	}
 
