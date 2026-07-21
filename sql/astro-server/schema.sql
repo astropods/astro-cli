@@ -381,6 +381,28 @@ CREATE INDEX idx_deployment_build_env_user_vars
     ON public.deployment_build_env (deployment_id, user_var_name)
     WHERE source = 'user_var';
 
+-- deployment_workload_status is the persisted, observed health of each workload
+-- in a deployment, written by the event-driven deployment controller (astro-worker)
+-- from live K8s state. It is a materialized view of cluster reality — the API
+-- reads it instead of querying K8s per request, and it is the aggregation source
+-- for deployment-level status. One row per (deployment, workload).
+CREATE TABLE public.deployment_workload_status (
+    deployment_id varchar(11) NOT NULL,
+    workload_name varchar NOT NULL,
+    workload_type varchar NOT NULL,
+    phase varchar NOT NULL,
+    reason varchar NOT NULL DEFAULT '',
+    message text NOT NULL DEFAULT '',
+    observed_ready int NOT NULL DEFAULT 0,
+    observed_desired int NOT NULL DEFAULT 0,
+    observed_generation bigint NOT NULL DEFAULT 0,
+    observed_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_workload_status_pkey PRIMARY KEY (deployment_id, workload_name),
+    CONSTRAINT deployment_workload_status_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_workload_status_deployment ON public.deployment_workload_status(deployment_id);
+
 CREATE TABLE public.deployment_events (
     id bigserial NOT NULL,
     deployment_id varchar(11) NOT NULL,

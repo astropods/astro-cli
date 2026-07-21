@@ -660,6 +660,28 @@ func (s *Store) GetDeploymentByNamespace(namespace string) (*Deployment, error) 
 	return d, nil
 }
 
+// GetLatestDeploymentByNamespace returns the most recent deployment for a
+// namespace regardless of status (including undeployed). Unlike
+// GetDeploymentByNamespace it does not filter out undeployed rows, so the
+// deployment controller can still resolve the deployment id for a torn-down
+// namespace and clear its observed workload_status rows.
+func (s *Store) GetLatestDeploymentByNamespace(namespace string) (*Deployment, error) {
+	d, err := scanDeployment(s.db.QueryRow(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE namespace = $1
+		ORDER BY deployed_at DESC
+		LIMIT 1
+	`, namespace))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest deployment by namespace: %w", err)
+	}
+	return d, nil
+}
+
 // nilIfEmptyJSON returns nil (SQL NULL) if the JSON is nil or empty, otherwise the value.
 func nilIfEmptyJSON(j json.RawMessage) interface{} {
 	if len(j) == 0 {

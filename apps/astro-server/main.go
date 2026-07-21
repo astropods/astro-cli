@@ -41,6 +41,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
@@ -684,6 +685,21 @@ func runWorker(
 			}()
 
 		}
+	}
+
+	// Start the event-driven deployment controller: it watches managed K8s
+	// workloads via informers and persists their observed health to
+	// deployment_workload_status. Phase 1 is observe + persist only (shadow
+	// mode). Wired to workerCtx so it shuts down with the worker process.
+	//
+	// ASSUMES a single astro-worker replica: it runs unconditionally, so N>1
+	// replicas would each run their own informers + writes (wasteful, and
+	// racy on the per-deployment full-replace). Controller.Run is already
+	// ctx-driven, so before scaling the worker, wrap this in leader election
+	// (e.g. a Postgres advisory lock) and pass it a leader-scoped context.
+	if k8sReg != nil {
+		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore)
+		go controller.Run(workerCtx)
 	}
 
 	return cancel
