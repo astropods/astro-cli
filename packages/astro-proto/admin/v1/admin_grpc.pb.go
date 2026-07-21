@@ -41,8 +41,6 @@ type AdminServiceClient interface {
 	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
-	RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error)
-	BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error)
 	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
 	TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error)
@@ -303,22 +301,6 @@ func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *Repai
 	return out, nil
 }
 
-func (c *adminServiceClient) RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error) {
-	out := new(RefreshDriftReportResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RefreshDriftReport", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error) {
-	out := new(BackfillResolvedKeysResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/BackfillResolvedKeys", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *adminServiceClient) SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error) {
 	out := new(SetAdaptersResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAdapters", in, out, opts...); err != nil {
@@ -558,8 +540,6 @@ type AdminServiceServer interface {
 	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
-	RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error)
-	BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error)
 	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
 	TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error)
@@ -702,14 +682,6 @@ func (UnimplementedAdminServiceServer) GetDeploymentJobs(context.Context, *GetDe
 
 func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
-}
-
-func (UnimplementedAdminServiceServer) RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RefreshDriftReport not implemented")
-}
-
-func (UnimplementedAdminServiceServer) BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BackfillResolvedKeys not implemented")
 }
 
 func (UnimplementedAdminServiceServer) SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error) {
@@ -1248,36 +1220,6 @@ func _AdminService_RepairNormalizedSpec_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_RefreshDriftReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RefreshDriftReportRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).RefreshDriftReport(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RefreshDriftReport"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).RefreshDriftReport(ctx, req.(*RefreshDriftReportRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_BackfillResolvedKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BackfillResolvedKeysRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).BackfillResolvedKeys(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/BackfillResolvedKeys"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).BackfillResolvedKeys(ctx, req.(*BackfillResolvedKeysRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AdminService_SetAdapters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetAdaptersRequest)
 	if err := dec(in); err != nil {
@@ -1701,8 +1643,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
-		{MethodName: "RefreshDriftReport", Handler: _AdminService_RefreshDriftReport_Handler},
-		{MethodName: "BackfillResolvedKeys", Handler: _AdminService_BackfillResolvedKeys_Handler},
 		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
 		{MethodName: "TriggerOpenMeterBackfill", Handler: _AdminService_TriggerOpenMeterBackfill_Handler},
 		{MethodName: "ListFeedback", Handler: _AdminService_ListFeedback_Handler},

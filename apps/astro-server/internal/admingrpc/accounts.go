@@ -14,7 +14,7 @@ import (
 )
 
 // SetAccountCluster assigns or clears the additional cluster placement for an account.
-// When the cluster changes, enqueues migration jobs for active/failed/scaled_down/pending
+// When the cluster changes, enqueues migration jobs for active/failed/pending
 // deployments that still route to the previous cluster, then updates the account row.
 func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountClusterRequest) (*adminv1.SetAccountClusterResponse, error) {
 	if req.AccountID == "" {

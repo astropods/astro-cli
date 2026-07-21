@@ -100,7 +100,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	reconcileWorker, purgeWorker, insightsDiscovery, migrateWorker := addWorkers(workers, cfg)
+	purgeWorker, insightsDiscovery, migrateWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -127,9 +127,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 
 	// Set queue references on workers that need Insert capability.
 	// This is safe because workers don't run until Start() is called.
-	if reconcileWorker != nil {
-		reconcileWorker.queue = q
-	}
 	if insightsDiscovery != nil {
 		insightsDiscovery.queue = q
 	}

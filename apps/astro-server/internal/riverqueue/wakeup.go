@@ -32,7 +32,7 @@ func (WakeUpArgs) InsertOpts() river.InsertOpts {
 	}
 }
 
-// WakeUpWorker re-provisions K8s resources for a KEDA-scaled-down deployment.
+// WakeUpWorker re-provisions K8s resources for a paused (stopped) deployment.
 type WakeUpWorker struct {
 	river.WorkerDefaults[WakeUpArgs]
 	deployer *deployer.Deployer
@@ -50,8 +50,8 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 	if err != nil {
 		return fmt.Errorf("get deployment: %w", err)
 	}
-	if dep == nil || (dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusPending) {
-		w.log.Info("Wakeup skipped: status is not scaled_down/stopped/pending",
+	if dep == nil || (dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusPending) {
+		w.log.Info("Wakeup skipped: status is not stopped/pending",
 			"deployment_id", job.Args.DeploymentID,
 			"status", statusOrNil(dep),
 		)
@@ -69,10 +69,6 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 		return fmt.Errorf("wakeup apply failed: %w", err)
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
-
-	if err := w.store.ClearScaledDown(dep.Namespace); err != nil {
-		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)
-	}
 
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive}); err != nil {
 		return fmt.Errorf("set active: %w", err)

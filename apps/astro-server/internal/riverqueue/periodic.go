@@ -39,23 +39,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
-	// Drift / reconcile periodic job is paused while the env model
-	// migrates to deployment_build_env. The reconcile worker reads
-	// deployment_resolved_keys, which is going away in the cleanup
-	// flow. Re-enable once a row-based drift check exists.
-	//
-	// jobs = append(jobs, river.NewPeriodicJob(
-	// 	river.PeriodicInterval(10*time.Minute),
-	// 	func() (river.JobArgs, *river.InsertOpts) {
-	// 		return ReconcileArgs{}, &river.InsertOpts{
-	// 			UniqueOpts: river.UniqueOpts{
-	// 				ByPeriod: 10 * time.Minute,
-	// 			},
-	// 		}
-	// 	},
-	// 	&river.PeriodicJobOpts{RunOnStart: true},
-	// ))
-
 	jobs = append(jobs, river.NewPeriodicJob(
 		river.PeriodicInterval(30*time.Second),
 		func() (river.JobArgs, *river.InsertOpts) {

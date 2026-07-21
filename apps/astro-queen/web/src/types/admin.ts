@@ -17,7 +17,6 @@ export interface AdminDeployment {
   error_details?: DeploymentErrorDetail[];
   status_changed_at?: string;
   current_revision?: number;
-  drift_summary?: DriftSummary;
   owner_email?: string;
   cluster_id?: string;
   account_cluster_id?: string;
@@ -68,32 +67,6 @@ export interface ExpectedIngress {
   service: string;
 }
 
-export interface DriftResourceItem {
-  name: string;
-  type: string;     // deployment, statefulset, service, ingress
-  status: string;   // match, missing, extra, drift
-  expected: Record<string, string>;
-  actual: Record<string, string>;
-}
-
-export interface DriftSummary {
-  total: number;
-  match: number;
-  missing: number;
-  extra: number;
-  drift: number;
-}
-
-export interface DriftReport {
-  detected_at: string;
-  workloads: DriftResourceItem[];
-  services: DriftResourceItem[];
-  ingresses: DriftResourceItem[];
-  env_vars?: DriftResourceItem[];
-  secrets?: DriftResourceItem[];
-  summary: DriftSummary;
-}
-
 export interface AdminVariable {
   name: string;
   secret: boolean;
@@ -111,16 +84,9 @@ export interface GetDeploymentResponse {
   workloads?: AdminWorkload[];
   expected_services?: ExpectedService[];
   expected_ingresses?: ExpectedIngress[];
-  drift_report?: DriftReport;
-  drift_checked_at?: string;
   variables?: AdminVariable[];
   adapters?: string[];
   placement_hint?: string;
-}
-
-export interface RefreshDriftReportResponse {
-  drift_report?: DriftReport;
-  drift_checked_at?: string;
 }
 
 export interface GetDeploymentEventsResponse {

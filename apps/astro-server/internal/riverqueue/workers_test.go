@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/riverqueue/river/rivertype"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 )
@@ -276,113 +275,5 @@ func TestWakeUpArgs_InsertOpts(t *testing.T) {
 	}
 	if opts.MaxAttempts != 3 {
 		t.Errorf("MaxAttempts = %d, want 3", opts.MaxAttempts)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ReconcileArgs
-// ---------------------------------------------------------------------------
-
-func TestReconcileArgs_Kind(t *testing.T) {
-	args := ReconcileArgs{}
-	if kind := args.Kind(); kind != "reconcile" {
-		t.Errorf("ReconcileArgs.Kind() = %q, want %q", kind, "reconcile")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// scaledObjectIsInactive
-// ---------------------------------------------------------------------------
-
-func TestScaledObjectIsInactive_ActiveFalse(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
-					map[string]interface{}{
-						"type":   "Active",
-						"status": "False",
-					},
-				},
-			},
-		},
-	}
-	if !scaledObjectIsInactive(obj) {
-		t.Error("expected inactive when Active condition is False")
-	}
-}
-
-func TestScaledObjectIsInactive_ActiveTrue(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
-					map[string]interface{}{
-						"type":   "Active",
-						"status": "True",
-					},
-				},
-			},
-		},
-	}
-	if scaledObjectIsInactive(obj) {
-		t.Error("expected not inactive when Active condition is True")
-	}
-}
-
-func TestScaledObjectIsInactive_NoConditions(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{},
-		},
-	}
-	if scaledObjectIsInactive(obj) {
-		t.Error("expected not inactive when no conditions present")
-	}
-}
-
-func TestScaledObjectIsInactive_NoStatus(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{},
-	}
-	if scaledObjectIsInactive(obj) {
-		t.Error("expected not inactive when no status present")
-	}
-}
-
-func TestScaledObjectIsInactive_MalformedCondition(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
-					"not-a-map",
-				},
-			},
-		},
-	}
-	if scaledObjectIsInactive(obj) {
-		t.Error("expected not inactive when conditions contain non-map entry")
-	}
-}
-
-func TestScaledObjectIsInactive_MultipleConditions(t *testing.T) {
-	obj := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"status": map[string]interface{}{
-				"conditions": []interface{}{
-					map[string]interface{}{
-						"type":   "Ready",
-						"status": "True",
-					},
-					map[string]interface{}{
-						"type":   "Active",
-						"status": "False",
-					},
-				},
-			},
-		},
-	}
-	if !scaledObjectIsInactive(obj) {
-		t.Error("expected inactive when Active=False among multiple conditions")
 	}
 }

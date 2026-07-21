@@ -126,7 +126,6 @@ func (e *teardownTestEnv) createNamespaceAndDeployment(accountID, agentName, sta
 		e.t.Fatalf("insert deployment: %v", err)
 	}
 	e.t.Cleanup(func() {
-		_, _ = e.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", depID)
 		_, _ = e.db.Exec("DELETE FROM deployments WHERE id = $1", depID)
 	})
 
@@ -242,7 +241,7 @@ func TestTeardown_StatusTransition(t *testing.T) {
 	// Undeployed deployments should NOT appear in live status queries
 	deps, err := env.store.GetDeploymentsInStatus(
 		ds.StatusActive, ds.StatusFailed, ds.StatusPending,
-		ds.StatusProvisioning, ds.StatusUndeploying, ds.StatusScaledDown,
+		ds.StatusProvisioning, ds.StatusUndeploying,
 	)
 	if err != nil {
 		t.Fatalf("GetDeploymentsInStatus: %v", err)
@@ -288,54 +287,5 @@ func TestTeardown_NamespaceNotInReconcile(t *testing.T) {
 		if ns.Name == dep.Namespace {
 			t.Errorf("deleted namespace %s still appears in managed namespace list", dep.Namespace)
 		}
-	}
-}
-
-// TestTeardown_ClearsScaledDown verifies that teardown path clears the
-// scaled_namespaces record if one exists.
-func TestTeardown_ClearsScaledDown(t *testing.T) {
-	env := setupTeardownEnv(t)
-	accountID := env.ensureTestAccount()
-	dep := env.createNamespaceAndDeployment(accountID, "teardown-scaled", "active")
-
-	// Simulate KEDA scale-down
-	if err := env.store.MarkScaledDown(dep.ID, dep.Namespace); err != nil {
-		t.Fatalf("MarkScaledDown: %v", err)
-	}
-
-	scaled, err := env.store.IsScaledDown(dep.Namespace)
-	if err != nil {
-		t.Fatalf("IsScaledDown: %v", err)
-	}
-	if !scaled {
-		t.Fatal("expected namespace to be marked as scaled down")
-	}
-
-	// Transition to undeploying
-	if err := env.store.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeploying}); err != nil {
-		t.Fatalf("UpdateStatus to undeploying: %v", err)
-	}
-
-	// Teardown
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Refresh dep to get current status
-	dep, _ = env.store.GetDeploymentByID(dep.ID)
-	if err := env.deployer.Teardown(ctx, dep); err != nil {
-		t.Fatalf("Teardown: %v", err)
-	}
-
-	// Clear scaled-down (what UndeployWorker does)
-	if err := env.store.ClearScaledDown(dep.Namespace); err != nil {
-		t.Fatalf("ClearScaledDown: %v", err)
-	}
-
-	scaled, err = env.store.IsScaledDown(dep.Namespace)
-	if err != nil {
-		t.Fatalf("IsScaledDown after clear: %v", err)
-	}
-	if scaled {
-		t.Error("namespace should no longer be marked as scaled down after teardown")
 	}
 }

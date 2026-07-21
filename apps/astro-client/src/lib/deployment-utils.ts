@@ -9,7 +9,7 @@ import type {
 export const launchUnavailableMessage =
   "Launch is unavailable while we create your custom URL";
 
-export const PAUSED_DEPLOYMENT_RECORD_STATUSES = ["stopped", "scaled_down", "Stopped"] as const;
+export const PAUSED_DEPLOYMENT_RECORD_STATUSES = ["stopped", "Stopped"] as const;
 
 export type PausedDeploymentRecordStatus =
   (typeof PAUSED_DEPLOYMENT_RECORD_STATUSES)[number];

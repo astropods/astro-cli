@@ -3190,7 +3190,6 @@ func TestGetDeploymentStatus_DBStatusPrecedence(t *testing.T) {
 		wantReason  string
 		wantDetails string
 	}{
-		{"scaled_down", "scaled_down", "inactive", StatusReasonPaused, "Deployment is paused"},
 		{"stopped", "stopped", "inactive", StatusReasonPaused, "Deployment is paused"},
 		{"undeploying", "undeploying", "undeploying", StatusReasonUndeploying, "Deployment is being torn down"},
 		{"failed", "failed", "error", StatusReasonFailed, "Deployment failed"},
@@ -3329,10 +3328,10 @@ func TestWakeUpDeployment_Success(t *testing.T) {
 	now := time.Now()
 	rev := 1
 
-	// GetDeploymentByID — scaled_down status
+	// GetDeploymentByID — stopped status
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRowWithStatus(depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, "scaled_down", &rev, now))
+			"My Agent", `{}`, "stopped", &rev, now))
 
 	// IsMember check
 	accountMock.ExpectQuery(`SELECT`).
@@ -3364,14 +3363,14 @@ func TestWakeUpDeployment_Success(t *testing.T) {
 	}
 }
 
-func TestWakeUpDeployment_NotScaledDown(t *testing.T) {
+func TestWakeUpDeployment_NotStopped(t *testing.T) {
 	router, deployMock, _ := setupWakeUpRouter(t)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	// GetDeploymentByID — active status (not scaled_down)
+	// GetDeploymentByID — active status (not stopped)
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
 			"My Agent", `{}`, "active", now, nil))
@@ -3386,8 +3385,8 @@ func TestWakeUpDeployment_NotScaledDown(t *testing.T) {
 
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "deployment is not stopped or scaled down" {
-		t.Errorf("expected error 'deployment is not stopped or scaled down', got %v", resp["error"])
+	if resp["error"] != "deployment is not stopped" {
+		t.Errorf("expected error 'deployment is not stopped', got %v", resp["error"])
 	}
 }
 

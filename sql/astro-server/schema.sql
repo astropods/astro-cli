@@ -410,28 +410,6 @@ CREATE TABLE public.deployment_revisions (
 
 CREATE INDEX idx_deployment_revisions_deployment ON public.deployment_revisions(deployment_id);
 
-CREATE TABLE public.scaled_namespaces (
-    namespace text NOT NULL,
-    deployment_id varchar(11) NOT NULL,
-    scaled_down_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT scaled_namespaces_pkey PRIMARY KEY (namespace),
-    CONSTRAINT scaled_namespaces_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
-);
-
-CREATE TABLE public.namespace_ownership (
-    namespace varchar NOT NULL,
-    account_id uuid NOT NULL,
-    agent_name text NOT NULL,
-    deployment_id varchar(11),
-    source_account text NOT NULL DEFAULT '',
-    scanned_at timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT namespace_ownership_pkey PRIMARY KEY (namespace),
-    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
-    CONSTRAINT namespace_ownership_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_namespace_ownership_account ON public.namespace_ownership(account_id);
-
 CREATE TABLE public.connected_devices (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,

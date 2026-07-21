@@ -14,7 +14,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -70,12 +69,6 @@ func saveDeploymentWithSecrets(
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
 
-	// Resolve environment (produces ConfigMapData + SecretData)
-	rctx := deployment.ResolveContext{
-		Namespace: "ns-rehydrate-test", AgentName: full.Source.Name, BuildID: full.Source.Build,
-	}
-	resolved := deployment.ResolveDeploymentSpecEnv(full, rctx)
-
 	// Strip secrets from the spec JSON (mirrors deploy handler behaviour)
 	stripped := spec.StripSecretVariableValues(full)
 	specJSON, err := json.Marshal(stripped)
@@ -94,7 +87,7 @@ func saveDeploymentWithSecrets(
 	}
 
 	d, err := store.SaveDeploymentPending(params, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, full, resolved, enc, nil)
+		return ds.SaveNormalizedSpec(tx, depID, full, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -246,7 +239,7 @@ func TestRehydrateSecrets_NoVariables(t *testing.T) {
 		DisplayName: "No Vars", BuildID: "b1",
 		Namespace: "ns-no-vars", SpecJSON: string(specJSON),
 	}, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, noVarSpec, nil, nil, nil)
+		return ds.SaveNormalizedSpec(tx, depID, noVarSpec, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -295,7 +288,7 @@ func TestRepairPreservesVariables(t *testing.T) {
 	// Run repair — this used to delete deployment_variables
 	_, _, _, err = store.RepairNormalizedSpec(dep.ID, &ds.NormalizedSpecConfig{
 		Namespace: dep.Namespace,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}

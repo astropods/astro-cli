@@ -20,7 +20,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -113,53 +112,6 @@ func TestSecretRouting(t *testing.T) {
 		}
 	})
 
-	// NoDrift — removed: depends on deployment_resolved_keys for composite secret
-	// key tracking (AUTH_HEADER). Variable-based fallback misses composite refs.
-	// Will be re-added when row-based drift is rebuilt.
-	t.Run("NoDrift", func(t *testing.T) {
-		t.Skip("deployment_resolved_keys dropped — re-enable when row-based drift is rebuilt")
-		workloads, err := env.store.GetWorkloads(env.depID)
-		if err != nil {
-			t.Fatalf("GetWorkloads: %v", err)
-		}
-		services, _ := env.store.GetServices(env.depID)
-		ingresses, _ := env.store.GetIngresses(env.depID)
-		variables, _ := env.store.GetDeploymentVariables(env.depID)
-		resolvedKeys, _ := env.store.GetResolvedKeys(env.depID)
-
-		svcNameByID := map[int]string{}
-		for _, svc := range services {
-			svcNameByID[svc.ID] = svc.WorkloadName
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		report := riverqueue.BuildDriftReport(ctx, env.client.Clientset(), env.ns,
-			"sr-agent", "srbuild01", workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
-
-		if report.Summary.Missing != 0 {
-			t.Errorf("expected 0 missing, got %d", report.Summary.Missing)
-			for _, wl := range report.Workloads {
-				if wl.Status == "missing" {
-					t.Logf("  missing workload: %s", wl.Name)
-				}
-			}
-		}
-		if report.Summary.Drift != 0 {
-			t.Errorf("expected 0 drift, got %d", report.Summary.Drift)
-			for _, item := range report.EnvVars {
-				if item.Status == "drift" {
-					t.Logf("  env drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
-				}
-			}
-			for _, item := range report.Secrets {
-				if item.Status == "drift" {
-					t.Logf("  secret drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
-				}
-			}
-		}
-	})
 }
 
 // --- setup ---
@@ -239,15 +191,6 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 		}
 	}
 
-	// Resolve env
-	rctx := deployment.ResolveContext{
-		Namespace:  ns,
-		AgentName:  "sr-agent",
-		BuildID:    "srbuild01",
-		SecretName: deployment.GenerateSecretName("sr-agent", "srbuild01"),
-	}
-	resolved := deployment.ResolveDeploymentSpecEnv(&specObj, rctx)
-
 	// Save to DB
 	depID := fmt.Sprintf("sr%08d", time.Now().UnixMilli()%100000000)
 	dep, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
@@ -255,7 +198,7 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 		DisplayName: t.Name(), BuildID: "srbuild01", Namespace: ns,
 		SpecJSON: secretRoutingSpec,
 	}, func(tx *sql.Tx, deploymentID string) error {
-		return ds.SaveNormalizedSpec(tx, deploymentID, &specObj, resolved, nil, &ds.NormalizedSpecConfig{
+		return ds.SaveNormalizedSpec(tx, deploymentID, &specObj, nil, &ds.NormalizedSpecConfig{
 			Namespace: ns,
 		})
 	})

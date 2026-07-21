@@ -87,10 +87,6 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
-	if err := w.store.ClearScaledDown(dep.Namespace); err != nil {
-		w.log.Warn("Failed to clear scaled-down state", "error", err, "namespace", dep.Namespace)
-	}
-
 	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}); err != nil {
 		return fmt.Errorf("set undeployed: %w", err)
 	}

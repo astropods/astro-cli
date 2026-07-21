@@ -61,7 +61,7 @@ func NewEncryptor(ctx context.Context, client KMSClient, keyARN string) (*Encryp
 // "KMS is not configured / passthrough" without branching themselves.
 // In that case the returned ciphertext is the plaintext bytes and the
 // nonce is nil. Storing values that way is the local-dev convention
-// (also used by deployment_variables for non-secret rows); the
+// (also used by deployment_build_env for non-secret rows); the
 // corresponding Decrypt call below restores them as-is.
 func (e *Encryptor) Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error) {
 	if e == nil || e.gcm == nil {

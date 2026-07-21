@@ -329,7 +329,7 @@ describe("user inspects pod details", () => {
   it("keeps the detail panel status paused when the deployment is paused", async () => {
     const { user } = renderDeployments(
       makeDeployment({
-        status: "scaled_down",
+        status: "stopped",
         workloads: [makeWorkload({ containers: [] })],
       }),
     );
@@ -666,7 +666,7 @@ describe("user manages deployment lifecycle", () => {
 
   it("paused deployment shows Resume instead of Pause", async () => {
     const { user } = renderDeployments(
-      makeDeployment({ status: "scaled_down" }),
+      makeDeployment({ status: "stopped" }),
     );
     await screen.findByText("Fix auth flow");
 

@@ -523,10 +523,9 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 // DeploymentWithAccount extends Deployment with the owning account name.
 type DeploymentWithAccount struct {
 	Deployment
-	AccountName      string  `json:"account_name"`
-	AccountClusterID string  `json:"account_cluster_id"` // accounts.cluster_id; empty = primary
-	DriftReportJSON  *string `json:"-"`                  // raw JSONB from DB, parsed by caller
-	OwnerUserID      string  `json:"-"`                  // first member's user_id, resolved by caller
+	AccountName      string `json:"account_name"`
+	AccountClusterID string `json:"account_cluster_id"` // accounts.cluster_id; empty = primary
+	OwnerUserID      string `json:"-"`                  // first member's user_id, resolved by caller
 }
 
 // ListAllActive returns all active deployments across all accounts, joined with account names.
@@ -606,7 +605,7 @@ func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 		SELECT d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
 		       d.deployment_spec_json, d.status, d.error_message, d.status_changed_at,
 		       d.current_revision, d.deployed_at, d.undeployed_at, d.cluster_id,
-		       a.name AS account_name, COALESCE(a.cluster_id, '') AS account_cluster_id, d.drift_report,
+		       a.name AS account_name, COALESCE(a.cluster_id, '') AS account_cluster_id,
 		       COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '') AS owner_user_id
 		FROM deployments d
 		JOIN accounts a ON d.account_id = a.id
@@ -626,7 +625,7 @@ func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 			&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 			&d.DeploymentSpecJSON, &d.Status, &d.ErrorMessage, &d.StatusChangedAt,
 			&d.CurrentRevision, &d.DeployedAt, &d.UndeployedAt, &clusterID,
-			&d.AccountName, &d.AccountClusterID, &d.DriftReportJSON, &d.OwnerUserID,
+			&d.AccountName, &d.AccountClusterID, &d.OwnerUserID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
 		}
@@ -847,7 +846,6 @@ type ClusterMigrationParams struct {
 	PatchedSpecJSON string
 	PriorStatus     string
 	EventMessage    string
-	Namespace       string // cleared from scaled_namespaces when PriorStatus is scaled_down
 }
 
 // ApplyClusterMigration updates routing, records the migration event, clears scaled-down
@@ -881,13 +879,6 @@ func (s *Store) ApplyClusterMigration(p ClusterMigrationParams) error {
 	`, p.DeploymentID, p.PriorStatus, nilIfEmpty(p.EventMessage))
 	if err != nil {
 		return fmt.Errorf("record deployment event: %w", err)
-	}
-
-	if p.PriorStatus == StatusScaledDown && p.Namespace != "" {
-		_, err = tx.Exec(`DELETE FROM scaled_namespaces WHERE namespace = $1`, p.Namespace)
-		if err != nil {
-			return fmt.Errorf("failed to clear scaled namespace: %w", err)
-		}
 	}
 
 	if err := updateStatusTx(tx, p.DeploymentID, StatusUpdate{
@@ -1034,94 +1025,6 @@ func (s *Store) GetDeploymentsInStatus(statuses ...string) ([]*Deployment, error
 		return nil, fmt.Errorf("error iterating deployments: %w", err)
 	}
 	return deployments, nil
-}
-
-// RecoverOrphanedDeployment inserts a stub deployment record for an orphaned K8s
-// namespace that has no matching database row. The deployment is created with status
-// 'failed' and no revisions, so the user can redeploy or undeploy to fix it.
-//
-// sourceAccountID is the account that originally published the build (read from
-// the namespace's astro.dev/source-account-id label by the reconciler). Pre-PR2
-// namespaces lack the label and the reconciler defaults sourceAccountID to
-// accountID before calling here, so this routine never has to make that
-// inference itself — the caller is the right place to log the fallback.
-func (s *Store) RecoverOrphanedDeployment(id, accountID, sourceAccountID, agentName, buildID, namespace string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	res, err := tx.Exec(`
-		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id, namespace,
-		    deployment_spec_json, status, error_message, status_changed_at, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, '{}', $7, $8, NOW(), NOW())
-		ON CONFLICT (id) DO NOTHING
-	`, id, accountID, sourceAccountID, agentName, buildID, namespace, StatusFailed,
-		"Recovered from orphaned K8s namespace — redeploy or undeploy to fix")
-	if err != nil {
-		return fmt.Errorf("failed to insert recovered deployment: %w", err)
-	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
-		// Deployment already exists — nothing to recover.
-		return nil
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO deployment_events (deployment_id, status, message)
-		VALUES ($1, $2, $3)
-	`, id, StatusFailed, "Deployment recovered from orphaned K8s namespace")
-	if err != nil {
-		return fmt.Errorf("failed to insert recovery event: %w", err)
-	}
-
-	return tx.Commit()
-}
-
-// MarkScaledDown records that a namespace has been scaled down by KEDA and updates
-// the deployment status to scaled_down.
-func (s *Store) MarkScaledDown(deploymentID, namespace string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	_, err = tx.Exec(`
-		INSERT INTO scaled_namespaces (namespace, deployment_id)
-		VALUES ($1, $2)
-		ON CONFLICT (namespace) DO NOTHING
-	`, namespace, deploymentID)
-	if err != nil {
-		return fmt.Errorf("failed to insert scaled namespace: %w", err)
-	}
-
-	if err := updateStatusTx(tx, deploymentID, StatusUpdate{Status: StatusScaledDown, EventMsg: "KEDA scaled namespace to zero"}); err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// ClearScaledDown removes a namespace from the scaled_namespaces table.
-func (s *Store) ClearScaledDown(namespace string) error {
-	_, err := s.db.Exec(`DELETE FROM scaled_namespaces WHERE namespace = $1`, namespace)
-	if err != nil {
-		return fmt.Errorf("failed to clear scaled namespace: %w", err)
-	}
-	return nil
-}
-
-// IsScaledDown checks whether a namespace is currently tracked as scaled down by KEDA.
-func (s *Store) IsScaledDown(namespace string) (bool, error) {
-	var exists bool
-	err := s.db.QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM scaled_namespaces WHERE namespace = $1)
-	`, namespace).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check scaled namespace: %w", err)
-	}
-	return exists, nil
 }
 
 // DeploymentSummary is a lightweight projection of a deployment for listing UIs.

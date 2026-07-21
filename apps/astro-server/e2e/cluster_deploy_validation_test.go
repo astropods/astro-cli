@@ -137,9 +137,6 @@ func TestUndeployUnreachableAdditionalClusterMarksUndeployed(t *testing.T) {
 		t.Fatalf("Teardown = %v, want ErrClusterClientUnavailable", teardownErr)
 	}
 
-	if err := deployStore.ClearScaledDown(dep.Namespace); err != nil {
-		t.Fatalf("ClearScaledDown: %v", err)
-	}
 	if err := deployStore.UpdateStatus(dep.ID, ds.StatusUpdate{Status: ds.StatusUndeployed}); err != nil {
 		t.Fatalf("UpdateStatus undeployed: %v", err)
 	}

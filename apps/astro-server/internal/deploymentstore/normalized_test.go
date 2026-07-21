@@ -8,7 +8,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	_ "github.com/lib/pq"
@@ -181,16 +180,6 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		},
 	}
 
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{
-			"ASTRO_AGENT_NAME": "my-agent",
-			"LOG_LEVEL":        "debug",
-		},
-		SecretData: map[string]string{
-			"API_KEY": "sk-secret-123",
-		},
-	}
-
 	specJSON := `{"spec":"deployment/v1"}`
 	deploymentID := newID()
 
@@ -199,7 +188,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		DisplayName: "My Agent", BuildID: "build-1", Namespace: "ns-test",
 		SpecJSON: specJSON,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -462,11 +451,6 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 			"PLAIN_VAR":  {Value: "visible", Secret: false, Targets: []string{"agent"}},
 		},
 	}
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"PLAIN_VAR": "visible"},
-		SecretData:    map[string]string{"SECRET_KEY": "super-secret"},
-	}
-
 	deploymentID := newID()
 	// Use nil encryptor — secrets should be stripped
 	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
@@ -474,7 +458,7 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 		DisplayName: "EncTest", BuildID: "build-1", Namespace: "ns-enc-test",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save failed: %v", err)
@@ -549,18 +533,13 @@ func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
 			"PLAIN_VAR": {Value: "hello", Secret: false, Targets: []string{"agent"}},
 		},
 	}
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"PLAIN_VAR": "hello"},
-		SecretData:    map[string]string{"API_KEY": "sk-secret-key-with-binary-unsafe-bytes"},
-	}
-
 	deploymentID := newID()
 	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "b64-agent",
 		DisplayName: "Base64Test", BuildID: "build-1", Namespace: "ns-b64",
 		SpecJSON: `{}`, EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, enc, nil)
+		return SaveNormalizedSpec(tx, depID, ds, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -630,7 +609,6 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		},
 		Observability: spec.DeploymentObservability{Enabled: true, Image: "collector:latest"},
 	}
-	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
 
 	deploymentID := newID()
 	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
@@ -638,7 +616,7 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		DisplayName: "Summary", BuildID: "build-1", Namespace: "ns-summary",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -729,14 +707,13 @@ func TestGetWorkloadSummaries_PersistentFlag(t *testing.T) {
 			},
 		},
 	}
-	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
 
 	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "persist-agent",
 		DisplayName: "Persist", BuildID: "build-1", Namespace: "ns-persist",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -820,7 +797,6 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 			},
 		},
 	}
-	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
 
 	deploymentID := newID()
 	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
@@ -828,7 +804,7 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 		DisplayName: "ActiveWL", BuildID: "build-1", Namespace: "ns-active-wl",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -930,18 +906,13 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 			"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
 		},
 	}
-	resolved1 := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"LOG_LEVEL": "debug"},
-		SecretData:    map[string]string{"API_KEY": "sk-123"},
-	}
-
 	deploymentID := newID()
 	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
 		DisplayName: "Update Test", BuildID: "build-1", Namespace: "ns-update",
 		SpecJSON: `{"v":1}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds1, resolved1, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds1, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("initial save: %v", err)
@@ -976,17 +947,12 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 			"LOG_LEVEL": {Value: "info", Secret: false, Targets: []string{"agent"}},
 		},
 	}
-	resolved2 := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"LOG_LEVEL": "info"},
-		SecretData:    map[string]string{},
-	}
-
 	d2, err := store.UpdateDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
 		DisplayName: "Update Test", BuildID: "build-2", Namespace: "ns-update",
 		SpecJSON: `{"v":2}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds2, resolved2, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds2, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -1076,7 +1042,7 @@ func TestRepairNormalizedSpec_CollectorAsWorkload(t *testing.T) {
 	// Repair should create normalized workloads from the spec JSON
 	workloads, services, _, err := store.RepairNormalizedSpec(d.ID, &NormalizedSpecConfig{
 		Namespace: "ns-repair",
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
@@ -1172,10 +1138,6 @@ func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
 			"TIMEOUT": {Value: "30s", Secret: false, Targets: []string{"agent"}},
 		},
 	}
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"LOG_LEVEL": "debug", "TIMEOUT": "30s"},
-		SecretData:    map[string]string{"API_KEY": "resolved-secret"},
-	}
 	nsCfg := &NormalizedSpecConfig{
 		VarRefs: map[string]string{
 			"API_KEY":   "MY_ACCOUNT_SECRET",
@@ -1190,7 +1152,7 @@ func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
 		DisplayName: "RefStoreTest", BuildID: "build-1", Namespace: "ns-ref-store",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, resolved, nil, nsCfg)
+		return SaveNormalizedSpec(tx, id, ds, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1257,7 +1219,7 @@ func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
 		DisplayName: "RefRoundtrip", BuildID: "b1", Namespace: "ns-ref-roundtrip",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, nil, nsCfg)
+		return SaveNormalizedSpec(tx, id, ds, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1334,7 +1296,7 @@ func TestSaveNormalizedSpec_EmptyTargets_DoesNotDiverge(t *testing.T) {
 		BuildID: ds.Source.Build, Namespace: "ns-empty-targets",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, nil, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1367,10 +1329,6 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 		"API_KEY":   {Value: "sk-secret-123", Secret: true, Targets: []string{"agent"}},
 		"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
 	}
-	resolved := deployment.ResolveDeploymentSpecEnv(ds, deployment.ResolveContext{
-		Namespace: "ns-repair-be", AgentName: ds.Source.Name, BuildID: ds.Source.Build,
-	})
-
 	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: ds.Source.Name,
 		BuildID: ds.Source.Build, Namespace: "ns-repair-be",
@@ -1378,7 +1336,7 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 		EncryptedDataKey: enc.EncryptedDataKey,
 		KMSKeyARN:        enc.KMSKeyARN,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, enc, nil)
+		return SaveNormalizedSpec(tx, depID, ds, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1391,7 +1349,7 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 
 	if _, _, _, err := store.RepairNormalizedSpec(d.ID, &NormalizedSpecConfig{
 		Namespace: "ns-repair-be",
-	}, nil); err != nil {
+	}); err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
 

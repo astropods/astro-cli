@@ -77,7 +77,7 @@ type Reporter interface {
 var countQueries = map[string]string{
 	ResourceAgents:           `SELECT COUNT(*) FROM agents WHERE account_id = $1 AND archived_at IS NULL`,
 	ResourceAgentBuilds:      `SELECT COUNT(*) FROM agent_versions WHERE account_id = $1 AND published_at >= date_trunc('month', now())`,
-	ResourceAgentDeployments: `SELECT COUNT(*) FROM deployments WHERE account_id = $1 AND status IN ('pending', 'active', 'scaled_down')`,
+	ResourceAgentDeployments: `SELECT COUNT(*) FROM deployments WHERE account_id = $1 AND status IN ('pending', 'active')`,
 	ResourceMembers:          `SELECT COUNT(*) FROM account_members WHERE account_id = $1`,
 	ResourceKnowledgeStores:  `SELECT COUNT(*) FROM knowledge_stores WHERE account_id = $1 AND status != 'error'`,
 	ResourceKnowledgeEndpoints: `SELECT COUNT(*) FROM knowledge_store_endpoints kse

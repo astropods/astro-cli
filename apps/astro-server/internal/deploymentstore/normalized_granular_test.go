@@ -39,20 +39,6 @@ func workloadByKind(t *testing.T, store *Store, depID, kind string) *Workload {
 	return nil
 }
 
-func workloadByName(t *testing.T, store *Store, depID, name string) *Workload {
-	t.Helper()
-	wls, err := store.GetWorkloads(depID)
-	if err != nil {
-		t.Fatalf("GetWorkloads: %v", err)
-	}
-	for _, w := range wls {
-		if w.Name == name {
-			return w
-		}
-	}
-	return nil
-}
-
 // ── S1: workload types ────────────────────────────────────────────────────────
 
 func TestSaveNormalizedSpec_S1_AgentIsDeployment(t *testing.T) {
@@ -363,7 +349,7 @@ func TestSaveNormalizedSpec_S15_UpdateDeployClears(t *testing.T) {
 				Variables: map[string]spec.Variable{
 					varName: {Value: "v", Targets: []string{"agent"}},
 				},
-			}, nil, nil, nil)
+			}, nil, nil)
 		})
 		if err != nil {
 			t.Fatalf("save: %v", err)
@@ -388,7 +374,7 @@ func TestSaveNormalizedSpec_S15_UpdateDeployClears(t *testing.T) {
 			Variables: map[string]spec.Variable{
 				"BEFORE": {Value: "v1", Targets: []string{"agent"}},
 			},
-		}, nil, nil, nil)
+		}, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("first save: %v", err)
@@ -406,7 +392,7 @@ func TestSaveNormalizedSpec_S15_UpdateDeployClears(t *testing.T) {
 		Variables: map[string]spec.Variable{
 			"AFTER": {Value: "v2", Targets: []string{"agent"}},
 		},
-	}, nil, nil, nil)
+	}, nil, nil)
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatalf("second SaveNormalizedSpec: %v", err)
@@ -441,7 +427,7 @@ func TestSaveNormalizedSpec_S16_NoDuplicateRows(t *testing.T) {
 			Variables: map[string]spec.Variable{
 				"MY_VAR": {Value: "v", Targets: []string{"agent"}},
 			},
-		}, nil, nil, nil)
+		}, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -530,7 +516,7 @@ func TestGetBuildEnv_R3_SecretStoredAsCiphertextWithNonce(t *testing.T) {
 		BuildID: "b1", Namespace: "ns-r3", SpecJSON: `{}`,
 		EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, enc, nil)
+		return SaveNormalizedSpec(tx, id, ds, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)

@@ -17,7 +17,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -30,9 +29,9 @@ func minimalAPIKeySpec(agentName, buildID, accountName string) *spec.AstroDeploy
 	return &spec.AstroDeploymentSpec{
 		Spec: "deployment/v1",
 		Source: spec.DeploymentSource{
-			Account: accountName,
-			Name:    agentName,
-			Build:   buildID,
+			Account:  accountName,
+			Name:     agentName,
+			Build:    buildID,
 			Registry: "test.ecr/repo",
 		},
 		Target: spec.DeploymentTarget{
@@ -57,12 +56,7 @@ func saveInlineSecretDeployment(
 	t *testing.T, db *sql.DB, store *ds.Store, accountID string, full *spec.AstroDeploymentSpec,
 ) *ds.Deployment {
 	t.Helper()
-	rctx := deployment.ResolveContext{
-		Namespace: "ns-inline-" + deployid.Compact(deployid.New()),
-		AgentName: full.Source.Name,
-		BuildID:   full.Source.Build,
-	}
-	resolved := deployment.ResolveDeploymentSpecEnv(full, rctx)
+	ns := "ns-inline-" + deployid.Compact(deployid.New())
 	stripped := spec.StripSecretVariableValues(full)
 	specJSON, err := json.Marshal(stripped)
 	if err != nil {
@@ -74,10 +68,10 @@ func saveInlineSecretDeployment(
 		AgentName:   full.Source.Name,
 		DisplayName: "Inline Secret Bot",
 		BuildID:     full.Source.Build,
-		Namespace:   rctx.Namespace,
+		Namespace:   ns,
 		SpecJSON:    string(specJSON),
 	}, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, full, resolved, nil, nil)
+		return ds.SaveNormalizedSpec(tx, depID, full, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)

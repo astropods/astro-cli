@@ -121,11 +121,11 @@ describe("isLaunchReady", () => {
 });
 
 describe("isPausedState", () => {
-  it("recognizes Stopped (server-normalized for both scaled_down and stopped)", () => {
+  it("recognizes Stopped (server-normalized paused status)", () => {
     expect(isPausedState(make({ status: "Stopped" }))).toBe(true);
   });
-  it("recognizes raw scaled_down enum (admingrpc / older callers)", () => {
-    expect(isPausedState(make({ status: "scaled_down" }))).toBe(true);
+  it("recognizes raw stopped enum", () => {
+    expect(isPausedState(make({ status: "stopped" }))).toBe(true);
   });
   it("returns false for Running", () => {
     expect(isPausedState(make({ status: "Running" }))).toBe(false);

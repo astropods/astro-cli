@@ -9,7 +9,6 @@ package deploymentstore
 import (
 	"crypto/rand"
 	"database/sql"
-	"sort"
 	"strings"
 	"testing"
 
@@ -96,7 +95,7 @@ func saveSpec(t *testing.T, store *Store, accountID string, name string, ds *spe
 		ID: depID, AccountID: accountID, AgentName: name,
 		BuildID: "b1", Namespace: "ns-" + name, SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, enc, nil)
+		return SaveNormalizedSpec(tx, id, ds, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending(%s): %v", name, err)
@@ -342,7 +341,7 @@ func TestSaveNormalizedSpec_BuildEnv_UpdateDeployClears(t *testing.T) {
 		ID: depID, AccountID: accountID, AgentName: "update-test",
 		BuildID: "b1", Namespace: "ns-update", SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, baseSpec("FIRST_VAR", "v1"), nil, nil, nil)
+		return SaveNormalizedSpec(tx, id, baseSpec("FIRST_VAR", "v1"), nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("first save: %v", err)
@@ -357,7 +356,7 @@ func TestSaveNormalizedSpec_BuildEnv_UpdateDeployClears(t *testing.T) {
 		ID: depID, AccountID: accountID, AgentName: "update-test",
 		BuildID: "b2", Namespace: "ns-update", SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, baseSpec("SECOND_VAR", "v2"), nil, nil, nil)
+		return SaveNormalizedSpec(tx, id, baseSpec("SECOND_VAR", "v2"), nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("second save: %v", err)
@@ -424,7 +423,7 @@ func TestGetBuildEnv_ReturnsAllRows(t *testing.T) {
 		BuildID: "b1", Namespace: "ns-get-be", SpecJSON: `{}`,
 		EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, enc, nil)
+		return SaveNormalizedSpec(tx, id, ds, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -568,12 +567,4 @@ func containsTarget(targets []string, want string) bool {
 		}
 	}
 	return false
-}
-
-// sortStrings is a convenience for deterministic comparisons.
-func sortStrings(ss []string) []string {
-	out := make([]string, len(ss))
-	copy(out, ss)
-	sort.Strings(out)
-	return out
 }

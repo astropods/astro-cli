@@ -71,12 +71,12 @@ export function useDeployment(
   });
 }
 
-// Resume status isn't monotonic: after the worker reports "active", the
-// reconcile worker can briefly re-mark a cold-starting deployment scaled_down,
-// which reads back as the terminal "inactive" and would halt status polling.
-// markDeploymentResuming opens a sliding grace window (each transitional read
-// pushes the deadline) so polling survives interim "inactive" reads through a
-// long cold start, module-wide, until status settles on "active".
+// Resume status isn't monotonic: right after a resume is requested, a status
+// read can still return the deployment's prior terminal "inactive" (stopped)
+// before the wakeup worker flips it to provisioning/active, which would halt
+// status polling. markDeploymentResuming opens a sliding grace window (each
+// transitional read pushes the deadline) so polling survives interim
+// "inactive" reads through a long cold start, until status settles on "active".
 const RESUME_GRACE_MS = 30_000;
 const resumeGraceUntil = new Map<string, number>();
 

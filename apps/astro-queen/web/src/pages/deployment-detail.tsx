@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
+import { Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
 import { deriveDisplayDeploymentStatus } from "@/lib/display-deployment-status";
 import {
   cn,
@@ -16,16 +15,15 @@ import {
   formatClusterId,
   ecrRegionFromImage,
   specTargetClusterId,
-  livePodPlacements,
 } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminVariable } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") ?? "drift";
+  const activeTab = searchParams.get("tab") ?? "events";
   const highlightJobParam = searchParams.get("job");
   const highlightJobId =
     highlightJobParam != null && highlightJobParam !== "" ? Number(highlightJobParam) : undefined;
@@ -36,7 +34,6 @@ export function DeploymentDetailPage() {
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
   const repairMut = useRepairNormalizedSpec();
-  const refreshDriftMut = useRefreshDriftReport();
   const restartPodMut = useRestartPod();
   const setAdaptersMut = useSetAdapters();
   const jobsQuery = useDeploymentJobs(id ?? "");
@@ -82,7 +79,7 @@ export function DeploymentDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          {(dep.status === "scaled_down" || dep.status === "stopped") && (
+          {dep.status === "stopped" && (
             <Button
               variant="outline"
               size="sm"
@@ -192,15 +189,6 @@ export function DeploymentDetailPage() {
                 ))}
               </ul>
             )}
-          </div>
-        </div>
-      )}
-      {dep.status === "scaled_down" && (
-        <div className="flex items-start gap-2 rounded-lg bg-purple-50 p-3 text-sm text-purple-800">
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-medium">Scaled Down</p>
-            <p className="mt-0.5 text-purple-700">This deployment has been scaled to zero by KEDA. Use the Wake Up button to restore it.</p>
           </div>
         </div>
       )}
@@ -353,32 +341,18 @@ export function DeploymentDetailPage() {
         value={activeTab}
         onValueChange={(tab) => {
           const next = new URLSearchParams(searchParams);
-          if (tab === "drift") next.delete("tab");
+          if (tab === "events") next.delete("tab");
           else next.set("tab", tab);
           setSearchParams(next, { replace: true });
         }}
       >
         <TabsList variant="line">
-          <TabsTrigger value="drift">Drift Report</TabsTrigger>
           <TabsTrigger value="events">Events & Jobs</TabsTrigger>
           <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="variables">Variables ({data.variables?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="spec">Spec</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="drift" className="space-y-4 mt-2">
-          <DriftReportSection
-            report={data.drift_report}
-            checkedAt={data.drift_checked_at}
-            resolvedClusterId={cs?.resolved_cluster_id}
-            pods={cs?.pods}
-            deploymentClusterId={dep.cluster_id}
-            onRefresh={() => refreshDriftMut.mutate(id!, { onSuccess: () => refetch() })}
-            isRefreshing={refreshDriftMut.isPending}
-            error={refreshDriftMut.error}
-          />
-        </TabsContent>
 
         <TabsContent value="events" className="space-y-4 mt-2">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -548,7 +522,6 @@ function EventTimeline({ events }: { events: DeploymentEvent[] }) {
     provisioning: "bg-blue-500",
     failed: "bg-red-500",
     undeploying: "bg-orange-500",
-    scaled_down: "bg-purple-500",
     undeployed: "bg-gray-400",
   };
 
@@ -929,286 +902,6 @@ function PodRow({
         )}
       </div>
     </div>
-  );
-}
-
-// --- Drift Report Section (renders pre-computed drift report from server) ---
-
-function DriftReportSection({
-  report,
-  checkedAt,
-  resolvedClusterId,
-  pods,
-  deploymentClusterId,
-  onRefresh,
-  isRefreshing,
-  error,
-}: {
-  report?: DriftReport;
-  checkedAt?: string;
-  resolvedClusterId?: string;
-  pods?: K8sPodInfo[];
-  deploymentClusterId?: string;
-  onRefresh: () => void;
-  isRefreshing: boolean;
-  error?: Error | null;
-}) {
-  const livePods = livePodPlacements(pods);
-  const ecrRegion = report?.workloads?.[0]?.actual?.Image
-    ? ecrRegionFromImage(report.workloads[0].actual.Image)
-    : report?.workloads?.[0]?.expected?.Image
-      ? ecrRegionFromImage(report.workloads[0].expected.Image)
-      : null;
-  if (!report) {
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center gap-3 rounded-lg glass px-4 py-3">
-          <p className="text-sm text-muted-foreground">No drift report available yet.</p>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
-            <RotateCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-            Check Now
-          </Button>
-        </div>
-        {error && (
-          <p className="text-sm text-destructive px-4">{error.message}</p>
-        )}
-      </div>
-    );
-  }
-
-  const { summary } = report;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {checkedAt && (
-            <span>Checked {formatDistanceToNow(new Date(checkedAt), { addSuffix: true })}</span>
-          )}
-          {summary.match === summary.total && summary.total > 0 && (
-            <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700">all match</span>
-          )}
-          {summary.missing > 0 && (
-            <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">{summary.missing} missing</span>
-          )}
-          {summary.drift > 0 && (
-            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{summary.drift} drifted</span>
-          )}
-          {summary.extra > 0 && (
-            <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{summary.extra} extra</span>
-          )}
-        </div>
-        <Button variant="outline" size="xs" onClick={onRefresh} disabled={isRefreshing}>
-          <RotateCw className={`size-3 ${isRefreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
-      {error && (
-        <p className="text-sm text-destructive">{error.message}</p>
-      )}
-
-      <LiveComputePlacementCard
-        resolvedClusterId={resolvedClusterId}
-        deploymentClusterId={deploymentClusterId}
-        ecrRegion={ecrRegion}
-        livePods={livePods}
-      />
-
-      {report.workloads?.length > 0 && (
-        <DriftTable
-          title="Workloads"
-          items={report.workloads}
-          subtitle="Image host is the ECR registry region (often us-east-1). Compare Live compute placement above for where pods actually run."
-        />
-      )}
-      {report.services?.length > 0 && (
-        <DriftTable title="Services" items={report.services} />
-      )}
-      {report.ingresses?.length > 0 && (
-        <DriftTable title="Ingresses" items={report.ingresses} />
-      )}
-      {(report.env_vars?.length ?? 0) > 0 && (
-        <DriftTable title="Environment Variables" items={report.env_vars!} />
-      )}
-      {(report.secrets?.length ?? 0) > 0 && (
-        <DriftTable title="Secrets" items={report.secrets!} />
-      )}
-    </div>
-  );
-}
-
-function LiveComputePlacementCard({
-  resolvedClusterId,
-  deploymentClusterId,
-  ecrRegion,
-  livePods,
-}: {
-  resolvedClusterId?: string;
-  deploymentClusterId?: string;
-  ecrRegion: string | null;
-  livePods: ReturnType<typeof livePodPlacements>;
-}) {
-  if (!resolvedClusterId && livePods.length === 0) return null;
-
-  return (
-    <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 dark:border-sky-500/40 dark:bg-sky-500/10 px-4 py-3 space-y-2">
-      <h3 className="text-sm font-medium">Live compute placement</h3>
-      <p className="text-xs text-muted-foreground">
-        Where pods are scheduled in Kubernetes (from live cluster status). This is separate from ECR image registry
-        region in the workload table below.
-      </p>
-      <dl className="grid gap-1 text-xs sm:grid-cols-2">
-        <div>
-          <dt className="text-muted-foreground">Resolved cluster</dt>
-          <dd className="font-mono">{formatClusterId(resolvedClusterId)}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Deployment routes to</dt>
-          <dd className="font-mono">{formatClusterId(deploymentClusterId)}</dd>
-        </div>
-        {ecrRegion && (
-          <div>
-            <dt className="text-muted-foreground">Agent image ECR region</dt>
-            <dd className="font-mono">{ecrRegion}</dd>
-          </div>
-        )}
-      </dl>
-      {livePods.length > 0 ? (
-        <ul className="space-y-1 text-xs font-mono">
-          {livePods.map((p) => (
-            <li key={p.podName} className="rounded bg-background/60 px-2 py-1">
-              <span className="text-foreground">{p.podName}</span>
-              <span className="text-muted-foreground"> · </span>
-              {p.phase}
-              <span className="text-muted-foreground"> · assigned to </span>
-              <span className="text-sky-700 dark:text-sky-300">{p.nodeName}</span>
-              {p.nodeRegion && (
-                <span className="text-muted-foreground"> ({p.nodeRegion})</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-xs text-muted-foreground">No pods with node assignment in live status.</p>
-      )}
-    </div>
-  );
-}
-
-type DriftStatus = "match" | "missing" | "extra" | "drift";
-
-function DriftTable({
-  title,
-  items,
-  subtitle,
-}: {
-  title: string;
-  items: DriftResourceItem[];
-  subtitle?: string;
-}) {
-  const missingCount = items.filter((i) => i.status === "missing").length;
-  const extraCount = items.filter((i) => i.status === "extra").length;
-  const driftCount = items.filter((i) => i.status === "drift").length;
-
-  // Collect all field keys across expected and actual
-  const allKeys = new Set<string>();
-  for (const item of items) {
-    for (const k of Object.keys(item.expected ?? {})) allKeys.add(k);
-    for (const k of Object.keys(item.actual ?? {})) allKeys.add(k);
-  }
-  const columns = Array.from(allKeys);
-
-  const rowBg: Record<DriftStatus, string> = {
-    match: "",
-    missing: "bg-red-500/5",
-    extra: "bg-yellow-500/5",
-    drift: "bg-orange-500/5",
-  };
-
-  const statusLabel: Record<DriftStatus, { text: string; cls: string }> = {
-    match: { text: "ok", cls: "text-green-600" },
-    missing: { text: "missing", cls: "text-red-600" },
-    extra: { text: "extra", cls: "text-yellow-600" },
-    drift: { text: "drift", cls: "text-orange-600" },
-  };
-
-  return (
-    <Collapsible defaultOpen>
-      <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-        <ChevronDown className="size-4" />
-        {title} ({items.length})
-        {missingCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">{missingCount} missing</span>}
-        {extraCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{extraCount} extra</span>}
-        {driftCount > 0 && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{driftCount} drifted</span>}
-      </CollapsibleTrigger>
-      {subtitle && (
-        <p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p>
-      )}
-      <CollapsibleContent className="mt-2">
-        <div className="overflow-x-auto rounded-lg glass">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-glass-border-honey glass-subtle">
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground" rowSpan={2}>Name</th>
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground" rowSpan={2}>Type</th>
-                {columns.length > 0 && (
-                  <>
-                    <th className="px-3 py-1.5 text-center font-medium text-blue-600 border-l border-glass-border-honey" colSpan={columns.length}>Expected</th>
-                    <th className="px-3 py-1.5 text-center font-medium text-green-600 border-l border-glass-border-honey" colSpan={columns.length}>Actual</th>
-                  </>
-                )}
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground border-l border-glass-border-honey" rowSpan={2}>Status</th>
-              </tr>
-              {columns.length > 0 && (
-                <tr className="border-b border-glass-border-honey glass-subtle">
-                  {columns.map((col) => (
-                    <th key={`exp-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
-                  ))}
-                  {columns.map((col) => (
-                    <th key={`cur-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
-                  ))}
-                </tr>
-              )}
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const status = item.status as DriftStatus;
-                return (
-                  <tr key={item.name} className={`border-b border-comb-light ${rowBg[status] ?? ""}`}>
-                    <td className="px-3 py-1.5 font-medium">{item.name}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground">{item.type}</td>
-                    {columns.map((col, i) => (
-                      <td key={`exp-${col}`} className={`px-3 py-1.5 font-mono text-muted-foreground ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
-                        {item.expected?.[col] ?? <span className="text-muted-foreground/40">-</span>}
-                      </td>
-                    ))}
-                    {columns.map((col, i) => {
-                      const expVal = item.expected?.[col] ?? "";
-                      const actVal = item.actual?.[col] ?? "";
-                      const differs = status === "drift" && expVal !== actVal && expVal !== "" && actVal !== "";
-                      return (
-                        <td key={`cur-${col}`} className={`px-3 py-1.5 font-mono ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
-                          {status === "missing" ? (
-                            <span className="text-red-500">-</span>
-                          ) : differs ? (
-                            <span className="text-orange-600">{actVal}</span>
-                          ) : (
-                            actVal || <span className="text-muted-foreground/40">-</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-1.5 border-l border-glass-border-honey">
-                      <span className={statusLabel[status]?.cls ?? ""}>{statusLabel[status]?.text ?? status}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
   );
 }
 

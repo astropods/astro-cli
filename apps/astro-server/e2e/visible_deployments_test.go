@@ -34,7 +34,7 @@ func createDeploymentInStatus(t *testing.T, store *ds.Store, accountID, name, st
 }
 
 // TestGetVisibleDeploymentsByAccount verifies that GetVisibleDeploymentsByAccount
-// returns active, failed, pending, provisioning, and scaled_down deployments
+// returns active, failed, pending, and provisioning deployments
 // but excludes undeployed and undeploying ones.
 func TestGetVisibleDeploymentsByAccount(t *testing.T) {
 	db := testDB(t)
@@ -47,7 +47,6 @@ func TestGetVisibleDeploymentsByAccount(t *testing.T) {
 		ds.StatusFailed,
 		ds.StatusPending,
 		ds.StatusProvisioning,
-		ds.StatusScaledDown,
 		ds.StatusUndeploying,
 		ds.StatusUndeployed,
 	}
@@ -67,7 +66,7 @@ func TestGetVisibleDeploymentsByAccount(t *testing.T) {
 	}
 
 	// Every status except undeployed SHOULD be visible
-	for _, s := range []string{ds.StatusActive, ds.StatusFailed, ds.StatusPending, ds.StatusProvisioning, ds.StatusScaledDown, ds.StatusUndeploying} {
+	for _, s := range []string{ds.StatusActive, ds.StatusFailed, ds.StatusPending, ds.StatusProvisioning, ds.StatusUndeploying} {
 		if !visibleIDs[created[s].ID] {
 			t.Errorf("deployment in status %q should be visible but was not returned", s)
 		}

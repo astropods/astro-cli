@@ -331,10 +331,9 @@ describe('statusRefetchInterval – resume grace window', () => {
 
   it('keeps polling through one or more interim non-polling reads after a resume', () => {
     markDeploymentResuming('dep-resume');
-    // The reconcile worker briefly re-marks the just-woken namespace
-    // scaled_down (KEDA Active=False during cold start), so the status endpoint
-    // reports the pre-resume "inactive" again — these reads must NOT stop
-    // polling.
+    // Right after a resume, a status read can still report the pre-resume
+    // terminal "inactive" (stopped) before the wakeup worker flips it to
+    // provisioning/active — these reads must NOT stop polling.
     expect(statusRefetchInterval('dep-resume', 'inactive')).toBe(3000);
     expect(statusRefetchInterval('dep-resume', 'inactive')).toBe(3000);
   });
@@ -359,9 +358,8 @@ describe('statusRefetchInterval – resume grace window', () => {
     vi.useFakeTimers();
     markDeploymentResuming('dep-slide');
 
-    // A slow cold start (image pull, KEDA scale-from-zero) reports "deploying"
-    // for well past one RESUME_GRACE_MS (30s). Each transitional poll slides
-    // the deadline forward.
+    // A slow cold start (image pull) reports "deploying" for well past one
+    // RESUME_GRACE_MS (30s). Each transitional poll slides the deadline forward.
     for (let elapsed = 0; elapsed < 90_000; elapsed += 3_000) {
       expect(statusRefetchInterval('dep-slide', 'deploying')).toBe(3000);
       vi.advanceTimersByTime(3_000);

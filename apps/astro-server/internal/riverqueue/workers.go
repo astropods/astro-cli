@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/riverqueue/river"
-	"k8s.io/client-go/dynamic"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
@@ -116,9 +115,9 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 }
 
 // addWorkers registers all River workers.
-// Returns the ReconcileWorker, AccountPurgeWorker, InsightsRefreshWorker,
-// and MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
+// Returns the AccountPurgeWorker, InsightsRefreshWorker, and
+// MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
+func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
 	log := cfg.Logger
 	logDuplicateJobKinds(log)
 
@@ -229,11 +228,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	addWorkerWithCatalogCheck(log, workers, migrateWorker)
 	log.Info("river: registered worker", "worker", "MigrateDeploymentClusterWorker")
 
-	var dynClient dynamic.Interface
-	if cfg.K8sRegistry != nil {
-		dynClient, _ = dynamic.NewForConfig(cfg.K8sRegistry.Default().Config())
-	}
-
 	addWorkerWithCatalogCheck(log, workers, &MessageCountSyncWorker{
 		promClient:   cfg.PromClient,
 		accountStore: cfg.AccountStore,
@@ -253,8 +247,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	log.Info("river: registered worker", "worker", "ObsSummaryRefreshWorker", "period", obssummary.RefreshInterval.String())
 
 	// Discovery worker — enumerates accounts and enqueues per-account fan-out
-	// jobs. Queue reference is wired post-construction in New() below, same
-	// pattern as ReconcileWorker.
+	// jobs. Queue reference is wired post-construction in New() below.
 	insightsDiscovery := &InsightsRefreshWorker{
 		langfuseStore: langfuse.NewStore(cfg.DB),
 		log:           log,
@@ -323,19 +316,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	addWorkerWithCatalogCheck(log, workers, pw)
 	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
 
-	rw := &ReconcileWorker{
-		deployer:  dep,
-		store:     store,
-		registry:  cfg.K8sRegistry,
-		dynClient: dynClient,
-		log:       cfg.Logger,
-		billing:   billing,
-		cache:     cfg.K8sCache,
-		// queue is set after client creation in New()
-	}
-	addWorkerWithCatalogCheck(log, workers, rw)
-	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
-
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
 	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
 		ksStore:  ksStoreForWorkers,
@@ -367,5 +347,5 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return rw, pw, insightsDiscovery, migrateWorker
+	return pw, insightsDiscovery, migrateWorker
 }

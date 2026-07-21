@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -67,16 +66,12 @@ func parseSasbotSpec(t *testing.T) *spec.AstroDeploymentSpec {
 func saveSasbot(t *testing.T, db *sql.DB, store *ds.Store, spec *spec.AstroDeploymentSpec, nsCfg *ds.NormalizedSpecConfig) *ds.Deployment {
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{},
-		SecretData:    map[string]string{},
-	}
 	d, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
 		ID: deployid.New(), AccountID: accountID, AgentName: "sasbot",
 		DisplayName: "Sasbot", BuildID: "14f4c4dd", Namespace: "ns-sasbot-e2e",
 		SpecJSON: sasbotSpecJSON,
 	}, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, spec, resolved, nil, nsCfg)
+		return ds.SaveNormalizedSpec(tx, depID, spec, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -430,7 +425,7 @@ func TestIngressHostname_AgentMatchesSpecApplier(t *testing.T) {
 		DisplayName: "Agent Ingress Test", BuildID: "b1", Namespace: namespace,
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -487,7 +482,7 @@ func TestIngressHostname_MessagingMatchesSpecApplier(t *testing.T) {
 		DisplayName: "Messaging Ingress Test", BuildID: "b1", Namespace: namespace,
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -559,7 +554,7 @@ func TestIngressHostname_IngestionMatchesSpecApplier(t *testing.T) {
 		DisplayName: "Ingestion Ingress Test", BuildID: "b1", Namespace: namespace,
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nil, nsCfg)
+		return ds.SaveNormalizedSpec(tx, id, dsSpec, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -631,22 +626,4 @@ func TestIngressHostname_SasbotAllThreeTypes(t *testing.T) {
 			t.Errorf("%s ingress hostname not found in DB:\n  want: %s\n  got:  %v", c.label, c.host, hostnames)
 		}
 	}
-}
-
-// TestResolvedKeys_MatchesSpecApplier — removed: deployment_resolved_keys was
-// dropped in cleanup(env). Will be re-added when row-based drift is rebuilt.
-func TestResolvedKeys_MatchesSpecApplier(t *testing.T) {
-	t.Skip("deployment_resolved_keys dropped — re-enable when row-based drift is rebuilt")
-}
-
-// TestResolvedKeys_SasbotMatchesSpecApplier — removed: deployment_resolved_keys
-// was dropped in cleanup(env). Will be re-added when row-based drift is rebuilt.
-func TestResolvedKeys_SasbotMatchesSpecApplier(t *testing.T) {
-	t.Skip("deployment_resolved_keys dropped — re-enable when row-based drift is rebuilt")
-}
-
-// TestResolvedKeys_AfterRepair_StillMatches — removed: deployment_resolved_keys
-// was dropped in cleanup(env). Will be re-added when row-based drift is rebuilt.
-func TestResolvedKeys_AfterRepair_StillMatches(t *testing.T) {
-	t.Skip("deployment_resolved_keys dropped — re-enable when row-based drift is rebuilt")
 }

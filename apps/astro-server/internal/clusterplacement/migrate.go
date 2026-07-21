@@ -15,7 +15,6 @@ import (
 var MigratableStatuses = []string{
 	deploymentstore.StatusActive,
 	deploymentstore.StatusFailed,
-	deploymentstore.StatusScaledDown,
 	deploymentstore.StatusPending,
 }
 
@@ -131,7 +130,6 @@ func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (skip
 		PatchedSpecJSON: patchedSpec,
 		PriorStatus:     dep.Status,
 		EventMessage:    eventMsg,
-		Namespace:       dep.Namespace,
 	}); err != nil {
 		if errors.Is(err, deploymentstore.ErrClusterMigrationStatusChanged) {
 			return true, nil

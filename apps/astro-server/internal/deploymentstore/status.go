@@ -7,6 +7,5 @@ const (
 	StatusFailed       = "failed"
 	StatusUndeploying  = "undeploying"
 	StatusUndeployed   = "undeployed"
-	StatusScaledDown   = "scaled_down"
 	StatusStopped      = "stopped"
 )

@@ -3,9 +3,7 @@ package admingrpc
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,7 +100,7 @@ func (s *Server) SetHTTPHandler(h http.Handler) {
 
 // resolveIngressForCluster merges the admin server's env-default ingress
 // domains with the per-cluster overrides stored in public.clusters. Used by
-// admin operations (RepairNormalizedSpec, BackfillResolvedKeys) that need
+// admin operations (RepairNormalizedSpec) that need
 // the same hostnames the deployer will write.
 func (s *Server) resolveIngressForCluster(ctx context.Context, clusterID string) (clustercfg.Resolved, error) {
 	return clustercfg.Resolve(ctx, s.k8sRegistry, config.DeploymentConfig{
@@ -608,14 +606,6 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 		if d.CurrentRevision != nil {
 			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
 		}
-		if d.DriftReportJSON != nil {
-			var report struct {
-				Summary adminv1.DriftSummary `json:"summary"`
-			}
-			if json.Unmarshal([]byte(*d.DriftReportJSON), &report) == nil {
-				ad.DriftSummary = &report.Summary
-			}
-		}
 		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID)
 
 		results = append(results, ad)
@@ -813,14 +803,6 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		var ds spec.AstroDeploymentSpec
 		if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err == nil && ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 			resp.Adapters = ds.Interfaces.Adapters
-		}
-	}
-
-	// Include stored drift report (cheap DB read, same row)
-	if report, checkedAt, err := s.deployStore.GetDriftReport(dep.ID); err == nil && report != nil {
-		resp.DriftReport = storeDriftReportToProto(report)
-		if checkedAt != nil {
-			resp.DriftCheckedAt = checkedAt.Format(time.RFC3339)
 		}
 	}
 
@@ -1864,18 +1846,13 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 	if dep == nil {
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
-	if dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped {
-		return nil, fmt.Errorf("deployment is not stopped or scaled_down (current: %s)", dep.Status)
+	if dep.Status != deploymentstore.StatusStopped {
+		return nil, fmt.Errorf("deployment is not stopped (current: %s)", dep.Status)
 	}
 
 	// Update status to pending
 	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending, EventMsg: "Admin wakeup requested"}); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
-	}
-
-	// Clear scaled-down tracking
-	if err := s.deployStore.ClearScaledDown(dep.Namespace); err != nil {
-		s.log.Warn("Failed to clear scaled-down tracking", "namespace", dep.Namespace, "error", err)
 	}
 
 	// Enqueue wakeup job
@@ -1921,8 +1898,8 @@ func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeployment
 	} else {
 		return nil, fmt.Errorf("deployment_id or namespace is required")
 	}
-	if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown {
-		return nil, fmt.Errorf("deployment is not active or scaled_down (current: %s)", dep.Status)
+	if dep.Status != deploymentstore.StatusActive {
+		return nil, fmt.Errorf("deployment is not active (current: %s)", dep.Status)
 	}
 
 	kc, err := s.deploymentClusterClient(ctx, dep)
@@ -1998,7 +1975,7 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 
 // ReapplyDeployment re-applies the current revision by setting status to pending and enqueuing a deploy job.
 // When account placement differs from deployment routing, enqueues a cross-cluster migration job instead.
-// Works for active, failed, or scaled_down deployments.
+// Works for active or failed deployments.
 func (s *Server) ReapplyDeployment(ctx context.Context, req *adminv1.ReapplyDeploymentRequest) (*adminv1.ReapplyDeploymentResponse, error) {
 	if req.DeploymentId == "" {
 		return nil, fmt.Errorf("deployment_id is required")
@@ -2036,13 +2013,6 @@ func (s *Server) ReapplyDeployment(ctx context.Context, req *adminv1.ReapplyDepl
 			ClusterPlacementUpdated: true,
 			Message:                 msg + ". Teardown on source cluster queued, then deploy to target.",
 		}, nil
-	}
-
-	// Clear scaled-down tracking if applicable
-	if dep.Status == deploymentstore.StatusScaledDown {
-		if err := s.deployStore.ClearScaledDown(dep.Namespace); err != nil {
-			s.log.Warn("Failed to clear scaled-down tracking", "namespace", dep.Namespace, "error", err)
-		}
 	}
 
 	// Set status to pending (skip if already pending — just re-enqueue the job)
@@ -2102,18 +2072,6 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 		}
 	}
 
-	// Read the live K8s Secret so repair can store correct value hashes.
-	var liveSecretData map[string][]byte
-	secretName := deployment.GenerateSecretName(dep.AgentName, dep.BuildID)
-	kc, kerr := s.deploymentClusterClient(ctx, dep)
-	if kerr != nil {
-		return nil, kerr
-	}
-	secret, err := kc.Clientset().CoreV1().Secrets(dep.Namespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err == nil {
-		liveSecretData = secret.Data
-	}
-
 	ingressCfg, ingressErr := s.resolveIngressForCluster(ctx, dep.EffectiveClusterID())
 	if ingressErr != nil {
 		return nil, fmt.Errorf("resolve cluster ingress config: %w", ingressErr)
@@ -2121,7 +2079,7 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId, &deploymentstore.NormalizedSpecConfig{
 		IngressDomain:          ingressCfg.AgentIngressDomain,
 		IngestionIngressDomain: ingressCfg.IngestionIngressDomain,
-	}, liveSecretData)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("repair normalized spec: %w", err)
 	}
@@ -2329,225 +2287,6 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 	}
 
 	return resp, nil
-}
-
-// RefreshDriftReport runs drift detection on demand for a single deployment and returns the report.
-func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDriftReportRequest) (*adminv1.RefreshDriftReportResponse, error) {
-	if req.DeploymentId == "" {
-		return nil, fmt.Errorf("deployment_id is required")
-	}
-
-	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
-	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
-	}
-	if dep == nil {
-		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
-	}
-
-	kc, err := s.deploymentClusterClient(ctx, dep)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build drift report using the same logic as the reconciler
-	workloads, err := s.deployStore.GetWorkloads(dep.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get workloads: %w", err)
-	}
-	services, _ := s.deployStore.GetServices(dep.ID)
-	ingresses, _ := s.deployStore.GetIngresses(dep.ID)
-	variables, _ := s.deployStore.GetDeploymentVariables(dep.ID)
-	resolvedKeys, _ := s.deployStore.GetResolvedKeys(dep.ID)
-
-	svcNameByID := map[int]string{}
-	for _, svc := range services {
-		svcNameByID[svc.ID] = svc.WorkloadName
-	}
-
-	report := riverqueue.BuildDriftReport(ctx, kc.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
-	if report == nil {
-		return nil, fmt.Errorf("failed to build drift report")
-	}
-
-	// Save to DB
-	if err := s.deployStore.SaveDriftReport(dep.ID, report); err != nil {
-		s.log.Warn("Failed to save refreshed drift report", "error", err, "deployment_id", dep.ID)
-	}
-
-	// Read back to get the checked_at timestamp
-	_, checkedAt, _ := s.deployStore.GetDriftReport(dep.ID)
-	resp := &adminv1.RefreshDriftReportResponse{
-		DriftReport: storeDriftReportToProto(report),
-	}
-	if checkedAt != nil {
-		resp.DriftCheckedAt = checkedAt.Format(time.RFC3339)
-	}
-
-	return resp, nil
-}
-
-// storeDriftReportToProto converts a store DriftReport to the proto type.
-func storeDriftReportToProto(report *deploymentstore.DriftReport) *adminv1.DriftReport {
-	if report == nil {
-		return nil
-	}
-	proto := &adminv1.DriftReport{
-		DetectedAt: report.DetectedAt,
-		Summary: &adminv1.DriftSummary{
-			Total:   report.Summary.Total,
-			Match:   report.Summary.Match,
-			Missing: report.Summary.Missing,
-			Extra:   report.Summary.Extra,
-			Drift:   report.Summary.Drift,
-		},
-	}
-	for _, item := range report.Workloads {
-		proto.Workloads = append(proto.Workloads, &adminv1.DriftResourceItem{
-			Name: item.Name, Type: item.Type, Status: item.Status,
-			Expected: item.Expected, Actual: item.Actual,
-		})
-	}
-	for _, item := range report.Services {
-		proto.Services = append(proto.Services, &adminv1.DriftResourceItem{
-			Name: item.Name, Type: item.Type, Status: item.Status,
-			Expected: item.Expected, Actual: item.Actual,
-		})
-	}
-	for _, item := range report.Ingresses {
-		proto.Ingresses = append(proto.Ingresses, &adminv1.DriftResourceItem{
-			Name: item.Name, Type: item.Type, Status: item.Status,
-			Expected: item.Expected, Actual: item.Actual,
-		})
-	}
-	for _, item := range report.EnvVars {
-		proto.EnvVars = append(proto.EnvVars, &adminv1.DriftResourceItem{
-			Name: item.Name, Type: item.Type, Status: item.Status,
-			Expected: item.Expected, Actual: item.Actual,
-		})
-	}
-	for _, item := range report.Secrets {
-		proto.Secrets = append(proto.Secrets, &adminv1.DriftResourceItem{
-			Name: item.Name, Type: item.Type, Status: item.Status,
-			Expected: item.Expected, Actual: item.Actual,
-		})
-	}
-	return proto
-}
-
-// BackfillResolvedKeys re-resolves the ConfigMap/Secret key sets for all active
-// deployments and stores them in deployment_resolved_keys. This is a one-time
-// migration for deployments that pre-date the resolved keys table.
-func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillResolvedKeysRequest) (*adminv1.BackfillResolvedKeysResponse, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.agent_name, d.build_id, d.namespace, d.deployment_spec_json, d.cluster_id
-		FROM deployments d
-		WHERE d.status NOT IN ('undeployed', 'undeploying')
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("query deployments: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	type row struct {
-		id, agentName, buildID, namespace, specJSON string
-		clusterID                                   sql.NullString
-	}
-	var todo []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.agentName, &r.buildID, &r.namespace, &r.specJSON, &r.clusterID); err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		todo = append(todo, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate: %w", err)
-	}
-
-	var count int32
-	for _, r := range todo {
-		var ds spec.AstroDeploymentSpec
-		if err := json.Unmarshal([]byte(r.specJSON), &ds); err != nil {
-			s.log.Warn("BackfillResolvedKeys: bad spec JSON", "deployment_id", r.id, "error", err)
-			continue
-		}
-
-		externalAgentHost := ""
-		if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
-			if ep.Expose != nil && ep.Expose.Domain != "" {
-				externalAgentHost = ep.Expose.Domain
-			} else {
-				ingressCfg, ingressErr := s.resolveIngressForCluster(ctx, r.clusterID.String)
-				if ingressErr != nil {
-					s.log.Warn("BackfillResolvedKeys: cluster resolve failed", "deployment_id", r.id, "error", ingressErr)
-					continue
-				}
-				if ingressCfg.AgentIngressDomain != "" {
-					externalAgentHost = k8s.GenerateIngressHost(r.agentName, r.namespace, ingressCfg.AgentIngressDomain)
-				}
-			}
-		}
-		rctx := deployment.ResolveContext{
-			Namespace:         r.namespace,
-			AgentName:         r.agentName,
-			BuildID:           r.buildID,
-			SecretName:        deployment.GenerateSecretName(r.agentName, r.buildID),
-			ExternalAgentHost: externalAgentHost,
-			DeploymentID:      r.id,
-		}
-		resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
-
-		// Read live K8s secret to get correct secret hashes
-		secretName := deployment.GenerateSecretName(r.agentName, r.buildID)
-		liveSecret, err := s.k8sClient.Clientset().CoreV1().Secrets(r.namespace).Get(ctx, secretName, metav1.GetOptions{})
-		if err == nil {
-			for key, val := range liveSecret.Data {
-				resolved.SecretData[key] = string(val)
-			}
-		}
-
-		cmKeys := make([]string, 0, len(resolved.ConfigMapData))
-		cmHashes := make(map[string]string, len(resolved.ConfigMapData))
-		for k, v := range resolved.ConfigMapData {
-			cmKeys = append(cmKeys, k)
-			h := sha256.Sum256([]byte(v))
-			cmHashes[k] = hex.EncodeToString(h[:])
-		}
-		secKeys := make([]string, 0, len(resolved.SecretData))
-		secHashes := make(map[string]string, len(resolved.SecretData))
-		for k, v := range resolved.SecretData {
-			secKeys = append(secKeys, k)
-			h := sha256.Sum256([]byte(v))
-			secHashes[k] = hex.EncodeToString(h[:])
-		}
-		cmHashJSON, err := json.Marshal(cmHashes)
-		if err != nil {
-			s.log.Warn("BackfillResolvedKeys: marshal configmap hashes", "error", err)
-			continue
-		}
-		secHashJSON, err := json.Marshal(secHashes)
-		if err != nil {
-			s.log.Warn("BackfillResolvedKeys: marshal secret hashes", "error", err)
-			continue
-		}
-
-		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO deployment_resolved_keys (deployment_id, configmap_keys, secret_keys, configmap_hashes, secret_hashes)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (deployment_id) DO UPDATE
-			SET configmap_keys = EXCLUDED.configmap_keys, secret_keys = EXCLUDED.secret_keys,
-			    configmap_hashes = EXCLUDED.configmap_hashes, secret_hashes = EXCLUDED.secret_hashes
-		`, r.id, pq.Array(cmKeys), pq.Array(secKeys), cmHashJSON, secHashJSON); err != nil {
-			s.log.Warn("BackfillResolvedKeys: insert failed", "deployment_id", r.id, "error", err)
-			continue
-		}
-		count++
-		s.log.Info("BackfillResolvedKeys: stored keys", "deployment_id", r.id,
-			"configmap_keys", len(cmKeys), "secret_keys", len(secKeys))
-	}
-
-	return &adminv1.BackfillResolvedKeysResponse{BackfilledCount: count}, nil
 }
 
 // TriggerOpenMeterBackfill enqueues an immediate OpenMeter customer backfill job.

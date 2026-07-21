@@ -54,10 +54,6 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 			now, nil, nil, nil,
 		))
 
-	mock.ExpectExec(`DELETE FROM scaled_namespaces`).
-		WithArgs("astro-test-0").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
 	// UpdateStatus(StatusUndeployed) stamps undeployed_at in the same UPDATE.
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE deployments`).

@@ -133,7 +133,6 @@ type NormalizedSpecConfig struct {
 	PublicIngressDomain    string            // open (no-OIDC) cohort, e.g. "agents.public.astropods.ai"; empty = disabled
 	IngestionIngressDomain string            // e.g. "ingestion.astropods.ai"
 	VarRefs                map[string]string // variable name → original account variable ref (before resolution)
-	ManagedSecrets         map[string]string // platform-injected secrets (e.g. ANTHROPIC_API_KEY) that bypass user variables
 	// SkipBuildEnvClear suppresses the DELETE FROM deployment_build_env that
 	// normally runs at the start of the variables block. Set by RepairNormalizedSpec
 	// so that existing build_env rows are preserved when variables cannot be
@@ -167,7 +166,6 @@ func SaveNormalizedSpec(
 	tx *sql.Tx,
 	deploymentID string,
 	ds *spec.AstroDeploymentSpec,
-	resolved *deployment.ResolvedEnv,
 	enc *envelope.Encryptor,
 	nsCfg *NormalizedSpecConfig,
 ) error {
@@ -390,7 +388,7 @@ func SaveNormalizedSpec(
 	// Every agent runs as a StatefulSet with a persistent disk (the applier
 	// guarantees a volume via normalizeAgentStorageDefaults), so the agent is
 	// always persistent here — regardless of whether ds.Agent.Volume has been
-	// defaulted yet on the spec we were handed. Drift detection keys off this
+	// defaulted yet on the spec we were handed. Consumers key off this
 	// WorkloadType to query the right Kubernetes kind.
 	w := buildWorkload(componentInput{
 		kind: "agent", image: ds.Agent.Image,
@@ -745,15 +743,9 @@ func SaveNormalizedSpec(
 
 	// --- User-declared variables ---
 	//
-	// Two writes during the migration window:
-	//   - deployment_build_env (rows with source='user_var') — primary;
-	//     read by RehydrateSecrets and the deployment-detail API.
-	//   - deployment_variables — legacy; still consumed by admingrpc
-	//     and a few drift / template-prefill paths that haven't been
-	//     migrated. Will be dropped together with those readers.
-	//
-	// The build_env write fans out per (variable, role) target;
-	// deployment_variables stays a single row per (deployment, name).
+	// Written to deployment_build_env (rows with source='user_var'), read by
+	// RehydrateSecrets, the deployment-detail API, and GetDeploymentVariables.
+	// The write fans out per (variable, role) target.
 	{
 		varRefs := map[string]string{}
 		if nsCfg != nil {
@@ -794,10 +786,6 @@ func SaveNormalizedSpec(
 		}
 	}
 
-	// deployment_resolved_keys is dropped along with deployment_variables.
-	// Drift detection that consumed it is paused; a row-based replacement
-	// will land alongside re-enabling the periodic job.
-
 	return nil
 }
 
@@ -805,11 +793,7 @@ func SaveNormalizedSpec(
 // the deployment_workloads, deployment_services, deployment_ingresses, and
 // deployment_volumes tables. Variables are preserved (they require resolved
 // env and encryptor which are not available at repair time).
-//
-// liveSecretData, if non-nil, supplies the actual K8s Secret data so that
-// secret value hashes can be computed for drift detection. When nil, secret
-// keys are still tracked but without value hashes.
-func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecConfig, liveSecretData map[string][]byte) (workloads, services, ingresses int, err error) {
+func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecConfig) (workloads, services, ingresses int, err error) {
 	dep, err := s.GetDeploymentByID(deploymentID)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("get deployment: %w", err)
@@ -848,54 +832,6 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 		return 0, 0, 0, fmt.Errorf("delete sidecars: %w", err)
 	}
 
-	// Resolve env to regenerate the ConfigMap/Secret key sets for drift detection.
-	// This must happen before clearing variables since resolving needs ${variables.*}.
-	// Mirror the spec applier's external-host resolution so ASTRO_EXTERNAL_AGENT_URL
-	// shows up in the regenerated key set when the agent has a frontend ingress.
-	externalAgentHost := ""
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
-		if ep.Expose != nil && ep.Expose.Domain != "" {
-			externalAgentHost = ep.Expose.Domain
-		} else if domain := nsCfg.webDomain(ds.Interfaces.CustomPublic()); domain != "" {
-			externalAgentHost = k8s.GenerateIngressHost(dep.AgentName, dep.Namespace, domain)
-		}
-	}
-	rctx := deployment.ResolveContext{
-		Namespace:         dep.Namespace,
-		AgentName:         dep.AgentName,
-		BuildID:           dep.BuildID,
-		SecretName:        deployment.GenerateSecretName(dep.AgentName, dep.BuildID),
-		ExternalAgentHost: externalAgentHost,
-		DeploymentID:      deploymentID,
-	}
-	resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
-
-	// The stored spec has secret values stripped, so ResolveDeploymentSpecEnv
-	// won't include them in SecretData. When live K8s Secret data is available,
-	// use it as the source of truth — it contains exactly the keys the spec
-	// applier created (user secrets + managed credentials like ANTHROPIC_API_KEY,
-	// minus optional secrets with no value).
-	if liveSecretData != nil {
-		// Trust the live Secret as the complete key set.
-		for k, v := range liveSecretData {
-			resolved.SecretData[k] = string(v)
-		}
-	} else {
-		// No live data — fall back to variable definitions, but only include
-		// secrets that had a value (matching spec applier behavior).
-		for key, v := range ds.Variables {
-			if v.Secret && v.Value != "" {
-				resolved.SecretData[strings.ToUpper(key)] = ""
-			}
-		}
-		// Also inject managed secrets if provided via config.
-		if nsCfg != nil {
-			for k, v := range nsCfg.ManagedSecrets {
-				resolved.SecretData[k] = v
-			}
-		}
-	}
-
 	// Clear variables from the spec so SaveNormalizedSpec doesn't re-insert
 	// them with empty/stripped values, duplicating existing rows.
 	ds.Variables = nil
@@ -908,10 +844,9 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	}
 	nsCfg.SkipBuildEnvClear = true
 
-	// Re-run SaveNormalizedSpec with resolved env (for key tracking) but nil
-	// encryptor and cleared variables so only workloads/services/ingresses
-	// and resolved keys are regenerated.
-	if err := SaveNormalizedSpec(tx, deploymentID, &ds, resolved, nil, nsCfg); err != nil {
+	// Re-run SaveNormalizedSpec with nil encryptor and cleared variables so
+	// only workloads/services/ingresses are regenerated.
+	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nsCfg); err != nil {
 		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
 	}
 
@@ -939,8 +874,7 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 //	role 'collector'          → (skipped — collector isn't a user target)
 //
 // Value is plaintext for non-secret rows and base64-encoded ciphertext
-// for secret rows, matching the legacy deployment_variables shape so
-// existing callers keep working.
+// for secret rows, matching the Variable shape existing callers expect.
 func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) {
 	rows, err := s.db.Query(`
 		SELECT role, env_name, value_encrypted, nonce, is_secret,
@@ -1043,41 +977,6 @@ func strSort(s []string) {
 			s[j-1], s[j] = s[j], s[j-1]
 		}
 	}
-}
-
-// ResolvedKeys holds the expected ConfigMap and Secret key sets for a deployment,
-// along with SHA-256 hashes of each value for detecting value drift.
-type ResolvedKeys struct {
-	DeploymentID    string
-	ConfigMapKeys   []string
-	SecretKeys      []string
-	ConfigMapHashes map[string]string // key → sha256(value)
-	SecretHashes    map[string]string // key → sha256(value)
-}
-
-// GetResolvedKeys returns the stored resolved ConfigMap/Secret key sets for a deployment.
-// Returns nil (without error) if no resolved keys have been stored yet.
-func (s *Store) GetResolvedKeys(deploymentID string) (*ResolvedKeys, error) {
-	rk := &ResolvedKeys{DeploymentID: deploymentID}
-	var cmHashJSON, secHashJSON []byte
-	err := s.db.QueryRow(`
-		SELECT configmap_keys, secret_keys, configmap_hashes, secret_hashes
-		FROM deployment_resolved_keys
-		WHERE deployment_id = $1
-	`, deploymentID).Scan(pq.Array(&rk.ConfigMapKeys), pq.Array(&rk.SecretKeys), &cmHashJSON, &secHashJSON)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get resolved keys: %w", err)
-	}
-	if len(cmHashJSON) > 0 {
-		_ = json.Unmarshal(cmHashJSON, &rk.ConfigMapHashes)
-	}
-	if len(secHashJSON) > 0 {
-		_ = json.Unmarshal(secHashJSON, &rk.SecretHashes)
-	}
-	return rk, nil
 }
 
 // GetWorkloads returns all workloads for a deployment.

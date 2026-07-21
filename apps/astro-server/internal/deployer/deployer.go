@@ -96,7 +96,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 
 	// Reconstitute secret variable values from the normalized store.
 	// The revision spec has secrets stripped; the actual values live in
-	// deployment_variables (potentially KMS-encrypted).
+	// deployment_build_env (potentially KMS-encrypted).
 	if err := d.RehydrateSecrets(ctx, dep, &ds); err != nil {
 		return nil, fmt.Errorf("rehydrate secrets: %w", err)
 	}

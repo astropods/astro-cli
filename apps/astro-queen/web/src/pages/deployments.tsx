@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
+import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,8 +17,7 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { AdminDeployment } from "@/types/admin";
 
-type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "scaled_down" | "stopped";
-type DriftFilter = "all" | "ok" | "drifted" | "unchecked";
+type StatusFilter = "all" | "active" | "pending" | "provisioning" | "failed" | "undeploying" | "stopped";
 
 const PAGE_SIZE = 25;
 
@@ -26,7 +25,6 @@ function filterDeployments(
   deployments: AdminDeployment[],
   search: string,
   status: StatusFilter,
-  drift: DriftFilter,
   cluster: string,
   mismatchOnly: boolean,
 ): AdminDeployment[] {
@@ -44,9 +42,6 @@ function filterDeployments(
       ) return false;
     }
     if (status !== "all" && d.status !== status) return false;
-    if (drift === "ok" && (!d.drift_summary || (d.drift_summary.missing + d.drift_summary.drift + d.drift_summary.extra) > 0)) return false;
-    if (drift === "drifted" && (!d.drift_summary || (d.drift_summary.missing + d.drift_summary.drift + d.drift_summary.extra) === 0)) return false;
-    if (drift === "unchecked" && d.drift_summary) return false;
     if (!deploymentMatchesClusterFilter(d.cluster_id, cluster)) return false;
     if (mismatchOnly && !d.placement_mismatch) return false;
     return true;
@@ -62,7 +57,6 @@ export function DeploymentsPage() {
   const [lastClicked, setLastClicked] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
-  const [drift, setDrift] = useState<DriftFilter>("all");
   const cluster = searchParams.get("cluster") ?? "all";
   const mismatchOnly = searchParams.get("mismatch") === "1";
   const [page, setPage] = useState(0);
@@ -87,8 +81,8 @@ export function DeploymentsPage() {
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
 
   const filtered = useMemo(
-    () => filterDeployments(deployments, search, status, drift, cluster, mismatchOnly),
-    [deployments, search, status, drift, cluster, mismatchOnly],
+    () => filterDeployments(deployments, search, status, cluster, mismatchOnly),
+    [deployments, search, status, cluster, mismatchOnly],
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -148,19 +142,7 @@ export function DeploymentsPage() {
             <SelectItem value="provisioning">Provisioning</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
             <SelectItem value="undeploying">Undeploying</SelectItem>
-            <SelectItem value="scaled_down">Scaled Down</SelectItem>
             <SelectItem value="stopped">Stopped</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={drift} onValueChange={updateFilter(setDrift)}>
-          <SelectTrigger className="h-7 w-32 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All drift</SelectItem>
-            <SelectItem value="ok">No drift</SelectItem>
-            <SelectItem value="drifted">Drifted</SelectItem>
-            <SelectItem value="unchecked">Unchecked</SelectItem>
           </SelectContent>
         </Select>
         <Select value={cluster} onValueChange={setClusterFilter}>
@@ -222,7 +204,6 @@ export function DeploymentsPage() {
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Cluster</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Build</th>
-                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Drift</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Error</th>
                 </tr>
@@ -281,9 +262,6 @@ export function DeploymentsPage() {
                     </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{d.owner_email || "-"}</td>
                     <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{d.build_id ? truncateUUID(d.build_id) : "-"}</td>
-                    <td className="px-2 py-0.5">
-                      <DriftBadge summary={d.drift_summary} />
-                    </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(d.created_at)}</td>
                     <td className="max-w-[200px] truncate px-2 py-0.5 text-muted-foreground" title={d.error_message}>
                       {d.error_message || ""}
@@ -292,7 +270,7 @@ export function DeploymentsPage() {
                 ))}
                 {pageDeployments.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="px-2 py-4 text-center text-muted-foreground">
+                    <td colSpan={11} className="px-2 py-4 text-center text-muted-foreground">
                       No deployments match the current filters.
                     </td>
                   </tr>
@@ -336,7 +314,6 @@ export function DeploymentsPage() {
 function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDeployment[]; onDone: () => void; disabled: boolean }) {
   const repairMut = useRepairNormalizedSpec();
   const reapplyMut = useReapplyDeployment();
-  const refreshDriftMut = useRefreshDriftReport();
   const stopMut = useStopDeployment();
   const wakeUpMut = useWakeUpDeployment();
 
@@ -355,8 +332,6 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
           await repairMut.mutateAsync(d.deployment_id);
         } else if (action === "reapply") {
           await reapplyMut.mutateAsync(d.deployment_id);
-        } else if (action === "refresh-drift") {
-          await refreshDriftMut.mutateAsync(d.deployment_id);
         } else if (action === "stop") {
           await stopMut.mutateAsync(d.deployment_id);
         } else if (action === "wakeup") {
@@ -390,7 +365,6 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
         <SelectContent>
           <SelectItem value="repair">Repair Normalized Spec</SelectItem>
           <SelectItem value="reapply">Redeploy to K8s</SelectItem>
-          <SelectItem value="refresh-drift">Refresh Drift Report</SelectItem>
           <SelectItem value="stop">Pause (Stop)</SelectItem>
           <SelectItem value="wakeup">Wake Up</SelectItem>
         </SelectContent>
@@ -426,25 +400,6 @@ function PlacementMismatchBadge({ deployment }: { deployment: AdminDeployment })
   );
 }
 
-function DriftBadge({ summary }: { summary?: { total: number; match: number; missing: number; extra: number; drift: number } }) {
-  if (!summary) {
-    return <span className="text-[10px] text-muted-foreground">-</span>;
-  }
-  const issues = summary.missing + summary.drift + summary.extra;
-  if (issues === 0) {
-    return <span className="inline-block rounded-full bg-green-100/60 backdrop-blur-sm text-green-700 px-2 py-0.5 text-xs">{summary.match} ok</span>;
-  }
-  const parts: string[] = [];
-  if (summary.missing > 0) parts.push(`${summary.missing} missing`);
-  if (summary.drift > 0) parts.push(`${summary.drift} drift`);
-  if (summary.extra > 0) parts.push(`${summary.extra} extra`);
-  return (
-    <span className="inline-block rounded-full bg-amber-100/60 backdrop-blur-sm text-amber-700 px-2 py-0.5 text-xs" title={parts.join(", ")}>
-      {issues} drift{issues !== 1 ? "s" : ""}
-    </span>
-  );
-}
-
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     active: "bg-green-100/60 backdrop-blur-sm text-green-700",
@@ -453,7 +408,6 @@ function StatusBadge({ status }: { status: string }) {
     provisioning: "bg-blue-100/60 backdrop-blur-sm text-blue-700",
     failed: "bg-red-100/60 backdrop-blur-sm text-red-700",
     undeploying: "bg-orange-100/60 backdrop-blur-sm text-orange-700",
-    scaled_down: "bg-purple-100/60 backdrop-blur-sm text-purple-700",
     stopped: "bg-gray-100/60 backdrop-blur-sm text-gray-700",
   };
   return (

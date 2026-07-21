@@ -94,7 +94,7 @@ export function MigrationsPage() {
             <Link to="/admin/deployments?mismatch=1" className="text-honey-dark hover:underline">
               Deployments (mismatch)
             </Link>
-            ; for live pod nodes open a deployment&apos;s Drift Report. Fast migrate rows are normal — that job only
+            . Fast migrate rows are normal — that job only
             updates routing and enqueues <code className="text-xs">deploy</code>.
           </p>
         </div>

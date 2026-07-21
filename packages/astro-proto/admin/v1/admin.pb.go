@@ -51,7 +51,6 @@ type AdminDeployment struct {
 	ErrorDetails      []map[string]string `json:"error_details,omitempty"`
 	StatusChangedAt   string              `json:"status_changed_at,omitempty"`
 	CurrentRevision   int32               `json:"current_revision,omitempty"`
-	DriftSummary      *DriftSummary       `json:"drift_summary,omitempty"`
 	OwnerEmail        string              `json:"owner_email,omitempty"`
 	ClusterID         string              `json:"cluster_id,omitempty"`
 	AccountClusterID  string              `json:"account_cluster_id,omitempty"`
@@ -330,32 +329,6 @@ type ExpectedIngress struct {
 	Service  string `json:"service"`
 }
 
-type DriftResourceItem struct {
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`     // deployment, statefulset, service, ingress
-	Status   string            `json:"status"`   // match, missing, extra, drift
-	Expected map[string]string `json:"expected"` // e.g. {Image: "foo:v1", Replicas: "2"}
-	Actual   map[string]string `json:"actual"`   // e.g. {Image: "foo:v1", Replicas: "1/2"}
-}
-
-type DriftSummary struct {
-	Total   int `json:"total"`
-	Match   int `json:"match"`
-	Missing int `json:"missing"`
-	Extra   int `json:"extra"`
-	Drift   int `json:"drift"`
-}
-
-type DriftReport struct {
-	DetectedAt string               `json:"detected_at"`
-	Workloads  []*DriftResourceItem `json:"workloads"`
-	Services   []*DriftResourceItem `json:"services"`
-	Ingresses  []*DriftResourceItem `json:"ingresses"`
-	EnvVars    []*DriftResourceItem `json:"env_vars,omitempty"`
-	Secrets    []*DriftResourceItem `json:"secrets,omitempty"`
-	Summary    *DriftSummary        `json:"summary"`
-}
-
 type AdminVariable struct {
 	Name     string   `json:"name,omitempty"`
 	Secret   bool     `json:"secret,omitempty"`
@@ -373,8 +346,6 @@ type GetDeploymentResponse struct {
 	Workloads         []*AdminWorkload           `json:"workloads,omitempty"`
 	ExpectedServices  []*ExpectedService         `json:"expected_services,omitempty"`
 	ExpectedIngresses []*ExpectedIngress         `json:"expected_ingresses,omitempty"`
-	DriftReport       *DriftReport               `json:"drift_report,omitempty"`
-	DriftCheckedAt    string                     `json:"drift_checked_at,omitempty"`
 	Variables         []*AdminVariable           `json:"variables,omitempty"`
 	Adapters          []string                   `json:"adapters,omitempty"`
 	PlacementHint     string                     `json:"placement_hint,omitempty"`
@@ -807,21 +778,6 @@ type RepairNormalizedSpecResponse struct {
 	Workloads int32  `json:"workloads"`
 	Services  int32  `json:"services"`
 	Ingresses int32  `json:"ingresses"`
-}
-
-type RefreshDriftReportRequest struct {
-	DeploymentId string `json:"deployment_id,omitempty"`
-}
-
-type RefreshDriftReportResponse struct {
-	DriftReport    *DriftReport `json:"drift_report,omitempty"`
-	DriftCheckedAt string       `json:"drift_checked_at,omitempty"`
-}
-
-type BackfillResolvedKeysRequest struct{}
-
-type BackfillResolvedKeysResponse struct {
-	BackfilledCount int32 `json:"backfilled_count"`
 }
 
 type TriggerOpenMeterBackfillRequest struct{}

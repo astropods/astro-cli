@@ -16,7 +16,6 @@ import type {
   GetDeploymentEventsResponse,
   GetDeploymentJobsResponse,
   ReapplyDeploymentResponse,
-  RefreshDriftReportResponse,
   ListClustersResponse,
   RegisterClusterRequest,
   RegisterClusterResponse,
@@ -551,16 +550,6 @@ export function useStopDeployment() {
   });
 }
 
-export function useBackfillResolvedKeys() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.post<{ backfilled_count: number }>("/api/admin/backfill-resolved-keys"),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
-    },
-  });
-}
-
 export function useDeploymentJobs(id: string) {
   return useQuery({
     queryKey: adminKeys.deploymentJobs(id),
@@ -620,19 +609,6 @@ export function usePodEnv(id: string, pod: string) {
         `/api/admin/pods/${encodeURIComponent(id)}/${encodeURIComponent(pod)}/env`
       ),
     enabled: !!id && !!pod,
-  });
-}
-
-export function useRefreshDriftReport() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post<RefreshDriftReportResponse>(
-        `/api/admin/deployments/${encodeURIComponent(id)}/refresh-drift`,
-      ),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: adminKeys.deployment(id) });
-    },
   });
 }
 

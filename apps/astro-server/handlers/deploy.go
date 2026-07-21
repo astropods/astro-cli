@@ -720,16 +720,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		// Resolve env vars for normalized storage
-		rctx := deployment.ResolveContext{
-			Namespace:    dctx.k8sNS,
-			AgentName:    dctx.agentName,
-			BuildID:      dctx.buildID,
-			SecretName:   deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
-			DeploymentID: dctx.deploymentID,
-		}
-		resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
-
 		// Create encryptor if KMS is configured
 		var enc *envelope.Encryptor
 		if cfg.Deployment.KMSKeyARN != "" {
@@ -791,7 +781,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				VarRefs:                dctx.varRefs,
 				LocalMode:              cfg.Deployment.K8sClientMode == "local",
 			}
-			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg); err != nil {
+			if err := deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, enc, nsCfg); err != nil {
 				return err
 			}
 			if ksStore != nil {
@@ -847,7 +837,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				_ = deployStore.SetAvatarColors(dctx.deploymentID, *agent.AvatarColors)
 			}
 		}
-
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
 		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID, params.ClusterID); err != nil {
@@ -1237,7 +1226,7 @@ type DeploymentRecord struct {
 //
 //	"active"      — DB active AND observed ready >= desired
 //	"deploying"   — DB pending/provisioning, OR DB active but ready<desired
-//	"inactive"    — DB stopped/scaled_down (paused)
+//	"inactive"    — DB stopped (paused)
 //	"undeploying" — DB undeploying
 //	"error"       — DB failed/crashloopbackoff
 //
@@ -1263,7 +1252,7 @@ type DeploymentStatus struct {
 // type. Adding a new reason requires a client type change but never breaks
 // existing consumers (they branch on the union and ignore unknown codes).
 const (
-	StatusReasonPaused             = "paused"              // DB scaled_down/stopped
+	StatusReasonPaused             = "paused"              // DB stopped
 	StatusReasonUndeploying        = "undeploying"         // DB undeploying
 	StatusReasonFailed             = "failed"              // DB failed
 	StatusReasonProvisioning       = "provisioning"        // DB pending/provisioning
@@ -2128,7 +2117,7 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		// what K8s reports. Pause, undeploy, failed, and explicit transitional
 		// states all resolve here without a cluster round-trip.
 		switch dbDep.Status {
-		case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
+		case deploymentstore.StatusStopped:
 			status.Value, status.Reason = "inactive", StatusReasonPaused
 			status.Details = "Deployment is paused"
 			c.JSON(http.StatusOK, status)
@@ -2412,7 +2401,7 @@ func dbStatusToUIStatus(s string) string {
 		return "Running"
 	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
 		return "pending"
-	case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
+	case deploymentstore.StatusStopped:
 		return "Stopped"
 	case deploymentstore.StatusUndeploying:
 		return "undeploying"
@@ -4922,8 +4911,8 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 			return
 		}
 
-		if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active or scaled down"})
+		if dep.Status != deploymentstore.StatusActive {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active"})
 			return
 		}
 
@@ -4955,7 +4944,7 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 	}
 }
 
-// WakeUpDeployment triggers re-provisioning of a KEDA-scaled-down deployment.
+// WakeUpDeployment triggers re-provisioning of a paused (stopped) deployment.
 func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -4973,8 +4962,8 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 			return
 		}
-		if dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped or scaled down"})
+		if dep.Status != deploymentstore.StatusStopped {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped"})
 			return
 		}
 

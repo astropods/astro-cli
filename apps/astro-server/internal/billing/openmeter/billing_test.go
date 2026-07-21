@@ -498,7 +498,7 @@ func TestReconcileStale_CrashRecovery(t *testing.T) {
 	}
 }
 
-func TestReconcileStale_ScaledDown(t *testing.T) {
+func TestReconcileStale_Stopped(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)
 	log := logger.New("error", "json")
@@ -508,7 +508,7 @@ func TestReconcileStale_ScaledDown(t *testing.T) {
 	lastEmittedAt := time.Now().Add(-8 * time.Minute)
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status, status_changed_at)
-		VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'scaled_down', ?)`, statusChangedAt)
+		VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'stopped', ?)`, statusChangedAt)
 	db.Exec(`INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas) VALUES ('dep-1', 'agent', 1, ?, '500m', '1Gi', 2)`, lastEmittedAt)
 
 	m.RunBillingCycle(context.Background())
@@ -517,13 +517,13 @@ func TestReconcileStale_ScaledDown(t *testing.T) {
 	defer mu.Unlock()
 
 	if len(*received) == 0 {
-		t.Fatal("expected events from stale scaled_down reconciliation")
+		t.Fatal("expected events from stale stopped reconciliation")
 	}
 
 	var active int
 	db.QueryRow("SELECT billing_active FROM deployment_billing_state WHERE deployment_id = 'dep-1'").Scan(&active)
 	if active != 0 {
-		t.Error("expected billing_active=false after scaled_down reconciliation")
+		t.Error("expected billing_active=false after stopped reconciliation")
 	}
 }
 

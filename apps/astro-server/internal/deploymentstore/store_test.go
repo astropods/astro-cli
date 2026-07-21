@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	_ "github.com/lib/pq"
 )
@@ -579,98 +578,6 @@ func TestGetDeploymentsInStatus(t *testing.T) {
 	}
 }
 
-func TestMarkScaledDown(t *testing.T) {
-	db := testDB(t)
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: "scale-agent",
-		DisplayName: "Scale", BuildID: "build-1", Namespace: "ns-scale",
-		SpecJSON: `{}`,
-	}, nil)
-	if err != nil {
-		t.Fatalf("SaveDeploymentPending failed: %v", err)
-	}
-	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d.ID)
-
-	ns := fmt.Sprintf("ns-scale-test-%s", newID()[:8])
-	t.Cleanup(func() {
-		_, _ = db.Exec("DELETE FROM scaled_namespaces WHERE namespace = $1", ns)
-	})
-
-	if err := store.MarkScaledDown(d.ID, ns); err != nil {
-		t.Fatalf("MarkScaledDown failed: %v", err)
-	}
-
-	scaled, err := store.IsScaledDown(ns)
-	if err != nil {
-		t.Fatalf("IsScaledDown failed: %v", err)
-	}
-	if !scaled {
-		t.Error("expected IsScaledDown=true after MarkScaledDown")
-	}
-
-	// Verify deployment status changed to scaled_down
-	dep, err := store.GetDeploymentByID(d.ID)
-	if err != nil {
-		t.Fatalf("GetDeploymentByID failed: %v", err)
-	}
-	if dep.Status != StatusScaledDown {
-		t.Errorf("expected status 'scaled_down', got %q", dep.Status)
-	}
-}
-
-func TestClearScaledDown(t *testing.T) {
-	db := testDB(t)
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: "clear-scale",
-		DisplayName: "ClearScale", BuildID: "build-1", Namespace: "ns-clear-scale",
-		SpecJSON: `{}`,
-	}, nil)
-	if err != nil {
-		t.Fatalf("SaveDeploymentPending failed: %v", err)
-	}
-	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d.ID)
-
-	ns := fmt.Sprintf("ns-clear-test-%s", newID()[:8])
-	t.Cleanup(func() {
-		_, _ = db.Exec("DELETE FROM scaled_namespaces WHERE namespace = $1", ns)
-	})
-
-	if err := store.MarkScaledDown(d.ID, ns); err != nil {
-		t.Fatalf("MarkScaledDown failed: %v", err)
-	}
-
-	if err := store.ClearScaledDown(ns); err != nil {
-		t.Fatalf("ClearScaledDown failed: %v", err)
-	}
-
-	scaled, err := store.IsScaledDown(ns)
-	if err != nil {
-		t.Fatalf("IsScaledDown failed: %v", err)
-	}
-	if scaled {
-		t.Error("expected IsScaledDown=false after ClearScaledDown")
-	}
-}
-
-func TestIsScaledDown_NotFound(t *testing.T) {
-	db := testDB(t)
-	store := NewStore(db)
-
-	scaled, err := store.IsScaledDown("nonexistent-namespace-xyz")
-	if err != nil {
-		t.Fatalf("IsScaledDown failed: %v", err)
-	}
-	if scaled {
-		t.Error("expected IsScaledDown=false for nonexistent namespace")
-	}
-}
-
 func TestScanDeployment_NullErrorDetails(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
@@ -836,17 +743,13 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 			Update:    spec.DefaultUpdateStrategy(),
 		},
 	}
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"KEY": "val"},
-	}
-
 	// Deploy v1 with normalized workloads
 	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "cleanup-agent",
 		DisplayName: "Cleanup Agent", BuildID: "build-1", Namespace: "ns-cleanup",
 		SpecJSON: `{"spec":"v1"}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
@@ -871,7 +774,7 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 		DisplayName: "Cleanup Agent", BuildID: "build-2", Namespace: "ns-cleanup-2",
 		SpecJSON: `{"spec":"v2"}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("second deploy failed: %v", err)

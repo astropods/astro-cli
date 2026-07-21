@@ -22,7 +22,7 @@ export function deriveDisplayDeploymentStatus(
 ): DisplayDeploymentStatus {
   const db = dep.status;
 
-  if (db === "scaled_down" || db === "stopped") {
+  if (db === "stopped") {
     return { value: "inactive", details: "Deployment is paused", differsFromDB: true };
   }
   if (db === "undeploying") {
