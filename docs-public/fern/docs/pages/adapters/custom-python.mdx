@@ -90,6 +90,7 @@ Call these from inside `stream()` and `stream_audio()`. They translate directly 
 | `on_file(name, mime_type, size)`    | `FileAttachment` on the terminal `ContentChunk`        | After writing an output inside `AGENT_FILES_DIR`; call before `on_finish()`. |
 | `on_error(exception)`               | `ErrorResponse`                                        | Generation failed. **Do not also call `on_finish()`.**            |
 | `on_finish()`                       | `ContentChunk END`                                     | Response complete. **Call exactly once per request.**             |
+| `on_trace_context(trace_context)`   | Stamps `trace_context` on the turn's `AgentResponse`s  | Optional. Call once per turn to supply the W3C trace context of the assistant turn. Probe with `getattr` — see [Trace context](#trace-context). |
 
 `on_status_update` takes a `dict` with a `"status"` key. Valid values: `"THINKING"`, `"SEARCHING"`, `"GENERATING"`, `"PROCESSING"`, `"ANALYZING"`, `"CUSTOM"`. For `CUSTOM`, include `"custom_message"`:
 
@@ -133,6 +134,7 @@ Passed to `on_feedback()`. `kind` is a stable string discriminator — no proto 
 | ----------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | `conversation_id` | `str`   | Conversation the feedback is attached to.                                                          |
 | `response_id`     | `str`   | Platform message ID the feedback targets.                                                          |
+| `trace_context`   | `Optional[TraceContext]` | Trace context of the referenced assistant response, when the platform echoes it back. See [Trace context](#trace-context). |
 | `kind`            | `str`   | See table below.                                                                                   |
 | `user_id`         | `str`   | Submitter's user ID. `""` for anonymous/system events.                                             |
 | `user_name`       | `str`   | Submitter's display name.                                                                          |
@@ -154,6 +156,30 @@ Passed to `on_feedback()`. `kind` is a stable string discriminator — no proto 
 | `"message_delete"`   | User deleted their own previous message.                                               |
 
 `on_feedback` may be sync or async — the bridge probes with `hasattr` and dispatches. It does **not** await the result, so don't block on slow I/O. Push to a queue or trigger an async write and return.
+
+## Trace context
+
+Call `on_trace_context` once per turn to attach the turn's W3C trace context. The bridge stamps it on every `AgentResponse` it emits for the turn, so a consumer can correlate any response — and the feedback that references it — back to the trace. The hook is optional, so probe for it with `getattr` before calling.
+
+`create_traceparent(*, trace_id, span_id, trace_flags="01")` formats a native trace/span ID pair into a W3C `traceparent` string. It returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `trace_flags` accepts an int or hex string and defaults to `"01"` (sampled).
+
+```python
+from astropods_messaging import TraceContext
+from astropods_adapter_core import create_traceparent
+
+ctx = span.get_span_context()
+traceparent = create_traceparent(
+    trace_id=f"{ctx.trace_id:032x}",
+    span_id=f"{ctx.span_id:016x}",
+    trace_flags=int(ctx.trace_flags),
+)
+if traceparent:
+    on_trace_context = getattr(hooks, "on_trace_context", None)
+    if on_trace_context is not None:
+        on_trace_context(TraceContext(traceparent=traceparent))
+```
+
+The first-party framework adapters already emit trace context from their root span — you only wire this up in a custom adapter. See the [Messaging SDK](../messaging-sdk/python#trace-context) for the underlying `TraceContext` wire shape.
 
 ## `serve(adapter, options?)`
 
@@ -263,6 +289,9 @@ from astropods_adapter_core import (
     ServeOptions,
     # Re-exported from astropods_messaging
     PlatformContext,
+    TraceContext,
+    # Tracing helper
+    create_traceparent,
     # Entry points
     serve,
     MessagingBridge,

@@ -176,6 +176,7 @@ For web-chat file input and agent-produced downloads, see [Files in chat](./file
 | ----------------- | ------ | -------- | ---------------------------------------------------------------- |
 | `conversation_id` | string | yes      | Must match the inbound `Message.conversation_id`.                |
 | `response_id`     | string | no       | Stable ID for this response. Used by feedback events.            |
+| `trace_context`   | `TraceContext` | no | W3C trace context for this assistant response. See [Trace context](#trace-context). |
 | *one variant*     |        | yes      | Exactly one payload variant below.                               |
 
 **`AgentResponse` payload variants** (`oneof payload`)
@@ -193,6 +194,31 @@ For web-chat file input and agent-produced downloads, see [Files in chat](./file
 | `audio_config`     | `AudioStreamConfig`    | Server → agent only.                                        |
 | `audio_chunk`      | `AudioChunk`           | Server → agent only.                                        |
 | `feedback`         | `PlatformFeedback`     | Server → agent only.                                        |
+
+### Trace context
+
+`AgentResponse` and `PlatformFeedback` both carry an optional `trace_context` — vendor-neutral tracing metadata for a single assistant turn. Set it on your responses so a consumer can correlate any response back to its trace; the platform echoes it back on `PlatformFeedback` that references the response.
+
+**`TraceContext`**
+
+| Field         | Type   | Required | Notes                                                        |
+| ------------- | ------ | -------- | ------------------------------------------------------------ |
+| `traceparent` | string | no       | W3C `traceparent` header value for the turn.                 |
+| `tracestate`  | string | no       | Optional W3C `tracestate` header.                            |
+
+Import it from `astropods_messaging` and set it on the response you send:
+
+```python
+from astropods_messaging import TraceContext
+
+send(AgentResponse(
+    conversation_id=cid,
+    trace_context=TraceContext(traceparent=traceparent),
+    content=ContentChunk(type="END", content=reply),
+))
+```
+
+`trace_context` is additive: older SDKs and adapters keep working and simply do not emit or observe it until they upgrade. If you build on an adapter, prefer its `on_trace_context` hook and `create_traceparent` helper (see [Custom adapter (Python)](../adapters/custom-python)) rather than populating this by hand.
 
 ### Streaming text content
 
@@ -360,6 +386,7 @@ The sidecar sends `PlatformFeedback` on the same stream when the user interacts 
 | `conversation_id` | string                      | yes      | Conversation this feedback belongs to.                                      |
 | `response_id`     | string                      | no       | Which agent response this feedback relates to.                              |
 | `timestamp`       | `google.protobuf.Timestamp` | yes      | When the feedback occurred.                                                 |
+| `trace_context`   | `TraceContext`              | no       | Trace context of the response this feedback references, echoed back by the platform. See [Trace context](#trace-context). |
 | `user`            | `User`                      | no       | Platform user who submitted the feedback. Empty for anonymous/system events.|
 | *one variant*     |                             | yes      | One of the fields below.                                                    |
 

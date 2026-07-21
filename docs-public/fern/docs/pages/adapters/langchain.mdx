@@ -124,6 +124,8 @@ LangChain has no native TTS path, so the adapter does STT only. If you need TTS,
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically instruments LangChain so every LLM call and tool invocation produces a trace span. No code changes needed — Astro sets the env var on deployed agents.
 
+The adapter also derives the turn's W3C trace context from its root span and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](../messaging-sdk/python#trace-context) for the wire shape.
+
 ## Example: an agent with tools
 
 ```python

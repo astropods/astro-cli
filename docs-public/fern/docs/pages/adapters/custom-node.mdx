@@ -92,6 +92,7 @@ Call these from inside `stream()` and `streamAudio()`. They translate directly i
 | `onFile(file)`                  | `FileAttachment` on the terminal `ContentChunk`        | After writing an output inside `AGENT_FILES_DIR`; call before `onFinish()`. |
 | `onError(error)`                | `ErrorResponse`                                        | Generation failed. **Do not also call `onFinish()`.**             |
 | `onFinish()`                    | `ContentChunk END`                                     | Response complete. **Call exactly once per request.**             |
+| `onTraceContext({ traceparent })` | Stamps `traceContext` on the turn's `AgentResponse`s | Optional. Call once per turn to supply the W3C trace context of the assistant turn. Ignored when `traceparent` is empty. See [Trace context](#trace-context). |
 
 `StatusUpdate.status` values: `THINKING`, `SEARCHING`, `GENERATING`, `PROCESSING`, `ANALYZING`, `CUSTOM`. Use `CUSTOM` with `customMessage`.
 
@@ -124,6 +125,7 @@ Passed to `onFeedback()`. `kind` is a stable string discriminator so you don't h
 | ---------------- | ------ | -------------------------------------------------------------------------------------------------- |
 | `conversationId` | string | Conversation the feedback is attached to.                                                          |
 | `responseId`     | string | Platform message ID the feedback targets.                                                          |
+| `traceContext`   | `TraceContext` | Trace context of the referenced assistant response, when the platform echoes it back. See [Trace context](#trace-context). |
 | `kind`           | string | See table below.                                                                                   |
 | `userId`         | string | Submitter's user ID. Empty for anonymous/system events.                                            |
 | `userName`       | string | Submitter's display name.                                                                          |
@@ -145,6 +147,21 @@ Passed to `onFeedback()`. `kind` is a stable string discriminator so you don't h
 | `message_delete`    | User deleted their own previous message.                                               |
 
 `onFeedback()` may return `void` or a Promise. The bridge does **not** await the result — so don't block the stream on slow I/O. Push to a queue or trigger an async write and return.
+
+## Trace context
+
+Call `hooks.onTraceContext({ traceparent })` once per turn to attach the turn's W3C trace context. The bridge stamps it on every `AgentResponse` it emits for the turn, so a consumer can correlate any response — and the feedback that references it — back to the trace. It's ignored when `traceparent` is empty.
+
+`createTraceparent(input)` formats a native trace/span ID pair into a W3C `traceparent` string. It returns `""` for invalid or all-zero IDs, so it's safe to pass raw OpenTelemetry span context. `traceFlags` accepts a number or hex string and defaults to `01` (sampled).
+
+```typescript
+import { createTraceparent } from '@astropods/adapter-core';
+
+const { traceId, spanId, traceFlags } = span.spanContext();
+hooks.onTraceContext?.({ traceparent: createTraceparent({ traceId, spanId, traceFlags }) });
+```
+
+The first-party framework adapters already emit trace context from their root span — you only wire this up in a custom adapter. See the [Messaging SDK](../messaging-sdk/node#trace-context) for the underlying `TraceContext` wire shape.
 
 ## `serve(adapter, options?)`
 
@@ -227,9 +244,10 @@ import type {
   AgentAdapter, AudioInput, FeedbackEvent,
   StreamHooks, StreamOptions, ServeOptions,
   PlatformContext, PlatformContextEventKind,
+  TraceContext, TraceparentInput,
 } from '@astropods/adapter-core';
 
-import { serve, MessagingBridge, logger } from '@astropods/adapter-core';
+import { serve, MessagingBridge, logger, createTraceparent } from '@astropods/adapter-core';
 ```
 
 `logger` is a Pino instance. Use it for adapter logs so output stays consistent with the bridge.
