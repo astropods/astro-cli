@@ -31,6 +31,11 @@ export function DeploymentChatRuntimeProvider({
 }) {
   const {
     messages,
+    // The hook's active conversation id is stable for the turn: it becomes the
+    // real id the moment the conversation is created (before the URL catches up
+    // via onConversationCreated). The viewport keys on this, so a new chat's
+    // blank→id URL transition doesn't remount the thread mid-reply and flicker it.
+    conversationId: activeConversationId,
     isStreaming,
     assistantStreaming,
     historyLoading,
@@ -91,7 +96,7 @@ export function DeploymentChatRuntimeProvider({
   const runtime = useExternalStoreRuntime({
     messages: threadMessages,
     isRunning: threadIsRunning,
-    isLoading: historyLoading && !!conversationId,
+    isLoading: historyLoading && !!activeConversationId,
     onNew,
     onCancel: async () => {
       cancelStream();
@@ -106,15 +111,15 @@ export function DeploymentChatRuntimeProvider({
   const viewportState = useMemo(
     () => ({
       streamingMessageId,
-      conversationId: conversationId ?? null,
-      historyLoading: historyLoading && !!conversationId,
+      conversationId: activeConversationId ?? null,
+      historyLoading: historyLoading && !!activeConversationId,
       isStreaming: threadIsRunning,
       streamError,
       hasMoreHistory,
       loadOlderMessages,
     }),
     [
-      conversationId,
+      activeConversationId,
       hasMoreHistory,
       historyLoading,
       loadOlderMessages,

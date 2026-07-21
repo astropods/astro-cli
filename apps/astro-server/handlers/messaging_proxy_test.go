@@ -187,6 +187,37 @@ func TestMessagingProxy_Stream_SSEHeaders(t *testing.T) {
 	}
 }
 
+// The proxy must forward the SSE resume cursor to the sidecar; without it, a
+// reconnecting EventSource can't resume and the missed finish stays lost. The
+// upstream echoes the header it saw into the stream body to keep the assertion
+// race-free.
+func TestMessagingProxy_Stream_ForwardsLastEventID(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/conversations/conv-1/stream" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"seen_last_event_id\":%q}\n\n", r.Header.Get("Last-Event-ID"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+
+	router, accountMock, deployMock := setupMessagingProxyRouter(upstream.URL, true)
+	expectMessagingProxyAuth(accountMock, deployMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/deployments/dep-1/messaging/conversations/conv-1/stream", nil)
+	req.Header.Set("Last-Event-ID", "7")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), `"seen_last_event_id":"7"`) {
+		t.Errorf("proxy must forward Last-Event-ID to the sidecar; body=%s", rec.Body.String())
+	}
+}
+
 func TestMessagingProxy_NoOverride_NoK8s(t *testing.T) {
 	router, accountMock, deployMock := setupMessagingProxyRouter("", true)
 	expectMessagingProxyAuth(accountMock, deployMock)

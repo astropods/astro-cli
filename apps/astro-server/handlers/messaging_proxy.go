@@ -252,7 +252,10 @@ func messagingHTTPPort(svc *corev1.Service) (int32, error) {
 }
 
 func copyMessagingRequestHeaders(src, dst http.Header) {
-	for _, key := range []string{"Content-Type", "Accept", "Accept-Language", "Cache-Control"} {
+	// Last-Event-ID carries the SSE resume cursor: on an EventSource reconnect the
+	// browser replays it so the sidecar can resend only the events missed while
+	// disconnected. It must reach the sidecar for stream resumption to work.
+	for _, key := range []string{"Content-Type", "Accept", "Accept-Language", "Cache-Control", "Last-Event-ID"} {
 		if v := src.Get(key); v != "" {
 			dst.Set(key, v)
 		}
@@ -311,7 +314,10 @@ func proxyMessagingEventStream(
 			flusher.Flush()
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	// A cancelled context is the normal end of an SSE stream — the browser closed
+	// the EventSource on a conversation switch or a finished turn, not a failure.
+	// Only log a genuine scan error so the signal isn't buried in disconnect noise.
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Debug("messaging proxy SSE scan failed", "deployment", deploymentID, "error", err)
 	}
 }

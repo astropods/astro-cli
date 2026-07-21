@@ -34,7 +34,12 @@ export function ConversationHistoryDropdown({
 }) {
   return (
     <TooltipProvider>
-      <DropdownMenu>
+      {/* Non-modal: a modal menu locks document.body pointer-events while open,
+          and a re-render during close (frequent while a reply streams) can leave
+          that lock stuck, so the next click — e.g. selecting a conversation to
+          switch to — lands on a dead body and does nothing. A history menu needs
+          no modal behavior. */}
+      <DropdownMenu modal={false}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>

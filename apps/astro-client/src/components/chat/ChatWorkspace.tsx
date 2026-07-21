@@ -80,12 +80,16 @@ export function ChatWorkspace({
   }, [deploymentId]);
 
   useEffect(() => {
-    if (conversationId) return;
-    if (sessionsLoading || autoSelectedRef.current) return;
-    const latest = sessions[0];
-    if (!latest) return;
+    // Auto-select the latest conversation only once per agent, on first load with
+    // no conversation in the URL. Mark it done as soon as sessions resolve — even
+    // when a conversation is already selected — so a later deliberate "New chat"
+    // (which clears the conversation from the URL) isn't bounced straight back to
+    // the most recent thread.
+    if (autoSelectedRef.current || sessionsLoading) return;
     autoSelectedRef.current = true;
-    setConversationId(latest.conversationId);
+    if (conversationId) return;
+    const latest = sessions[0];
+    if (latest) setConversationId(latest.conversationId);
   }, [conversationId, sessions, sessionsLoading, setConversationId]);
 
   // Plain handlers: ChatThread/ChatThreadHeader aren't memoized, so a stable

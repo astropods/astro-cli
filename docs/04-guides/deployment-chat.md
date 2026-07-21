@@ -4,6 +4,33 @@ Canonical transport for **any** Astro client where a signed-in user messages a d
 
 **No chat data is stored in astro-server or RDS.** Conversation metadata (list, title, recency, soft-delete) and message bodies live in the messaging sidecar's SQLite database (WAL mode) on the agent's shared persistent disk, mounted into the sidecar at `/data` by the default-shared-disk wiring. The disk survives pod reschedules. The sidecar has no Langfuse access. astro-server only ever sees chat content in transit while proxying authenticated requests.
 
+## Architecture at a glance
+
+```
+Browser / CLI / mobile
+   │  REST + SSE   /api/v1/deployments/:id/{chat,messaging}/…
+   ▼
+astro-server        authenticates the WorkOS session, injects
+   │                X-Amzn-Oidc-Identity, then pure-proxies to the deployment's
+   │                messaging sidecar. Persists no chat content; forwards the
+   │                Last-Event-ID header so SSE streams can resume.
+   ▼  (k8s service proxy)
+messaging sidecar   (one per deployment; native init-container)
+   ├─ Chat store    SQLite (WAL) on the agent's shared /data disk — the durable
+   │                source of truth for conversations + messages. No Langfuse.
+   ├─ SSE hub       per-conversation live event stream to clients, with monotonic
+   │                event ids + a bounded resume buffer (see Live streaming).
+   └─ gRPC bridge   routes the user message to the agent and streams the agent's
+   ▲                reply back out over SSE and into the store.
+   │  gRPC (ProcessConversation)
+agent process       (your container) — generates the reply.
+```
+
+Two layers with distinct guarantees: the **store** is the durable source of
+truth (a refresh always reconstructs the thread), and the **SSE stream** is a
+best-effort live view continuously reconciled against it. The agent↔sidecar gRPC
+bridge is a separate transport from the client↔sidecar SSE.
+
 ## Responsibilities
 
 | Layer | Owns |
@@ -57,10 +84,40 @@ Base: `/api/v1/deployments/:deploymentId/messaging` → sidecar `/api/...`
 
 - `POST /conversations` — create; sidecar persists the conversation row.
 - `POST /conversations/:id/messages` — body `{ "content": "..." }`; sidecar persists the user message and forwards to the agent. Returns **404** for a conversation owned by another user, and **409** (`message_limit_reached`) once the thread hits its per-conversation message cap.
-- SSE `/conversations/:id/stream` — assistant chunks; the sidecar persists the assistant turn progressively during the stream and on completion.
+- SSE `/conversations/:id/stream` — assistant chunks; the sidecar persists the assistant turn progressively during the stream and on completion. **Resumable** — see [Live streaming and resumption](#live-streaming-and-resumption-sse).
 - `POST /conversations/:id/cancel` — **stop generating**: ends the in-flight turn, persists the partial the user saw, sends a terminal `finish` on the SSE stream, and best-effort signals the agent to abort (agents that ignore it keep running, but their output is dropped). Idempotent — a no-op when no turn is active. **404** for a missing/foreign conversation.
 
 This proxy never reads or stores chat content on astro-server — it is a byte passthrough with the identity header injected.
+
+## Live streaming and resumption (SSE)
+
+`GET …/messaging/conversations/:id/stream` is a per-conversation Server-Sent
+Events stream. The sidecar broadcasts `chunk` events as the agent generates, a
+terminal `finish` (or `error`) when the turn ends, and periodic heartbeats so
+intermediaries don't idle the connection out.
+
+The stream is **resumable**, so a dropped and reconnected connection never loses
+events — the failure that otherwise left the UI stuck on a "thinking" avatar
+after the reply had already finished and persisted:
+
+- Every broadcast event carries a per-conversation **monotonic id** (the SSE
+  `id:` field) and is retained in a bounded in-memory ring buffer
+  (per-conversation and total-conversation caps, LRU-evicted). The buffer is
+  independent of connection lifetime, so an event survives a window with zero
+  connections; it is lost on sidecar restart, where the store remains the truth.
+- On reconnect the browser's `EventSource` replays its **`Last-Event-ID`** and
+  the sidecar resends exactly the events after that id — missed chunks *and* the
+  terminal `finish` — before resuming live output. astro-server forwards the
+  `Last-Event-ID` header for this to work.
+- A **fresh** subscribe (no cursor) does not replay buffered deltas — the client
+  reconstructs the reply by appending, so re-sending would double it. But if the
+  turn already finished before the client's first subscribe, the sidecar emits a
+  terminal `finish` derived from the store so the client is never stranded.
+
+Net effect: a broken connection is a performance detail, not a correctness
+requirement — the loading state can't get stuck waiting on a lost `finish`.
+Clients need no special handling: `EventSource` sends `Last-Event-ID` and
+reconnects on its own, and replayed events arrive as ordinary `chunk`/`finish`.
 
 ## Eligibility (clients)
 

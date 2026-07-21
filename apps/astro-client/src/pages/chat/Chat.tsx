@@ -34,13 +34,15 @@ export default function ChatPage() {
   // observability, members) to the deployment's own account, not activeAccount.
   const deploymentAccount = activeEntry?.account ?? activeAccount;
 
-  // A new conversation is a fresh client-side id we navigate to; the sidecar
-  // creates the row (and derives the title) on the first send, so there is no
-  // server pre-create. It appears in the history dropdown after that send.
+  // A new conversation goes to a blank chat with no conversation id in the URL.
+  // The row is created server-side on the first send (createMessagingConversation
+  // persists it before the SSE stream subscribes), and the URL is then updated to
+  // the real id. Pre-seeding a client-generated id here would instead route the
+  // send through the lazy-create path, where the stream can subscribe to the
+  // not-yet-persisted conversation and get a 404 — hanging the turn until reload.
   const handleNewConversation = useCallback(() => {
     if (!deployment) return;
-    const conversationId = crypto.randomUUID();
-    navigate(chatDeploymentPath(deployment.id, conversationId));
+    navigate(chatDeploymentPath(deployment.id));
   }, [deployment, navigate]);
 
   if (!isLoading && entries.length > 0 && !deployment) {
