@@ -241,7 +241,6 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 	gin.SetMode(gin.TestMode)
 	log := logger.New("error", "json")
 	cfg := &config.Config{}
-	k8sClient := newFakeK8sNotFound(t)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -255,7 +254,7 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 		log, accountStore, cfg, deployStore, index, nil, nil,
 	))
 	r.GET("/api/v1/deployments/:id/runtime", handlers.GetDeploymentRuntime(
-		log, accountStore, cfg, k8s.NewRegistryWithPrimary(k8sClient), deployStore, index, k8scache.NoopCache{},
+		log, accountStore, cfg, deployStore,
 	))
 	return r
 }

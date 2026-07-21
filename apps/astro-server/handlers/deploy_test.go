@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -557,534 +558,6 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 		t.Errorf("agent label value %q leaked to frontend as Name", agentLabel)
 	}
 }
-
-type staticK8sCache struct {
-	key  string
-	data []byte
-}
-
-func (c staticK8sCache) Get(_ context.Context, key string) ([]byte, bool) {
-	if key != c.key {
-		return nil, false
-	}
-	return c.data, true
-}
-
-func (staticK8sCache) Set(_ context.Context, _ string, _ []byte, _ time.Duration) error {
-	return nil
-}
-
-func (staticK8sCache) Invalidate(_ context.Context, _ string) error {
-	return nil
-}
-
-func TestEnrichDeployment_CacheHitPreservesSourceAccount(t *testing.T) {
-	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	accountStore := account.NewAccountStore(accountDB)
-	log := logger.New("error", "json")
-
-	now := time.Now()
-	sourceID := "src-acct"
-	dbDep := &deploymentstore.Deployment{
-		ID:                 "dep-1",
-		AccountID:          "target-acct",
-		SourceAccountID:    &sourceID,
-		AgentName:          "agent-from-db",
-		BuildID:            "build-from-db",
-		Namespace:          "astro-cache-0",
-		DisplayName:        "Agent From DB",
-		DeploymentSpecJSON: `{"spec":"deployment/v1","source":{"account":"publisher","name":"agent-from-db","build":"build-from-db"}}`,
-		Status:             deploymentstore.StatusActive,
-		DeployedAt:         now,
-	}
-	cached, err := json.Marshal([]AgentDeployment{{
-		Name:      "stale-name-from-cache",
-		BuildID:   "build-from-db",
-		Namespace: dbDep.Namespace,
-		Status:    "Running",
-	}})
-	if err != nil {
-		t.Fatalf("marshal cache payload: %v", err)
-	}
-
-	accountMock.ExpectQuery(`SELECT`).
-		WithArgs(sourceID).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow(sourceID, "publisher", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-
-	deps := enrichDeployment(
-		context.Background(),
-		log,
-		accountStore,
-		nil,
-		nil,
-		nil,
-		dbDep,
-		nil,
-		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
-		"list:",
-		time.Minute,
-		nil,
-	)
-
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 deployment, got %d", len(deps))
-	}
-	dep := deps[0]
-	if dep.Name != dbDep.AgentName {
-		t.Errorf("cached deployment name = %q, want DB name %q", dep.Name, dbDep.AgentName)
-	}
-	if dep.SourceAccount != "publisher" {
-		t.Errorf("cached deployment source_account = %q, want publisher", dep.SourceAccount)
-	}
-}
-
-// TestEnrichDeployment_FailedDBOverridesK8sStatus is the regression for the
-// 35-minute "Deploying" bug: when the DB knows a deployment is failed (set by
-// the preflight 422 path or the reconcile pod-failure escalation), the
-// enriched payload returned to the API must report status=error and the
-// error_message — even when K8s replica scanning would otherwise return
-// "Pending" because the failing pods can't reach Ready.
-func TestEnrichDeployment_FailedDBOverridesK8sStatus(t *testing.T) {
-	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	accountStore := account.NewAccountStore(accountDB)
-	log := logger.New("error", "json")
-
-	now := time.Now()
-	sourceID := "src-acct"
-	errMsg := "ImagePullBackOff on pod agent-abc (image=img:missing)"
-	dbDep := &deploymentstore.Deployment{
-		ID:                 "dep-failed",
-		AccountID:          "target-acct",
-		SourceAccountID:    &sourceID,
-		AgentName:          "agent-stuck",
-		BuildID:            "build-1",
-		Namespace:          "astro-failed-0",
-		DisplayName:        "Stuck",
-		DeploymentSpecJSON: `{"spec":"deployment/v1","source":{"account":"publisher","name":"agent-stuck","build":"build-1"}}`,
-		Status:             deploymentstore.StatusFailed,
-		ErrorMessage:       &errMsg,
-		DeployedAt:         now,
-	}
-	// K8s scan would have returned Pending (ready<replicas) — proving the
-	// fix overrides whatever K8s saw.
-	cached, err := json.Marshal([]AgentDeployment{{
-		Name:      "agent-stuck",
-		BuildID:   "build-1",
-		Namespace: dbDep.Namespace,
-		Status:    "Pending",
-		Replicas:  1,
-		Ready:     0,
-	}})
-	if err != nil {
-		t.Fatalf("marshal cache payload: %v", err)
-	}
-
-	accountMock.ExpectQuery(`SELECT`).
-		WithArgs(sourceID).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors",
-		}).AddRow(sourceID, "publisher", "organization", nil, nil, now, now, "", nil))
-
-	deps := enrichDeployment(
-		context.Background(),
-		log,
-		accountStore,
-		nil,
-		nil,
-		nil,
-		dbDep,
-		nil,
-		staticK8sCache{key: "list:" + dbDep.Namespace, data: cached},
-		"list:",
-		time.Minute,
-		nil,
-	)
-
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 deployment, got %d", len(deps))
-	}
-	d := deps[0]
-	if d.Status != "error" {
-		t.Errorf("status = %q, want error (failed DB row must override K8s Pending)", d.Status)
-	}
-	if d.ErrorMessage != errMsg {
-		t.Errorf("error_message = %q, want %q", d.ErrorMessage, errMsg)
-	}
-}
-
-// TestListAstroDeployments_StaleStatefulSetPodVersion verifies that a pod with a stale
-// version label (e.g. an OnDelete StatefulSet not yet recycled after a redeploy) is still
-// matched to its workload and its runtime container status is returned.
-func TestListAstroDeployments_StaleStatefulSetPodVersion(t *testing.T) {
-	namespace := "astro-abc123-0"
-	agentKey := "myorg.myagent"
-	currentBuild := "build-2"
-	staleBuild := "build-1"
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		path := r.URL.Path
-
-		if strings.Contains(path, "/deployments") {
-			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/statefulsets") {
-			fmt.Fprintf(w, `{
-				"kind":"StatefulSetList","apiVersion":"apps/v1","items":[{
-					"metadata":{
-						"name":"myagent-knowledge-db","namespace":%q,
-						"creationTimestamp":"2026-01-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"knowledge-db"
-						}
-					},
-					"spec":{
-						"replicas":1,
-						"template":{
-							"spec":{
-								"containers":[{"name":"app","image":"postgres:15"}]
-							}
-						}
-					},
-					"status":{"replicas":1}
-				}]
-			}`, namespace, agentKey, currentBuild)
-			return
-		}
-		if strings.Contains(path, "/ingresses") {
-			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/pods") {
-			// Pod exists but has the old build version label — simulates OnDelete StatefulSet
-			// where the pod was not recreated after a redeploy.
-			fmt.Fprintf(w, `{
-				"kind":"PodList","apiVersion":"v1","items":[{
-					"metadata":{
-						"name":"myagent-knowledge-db-0","namespace":%q,
-						"creationTimestamp":"2026-01-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"knowledge-db"
-						}
-					},
-					"status":{
-						"phase":"Running",
-						"containerStatuses":[{
-							"name":"app",
-							"ready":false,
-							"restartCount":6,
-							"state":{"waiting":{"reason":"CrashLoopBackOff"}}
-						}]
-					}
-				}]
-			}`, namespace, agentKey, staleBuild)
-			return
-		}
-		if strings.Contains(path, "/jobs") {
-			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 deployment, got %d", len(deps))
-	}
-	if len(deps[0].Workloads) != 1 {
-		t.Fatalf("expected 1 workload, got %d", len(deps[0].Workloads))
-	}
-	wl := deps[0].Workloads[0]
-	if len(wl.Containers) == 0 {
-		t.Fatal("containers should be populated even when pod version label is stale")
-	}
-	if wl.Containers[0].Name != "app" {
-		t.Errorf("expected container name %q, got %q", "app", wl.Containers[0].Name)
-	}
-	if wl.Containers[0].RestartCount != 6 {
-		t.Errorf("expected restart count 6 from stale pod, got %d", wl.Containers[0].RestartCount)
-	}
-	if wl.PodName != "myagent-knowledge-db-0" {
-		t.Errorf("expected pod name %q, got %q", "myagent-knowledge-db-0", wl.PodName)
-	}
-}
-
-// TestListAstroDeployments_PrefersNewestRunningPod verifies that when multiple pods exist
-// for the same agent+component (e.g. a stale pod and a newer replacement), the newest
-// Running pod is selected over an older one.
-func TestListAstroDeployments_PrefersNewestRunningPod(t *testing.T) {
-	namespace := "astro-abc123-0"
-	agentKey := "myorg.myagent"
-	build := "build-2"
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		path := r.URL.Path
-
-		if strings.Contains(path, "/deployments") {
-			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/statefulsets") {
-			fmt.Fprintf(w, `{
-				"kind":"StatefulSetList","apiVersion":"apps/v1","items":[{
-					"metadata":{
-						"name":"myagent-knowledge-db","namespace":%q,
-						"creationTimestamp":"2026-01-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"knowledge-db"
-						}
-					},
-					"spec":{"replicas":1,"template":{"spec":{"containers":[{"name":"app","image":"postgres:15"}]}}},
-					"status":{"replicas":1}
-				}]
-			}`, namespace, agentKey, build)
-			return
-		}
-		if strings.Contains(path, "/ingresses") {
-			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/pods") {
-			// Two pods for the same component: an older stale one and a newer running one.
-			fmt.Fprintf(w, `{
-				"kind":"PodList","apiVersion":"v1","items":[
-					{
-						"metadata":{
-							"name":"myagent-knowledge-db-0","namespace":%q,
-							"creationTimestamp":"2026-01-01T00:00:00Z",
-							"labels":{"astro.dev/agent":%q,"app.kubernetes.io/version":"build-1","app.kubernetes.io/component":"knowledge-db"}
-						},
-						"status":{
-							"phase":"Running",
-							"containerStatuses":[{"name":"app","ready":false,"restartCount":10,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]
-						}
-					},
-					{
-						"metadata":{
-							"name":"myagent-knowledge-db-1","namespace":%q,
-							"creationTimestamp":"2026-06-01T00:00:00Z",
-							"labels":{"astro.dev/agent":%q,"app.kubernetes.io/version":%q,"app.kubernetes.io/component":"knowledge-db"}
-						},
-						"status":{
-							"phase":"Running",
-							"containerStatuses":[{"name":"app","ready":true,"restartCount":0,"state":{"running":{"startedAt":"2026-06-01T00:00:00Z"}}}]
-						}
-					}
-				]
-			}`, namespace, agentKey, namespace, agentKey, build)
-			return
-		}
-		if strings.Contains(path, "/jobs") {
-			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(deps) != 1 || len(deps[0].Workloads) != 1 {
-		t.Fatalf("expected 1 deployment with 1 workload")
-	}
-	wl := deps[0].Workloads[0]
-	if wl.PodName != "myagent-knowledge-db-1" {
-		t.Errorf("expected newer pod %q, got %q", "myagent-knowledge-db-1", wl.PodName)
-	}
-	if !wl.Containers[0].Ready {
-		t.Error("expected container from newer pod to be ready")
-	}
-}
-
-// TestListAstroDeployments_IngestionWorkloads verifies the unified workload
-// model for ingestion: CronJobs and standalone Jobs each surface as their
-// own Workload entry (Kind="CronJob"/"Job"), and CronJob-owned child Jobs
-// attach to their parent's Runs[] rather than appearing as a separate row.
-//
-// This is the user-visible signal that a schedule is configured — before
-// the unification, schedule ingestion was invisible until the first run.
-func TestListAstroDeployments_IngestionWorkloads(t *testing.T) {
-	namespace := "astro-abc123-0"
-	agentKey := "myorg.myagent"
-	build := "build-1"
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		path := r.URL.Path
-
-		if strings.Contains(path, "/deployments") {
-			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/statefulsets") {
-			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/ingresses") {
-			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/pods") {
-			_, _ = w.Write([]byte(`{"kind":"PodList","apiVersion":"v1","items":[]}`))
-			return
-		}
-		if strings.Contains(path, "/cronjobs") {
-			fmt.Fprintf(w, `{
-				"kind":"CronJobList","apiVersion":"batch/v1","items":[{
-					"metadata":{
-						"name":"myagent-ingestion-daily","namespace":%q,
-						"uid":"cron-uid-1",
-						"creationTimestamp":"2026-01-01T00:00:00Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"ingestion-daily"
-						}
-					},
-					"spec":{"schedule":"0 0 * * *","jobTemplate":{"spec":{"template":{"spec":{"containers":[]}}}}},
-					"status":{"lastScheduleTime":"2026-05-05T00:00:00Z"}
-				}]
-			}`, namespace, agentKey, build)
-			return
-		}
-		if strings.Contains(path, "/jobs") {
-			// Two Jobs:
-			//   - cron child (ownerRef = CronJob/myagent-ingestion-daily) → Runs[]
-			//   - standalone startup Job → its own Workload
-			fmt.Fprintf(w, `{
-				"kind":"JobList","apiVersion":"batch/v1","items":[
-					{
-						"metadata":{
-							"name":"myagent-ingestion-daily-28012345","namespace":%q,
-							"creationTimestamp":"2026-05-05T00:00:00Z",
-							"ownerReferences":[{"apiVersion":"batch/v1","kind":"CronJob","name":"myagent-ingestion-daily","uid":"cron-uid-1","controller":true}],
-							"labels":{
-								"app.kubernetes.io/managed-by":"astro-server",
-								"astro.dev/agent":%q,
-								"app.kubernetes.io/version":%q,
-								"app.kubernetes.io/component":"ingestion-daily"
-							}
-						},
-						"spec":{"completions":1},
-						"status":{"succeeded":1,"startTime":"2026-05-05T00:00:01Z","conditions":[{"type":"Complete","status":"True"}]}
-					},
-					{
-						"metadata":{
-							"name":"myagent-ingestion-bootstrap","namespace":%q,
-							"creationTimestamp":"2026-04-01T00:00:00Z",
-							"labels":{
-								"app.kubernetes.io/managed-by":"astro-server",
-								"astro.dev/agent":%q,
-								"app.kubernetes.io/version":%q,
-								"app.kubernetes.io/component":"ingestion-bootstrap"
-							}
-						},
-						"spec":{"completions":1},
-						"status":{"succeeded":1,"startTime":"2026-04-01T00:00:05Z","conditions":[{"type":"Complete","status":"True"}]}
-					}
-				]
-			}`, namespace, agentKey, build, namespace, agentKey, build)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	k8sClient := newMockK8sClient(handler)
-	deps, err := listAstroDeployments(context.Background(), k8sClient, namespace, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 deployment (stub from CronJob/Job), got %d", len(deps))
-	}
-
-	// Index workloads by name for assertions.
-	byName := map[string]WorkloadDetail{}
-	for _, wl := range deps[0].Workloads {
-		byName[wl.Name] = wl
-	}
-	if len(byName) != 2 {
-		t.Fatalf("expected 2 Workloads (CronJob + standalone Job), got %d: %+v", len(byName), deps[0].Workloads)
-	}
-
-	cron, ok := byName["myagent-ingestion-daily"]
-	if !ok {
-		t.Fatal("expected Workload for the CronJob")
-	}
-	if cron.Kind != "CronJob" {
-		t.Errorf("CronJob workload Kind = %q, want CronJob", cron.Kind)
-	}
-	if cron.Schedule != "0 0 * * *" {
-		t.Errorf("CronJob workload Schedule = %q, want %q", cron.Schedule, "0 0 * * *")
-	}
-	if cron.Status != "Idle" {
-		t.Errorf("CronJob workload Status = %q, want Idle (no active children)", cron.Status)
-	}
-	if cron.StartTime == "" {
-		t.Error("CronJob workload StartTime should be populated from LastScheduleTime")
-	}
-	if len(cron.Runs) != 1 {
-		t.Fatalf("expected 1 Run on the CronJob workload (the child Job), got %d", len(cron.Runs))
-	}
-	run := cron.Runs[0]
-	if run.Name != "myagent-ingestion-daily-28012345" {
-		t.Errorf("Runs[0].Name = %q, want the child Job name", run.Name)
-	}
-	if run.Status != "Succeeded" {
-		t.Errorf("Runs[0].Status = %q, want Succeeded", run.Status)
-	}
-	if run.Completions != "1/1" {
-		t.Errorf("Runs[0].Completions = %q, want 1/1", run.Completions)
-	}
-
-	bootstrap, ok := byName["myagent-ingestion-bootstrap"]
-	if !ok {
-		t.Fatal("expected standalone Job to surface as its own Workload")
-	}
-	if bootstrap.Kind != "Job" {
-		t.Errorf("standalone Job Kind = %q, want Job", bootstrap.Kind)
-	}
-	if bootstrap.Status != "Succeeded" {
-		t.Errorf("standalone Job Status = %q, want Succeeded", bootstrap.Status)
-	}
-	if bootstrap.Completions != "1/1" {
-		t.Errorf("standalone Job Completions = %q, want 1/1", bootstrap.Completions)
-	}
-	if len(bootstrap.Runs) != 0 {
-		t.Errorf("standalone Job should not have Runs[], got %d", len(bootstrap.Runs))
-	}
-	if bootstrap.Schedule != "" {
-		t.Errorf("standalone Job should not have Schedule, got %q", bootstrap.Schedule)
-	}
-}
-
-// Env resolution from K8s pods has been removed — env now comes from
-// deployment_build_env via populateWorkloadEnv in GetDeploymentRuntime, not
-// from per-pod Secret/ConfigMap reads. Tests for the old K8s-side helpers
-// (TestBuildContainerStatuses_DedupesEnvDirectOverridesEnvFrom,
-// TestContainersFromSpecWithEnv_ResolvesEnvWithoutLivePod,
-// TestListAstroDeployments_IngestionWorkloadsHaveEnvVars) and the
-// indexEnv helper they depended on were dropped with that refactor.
 
 // TestAssignEnvToWorkloads_ByRole verifies the role-set per component used to
 // attach DB env to each WorkloadSpec:
@@ -4573,7 +4046,11 @@ func TestStopDeployment_Undeploying_Returns400(t *testing.T) {
 
 // --- GetDeployment tests ---
 
-func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+// setupGetDeploymentTest builds a router with the DB-only GetDeployment (record)
+// endpoint. It no longer registers /runtime — that endpoint is DB-backed and
+// covered separately by TestGetDeploymentRuntime_ClusterIndependent — so no K8s
+// client is needed here.
+func setupGetDeploymentTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -4584,7 +4061,6 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 	deployStore := deploymentstore.NewStore(deployDB)
 	log := logger.New("error", "json")
 	cfg := &config.Config{}
-	k8sClient := newMockK8sClient(k8sHandler)
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -4592,7 +4068,6 @@ func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine,
 		c.Next()
 	})
 	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, deployStore, nil, nil, nil))
-	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, cfg, testK8sRegistry(k8sClient), deployStore, nil, k8scache.NoopCache{}))
 
 	return router, deployMock, accountMock
 }
@@ -4605,7 +4080,7 @@ func TestGetDeployment_Success(t *testing.T) {
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sListHandler(namespace, agentName, buildID))
+	router, deployMock, accountMock := setupGetDeploymentTest(t)
 
 	// deployStore.GetDeploymentByID
 	deployMock.ExpectQuery(`SELECT`).
@@ -4656,12 +4131,7 @@ func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	// K8s handler returns 404 for all requests (namespace does not exist)
-	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})
-
-	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sHandler)
+	router, deployMock, accountMock := setupGetDeploymentTest(t)
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace, "My Agent", `{}`, "active", now, nil))
@@ -4688,7 +4158,7 @@ func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
 }
 
 func TestGetDeployment_NotFound(t *testing.T) {
-	router, deployMock, _ := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	router, deployMock, _ := setupGetDeploymentTest(t)
 
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(emptyDeploymentByIDRows())
@@ -4702,7 +4172,12 @@ func TestGetDeployment_NotFound(t *testing.T) {
 	}
 }
 
-func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
+// TestGetDeploymentRuntime_ClusterIndependent verifies the runtime endpoint is
+// now DB-backed: it serves the controller-maintained snapshot without touching
+// the cluster, so a disabled/unreachable cluster returns 200 with the
+// last-observed runtime (not a 503, the old behavior). The cluster client is
+// intentionally nil here — the handler must never reach for it.
+func TestGetDeploymentRuntime_ClusterIndependent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	depID := deployid.New()
@@ -4719,28 +4194,6 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clusterDB, clusterMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	primary := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("primary cluster client should not be used when cluster_id is set")
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	reg := k8s.NewRegistryWithClusterStore(primary, clusterstore.New(clusterDB), logger.New("error", "json"))
-
-	clusterMock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
-		WithArgs(clusterID).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
-			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
-			"created_at", "updated_at",
-		}).AddRow(clusterID, "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
-			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
-			now, now))
 
 	accountStore := account.NewAccountStore(accountDB)
 	deployStore := deploymentstore.NewStore(deployDB)
@@ -4751,9 +4204,10 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, &config.Config{}, deployStore, nil, nil, nil))
-	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, &config.Config{}, reg, deployStore, nil, k8scache.NoopCache{}))
+	// nil registry / agent index: the handler is DB-only and must not use them.
+	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, &config.Config{}, deployStore))
 
+	// resolveDeployment: the deployment row + membership check.
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(deploymentByIDColumns).AddRow(
 			depID, acctID, nil, "my-agent", "build-1", namespace, "My Agent",
@@ -4764,26 +4218,59 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// The DB-only deployment record endpoint succeeds regardless of cluster
-	// state — that's the point of the split. The runtime endpoint is what
-	// returns 503 when the cluster is disabled.
+	// The persisted runtime snapshot the endpoint reads.
+	snap := deploymentstore.RuntimeSnapshot{
+		Ready:    1,
+		Replicas: 1,
+		Services: []deploymentstore.RuntimeService{
+			{Name: deployment.GenerateAgentResourceName("my-agent", "messaging"), Type: "ClusterIP"},
+		},
+		Workloads: []deploymentstore.RuntimeWorkload{{
+			Name: "my-agent-agent",
+			Kind: "Deployment",
+			Pods: []deploymentstore.RuntimePod{{
+				Name:  "my-agent-agent-0",
+				Phase: "Running",
+				Containers: []deploymentstore.RuntimeContainer{
+					{Name: "app", State: "Running", Ready: true},
+					{Name: "messaging", State: "Running", Ready: true},
+				},
+			}},
+		}},
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployMock.ExpectQuery(`SELECT snapshot, observed_at FROM deployment_runtime_status`).
+		WillReturnRows(sqlmock.NewRows([]string{"snapshot", "observed_at"}).AddRow(snapJSON, now))
+
 	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/runtime", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp struct {
-		Error string `json:"error"`
+		Runtime DeploymentRuntime `json:"runtime"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Error != "cluster disabled" {
-		t.Fatalf("expected error %q, got %q", "cluster disabled", resp.Error)
+	if resp.Runtime.Ready != 1 || resp.Runtime.Replicas != 1 {
+		t.Errorf("expected ready/replicas 1/1, got %d/%d", resp.Runtime.Ready, resp.Runtime.Replicas)
 	}
-	if err := clusterMock.ExpectationsWereMet(); err != nil {
+	if len(resp.Runtime.Workloads) != 1 || resp.Runtime.Workloads[0].PodName != "my-agent-agent-0" {
+		t.Errorf("expected one workload with the snapshot pod, got %+v", resp.Runtime.Workloads)
+	}
+	if !resp.Runtime.MessagingReachable {
+		t.Errorf("expected messaging_reachable true (Service present + sidecar ready)")
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -4796,7 +4283,7 @@ func TestGetDeployment_DisabledCluster_Returns503(t *testing.T) {
 // don't match the signature, source.build included.
 
 func TestGetDeployment_NotMember(t *testing.T) {
-	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	router, deployMock, accountMock := setupGetDeploymentTest(t)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()

@@ -9,7 +9,10 @@ not reflect whether pods actually start. The legacy reconcile loop that was mean
 to catch this is disabled and slated for deletion. This document proposes
 replacing the poll-and-guess model with an **event-driven controller**: K8s
 informers watch managed workloads, translate rollout signals into per-workload
-status, and drive the deployment lifecycle in near-real-time.
+status, and drive the deployment lifecycle in near-real-time. The controller
+also becomes the write side of a DB **read-model** — both `/status` and
+`/runtime` are served from persisted, controller-maintained tables instead of
+per-request K8s reads (see [Runtime Read-Model](#runtime-read-model--runtime-reads-the-db)).
 
 ## The Fan-out
 
@@ -296,6 +299,84 @@ graph LR
 Deleting it also removes the `deployment_resolved_keys` coupling that blocked
 re-enabling it.
 
+## Runtime Read-Model — `/runtime` reads the DB
+
+Phase 3 left `/runtime` as a live K8s read (per-container detail the aggregate
+`deployment_workload_status` table didn't hold). This phase closes that: the
+controller persists the *full* observed runtime — every workload, all pods, all
+containers, all services — as one JSONB document, and `/runtime` projects it
+instead of hitting the cluster. Same pattern as `/status`, extended to the last
+live endpoint.
+
+**Before vs after — where the read goes:**
+
+```mermaid
+graph TB
+  subgraph before["Before — live K8s read, per viewer, per poll"]
+    V1["viewer A poll"] --> R1["/runtime"]
+    V1b["viewer B poll"] --> R1
+    R1 -->|"list workloads + pods<br/>+ GET messaging Service"| K1["K8s API"]
+  end
+  subgraph after["After — DB read-model"]
+    EV["informer event"] --> C["controller sync"]
+    C -->|"build snapshot from cache"| DB[("deployment_runtime_status<br/>1 JSONB doc / deployment")]
+    V2["viewer A poll"] --> R2["/runtime"]
+    V2b["viewer B poll"] --> R2
+    R2 -->|"SELECT snapshot"| DB
+  end
+  style K1 fill:#fecaca,stroke:#dc2626
+  style DB fill:#bbf7d0,stroke:#16a34a
+```
+
+**Why one JSONB document, not normalized tables.** The runtime view is read
+whole and rendered whole — never queried by an inner field — so there is nothing
+to index on. A document matches the read shape, keeps the write a single atomic
+upsert, and stays generic: more pods, containers, or services are just more
+JSON, never a migration.
+
+```mermaid
+graph TD
+  S["RuntimeSnapshot<br/>ready · replicas"]
+  S --> SV["services[]<br/>name · type · component"]
+  S --> W["workloads[]<br/>name · kind · component<br/>status (Job/CronJob) · schedule"]
+  W --> P["pods[]<br/>name · phase · build_id · created_at"]
+  P --> CT["containers[]<br/>state · ready · restart_count<br/>reason · message"]
+```
+
+**Write path (controller) and read path (API):**
+
+```mermaid
+sequenceDiagram
+  participant K as K8s (informers)
+  participant C as Controller (astro-worker)
+  participant DB as deployment_runtime_status
+  participant API as /runtime (astro-server)
+  participant UI as client
+  K-->>C: pod / deploy / service / job event (coalesced per namespace)
+  C->>C: buildRuntimeSnapshot(ns) from listers
+  C->>C: hash, skip upsert when unchanged
+  C->>DB: UPSERT snapshot (empty clears the row)
+  Note over UI,API: later, independently
+  UI->>API: GET /deployments/:id/runtime
+  API->>DB: SELECT snapshot
+  API->>API: project to DeploymentRuntime<br/>representative pod (Running, then newest)<br/>messaging_reachable = Service present and sidecar Ready
+  API-->>UI: runtime (zero K8s calls)
+```
+
+**Consequences.** `/runtime` becomes cluster-independent: a disabled or
+unreachable cluster returns the last-observed snapshot (or an empty runtime the
+UI already renders as "loading"), where it used to return `503`. There is no
+live fallback — an unobserved deployment reads empty until the controller's
+first sync. This makes the controller the *sole* writer of the runtime view, so
+its HA (below) matters more.
+
+- **Adds a Services informer** to the controller (Services carry
+  `managed-by=astro-server`, so the same label-scoped factory sees them).
+- **Content-diffed writes** — a steady-state resync doesn't rewrite the row; an
+  empty snapshot clears it and evicts the diff-cache entry.
+- **Not moved:** `manual_ingestions` (still a namespace annotation, slated for
+  the DB) — carried in the shape, not yet populated.
+
 ## Phasing
 
 ```mermaid
@@ -303,14 +384,16 @@ graph LR
   P0["Phase 0<br/>Delete legacy reconcile worker<br/>+ dead resolved_keys coupling"]
   P1["Phase 1<br/>Controller skeleton<br/>informers + workqueue +<br/>deployment_workload_status<br/>(observe + persist only)"]
   P2["Phase 2<br/>Drive lifecycle<br/>deploying gate, active/failed<br/>from observed health,<br/>progressDeadlineSeconds"]
-  P3["Phase 3<br/>Read persisted status<br/>(/status; /runtime stays live)"]
+  P3["Phase 3<br/>Read persisted status<br/>(/status; /runtime still live)"]
   P4["Phase 4<br/>UX + taxonomy<br/>pod-reason enrichment,<br/>reason codes, client workaround removal<br/>(CLI --wait deferred)"]
-  P0 --> P1 --> P2 --> P3 --> P4
+  P5["Phase 5<br/>Runtime read-model<br/>persist full snapshot,<br/>/runtime reads the DB,<br/>Services informer"]
+  P0 --> P1 --> P2 --> P3 --> P4 --> P5
   style P0 fill:#fde68a,stroke:#d97706
   style P1 fill:#bfdbfe,stroke:#2563eb
   style P2 fill:#bbf7d0,stroke:#16a34a
   style P3 fill:#c7d2fe,stroke:#4f46e5
   style P4 fill:#e9d5ff,stroke:#9333ea
+  style P5 fill:#fbcfe8,stroke:#db2777
 ```
 
 - **Phase 0 — Remove legacy.** Delete `ReconcileWorker`, its registration, the
@@ -323,21 +406,31 @@ graph LR
   `progressDeadlineSeconds`; move billing to the real transition.
 - **Phase 3 — Read persisted status.** Switch API `/status` to trust the
   controller-maintained status instead of probing K8s per request. `/runtime`
-  stays live — it serves per-container detail the persisted table doesn't hold.
-  Orphan detection is dropped (orphaned-namespace cleanup is a separate concern);
-  stale-`pending`/`provisioning` recovery is cut for now.
+  stayed live here (per-container detail the aggregate table didn't hold) — later
+  superseded by Phase 5. Orphan detection is dropped (orphaned-namespace cleanup
+  is a separate concern); stale-`pending`/`provisioning` recovery is cut for now.
 - **Phase 4 — UX + taxonomy.** Pod-reason enrichment (ImagePullBackOff /
   CrashLoopBackOff / OOMKilled → specific `failed` reason, fast, before the
   progress deadline); reason codes threaded end-to-end; remove the client status
   workarounds (resume grace window + stuck-by-age heuristic). CLI `--wait`
   repoint deferred.
+- **Phase 5 — Runtime read-model.** Controller persists the full observed
+  runtime (workloads → pods → containers, plus services) as one JSONB document;
+  `/runtime` projects it instead of reading K8s per request. Adds a Services
+  informer and content-diffed writes; `/runtime` becomes cluster-independent (no
+  more `503` on a down cluster). `manual_ingestions` not yet moved off its
+  namespace annotation.
 
 ## Open Decisions
 
 - **HA of the controller.** Relies on `astro-worker` staying `replicas: 1`
   (single writer). If the worker ever scales out, wrap the controller in
   client-go leader election (a `Lease`). Recommend designing the entrypoint so
-  leader election can be added without restructuring.
+  leader election can be added without restructuring. **This matters more after
+  Phase 5:** the controller is now the sole writer of both `/status` and
+  `/runtime`, so a controller outage freezes the runtime view (it goes stale
+  silently rather than erroring) — leader election should land before scaling
+  the worker.
 - **Resync period.** The safety-net cadence for full re-derivation (e.g. 1–2m) —
   trades API-server relist cost against staleness bound.
 - **Deadline ownership.** Rely on K8s `progressDeadlineSeconds` for Deployments;
@@ -352,6 +445,12 @@ graph LR
 - New: controller package started from the worker entrypoint
   (`riverqueue/client.go` `New`, the workers-enabled path), one informer factory
   per `k8s.Registry` cluster.
-- `GetDeploymentStatus` / `GetDeploymentRuntime` (`handlers/deploy.go:2106,2026`)
-  — switch to reading persisted `deployment_workload_status`.
+- `GetDeploymentStatus` — reads persisted `deployment_workload_status`
+  (Phase 3). `GetDeploymentRuntime` — reads `deployment_runtime_status` and
+  projects the snapshot; no K8s client calls (Phase 5).
+- `internal/deploycontroller/runtime.go` — `buildRuntimeSnapshot` assembles the
+  snapshot from the informer caches; `controller.go` adds the Services informer
+  and content-diffed `persistRuntimeSnapshot`.
+- `deploymentstore/runtime_status.go` — `RuntimeSnapshot` types +
+  `UpsertRuntimeSnapshot` / `GetRuntimeSnapshot`.
 - `applier.go` / `spec_applier.go` — set `progressDeadlineSeconds` on Deployments.

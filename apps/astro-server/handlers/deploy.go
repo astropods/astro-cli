@@ -48,7 +48,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -1241,10 +1240,6 @@ type DeploymentStatus struct {
 	Reason       string `json:"reason"`
 	Details      string `json:"details"`
 	ErrorMessage string `json:"error_message,omitempty"`
-	// StatusChangedAt is when the deployment last changed status (RFC 3339).
-	// Lets the client measure real deploy age (how long it has been deploying)
-	// instead of timing from page load. Empty if the DB value is zero.
-	StatusChangedAt string `json:"status_changed_at,omitempty"`
 }
 
 // Stable reason codes — keep in sync with the client's DeploymentStatusReason
@@ -1258,11 +1253,13 @@ const (
 	StatusReasonReady        = "ready"        // DB active
 )
 
-// DeploymentRuntime is the K8s-sourced view — purely live state. Served by
-// GET /deployments/:id/runtime, keyed by workload name so the client can
-// stitch this onto DeploymentRecord.Workloads to render the detail page.
-// May return empty/zero fields if the cluster is briefly unreachable;
-// renderers must tolerate that without breaking the record-driven UI.
+// DeploymentRuntime is the observed-runtime view — replicas, pods, containers,
+// services. Served by GET /deployments/:id/runtime, keyed by workload name so
+// the client can stitch this onto DeploymentRecord.Workloads to render the
+// detail page. It is projected from the controller-maintained snapshot in
+// deployment_runtime_status (not a per-request K8s read); may be empty/zero
+// before the controller's first observation, and renderers must tolerate that
+// without breaking the record-driven UI.
 type DeploymentRuntime struct {
 	Ready    int32 `json:"ready"`    // observed ready replicas across the deployment
 	Replicas int32 `json:"replicas"` // observed total replicas (may differ from desired during scale events)
@@ -1270,7 +1267,8 @@ type DeploymentRuntime struct {
 	// (when it surfaces in the live pod view) the messaging sidecar container is
 	// Ready. It is NOT a bare Service-presence check — a crashed/wedged sidecar
 	// reads as unreachable so chat-readiness reflects the sidecar, not just the
-	// Service object. See messagingSidecarReadiness.
+	// Service object. Derived from the persisted runtime snapshot; see
+	// messagingReachableFromSnapshot.
 	MessagingReachable bool `json:"messaging_reachable"`
 	// ManualIngestions is currently sourced from a namespace annotation.
 	// See DeploymentRecord note — this field should move to the record once
@@ -2002,22 +2000,18 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 	}
 }
 
-// GetDeploymentRuntime returns the live K8s state for a single deployment —
-// replicas, pods, workloads, messaging Service existence. This is the
-// counterpart to GetDeployment (which is DB-only). Failure modes are
-// independent: K8s unreachable returns 503 here without affecting the
-// deployment record endpoint, and the UI can render the page from the
-// record alone while runtime is loading.
+// GetDeploymentRuntime returns the observed runtime state for a single
+// deployment — replicas, pods, containers, workloads, services. It reads the
+// controller-maintained snapshot in deployment_runtime_status rather than
+// hitting the K8s API per request, so it is cluster-independent: a disabled or
+// unreachable cluster returns the last-observed snapshot (or an empty runtime
+// the UI renders as "loading"), never a 503. The controller keeps the snapshot
+// current from its informer caches.
 // GET /api/v1/deployments/:id/runtime
-func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, cache k8scache.Cache) gin.HandlerFunc {
+func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		if !k8sRegistryReady(k8sReg) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
@@ -2027,55 +2021,18 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dbDep)
-		if !ok {
+		// Read the controller-maintained runtime snapshot instead of hitting the
+		// K8s API per request. The snapshot is cluster-independent: a disabled or
+		// briefly unreachable cluster returns the last-observed state (or an empty
+		// runtime, which the UI renders as "loading"), never a 503.
+		snap, _, err := deployStore.GetRuntimeSnapshot(dbDep.ID)
+		if err != nil {
+			log.Warn("GetRuntimeSnapshot failed", "deployment_id", dbDep.ID, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read runtime"})
 			return
 		}
 
-		// Reuse the existing enrichment pipeline; it already handles namespace-
-		// missing fallback, workload listing, and rolling-update build ID
-		// selection. We project the result down to DeploymentRuntime — the
-		// DB fields it also fills are returned by the record endpoint.
-		deps := enrichDeployment(c.Request.Context(), log, accountStore, k8sClient, deployStore, agentIdx, dbDep, listAstroDeployments, k8scache.NoopCache{}, "", 0, &k8sListOpts{})
-		picked := deps[0]
-		for _, dep := range deps {
-			if dep.BuildID == dbDep.BuildID {
-				picked = dep
-				break
-			}
-		}
-
-		// Messaging reachability — distinct from the spec-level "messaging is
-		// configured" flag on the record, which only tells you the sidecar is
-		// part of the intent. Two in-cluster signals, both required:
-		//   1. The Service object exists right now.
-		//   2. The messaging sidecar container is Ready (when it surfaces in the
-		//      live pod view). Service presence alone is too weak: the Service
-		//      can exist while the sidecar is crashed/wedged, which is exactly
-		//      the case that hangs the messaging proxy and 5xxs. Requiring the
-		//      sidecar container's pod readiness is the closest proxy for "it can
-		//      serve" without issuing our own (potentially hanging) HTTP probe.
-		messagingServiceName := deployment.GenerateAgentResourceName(dbDep.AgentName, "messaging")
-		_, svcErr := k8sClient.Clientset().CoreV1().Services(dbDep.Namespace).Get(
-			c.Request.Context(), messagingServiceName, metav1.GetOptions{},
-		)
-		messagingReachable := svcErr == nil
-		if found, ready := messagingSidecarReadiness(picked.Workloads); found {
-			messagingReachable = messagingReachable && ready
-		}
-		if override := cfg.Deployment.MessagingURLOverride; override != "" {
-			messagingReachable = true
-		}
-
-		runtime := DeploymentRuntime{
-			Replicas:           picked.Replicas,
-			Ready:              picked.Ready,
-			MessagingReachable: messagingReachable,
-			ManualIngestions:   picked.ManualIngestions,
-			Workloads:          workloadRuntimesFromDetails(picked.Workloads),
-		}
-
-		c.JSON(http.StatusOK, gin.H{"runtime": runtime})
+		c.JSON(http.StatusOK, gin.H{"runtime": runtimeFromSnapshot(snap, dbDep, cfg)})
 	}
 }
 
@@ -2105,9 +2062,6 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		status := DeploymentStatus{}
 		if dbDep.ErrorMessage != nil {
 			status.ErrorMessage = *dbDep.ErrorMessage
-		}
-		if !dbDep.StatusChangedAt.IsZero() {
-			status.StatusChangedAt = dbDep.StatusChangedAt.UTC().Format(time.RFC3339)
 		}
 
 		// DB status precedence — these statuses are authoritative regardless of
@@ -2169,42 +2123,111 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 // statuses (buildContainerStatuses merges InitContainerStatuses).
 const messagingContainerName = "messaging"
 
-// messagingSidecarReadiness reports whether the messaging sidecar container is
-// present in the enriched workloads and, if so, whether it is Ready. found is
-// false when no messaging container surfaced (older snapshots, pod not yet
-// scheduled, no sidecar) — callers should fall back to Service presence then,
-// rather than treating "not found" as "not ready" and regressing.
-func messagingSidecarReadiness(workloads []WorkloadDetail) (found, ready bool) {
-	for _, w := range workloads {
-		for _, ctr := range w.Containers {
-			if ctr.Name == messagingContainerName {
-				return true, ctr.Ready
+// runtimeFromSnapshot projects the controller's persisted RuntimeSnapshot into
+// the DeploymentRuntime response. A nil snapshot (the controller hasn't observed
+// the deployment yet) yields an empty runtime — the UI renders that as "loading"
+// and the next poll picks it up once the controller writes the snapshot.
+func runtimeFromSnapshot(snap *deploymentstore.RuntimeSnapshot, dbDep *deploymentstore.Deployment, cfg *config.Config) DeploymentRuntime {
+	if snap == nil {
+		return DeploymentRuntime{}
+	}
+	rt := DeploymentRuntime{
+		Ready:              snap.Ready,
+		Replicas:           snap.Replicas,
+		ManualIngestions:   snap.ManualIngestions,
+		Workloads:          workloadRuntimesFromSnapshot(snap.Workloads),
+		MessagingReachable: messagingReachableFromSnapshot(snap, dbDep.AgentName),
+	}
+	if cfg.Deployment.MessagingURLOverride != "" {
+		rt.MessagingReachable = true
+	}
+	return rt
+}
+
+// messagingReachableFromSnapshot mirrors the old live check against the
+// snapshot: the messaging Service must exist AND, when the messaging sidecar
+// container surfaces in the pod view, it must be Ready. A present Service with
+// no observed sidecar reports reachable — the same as the live path's
+// "not found → fall back to Service presence" behavior.
+func messagingReachableFromSnapshot(snap *deploymentstore.RuntimeSnapshot, agentName string) bool {
+	svcName := deployment.GenerateAgentResourceName(agentName, "messaging")
+	serviceExists := false
+	for _, s := range snap.Services {
+		if s.Name == svcName {
+			serviceExists = true
+			break
+		}
+	}
+	if !serviceExists {
+		return false
+	}
+	for _, w := range snap.Workloads {
+		for _, p := range w.Pods {
+			for _, ctr := range p.Containers {
+				if ctr.Name == messagingContainerName {
+					return ctr.Ready // first observed sidecar decides
+				}
 			}
 		}
 	}
-	return false, false
+	return true
 }
 
-// workloadRuntimesFromDetails projects the K8s-enriched WorkloadDetail
-// records (which still carry intent fields filled in by listAstroDeployments)
-// down to the slim live-state-only WorkloadRuntime shape. The client stitches
-// these by Name onto the per-workload entries in DeploymentRecord.Workloads.
-func workloadRuntimesFromDetails(details []WorkloadDetail) []WorkloadRuntime {
-	if len(details) == 0 {
+// workloadRuntimesFromSnapshot projects each snapshot workload to the slim
+// live-state WorkloadRuntime the client stitches onto the record by name. It
+// selects one representative pod per workload (the same rule the live path used:
+// prefer a Running pod, then the newest) for the pod-detail fields.
+func workloadRuntimesFromSnapshot(workloads []deploymentstore.RuntimeWorkload) []WorkloadRuntime {
+	if len(workloads) == 0 {
 		return nil
 	}
-	out := make([]WorkloadRuntime, 0, len(details))
-	for _, d := range details {
-		out = append(out, WorkloadRuntime{
-			Name:        d.Name,
-			Age:         d.Age,
-			Phase:       d.Phase,
-			PodName:     d.PodName,
-			Containers:  d.Containers,
-			Status:      d.Status,
-			StartTime:   d.StartTime,
-			Completions: d.Completions,
-			Runs:        d.Runs,
+	out := make([]WorkloadRuntime, 0, len(workloads))
+	for _, w := range workloads {
+		wr := WorkloadRuntime{Name: w.Name, Status: w.Status}
+		if !w.CreatedAt.IsZero() {
+			wr.Age = formatAge(w.CreatedAt)
+		}
+		if best := representativePod(w.Pods); best != nil {
+			wr.PodName = best.Name
+			wr.Phase = best.Phase
+			wr.Containers = containerStatusesFromSnapshot(best.Containers)
+		}
+		out = append(out, wr)
+	}
+	return out
+}
+
+// representativePod picks the pod that best represents a workload's live state:
+// prefer a Running pod, and among pods of the same phase prefer the newest.
+func representativePod(pods []deploymentstore.RuntimePod) *deploymentstore.RuntimePod {
+	var best *deploymentstore.RuntimePod
+	for i := range pods {
+		p := &pods[i]
+		switch {
+		case best == nil:
+			best = p
+		case p.Phase == string(corev1.PodRunning) && best.Phase != string(corev1.PodRunning):
+			best = p
+		case p.Phase == best.Phase && p.CreatedAt.After(best.CreatedAt):
+			best = p
+		}
+	}
+	return best
+}
+
+func containerStatusesFromSnapshot(cs []deploymentstore.RuntimeContainer) []ContainerStatus {
+	if len(cs) == 0 {
+		return nil
+	}
+	out := make([]ContainerStatus, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, ContainerStatus{
+			Name:         c.Name,
+			State:        c.State,
+			Ready:        c.Ready,
+			RestartCount: c.RestartCount,
+			Reason:       c.Reason,
+			Message:      c.Message,
 		})
 	}
 	return out
@@ -2388,542 +2411,6 @@ func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.Deployment) 
 	return ad
 }
 
-// enrichDeployment fetches live K8s state for a single DB deployment record and
-// returns the resulting AgentDeployment entries (one per workload in the namespace).
-// Falls back to a DB-only entry if the namespace is missing or K8s calls fail.
-// When cache and keyPrefix are provided, a cache hit skips all K8s calls entirely.
-type k8sListOpts struct{}
-
-// k8sListFn is the function signature for listAstroDeployments and related K8s list functions.
-type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string, opts *k8sListOpts) ([]AgentDeployment, error)
-
-func enrichDeployment(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, v deploymentstore.LineageValidator, dbDep *deploymentstore.Deployment, listFn k8sListFn, cache k8scache.Cache, keyPrefix string, cacheTTL time.Duration, listOpts *k8sListOpts) []AgentDeployment {
-	// Source account name resolved once per dbDep so the K8s and DB-only paths
-	// return identical SourceAccount values. Tuple validation (when wired)
-	// filters impossible lineage tuples before attribution.
-	sourceAccount := resolveSourceAccountName(log, accountStore, v, dbDep)
-
-	applyDBFields := func(deps []AgentDeployment, createdAt time.Time) {
-		for i := range deps {
-			deps[i].ID = dbDep.ID
-			deps[i].Name = dbDep.AgentName
-			deps[i].DisplayName = dbDep.DisplayName
-			deps[i].SourceAccount = sourceAccount
-			deps[i].CreatedAt = createdAt.Format(time.RFC3339)
-			if dbDep.AvatarColors != nil {
-				deps[i].AvatarColors = *dbDep.AvatarColors
-			}
-			if dbDep.ErrorMessage != nil && *dbDep.ErrorMessage != "" {
-				deps[i].ErrorMessage = *dbDep.ErrorMessage
-			}
-			// DB status overrides whatever the K8s replica scan inferred.
-			// failed/undeploying/pending are authoritative — without this, a
-			// failed deployment with 0/N ready replicas reads as "deploying"
-			// indefinitely (the original 35-minute stuck bug).
-			switch dbDep.Status {
-			case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
-				deps[i].Status = "pending"
-			case deploymentstore.StatusUndeploying:
-				deps[i].Status = "undeploying"
-			case deploymentstore.StatusFailed:
-				deps[i].Status = "error"
-			}
-		}
-	}
-
-	// Check cache before any DB or K8s calls. On a hit, use dbDep.DeployedAt for
-	// CreatedAt to avoid the GetDeploymentFirstEventAt round-trip.
-	cacheKey := keyPrefix + dbDep.Namespace
-	if data, ok := cache.Get(ctx, cacheKey); ok {
-		var deps []AgentDeployment
-		if err := json.Unmarshal(data, &deps); err == nil && len(deps) > 0 {
-			applyDBFields(deps, dbDep.DeployedAt)
-			return deps
-		}
-	}
-
-	// Cache miss: fetch firstSeenAt from DB for accurate CreatedAt.
-	firstSeenAt := dbDep.DeployedAt
-	if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
-		log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
-	} else if firstEventAt != nil {
-		firstSeenAt = *firstEventAt
-	}
-
-	dbOnly := func() []AgentDeployment {
-		entry := agentDeploymentFromDB(log, dbDep)
-		entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
-		entry.SourceAccount = sourceAccount
-		return []AgentDeployment{entry}
-	}
-
-	ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(ctx, dbDep.Namespace, metav1.GetOptions{})
-	if nsErr != nil || ns.DeletionTimestamp != nil {
-		return dbOnly()
-	}
-
-	manualIngestions := parseManualIngestions(ns.Annotations)
-	deps, k8sErr := listFn(ctx, k8sClient, dbDep.Namespace, manualIngestions, listOpts)
-	if k8sErr != nil || len(deps) == 0 {
-		return dbOnly()
-	}
-
-	if data, err := json.Marshal(deps); err == nil {
-		_ = cache.Set(ctx, cacheKey, data, cacheTTL)
-	}
-
-	applyDBFields(deps, firstSeenAt)
-	return deps
-}
-
-// parseManualIngestions reads the "astro.dev/manual-ingestions" annotation from a namespace.
-func parseManualIngestions(annotations map[string]string) []string {
-	val := annotations["astro.dev/manual-ingestions"]
-	if val == "" {
-		return nil
-	}
-	return strings.Split(val, ",")
-}
-
-func deploymentReadinessStatus(replicas, readyReplicas int32) string {
-	status := "Running"
-	if readyReplicas < replicas {
-		status = "Pending"
-	}
-	if replicas == 0 {
-		status = "Stopped"
-	}
-	return status
-}
-
-// listAstroDeployments lists all deployments managed by astro in a namespace
-func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string, listOpts *k8sListOpts) ([]AgentDeployment, error) {
-	clientset := k8sClient.Clientset()
-
-	// List deployments with astro label selector
-	labelSelector := "app.kubernetes.io/managed-by=astro-server"
-	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list deployments: %w", err)
-	}
-
-	// List StatefulSets
-	statefulSetList, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
-	}
-
-	// List ingresses for the namespace to get external URLs
-	ingressList, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		// Ingress listing failure is not critical, log and continue
-		ingressList = nil
-	}
-
-	// List pods for the namespace (needed for container runtime status)
-	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	// Build maps of URLs from ingresses — both per-agent and per-workload (component).
-	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agent:version"
-	workloadURLs := make(map[string][]ServiceEndpointInfo)      // key: "agent:version:component"
-	if ingressList != nil {
-		for i := range ingressList.Items {
-			ing := &ingressList.Items[i]
-			agentKey := ing.Labels[deployment.LabelKeyAgent]
-			version := ing.Labels["app.kubernetes.io/version"]
-			component := ing.Labels["app.kubernetes.io/component"]
-
-			if agentKey == "" || len(ing.Spec.Rules) == 0 {
-				continue
-			}
-			for _, rule := range ing.Spec.Rules {
-				if rule.Host == "" {
-					continue
-				}
-				ep := ServiceEndpointInfo{
-					Name: component,
-					URL:  fmt.Sprintf("https://%s", rule.Host),
-					Type: component,
-				}
-				if listOpts != nil {
-					ep.Ready, ep.Message = k8s.EvaluateEndpointReadiness(ing, &k8s.EndpointReadinessOpts{})
-				}
-				agentKey := agentKey + ":" + version
-				agentExternalURLs[agentKey] = append(agentExternalURLs[agentKey], ep)
-				wlKey := agentKey + ":" + component
-				workloadURLs[wlKey] = append(workloadURLs[wlKey], ep)
-			}
-		}
-	}
-
-	// Group deployments by agent name
-	agentDeployments := make(map[string]*AgentDeployment)
-	agentStatusFromPrimary := make(map[string]bool)
-
-	for _, dep := range deploymentList.Items {
-		agentKey := dep.Labels[deployment.LabelKeyAgent]
-		version := dep.Labels["app.kubernetes.io/version"]
-		component := dep.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:          version,
-				Namespace:        namespace,
-				Status:           deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas),
-				Replicas:         dep.Status.Replicas,
-				Ready:            dep.Status.ReadyReplicas,
-				CreatedAt:        dep.CreationTimestamp.Format(time.RFC3339),
-				Components:       []string{},
-				ManualIngestions: manualIngestions,
-			}
-			if urls, ok := agentExternalURLs[key]; ok {
-				info.ExternalURLs = urls
-			}
-			agentDeployments[key] = info
-		}
-
-		// "agent" is the source of truth for deployment readiness. Other components
-		// (collector, ingestion, etc.) can have independent readiness without blocking
-		// the top-level deployment status.
-		isPrimary := component == "agent" || component == ""
-		if isPrimary || !agentStatusFromPrimary[key] {
-			info.Status = deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas)
-			info.Replicas = dep.Status.Replicas
-			info.Ready = dep.Status.ReadyReplicas
-			info.CreatedAt = dep.CreationTimestamp.Format(time.RFC3339)
-			if isPrimary {
-				agentStatusFromPrimary[key] = true
-			}
-		}
-
-		if component != "" {
-			info.Components = append(info.Components, component)
-		}
-
-		// Skip workloads scaled to zero — no pods to show
-		if dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
-			continue
-		}
-
-		wl := WorkloadDetail{
-			Name:       dep.Name,
-			Kind:       "Deployment",
-			Component:  component,
-			Age:        formatAge(dep.CreationTimestamp.Time),
-			Containers: containersFromSpec(dep.Spec.Template.Spec),
-		}
-		if urls, ok := workloadURLs[key+":"+component]; ok {
-			wl.URLs = urls
-		}
-		info.Workloads = append(info.Workloads, wl)
-	}
-
-	for _, sts := range statefulSetList.Items {
-		agentKey := sts.Labels[deployment.LabelKeyAgent]
-		version := sts.Labels["app.kubernetes.io/version"]
-		component := sts.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:          version,
-				Namespace:        namespace,
-				Status:           deploymentReadinessStatus(sts.Status.Replicas, sts.Status.ReadyReplicas),
-				Replicas:         sts.Status.Replicas,
-				Ready:            sts.Status.ReadyReplicas,
-				CreatedAt:        sts.CreationTimestamp.Format(time.RFC3339),
-				Components:       []string{},
-				ManualIngestions: manualIngestions,
-			}
-			if urls, ok := agentExternalURLs[key]; ok {
-				info.ExternalURLs = urls
-			}
-			agentDeployments[key] = info
-		}
-
-		if component != "" {
-			info.Components = append(info.Components, component)
-		}
-
-		// Skip workloads scaled to zero — no pods to show
-		if sts.Spec.Replicas != nil && *sts.Spec.Replicas == 0 {
-			continue
-		}
-
-		wl := WorkloadDetail{
-			Name:       sts.Name,
-			Kind:       "StatefulSet",
-			Component:  component,
-			Age:        formatAge(sts.CreationTimestamp.Time),
-			Containers: containersFromSpec(sts.Spec.Template.Spec),
-		}
-		if urls, ok := workloadURLs[key+":"+component]; ok {
-			wl.URLs = urls
-		}
-		info.Workloads = append(info.Workloads, wl)
-	}
-
-	// List CronJobs first so we can route CronJob-owned Jobs into the
-	// matching Workload's Runs slice in the loop below.
-	cronJobList, err := clientset.BatchV1().CronJobs(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		cronJobList = &batchv1.CronJobList{} // non-critical, continue without cronjobs
-	}
-
-	// cronWorkloadIdx points from a CronJob's K8s name to its Workload entry,
-	// so child Jobs can append themselves to Runs[] without re-scanning.
-	type cronWorkloadRef struct {
-		info *AgentDeployment
-		idx  int
-	}
-	cronWorkloadIdx := make(map[string]cronWorkloadRef)
-
-	for _, cj := range cronJobList.Items {
-		agentKey := cj.Labels[deployment.LabelKeyAgent]
-		version := cj.Labels["app.kubernetes.io/version"]
-		component := cj.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:          version,
-				Namespace:        namespace,
-				Status:           "Running",
-				CreatedAt:        cj.CreationTimestamp.Format(time.RFC3339),
-				Components:       []string{},
-				ManualIngestions: manualIngestions,
-			}
-			agentDeployments[key] = info
-		}
-
-		wl := WorkloadDetail{
-			Name:       cj.Name,
-			Kind:       "CronJob",
-			Component:  component,
-			Age:        formatAge(cj.CreationTimestamp.Time),
-			Status:     cronJobStatus(&cj),
-			Schedule:   cj.Spec.Schedule,
-			Containers: containersFromSpec(cj.Spec.JobTemplate.Spec.Template.Spec),
-		}
-		if cj.Status.LastScheduleTime != nil {
-			wl.StartTime = cj.Status.LastScheduleTime.Format(time.RFC3339)
-		}
-		info.Workloads = append(info.Workloads, wl)
-		cronWorkloadIdx[cj.Name] = cronWorkloadRef{info: info, idx: len(info.Workloads) - 1}
-	}
-
-	// List Jobs and route each one based on ownerReferences:
-	//   - owned by a CronJob → append as a JobDetail to that CronJob's Runs[]
-	//   - standalone (startup ingestion) → create its own Kind="Job" Workload
-	jobList, err := clientset.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		jobList = &batchv1.JobList{} // non-critical, continue without jobs
-	}
-
-	for _, job := range jobList.Items {
-		agentKey := job.Labels[deployment.LabelKeyAgent]
-		version := job.Labels["app.kubernetes.io/version"]
-		component := job.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-
-		desired := int32(1)
-		if job.Spec.Completions != nil {
-			desired = *job.Spec.Completions
-		}
-		runDetail := JobDetail{
-			Name:        job.Name,
-			Component:   component,
-			Age:         formatAge(job.CreationTimestamp.Time),
-			Completions: fmt.Sprintf("%d/%d", job.Status.Succeeded, desired),
-			Status:      jobStatus(&job),
-		}
-		if job.Status.StartTime != nil {
-			runDetail.StartTime = job.Status.StartTime.Format(time.RFC3339)
-		}
-
-		// CronJob-owned Job: attach as a Run to the parent Workload.
-		if parent := cronJobOwner(job.OwnerReferences); parent != "" {
-			if ref, ok := cronWorkloadIdx[parent]; ok {
-				ref.info.Workloads[ref.idx].Runs = append(ref.info.Workloads[ref.idx].Runs, runDetail)
-				continue
-			}
-			// Parent CronJob wasn't listed (e.g. label-mismatched or pruned).
-			// Fall through and surface the orphan Job as its own Workload so
-			// it's still visible.
-		}
-
-		// Standalone Job → its own Workload row.
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
-			info = &AgentDeployment{
-				BuildID:          version,
-				Namespace:        namespace,
-				Status:           "Running",
-				CreatedAt:        job.CreationTimestamp.Format(time.RFC3339),
-				Components:       []string{},
-				ManualIngestions: manualIngestions,
-			}
-			agentDeployments[key] = info
-		}
-		info.Workloads = append(info.Workloads, WorkloadDetail{
-			Name:        job.Name,
-			Kind:        "Job",
-			Component:   component,
-			Age:         runDetail.Age,
-			Status:      runDetail.Status,
-			StartTime:   runDetail.StartTime,
-			Completions: runDetail.Completions,
-			Containers:  containersFromSpec(job.Spec.Template.Spec),
-		})
-	}
-
-	// Index pods by agent key + component for matching to workloads.
-	// Version is intentionally excluded from the key so that pods with stale version
-	// labels (e.g. OnDelete StatefulSets not yet recycled after a redeploy) are still matched.
-	type podKey struct{ agent, component string }
-	bestPod := make(map[podKey]corev1.Pod)
-	for _, pod := range podList.Items {
-		agentKey := pod.Labels[deployment.LabelKeyAgent]
-		component := pod.Labels["app.kubernetes.io/component"]
-		if agentKey == "" {
-			continue
-		}
-		pk := podKey{agentKey, component}
-		existing, ok := bestPod[pk]
-		if !ok {
-			bestPod[pk] = pod
-			continue
-		}
-		// Prefer Running pods; among same phase prefer newest
-		if pod.Status.Phase == corev1.PodRunning && existing.Status.Phase != corev1.PodRunning {
-			bestPod[pk] = pod
-		} else if pod.Status.Phase == existing.Status.Phase && pod.CreationTimestamp.After(existing.CreationTimestamp.Time) {
-			bestPod[pk] = pod
-		}
-	}
-
-	// Attach container statuses from best pod to each workload
-	for key, info := range agentDeployments {
-		parts := strings.SplitN(key, ":", 2)
-		agentKey := parts[0]
-		for i := range info.Workloads {
-			wl := &info.Workloads[i]
-			pod, ok := bestPod[podKey{agentKey, wl.Component}]
-			if !ok {
-				continue
-			}
-			wl.Containers = enrichContainerStatuses(wl.Containers, buildContainerStatuses(pod))
-			wl.PodName = pod.Name
-			wl.Phase = string(pod.Status.Phase)
-		}
-	}
-
-	// Convert map to slice
-	result := make([]AgentDeployment, 0, len(agentDeployments))
-	for _, info := range agentDeployments {
-		result = append(result, *info)
-	}
-
-	return result, nil
-}
-
-// containersFromSpec returns a ContainerStatus list with only names populated from a pod template spec.
-// Runtime fields (State, Ready, RestartCount) are left zero and enriched later if a pod is found.
-func containersFromSpec(podSpec corev1.PodSpec) []ContainerStatus {
-	out := make([]ContainerStatus, len(podSpec.Containers)+len(podSpec.InitContainers))
-	for i, c := range podSpec.Containers {
-		out[i] = ContainerStatus{Name: c.Name}
-	}
-	for i, c := range podSpec.InitContainers {
-		out[len(podSpec.Containers)+i] = ContainerStatus{Name: c.Name}
-	}
-	return out
-}
-
-// enrichContainerStatuses merges runtime status from a pod into the spec-seeded container list.
-// For each container in base, if a matching runtime status exists it updates the runtime fields
-// (State, Ready, RestartCount, Reason, Message, Env) in-place. Containers present in base but
-// absent from runtime are left with zero runtime fields. Containers present only in runtime are
-// ignored — the spec is the source of truth for which containers exist.
-func enrichContainerStatuses(specContainers, podContainers []ContainerStatus) []ContainerStatus {
-	podStatusByName := make(map[string]ContainerStatus, len(podContainers))
-	for _, podContainer := range podContainers {
-		podStatusByName[podContainer.Name] = podContainer
-	}
-	result := make([]ContainerStatus, len(specContainers))
-	for i, specContainer := range specContainers {
-		if podStatus, ok := podStatusByName[specContainer.Name]; ok {
-			result[i] = podStatus
-		} else {
-			result[i] = specContainer
-		}
-	}
-	return result
-}
-
-// buildContainerStatuses extracts container statuses (state, ready, restart
-// counts) from a K8s pod. Env vars are NOT carried in the runtime view —
-// they live on WorkloadSpec.Env (the record endpoint), keyed by role.
-// Reading env from the pod required a Secret/ConfigMap GET per envFrom every
-// poll and could lag the deployed spec during a rolling update.
-func buildContainerStatuses(pod corev1.Pod) []ContainerStatus {
-	var containers []ContainerStatus
-	for _, cs := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
-		container := ContainerStatus{
-			Name:         cs.Name,
-			Ready:        cs.Ready,
-			RestartCount: cs.RestartCount,
-		}
-		switch {
-		case cs.State.Running != nil:
-			container.State = "Running"
-		case cs.State.Waiting != nil:
-			container.State = "Waiting"
-			container.Reason = cs.State.Waiting.Reason
-			container.Message = cs.State.Waiting.Message
-		case cs.State.Terminated != nil:
-			container.State = "Terminated"
-			container.Reason = cs.State.Terminated.Reason
-			container.Message = cs.State.Terminated.Message
-		default:
-			container.State = "Unknown"
-		}
-		containers = append(containers, container)
-	}
-	return containers
-}
-
 // formatAge returns a human-readable age string
 func formatAge(t time.Time) string {
 	d := time.Since(t)
@@ -2937,48 +2424,6 @@ func formatAge(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-}
-
-// jobStatus derives a human-readable status from a K8s Job's conditions and counters.
-func jobStatus(job *batchv1.Job) string {
-	for _, c := range job.Status.Conditions {
-		if c.Type == batchv1.JobComplete && c.Status == corev1.ConditionTrue {
-			return "Succeeded"
-		}
-		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
-			return "Failed"
-		}
-	}
-	if job.Status.Active > 0 {
-		return "Running"
-	}
-	return "Pending"
-}
-
-// cronJobStatus reports Suspended when explicitly suspended, Active when at
-// least one child Job is currently running, and Idle otherwise (scheduled but
-// nothing in-flight). This is distinct from jobStatus's vocabulary because a
-// CronJob has no "Succeeded"/"Failed" terminal state — its children do.
-func cronJobStatus(cj *batchv1.CronJob) string {
-	if cj.Spec.Suspend != nil && *cj.Spec.Suspend {
-		return "Suspended"
-	}
-	if len(cj.Status.Active) > 0 {
-		return "Active"
-	}
-	return "Idle"
-}
-
-// cronJobOwner returns the name of the CronJob that owns a Job, or "" if the
-// Job is standalone. K8s sets a single batch/v1 CronJob ownerRef on every
-// child Job, so we don't need to walk the chain.
-func cronJobOwner(refs []metav1.OwnerReference) string {
-	for _, r := range refs {
-		if r.Kind == "CronJob" {
-			return r.Name
-		}
-	}
-	return ""
 }
 
 // RestartDeployment triggers a rolling restart of all Deployments and StatefulSets for an agent

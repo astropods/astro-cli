@@ -39,6 +39,12 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
   const transitioning = serverTransitioning || intent !== null;
   const busy = stopMutation.isPending || wakeupMutation.isPending || transitioning;
   const checked = intent === "resuming" ? true : intent === "pausing" ? false : !paused;
+  // A failed deploy is neither active nor paused: its record status isn't
+  // "stopped" (so `checked` reads true), but the live status is "error". Without
+  // this the toggle would render a healthy green "Active" for a broken agent.
+  // Suppressed mid-intent so an optimistic pause/resume isn't masked by a stale
+  // error from the previous state.
+  const errored = liveStatus === "error" && intent === null;
 
   function handleToggle(next: boolean) {
     if (busy) return;
@@ -53,13 +59,17 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
 
   const label = transitioning
     ? (checked ? "Deploying" : "Pausing")
-    : checked ? "Active" : "Paused";
+    : errored
+      ? "Error"
+      : checked ? "Active" : "Paused";
 
   const accentClass = transitioning && checked
     ? "text-yellow-700 dark:text-yellow-400"
-    : checked
-      ? "text-green-700 dark:text-green-400"
-      : "text-stone-600 dark:text-stone-400";
+    : errored
+      ? "text-red-700 dark:text-red-400"
+      : checked
+        ? "text-green-700 dark:text-green-400"
+        : "text-stone-600 dark:text-stone-400";
 
   return (
     <div data-testid="agent-status-toggle" className="flex items-center gap-2.5">
@@ -70,9 +80,11 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
           <span
             className={cn(
               "size-2 shrink-0 rounded-full",
-              checked
-                ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
-                : "bg-stone-500",
+              errored
+                ? "bg-red-600 dark:bg-red-400"
+                : checked
+                  ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
+                  : "bg-stone-500 dark:bg-stone-400",
             )}
           />
         )}

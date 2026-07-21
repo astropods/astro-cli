@@ -382,6 +382,21 @@ CREATE TABLE public.deployment_workload_status (
 
 CREATE INDEX idx_deployment_workload_status_deployment ON public.deployment_workload_status(deployment_id);
 
+-- deployment_runtime_status is the persisted, live K8s runtime snapshot of a
+-- deployment, written by the event-driven deployment controller (astro-worker)
+-- from its informer caches. It is the read model behind GET /deployments/:id/
+-- runtime: the API deserializes this document instead of hitting the K8s API
+-- per request. Stored as one JSONB document per deployment (read whole, rendered
+-- whole — never queried by inner field), so more pods, containers, or services
+-- are just more JSON, never a schema change. One row per deployment.
+CREATE TABLE public.deployment_runtime_status (
+    deployment_id varchar(11)  NOT NULL,
+    snapshot      jsonb        NOT NULL,
+    observed_at   timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_runtime_status_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT deployment_runtime_status_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.deployment_events (
     id bigserial NOT NULL,
     deployment_id varchar(11) NOT NULL,

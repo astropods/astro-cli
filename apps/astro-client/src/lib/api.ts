@@ -622,8 +622,8 @@ export interface EnvVar {
   is_secret?: boolean;
 }
 
-// ContainerStatus is the live K8s state for a single container — no env.
-// Env is apply-time intent and lives on WorkloadSpec.env, keyed by role.
+// ContainerStatus is the observed runtime state for a single container — no
+// env. Env is apply-time intent and lives on WorkloadSpec.env, keyed by role.
 export interface ContainerStatus {
   name: string;
   state: string;
@@ -639,8 +639,8 @@ export interface ContainerStatus {
 // PodDetailPanel) consume this shape; the join lives at the page boundary.
 //
 // Fields are typed as optional where they only come from one side of the
-// join, so a runtime-less render (cluster unreachable, loading) still
-// produces a valid object containing just the spec.
+// join, so a runtime-less render (loading, or before the controller's first
+// observation) still produces a valid object containing just the spec.
 export interface WorkloadDetail {
   // Intent (WorkloadSpec):
   name: string;
@@ -693,8 +693,9 @@ export interface WorkloadSpec {
   env?: Record<string, EnvVar[]>;
 }
 
-// WorkloadRuntime is the K8s-sourced live state for a single workload,
-// keyed by Name to stitch onto the corresponding WorkloadSpec on the record.
+// WorkloadRuntime is the observed runtime state for a single workload
+// (projected from the controller-maintained snapshot), keyed by Name to stitch
+// onto the corresponding WorkloadSpec on the record.
 export interface WorkloadRuntime {
   name: string;
   age?: string;
@@ -759,8 +760,9 @@ export interface AgentDeployment {
   components: string[];
   external_urls?: ServiceEndpointInfo[];
   // A messaging sidecar is part of the deployment spec. Distinct from
-  // DeploymentRuntime.messaging_reachable, which is the live in-cluster
-  // Service existence probe.
+  // DeploymentRuntime.messaging_reachable, which is the observed reachability
+  // (messaging Service present AND sidecar container ready) from the runtime
+  // snapshot.
   messaging_configured?: boolean;
   workloads?: WorkloadSpec[];
 }
@@ -783,31 +785,28 @@ export type DeploymentStatusReason =
   | "undeploying"
   | "failed"
   | "provisioning"
-  | "ready"
-  | "ready_lag"
-  | "cluster_unreachable";
+  | "ready";
 
 // DeploymentStatus is the body of GET /deployments/:id/status (no envelope).
 // Mirrors handlers.DeploymentStatus on the server. Live replica/ready counts
 // and per-workload state live on DeploymentRuntime; this stays narrow.
 //
-// `details` is a human-readable sentence ("3 of 4 replicas ready", "Cluster
-// unreachable; reporting active from spec") suitable for tooltips. `reason`
-// is the machine-readable companion.
+// `details` is a human-readable sentence ("3 of 4 workloads ready", "Pods are
+// being provisioned") suitable for tooltips. `reason` is the machine-readable
+// companion.
 export interface DeploymentStatus {
   value: DeploymentStatusValue;
   reason: DeploymentStatusReason;
   details: string;
   error_message?: string;
-  // When the deployment last changed status (RFC 3339). Lets the client measure
-  // real deploy age (e.g. how long it has been "deploying") rather than timing
-  // from page load. Absent on older servers.
-  status_changed_at?: string;
 }
 
-// DeploymentRuntime is the K8s-sourced live view (GET /deployments/:id/runtime).
-// Mirrors handlers.DeploymentRuntime on the server. Frontend stitches
-// `workloads` onto AgentDeployment.workloads by `name`.
+// DeploymentRuntime is the observed-runtime view (GET /deployments/:id/runtime).
+// Mirrors handlers.DeploymentRuntime on the server, which serves it from the
+// controller-maintained snapshot (deployment_runtime_status) rather than a
+// per-request K8s read — so it's cluster-independent and never 503s; a
+// not-yet-observed deployment reads empty. Frontend stitches `workloads` onto
+// AgentDeployment.workloads by `name`.
 export interface DeploymentRuntime {
   ready: number;
   replicas: number;

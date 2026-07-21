@@ -76,7 +76,7 @@ export function withLatestBuildId(
  * - error: deployment is in an error state.
  * - starting: deploying / provisioning.
  * - stopped: inactive / undeploying (not paused).
- * - unreachable: cluster or messaging endpoint not reachable right now.
+ * - unreachable: the messaging endpoint isn't reachable right now.
  *
  * Note on readiness layering: `starting` is derived from the deployment's
  * coarse status (primary agent-workload readiness), whereas chat actually also
@@ -102,12 +102,11 @@ export function deriveChatComposerState(
   // not fire against a possibly-unreachable agent (e.g. the inspector's
   // agent/config) gate on a concrete state instead of this one.
   if (!status) return "unknown";
-  if (status.reason === "cluster_unreachable") return "unreachable";
 
   switch (status.value) {
     case "active":
       // The Service can exist (status active) while the messaging sidecar isn't
-      // actually ready; messaging_reachable is the live signal we have (Service
+      // actually ready; messaging_reachable is the observed signal (Service
       // present AND messaging sidecar container ready — see DeploymentRuntime).
       return runtime?.messaging_reachable === false ? "unreachable" : "ready";
     case "deploying":

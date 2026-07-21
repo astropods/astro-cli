@@ -169,15 +169,6 @@ describe("deriveChatComposerState", () => {
     );
   });
 
-  it("is 'unreachable' when the cluster is unreachable regardless of value", () => {
-    expect(
-      deriveChatComposerState(
-        status("active", "cluster_unreachable"),
-        runtime(true),
-      ),
-    ).toBe("unreachable");
-  });
-
   it("is 'starting' while deploying", () => {
     expect(
       deriveChatComposerState(status("deploying", "provisioning"), undefined),

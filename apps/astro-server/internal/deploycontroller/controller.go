@@ -52,6 +52,11 @@ type Store interface {
 	// when the row's current status is in allowedCurrent, so the controller can
 	// never resurrect a concurrently stopping/undeploying deployment.
 	UpdateStatusIfCurrent(id string, u deploymentstore.StatusUpdate, allowedCurrent ...string) (bool, error)
+	// UpsertRuntimeSnapshot persists the full live-runtime view (pods,
+	// containers, services) the runtime endpoint reads instead of hitting K8s.
+	UpsertRuntimeSnapshot(deploymentID string, snap deploymentstore.RuntimeSnapshot) error
+	// DeleteRuntimeSnapshot clears the runtime row for a torn-down deployment.
+	DeleteRuntimeSnapshot(deploymentID string) error
 }
 
 // Biller starts compute billing when a deployment first becomes active. Nil in
@@ -79,6 +84,11 @@ type Controller struct {
 
 	mu       sync.Mutex
 	watchers map[string]*clusterWatcher // keyed by cluster id
+
+	// snapHashes caches the last-persisted runtime-snapshot hash per deployment
+	// id so a resync of a steady-state deployment doesn't rewrite the row. An
+	// entry is evicted when its deployment's namespace goes empty (torn down).
+	snapHashes sync.Map
 }
 
 // clusterWatcher holds one cluster's informer factory and listers.
@@ -89,6 +99,7 @@ type clusterWatcher struct {
 	jobs      batchlisters.JobLister
 	cronJobs  batchlisters.CronJobLister
 	pods      corelisters.PodLister
+	services  corelisters.ServiceLister
 	// synced flips true once every informer has completed its initial LIST.
 	// sync() refuses to write before this to avoid persisting a partial set
 	// from an event that fires while other caches are still warming.
@@ -195,6 +206,7 @@ func (c *Controller) startWatcher(ctx context.Context, clusterID string, isPrima
 	jobInf := factory.Batch().V1().Jobs()
 	cronInf := factory.Batch().V1().CronJobs()
 	podInf := factory.Core().V1().Pods()
+	svcInf := factory.Core().V1().Services()
 
 	w := &clusterWatcher{
 		factory:   factory,
@@ -203,12 +215,13 @@ func (c *Controller) startWatcher(ctx context.Context, clusterID string, isPrima
 		jobs:      jobInf.Lister(),
 		cronJobs:  cronInf.Lister(),
 		pods:      podInf.Lister(),
+		services:  svcInf.Lister(),
 		synced:    &atomic.Bool{},
 	}
 
 	handler := c.eventHandler(clusterID)
 	informerList := []cache.SharedIndexInformer{
-		depInf.Informer(), stsInf.Informer(), jobInf.Informer(), cronInf.Informer(), podInf.Informer(),
+		depInf.Informer(), stsInf.Informer(), jobInf.Informer(), cronInf.Informer(), podInf.Informer(), svcInf.Informer(),
 	}
 	var syncFuncs []cache.InformerSynced
 	for _, inf := range informerList {
@@ -387,7 +400,42 @@ func (c *Controller) sync(_ context.Context, key queueKey) error {
 	c.log.Debug("deploycontroller: synced workload statuses",
 		"deployment_id", dep.ID, "namespace", key.namespace, "workloads", len(statuses))
 
+	// Persist the full runtime snapshot (pods/containers/services) the runtime
+	// endpoint reads. Best-effort: a write failure is logged but must not stall
+	// the lifecycle transition below — the next resync retries.
+	if err := c.persistRuntimeSnapshot(w, dep, key.namespace); err != nil {
+		c.log.Warn("deploycontroller: persist runtime snapshot failed",
+			"deployment_id", dep.ID, "namespace", key.namespace, "error", err)
+	}
+
 	return c.driveLifecycle(dep, statuses)
+}
+
+// persistRuntimeSnapshot builds the deployment's full runtime view from the
+// informer caches and upserts it, skipping the write when nothing changed since
+// the last sync. An empty snapshot (namespace torn down) clears the row and
+// forgets the diff-cache entry so it can't accumulate dead deployment ids.
+func (c *Controller) persistRuntimeSnapshot(w *clusterWatcher, dep *deploymentstore.Deployment, ns string) error {
+	snap, err := buildRuntimeSnapshot(w, ns)
+	if err != nil {
+		return err
+	}
+	if len(snap.Workloads) == 0 && len(snap.Services) == 0 {
+		c.snapHashes.Delete(dep.ID)
+		return c.store.DeleteRuntimeSnapshot(dep.ID)
+	}
+	hash, err := snapshotHash(snap)
+	if err != nil {
+		return err
+	}
+	if prev, ok := c.snapHashes.Load(dep.ID); ok && prev.(uint64) == hash {
+		return nil // unchanged since the last write
+	}
+	if err := c.store.UpsertRuntimeSnapshot(dep.ID, snap); err != nil {
+		return err
+	}
+	c.snapHashes.Store(dep.ID, hash)
+	return nil
 }
 
 // driveLifecycle aggregates observed workload health into a deployment-level

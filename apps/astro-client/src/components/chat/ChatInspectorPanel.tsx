@@ -445,9 +445,10 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
   // false, so we surface the "unknown" notice rather than issuing the request.
   //
   // A runtime *error* counts as settled (not still-loading): the runtime read
-  // can persistently 503 (e.g. K8s briefly unreachable) while the agent itself
-  // is healthy, and pinning the tab on "Checking…" forever would be worse than
-  // attempting the (hardened, fail-fast) request as the old code always did.
+  // is DB-backed and cluster-independent, so it won't 503 on a briefly
+  // unreachable cluster — but on a genuine read error, pinning the tab on
+  // "Checking…" forever would be worse than attempting the (hardened,
+  // fail-fast) request as the old code always did.
   const resolved = !!status && (!!runtimeData || runtimeError);
   const ready = resolved && state === "ready";
   // Only hit the messaging proxy (agent/config) when the agent is actually

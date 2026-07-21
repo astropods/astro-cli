@@ -97,11 +97,12 @@ export function useDeploymentStatus(id: string, enabled = true) {
   });
 }
 
-// useDeploymentRuntime fetches the workload-level K8s view (pod containers,
-// restart counts, runs). Only the AgentDeployments page needs this — the
-// status badge / toggle should consume useDeploymentStatus instead. Polls
-// while the deployment is transitional so the pod grid catches up after
-// pause/resume/deploy.
+// useDeploymentRuntime fetches the workload-level observed-runtime view (pod
+// containers, restart counts, runs) — server-side this is projected from the
+// controller-maintained snapshot, not a live K8s read. Only the
+// AgentDeployments page needs this — the status badge / toggle should consume
+// useDeploymentStatus instead. Polls while the deployment is transitional so
+// the pod grid catches up after pause/resume/deploy.
 //
 // On the deploying → active transition we invalidate the entire deployment
 // detail subtree once. The 3s poll loop halts as soon as status becomes
