@@ -1,42 +1,39 @@
-// Package billing defines the provider-agnostic seam for usage metering and
-// balance/spend gating. Concrete backends (OpenMeter today; Metronome and a
-// no-op OSS provider in later phases) implement BillingProvider so the rest of
-// astro-server depends only on this interface.
+// Package billing defines the provider-agnostic seam for usage metering.
+// Concrete backends (Metronome hosted; a no-op OSS provider) implement
+// BillingProvider so the rest of astro-server depends only on this interface.
 //
 // Billing is intentionally separate from per-account resource quotas: quotas
 // (max agents, deployments, members, …) are DB-backed limits enforced for OSS
 // and hosted alike and live in internal/quota. This package only concerns
-// metered consumption and the balance/spend gate.
+// metered consumption (customer lifecycle + usage ingest).
 package billing
 
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
-// ErrUnsupported is returned by provider methods that a given backend does not
-// implement (e.g. HostedBilling methods on the no-op OSS provider).
-var ErrUnsupported = errors.New("billing: operation not supported by provider")
+// ErrBillingUnavailable is returned by the read methods (UsageData, Invoices,
+// Balances) when the provider has no hosted billing data (e.g. the OSS noop
+// backend). Callers treat it as "billing not available" rather than a failure.
+var ErrBillingUnavailable = errors.New("billing: not available")
+
+// ErrInvoiceNotAvailable is returned by InvoicePDF when the invoice has no PDF
+// yet (e.g. a draft invoice that isn't finalized). Callers treat it as a 404,
+// not a server error.
+var ErrInvoiceNotAvailable = errors.New("billing: invoice not available")
 
 // UsageEvent is a single metered usage record. TransactionID is the idempotency
 // key (the metering UUID) so retries and backfills dedupe. Properties carries
-// the metric payload (e.g. compute_unit_hours, model, component).
+// the metric payload (e.g. cu_hours, model, component).
 type UsageEvent struct {
 	TransactionID string         // idempotency key; reuse the event UUID
 	AccountID     string         // Astro account ID (ingest alias / subject)
-	Type          string         // event type (compute_usage, active_agents, …)
+	Type          string         // event type (deployment_compute_usage, active_agents, …)
 	Time          time.Time      // event timestamp
 	Properties    map[string]any // metric payload
-}
-
-// Balance is the result of a balance/spend gate check. It is NOT a resource
-// count — resource limits are quota's job. Allow is false only when the
-// provider actively blocks further consumption (e.g. prepaid-overages-off and
-// balance ≤ 0, or over a spend cap).
-type Balance struct {
-	Allow        bool    // false when consumption should be blocked
-	RemainingUSD float64 // remaining balance in USD (v1 is USD-denominated)
 }
 
 // Account carries the fields a provider needs to create/link a customer.
@@ -47,46 +44,28 @@ type Account struct {
 	OwnerEmail string
 }
 
-// UsageItem is one aggregated usage row for a customer over a window.
-type UsageItem struct {
-	Type    string            // event/meter type
-	Value   float64           // aggregated value
-	GroupBy map[string]string // dimension values (e.g. component, model)
-}
-
-// UsageReport is the aggregated usage for a customer over a window.
-type UsageReport struct {
-	From  time.Time
-	To    time.Time
-	Items []UsageItem
-}
-
-// PackagingPlan identifies a packaging/plan to provision for a customer.
-type PackagingPlan struct {
-	Key string // provider plan key
-}
-
-// BillingProvider is the provider-agnostic metering + balance-gate contract.
-// Implemented by openmeter (transitional), noop (OSS), and metronome (hosted).
+// BillingProvider is the provider-agnostic metering contract: customer
+// lifecycle plus usage ingest. Implemented by noop (OSS) and metronome (hosted).
 type BillingProvider interface {
 	// CreateCustomer creates/links a provider customer for an Astro account and
 	// returns the provider customer ID.
 	CreateCustomer(ctx context.Context, a Account) (customerID string, err error)
-	// UpdateCustomer updates the customer's display name.
-	UpdateCustomer(ctx context.Context, customerID, name string) error
 	// DeleteCustomer removes/archives the customer.
 	DeleteCustomer(ctx context.Context, customerID string) error
 	// IngestUsage sends a batch of metered usage events (idempotent per TransactionID).
 	IngestUsage(ctx context.Context, events []UsageEvent) error
-	// CheckBalance reports whether consumption is allowed and the remaining balance.
-	CheckBalance(ctx context.Context, customerID string) (Balance, error)
-	// GetUsage returns aggregated usage for a customer over [from, to).
-	GetUsage(ctx context.Context, customerID string, from, to time.Time) (UsageReport, error)
-}
 
-// HostedBilling is the hosted-only surface (credit grants, packaging). The
-// no-op OSS provider returns ErrUnsupported; callers type-assert for it.
-type HostedBilling interface {
-	GrantCredits(ctx context.Context, customerID string, usd float64, expiry time.Time, reason string) error
-	ProvisionPackaging(ctx context.Context, customerID string, plan PackagingPlan) error
+	// The read methods below return provider data as-is (JSON-serializable
+	// values) for the client to render. They return ErrBillingUnavailable when
+	// the backend has no hosted billing (OSS noop).
+
+	// UsageData returns metered usage over [from, to), aggregated per window.
+	UsageData(ctx context.Context, customerID string, from, to time.Time) (any, error)
+	// Invoices returns the customer's invoices (including line items).
+	Invoices(ctx context.Context, customerID string) (any, error)
+	// InvoicePDF returns a single invoice rendered as a PDF byte stream. The
+	// caller must close the returned reader.
+	InvoicePDF(ctx context.Context, customerID, invoiceID string) (io.ReadCloser, error)
+	// Balances returns the customer's credits and commits.
+	Balances(ctx context.Context, customerID string) (any, error)
 }

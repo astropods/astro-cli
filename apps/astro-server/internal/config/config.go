@@ -23,13 +23,24 @@ type Config struct {
 	FleetGRPC  FleetGRPCConfig
 	Avatar     AvatarConfig
 	// BillingProvider selects the metering/billing backend: "noop" (OSS,
-	// unmetered), "openmeter" (transitional), or "metronome" (hosted). Empty
-	// resolves via BillingBackend(): openmeter when OPENMETER_URL is set, else
-	// noop — preserving pre-seam behavior.
-	BillingProvider      string // BILLING_PROVIDER
-	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
-	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
-	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement/quota enforcement (default false)
+	// unmetered) or "metronome" (hosted). Empty resolves to noop via
+	// BillingBackend().
+	BillingProvider string // BILLING_PROVIDER
+	QuotaEnforce    bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
+	// Metronome hosted billing (BILLING_PROVIDER=metronome).
+	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
+	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification
+	// Stripe card-vault (payment-method collection only; Metronome charges the
+	// saved card). Enabled when StripeSecretKey is set. astro-server never moves
+	// money — it only creates SetupIntents and saves cards. Card setup is
+	// confirmed synchronously (the server re-reads the SetupIntent from Stripe),
+	// so no webhook is used.
+	StripeSecretKey      string // STRIPE_SECRET_KEY — server-side SDK key
+	StripePublishableKey string // STRIPE_PUBLISHABLE_KEY — surfaced to the client for Elements
+	// Consumption gating (hosted). Status is always computed/written; enforce
+	// controls whether a suspended account is blocked (402) or only logged.
+	BillingGateEnforce      bool // BILLING_GATE_ENFORCE — false = observe/log, true = enforce 402s
+	BillingDunningGraceDays int  // BILLING_DUNNING_GRACE_DAYS — past_due→suspended window (default 7)
 	// QuotaDefaults holds the system-wide default per-account resource limits
 	// (agents, agent_builds, agent_deployments, members, knowledge_stores,
 	// knowledge_endpoints). -1 = unlimited, 0 = disabled. Per-account overrides
@@ -49,19 +60,14 @@ type Config struct {
 // Billing backend identifiers.
 const (
 	BillingBackendNoop      = "noop"
-	BillingBackendOpenMeter = "openmeter"
 	BillingBackendMetronome = "metronome"
 )
 
 // BillingBackend resolves the effective billing backend. An explicit
-// BILLING_PROVIDER wins; otherwise it defaults to openmeter when OPENMETER_URL
-// is set and noop when it is not, preserving pre-seam behavior.
+// BILLING_PROVIDER wins; otherwise it defaults to noop.
 func (c *Config) BillingBackend() string {
 	if c.BillingProvider != "" {
 		return c.BillingProvider
-	}
-	if c.OpenMeterURL != "" {
-		return BillingBackendOpenMeter
 	}
 	return BillingBackendNoop
 }
@@ -79,11 +85,10 @@ func (c *Config) RunWorker() bool {
 // AdminGRPCConfig holds admin gRPC server configuration.
 // Cert/Key/CA values accept file paths or inline PEM (auto-detected by "-----BEGIN" prefix).
 type AdminGRPCConfig struct {
-	Port         string // ADMIN_GRPC_PORT, default "9091" (optional — gRPC server disabled if empty)
-	CertFile     string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
-	KeyFile      string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
-	CAFile       string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
-	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API proxying
+	Port     string // ADMIN_GRPC_PORT, default "9091" (optional — gRPC server disabled if empty)
+	CertFile string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
+	KeyFile  string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
+	CAFile   string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
 }
 
 // FleetGRPCConfig holds Fleet gRPC server configuration (QUIC transport, JWT auth).
@@ -240,8 +245,8 @@ type DeploymentConfig struct {
 	// containers) uses to reach the gateway. The gateway is publicly
 	// reachable over TLS; auth is the gate, not the network. Empty
 	// AIGatewayURL disables the feature.
-	AIGatewayURL      string // AI_GATEWAY_URL — public gateway base_url tenants use (e.g. https://aig.astropod.ai)
-	AIGatewayAdminURL string // AI_GATEWAY_ADMIN_URL — in-cluster Bifrost governance API (e.g. http://bifrost.bifrost.svc.cluster.local:8080)
+	AIGatewayURL       string // AI_GATEWAY_URL — public gateway base_url tenants use (e.g. https://aig.astropod.ai)
+	AIGatewayAdminURL  string // AI_GATEWAY_ADMIN_URL — in-cluster Bifrost governance API (e.g. http://bifrost.bifrost.svc.cluster.local:8080)
 	AIGatewayAdminAuth string // AI_GATEWAY_ADMIN_AUTH — full Authorization header (Basic base64(admin:pass)), ESO-delivered
 	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
 	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
@@ -344,11 +349,10 @@ func Load() (*Config, error) {
 			URL: getEnv("DATABASE_URL", ""),
 		},
 		AdminGRPC: AdminGRPCConfig{
-			Port:         getEnv("ADMIN_GRPC_PORT", "9091"),
-			CertFile:     getEnv("ADMIN_GRPC_CERT_FILE", ""),
-			KeyFile:      getEnv("ADMIN_GRPC_KEY_FILE", ""),
-			CAFile:       getEnv("ADMIN_GRPC_CA_FILE", ""),
-			OpenMeterURL: getEnv("OPENMETER_URL", ""),
+			Port:     getEnv("ADMIN_GRPC_PORT", "9091"),
+			CertFile: getEnv("ADMIN_GRPC_CERT_FILE", ""),
+			KeyFile:  getEnv("ADMIN_GRPC_KEY_FILE", ""),
+			CAFile:   getEnv("ADMIN_GRPC_CA_FILE", ""),
 		},
 		FleetGRPC: FleetGRPCConfig{
 			Port:     getEnv("FLEET_GRPC_PORT", "9092"),
@@ -375,16 +379,20 @@ func Load() (*Config, error) {
 			ClientSecret: getEnv("SLACK_CLIENT_SECRET", ""),
 			CallbackURL:  getEnv("SLACK_CALLBACK_URL", ""),
 		},
-		BillingProvider:      getEnv("BILLING_PROVIDER", ""),
-		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
-		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
-		OpenMeterEnforce:     getEnv("OPENMETER_ENFORCE", "") == "true",
-		QuotaDefaults:        loadQuotaDefaults(),
-		LokiURL:              getEnv("LOKI_URL", ""),
-		DeploymentLogBackend: getEnv("DEPLOYMENT_LOG_BACKEND", ""),
-		PrometheusURL:        getEnv("PROMETHEUS_URL", ""),
-		OTelIngestEndpoint:   getEnv("OTEL_INGEST_ENDPOINT", ""),
-		RedisURL:             getEnv("REDIS_URL", ""),
+		BillingProvider:         getEnv("BILLING_PROVIDER", ""),
+		MetronomeAPIKey:         getEnv("METRONOME_API_KEY", ""),
+		MetronomeWebhookSecret:  getEnv("METRONOME_WEBHOOK_SECRET", ""),
+		StripeSecretKey:         getEnv("STRIPE_SECRET_KEY", ""),
+		StripePublishableKey:    getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		BillingGateEnforce:      getEnv("BILLING_GATE_ENFORCE", "") == "true",
+		BillingDunningGraceDays: getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
+		QuotaEnforce:            getEnv("QUOTA_ENFORCE", "") == "true",
+		QuotaDefaults:           loadQuotaDefaults(),
+		LokiURL:                 getEnv("LOKI_URL", ""),
+		DeploymentLogBackend:    getEnv("DEPLOYMENT_LOG_BACKEND", ""),
+		PrometheusURL:           getEnv("PROMETHEUS_URL", ""),
+		OTelIngestEndpoint:      getEnv("OTEL_INGEST_ENDPOINT", ""),
+		RedisURL:                getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -417,9 +425,9 @@ func (c *Config) Validate() error {
 
 	if c.BillingProvider != "" {
 		switch c.BillingProvider {
-		case BillingBackendNoop, BillingBackendOpenMeter, BillingBackendMetronome:
+		case BillingBackendNoop, BillingBackendMetronome:
 		default:
-			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop, openmeter, or metronome)", c.BillingProvider)
+			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop or metronome)", c.BillingProvider)
 		}
 	}
 
@@ -528,10 +536,8 @@ func loadSigningKey() []byte {
 }
 
 // quotaResourceDefaults is the system-wide default per-account resource limit
-// for each quota-managed resource. Values mirror the former OpenMeter
-// private_beta plan (docs/03-architecture/openmeter-integration.md) so quota
-// enforcement reproduces the prior limits. Over-limit blocking is additionally
-// gated by OPENMETER_ENFORCE; a per-account account_limits row overrides these.
+// for each quota-managed resource. Over-limit blocking is gated by QUOTA_ENFORCE;
+// a per-account account_limits row overrides these.
 // Use -1 for unlimited, 0 to disable a feature.
 var quotaResourceDefaults = map[string]int64{
 	"agents":              5,
@@ -572,6 +578,17 @@ func loadQuotaDefaults() map[string]int64 {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvIntDefault parses an int env var, falling back to defaultValue when
+// unset or unparseable.
+func getEnvIntDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
 	}
 	return defaultValue
 }

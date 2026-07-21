@@ -15,7 +15,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -302,9 +302,8 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			go provisionStoreAsync(context.Background(), log, ksStore, k8sClient, ks, plainCreds, cfg)
 		}
 
-		// Emit the storage-consumption metering event (fire-and-forget). Store
-		// counts are served from the quota DB, not metered.
-		go openmeter.EmitKnowledgeStorage(context.Background(), billingProvider, db, log, acct.ID)
+		// Knowledge storage metering is disabled for now; only deployment_compute_usage is
+		// emitted. See metering.EmitKnowledgeStorage (dormant).
 
 		c.JSON(http.StatusAccepted, toKnowledgeResponse(ks))
 	}
@@ -766,7 +765,7 @@ func recheckKMSClient(ctx context.Context, injected envelope.KMSClient) (envelop
 	return kms.NewFromConfig(awsCfg), nil
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, billingProvider billing.BillingProvider, db *sql.DB, billingState *openmeter.BillingStateManager) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8sClient k8s.ClusterClient, queue *riverqueue.Queue, billingProvider billing.BillingProvider, db *sql.DB, billingState *metering.BillingStateManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -836,8 +835,8 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
-		// Re-emit provisioned storage so the consumption meter reflects the deletion.
-		go openmeter.EmitKnowledgeStorage(context.Background(), billingProvider, db, log, acct.ID)
+		// Knowledge storage metering is disabled for now; nothing to re-emit on
+		// deletion. See metering.EmitKnowledgeStorage (dormant).
 
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
 	}

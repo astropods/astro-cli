@@ -80,7 +80,6 @@ type migrateQueueCall struct {
 func (m *mockAdminJobQueue) InsertUndeployJob(context.Context, string, string) error { return nil }
 func (m *mockAdminJobQueue) InsertWakeUpJob(context.Context, string, string) error   { return nil }
 func (m *mockAdminJobQueue) InsertDeployJob(context.Context, string, string) error   { return nil }
-func (m *mockAdminJobQueue) InsertOpenMeterBackfillJob(context.Context) error        { return nil }
 func (m *mockAdminJobQueue) TriggerJob(context.Context, string, json.RawMessage) (int64, error) {
 	return 0, nil
 }

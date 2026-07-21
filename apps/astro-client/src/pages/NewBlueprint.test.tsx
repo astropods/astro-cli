@@ -264,8 +264,8 @@ describe('NewBlueprint – agents-limit quota link', () => {
     await user.click(screen.getByText('Set up locally'));
     await user.click(screen.getByRole('button', { name: /create blueprint/i }));
 
-    const link = await screen.findByRole('link', { name: /review your usage in settings/i });
-    expect(link).toHaveAttribute('href', '/settings/org/my-org/usage');
+    const link = await screen.findByRole('link', { name: /review your billing in settings/i });
+    expect(link).toHaveAttribute('href', '/settings/org/my-org/billing');
   });
 
   it('links to the personal Settings → Usage page for a personal account', async () => {
@@ -283,8 +283,8 @@ describe('NewBlueprint – agents-limit quota link', () => {
     await user.click(screen.getByText('Set up locally'));
     await user.click(screen.getByRole('button', { name: /create blueprint/i }));
 
-    const link = await screen.findByRole('link', { name: /review your usage in settings/i });
-    expect(link).toHaveAttribute('href', '/settings/usage');
+    const link = await screen.findByRole('link', { name: /review your billing in settings/i });
+    expect(link).toHaveAttribute('href', '/settings/billing');
   });
 
   it('opens the request-quota-increase dialog from the agents-limit message', async () => {

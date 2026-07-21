@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -50,15 +49,11 @@ func parseTimeRange(c *gin.Context) (from, to time.Time, err error) {
 }
 
 // GetInfrastructureUsage handles infrastructure usage for both account and agent scopes.
-// When registered on a route with a :name param it returns total compute for that agent;
-// otherwise returns the account total.
-func GetInfrastructureUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
+// Metered compute usage has no data source wired yet, so this returns an empty
+// (zero-usage) payload with the resolved account/range so clients render without
+// error. The route shape is retained for a future provider-backed reader.
+func GetInfrastructureUsage(log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if omClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "usage metering is not configured"})
-			return
-		}
-
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
@@ -71,37 +66,11 @@ func GetInfrastructureUsage(log *logger.Logger, omClient *openmeter.Client) gin.
 			return
 		}
 
-		agentName := c.Param("name")
-
-		params := openmeter.MeterQueryParams{
-			Subject: acct.ID,
-			From:    from,
-			To:      to,
-		}
-		if agentName != "" {
-			params.GroupBy = []string{"agent_name"}
-			params.FilterGroupBy = map[string]string{"agent_name": agentName}
-		}
-
-		resp := InfrastructureUsageResponse{
+		c.JSON(http.StatusOK, InfrastructureUsageResponse{
 			AccountID: acct.ID,
-			AgentName: agentName,
+			AgentName: c.Param("name"),
 			From:      from.Format(time.RFC3339),
 			To:        to.Format(time.RFC3339),
-		}
-
-		result, err := omClient.QueryMeter(c.Request.Context(), "compute", params)
-		if err != nil {
-			log.Warn("Failed to query compute meter", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusOK, resp)
-			return
-		}
-
-		// GroupBy agent_name with a single-value filter produces exactly one row.
-		if len(result.Data) > 0 {
-			resp.Usage.DeploymentCompute = result.Data[0].Value
-		}
-
-		c.JSON(http.StatusOK, resp)
+		})
 	}
 }

@@ -46,10 +46,6 @@ func (s *Server) handleApproveQuotaRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Step 2: Create grant in OpenMeter directly (queen has OpenMeter access)
-	// The grant is created by the queen-side OpenMeter proxy, which the frontend
-	// will call separately after approval. This keeps the approve RPC simple.
-
 	writeJSON(w, http.StatusOK, resp)
 }
 

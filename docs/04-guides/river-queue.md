@@ -8,8 +8,8 @@ astro-server runs 5 background workers as bare goroutines with `time.NewTicker` 
 
 | Worker | Package | Interval | What it does |
 |--------|---------|----------|--------------|
-| OpenMeter heartbeat | `internal/openmeter` | 5 min | Emits metering events (compute usage, active deployments, active agents) |
-| OpenMeter reconciler | `internal/openmeter` | once at startup | Backfills OpenMeter customers for accounts missing one |
+| Metering heartbeat | `internal/billing/metering` | 5 min | Emits metering events (compute usage, active deployments, active agents) |
+| Billing customer backfill | `internal/billing/metering` | once at startup | Backfills billing customers for accounts missing one |
 | Namespace scanner | `internal/nsscan` | 10 min | Reconciles DB deployments ↔ K8s namespaces, maintains `namespace_ownership` |
 | Drift checker | `internal/driftcheck` | 10 min | Compares desired deployment state against K8s cluster, logs drift |
 | WorkOS events consumer | `internal/org` | 30 sec | Polls WorkOS Events API, processes membership/org/user changes |
@@ -93,32 +93,32 @@ Each worker file contains:
 1. An `Args` struct implementing `river.JobArgs` (defines `Kind()` and queue)
 2. A `Worker` struct implementing `river.Worker[Args]` (defines `Work(ctx, job)`)
 
-The existing packages (`internal/openmeter`, `internal/nsscan`, etc.) keep their core logic. River workers call into them — they're adapters, not replacements.
+The existing packages (`internal/billing/metering`, `internal/nsscan`, etc.) keep their core logic. River workers call into them — they're adapters, not replacements.
 
 ## Worker migration plan
 
 Phased rollout. Each phase converts one or more workers, validated independently.
 
-### Phase 1: OpenMeter heartbeat
+### Phase 1: Metering heartbeat
 
 **Why first:** Fires every 5 minutes, stateless, easy to verify. No cursor or external state to manage. If it double-fires during migration, metering events are idempotent.
 
 ```go
 type HeartbeatArgs struct{}
-func (HeartbeatArgs) Kind() string { return "openmeter.heartbeat" }
+func (HeartbeatArgs) Kind() string { return "metering.heartbeat" }
 
 // Periodic job — every 5 minutes, unique per period
 ```
 
 The existing `Heartbeat.tick()` method becomes the body of `HeartbeatWorker.Work()`. Remove the `time.NewTicker` loop from `Heartbeat.Start()`.
 
-### Phase 2: OpenMeter reconciler
+### Phase 2: Billing customer backfill
 
 **Why second:** Runs once at startup, already a batch processor. Convert to a job that's enqueued once on boot (with unique constraint so replicas don't duplicate).
 
 ```go
 type ReconcilerArgs struct{}
-func (ReconcilerArgs) Kind() string { return "openmeter.reconciler" }
+func (ReconcilerArgs) Kind() string { return "billing.customer_backfill" }
 // Unique: ByPeriod(24h) — at most once per day across replicas
 ```
 

@@ -4,9 +4,8 @@
 // row else a system-wide config default, and current usage comes from COUNTs
 // over the owning tables. Enforced identically for OSS and hosted.
 //
-// This is the resource-count half of the former OpenMeter entitlement path;
-// metered consumption (compute, knowledge storage) is gated separately by the
-// billing provider.
+// This is the resource-count half of consumption control; metered consumption
+// (compute, knowledge storage) is gated separately by the billing provider.
 package quota
 
 import (

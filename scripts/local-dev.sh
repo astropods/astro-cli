@@ -30,12 +30,6 @@ fi
 log "Starting Traefik..."
 docker compose -f docker-compose.local.yml up -d
 
-# Bootstrap OpenMeter once on first local dev startup (idempotent — safe to re-run)
-OPENMETER_URL=$(grep '^OPENMETER_URL=' apps/astro-server/.env 2>/dev/null | cut -d= -f2- | tr -d "\"'" | tr -d '[:space:]')
-if [ -n "$OPENMETER_URL" ]; then
-  OPENMETER_URL="$OPENMETER_URL" bash scripts/bootstrap-openmeter.sh
-fi
-
 # ── cleanup ──────────────────────────────────────────────────────────────────
 
 PIDS=()

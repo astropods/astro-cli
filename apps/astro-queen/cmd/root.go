@@ -19,9 +19,6 @@ var (
 // WebFS is set by main.go from the embedded filesystem.
 var WebFS embed.FS
 
-// OpenAPIJSON is set by main.go from the embedded OpenAPI spec.
-var OpenAPIJSON []byte
-
 const beeArt = `
                 __/   _
         .__  __.  \__/   __

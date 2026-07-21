@@ -3,17 +3,11 @@ import { NavLink, Outlet } from "react-router";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
-  Activity,
   Users,
   Bot,
 
   Wifi,
   Send,
-  Gauge,
-  Star,
-  UserCircle,
-  ClipboardList,
-  Zap,
   Waves,
   ArrowUpCircle,
   ArrowLeftRight,
@@ -42,19 +36,6 @@ const sections = [
       { to: "/admin/api-client", label: "API Client", icon: Send },
       { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
       { to: "/admin/jobs", label: "Jobs", icon: Waves },
-    ],
-  },
-  {
-    key: "openmeter",
-    label: "OpenMeter",
-    homeTo: "/openmeter",
-    links: [
-      { to: "/openmeter/dashboard", label: "Dashboard", icon: Activity },
-      { to: "/openmeter/meters", label: "Meters", icon: Gauge },
-      { to: "/openmeter/features", label: "Features", icon: Star },
-      { to: "/openmeter/customers", label: "Customers", icon: UserCircle },
-      { to: "/openmeter/plans", label: "Plans", icon: ClipboardList },
-      { to: "/openmeter/events", label: "Events", icon: Zap },
     ],
   },
 ];
@@ -176,7 +157,6 @@ function TreeSection({
 export function AppShell() {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     admin: true,
-    openmeter: true,
   });
   const [collapsed, setCollapsed] = useState(false);
   const { data: envData } = useEnv();

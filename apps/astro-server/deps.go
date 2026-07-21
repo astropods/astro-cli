@@ -10,7 +10,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -25,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/payment"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
@@ -73,14 +73,10 @@ type Clients struct {
 	Org        *org.Client
 	OrgSync    *org.Sync
 	Billing    billing.BillingProvider
-	// OpenMeter is the concrete client retained transitionally for the usage and
-	// infrastructure read endpoints (GetCustomerAccess / QueryMeter), which have
-	// no billing.BillingProvider equivalent yet. Metering and customer lifecycle
-	// go through Billing. Removed when those readers move to the provider API.
-	OpenMeter *openmeter.Client
-	Pipes     *pipes.Client
-	Prom      *promquery.Client
-	K8sCache  k8scache.Cache
-	Preflight *k8s.ImagePreflighter
-	Queue     *riverqueue.Queue
+	Payment    payment.Provider
+	Pipes      *pipes.Client
+	Prom       *promquery.Client
+	K8sCache   k8scache.Cache
+	Preflight  *k8s.ImagePreflighter
+	Queue      *riverqueue.Queue
 }

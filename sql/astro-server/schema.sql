@@ -58,8 +58,13 @@ CREATE TABLE public.accounts (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name varchar(39) NOT NULL,
     type varchar(20) NOT NULL DEFAULT 'personal',
-    openmeter_customer_id text,
     bifrost_customer_id text,
+    -- Hosted billing (Metronome) linkage; populated when BILLING_PROVIDER=metronome.
+    metronome_customer_id text,
+    -- Stripe customer holding the account's saved payment method. Stripe is used
+    -- as a card vault only; Metronome charges this customer's card. Populated on
+    -- first payment-method setup when STRIPE_SECRET_KEY is configured.
+    stripe_customer_id text,
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
@@ -119,6 +124,21 @@ CREATE TABLE public.account_limits (
     limit_value bigint NOT NULL,
     CONSTRAINT account_limits_pkey PRIMARY KEY (account_id, resource),
     CONSTRAINT account_limits_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+-- Cached billing/gating status per account (hosted only). Written off the
+-- request path by the Metronome webhook and the billing.dunning_sweep timer;
+-- read by the consumption gate. Absence of a row means 'active'. astro-server
+-- never stores or reads a balance — status is driven by Metronome signals.
+CREATE TABLE public.account_billing_status (
+    account_id    uuid        NOT NULL,
+    status        text        NOT NULL DEFAULT 'active', -- active | past_due | suspended
+    reason        text,                                  -- dunning | payment_failed | balance_alert
+    dunning_since timestamptz,                           -- set on payment failure, cleared on recovery
+    alert_active  boolean     NOT NULL DEFAULT false,    -- last Metronome hard alert, uncleared
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT account_billing_status_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_billing_status_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
 CREATE TABLE public.account_member_workos (
@@ -563,7 +583,7 @@ CREATE INDEX otel_ingest_tokens_account_idx ON public.otel_ingest_tokens (accoun
 -- via agent.ai_gateway: true. Replaces account_ai_gateway — bucketing by
 -- deployment lets gateway-side traces and budgets attribute to a specific
 -- deployment rather than the whole account. UserID/TeamID on the LiteLLM
--- side remain the account_id so OpenMeter chargeback is invariant; the
+-- side remain the account_id so per-account chargeback is invariant; the
 -- deployment_id is carried in metadata.tags.
 --
 -- Lifecycle: minted at first deploy, reused across redeploys (idempotent

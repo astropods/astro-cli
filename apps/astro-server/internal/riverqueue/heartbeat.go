@@ -7,30 +7,30 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// OpenmeterArgs are the job arguments for the OpenMeter heartbeat worker.
-type OpenmeterArgs struct{}
+// MeteringArgs are the job arguments for the metering heartbeat worker.
+type MeteringArgs struct{}
 
-func (OpenmeterArgs) Kind() string { return "openmeter.heartbeat" }
+func (MeteringArgs) Kind() string { return "metering.heartbeat" }
 
 func init() {
-	registerJobKind[OpenmeterArgs]()
+	registerJobKind[MeteringArgs]()
 }
 
-// OpenmeterWorker emits periodic metering events via OpenMeter.
-type OpenmeterWorker struct {
-	river.WorkerDefaults[OpenmeterArgs]
+// MeteringWorker emits periodic metering events via the active billing provider.
+type MeteringWorker struct {
+	river.WorkerDefaults[MeteringArgs]
 	provider billing.BillingProvider
 	db       *sql.DB
 	log      *logger.Logger
-	billing  *openmeter.BillingStateManager
+	billing  *metering.BillingStateManager
 }
 
-func (w *OpenmeterWorker) Work(ctx context.Context, _ *river.Job[OpenmeterArgs]) error {
-	hb := openmeter.NewHeartbeat(w.provider, w.db, w.log, w.billing)
+func (w *MeteringWorker) Work(ctx context.Context, _ *river.Job[MeteringArgs]) error {
+	hb := metering.NewHeartbeat(w.provider, w.db, w.log, w.billing)
 	hb.Tick(ctx)
 	return nil
 }

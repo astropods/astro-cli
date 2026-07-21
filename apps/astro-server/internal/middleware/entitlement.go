@@ -2,148 +2,78 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// Entitlements provides entitlement checking for routes. Create one at startup
-// and use Wrap() to guard individual handlers or Check() for inline checks.
+// Entitlements is the consumption gate: a binary paid/not-paid check. It reads
+// the cached account_billing_status (written off the request path by the
+// Metronome webhook + dunning sweep) and blocks suspended accounts. There is no
+// per-feature notion — an account is either in good standing or suspended.
 //
-//	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
-//	api.POST(g, "/register", "Register", ent.Wrap(handler, "agents", "agent_builds"), ...)
+// It never calls the billing provider on the request path and never reads a
+// balance (Metronome owns that). Pass-through when no status store is wired
+// (OSS/noop) or in observe mode.
 type Entitlements struct {
-	log     *logger.Logger
-	client  *openmeter.Client
+	status  *billing.StatusStore
 	enforce bool
+	log     *logger.Logger
 }
 
-// NewEntitlements creates an Entitlements checker. If client is nil or enforce
-// is false, checks become no-ops or log-only respectively.
-func NewEntitlements(log *logger.Logger, client *openmeter.Client, enforce bool) *Entitlements {
-	return &Entitlements{log: log, client: client, enforce: enforce}
+// NewEntitlements builds the gate. status is nil for backends without gating
+// (OSS/noop) → pass-through. enforce=false is observe mode: decisions are logged
+// but never blocked. log may be nil.
+func NewEntitlements(status *billing.StatusStore, enforce bool, log *logger.Logger) *Entitlements {
+	return &Entitlements{status: status, enforce: enforce, log: log}
 }
 
-// Wrap returns a gin.HandlerFunc that checks the given features before calling
-// the handler. The account must be in context via ResolveAccount middleware.
-func (e *Entitlements) Wrap(handler gin.HandlerFunc, features ...string) gin.HandlerFunc {
+// Blocked reports whether the account is billing-suspended and should be
+// blocked. In observe mode it logs the would-be block and returns false. Fails
+// open on any read error (never block because status lookup failed).
+func (e *Entitlements) Blocked(ctx context.Context, accountID string) bool {
+	if e.status == nil || accountID == "" {
+		return false
+	}
+	st, _, err := e.status.Get(ctx, accountID)
+	if err != nil {
+		if e.log != nil {
+			e.log.Warn("billing gate: status read failed, allowing", "account_id", accountID, "error", err)
+		}
+		return false
+	}
+	if st != billing.StatusSuspended {
+		return false
+	}
+	if !e.enforce {
+		if e.log != nil {
+			e.log.Info("billing gate (observe): would block", "account_id", accountID)
+		}
+		return false
+	}
+	return true
+}
+
+// Wrap gates a handler: a suspended account (enforce mode) gets a 402; otherwise
+// the handler runs.
+func (e *Entitlements) Wrap(handler gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if e.client == nil {
-			handler(c)
+		if acct, ok := GetAccountFromContext(c); ok && e.Blocked(c.Request.Context(), acct.ID) {
+			c.AbortWithStatusJSON(http.StatusPaymentRequired, PaymentRequiredResponse())
 			return
 		}
-
-		acct, ok := GetAccountFromContext(c)
-		if !ok {
-			handler(c)
-			return
-		}
-
-		if blocked, feature, ent := e.check(c.Request.Context(), acct.ID, features); blocked {
-			c.JSON(http.StatusPaymentRequired, LimitResponse(feature, ent))
-			return
-		}
-
 		handler(c)
 	}
 }
 
-// Check performs an entitlement check for the given account ID and features.
-// Use this for handlers that resolve the account outside of middleware (e.g. DeployAgent).
-// Returns true if the request should be blocked.
-func (e *Entitlements) Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.EntitlementValue) {
-	if e.client == nil {
-		return false, "", nil
-	}
-	return e.check(ctx, accountID, features)
-}
-
-func (e *Entitlements) check(ctx context.Context, accountID string, features []string) (blocked bool, feature string, ent *openmeter.EntitlementValue) {
-	access, err := e.client.GetCustomerAccess(ctx, accountID)
-	if err != nil {
-		e.log.Warn("Customer access check failed", "error", err, "account_id", accountID)
-		return false, "", nil // fail open
-	}
-
-	for _, f := range features {
-		result, ok := access.Entitlements[f]
-		if !ok {
-			// Feature absent from plan entirely — always block.
-			// The enforce flag only governs quota overage, not plan structure.
-			return true, f, nil
-		}
-
-		if !result.HasAccess {
-			if e.enforce {
-				return true, f, &result
-			}
-			e.log.Warn("Entitlement exceeded (not enforcing)",
-				"account_id", accountID, "feature", f,
-				"usage", result.Usage, "limit", result.TotalAvailableGrantAmount,
-			)
-		}
-	}
-	return false, "", nil
-}
-
-// featureInfo maps feature keys to human-readable descriptions used in error messages.
-var featureInfo = map[string]struct {
-	name      string
-	quotaDesc string // shown when quota is exceeded
-	planDesc  string // shown when feature is absent from plan
-}{
-	"compute":             {name: "Compute", quotaDesc: "Your account has consumed its allocated compute-unit-hours for this billing period.", planDesc: "Compute is not included in your current plan."},
-	"agents":              {name: "Agents", quotaDesc: "Your account has reached the maximum number of registered agents.", planDesc: "Agents are not included in your current plan."},
-	"agent_builds":        {name: "Agent Builds", quotaDesc: "Your account has reached the maximum number of agent builds for this billing period.", planDesc: "Agent builds are not included in your current plan."},
-	"agent_deployments":   {name: "Deployments", quotaDesc: "Your account has reached the maximum number of active deployments.", planDesc: "Deployments are not included in your current plan."},
-	"members":             {name: "Members", quotaDesc: "Your account has reached the maximum number of team members.", planDesc: "Additional members are not included in your current plan."},
-	"knowledge_stores":    {name: "Knowledge Stores", quotaDesc: "Your account has reached the maximum number of knowledge stores.", planDesc: "Knowledge stores are not included in your current plan."},
-	"knowledge_storage":   {name: "Knowledge Storage", quotaDesc: "Your account has reached the maximum provisioned storage for knowledge stores.", planDesc: "Knowledge storage is not included in your current plan."},
-	"knowledge_compute":   {name: "Knowledge Compute", quotaDesc: "Your account has consumed its allocated compute for knowledge stores this billing period.", planDesc: "Knowledge compute is not included in your current plan."},
-	"knowledge_endpoints": {name: "Knowledge Endpoints", quotaDesc: "Your account has reached the maximum number of PrivateLink endpoints.", planDesc: "PrivateLink endpoints are not included in your current plan."},
-}
-
-// LimitResponse builds the JSON response body returned when an entitlement
-// limit is reached or a feature is absent from the plan. It includes actionable
-// detail so the client can display a meaningful upgrade prompt.
-func LimitResponse(feature string, ent *openmeter.EntitlementValue) gin.H {
-	info, ok := featureInfo[feature]
-	if !ok {
-		info.name = feature
-		info.quotaDesc = "Your account has reached its usage limit for this feature."
-		info.planDesc = "This feature is not included in your current plan."
-	}
-
-	// Feature absent from plan entirely — different message and no usage/limit to report.
-	if ent == nil {
-		return gin.H{
-			"error":   "Feature not available",
-			"code":    "FEATURE_NOT_IN_PLAN",
-			"feature": feature,
-			"usage":   float64(0),
-			"limit":   float64(0),
-			"details": fmt.Sprintf("%s To access this feature, contact your account admin about upgrading your plan.", info.planDesc),
-		}
-	}
-
-	var usage, limit float64
-	if ent.Usage != nil {
-		usage = *ent.Usage
-	}
-	if ent.TotalAvailableGrantAmount != nil {
-		limit = *ent.TotalAvailableGrantAmount
-	}
-
+// PaymentRequiredResponse is the 402 body for a billing-suspended account.
+func PaymentRequiredResponse() gin.H {
 	return gin.H{
-		"error":   "Limit reached",
-		"code":    "ENTITLEMENT_LIMIT_REACHED",
-		"feature": feature,
-		"usage":   usage,
-		"limit":   limit,
-		"details": fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.quotaDesc),
+		"error":   "Billing suspended",
+		"code":    "BILLING_SUSPENDED",
+		"details": "Your account is suspended due to a billing issue. Update your payment method to continue.",
 	}
 }

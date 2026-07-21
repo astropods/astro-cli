@@ -36,6 +36,7 @@ const queueDeploy = "deploy"
 type Config struct {
 	DB                   *sql.DB
 	Billing              billing.BillingProvider
+	BillingBackend       string // active billing backend ("metronome"|"noop")
 	AccountStore         *account.AccountStore
 	AgentIndex           *agentindex.Index
 	AvatarStore          *avatar.Store
@@ -100,7 +101,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	purgeWorker, insightsDiscovery, migrateWorker := addWorkers(workers, cfg)
+	purgeWorker, insightsDiscovery, migrateWorker, dunningWorker, billingResumeWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -145,6 +146,12 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 	if migrateWorker != nil {
 		migrateWorker.queue = q
+	}
+	if dunningWorker != nil {
+		dunningWorker.queue = q
+	}
+	if billingResumeWorker != nil {
+		billingResumeWorker.queue = q
 	}
 
 	return q, nil
@@ -227,6 +234,20 @@ func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID, clusterID str
 	return err
 }
 
+// InsertBillingSuspend enqueues a billing suspend for an account (scale its
+// deployments to zero).
+func (q *Queue) InsertBillingSuspend(ctx context.Context, accountID string) error {
+	_, err := q.Insert(ctx, BillingSuspendArgs{AccountID: accountID}, nil)
+	return err
+}
+
+// InsertBillingResume enqueues a billing resume for an account (restore the
+// deployments billing suspended).
+func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error {
+	_, err := q.Insert(ctx, BillingResumeArgs{AccountID: accountID}, nil)
+	return err
+}
+
 // EnqueueGitHubBuild enqueues a GitHub build job.
 func (q *Queue) EnqueueGitHubBuild(ctx context.Context, args GitHubBuildArgs) error {
 	_, err := q.Insert(ctx, args, nil)
@@ -258,12 +279,6 @@ func (q *Queue) CancelGitHubBuildsForConnection(ctx context.Context, connectionI
 			q.log.Warn("cancel github builds: cancel job", "error", err, "job_id", id)
 		}
 	}
-}
-
-// InsertOpenMeterBackfillJob enqueues an immediate OpenMeter customer backfill job.
-func (q *Queue) InsertOpenMeterBackfillJob(ctx context.Context) error {
-	_, err := q.Insert(ctx, OpenMeterBackfillArgs{}, nil)
-	return err
 }
 
 // InsertPrivateLinkProvisionJob enqueues a job to create a VPC endpoint.

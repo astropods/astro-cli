@@ -12,4 +12,7 @@ const (
 	StatusUndeploying = "undeploying"
 	StatusUndeployed  = "undeployed"
 	StatusStopped     = "stopped"
+	// StatusSuspended is a billing-initiated scale-to-zero, distinct from a
+	// user-initiated StatusStopped so resume restores only what billing stopped.
+	StatusSuspended = "suspended"
 )

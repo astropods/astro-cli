@@ -19,22 +19,20 @@ import (
 // Server is an HTTP server that proxies admin gRPC calls
 // and serves the embedded React SPA.
 type Server struct {
-	admin       adminv1.AdminServiceClient
-	webFS       fs.FS
-	port        int
-	openapiJSON []byte
-	env         string
-	httpSrv     *http.Server
+	admin   adminv1.AdminServiceClient
+	webFS   fs.FS
+	port    int
+	env     string
+	httpSrv *http.Server
 }
 
 // New creates a new Server.
-func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, openapiJSON []byte, env string) *Server {
+func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, env string) *Server {
 	return &Server{
-		admin:       admin,
-		webFS:       webFS,
-		port:        port,
-		openapiJSON: openapiJSON,
-		env:         env,
+		admin: admin,
+		webFS: webFS,
+		port:  port,
+		env:   env,
 	}
 }
 
@@ -47,18 +45,10 @@ func (s *Server) ListenAndServe() error {
 	s.registerQuotaRoutes(mux)
 	s.registerClusterRoutes(mux)
 
-	// OpenAPI spec
-	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		writeRawJSON(w, http.StatusOK, s.openapiJSON)
-	})
-
 	// Environment info
 	mux.HandleFunc("GET /api/env", func(w http.ResponseWriter, r *http.Request) {
 		writeRawJSON(w, http.StatusOK, []byte(fmt.Sprintf(`{"env":%q}`, s.env)))
 	})
-
-	// OpenMeter reverse proxy
-	s.registerOpenMeterRoutes(mux)
 
 	// Astro server HTTP API proxy
 	s.registerAstroProxyRoutes(mux)

@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -62,7 +62,7 @@ type Store interface {
 // Biller starts compute billing when a deployment first becomes active. Nil in
 // environments without billing.
 type Biller interface {
-	StartBilling(ctx context.Context, deploymentID string, workloads []openmeter.WorkloadInfo)
+	StartBilling(ctx context.Context, deploymentID string, workloads []metering.WorkloadInfo)
 }
 
 // queueKey identifies a unit of work: re-derive all workload statuses for one
@@ -540,13 +540,13 @@ func (c *Controller) startBilling(deploymentID string) {
 		c.log.Error("deploycontroller: load workloads for billing failed", "deployment_id", deploymentID, "error", err)
 		return
 	}
-	infos := make([]openmeter.WorkloadInfo, 0, len(workloads))
+	infos := make([]metering.WorkloadInfo, 0, len(workloads))
 	for _, w := range workloads {
 		component := w.ComponentKind
 		if w.ComponentKey != "" {
 			component += "/" + w.ComponentKey
 		}
-		infos = append(infos, openmeter.WorkloadInfo{
+		infos = append(infos, metering.WorkloadInfo{
 			Component:     component,
 			CPURequest:    w.CPURequest,
 			MemoryRequest: w.MemoryRequest,

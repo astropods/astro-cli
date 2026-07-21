@@ -87,6 +87,16 @@ export const usageKeys = {
   quotaRequests: (account: string) => ['usage', 'quotaRequests', account] as const,
 };
 
+export const billingKeys = {
+  usage: (account: string, from?: string, to?: string) =>
+    ['billing', account, 'usage', from ?? '', to ?? ''] as const,
+  invoices: (account: string) => ['billing', account, 'invoices'] as const,
+  invoicePdf: (account: string, invoiceId: string) =>
+    ['billing', account, 'invoices', invoiceId, 'pdf'] as const,
+  balances: (account: string) => ['billing', account, 'balances'] as const,
+  paymentMethod: (account: string) => ['billing', account, 'payment-method'] as const,
+};
+
 export const variableKeys = {
   byAccount: (account: string) => ['variables', account] as const,
 }

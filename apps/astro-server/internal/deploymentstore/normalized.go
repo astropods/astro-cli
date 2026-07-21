@@ -1071,7 +1071,7 @@ type AgentProvisioning struct {
 // and joins its optional persistent volume row, returning the values
 // the deployment-template prefill needs. Reading from normalized columns
 // here (rather than re-parsing deployment_spec_json) matches how
-// heartbeat, openmeter, and admin gRPC already read deployment state.
+// heartbeat and admin gRPC already read deployment state.
 func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, error) {
 	var (
 		cpuReq, memReq, cpuLim, memLim sql.NullString
@@ -1116,7 +1116,7 @@ func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, e
 	return out, nil
 }
 
-// ActiveDeploymentWorkload holds the fields the openmeter heartbeat needs per workload.
+// ActiveDeploymentWorkload holds the fields the metering heartbeat needs per workload.
 type ActiveDeploymentWorkload struct {
 	AccountID     string
 	AgentName     string
@@ -1130,7 +1130,7 @@ type ActiveDeploymentWorkload struct {
 }
 
 // GetActiveDeploymentWorkloads queries workloads for all active deployments directly,
-// replacing the JSON parsing path in the openmeter heartbeat.
+// replacing the JSON parsing path in the metering heartbeat.
 func (s *Store) GetActiveDeploymentWorkloads() ([]*ActiveDeploymentWorkload, error) {
 	rows, err := s.db.Query(`
 		SELECT d.account_id, d.agent_name, d.namespace, d.id,

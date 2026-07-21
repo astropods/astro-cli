@@ -1980,6 +1980,73 @@ export interface AccountUsageResponse {
   meters: Record<string, UsageMeter>;
 }
 
+// Billing data is returned by the provider (Metronome) and rendered as-is, so
+// the row shapes are intentionally loose. `available` is false when the hosted
+// backend or the account's customer isn't configured.
+export interface BillingDataResponse<T> {
+  available: boolean;
+  data?: T;
+}
+
+export interface BillingCreditType {
+  id?: string;
+  name?: string;
+}
+
+export interface BillingInvoiceLineItem {
+  name?: string;
+  total?: number;
+  type?: string;
+  credit_type?: BillingCreditType;
+}
+
+export interface BillingInvoice {
+  id?: string;
+  status?: string;
+  type?: string;
+  total?: number;
+  subtotal?: number;
+  credit_type?: BillingCreditType;
+  start_timestamp?: string;
+  end_timestamp?: string;
+  issued_at?: string;
+  line_items?: BillingInvoiceLineItem[];
+}
+
+export interface BillingUsageRow {
+  billable_metric_id?: string;
+  billable_metric_name?: string;
+  start_timestamp?: string;
+  end_timestamp?: string;
+  value?: number;
+  groups?: Record<string, number | null>;
+}
+
+export type BillingRecord = Record<string, unknown>;
+
+export interface BillingBalances {
+  credits: BillingRecord[];
+  commits: BillingRecord[];
+}
+
+export interface SavedCard {
+  id: string;
+  brand: string;
+  last4: string;
+  exp_month: number;
+  exp_year: number;
+}
+
+export interface PaymentMethodResponse {
+  available: boolean;
+  card?: SavedCard;
+}
+
+export interface SetupIntentResponse {
+  client_secret: string;
+  publishable_key: string;
+}
+
 export interface FeedbackInput {
   message: string;
   page_url?: string;
@@ -3342,6 +3409,73 @@ class ApiClient {
     const qs = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}` : '';
     return this.request<AccountUsageResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/usage${qs}`
+    );
+  }
+
+  async getBillingUsage(
+    account: string,
+    params?: { from?: string; to?: string },
+  ): Promise<BillingDataResponse<BillingUsageRow[]>> {
+    const qs = params
+      ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}`
+      : "";
+    return this.request<BillingDataResponse<BillingUsageRow[]>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/usage${qs}`
+    );
+  }
+
+  async getBillingInvoices(
+    account: string,
+  ): Promise<BillingDataResponse<BillingInvoice[]>> {
+    return this.request<BillingDataResponse<BillingInvoice[]>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/invoices`
+    );
+  }
+
+  async getInvoicePdf(account: string, invoiceId: string): Promise<Blob> {
+    const res = await fetch(
+      `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/billing/invoices/${encodeURIComponent(invoiceId)}/pdf`,
+      { credentials: "include" },
+    );
+    if (!res.ok) throw new Error(`Failed to load invoice PDF (${res.status})`);
+    return res.blob();
+  }
+
+  async getBillingBalances(
+    account: string,
+  ): Promise<BillingDataResponse<BillingBalances>> {
+    return this.request<BillingDataResponse<BillingBalances>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/balances`
+    );
+  }
+
+  async createSetupIntent(account: string): Promise<SetupIntentResponse> {
+    return this.request<SetupIntentResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/setup-intent`,
+      { method: 'POST' }
+    );
+  }
+
+  async confirmPaymentMethod(
+    account: string,
+    setupIntentId: string,
+  ): Promise<PaymentMethodResponse> {
+    return this.request<PaymentMethodResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/payment-method`,
+      { method: 'POST', body: JSON.stringify({ setup_intent_id: setupIntentId }) }
+    );
+  }
+
+  async getPaymentMethod(account: string): Promise<PaymentMethodResponse> {
+    return this.request<PaymentMethodResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/payment-method`
+    );
+  }
+
+  async deletePaymentMethod(account: string): Promise<{ status: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/payment-method`,
+      { method: 'DELETE' }
     );
   }
 

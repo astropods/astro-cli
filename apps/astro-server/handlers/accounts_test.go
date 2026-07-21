@@ -468,7 +468,7 @@ func setupDeleteAccountTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock
 		})
 		c.Next()
 	})
-	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, accountStore, deployStore, queue, nil, nil))
+	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, accountStore, deployStore, queue, nil, nil, "", nil))
 
 	return router, accountMock, deployMock, queue
 }

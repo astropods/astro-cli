@@ -51,7 +51,6 @@ type adminJobQueue interface {
 	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
-	InsertOpenMeterBackfillJob(ctx context.Context) error
 	TriggerJob(ctx context.Context, kind string, argsJSON json.RawMessage) (int64, error)
 	CancelJob(ctx context.Context, id int64) error
 	RetryJob(ctx context.Context, id int64) (bool, error)
@@ -69,7 +68,6 @@ type Server struct {
 	k8sRegistry    *k8s.Registry
 	lokiClient     *loki.Client
 	db             *sql.DB
-	openMeterURL   string
 	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
 	workosClientID string
@@ -126,7 +124,6 @@ func New(
 	k8sClient k8s.ClusterClient,
 	lokiClient *loki.Client,
 	db *sql.DB,
-	openMeterURL string,
 	databaseURL string,
 	queue *riverqueue.Queue,
 	ingressDomain string,
@@ -144,7 +141,6 @@ func New(
 		k8sRegistry:            k8sRegistry,
 		lokiClient:             lokiClient,
 		db:                     db,
-		openMeterURL:           strings.TrimRight(openMeterURL, "/"),
 		databaseURL:            databaseURL,
 		queue:                  queue,
 		ingressDomain:          ingressDomain,
@@ -1464,7 +1460,6 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			a.type,
 			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '') AS owner_user_id,
 			(SELECT COUNT(*) FROM account_members WHERE account_id = a.id) AS member_count,
-			(a.openmeter_customer_id IS NOT NULL) AS has_openmeter,
 			EXISTS(SELECT 1 FROM account_langfuse WHERE account_id = a.id) AS has_langfuse,
 			a.deleted_at,
 			a.created_at,
@@ -1483,7 +1478,7 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 		var acct adminv1.AdminAccount
 		var deletedAt sql.NullTime
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasOpenMeter, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID); err != nil {
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if deletedAt.Valid {
@@ -1583,45 +1578,6 @@ func (s *Server) GetAgentBuilds(ctx context.Context, req *adminv1.GetAgentBuilds
 	return &adminv1.GetAgentBuildsResponse{
 		Builds: builds,
 		Count:  int32(len(builds)), //nolint:gosec // bounded by DB rows
-	}, nil
-}
-
-// ProxyOpenMeter forwards an HTTP request to the configured OpenMeter server.
-func (s *Server) ProxyOpenMeter(ctx context.Context, req *adminv1.OpenMeterProxyRequest) (*adminv1.OpenMeterProxyResponse, error) {
-	if s.openMeterURL == "" {
-		return nil, fmt.Errorf("OPENMETER_URL not configured")
-	}
-
-	targetURL := s.openMeterURL + req.Path
-
-	httpReq, err := http.NewRequestWithContext(ctx, req.Method, targetURL, bytes.NewReader(req.Body))
-	if err != nil {
-		return nil, fmt.Errorf("build openmeter request: %w", err)
-	}
-	for k, v := range req.Headers {
-		httpReq.Header.Set(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(httpReq) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
-	if err != nil {
-		return nil, fmt.Errorf("openmeter request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read openmeter response: %w", err)
-	}
-
-	headers := make(map[string]string, len(resp.Header))
-	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
-	}
-
-	return &adminv1.OpenMeterProxyResponse{
-		StatusCode: int32(resp.StatusCode), //nolint:gosec // HTTP status codes are bounded
-		Headers:    headers,
-		Body:       body,
 	}, nil
 }
 
@@ -2287,17 +2243,4 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 	}
 
 	return resp, nil
-}
-
-// TriggerOpenMeterBackfill enqueues an immediate OpenMeter customer backfill job.
-// This creates OpenMeter customers for any accounts that are missing one.
-func (s *Server) TriggerOpenMeterBackfill(_ context.Context, _ *adminv1.TriggerOpenMeterBackfillRequest) (*adminv1.TriggerOpenMeterBackfillResponse, error) {
-	if s.queue == nil {
-		return nil, fmt.Errorf("river queue not available")
-	}
-	if err := s.queue.InsertOpenMeterBackfillJob(context.Background()); err != nil {
-		return nil, fmt.Errorf("enqueue openmeter backfill: %w", err)
-	}
-	s.log.Info("Triggered OpenMeter customer backfill via admin RPC")
-	return &adminv1.TriggerOpenMeterBackfillResponse{Status: "backfill_enqueued"}, nil
 }

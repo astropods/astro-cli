@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/gin-gonic/gin"
@@ -24,17 +23,17 @@ func (f *fakeReporter) Report(_ context.Context, _ string, _ ...string) (map[str
 	return f.report, f.err
 }
 
-func setupUsageRouter(omClient *openmeter.Client, reporter quota.Reporter) *gin.Engine {
+func setupUsageRouter(reporter quota.Reporter) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(injectAccount(testAccount()))
 	log := logger.New("error", "json")
-	router.GET("/usage", GetAccountUsage(log, omClient, reporter))
+	router.GET("/usage", GetAccountUsage(log, reporter))
 	return router
 }
 
-func TestGetAccountUsage_NilClient(t *testing.T) {
-	router := setupUsageRouter(nil, nil)
+func TestGetAccountUsage_NilReporter(t *testing.T) {
+	router := setupUsageRouter(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
 	rec := httptest.NewRecorder()
@@ -45,13 +44,8 @@ func TestGetAccountUsage_NilClient(t *testing.T) {
 	}
 }
 
-func TestGetAccountUsage_OpenMeterError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	router := setupUsageRouter(openmeter.NewClient(srv.URL), nil)
+func TestGetAccountUsage_ReporterError(t *testing.T) {
+	router := setupUsageRouter(&fakeReporter{err: fmt.Errorf("boom")})
 
 	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
 	rec := httptest.NewRecorder()
@@ -70,25 +64,11 @@ func TestGetAccountUsage_OpenMeterError(t *testing.T) {
 }
 
 func TestGetAccountUsage_Success(t *testing.T) {
-	usage := 5.0
-	quotaLimit := 10.0
-	// OpenMeter serves consumption meters only; count features come from quota.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{
-			"entitlements": {
-				"compute":          {"hasAccess": true, "usage": %f, "totalAvailableGrantAmount": %f},
-				"agents":           {"hasAccess": true, "usage": 99}
-			}
-		}`, usage, quotaLimit)
-	}))
-	defer srv.Close()
-
 	reporter := &fakeReporter{report: map[string]quota.ResourceUsage{
 		"agents":           {Used: 3, Limit: quota.Unlimited},
 		"knowledge_stores": {Used: 1, Limit: 5},
 	}}
-	router := setupUsageRouter(openmeter.NewClient(srv.URL), reporter)
+	router := setupUsageRouter(reporter)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
 	rec := httptest.NewRecorder()
@@ -103,25 +83,13 @@ func TestGetAccountUsage_Success(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// compute (from OpenMeter) + agents + knowledge_stores (from quota).
-	compute, ok := resp.Meters["compute"]
-	if !ok {
-		t.Fatal("missing compute meter")
-	}
-	if compute.Usage != usage {
-		t.Errorf("compute usage: want %f, got %f", usage, compute.Usage)
-	}
-	if compute.Quota == nil || *compute.Quota != quotaLimit {
-		t.Errorf("compute quota: want %f, got %v", quotaLimit, compute.Quota)
-	}
-
-	// agents comes from quota (3), NOT the OpenMeter value (99). Unlimited → no quota bar.
+	// agents: usage 3 from quota, unlimited → no quota bar.
 	agents, ok := resp.Meters["agents"]
 	if !ok {
 		t.Fatal("missing agents meter")
 	}
 	if agents.Usage != 3 {
-		t.Errorf("agents usage: want 3 (from quota), got %f", agents.Usage)
+		t.Errorf("agents usage: want 3, got %f", agents.Usage)
 	}
 	if agents.Quota != nil {
 		t.Errorf("agents quota should be nil (unlimited), got %v", agents.Quota)
@@ -137,13 +105,7 @@ func TestGetAccountUsage_Success(t *testing.T) {
 }
 
 func TestGetAccountUsage_ResponseShape(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"entitlements": {}}`)
-	}))
-	defer srv.Close()
-
-	router := setupUsageRouter(openmeter.NewClient(srv.URL), nil)
+	router := setupUsageRouter(&fakeReporter{report: map[string]quota.ResourceUsage{}})
 
 	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
 	rec := httptest.NewRecorder()

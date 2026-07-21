@@ -262,7 +262,7 @@ Add this to however `astro-server` env vars are currently managed (Helm values, 
 
 - API responses assembled from table queries
 - Admin gRPC reads structured data
-- OpenMeter heartbeat queries workloads table directly
+- Metering heartbeat queries workloads table directly
 
 ### Phase 3 — Reconciler
 

@@ -1,60 +1,60 @@
-# Metronome Billing — Implementation Plan (astro-server)
+# Metronome Billing — Implementation Reference (astro-server)
 
-Implementation companion to [`metronome-billing-spec.md`](./metronome-billing-spec.md). Scope: replace OpenMeter with Metronome in `apps/astro-server` behind a provider interface, and **fully decommission OpenMeter**. Every call below is the literal official Go SDK method (`github.com/Metronome-Industries/metronome-go`, module major **v3**), with field names verified against the SDK param structs.
+As-built implementation of billing in `apps/astro-server`, behind a
+provider-neutral seam. Companion to the product spec
+[`metronome-billing-spec.md`](./metronome-billing-spec.md), the code-level flow
+doc [`../03-architecture/billing-data-flow.md`](../03-architecture/billing-data-flow.md),
+and the forward gating plan [`../06-plan/billing-gating-plan.md`](../06-plan/billing-gating-plan.md).
+
+SDK calls are the official Go SDK (`github.com/Metronome-Industries/metronome-go`, module major **v3**) and the Stripe Go SDK (`github.com/stripe/stripe-go/v82`), with field names verified against the SDK param structs.
 
 ## Decisions (locked)
 
-- **OSS/self-hosted → no-op provider.** OpenMeter is *not* retained. Self-hosted ships a `noop` `BillingProvider`: unmetered, no gating, no collection. Metronome is hosted-only.
-- **Interface seam.** Extract `BillingProvider`; OpenMeter becomes a transitional impl behind it, deleted after cutover.
-- **astro-server first.** LiteLLM token redirect, `astro-queen`, and infra teardown are follow-up phases (§9).
-- **Quota is separate from billing.** Per-account resource limits (agents, deployments, members, stores, endpoints, builds/period) live in their own DB-backed `quota.Checker`, enforced identically for OSS and hosted — no billing dependency. **No plans**: system-wide defaults + per-account overrides only. The billing provider (Metronome/noop) handles metering + balance/spend gating. The two are independent 402 sources; today's OpenMeter entitlement path conflated them.
-- **Compute is metered in CU-hours** (not per-request). The existing `rawCU`/`knowledgeCU` math (`max(cpuCores, memGB/2)*replicas`) is unchanged; the compute billable metric is a `SUM` over `compute_unit_hours`.
-- **Denomination: start in USD, add the credit unit later.** v1 rates the single balance, commits, and grants in **USD** (Metronome's native USD-cents credit type). The Astro credit (`1 credit = $0.001`) is a later phase (Phase 8): introduce the `ASTRO_CREDIT` custom pricing unit and convert, or keep USD and render credits in the UI. This keeps the unverified custom-pricing-unit creation off the critical path; the single-balance model (all meters draw from one balance) is identical either way.
-- **Official Go SDK, not hand-rolled HTTP.**
+- **Two backends behind one seam.** `BILLING_PROVIDER=noop|metronome` selects at startup. OSS/self-hosted runs `noop` (unmetered — no collection, no gating); hosted runs `metronome`. OpenMeter is fully removed (code, infra, queen surface, DB column).
+- **Quota is separate from billing.** Per-account resource limits (agents, deployments, members, stores, endpoints, builds/period) live in a DB-backed `quota.Checker`, enforced identically for OSS and hosted — no billing dependency. **No plans**: system-wide defaults + per-account overrides only.
+- **Metering only on the request path is forbidden.** The provider is called from background workers (heartbeat, webhooks, backfill) and non-critical read endpoints — never inline on a gated request. Consumption gating reads a **cached** `account_billing_status` row, not the provider (see [gating plan](../06-plan/billing-gating-plan.md)).
+- **Compute is metered in CU-hours** (not per-request): `max(cpuCores, memGB/2) × replicas × hours`; the compute billable metric is a `SUM` over `cu_hours`.
+- **Denomination is entirely Metronome-side.** The server only emits `cu_hours`; rating, balances, and any credit unit are Metronome's concern — astro-server neither creates, reads, nor interprets them.
+- **Stripe is a card vault, not a charger.** astro-server collects/saves a card (SetupIntent) behind a separate `internal/payment` seam and links the Stripe customer to Metronome (`charge_automatically`); Metronome does the charging.
 
 ## Package layout
 
 ```
-apps/astro-server/internal/quota/       per-account limits — no billing dependency
-  quota.go           Checker, Wrap() middleware, resource→limit resolution
-apps/astro-server/internal/billing/
-  provider.go        BillingProvider + HostedBilling interfaces, shared types
-  noop/              OSS: allow-all balance, discard usage, no customers
-  metronome/         hosted: SDK-backed
-  openmeter/         MOVED from internal/openmeter — transitional; deleted in Phase 4
+apps/astro-server/internal/
+  quota/            per-account limits (Checker, Wrap middleware) — no billing dependency
+  billing/
+    provider.go     BillingProvider interface, UsageEvent/Account types, sentinel errors
+    noop/           OSS: discard usage, empty reads
+    metronome/      hosted: Go SDK v3 impl (+ Stripe linkage)
+    metering/       CU-hour math, deployment_billing_state, BillingStateManager
+  payment/
+    payment.go      Provider interface (card vault), Card type
+    stripe.go       Stripe SDK v82 impl (SetupIntent, default card, detach)
 ```
 
-`BILLING_PROVIDER=noop|metronome|openmeter` selects at startup (default flips `openmeter`→`noop` after cutover). Today's "nil client ⇒ no-op" pattern becomes the `noop` impl, collapsing every existing nil-guard into a real interface value.
+## Provider selection & client init
 
-## Client init
+`main.go` builds one `billing.BillingProvider` from `cfg.BillingBackend()` and threads it into the API server and the worker. `metronome.New` returns `nil` when `METRONOME_API_KEY` is unset, so a misconfigured hosted deploy degrades to "billing disabled" rather than panicking; `noop` is the default.
 
 ```go
-import (
-    "github.com/Metronome-Industries/metronome-go"
-    "github.com/Metronome-Industries/metronome-go/option"
-    "github.com/Metronome-Industries/metronome-go/shared"
-)
-
-mc := metronome.NewClient(option.WithBearerToken(cfg.MetronomeAPIKey)) // or env METRONOME_BEARER_TOKEN
+mc := metronome.NewClient(option.WithBearerToken(cfg.MetronomeAPIKey))
 ```
 
-Built-in retries (408/409/429/≥500, exponential backoff). Optional primitive fields are wrapped `param.Opt[T]`, set via `metronome.String()`, `metronome.Bool()`, `metronome.Time()`, etc.; required fields are plain.
+Built-in retries (408/409/429/≥500, exponential backoff). Optional primitive fields are `param.Opt[T]` set via `metronome.String()` etc.; required fields are plain.
 
-## The two interfaces
+## Two independent guards
 
-Today's single OpenMeter-driven `middleware/entitlement.go` splits into two independent guards.
+Billing and quota are orthogonal 402 sources.
 
-### Quota — per-account limits (no billing dependency)
+### Quota — per-account counts (DB, always on, OSS + hosted)
 
 ```go
 package quota
 
-// Effective limit resolution: per-account override (account_limits table) → system default (config).
-// Current counts come from existing DB queries (the same COUNTs the emit helpers use).
 type Result struct {
     Blocked  bool
     Resource string // first resource over limit
-    Limit    int64  // effective limit; 0 = unavailable
+    Limit    int64  // effective limit; 0 = disabled
     Used     int64
 }
 
@@ -63,68 +63,61 @@ type Checker interface {
 }
 ```
 
-Resources: `agents`, `agent_builds` (per period), `agent_deployments`, `members`, `knowledge_stores`, `knowledge_endpoints`. Enforced for OSS and hosted alike. `quota.Wrap(handler, "agents", "agent_builds")` replaces the resource-count half of today's `ent.Wrap`.
+Resources: `agents`, `agent_builds` (per period), `agent_deployments`, `members`, `knowledge_stores`, `knowledge_endpoints`. `quota.Wrap(handler, "agents", …)` gates the route:
+- Over limit → 402 `ENTITLEMENT_LIMIT_REACHED` (`usage`/`limit` from the result).
+- Effective limit `0` → 402 `FEATURE_NOT_IN_PLAN` (feature switched off for the account).
 
-### Billing — metering + balance gate (Metronome / noop)
+Enforcement respects `QUOTA_ENFORCE`; a disabled feature (limit 0) always blocks.
+
+### Billing — metering + consumption gate (hosted only)
+
+The provider seam meters and reads back; it does **not** gate. Consumption gating is a separate layer that reads a cached `account_billing_status` row (`active | past_due | suspended`) written off-path — see [`../06-plan/billing-gating-plan.md`](../06-plan/billing-gating-plan.md). Status is planned; the seam and metering below are shipped.
+
+## `BillingProvider` interface
 
 ```go
 package billing
 
 type UsageEvent struct {
-    TransactionID string         // idempotency; reuse the CloudEvent UUID
+    TransactionID string         // idempotency key; reuse the event UUID (34-day dedupe)
     AccountID     string         // → Metronome ingest alias
-    Type          string         // event_type (compute_usage, ai_tokens_in, …)
+    Type          string         // event_type (deployment_compute_usage, …)
     Time          time.Time
-    Properties    map[string]any // compute_unit_hours, model, component, …
-}
-
-// Balance/spend gate only — NOT resource counts (those are quota's job).
-type Balance struct {
-    Allow        bool    // false when prepaid-overages-off and balance ≤ 0, or over spend cap
-    RemainingUSD float64 // v1 is USD-denominated; credits are a later conversion
+    Properties    map[string]any // cu_hours, component, cpu, memory, replicas, …
 }
 
 type Account struct{ ID, Name, Type, OwnerEmail string }
 
-// Implemented by noop, metronome, openmeter.
 type BillingProvider interface {
+    // Customer lifecycle + usage ingest.
     CreateCustomer(ctx context.Context, a Account) (customerID string, err error)
-    UpdateCustomer(ctx context.Context, customerID, name string) error
     DeleteCustomer(ctx context.Context, customerID string) error
     IngestUsage(ctx context.Context, events []UsageEvent) error
-    CheckBalance(ctx context.Context, customerID string) (Balance, error)
-    GetUsage(ctx context.Context, customerID string, from, to time.Time) (UsageReport, error)
-}
 
-// Metronome-only; noop returns ErrUnsupported.
-type HostedBilling interface {
-    GrantCredits(ctx context.Context, customerID string, usd float64, expiry time.Time, reason string) error
-    ProvisionPackaging(ctx context.Context, customerID string, plan PackagingPlan) error
+    // Read-back for the native Billing UI. Return ErrBillingUnavailable on noop.
+    UsageData(ctx context.Context, customerID string, from, to time.Time) (any, error)
+    Invoices(ctx context.Context, customerID string) (any, error)
+    InvoicePDF(ctx context.Context, customerID, invoiceID string) (io.ReadCloser, error)
+    Balances(ctx context.Context, customerID string) (any, error)
 }
 ```
 
-`noop.CheckBalance` always returns `{Allow: true}` — quotas still apply, but consumption is never balance-gated. Paid-consumption paths (deploy compute, knowledge) call `CheckBalance` in addition to their quota check; count-only paths (add member, register agent) call quota alone.
+- `noop` returns empty customer IDs, discards usage, and returns `ErrBillingUnavailable` from every read.
+- `metronome` implements all methods via the SDK, plus a `LinkStripeCustomer(ctx, metronomeCustomerID, stripeCustomerID)` method surfaced through an optional interface assertion (so the core interface stays metering + read-back only).
 
-### Current meters → quota vs billing
+Packaging/contracts, credit grants, commits, and spend caps are provisioned out-of-band (Metronome admin / Terraform). `Balances`/`UsageData` are read-only pass-throughs for rendering — astro-server never interprets them for gating. The consumption gate reacts to Metronome **webhook signals** (payment failure, threshold/spend alert), not to any balance the server reads; balance/credit math is Metronome's alone. See the [gating plan](../06-plan/billing-gating-plan.md).
 
-Today's nine OpenMeter meters (`openmeter.RequiredMeters`) split by aggregation: **count/max** meters are per-account limits → quota; **sum/consumption** meters are metered usage → billing.
+### Meters → quota vs billing
 
-| Current meter | Aggregation today | Converts to | Notes |
+| Meter | Aggregation | Guard | Notes |
 |---|---|---|---|
-| `compute` | sum (CU-hours) | **Billing** | metered → balance; optional spend cap |
-| `knowledge_compute` | sum (CU-hours) | **Billing** | metered → balance |
-| `knowledge_storage` | sum (GB-day) | **Billing** | metered → balance; no provisioning cap |
-| `members` | count | **Quota** | max members / seats. Per-seat subscription pricing (if used) reads the DB member count as a recurring-charge quantity — not a Metronome meter |
-| `agents` | count | **Quota** | max registered agents |
-| `agent_builds` | count / period | **Quota** | builds per billing period (rate limit, resets each period) |
-| `agent_deployments` | count (active) | **Quota** | max active deployments |
-| `knowledge_stores` | count | **Quota** | max knowledge stores |
-| `knowledge_endpoints` | count | **Quota** | max PrivateLink endpoints |
-| `ai_tokens_in` / `ai_tokens_out` *(new)* | sum | **Billing** | metered → balance (added Phase 3/5) |
+| `deployment_compute_usage` (CU-hours) | sum | **Billing** | the only meter emitted today |
+| `knowledge_storage` (GB-day) | sum over window | **Billing** | dormant (builder present, call sites disabled) |
+| `knowledge_compute` (CU-hours) | sum | **Billing** | dormant |
+| `ai_tokens_in` / `ai_tokens_out` (by model) | sum | **Billing** | not emitted by astro-server yet (LiteLLM redirect, future) |
+| `agents` / `agent_builds` / `agent_deployments` / `members` / `knowledge_stores` / `knowledge_endpoints` | count / max | **Quota** | DB-only, no billing dependency |
 
-Net: 6 pure quota, 4 pure billing, no straddlers. The `Billing` rows reach Metronome; the rest are DB-only quota checks with no billing dependency — a clean split.
-
-## Exact SDK calls per interface method
+## Exact SDK calls
 
 ### `IngestUsage` — `mc.V1.Usage.Ingest`
 
@@ -132,37 +125,29 @@ Net: 6 pure quota, 4 pure billing, no straddlers. The `Billing` rows reach Metro
 usage := make([]metronome.V1UsageIngestParamsUsage, len(events))
 for i, ev := range events {
     usage[i] = metronome.V1UsageIngestParamsUsage{
-        TransactionID: ev.TransactionID,                  // = CloudEvent UUID → 34-day dedupe
+        TransactionID: ev.TransactionID,                  // event UUID → 34-day dedupe
         CustomerID:    ev.AccountID,                       // ingest alias = Astro account ID
-        EventType:     ev.Type,                            // "compute_usage", "ai_tokens_in", …
+        EventType:     ev.Type,                            // "deployment_compute_usage"
         Timestamp:     ev.Time.UTC().Format(time.RFC3339), // RFC 3339, 4-digit year
-        Properties:    ev.Properties,                      // compute_unit_hours, model, component, …
+        Properties:    ev.Properties,
     }
 }
 err := mc.V1.Usage.Ingest(ctx, metronome.V1UsageIngestParams{Usage: usage})
 ```
 
-`V1UsageIngestParams.Usage` is a JSON array; `transaction_id`/`customer_id`/`event_type`/`timestamp` are `api:"required"`. Chunk the slice (batch limit **unverified** — assume ~100/req).
+Chunked at **100 events/request** (`ingestBatchLimit`). `transaction_id`/`customer_id`/`event_type`/`timestamp` are required.
 
-### `CreateCustomer` — `mc.V1.Customers.New` (+ Stripe link)
+### `CreateCustomer` — `mc.V1.Customers.New`
 
 ```go
-c, err := mc.V1.Customers.New(ctx, metronome.V1CustomerNewParams{
+resp, err := mc.V1.Customers.New(ctx, metronome.V1CustomerNewParams{
     Name:          a.Name,
-    IngestAliases: []string{a.ID},                        // usage keyed by Astro account ID
-    CustomerBillingProviderConfigurations: []metronome.V1CustomerNewParamsCustomerBillingProviderConfiguration{{
-        BillingProvider: "stripe",
-        DeliveryMethod:  "direct_to_billing_provider",
-        Configuration: map[string]any{
-            "stripe_customer_id":       stripeCustomerID,
-            "stripe_collection_method": "charge_automatically",
-        },
-    }},
+    IngestAliases: []string{a.ID}, // usage keyed by Astro account ID
 })
-// c.Data.ID → store as metronome_customer_id
+// resp.Data.ID → accounts.metronome_customer_id
 ```
 
-Or link Stripe after creation via `mc.V1.Customers.BillingConfig.New`:
+### `LinkStripeCustomer` — `mc.V1.Customers.BillingConfig.New`
 
 ```go
 err := mc.V1.Customers.BillingConfig.New(ctx, metronome.V1CustomerBillingConfigNewParams{
@@ -173,156 +158,110 @@ err := mc.V1.Customers.BillingConfig.New(ctx, metronome.V1CustomerBillingConfigN
 })
 ```
 
-### `UpdateCustomer` — `mc.V1.Customers.SetName`  ·  `DeleteCustomer` — `mc.V1.Customers.Archive`
+### `DeleteCustomer` — `mc.V1.Customers.Archive` (no hard delete)
 
 ```go
-_, err := mc.V1.Customers.SetName(ctx, metronome.V1CustomerSetNameParams{CustomerID: id, Name: name})
-_, err := mc.V1.Customers.Archive(ctx, metronome.V1CustomerArchiveParams{ID: id}) // no hard delete
+_, err := mc.V1.Customers.Archive(ctx, metronome.V1CustomerArchiveParams{ID: shared.IDParam{ID: id}})
 ```
 
-### `CheckBalance` — `mc.V1.Contracts.ListBalances`
+### Read-back — `Usage.ListAutoPaging` · `Customers.Invoices` · `Customers.Credits`/`Commits`
 
-```go
-bal, err := mc.V1.Contracts.ListBalances(ctx, metronome.V1ContractListBalancesParams{
-    CustomerID:          customerID,
-    IncludeBalance:      metronome.Bool(true),
-    ExcludeZeroBalances: metronome.Bool(true),
-    CoveringDate:        metronome.Time(time.Now().UTC()),
-})
-// Sum remaining commit/credit balance (USD) → Balance.RemainingUSD.
-// Prepaid-overages-off: Allow=false when balance ≤ 0. PAYG/enterprise: Allow=true.
+`UsageData` pages `mc.V1.Usage.ListAutoPaging` (daily windows). `Invoices`/`InvoicePDF` use `mc.V1.Customers.Invoices.{ListAutoPaging,GetPdf}` (404 PDF → `ErrInvoiceNotAvailable`). `Balances` returns `{credits, commits}` from `mc.V1.Customers.Credits`/`Commits.ListAutoPaging`. All pass raw SDK rows through for the client to render.
+
+## Ingest event catalog (as-built)
+
+Every event serializes to one envelope; only `event_type` and `properties` vary. Built by `usageEvent()` (`internal/billing/metering`) which stamps a fresh UUID, the account ID, and a UTC timestamp. **Only `deployment_compute_usage` is emitted today.**
+
+```json
+{
+  "transaction_id": "9f1c8e2a-3b7d-4a11-9c2e-8d5f4b0a1e77",
+  "customer_id": "acct_2h4Kd9",
+  "event_type": "deployment_compute_usage",
+  "timestamp": "2026-07-17T12:35:00Z",
+  "properties": {
+    "cu_hours": 0.08333333333333333,
+    "agent_name": "support-bot",
+    "deployment_id": "dep_7Qk2mZ",
+    "component": "server",
+    "cpu": "500m",
+    "memory": "1Gi",
+    "replicas": 2
+  }
+}
 ```
 
-Returns `*V1ContractListBalancesResponseUnion`. This gates *consumption only*; resource counts are enforced separately by `quota.Checker`. Combine with the contract's `spend_threshold_configuration` for spend caps.
+- Emitted per active workload per heartbeat. `cu_hours = CU × intervalHours`; the `0.0833…` is `1 CU × (5/60) h`.
+- `cpu`/`memory` are raw K8s quantity **strings**; `replicas` is an int.
+- Request body is `{ "usage": [ <event>, … ] }`, ≤ 100 events per POST.
+- Knowledge metering (`knowledge_storage_provisioned`, `knowledge_compute_usage`) is dormant — builders exist, call sites disabled. When re-enabled, billable-metric `EventTypeFilter`s must match those exact strings.
 
-### `GetUsage` — `mc.V1.Customers.ListCosts`
+## Metering path
 
-```go
-costs := mc.V1.Customers.ListCosts(ctx, metronome.V1CustomerListCostsParams{
-    CustomerID:   customerID,
-    StartingOn:   from,   // inclusive
-    EndingBefore: to,     // exclusive
-})
-// Auto-paging cursor; pair with ListBalances for remaining credit balance in the UI.
-```
+Deployment lifecycle transitions (deploy/undeploy/wakeup) write **anchor rows** to `deployment_billing_state` via `BillingStateManager` — no events at start/stop. A periodic river job **`metering.heartbeat`** (`riverqueue/heartbeat.go`, 5-minute period) runs `BillingStateManager.RunBillingCycle`, computes CU-hour deltas per active workload, and pushes them through `provider.IngestUsage`. Anchor timestamps advance only after ingest succeeds, so a failed cycle re-emits the same delta (idempotent via the event UUID). See [billing-data-flow.md](../03-architecture/billing-data-flow.md) Flow 3.
 
-### `GrantCredits` — `mc.V1.CreditGrants.New` (v1: denominated in USD cents)
+## Payment method collection (Stripe card vault)
 
-```go
-_, err := mc.V1.CreditGrants.New(ctx, metronome.V1CreditGrantNewParams{
-    CustomerID: customerID,
-    Name:       reason,                 // appears on invoices
-    Priority:   1,                      // lower consumes first
-    ExpiresAt:  expiry,
-    GrantAmount: metronome.V1CreditGrantNewParamsGrantAmount{
-        Amount:       usd * 100,         // USD cents (v1); switches to ASTRO_CREDIT later
-        CreditTypeID: usdCentsCreditTypeID, // Metronome built-in USD (cents); from /v1/credit-types/list
-    },
-    PaidAmount: metronome.V1CreditGrantNewParamsPaidAmount{
-        Amount:       0,                 // free grant (monthly / 3-mo starting credits)
-        CreditTypeID: usdCentsCreditTypeID,
-    },
-})
-```
+Stripe collects and saves a card; astro-server never charges. Enabled only when `STRIPE_SECRET_KEY` is set; otherwise the UI shows "coming soon". No Stripe webhook — the confirm is synchronous and authoritative.
 
-Free monthly credits = a grant reissued each period (recurring, non-rolling); 3-mo starting credits = one grant with `ExpiresAt = now+3mo`.
+1. `POST …/billing/setup-intent` — ensure a Stripe customer (persisted on `accounts.stripe_customer_id`), return a SetupIntent client secret + publishable key.
+2. Client confirms the card with Stripe's embedded `PaymentElement` (name/address collected client-side; card never touches our server).
+3. `POST …/billing/payment-method` — server **re-reads** the SetupIntent from Stripe (SDK `V1SetupIntents.Retrieve`), verifies `succeeded`, sets the card as the customer default, detaches prior cards, and links the Stripe customer to Metronome via `LinkStripeCustomer`.
+4. `GET`/`DELETE …/billing/payment-method` read/detach the saved card.
 
-## One-time Metronome object setup (per environment)
+Saving a card lets Metronome auto-charge (`charge_automatically`); whether an account is out of funds and what to do about it is Metronome's call, surfaced to gating via webhook signals — not something astro-server derives from card presence.
 
-**Single product, single balance.** Compute, AI tokens, and knowledge storage are *meters*, not separate priced products — each is a billable metric whose usage draws down one balance. v1 denominates that balance in **USD**; the `ASTRO_CREDIT` pricing unit (`$0.001`) is added later (Phase 8), off the critical path.
+## Endpoints
 
-Provisioned once via script/Terraform + admin console:
-
-| Object | SDK call | Path |
+| Method | Path | Purpose |
 |---|---|---|
-| The one product (the single balance) | `mc.V1.Contracts.Products.New` | `POST /v1/contract-pricing/products/create` |
-| Billable metrics — one per meter (`compute_usage`, `ai_tokens_in`, `ai_tokens_out`, `knowledge_storage`) | `mc.V1.BillableMetrics.New` | `POST /v1/billable-metrics/create` |
-| Rate card `ASTRO_STANDARD` — rates in **USD** | `mc.V1.Contracts.RateCards.New` | `POST /v1/contract-pricing/rate-cards/create` |
-| Rates on the card (one per meter) | `mc.V1.Contracts.RateCards.Rates.AddMany` | `POST /v1/contract-pricing/rate-cards/addRates` |
+| GET | `/billing/usage` | metered usage over `[from,to)` (defaults to current month) |
+| GET | `/billing/invoices` | invoices + line items |
+| GET | `/billing/invoices/:invoiceId/pdf` | invoice PDF stream |
+| GET | `/billing/balances` | credits + commits |
+| POST | `/billing/setup-intent` | start card setup |
+| POST | `/billing/payment-method` | confirm + save card |
+| GET | `/billing/payment-method` | saved card summary |
+| DELETE | `/billing/payment-method` | remove card |
+| POST | `/webhooks/metronome` | inbound Metronome events (HMAC-verified) |
 
-Commits/credit grants apply to the single product, so all metered usage draws from one balance (no per-meter `applicable_product_ids`).
+Read endpoints return `{available:false}` when the backend is `noop`/unconfigured, so the client renders a "not available" state rather than an error.
 
-Billable metric example (compute, CU-hours):
+## Webhooks (hosted only)
 
-```go
-_, err := mc.V1.BillableMetrics.New(ctx, metronome.V1BillableMetricNewParams{
-    Name:            "Compute (CU-hours)",
-    AggregationType: metronome.V1BillableMetricNewParamsAggregationTypeSum,
-    AggregationKey:  metronome.String("compute_unit_hours"),
-    EventTypeFilter: shared.EventTypeFilterParam{InValues: []string{"compute_usage"}},
-    GroupKeys:       [][]string{{"component"}},
-})
-```
+`POST /webhooks/metronome` verifies HMAC-SHA256 over `Metronome-Webhook-Date + "\n" + rawBody` (keyed by `METRONOME_WEBHOOK_SECRET`, hex-compared to `Metronome-Webhook-Signature`; raw body read before JSON middleware). Disabled (404) when the secret is unset. Event handlers are **log-only stubs today**:
 
-AI tokens: two metrics, `SUM` on the token-count property, `GroupKeys: [][]string{{"model"}}`, filtered to `ai_tokens_in` / `ai_tokens_out`.
+- `invoice.finalized` → (planned) fetch line items, reconcile.
+- `payment.failed` / `invoice.payment_failed` → (planned) map Metronome customer → account (`GetByMetronomeCustomerID`), set `dunning_since`, move `billing_status` → `past_due`; recovery clears it.
+- `alert.threshold_reached` → (planned) low-balance banner.
 
-## Metering path (unchanged compute, new sink)
+## Packaging → Metronome primitives (out-of-band)
 
-CU-hour math, the two billing-state tables, the heartbeat/reconcile state machine, and the inline emit helpers stay. Only the sink changes: `client.IngestEvents([]CloudEvent)` → `provider.IngestUsage([]UsageEvent)`. A thin adapter maps `CloudEvent{ID,Subject,Type,Data}` → `UsageEvent{TransactionID,AccountID,Type,Properties}` — the UUID carries over as `transaction_id`, preserving idempotency and the backfill dedupe.
-
-**New AI-token metric** (astro-server doesn't meter tokens today; LiteLLM emits to OpenMeter directly): add `ai_tokens_in`/`ai_tokens_out` events. The fleet emission redirect is Phase 5 (§9), not astro-server.
-
-## Gating — two independent 402 sources
-
-`middleware/entitlement.go` splits into a quota guard and a balance guard. The existing response codes are preserved so the client needs no change; only their source moves.
-
-**Quota gate (DB, always on, OSS + hosted).** `quota.Check` compares DB counts against the effective limit:
-- Over limit → 402 `ENTITLEMENT_LIMIT_REACHED` (`usage`/`limit` from the result).
-- Effective limit `0` → 402 `FEATURE_NOT_IN_PLAN` (feature disabled for the account). *(No plans exist; a 0 override is how a feature is switched off.)*
-
-**Balance gate (billing provider, consumption paths only).** `billing.CheckBalance`:
-- PAYG / enterprise-overages-on → `Allow=true` (soft-warn near cap via alerts).
-- Prepaid-overages-off, balance ≤ 0 → `Allow=false` → 402 (insufficient balance).
-- `noop` → always allow.
-- Provider error → fail open (preserve current behavior).
-
-Near-cap/low-balance warnings via `mc.V1.Alerts.New` (`POST /v1/alerts/create`) → webhook → in-app banner.
-
-## Packaging → exact primitives
-
-Commits are created inline on `mc.V1.Contracts.New` or standalone via `mc.V1.Customers.Commits.New`:
-
-```go
-_, err := mc.V1.Customers.Commits.New(ctx, metronome.V1CustomerCommitNewParams{
-    CustomerID:      customerID,
-    Type:            metronome.V1CustomerCommitNewParamsTypePrepaid, // or …TypePostpaid
-    ProductID:       balanceProductID, // the single product; all meters draw from it
-    Priority:        100,
-    AccessSchedule:  metronome.V1CustomerCommitNewParamsAccessSchedule{ /* schedule_items: amount (USD cents) + window */ },
-    InvoiceSchedule: metronome.V1CustomerCommitNewParamsInvoiceSchedule{ /* charge up front (prepaid) / true-up (postpaid) */ },
-})
-```
+Products, billable metrics, rate cards, commits, and credit grants are configured in the Metronome dashboard / Terraform per environment, not by astro-server. The billable metrics must filter/aggregate on the emitted event shape (e.g. compute filters `event_type = deployment_compute_usage`, sums `cu_hours`).
 
 | Model | Primitive |
 |---|---|
-| Pay as you go | `ASTRO_STANDARD` rate card, no commit, monthly arrears. Free monthly + 3-mo credits via `CreditGrants.New`. |
-| Enterprise committed | `Commit{Type: Postpaid}` (or Prepaid) + per-contract rate `overrides` on `Contracts.New`; optional `spend_threshold_configuration`. |
-| Prepaid credits | `Commit{Type: Prepaid}` in USD, invoiced up front. Overages-off ⇒ hard stop via payment/balance threshold; auto-recharge via prepaid balance threshold. |
-| Subscription | Recurring charges (`platform_fee`, per-`seats`) ± bundled recurring credits, on `Contracts.New`. |
-
-Successor contract: `Contracts.New` with `transition:{type:"renewal", from_contract_id}`. Amendments: `mc.V2.Contracts.Edit` (`POST /v2/contracts/edit`).
-
-## Invoicing & webhooks (hosted only)
-
-New endpoint `POST /api/v1/webhooks/metronome` consuming **invoice finalized**, **payment failed**, **threshold-reached**.
-
-- **Signature:** HMAC-SHA256 over `X-Metronome-Date + "\n" + rawBody`, keyed by `METRONOME_WEBHOOK_SECRET`; hex-compare to header `Metronome-Webhook-Signature`. Use raw bytes (read body before JSON middleware).
-- On finalize: `mc.V1.Customers.Invoices.Get` for line items; invoice is USD-native (v1). Once the credit unit lands, credits convert to USD at $0.001/credit and the credit balance is summarized.
-- On payment failure: dunning state + gating downgrade; recovery restores.
+| Pay as you go | standard rate card, no commit, monthly arrears; free/starting credits via credit grants |
+| Enterprise committed | `Commit{Postpaid|Prepaid}` + per-contract rate overrides; optional spend threshold |
+| Prepaid credits | `Commit{Prepaid}`, invoiced up front; overages-off ⇒ hard stop via balance threshold |
+| Subscription | recurring charges (platform fee, per-seat) ± bundled recurring credits |
 
 ## Configuration & data model
 
 | Var | Purpose |
 |---|---|
-| `BILLING_PROVIDER` | `noop` (default post-cutover) \| `metronome` \| `openmeter` (transitional) |
-| `METRONOME_API_KEY` | SDK bearer token |
-| `METRONOME_WEBHOOK_SECRET` | Webhook HMAC verification |
-| `STRIPE_*` | Stripe linkage (via Metronome billing-config) |
-| `OPENMETER_*` | Transitional; deleted from astro-server at Phase 4 (OSS uses `noop`, never OpenMeter) |
+| `BILLING_PROVIDER` | `noop` (default) \| `metronome` |
+| `METRONOME_API_KEY` | SDK bearer token (metronome provider is nil without it) |
+| `METRONOME_WEBHOOK_SECRET` | Metronome webhook HMAC verification |
+| `STRIPE_SECRET_KEY` | enables the Stripe card vault |
+| `STRIPE_PUBLISHABLE_KEY` | surfaced to the client for the embedded PaymentElement |
+| `QUOTA_ENFORCE` | enable DB-quota blocking (default false) |
+| `QUOTA_DEFAULTS` | system-wide default limits (`agents=10,members=5,…`) |
+| `BILLING_GATE_ENFORCE` | consumption gate: observe vs enforce *(planned)* |
+| `BILLING_DUNNING_GRACE_DAYS` | `past_due` → `suspended` window, default 7 *(planned)* |
 
-Account columns: keep `openmeter_customer_id` during bake; add `metronome_customer_id` and `stripe_customer_id` (`internal/account/store.go` gains `Get/SetMetronomeCustomerID`, generalizing the existing accessors); `GetAccountsMissingOpenMeterCustomer` → provider-generic.
+Account columns (as-built): `metronome_customer_id`, `stripe_customer_id` (each with dedicated `Get/Set` accessors; the metronome customer-backfill worker is provider-generic). **Planned for gating:** a separate `account_billing_status` table (one row per account, `status`/`reason`/`dunning_since`/`alert_active`; absence ⇒ `active`; no balance column) — kept off `accounts` since billing state churns independently. See the [gating plan](../06-plan/billing-gating-plan.md).
 
-**Quota storage (no plans).** System-wide default limits live in config (a `resource → int64` map, e.g. `QUOTA_DEFAULTS`); overrides live in a narrow table:
+Quota storage (no plans): system-wide defaults in config; per-account overrides in a narrow table, admin-editable via `astro-queen`.
 
 ```sql
 CREATE TABLE account_limits (
@@ -333,99 +272,18 @@ CREATE TABLE account_limits (
 );
 ```
 
-`quota.Checker` resolves the effective limit as `override(account_id, resource)` else the config default. Only overridden `(account, resource)` pairs get a row; everything else falls back to the default. Admin-editable (via `astro-queen`).
+Effective limit = `override(account, resource)` else config default.
 
-## Phases
+## Remaining work
 
-Phases 1–4 are astro-server and each is independently mergeable. Behavior is unchanged until Phase 4 (hosted cutover); Phases 5–8 follow. Every phase lists **Work** (file-level) and **Exit** (verification/done criteria).
+- **Consumption gating** — cached `billing_status`, periodic status job, webhook writes, `middleware.Entitlements` reader + `ent.Wrap` on deploy, workload suspend/resume. Full plan: [`../06-plan/billing-gating-plan.md`](../06-plan/billing-gating-plan.md).
+- **AI-token metering** — repoint the LiteLLM proxy fleet's token/spend emission to Metronome; land `ai_tokens_in`/`ai_tokens_out` end to end, keyed on the account ID.
+- **Knowledge metering** — re-enable the dormant `knowledge_storage`/`knowledge_compute` emit paths.
 
-### Phase 1 — Interface seam + quota split (pure refactor, zero behavior change)
-
-Carve two interfaces out of the concrete OpenMeter path; OpenMeter stays the only backend.
-
-**Work**
-- New `internal/billing/provider.go`: `BillingProvider` + `HostedBilling` interfaces; `UsageEvent`, `Balance`, `Account`, `UsageReport`, `ErrUnsupported`.
-- Move `internal/openmeter/*` → `internal/billing/openmeter/`; make `*openmeter.Client` satisfy `BillingProvider` via an adapter — `IngestEvents`→`IngestUsage`, `GetCustomerAccess`→`CheckBalance`, `QueryMeter`→`GetUsage`, `CreateSubscription`→`ProvisionPackaging`, plus the `CloudEvent{ID,Subject,Type,Data}`↔`UsageEvent` mapping (UUID→`TransactionID`).
-- New `internal/quota/quota.go`: `Checker` + `Wrap()` middleware. Counts reuse the DB `COUNT`/`GROUP BY` queries already in `openmeter/events.go` (`EmitActive*`); limits from `account_limits` (override) else config default.
-- Add `account_limits` to `sql/astro-server/schema.sql`; add `QUOTA_DEFAULTS` to `internal/config/config.go`. Seed `account_limits`/defaults from the limits OpenMeter entitlements enforce today (parity).
-- Split `middleware/entitlement.go`: resource-count features (`agents`, `agent_builds`, `agent_deployments`, `members`, `knowledge_stores`, `knowledge_endpoints`) → `quota.Wrap`; consumption/balance (`compute`, `knowledge_compute`, `knowledge_storage`) stays with the billing provider. Preserve `LimitResponse` codes verbatim. (Note: `CreateKnowledgeStore`'s `knowledge_storage` gate becomes billing-only; its `knowledge_stores` count stays quota.)
-- Repoint callers off `*openmeter.Client`: `handlers/{usage,infrastructure,accounts,deploy,knowledge,org,agents}.go`; `billing/openmeter/{events,billing,heartbeat}.go`; `riverqueue/{deploy,wakeup,undeploy,reconcile,knowledge_reconcile,heartbeat,openmeter_backfill,purge_accounts,github_build}.go`; `deps.go` (`Clients.OpenMeter`→`Clients.Billing`; add `Quota`); `main.go`.
-- `internal/account/store.go`: unchanged (still `openmeter_customer_id`).
-
-**Exit** — compiles; `astro-server:test`/`vet` green; with `OPENMETER_URL` set, metering + 402s byte-identical to pre-refactor; quota 402s reproduce current limits. No functional change.
-
-### Phase 2 — No-op provider (OSS)
-
-OSS runs with no metering backend; quota still enforced.
-
-**Work**
-- `internal/billing/noop/`: every `BillingProvider` method no-ops; `CheckBalance`→`{Allow:true}`; `GetUsage`→empty; `HostedBilling`→`ErrUnsupported`.
-- `BILLING_PROVIDER=noop|metronome|openmeter` selection in `config.go`/`main.go`; the old "nil client ⇒ off" guards become provider dispatch.
-
-**Exit** — boot `BILLING_PROVIDER=noop`: no outbound metering calls; usage endpoint returns empty; deploy/knowledge/member flows succeed; quota 402s still fire.
-
-### Phase 3 — Metronome provider (dark, USD)
-
-Full Metronome impl behind the flag, unused in prod.
-
-**Work**
-- One-time setup (script/Terraform): single product, billable metrics (`compute_usage`, `ai_tokens_in`, `ai_tokens_out`, `knowledge_storage`), `ASTRO_STANDARD` rate card in **USD**; resolve built-in USD-cents `credit_type_id`.
-- `internal/billing/metronome/`: SDK client + all methods per **Exact SDK calls**.
-- Customer + Stripe linkage in `handlers/accounts.go`; add `metronome_customer_id`, `stripe_customer_id` columns + `account/store.go` accessors (`Get/SetMetronomeCustomerID`).
-- Generalize the backfill worker (`riverqueue/openmeter_backfill.go`) → provider-agnostic customer backfill (`GetAccountsMissing<Provider>Customer`).
-- New config `METRONOME_API_KEY`, `METRONOME_WEBHOOK_SECRET`, `STRIPE_*`.
-- Webhook endpoint `POST /api/v1/webhooks/metronome` (invoice finalized, payment failed, threshold) with HMAC-SHA256 verification (raw body).
-
-**Exit** — in a test env with `BILLING_PROVIDER=metronome`: customer created + Stripe-linked; usage visible in Metronome (dedupe on retry); `CheckBalance` blocks a zero-balance prepaid; webhook signature verifies. Prod remains `openmeter`.
-
-### Phase 4 — Hosted cutover (behavior change)
-
-Hosted moves to Metronome; OpenMeter deleted from astro-server.
-
-**Work**
-- Temporary multiplexing provider dual-writes `IngestUsage` to OpenMeter + Metronome during bake.
-- Backfill historical usage into Metronome via the generalized backfill; reconcile balances/invoices against the OpenMeter view.
-- Flip hosted `BILLING_PROVIDER=metronome`; gating reads Metronome `CheckBalance`.
-- Delete `internal/billing/openmeter/`; drop `OPENMETER_*` and `RequiredMeters`/meter-validation at startup. Heartbeat/CU-hour math and billing-state tables stay (now feeding `IngestUsage`).
-
-**Exit** — hosted balances/invoices reconcile with the prior OpenMeter numbers; no OpenMeter references remain in astro-server; OSS on `noop`.
-
-### Phase 5 — LiteLLM token redirect (follow-up, out of astro-server)
-
-Redirect AI-token metering off OpenMeter.
-
-**Work** — repoint the LiteLLM proxy fleet's token/spend emission from OpenMeter to Metronome (fleet config + `internal/aigateway/{client,provisioner}.go` key metadata); land `ai_tokens_in`/`ai_tokens_out` billable metrics end to end, keyed on the Astro account ID.
-
-**Exit** — token usage appears on Metronome invoices; OpenMeter receives no token spend.
-
-### Phase 6 — astro-queen
-
-Remove queen's OpenMeter surface; add quota admin.
-
-**Work** — delete/retarget its OpenMeter client, `ProxyOpenMeter`/`TriggerOpenMeterBackfill` gRPC + proto (`packages/astro-proto/admin/v1`), grant creation, and React pages; add admin editing of `account_limits` overrides.
-
-**Exit** — queen builds without OpenMeter; admins can view/edit per-account limits.
-
-### Phase 7 — Infra teardown
-
-Delete OpenMeter infrastructure.
-
-**Work** — remove `terraform/environments/{prod,preview}/openmeter.tf`, helm values (`preview/openmeter.yaml.tpl`), the meters bootstrap job, the Grafana `openmeter-sink` dashboard, and `scripts/bootstrap-openmeter.sh` / `scripts/backfill-openmeter-subscriptions.sh`.
-
-**Exit** — no OpenMeter deployment or dashboards in any environment.
-
-### Phase 8 — Credit unit
-
-Swap USD → the Astro credit.
-
-**Work** — confirm whether `ASTRO_CREDIT` (`$0.001`) is REST-creatable or app-only; create it; migrate rates/commits/grants/balance from USD to credits (or keep USD and render credits in UI + invoices). Update `Balance.RemainingUSD`→credits and the grant/commit denomination.
-
-**Exit** — balances, invoices, and the usage UI are expressed in credits; `1 credit = $0.001` holds against `pricing.ts`.
+> Rating, credits, balances, and the pricing unit are **Metronome/product concerns, not astro-server work** — the server emits usage and reacts to Metronome's webhook signals; it does not model money.
 
 ## Open questions
 
-- **Credit rollover** — recurring/subscription credit rollover vs expire, per model.
 - **Provisioning surface** — enterprise/prepaid/subscription setup in `astro-queen` vs self-serve prepaid top-ups.
-- **Rate-card source of truth** — `pricing.ts` vs Metronome rate card; one must derive from the other.
-- **Dunning/downgrade policy** — gating on payment failure and prepaid exhaustion (grace window?).
-- **Unverified API details** to confirm against OpenAPI before coding: ingest batch/payload limit; the built-in USD-cents `credit_type_id` (via `GET /v1/credit-types/list`, `mc.V1.PricingUnits.List`) for v1; prepaid auto-recharge field name; exact `AccessSchedule`/`InvoiceSchedule` sub-fields on commits. (Whether the `ASTRO_CREDIT` pricing unit is REST-creatable is a Phase 8 concern, not a v1 blocker.)
+- **Metronome alert config** — which balance/spend condition Metronome is configured to fire `alert.threshold_reached` on (drives the `suspended` transition); defined Metronome-side, confirmed with the billing owner.
+- **Unverified API details** to confirm against the SDK before coding: the recovery event type(s) that clear dunning; exact `AccessSchedule`/`InvoiceSchedule` sub-fields on commits.

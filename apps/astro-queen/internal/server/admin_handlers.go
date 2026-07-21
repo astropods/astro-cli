@@ -32,7 +32,6 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/deployments/{id}/jobs", s.handleGetDeploymentJobs)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/repair-normalized", s.handleRepairNormalizedSpec)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/adapters", s.handleSetAdapters)
-	mux.HandleFunc("POST /api/admin/openmeter-backfill", s.handleTriggerOpenMeterBackfill)
 	mux.HandleFunc("GET /api/admin/feedback", s.handleListFeedback)
 	mux.HandleFunc("GET /api/admin/migrations", s.handleListClusterMigrations)
 	mux.HandleFunc("POST /api/admin/refresh-messaging-cache", s.handleRefreshMessagingCache)
@@ -390,15 +389,6 @@ func (s *Server) handleSetAdapters(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListFeedback(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.ListFeedback(r.Context(), &adminv1.ListFeedbackRequest{})
-	if err != nil {
-		writeGRPCErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleTriggerOpenMeterBackfill(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.admin.TriggerOpenMeterBackfill(r.Context(), &adminv1.TriggerOpenMeterBackfillRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

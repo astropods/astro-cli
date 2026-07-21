@@ -65,7 +65,6 @@ func (s *Server) ListQuotaIncreaseRequests(ctx context.Context, req *adminv1.Lis
 }
 
 // ApproveQuotaIncrease marks a pending request as approved.
-// The caller (queen) is responsible for creating the OpenMeter grant separately.
 func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQuotaIncreaseRequest) (*adminv1.ApproveQuotaIncreaseResponse, error) {
 	if req.RequestID == "" || req.GrantAmount <= 0 {
 		return nil, fmt.Errorf("request_id and positive grant_amount are required")

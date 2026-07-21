@@ -8,7 +8,7 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -44,7 +44,7 @@ type UndeployWorker struct {
 	ksStore  *knowledgestore.Store
 	log      *logger.Logger
 	cache    k8scache.Cache
-	billing  *openmeter.BillingStateManager
+	billing  *metering.BillingStateManager
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {

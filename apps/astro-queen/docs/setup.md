@@ -1,13 +1,12 @@
 # Queen Setup Guide
 
-Queen is the Astro admin toolkit. It ships as a single binary that embeds a web UI and proxies requests to the Astro admin gRPC server and OpenMeter API.
+Queen is the Astro admin toolkit. It ships as a single binary that embeds a web UI and proxies requests to the Astro admin gRPC server.
 
 ## Prerequisites
 
 - Go 1.24+
 - Bun (for building the frontend)
 - Access to an Astro admin gRPC server
-- (Optional) OpenMeter API key
 
 ## Building
 
@@ -55,8 +54,6 @@ server: "your-server:9091"
 cert_file: ~/.astro-queen/client.crt
 key_file: ~/.astro-queen/client.key
 ca_file: ~/.astro-queen/ca.crt
-openmeter_api_key: "om_your_api_key_here"
-openmeter_server: "https://meter.astropod.ai"
 ```
 
 All fields are optional:
@@ -67,8 +64,6 @@ All fields are optional:
 | `cert_file` | (none) | Client cert path or inline PEM. Required for mTLS. |
 | `key_file` | (none) | Client key path or inline PEM. Required for mTLS. |
 | `ca_file` | (none) | CA cert path or inline PEM. Required for mTLS. |
-| `openmeter_api_key` | (none) | Bearer token for OpenMeter API |
-| `openmeter_server` | `https://meter.astropod.ai` | OpenMeter base URL |
 
 If no cert files are provided, queen connects to gRPC insecurely (suitable for local dev).
 
@@ -111,12 +106,6 @@ The web UI has two sections:
 - **Agents** - List agents with expandable build history.
 - **Cluster** - Query cluster status by namespace (pods, deployments, services, ingresses, events).
 
-### OpenMeter
-- **Meters** - Create, update, delete, and query meters.
-- **Features** - Create and delete features.
-- **Customers** - List customers, manage entitlements and grants.
-- **Events** - List events and ingest new CloudEvents.
-
 ## Dev environment management
 
 Queen also includes CLI commands for managing Astropod dev environments (no web UI for these):
@@ -153,7 +142,6 @@ The Vite dev server (port 5173) proxies `/api` requests to the Go server on port
 queen server [--port 8888]
   -> Go HTTP server on 127.0.0.1:8888
   -> /api/admin/*      -> proxies to gRPC AdminService (mTLS)
-  -> /api/openmeter/*  -> reverse proxy to OpenMeter REST API
   -> /*                -> serves embedded React SPA (go:embed)
   -> opens browser automatically
 ```

@@ -8,14 +8,6 @@ import { BlueprintsPage } from "@/pages/blueprints";
 
 import { ConnectedDevicesPage } from "@/pages/connected-devices";
 import { ApiClientPage } from "@/pages/api-client";
-import { MetersPage } from "@/pages/meters";
-import { FeaturesPage } from "@/pages/features";
-import { CustomersPage } from "@/pages/customers";
-import { CustomerDetailPage } from "@/pages/customer-detail";
-import { EventsPage } from "@/pages/events";
-import { PlansPage } from "@/pages/plans";
-import { OpenMeterHomePage } from "@/pages/openmeter-home";
-import { OpenMeterDashboardPage } from "@/pages/openmeter-dashboard";
 import { JobsPage } from "@/pages/jobs";
 import { QuotaRequestsPage } from "@/pages/quota-requests";
 import { FeedbackPage } from "@/pages/feedback";
@@ -26,8 +18,7 @@ export const router = createBrowserRouter([
   {
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/openmeter" replace /> },
-      { path: "openmeter", element: <OpenMeterHomePage /> },
+      { index: true, element: <Navigate to="/admin/deployments" replace /> },
       { path: "admin/accounts", element: <AccountsPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
@@ -40,13 +31,6 @@ export const router = createBrowserRouter([
       { path: "admin/clusters", element: <ClustersPage /> },
       { path: "admin/migrations", element: <MigrationsPage /> },
       { path: "admin/feedback", element: <FeedbackPage /> },
-      { path: "openmeter/dashboard", element: <OpenMeterDashboardPage /> },
-      { path: "openmeter/meters", element: <MetersPage /> },
-      { path: "openmeter/features", element: <FeaturesPage /> },
-      { path: "openmeter/customers", element: <CustomersPage /> },
-      { path: "openmeter/customers/:id", element: <CustomerDetailPage /> },
-      { path: "openmeter/plans", element: <PlansPage /> },
-      { path: "openmeter/events", element: <EventsPage /> },
     ],
   },
 ]);

@@ -308,7 +308,6 @@ export interface AdminAccount {
   type: string;
   owner_user_id: string;
   member_count: number;
-  has_openmeter: boolean;
   has_langfuse: boolean;
   deleted_at?: string;
   created_at: string;

@@ -33,7 +33,7 @@ export default [
         layout("pages/settings/SettingsLayout.tsx", [
           index("pages/settings/SettingsRedirect.tsx"),
           route("account", "pages/settings/AccountSettings.tsx"),
-          route("usage", "pages/settings/UsageSettings.tsx"),
+          route("billing", "pages/settings/BillingSettings.tsx"),
           route("secrets", "pages/settings/SecretsSettings.tsx"),
           route("api-keys", "pages/settings/ApiKeysSettings.tsx"),
           route("connectors", "pages/settings/ConnectorsSettings.tsx"),
@@ -45,7 +45,7 @@ export default [
           layout("pages/settings/OrgSettingsLayout.tsx", [
             route("general", "pages/settings/OrgGeneralSettings.tsx"),
             route("members", "pages/settings/OrgMembersSettings.tsx"),
-            route("usage", "pages/settings/OrgUsageSettings.tsx"),
+            route("billing", "pages/settings/OrgBillingSettings.tsx"),
             route("secrets", "pages/settings/OrgSecretsSettings.tsx"),
             route("api-keys", "pages/settings/OrgApiKeysSettings.tsx"),
             route("audit-log", "pages/settings/OrgAuditLogSettings.tsx"),

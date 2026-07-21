@@ -36,8 +36,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metronome"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -64,6 +65,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/payment"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
@@ -143,52 +145,51 @@ func main() {
 		log.Info("WorkOS organization client initialized")
 	}
 
-	// Initialize OpenMeter client (nil if OPENMETER_URL is empty)
-	omClient := openmeter.NewClient(cfg.OpenMeterURL)
-	if omClient != nil {
-		log.Info("OpenMeter client initialized", "url", cfg.OpenMeterURL)
-
-		// Validate that all required meters exist
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		missing, err := omClient.ValidateMeters(ctx)
-		cancel()
-		if err != nil {
-			log.Error("Failed to validate OpenMeter meters", "error", err)
-		} else if len(missing) > 0 {
-			log.Error("OpenMeter is missing required meters", "missing", missing)
-		} else {
-			log.Info("All required OpenMeter meters verified", "meters", openmeter.RequiredMeters, "count", len(openmeter.RequiredMeters))
-		}
-	}
-
 	// Billing provider seam. BILLING_PROVIDER selects the backend; the
-	// metering/customer paths depend only on billing.BillingProvider. The
-	// entitlement middleware and usage/infrastructure readers keep the concrete
-	// OpenMeter client transitionally.
+	// metering/customer paths depend only on billing.BillingProvider.
 	var billingProvider billing.BillingProvider
 	switch cfg.BillingBackend() {
 	case config.BillingBackendNoop:
 		billingProvider = noop.New()
 		log.Info("Billing provider: noop (unmetered)")
-	case config.BillingBackendOpenMeter:
-		if omClient == nil {
-			log.Error("BILLING_PROVIDER=openmeter but OPENMETER_URL is not set; billing disabled")
+	case config.BillingBackendMetronome:
+		mp := metronome.New(metronome.Config{
+			APIKey: cfg.MetronomeAPIKey,
+		})
+		if mp == nil {
+			log.Error("BILLING_PROVIDER=metronome but METRONOME_API_KEY is not set; billing disabled")
+		} else {
+			billingProvider = mp
 		}
-		billingProvider = openmeter.NewProvider(omClient)
-		log.Info("Billing provider: openmeter")
+		log.Info("Billing provider: metronome")
 	default:
 		log.Error("Unsupported BILLING_PROVIDER for this build; billing disabled", "provider", cfg.BillingBackend())
 	}
 
-	// Entitlement enforcement (no-op when omClient is nil or enforce is false).
-	// Handles metered-consumption features (compute, knowledge storage) only;
-	// resource-count limits moved to the DB-backed quota checker below.
-	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
+	// Payment provider seam (card vault). Stripe collects and saves a card; the
+	// billing provider (Metronome) charges it. Nil when STRIPE_SECRET_KEY is
+	// unset — handlers report "payments not available".
+	var paymentProvider payment.Provider
+	if sp := payment.NewStripe(payment.StripeConfig{
+		SecretKey:      cfg.StripeSecretKey,
+		PublishableKey: cfg.StripePublishableKey,
+	}); sp != nil {
+		paymentProvider = sp
+		log.Info("Payment provider: stripe (card vault)")
+	}
+
+	// Consumption gate. Reads the cached account_billing_status (written off-path
+	// by the Metronome webhook + dunning sweep); nil store for non-metronome
+	// backends → pass-through. BILLING_GATE_ENFORCE=false is observe mode.
+	var billingStatus *billing.StatusStore
+	if cfg.BillingBackend() == config.BillingBackendMetronome {
+		billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays)
+	}
+	ent := middleware.NewEntitlements(billingStatus, cfg.BillingGateEnforce, log)
 
 	// Per-account resource quota (DB-backed, OSS + hosted). Over-limit blocking
-	// respects the same enforce flag as the entitlement path; a disabled feature
-	// (limit 0) always blocks.
-	quotaChecker := quota.NewDBChecker(db, log, cfg.QuotaDefaults, cfg.OpenMeterEnforce)
+	// respects QUOTA_ENFORCE; a disabled feature (limit 0) always blocks.
+	quotaChecker := quota.NewDBChecker(db, log, cfg.QuotaDefaults, cfg.QuotaEnforce)
 
 	// Initialize shared Redis client (nil when REDIS_URL is unset).
 	// Pass this client to any feature that needs Redis; do not create additional clients.
@@ -215,7 +216,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, billingProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -305,8 +306,8 @@ func runAPI(
 	agentIndex *agentindex.Index,
 	orgClient *org.Client,
 	orgSync *org.Sync,
-	omClient *openmeter.Client,
 	billingProvider billing.BillingProvider,
+	paymentProvider payment.Provider,
 	ent *middleware.Entitlements,
 	quotaChecker *quota.DBChecker,
 	avatarStore *avatar.Store,
@@ -513,7 +514,7 @@ func runAPI(
 			Org:        orgClient,
 			OrgSync:    orgSync,
 			Billing:    billingProvider,
-			OpenMeter:  omClient,
+			Payment:    paymentProvider,
 			Pipes:      pipesClient,
 			Prom:       promClient,
 			K8sCache:   k8sCache,
@@ -524,7 +525,7 @@ func runAPI(
 	setupRoutes(router, deps)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg, k8sCache)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg, k8sCache)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
@@ -652,6 +653,7 @@ func runWorker(
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
 		Billing:                 billingProvider,
+		BillingBackend:          cfg.BillingBackend(),
 		AccountStore:            accountStore,
 		AgentIndex:              agentIndex,
 		AvatarStore:             avatarStore,
@@ -700,7 +702,7 @@ func runWorker(
 	// ctx-driven, so before scaling the worker, wrap this in leader election
 	// (e.g. a Postgres advisory lock) and pass it a leader-scoped context.
 	if k8sReg != nil {
-		billingState := openmeter.NewBillingStateManager(billingProvider, db, log)
+		billingState := metering.NewBillingStateManager(billingProvider, db, log)
 		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore, billingState)
 		go controller.Run(workerCtx)
 	}
@@ -726,8 +728,8 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	lokiClient := deps.Clients.Loki
 	orgClient := deps.Clients.Org
 	orgSync := deps.Clients.OrgSync
-	omClient := deps.Clients.OpenMeter
 	billingProvider := deps.Clients.Billing
+	paymentProvider := deps.Clients.Payment
 	pipesClient := deps.Clients.Pipes
 	promClient := deps.Clients.Prom
 	k8sCache := deps.Clients.K8sCache
@@ -748,7 +750,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	webhookStore := deps.Stores.Webhook
 	slackIdentityStore := deps.Stores.SlackID
 
-	billingState := openmeter.NewBillingStateManager(billingProvider, db, log)
+	billingState := metering.NewBillingStateManager(billingProvider, db, log)
 
 	// AI Gateway wiring for handler-side use (dev-key issuance). Worker side
 	// constructs its own provisioner via the deployer; both read the same URL +
@@ -956,7 +958,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.OpenMeterDefaultPlan, auditStore),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.BillingBackend(), auditStore),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),
@@ -977,7 +979,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, billingProvider, auditStore),
+				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -985,7 +987,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, auditStore),
+				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1134,7 +1136,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountMember.Use(middleware.ResolveAccount(accountStore))
 			accountMember.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient, quotaChecker),
+				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, quotaChecker),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1142,6 +1144,71 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
 					oapispec.Response(200, &handlers.UsageResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountMember, "/billing/usage", "Get billing usage", handlers.GetBillingUsage(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountMember, "/billing/invoices", "Get billing invoices", handlers.GetBillingInvoices(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				// Binary PDF stream — registered directly (not via the OpenAPI
+				// helper) since it returns application/pdf, not JSON.
+				accountMember.GET("/billing/invoices/:invoiceId/pdf", handlers.GetBillingInvoicePDF(log, accountStore, billingProvider, cfg.BillingBackend()))
+
+				api.GET(accountMember, "/billing/balances", "Get billing credits and commits", handlers.GetBillingBalances(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				// Payment method (Stripe card vault). A SetupIntent collects the
+				// card client-side; the confirm endpoint saves it and links the
+				// Stripe customer to the billing provider for charging.
+				api.POST(accountMember, "/billing/setup-intent", "Start payment-method setup", handlers.CreateSetupIntent(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.SetupIntentResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.POST(accountMember, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.GET(accountMember, "/billing/payment-method", "Get the saved payment method", handlers.GetPaymentMethod(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.PaymentMethodResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				api.DELETE(accountMember, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
 				// AI Gateway dev key issuance — astro CLI calls this on `astro
@@ -1157,7 +1224,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log, omClient),
+				api.GET(accountMember, "/usage/infrastructure", "Get account infrastructure usage", handlers.GetInfrastructureUsage(log),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1169,7 +1236,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, billingProvider, db), "knowledge_stores"), "knowledge_storage"),
+				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, billingProvider, db), "knowledge_stores")),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1379,7 +1446,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentReadRoutes := agentRoutes.Group("")
 			agentReadRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(agentReadRoutes, "/usage/infrastructure", "Get agent infrastructure usage", handlers.GetInfrastructureUsage(log, omClient),
+				api.GET(agentReadRoutes, "/usage/infrastructure", "Get agent infrastructure usage", handlers.GetInfrastructureUsage(log),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2115,6 +2182,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)
 		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, webhookStore, queue))
+
+		// Metronome billing webhook receiver (no auth — HMAC verified inside handler).
+		// billingStatus drives the cached gating status; nil for non-metronome
+		// backends so status writes are skipped.
+		var billingStatus *billing.StatusStore
+		if cfg.BillingBackend() == config.BillingBackendMetronome {
+			billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays)
+		}
+		router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, accountStore, billingStatus, queue))
 	}
 
 }

@@ -107,7 +107,6 @@ func newClusterTestServer(t *testing.T) (*Server, sqlmock.Sqlmock) {
 		nil,
 		db,
 		"",
-		"",
 		nil,
 		"",
 		"",

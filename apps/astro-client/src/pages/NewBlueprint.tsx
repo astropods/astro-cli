@@ -368,7 +368,7 @@ function NewBlueprintContent() {
       // Offer a scoped usage link + quota-increase dialog for the agents limit.
       const isQuotaLimit = err instanceof ApiRequestError && err.status === 402
         && err.code === "Limit reached";
-      const usageUrl = isQuotaLimit ? accountSettingsPath(accounts, selectedOrg, "usage") : undefined;
+      const usageUrl = isQuotaLimit ? accountSettingsPath(accounts, selectedOrg, "billing") : undefined;
       setPublishError({ message, usageUrl });
     } finally {
       setIsPublishing(false);
@@ -659,7 +659,7 @@ function NewBlueprintContent() {
                                   to={publishError.usageUrl}
                                   className="font-medium text-foreground-accent underline underline-offset-2"
                                 >
-                                  review your usage in Settings
+                                  review your billing in Settings
                                 </Link>.
                               </p>
                             )}

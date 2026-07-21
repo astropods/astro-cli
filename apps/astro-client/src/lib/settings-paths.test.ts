@@ -9,11 +9,11 @@ const accounts: Account[] = [
 
 describe("accountSettingsPath", () => {
   it("uses the top-level path for personal accounts", () => {
-    expect(accountSettingsPath(accounts, "alice", "usage")).toBe("/settings/usage");
+    expect(accountSettingsPath(accounts, "alice", "billing")).toBe("/settings/billing");
   });
 
   it("uses the org-scoped path for organization accounts", () => {
-    expect(accountSettingsPath(accounts, "acme-org", "usage")).toBe("/settings/org/acme-org/usage");
+    expect(accountSettingsPath(accounts, "acme-org", "billing")).toBe("/settings/org/acme-org/billing");
   });
 
   it("scopes by section", () => {
@@ -22,6 +22,6 @@ describe("accountSettingsPath", () => {
   });
 
   it("defaults to the personal path for unknown accounts", () => {
-    expect(accountSettingsPath(accounts, "ghost", "usage")).toBe("/settings/usage");
+    expect(accountSettingsPath(accounts, "ghost", "billing")).toBe("/settings/billing");
   });
 });

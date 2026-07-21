@@ -13,11 +13,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -764,22 +762,6 @@ func TestListKnowledgeStores_MixedModes(t *testing.T) {
 
 // --- Entitlement checks ---
 
-// blockedEntitlementChecker simulates a feature absent from the account's plan (nil entitlement).
-type blockedEntitlementChecker struct{ feature string }
-
-func (b *blockedEntitlementChecker) Check(_ context.Context, _ string, _ ...string) (bool, string, *openmeter.EntitlementValue) {
-	return true, b.feature, nil
-}
-
-// quotaExceededEntitlementChecker simulates a feature present in the plan but with quota exhausted.
-type quotaExceededEntitlementChecker struct{ feature string }
-
-func (q *quotaExceededEntitlementChecker) Check(_ context.Context, _ string, _ ...string) (bool, string, *openmeter.EntitlementValue) {
-	usage := 5.0
-	quotaLimit := 5.0
-	return true, q.feature, &openmeter.EntitlementValue{HasAccess: false, Usage: &usage, TotalAvailableGrantAmount: &quotaLimit}
-}
-
 // disabledQuotaChecker simulates a resource disabled for the account (limit 0 →
 // FEATURE_NOT_IN_PLAN).
 type disabledQuotaChecker struct{ resource string }
@@ -808,116 +790,6 @@ func assertEntitlementResponse(t *testing.T, rec *httptest.ResponseRecorder, wan
 	if details, _ := resp["details"].(string); !strings.Contains(details, wantDetailsSubstr) {
 		t.Errorf("expected details to contain %q, got %q", wantDetailsSubstr, details)
 	}
-}
-
-func TestCreateKnowledgeStore_EntitlementBlocked(t *testing.T) {
-	connectBody := `{"name":"pg-main","provider":"postgres"}`
-
-	for _, feature := range []string{"knowledge_stores", "knowledge_storage"} {
-		t.Run(feature+"/not_in_plan", func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			rawDB, mock, _ := sqlmock.New()
-			ksStore := knowledgestore.NewStore(rawDB)
-			log := logger.New("error", "json")
-			router := gin.New()
-			router.Use(injectAccount(testAccount()))
-			checker := &blockedEntitlementChecker{feature: feature}
-			router.POST("/knowledge", func(c *gin.Context) {
-				acct, _ := middleware.GetAccountFromContext(c)
-				if blocked, feat, entVal := checker.Check(c.Request.Context(), acct.ID); blocked {
-					c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feat, entVal))
-					return
-				}
-				CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil)(c)
-			})
-
-			req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(connectBody))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, req)
-
-			assertEntitlementResponse(t, rec, http.StatusPaymentRequired, "FEATURE_NOT_IN_PLAN", "not included in your current plan")
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Errorf("unfulfilled mock expectations: %v", err)
-			}
-		})
-
-		t.Run(feature+"/quota_exceeded", func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			rawDB, mock, _ := sqlmock.New()
-			ksStore := knowledgestore.NewStore(rawDB)
-			log := logger.New("error", "json")
-			router := gin.New()
-			router.Use(injectAccount(testAccount()))
-			checker := &quotaExceededEntitlementChecker{feature: feature}
-			router.POST("/knowledge", func(c *gin.Context) {
-				acct, _ := middleware.GetAccountFromContext(c)
-				if blocked, feat, entVal := checker.Check(c.Request.Context(), acct.ID); blocked {
-					c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feat, entVal))
-					return
-				}
-				CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil)(c)
-			})
-
-			req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(connectBody))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, req)
-
-			assertEntitlementResponse(t, rec, http.StatusPaymentRequired, "ENTITLEMENT_LIMIT_REACHED", "limit reached")
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Errorf("unfulfilled mock expectations: %v", err)
-			}
-		})
-	}
-}
-
-func connectKSRouter(checker interface {
-	Check(context.Context, string, ...string) (bool, string, *openmeter.EntitlementValue)
-}) (*gin.Engine, *knowledgestore.Store, sqlmock.Sqlmock) {
-	gin.SetMode(gin.TestMode)
-	rawDB, mock, _ := sqlmock.New()
-	ksStore := knowledgestore.NewStore(rawDB)
-	router := gin.New()
-	router.Use(injectAccount(testAccount()))
-	router.POST("/knowledge/connect", func(c *gin.Context) {
-		acct, _ := middleware.GetAccountFromContext(c)
-		if blocked, feat, entVal := checker.Check(c.Request.Context(), acct.ID); blocked {
-			c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feat, entVal))
-			return
-		}
-		log := logger.New("error", "json")
-		ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil)(c)
-	})
-	return router, ksStore, mock
-}
-
-const connectKSBody = `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"vectors","username":"app","password":"secret","skip_health_check":true}`
-
-func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeStores(t *testing.T) {
-	t.Run("not_in_plan", func(t *testing.T) {
-		router, _, mock := connectKSRouter(&blockedEntitlementChecker{feature: "knowledge_stores"})
-		req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(connectKSBody))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		assertEntitlementResponse(t, rec, http.StatusPaymentRequired, "FEATURE_NOT_IN_PLAN", "not included in your current plan")
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("unfulfilled mock expectations: %v", err)
-		}
-	})
-
-	t.Run("quota_exceeded", func(t *testing.T) {
-		router, _, mock := connectKSRouter(&quotaExceededEntitlementChecker{feature: "knowledge_stores"})
-		req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(connectKSBody))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		assertEntitlementResponse(t, rec, http.StatusPaymentRequired, "ENTITLEMENT_LIMIT_REACHED", "limit reached")
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("unfulfilled mock expectations: %v", err)
-		}
-	})
 }
 
 func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.T) {

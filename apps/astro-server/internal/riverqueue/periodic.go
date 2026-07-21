@@ -15,7 +15,7 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		river.NewPeriodicJob(
 			river.PeriodicInterval(5*time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) {
-				return OpenmeterArgs{}, &river.InsertOpts{
+				return MeteringArgs{}, &river.InsertOpts{
 					UniqueOpts: river.UniqueOpts{
 						ByPeriod: 5 * time.Minute,
 					},
@@ -32,6 +32,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 				return MessageCountSyncArgs{}, &river.InsertOpts{
 					UniqueOpts: river.UniqueOpts{
 						ByPeriod: 5 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	// Billing dunning-grace sweep (hosted/metronome only) — ages past_due
+	// accounts to suspended once their grace window elapses.
+	if cfg.BillingBackend == "metronome" {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return DunningSweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 1 * time.Hour,
 					},
 				}
 			},
@@ -88,20 +104,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		},
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
-
-	if cfg.Billing != nil {
-		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return OpenMeterBackfillArgs{}, &river.InsertOpts{
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 24 * time.Hour,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
-	}
 
 	if cfg.WorkOSAPIKey != "" {
 		// Backfill member emails still missing from the mirror. Emails are

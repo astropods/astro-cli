@@ -24,7 +24,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
@@ -571,10 +570,10 @@ func canDeploySourceAgent(sourceAcct, targetAcct *account.Account, sourceAgent *
 // POST /api/v1/deploy
 // Content-Type: application/yaml (or application/json)
 // Body: fulfilled deployment spec (spec: deployment/v1)
-// EntitlementChecker is the interface used by DeployAgent for entitlement checks.
-// A nil EntitlementChecker skips all checks.
+// EntitlementChecker is the binary billing gate used by DeployAgent: an account
+// is either in good standing or suspended. A nil EntitlementChecker skips it.
 type EntitlementChecker interface {
-	Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.EntitlementValue)
+	Blocked(ctx context.Context, accountID string) bool
 }
 
 // DeployQueue abstracts job insertion for deploy/undeploy/wakeup operations.
@@ -697,11 +696,9 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				return
 			}
 		}
-		if entCheck != nil {
-			if blocked, feature, entResult := entCheck.Check(c.Request.Context(), dctx.acct.ID, "compute"); blocked {
-				c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feature, entResult))
-				return
-			}
+		if entCheck != nil && entCheck.Blocked(c.Request.Context(), dctx.acct.ID) {
+			c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse())
+			return
 		}
 
 		// Persist resolved spec and enqueue async deploy job

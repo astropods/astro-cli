@@ -17,7 +17,7 @@ import { formatDateTime, truncateUUID } from "@/lib/utils";
 import type { AdminAccount, RegisteredCluster } from "@/types/admin";
 
 type StatusFilter = "all" | "active" | "deleted";
-type IntegrationFilter = "all" | "openmeter" | "no-openmeter" | "langfuse" | "no-langfuse";
+type IntegrationFilter = "all" | "langfuse" | "no-langfuse";
 
 const PAGE_SIZE = 25;
 const PRIMARY_CLUSTER_VALUE = "__primary__";
@@ -48,8 +48,6 @@ function filterAccounts(
     }
     if (status === "active" && a.deleted_at) return false;
     if (status === "deleted" && !a.deleted_at) return false;
-    if (integration === "openmeter" && !a.has_openmeter) return false;
-    if (integration === "no-openmeter" && a.has_openmeter) return false;
     if (integration === "langfuse" && !a.has_langfuse) return false;
     if (integration === "no-langfuse" && a.has_langfuse) return false;
     return true;
@@ -243,8 +241,6 @@ export function AccountsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All integrations</SelectItem>
-            <SelectItem value="openmeter">Has OpenMeter</SelectItem>
-            <SelectItem value="no-openmeter">No OpenMeter</SelectItem>
             <SelectItem value="langfuse">Has Langfuse</SelectItem>
             <SelectItem value="no-langfuse">No Langfuse</SelectItem>
           </SelectContent>
@@ -268,7 +264,6 @@ export function AccountsPage() {
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Cluster</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
                   <th className="px-2 py-0.5 text-right font-medium text-muted-foreground">Members</th>
-                  <th className="px-2 py-0.5 text-center font-medium text-muted-foreground">OpenMeter</th>
                   <th className="px-2 py-0.5 text-center font-medium text-muted-foreground">Langfuse</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
@@ -335,13 +330,6 @@ export function AccountsPage() {
                       <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{a.owner_user_id ? truncateUUID(a.owner_user_id) : "-"}</td>
                       <td className="px-2 py-0.5 text-right">{a.member_count}</td>
                       <td className="px-2 py-0.5 text-center">
-                        {a.has_openmeter ? (
-                          <CircleCheck className="inline size-3.5 text-green-500" />
-                        ) : (
-                          <CircleX className="inline size-3.5 text-muted-foreground/40" />
-                        )}
-                      </td>
-                      <td className="px-2 py-0.5 text-center">
                         {a.has_langfuse ? (
                           <CircleCheck className="inline size-3.5 text-green-500" />
                         ) : (
@@ -388,7 +376,7 @@ export function AccountsPage() {
                 })}
                 {pageAccounts.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-2 py-4 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-2 py-4 text-center text-muted-foreground">
                       No accounts match the current filters.
                     </td>
                   </tr>

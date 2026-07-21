@@ -272,17 +272,16 @@ type RestartDeploymentResponse struct {
 type ListAccountsRequest struct{}
 
 type AdminAccount struct {
-	ID           string `json:"id,omitempty"`
-	Name         string `json:"name,omitempty"`
-	Type         string `json:"type,omitempty"`
-	OwnerUserID  string `json:"owner_user_id,omitempty"`
-	MemberCount  int32  `json:"member_count,omitempty"`
-	HasOpenMeter bool   `json:"has_openmeter"`
-	HasLangfuse  bool   `json:"has_langfuse"`
-	DeletedAt    string `json:"deleted_at,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
-	ClusterID    string `json:"cluster_id,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Type        string `json:"type,omitempty"`
+	OwnerUserID string `json:"owner_user_id,omitempty"`
+	MemberCount int32  `json:"member_count,omitempty"`
+	HasLangfuse bool   `json:"has_langfuse"`
+	DeletedAt   string `json:"deleted_at,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+	ClusterID   string `json:"cluster_id,omitempty"`
 }
 
 type ListAccountsResponse struct {
@@ -453,19 +452,6 @@ type SendCommandResponse struct {
 	ExitCode  int32  `json:"exit_code,omitempty"`
 	Stdout    string `json:"stdout,omitempty"`
 	Stderr    string `json:"stderr,omitempty"`
-}
-
-type OpenMeterProxyRequest struct {
-	Method  string            `json:"method,omitempty"`
-	Path    string            `json:"path,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    []byte            `json:"body,omitempty"`
-}
-
-type OpenMeterProxyResponse struct {
-	StatusCode int32             `json:"status_code,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       []byte            `json:"body,omitempty"`
 }
 
 type HTTPProxyRequest struct {
@@ -778,12 +764,6 @@ type RepairNormalizedSpecResponse struct {
 	Workloads int32  `json:"workloads"`
 	Services  int32  `json:"services"`
 	Ingresses int32  `json:"ingresses"`
-}
-
-type TriggerOpenMeterBackfillRequest struct{}
-
-type TriggerOpenMeterBackfillResponse struct {
-	Status string `json:"status,omitempty"`
 }
 
 type SetAdaptersRequest struct {

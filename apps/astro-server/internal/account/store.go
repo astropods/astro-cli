@@ -769,36 +769,6 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 	return accounts, nil
 }
 
-// GetOpenMeterCustomerID returns the linked OpenMeter customer ID for an account, or "" if unset.
-func (s *AccountStore) GetOpenMeterCustomerID(accountID string) (string, error) {
-	var customerID sql.NullString
-	err := s.db.QueryRow(`
-		SELECT openmeter_customer_id FROM accounts WHERE id = $1
-	`, accountID).Scan(&customerID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("account not found: %s", accountID)
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get openmeter_customer_id: %w", err)
-	}
-	if !customerID.Valid {
-		return "", nil
-	}
-	return customerID.String, nil
-}
-
-// SetOpenMeterCustomerID stores the OpenMeter customer ID for an account.
-func (s *AccountStore) SetOpenMeterCustomerID(accountID, customerID string) error {
-	_, err := s.db.Exec(`
-		UPDATE accounts SET openmeter_customer_id = $1, updated_at = $2
-		WHERE id = $3
-	`, customerID, time.Now(), accountID)
-	if err != nil {
-		return fmt.Errorf("failed to set openmeter_customer_id: %w", err)
-	}
-	return nil
-}
-
 // GetBifrostCustomerID returns the linked Bifrost (AI Gateway) customer ID for
 // an account, or "" if unset. The account is the Bifrost customer; per-account
 // budget lives on that customer and its virtual keys inherit it.
@@ -831,12 +801,128 @@ func (s *AccountStore) SetBifrostCustomerID(accountID, customerID string) error 
 	return nil
 }
 
-// GetAccountsMissingOpenMeterCustomer returns accounts that don't have an OpenMeter customer yet.
-func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account, error) {
+// billingCustomerColumns whitelists the DB column holding the provider customer
+// ID for each billing backend. Backends without customer records (e.g. noop) are
+// absent, so the generic accessors below no-op for them.
+var billingCustomerColumns = map[string]string{
+	"metronome": "metronome_customer_id",
+}
+
+// GetBillingCustomerID returns the provider customer ID for an account under the
+// given billing backend, or "" if unset or the backend keeps no customers.
+func (s *AccountStore) GetBillingCustomerID(accountID, backend string) (string, error) {
+	col, ok := billingCustomerColumns[backend]
+	if !ok {
+		return "", nil
+	}
+	var customerID sql.NullString
+	// #nosec G201 -- col is from the billingCustomerColumns whitelist, not user input.
+	err := s.db.QueryRow("SELECT "+col+" FROM accounts WHERE id = $1", accountID).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s: %w", col, err)
+	}
+	if !customerID.Valid {
+		return "", nil
+	}
+	return customerID.String, nil
+}
+
+// SetBillingCustomerID stores the provider customer ID for an account under the
+// given billing backend. No-ops for backends without customer records.
+func (s *AccountStore) SetBillingCustomerID(accountID, backend, customerID string) error {
+	col, ok := billingCustomerColumns[backend]
+	if !ok {
+		return nil
+	}
+	// #nosec G201 -- col is from the billingCustomerColumns whitelist, not user input.
+	_, err := s.db.Exec("UPDATE accounts SET "+col+" = $1, updated_at = $2 WHERE id = $3", customerID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set %s: %w", col, err)
+	}
+	return nil
+}
+
+// GetAccountsMissingBillingCustomer returns accounts without a provider customer
+// under the given backend. Returns nil for backends without customer records.
+func (s *AccountStore) GetAccountsMissingBillingCustomer(backend string, limit int) ([]Account, error) {
+	col, ok := billingCustomerColumns[backend]
+	if !ok {
+		return nil, nil
+	}
+	// #nosec G201 -- col is from the billingCustomerColumns whitelist, not user input.
+	rows, err := s.db.Query("SELECT id, name, type, created_at, updated_at FROM accounts WHERE "+col+" IS NULL ORDER BY created_at LIMIT $1", limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, nil
+}
+
+// GetMetronomeCustomerID returns the linked Metronome customer ID for an account, or "" if unset.
+func (s *AccountStore) GetMetronomeCustomerID(accountID string) (string, error) {
+	var customerID sql.NullString
+	err := s.db.QueryRow(`
+		SELECT metronome_customer_id FROM accounts WHERE id = $1
+	`, accountID).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get metronome_customer_id: %w", err)
+	}
+	if !customerID.Valid {
+		return "", nil
+	}
+	return customerID.String, nil
+}
+
+// GetByMetronomeCustomerID resolves the account linked to a Metronome customer
+// ID. Used by the Metronome webhook to map an inbound event back to an account.
+func (s *AccountStore) GetByMetronomeCustomerID(customerID string) (*Account, error) {
+	var a Account
+	err := s.db.QueryRow(`
+		SELECT id, name, type, created_at, updated_at
+		FROM accounts WHERE metronome_customer_id = $1 AND deleted_at IS NULL
+	`, customerID).Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("account not found for metronome customer: %s", customerID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account by metronome_customer_id: %w", err)
+	}
+	return &a, nil
+}
+
+// SetMetronomeCustomerID stores the Metronome customer ID for an account.
+func (s *AccountStore) SetMetronomeCustomerID(accountID, customerID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET metronome_customer_id = $1, updated_at = $2
+		WHERE id = $3
+	`, customerID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set metronome_customer_id: %w", err)
+	}
+	return nil
+}
+
+// GetAccountsMissingMetronomeCustomer returns accounts that don't have a Metronome customer yet.
+func (s *AccountStore) GetAccountsMissingMetronomeCustomer(limit int) ([]Account, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, type, created_at, updated_at
 		FROM accounts
-		WHERE openmeter_customer_id IS NULL
+		WHERE metronome_customer_id IS NULL
 		ORDER BY created_at
 		LIMIT $1
 	`, limit)
@@ -854,6 +940,33 @@ func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account
 		accounts = append(accounts, a)
 	}
 	return accounts, nil
+}
+
+// GetStripeCustomerID returns the account's Stripe customer ID, or "" if unset.
+func (s *AccountStore) GetStripeCustomerID(accountID string) (string, error) {
+	var customerID sql.NullString
+	err := s.db.QueryRow(`SELECT stripe_customer_id FROM accounts WHERE id = $1`, accountID).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get stripe_customer_id: %w", err)
+	}
+	if !customerID.Valid {
+		return "", nil
+	}
+	return customerID.String, nil
+}
+
+// SetStripeCustomerID stores the Stripe customer ID for an account.
+func (s *AccountStore) SetStripeCustomerID(accountID, customerID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET stripe_customer_id = $1, updated_at = $2 WHERE id = $3
+	`, customerID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set stripe_customer_id: %w", err)
+	}
+	return nil
 }
 
 // RemoveUserFromAllAccounts removes a user from every account they belong to.

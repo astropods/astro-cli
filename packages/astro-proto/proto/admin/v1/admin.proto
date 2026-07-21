@@ -13,7 +13,6 @@ service AdminService {
   rpc QueryDatabase(QueryDatabaseRequest) returns (QueryDatabaseResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   rpc GetAgentBuilds(GetAgentBuildsRequest) returns (GetAgentBuildsResponse);
-  rpc ProxyOpenMeter(OpenMeterProxyRequest) returns (OpenMeterProxyResponse);
   rpc ProxyHTTP(HTTPProxyRequest) returns (HTTPProxyResponse);
   rpc GetAuthConfig(GetAuthConfigRequest) returns (GetAuthConfigResponse);
   rpc StartRiverUI(StartRiverUIRequest) returns (StartRiverUIResponse);
@@ -232,19 +231,6 @@ message AgentBuild {
 message GetAgentBuildsResponse {
   repeated AgentBuild builds = 1;
   int32 count = 2;
-}
-
-message OpenMeterProxyRequest {
-  string method = 1;
-  string path = 2;
-  map<string, string> headers = 3;
-  bytes body = 4;
-}
-
-message OpenMeterProxyResponse {
-  int32 status_code = 1;
-  map<string, string> headers = 2;
-  bytes body = 3;
 }
 
 message HTTPProxyRequest {
@@ -684,7 +670,7 @@ message AdminAccount {
   string type = 3;
   string owner_user_id = 4;
   int32 member_count = 5;
-  bool has_openmeter = 6;
+  reserved 6; // was has_openmeter
   bool has_langfuse = 7;
   string deleted_at = 8;
   string created_at = 9;

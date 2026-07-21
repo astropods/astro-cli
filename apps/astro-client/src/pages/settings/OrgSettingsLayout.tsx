@@ -1,7 +1,7 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useRef, useState } from 'react'
 import { KeyRound, KeySquare, ArrowLeft, Settings, Loader2, Users, ScrollText } from 'lucide-react'
-import { ChartBarIcon } from '@heroicons/react/24/outline'
+import { CreditCardIcon } from '@heroicons/react/24/outline'
 import {
   SidebarLayout,
   SidebarNav,
@@ -132,10 +132,10 @@ function OrgSettingsContent() {
                 Members
               </span>
             </SidebarNavItem>
-            <SidebarNavItem to={`/settings/org/${orgSlug}/usage`}>
+            <SidebarNavItem to={`/settings/org/${orgSlug}/billing`}>
               <span className="flex items-center gap-2">
-                <ChartBarIcon className="size-3.5" />
-                Usage
+                <CreditCardIcon className="size-3.5" />
+                Billing
               </span>
             </SidebarNavItem>
             {isAdmin && (

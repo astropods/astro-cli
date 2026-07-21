@@ -9,7 +9,6 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -25,13 +24,13 @@ func init() {
 }
 
 // AccountPurgeWorker finds soft-deleted accounts past the retention period and
-// hard-deletes them after cleaning up external resources (OpenMeter, Langfuse)
-// and retrying any failed deployment teardowns.
+// hard-deletes them after cleaning up external resources (Langfuse, AI Gateway)
+// and retrying any failed deployment teardowns. The billing customer is archived
+// at delete time (see handlers.DeleteAccount), not here.
 type AccountPurgeWorker struct {
 	river.WorkerDefaults[AccountPurgeArgs]
 	db              *sql.DB
 	deployStore     *deploymentstore.Store
-	billingProvider billing.BillingProvider
 	lfProvisioner   *langfuse.Provisioner
 	lfStore         *langfuse.Store
 	aigwProvisioner *aigateway.Provisioner
@@ -110,21 +109,6 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 	}
 
 	// 2. Clean up external resources (must succeed before hard-delete)
-
-	// Billing customer
-	if w.billingProvider != nil {
-		var customerID sql.NullString
-		if err := w.db.QueryRowContext(ctx,
-			`SELECT openmeter_customer_id FROM accounts WHERE id = $1`, accountID,
-		).Scan(&customerID); err != nil {
-			return fmt.Errorf("query billing customer id: %w", err)
-		}
-		if customerID.Valid && customerID.String != "" {
-			if err := w.billingProvider.DeleteCustomer(ctx, customerID.String); err != nil {
-				return fmt.Errorf("delete billing customer: %w", err)
-			}
-		}
-	}
 
 	// Langfuse
 	if w.lfProvisioner != nil && w.lfStore != nil {

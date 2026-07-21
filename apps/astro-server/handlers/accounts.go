@@ -119,7 +119,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -260,21 +260,8 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			})
 			if omErr != nil {
 				log.Error("Failed to create billing customer", "error", omErr, "account_id", acct.ID)
-			} else {
-				if storeErr := accountStore.SetOpenMeterCustomerID(acct.ID, customerID); storeErr != nil {
-					log.Error("Failed to store billing customer ID", "error", storeErr, "account_id", acct.ID)
-				}
-
-				// Auto-subscribe to default plan if configured (hosted-only surface)
-				if defaultPlan != "" && customerID != "" {
-					if hb, ok := billingProvider.(billing.HostedBilling); ok {
-						if subErr := hb.ProvisionPackaging(c.Request.Context(), customerID, billing.PackagingPlan{Key: defaultPlan}); subErr != nil {
-							log.Error("Failed to auto-subscribe account to default plan", "error", subErr, "account_id", acct.ID, "plan", defaultPlan)
-						} else {
-							log.Info("Auto-subscribed account to default plan", "account_id", acct.ID, "plan", defaultPlan)
-						}
-					}
-				}
+			} else if storeErr := accountStore.SetBillingCustomerID(acct.ID, billingBackend, customerID); storeErr != nil {
+				log.Error("Failed to store billing customer ID", "error", storeErr, "account_id", acct.ID)
 			}
 		}
 
@@ -384,7 +371,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
 // Soft-deletes the account, enqueues undeploy jobs for active deployments,
 // and cleans up WorkOS org best-effort.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -394,7 +381,27 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 
 		ctx := c.Request.Context()
 
-		// Soft-delete — point of no return
+		// Archive the billing customer BEFORE soft-deleting so charging stops
+		// immediately and a failed archive aborts the delete — we never end up
+		// with a deleted account still tied to a live (billable) customer. If
+		// this fails the caller can retry; nothing has been mutated yet.
+		if billingProvider != nil {
+			customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
+			if err != nil {
+				log.Error("Failed to load billing customer id for delete", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+				return
+			}
+			if customerID != "" {
+				if err := billingProvider.DeleteCustomer(ctx, customerID); err != nil {
+					log.Error("Failed to archive billing customer; aborting delete", "error", err, "account_id", acct.ID, "billing_customer_id", customerID)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+					return
+				}
+			}
+		}
+
+		// Soft-delete — point of no return (only after billing is archived)
 		if err := accountStore.MarkDeleted(acct.ID); errors.Is(err, account.ErrAlreadyDeleted) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 			return
@@ -570,7 +577,7 @@ type RenameAccountRequest struct {
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, billingProvider billing.BillingProvider, auditStore *auditlog.Store) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -618,16 +625,6 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 					if _, err := agentIdx.TouchAvatarUpdatedAt(acct.ID, name); err != nil {
 						log.Warn("Failed to stamp agent avatar_updated_at after rename", "error", err, "account_id", acct.ID, "agent", name)
 					}
-				}
-			}
-		}
-
-		if billingProvider != nil && acct.Name != req.Name {
-			if omID, err := accountStore.GetOpenMeterCustomerID(acct.ID); err != nil {
-				log.Warn("Failed to load billing customer id for rename", "error", err, "account_id", acct.ID)
-			} else if omID != "" {
-				if err := billingProvider.UpdateCustomer(c.Request.Context(), omID, req.Name); err != nil {
-					log.Warn("Failed to update billing customer name", "error", err, "account_id", acct.ID, "billing_customer_id", omID)
 				}
 			}
 		}

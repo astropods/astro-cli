@@ -54,7 +54,7 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
   // Settings → Usage lives at a different path for personal vs. organization
   // accounts. Scope the link to the deploy target (from form.accounts, which
   // already holds it) rather than the user's personal account.
-  const usageSettingsPath = accountSettingsPath(form.accounts, form.targetAccount, "usage");
+  const billingSettingsPath = accountSettingsPath(form.accounts, form.targetAccount, "billing");
   const hasKnowledgeEntries = form.knowledgeEntries && Object.keys(form.knowledgeEntries).length > 0;
   const { data: knowledgeStores } = useKnowledgeStores(form.targetAccount, hasKnowledgeEntries);
   const computeMeter = usageData?.meters?.compute ?? { usage: 0, quota: undefined };
@@ -316,10 +316,10 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
           <ErrorPanel title="Compute limit reached">
             All compute hours for this billing period have been used. Review your{" "}
             <Link
-              to={usageSettingsPath}
+              to={billingSettingsPath}
               className="underline underline-offset-2 font-medium cursor-pointer"
             >
-              usage in Settings
+              billing in Settings
             </Link>{" "}
             or{" "}
             <button

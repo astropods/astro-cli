@@ -11,7 +11,7 @@ import (
 	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -38,7 +38,7 @@ type KnowledgeReconcileWorker struct {
 	ksStore  *knowledgestore.Store
 	registry *k8s.Registry
 	log      *logger.Logger
-	billing  *openmeter.BillingStateManager
+	billing  *metering.BillingStateManager
 
 	// kmsClient is optional; when nil it's built from the default AWS config.
 	// Tests inject a fake to exercise credential rewriting without real KMS.

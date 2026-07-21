@@ -61,26 +61,6 @@ atlas migrate apply \
   --revisions-schema atlas_schema_revisions \
   --allow-dirty
 
-# Bootstrap OpenMeter (idempotent — 409s treated as success).
-# astro-server's startup ValidateMeters check refuses to boot when
-# expected meters are missing, so we seed them before launching air.
-# The bootstrap script itself short-circuits when OPENMETER_URL is
-# unset, so this is a no-op for setups that don't run a local
-# OpenMeter instance.
-OPENMETER_URL_VALUE=$(grep '^OPENMETER_URL=' .env 2>/dev/null | cut -d= -f2- | tr -d "\"'" | tr -d '[:space:]')
-if [ -n "$OPENMETER_URL_VALUE" ]; then
-  OPENMETER_URL="$OPENMETER_URL_VALUE" bash ../../scripts/bootstrap-openmeter.sh
-
-  # Backfill subscriptions for any existing accounts that have an
-  # openmeter customer record but no active plan attached. Older
-  # accounts ended up in this state because OPENMETER_DEFAULT_PLAN
-  # was unset at the time they were created; without a subscription
-  # the entitlement check rejects Deployments etc. The script reads
-  # DATABASE_URL / OPENMETER_URL / OPENMETER_DEFAULT_PLAN out of the
-  # same .env so we don't need to pass anything explicitly.
-  bash ../../scripts/backfill-openmeter-subscriptions.sh
-fi
-
 # exec so air replaces bash and receives parent signals directly — no trap
 # hop, so air has time to kill its astro-server child (which lives in its
 # own process group via Setpgid:true) before we exit.

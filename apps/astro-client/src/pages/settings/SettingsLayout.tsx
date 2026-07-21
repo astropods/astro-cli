@@ -1,5 +1,5 @@
 import { Outlet } from "react-router";
-import { UserIcon, ChartBarIcon, BuildingOfficeIcon, KeyIcon } from "@heroicons/react/24/outline";
+import { UserIcon, CreditCardIcon, BuildingOfficeIcon, KeyIcon } from "@heroicons/react/24/outline";
 import { FlaskConical, ScrollText, Plug, KeyRound } from "lucide-react";
 import {
   SidebarLayout,
@@ -21,10 +21,10 @@ function SettingsContent() {
               Account
             </span>
           </SidebarNavItem>
-          <SidebarNavItem to="/settings/usage">
+          <SidebarNavItem to="/settings/billing">
             <span className="flex items-center gap-2">
-              <ChartBarIcon className="size-3.5" />
-              Usage
+              <CreditCardIcon className="size-3.5" />
+              Billing
             </span>
           </SidebarNavItem>
           <SidebarNavItem to="/settings/secrets">

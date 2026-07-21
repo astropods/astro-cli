@@ -9,7 +9,8 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/billing/openmeter"
+	billingpkg "github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
@@ -117,19 +118,48 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // addWorkers registers all River workers.
 // Returns the AccountPurgeWorker, InsightsRefreshWorker, and
 // MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker) {
+func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker, *DunningSweepWorker, *BillingResumeWorker) {
 	log := cfg.Logger
 	logDuplicateJobKinds(log)
 
-	billing := openmeter.NewBillingStateManager(cfg.Billing, cfg.DB, log)
+	billing := metering.NewBillingStateManager(cfg.Billing, cfg.DB, log)
 
-	addWorkerWithCatalogCheck(log, workers, &OpenmeterWorker{
+	addWorkerWithCatalogCheck(log, workers, &MeteringWorker{
 		provider: cfg.Billing,
 		db:       cfg.DB,
 		log:      log,
 		billing:  billing,
 	})
-	log.Info("river: registered worker", "worker", "OpenmeterWorker", "period", "5m")
+	log.Info("river: registered worker", "worker", "MeteringWorker", "period", "5m")
+
+	// Billing consumption-gating workers (hosted/metronome only): the dunning
+	// sweep ages past_due→suspended (pure timer), and the suspend/resume workers
+	// scale an account's deployments to zero and restore them on transitions.
+	var dunningWorker *DunningSweepWorker
+	var billingResumeWorker *BillingResumeWorker
+	if cfg.BillingBackend == "metronome" {
+		graceDays := 7
+		if cfg.ServerConfig != nil {
+			graceDays = cfg.ServerConfig.BillingDunningGraceDays
+		}
+		billingDepStore := deploymentstore.NewStore(cfg.DB)
+		dunningWorker = &DunningSweepWorker{
+			status: billingpkg.NewStatusStore(cfg.DB, graceDays),
+			log:    log,
+		}
+		addWorkerWithCatalogCheck(log, workers, dunningWorker)
+		log.Info("river: registered worker", "worker", "DunningSweepWorker", "period", "1h")
+
+		addWorkerWithCatalogCheck(log, workers, &BillingSuspendWorker{
+			store: billingDepStore,
+			reg:   cfg.K8sRegistry,
+			cache: cfg.K8sCache,
+			log:   log,
+		})
+		billingResumeWorker = &BillingResumeWorker{store: billingDepStore, log: log}
+		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)
+		log.Info("river: registered worker", "worker", "BillingSuspend/ResumeWorker")
+	}
 
 	memberEmailStore := memberemails.NewStore(cfg.DB)
 
@@ -269,26 +299,12 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 	})
 	log.Info("river: registered worker", "worker", "ProviderBackfillWorker", "period", "24h")
 
-	var omDefaultPlan string
-	if cfg.ServerConfig != nil {
-		omDefaultPlan = cfg.ServerConfig.OpenMeterDefaultPlan
-	}
-	addWorkerWithCatalogCheck(log, workers, &OpenMeterBackfillWorker{
-		billingProvider: cfg.Billing,
-		accountStore:    cfg.AccountStore,
-		workosClient:    cfg.WorkOSClient,
-		defaultPlan:     omDefaultPlan,
-		log:             log,
-	})
-	log.Info("river: registered worker", "worker", "OpenMeterBackfillWorker", "period", "24h")
-
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{
-		db:              cfg.DB,
-		deployStore:     store,
-		billingProvider: cfg.Billing,
-		retentionDays:   cfg.AccountRetentionDays,
-		log:             log,
+		db:            cfg.DB,
+		deployStore:   store,
+		retentionDays: cfg.AccountRetentionDays,
+		log:           log,
 	}
 	if dep != nil {
 		pw.lfProvisioner = dep.LangfuseProvisioner
@@ -334,5 +350,5 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return pw, insightsDiscovery, migrateWorker
+	return pw, insightsDiscovery, migrateWorker, dunningWorker, billingResumeWorker
 }

@@ -24,7 +24,6 @@ type AdminServiceClient interface {
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
 	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
 	GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error)
-	ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error)
 	ProxyHTTP(ctx context.Context, in *HTTPProxyRequest, opts ...grpc.CallOption) (*HTTPProxyResponse, error)
 	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error)
@@ -42,7 +41,6 @@ type AdminServiceClient interface {
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
 	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
-	TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error)
 	StopDeployment(ctx context.Context, in *StopDeploymentRequest, opts ...grpc.CallOption) (*StopDeploymentResponse, error)
 	RegisterCluster(ctx context.Context, in *RegisterClusterRequest, opts ...grpc.CallOption) (*RegisterClusterResponse, error)
@@ -160,14 +158,6 @@ func (c *adminServiceClient) ListAgents(ctx context.Context, in *ListAgentsReque
 func (c *adminServiceClient) GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error) {
 	out := new(GetAgentBuildsResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAgentBuilds", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error) {
-	out := new(OpenMeterProxyResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ProxyOpenMeter", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -304,14 +294,6 @@ func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *Repai
 func (c *adminServiceClient) SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error) {
 	out := new(SetAdaptersResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAdapters", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error) {
-	out := new(TriggerOpenMeterBackfillResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/TriggerOpenMeterBackfill", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -523,7 +505,6 @@ type AdminServiceServer interface {
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
 	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
 	GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error)
-	ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error)
 	ProxyHTTP(context.Context, *HTTPProxyRequest) (*HTTPProxyResponse, error)
 	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error)
@@ -541,7 +522,6 @@ type AdminServiceServer interface {
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
 	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
-	TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error)
 	StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error)
 	RegisterCluster(context.Context, *RegisterClusterRequest) (*RegisterClusterResponse, error)
@@ -616,10 +596,6 @@ func (UnimplementedAdminServiceServer) GetAgentBuilds(context.Context, *GetAgent
 	return nil, status.Errorf(codes.Unimplemented, "method GetAgentBuilds not implemented")
 }
 
-func (UnimplementedAdminServiceServer) ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ProxyOpenMeter not implemented")
-}
-
 func (UnimplementedAdminServiceServer) ProxyHTTP(context.Context, *HTTPProxyRequest) (*HTTPProxyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProxyHTTP not implemented")
 }
@@ -690,10 +666,6 @@ func (UnimplementedAdminServiceServer) SetAdapters(context.Context, *SetAdapters
 
 func (UnimplementedAdminServiceServer) ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFeedback not implemented")
-}
-
-func (UnimplementedAdminServiceServer) TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TriggerOpenMeterBackfill not implemented")
 }
 
 func (UnimplementedAdminServiceServer) StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error) {
@@ -965,21 +937,6 @@ func _AdminService_GetAgentBuilds_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_ProxyOpenMeter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(OpenMeterProxyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).ProxyOpenMeter(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ProxyOpenMeter"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).ProxyOpenMeter(ctx, req.(*OpenMeterProxyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AdminService_ProxyHTTP_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HTTPProxyRequest)
 	if err := dec(in); err != nil {
@@ -1231,21 +1188,6 @@ func _AdminService_SetAdapters_Handler(srv interface{}, ctx context.Context, dec
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAdapters"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).SetAdapters(ctx, req.(*SetAdaptersRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_TriggerOpenMeterBackfill_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TriggerOpenMeterBackfillRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).TriggerOpenMeterBackfill(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/TriggerOpenMeterBackfill"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).TriggerOpenMeterBackfill(ctx, req.(*TriggerOpenMeterBackfillRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1626,7 +1568,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
 		{MethodName: "ListAgents", Handler: _AdminService_ListAgents_Handler},
 		{MethodName: "GetAgentBuilds", Handler: _AdminService_GetAgentBuilds_Handler},
-		{MethodName: "ProxyOpenMeter", Handler: _AdminService_ProxyOpenMeter_Handler},
 		{MethodName: "ProxyHTTP", Handler: _AdminService_ProxyHTTP_Handler},
 		{MethodName: "GetAuthConfig", Handler: _AdminService_GetAuthConfig_Handler},
 		{MethodName: "ListConnectedDevices", Handler: _AdminService_ListConnectedDevices_Handler},
@@ -1644,7 +1585,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
 		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
-		{MethodName: "TriggerOpenMeterBackfill", Handler: _AdminService_TriggerOpenMeterBackfill_Handler},
 		{MethodName: "ListFeedback", Handler: _AdminService_ListFeedback_Handler},
 		{MethodName: "StopDeployment", Handler: _AdminService_StopDeployment_Handler},
 		{MethodName: "RegisterCluster", Handler: _AdminService_RegisterCluster_Handler},
