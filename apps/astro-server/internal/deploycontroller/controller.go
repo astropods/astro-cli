@@ -313,7 +313,12 @@ func (c *Controller) sync(_ context.Context, key queueKey) error {
 	// Only the watcher for the deployment's routing cluster owns its rows.
 	// During a cross-cluster migration the same namespace can transiently
 	// exist on the old and new cluster; without this guard both would write.
-	if dep.EffectiveClusterID() != key.cluster {
+	//
+	// Normalize both sides first: the registry lists the primary cluster with
+	// id "primary", but a primary-cluster deployment stores cluster_id = NULL
+	// (EffectiveClusterID == ""). Without canonicalizing, every primary-cluster
+	// deployment would fail this check and never be synced.
+	if canonicalCluster(dep.EffectiveClusterID()) != canonicalCluster(key.cluster) {
 		return nil
 	}
 
@@ -359,6 +364,17 @@ func (c *Controller) sync(_ context.Context, key queueKey) error {
 	c.log.Debug("deploycontroller: synced workload statuses",
 		"deployment_id", dep.ID, "namespace", key.namespace, "workloads", len(statuses))
 	return nil
+}
+
+// canonicalCluster collapses the primary cluster's two spellings — the empty
+// string (deployments.cluster_id NULL, via EffectiveClusterID) and the
+// registry's PrimaryClusterID ("primary") — to one value so they compare
+// equal. Additional-cluster ids pass through unchanged.
+func canonicalCluster(id string) string {
+	if id == "" || id == k8s.PrimaryClusterID {
+		return k8s.PrimaryClusterID
+	}
+	return id
 }
 
 // namespaceOf extracts the namespace from an informer object, unwrapping the
