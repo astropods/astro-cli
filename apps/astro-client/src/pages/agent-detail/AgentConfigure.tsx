@@ -9,7 +9,8 @@ import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { BlueprintVersionPicker } from "@/components/deploy/BlueprintVersionPicker";
 import { useBlueprint } from "@/api/queries/blueprints";
-import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIngestion } from "@/api/queries/deployments";
+import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIngestion, useWakeUpDeployment, useDeploymentStatus } from "@/api/queries/deployments";
+import { isPausedState } from "@/lib/deployment-utils";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentKeys } from "@/api/queries/keys";
 
@@ -53,6 +54,14 @@ export default function AgentConfigure() {
   const uploadAvatar = useUploadDeploymentAvatar(account);
   const avatarBust = useDeploymentAvatarBust(deployment.id);
   const renameMutation = useUpdateDeploymentDisplayName(deployment.id);
+  const wakeupMutation = useWakeUpDeployment(account);
+  const { data: liveStatus } = useDeploymentStatus(deploymentId);
+  // A paused agent can't redeploy; explain why and offer Resume. Prefer the live
+  // status (flips on resume) over the record, which lags until it refetches.
+  const paused = liveStatus ? liveStatus.value === "inactive" : isPausedState(deployment);
+  const handleResume = useCallback(() => {
+    wakeupMutation.mutate({ deploymentId: deployment.id });
+  }, [wakeupMutation, deployment.id]);
 
   // Build links are one-time handoffs into upgrade mode. Keeping the temporary
   // selection out of the URL makes refreshes and future tab visits start from
@@ -230,7 +239,9 @@ export default function AgentConfigure() {
         <div className="@container/footer pointer-events-auto w-full max-w-[52rem] rounded-lg border border-border bg-surface/95 py-3 pl-5 pr-3 shadow-lg backdrop-blur @max-[600px]/footer:px-5 supports-[backdrop-filter]:bg-surface/90">
           <div className="flex items-center gap-3 @max-[600px]/footer:flex-col @max-[600px]/footer:gap-3">
             <p className="text-body text-muted-foreground @max-[600px]/footer:text-center">
-              {isRollback
+              {paused
+                ? "This agent is paused, so it can't be redeployed. Resume it to deploy again."
+                : isRollback
                 ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
                 : isBuildOverride
                 ? "Redeploy with the selected build."
@@ -241,7 +252,19 @@ export default function AgentConfigure() {
                 : "Redeploy the current configuration."}
             </p>
             <div className="ml-auto flex shrink-0 items-center gap-1.5 @max-[600px]/footer:ml-0 @max-[600px]/footer:w-full @max-[400px]/footer:flex-col">
-              {(form.isDirty || hasOverride) && (
+              {paused && (
+                <Button
+                  type="button"
+                  variant="default"
+                  className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
+                  disabled={wakeupMutation.isPending}
+                  onClick={handleResume}
+                >
+                  {wakeupMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+                  {wakeupMutation.isPending ? "Resuming…" : "Resume to deploy"}
+                </Button>
+              )}
+              {!paused && (form.isDirty || hasOverride) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -252,7 +275,7 @@ export default function AgentConfigure() {
                   Discard
                 </Button>
               )}
-              {isNameOnly ? (
+              {paused ? null : isNameOnly ? (
                 <Button
                   type="submit"
                   form={FORM_ID}

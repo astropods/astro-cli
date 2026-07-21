@@ -812,3 +812,19 @@ describe("redeploy of org-owned deployment", () => {
     expect(payload.target?.account).toBe("astropods");
   });
 });
+
+describe("paused agent", () => {
+  it("explains why redeploy is blocked and offers Resume instead", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({ value: "inactive", reason: "paused", details: "Deployment is paused" }),
+      ),
+    );
+    renderConfigure(makeDeployment({ status: "scaled_down" }));
+    await waitForForm();
+
+    expect(screen.getByText(/paused, so it can't be redeployed/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /resume to deploy/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^redeploy$/i })).not.toBeInTheDocument();
+  });
+});
