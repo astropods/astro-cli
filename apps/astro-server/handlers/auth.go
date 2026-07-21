@@ -38,6 +38,11 @@ type orgTokenRefresher interface {
 	AuthenticateWithRefreshTokenForOrg(ctx context.Context, refreshToken, organizationID string) (*auth.RefreshResult, error)
 }
 
+// memberEmailUpserter is satisfied by *memberemails.Store; extracted for unit testing.
+type memberEmailUpserter interface {
+	UpsertWorkOS(ctx context.Context, userID, email string, verified bool) error
+}
+
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	log            *logger.Logger
@@ -50,6 +55,7 @@ type AuthHandler struct {
 	accountStore   accountGetter
 	orgSync        orgSyncer
 	avatarStore    *avatarpkg.Store
+	memberEmails   memberEmailUpserter
 }
 
 // SetOrgSync sets the org sync service on the auth handler.
@@ -62,6 +68,12 @@ func (h *AuthHandler) SetOrgSync(sync orgSyncer) {
 // SetAvatarStore sets the avatar store on the auth handler for profile picture ingestion at signup.
 func (h *AuthHandler) SetAvatarStore(store *avatarpkg.Store) {
 	h.avatarStore = store
+}
+
+// SetMemberEmails sets the member-email mirror store, used to capture the
+// authenticated user's WorkOS email on every login for dev-tool attribution.
+func (h *AuthHandler) SetMemberEmails(store memberEmailUpserter) {
+	h.memberEmails = store
 }
 
 // NewAuthHandler creates a new auth handler
@@ -265,6 +277,15 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			"email", result.User.Email,
 			"session_id", result.SessionID,
 		)
+
+		// Best-effort: mirror the member's WorkOS email locally for dev-tool
+		// attribution. Runs on every login so the mirror stays fresh without the
+		// WorkOS events poller. Never fails the login.
+		if h.memberEmails != nil {
+			if err := h.memberEmails.UpsertWorkOS(c.Request.Context(), result.User.ID, result.User.Email, result.User.EmailVerified); err != nil {
+				h.log.Warn("Failed to mirror member email on login", "error", err, "user_id", result.User.ID)
+			}
+		}
 
 		// Best-effort: sync org memberships from WorkOS to local store
 		if h.orgSync != nil {

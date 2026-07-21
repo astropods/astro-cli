@@ -22,10 +22,10 @@ func TestUpsertWorkOSLowercasesAndPrunesStale(t *testing.T) {
 	store, mock := newMockStore(t)
 	mock.ExpectBegin()
 	// Email is lowercased/trimmed; stale workos rows for the user are pruned.
-	mock.ExpectExec("DELETE FROM member_emails").
+	mock.ExpectExec("DELETE FROM account_member_emails").
 		WithArgs("user_1", "dev@x.com").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT INTO member_emails").
+	mock.ExpectExec("INSERT INTO account_member_emails").
 		WithArgs("user_1", "dev@x.com", true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()

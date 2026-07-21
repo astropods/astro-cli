@@ -107,7 +107,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 			queueDeploy:        {MaxWorkers: 5},
-			queueWorkOS:        {MaxWorkers: 1},
 			queueGitHubBuild:   {MaxWorkers: 3},
 		},
 		Workers:      workers,
@@ -161,7 +160,7 @@ func (q *Queue) Start(ctx context.Context) error {
 	if err := q.client.Start(ctx); err != nil {
 		return fmt.Errorf("riverqueue: start: %w", err)
 	}
-	q.log.Info("river: queue started", "queues", []string{river.QueueDefault, queueDeploy, queueWorkOS})
+	q.log.Info("river: queue started", "queues", []string{river.QueueDefault, queueDeploy})
 	return nil
 }
 

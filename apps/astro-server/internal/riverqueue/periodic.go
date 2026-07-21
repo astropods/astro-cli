@@ -104,24 +104,12 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 	}
 
 	if cfg.WorkOSAPIKey != "" {
-		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(15*time.Second),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return WorkOSEventsArgs{}, &river.InsertOpts{
-					Queue: queueWorkOS,
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 15 * time.Second,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
-
+		// Backfill member emails still missing from the mirror. Emails are
+		// captured at auth time (login + account create); this reconcile is the
+		// safety net that fills any gaps by querying WorkOS directly.
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(10*time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) {
-				// Default queue (not queueWorkOS) so a long backfill run never
-				// stalls the strictly-ordered, single-worker events poller.
 				return MemberEmailReconcileArgs{}, &river.InsertOpts{
 					UniqueOpts: river.UniqueOpts{
 						ByPeriod: 10 * time.Minute,

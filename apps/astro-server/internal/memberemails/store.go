@@ -34,12 +34,12 @@ func (s *Store) UpsertWorkOS(ctx context.Context, userID, email string, verified
 	}
 	defer tx.Rollback() //nolint:errcheck // rolled back only if Commit didn't run
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM member_emails WHERE user_id = $1 AND source = 'workos' AND email <> $2`,
+		`DELETE FROM account_member_emails WHERE user_id = $1 AND source = 'workos' AND email <> $2`,
 		userID, email); err != nil {
 		return fmt.Errorf("memberemails: prune stale workos email: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO member_emails (user_id, email, source, verified)
+		`INSERT INTO account_member_emails (user_id, email, source, verified)
 		 VALUES ($1, $2, 'workos', $3)
 		 ON CONFLICT (email) DO UPDATE SET user_id = EXCLUDED.user_id, source = 'workos', verified = EXCLUDED.verified, updated_at = now()`,
 		userID, email, verified); err != nil {
@@ -51,7 +51,7 @@ func (s *Store) UpsertWorkOS(ctx context.Context, userID, email string, verified
 // DeleteForUser removes all of a user's emails and any reconcile-backoff record
 // (WorkOS user deletion).
 func (s *Store) DeleteForUser(ctx context.Context, userID string) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM member_emails WHERE user_id = $1`, userID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_member_emails WHERE user_id = $1`, userID); err != nil {
 		return fmt.Errorf("memberemails: delete for user: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM member_email_reconcile_attempts WHERE user_id = $1`, userID); err != nil {
@@ -65,7 +65,7 @@ func (s *Store) DeleteForUser(ctx context.Context, userID string) error {
 func (s *Store) EmailsForAccount(ctx context.Context, accountID string) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT me.email, me.user_id
-		 FROM member_emails me
+		 FROM account_member_emails me
 		 JOIN account_members am ON am.user_id = me.user_id
 		 WHERE am.account_id = $1`, accountID)
 	if err != nil {
@@ -90,7 +90,7 @@ func (s *Store) UserIDsMissingEmail(ctx context.Context, limit int, retryBefore 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT am.user_id
 		 FROM account_members am
-		 LEFT JOIN member_emails me ON me.user_id = am.user_id
+		 LEFT JOIN account_member_emails me ON me.user_id = am.user_id
 		 LEFT JOIN member_email_reconcile_attempts a ON a.user_id = am.user_id
 		 WHERE me.user_id IS NULL
 		   AND (a.user_id IS NULL OR a.attempted_at < $2)

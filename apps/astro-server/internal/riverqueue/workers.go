@@ -133,18 +133,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 
 	memberEmailStore := memberemails.NewStore(cfg.DB)
 
-	addWorkerWithCatalogCheck(log, workers, &WorkOSEventsWorker{
-		workOSAPIKey: cfg.WorkOSAPIKey,
-		orgClient:    cfg.OrgClient,
-		accountStore: cfg.AccountStore,
-		memberEmails: memberEmailStore,
-		agentIdx:     cfg.AgentIndex,
-		avatarStore:  cfg.AvatarStore,
-		db:           cfg.DB,
-		log:          log,
-	})
-	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "15s")
-
 	addWorkerWithCatalogCheck(log, workers, &MemberEmailReconcileWorker{
 		workosClient: cfg.WorkOSClient,
 		emails:       memberEmailStore,

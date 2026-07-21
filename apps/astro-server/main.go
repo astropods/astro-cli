@@ -812,6 +812,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	handlers.RegisterCLIRoutes(router, cfg)
 
 	// Setup authentication
+	memberEmailStore := memberemails.NewStore(db)
 	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)
 	if orgSync != nil {
 		authHandler.SetOrgSync(orgSync)
@@ -819,6 +820,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	if avatarStore != nil {
 		authHandler.SetAvatarStore(avatarStore)
 	}
+	authHandler.SetMemberEmails(memberEmailStore)
 
 	// Auth routes (no auth required)
 	authRoutes := router.Group("/auth")
@@ -951,7 +953,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, billingProvider, cfg.OpenMeterDefaultPlan, auditStore),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.OpenMeterDefaultPlan, auditStore),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),

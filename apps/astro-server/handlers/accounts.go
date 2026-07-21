@@ -119,7 +119,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, billingProvider billing.BillingProvider, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,6 +196,14 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Best-effort: mirror the creator's WorkOS email locally for dev-tool
+		// attribution. Non-fatal — account creation must not fail on this.
+		if memberEmails != nil {
+			if err := memberEmails.UpsertWorkOS(c.Request.Context(), user.ID, user.Email, user.EmailVerified); err != nil {
+				log.Warn("Failed to mirror member email on account create", "error", err, "user_id", user.ID)
+			}
 		}
 
 		// Step 2: For org accounts, create WorkOS Organization and link

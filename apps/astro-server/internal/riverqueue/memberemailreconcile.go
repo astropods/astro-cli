@@ -32,10 +32,10 @@ const (
 	memberEmailRetryBackoff = 6 * time.Hour
 )
 
-// MemberEmailReconcileArgs backfills and heals the member_emails mirror: it
-// resolves members that have no recorded email via WorkOS. The events poller
-// keeps the mirror fresh going forward; this seeds pre-existing members and
-// covers any gaps.
+// MemberEmailReconcileArgs backfills and heals the account_member_emails
+// mirror: it resolves members that have no recorded email via WorkOS. Auth-time
+// capture (login + account create) keeps the mirror fresh going forward; this
+// seeds pre-existing members and covers any gaps.
 type MemberEmailReconcileArgs struct{}
 
 func (MemberEmailReconcileArgs) Kind() string { return "workos.member_email_reconcile" }
@@ -45,8 +45,7 @@ func init() {
 }
 
 func (MemberEmailReconcileArgs) InsertOpts() river.InsertOpts {
-	// Default queue, NOT queueWorkOS: that queue is single-worker to keep the
-	// events poller strictly in order, and a long backfill run must not stall it.
+	// Default queue: a long backfill run shares the general worker pool.
 	return river.InsertOpts{Queue: river.QueueDefault}
 }
 

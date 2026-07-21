@@ -134,9 +134,9 @@ CREATE TABLE public.account_member_workos (
 -- for attributing external dev-tool telemetry (stamped with user.email) to a
 -- member without a per-request WorkOS lookup. One-to-many: a user may have
 -- several emails; `source` distinguishes WorkOS-synced emails from ones added
--- directly (direct-add is not yet implemented). Kept fresh by the WorkOS events
--- poller and a periodic reconcile (internal/org, internal/riverqueue).
-CREATE TABLE public.member_emails (
+-- directly (direct-add is not yet implemented). Kept fresh by auth-time capture
+-- (login + account create) and a periodic reconcile (internal/riverqueue).
+CREATE TABLE public.account_member_emails (
     id         uuid        NOT NULL DEFAULT gen_random_uuid(),
     user_id    text        NOT NULL,
     email      text        NOT NULL,
@@ -144,15 +144,15 @@ CREATE TABLE public.member_emails (
     verified   boolean     NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT member_emails_pkey PRIMARY KEY (id),
-    CONSTRAINT member_emails_email_key UNIQUE (email)
+    CONSTRAINT account_member_emails_pkey PRIMARY KEY (id),
+    CONSTRAINT account_member_emails_email_key UNIQUE (email)
 );
 
-CREATE INDEX idx_member_emails_user ON public.member_emails(user_id);
+CREATE INDEX idx_account_member_emails_user ON public.account_member_emails(user_id);
 
 -- At most one WorkOS-synced email per user. Other sources (future direct-add)
 -- are intentionally not covered, so a user may still hold several such emails.
-CREATE UNIQUE INDEX member_emails_user_workos_key ON public.member_emails(user_id) WHERE source = 'workos';
+CREATE UNIQUE INDEX account_member_emails_user_workos_key ON public.account_member_emails(user_id) WHERE source = 'workos';
 
 -- Records reconcile attempts for members whose email couldn't be resolved from
 -- WorkOS, so the backfill job backs off instead of re-querying them every run.
@@ -198,27 +198,6 @@ CREATE TABLE public.agent_versions (
 );
 
 CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
-
-CREATE TABLE public.workos_event_cursor (
-    id integer NOT NULL DEFAULT 1,
-    cursor_id text NOT NULL DEFAULT '',
-    stuck_event_id text,
-    stuck_since timestamp,
-    updated_at timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT workos_event_cursor_pkey PRIMARY KEY (id),
-    CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)
-);
-
-CREATE TABLE public.workos_event_errors (
-    event_id text NOT NULL,
-    event_type text NOT NULL,
-    event_data text NOT NULL DEFAULT '',
-    error text NOT NULL,
-    attempts integer NOT NULL DEFAULT 1,
-    first_failed_at timestamp NOT NULL DEFAULT now(),
-    last_failed_at timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT workos_event_errors_pkey PRIMARY KEY (event_id)
-);
 
 CREATE TABLE public.deployments (
     id varchar(11) NOT NULL,
