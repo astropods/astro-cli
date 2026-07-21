@@ -1,8 +1,8 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { ArrowUpRight, Check, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Bot, Check, ChevronDown, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
@@ -10,6 +10,7 @@ import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { ViewToggle, parseActivityView, type ActivityView } from "@/components/activity/ViewToggle";
 import { StatCards } from "@/components/activity/StatCards";
 import { CostOverTimeChart } from "@/components/activity/CostOverTimeChart";
+import { buildModelColorMap, devtoolSourceColor } from "@/components/activity/model-colors";
 import { ActiveUsersSpendChart } from "@/components/activity/ActiveUsersSpendChart";
 import {
   TopSpendersTable,
@@ -26,11 +27,15 @@ import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WarningPanel } from "@/components/ui/status-panel";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import { inputBase, inputFocusVisible } from "@/components/ui/input";
+import { getIntegrationIconUrl } from "@/lib/assets";
+import { useResolvedTheme } from "@/lib/theme";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
-import type { InsightsQueryParams, InsightsResponse } from "@/lib/api";
+import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -42,6 +47,14 @@ const TABLE_PAGE_SIZE = 10;
 const SHOW_TOP_LABEL = `Show top ${DEFAULT_TABLE_LIMIT}`;
 const DEFAULT_AGENT_SORT: AgentSortKey = "cost_usd";
 const DEFAULT_USER_SORT: UserSortKey = "cost_usd";
+
+// Dev-tool usage folds into the agent surfaces as distinct series/rows keyed by
+// source; "agents" is the base deployed-agent source in the Sources filter.
+const AGENTS_SOURCE_KEY = "agents";
+
+function parseHiddenSources(raw: string | null): Set<string> {
+  return new Set((raw ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+}
 
 type SlackRefreshStatus = "idle" | "refreshing" | "success" | "error";
 
@@ -90,6 +103,7 @@ export function buildInsightsQueryParams({
   peopleSortKey = DEFAULT_USER_SORT,
   peopleSortDirection = "desc",
   skipRanges = false,
+  hideSources = [],
 }: {
   query?: string;
   agentsLimit?: number;
@@ -99,6 +113,7 @@ export function buildInsightsQueryParams({
   peopleSortKey?: UserSortKey;
   peopleSortDirection?: TopSpendersSortDirection;
   skipRanges?: boolean;
+  hideSources?: string[];
 }): InsightsQueryParams {
   const trimmedQuery = query.trim();
   return {
@@ -112,9 +127,13 @@ export function buildInsightsQueryParams({
     people_sort: peopleSortKey,
     people_direction: peopleSortDirection,
     skip_ranges: skipRanges ? "true" : undefined,
+    hide_sources: hideSources.length ? [...hideSources].sort().join(",") : undefined,
   };
 }
 
+// Identifies a table-only param set. hide_sources is intentionally EXCLUDED: it
+// changes the ranges (chart/stat cards), so toggling a source must trigger a
+// full-ranges refetch, not a skip_ranges (table-only) one. Do not add it here.
 function insightsTableParamsSignature(params: InsightsQueryParams): string {
   return [
     params.q ?? "",
@@ -136,7 +155,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const url = new URL(request.url);
-  const insightsParams = buildInsightsQueryParams({ query: url.searchParams.get("q") ?? "" });
+  const insightsParams = buildInsightsQueryParams({
+    query: url.searchParams.get("q") ?? "",
+    hideSources: [...parseHiddenSources(url.searchParams.get("hide_sources"))],
+  });
   const insights = await ctx.api.getAccountInsights(ctx.accountName, insightsParams).catch(() => null);
   return { account: ctx.accountName, insights, insightsParams };
 }
@@ -174,6 +196,25 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";
+  // `hide_sources` lists the Sources-filter keys to exclude (a source or
+  // "agents"); absent = all on.
+  const hiddenSources = useMemo(() => parseHiddenSources(searchParams.get("hide_sources")), [searchParams]);
+  const [devtoolSources, setDevtoolSources] = useState<InsightsDevtoolSource[]>([]);
+  const handleDevtoolSources = useCallback((sources: InsightsDevtoolSource[]) => setDevtoolSources(sources), []);
+  const resolvedTheme = useResolvedTheme();
+  const sourceOptions = useMemo(
+    () => [
+      { key: AGENTS_SOURCE_KEY, label: "Astro AI agents", icon: <img src={getIntegrationIconUrl("astro", resolvedTheme)} alt="" className="size-4 shrink-0 object-contain" /> },
+      ...devtoolSources.map((src) => ({
+        key: src.key,
+        label: src.label,
+        icon: src.icon
+          ? <img src={getIntegrationIconUrl(src.icon, resolvedTheme)} alt="" className="size-4 shrink-0 object-contain" />
+          : <Bot className="size-4 shrink-0 text-muted-foreground" aria-hidden />,
+      })),
+    ],
+    [devtoolSources, resolvedTheme],
+  );
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
@@ -235,6 +276,17 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     }, { replace: true });
   }, [setSearchParams]);
 
+  const toggleSource = useCallback((key: string) => {
+    setSearchParams((prev) => {
+      const set = parseHiddenSources(prev.get("hide_sources"));
+      if (set.has(key)) set.delete(key);
+      else set.add(key);
+      if (set.size === 0) prev.delete("hide_sources");
+      else prev.set("hide_sources", [...set].join(","));
+      return prev;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const dateLabel = buildDateLabel(range);
 
   // Header right side packs three controls onto one row: date label (left),
@@ -247,6 +299,44 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         <span className="hidden text-body-sm text-muted-foreground @md:inline">
           {dateLabel}
         </span>
+      )}
+      {sourceOptions.length > 1 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Filter sources"
+              className={cn(
+                "flex h-8 items-center gap-2 px-2.5 text-sm leading-none text-foreground transition-colors !bg-white dark:!bg-transparent hover:!bg-slate-50 dark:hover:!bg-slate-800",
+                inputBase,
+                inputFocusVisible,
+              )}
+            >
+              Sources
+              <ChevronDown className="size-4 shrink-0 opacity-50" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {sourceOptions.map((opt, i) => (
+              <Fragment key={opt.key}>
+                {i === 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">External</DropdownMenuLabel>
+                  </>
+                )}
+                <DropdownMenuCheckboxItem
+                  checked={!hiddenSources.has(opt.key)}
+                  onCheckedChange={() => toggleSource(opt.key)}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  {opt.icon}
+                  {opt.label}
+                </DropdownMenuCheckboxItem>
+              </Fragment>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       <TimeRangeSelector
         value={range}
@@ -271,6 +361,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         onViewChange={setView}
         query={q}
         onQueryChange={setQuery}
+        onDevtoolSources={handleDevtoolSources}
+        hiddenSources={hiddenSources}
         slackRefreshStatus={slackRefreshStatus}
       />
     </PageContainer>
@@ -344,6 +436,8 @@ interface InsightsViewProps {
   onViewChange: (v: ActivityView) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  onDevtoolSources: (sources: InsightsDevtoolSource[]) => void;
+  hiddenSources: Set<string>;
   slackRefreshStatus: SlackRefreshStatus;
 }
 
@@ -354,6 +448,8 @@ function InsightsView({
   onViewChange,
   query,
   onQueryChange,
+  onDevtoolSources,
+  hiddenSources,
   slackRefreshStatus,
 }: InsightsViewProps) {
   const [agentsLimit, setAgentsLimit] = useState(DEFAULT_TABLE_LIMIT);
@@ -393,8 +489,9 @@ function InsightsView({
       agentSortDirection,
       peopleSortKey,
       peopleSortDirection,
+      hideSources: [...hiddenSources],
     }),
-    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query],
+    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query, hiddenSources],
   );
   const baseInsightsParamsKey = useMemo(() => insightsTableParamsSignature(baseInsightsParams), [baseInsightsParams]);
   const cachedRangeState = rangeCache?.account === account ? rangeCache : null;
@@ -420,6 +517,33 @@ function InsightsView({
   const days = rangeData?.days ?? RANGE_DAYS[range];
   const agentRows = insights?.tables.agents.rows ?? [];
   const peopleRows = insights?.tables.people.rows ?? [];
+
+  // Dev-tool usage (Claude Code, Codex, …) is folded into the chart, stat cards,
+  // and tables server-side; the client renders what the server returns. Chart
+  // series for dev-tool sources get a distinct brand color; agents use the model
+  // palette.
+  const chartColorMap = useMemo(() => {
+    const modelKeys = [...new Set((rangeData?.agent_spend_chart ?? []).flatMap((d) => d.models.map((m) => m.model)))];
+    const sourceKeys = new Set((insights?.devtool_sources ?? []).map((s) => s.key));
+    const map = buildModelColorMap(modelKeys.filter((k) => !sourceKeys.has(k)));
+    let i = 0;
+    for (const k of modelKeys) {
+      if (sourceKeys.has(k)) map[k] = devtoolSourceColor(k, i++);
+    }
+    return map;
+  }, [rangeData, insights?.devtool_sources]);
+
+  const displaySummary = rangeData?.stat_cards;
+  const agentsTotalRows = insights?.tables.agents.pagination.filtered_count ?? agentRows.length;
+  const peopleTotalRows = insights?.tables.people.pagination.filtered_count ?? peopleRows.length;
+
+  // Report the account's dev-tool sources up for the (parent-rendered) filter.
+  // Report [] when absent so switching to an account with no dev-tool usage
+  // clears the previous account's entries rather than leaving them stale.
+  const responseDevtoolSources = insights?.devtool_sources;
+  useEffect(() => {
+    onDevtoolSources(responseDevtoolSources ?? []);
+  }, [responseDevtoolSources, onDevtoolSources]);
   const slackRowsMissingDetails = insights?.tables.people.missing_slack_details_count ?? 0;
   const showSlackDetailsAction = slackRowsMissingDetails > 0 && !insightsQ.isLoading;
   const slackStatusQ = useSlackAccountStatus(account, {
@@ -553,12 +677,13 @@ function InsightsView({
   return (
     <InsightsBody
       range={range}
-      displaySummary={rangeData?.stat_cards}
+      displaySummary={displaySummary}
       metricsUnavailable={metricsUnavailable}
       chartLeft={
         <CostOverTimeChart
           data={rangeData?.agent_spend_chart ?? []}
           days={days}
+          colorMap={chartColorMap}
           seriesLabels={rangeData?.series_labels}
           variant={days > 60 ? "line" : "bar"}
         />
@@ -578,7 +703,7 @@ function InsightsView({
             sortDirection={agentSortDirection}
             onSort={handleAgentSort}
             pagination={{
-              totalRows: insights?.tables.agents.pagination.filtered_count ?? agentRows.length,
+              totalRows: agentsTotalRows,
               defaultVisibleRows: DEFAULT_TABLE_LIMIT,
               pageSize: TABLE_PAGE_SIZE,
               showLessLabel: SHOW_TOP_LABEL,
@@ -596,7 +721,7 @@ function InsightsView({
             sortDirection={peopleSortDirection}
             onSort={handlePeopleSort}
             pagination={{
-              totalRows: insights?.tables.people.pagination.filtered_count ?? peopleRows.length,
+              totalRows: peopleTotalRows,
               defaultVisibleRows: DEFAULT_TABLE_LIMIT,
               pageSize: TABLE_PAGE_SIZE,
               showLessLabel: SHOW_TOP_LABEL,

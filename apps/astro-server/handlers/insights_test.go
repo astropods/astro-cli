@@ -299,6 +299,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
+			nil,
 			now,
 			normalizeInsightsRequestParams(insightsRequestParams{
 				Query:  "a",
@@ -352,6 +353,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
+			nil,
 			now,
 			invalidParams,
 		)
@@ -368,6 +370,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
+			nil,
 			now,
 			normalizeInsightsRequestParams(insightsRequestParams{SkipRanges: true}),
 		)

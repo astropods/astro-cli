@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useMemo, useState, type ComponentPropsWithoutRef, type ReactNode, type Ref } from "react";
 import { Link } from "react-router";
 import { Info, Server, TriangleAlert, User } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { UserAvatar } from "@/components/UserAvatar";
+import { getIntegrationIconUrl } from "@/lib/assets";
+import { useResolvedTheme } from "@/lib/theme";
 import {
   Tooltip,
   TooltipContent,
@@ -234,6 +236,20 @@ function IdentityAvatar({
   size?: number;
 }) {
   const baseClassName = cn("size-6 shrink-0 rounded-full", className);
+  const resolvedTheme = useResolvedTheme();
+
+  // Dev-tool source rows carry an integration-icon key (e.g. "anthropic",
+  // "openai") that resolves to a themed brand logo.
+  if (identity.icon) {
+    return (
+      <img
+        src={getIntegrationIconUrl(identity.icon, resolvedTheme)}
+        alt=""
+        className={cn(baseClassName, "object-contain")}
+        loading="lazy"
+      />
+    );
+  }
 
   if (identity.kind === "agent" && identity.avatar_account && identity.avatar_name) {
     return (
@@ -403,6 +419,18 @@ function IdentityAvatarStack({
 }
 
 function AgentChipAvatar({ agent }: { agent: InsightsAgentChip }) {
+  const resolvedTheme = useResolvedTheme();
+  // Dev-tool chips carry an integration-icon key → themed logo (no agent avatar).
+  if (agent.icon) {
+    return (
+      <img
+        src={getIntegrationIconUrl(agent.icon, resolvedTheme)}
+        alt=""
+        className="size-6 shrink-0 rounded-[3px] border-[0.5px] border-border bg-card object-contain p-0.5"
+        loading="lazy"
+      />
+    );
+  }
   return (
     <BlueprintIdentity
       account={agent.avatar_account}
@@ -410,6 +438,35 @@ function AgentChipAvatar({ agent }: { agent: InsightsAgentChip }) {
       size={24}
       className="size-6 shrink-0 rounded-[3px] border-[0.5px] border-border object-cover"
     />
+  );
+}
+
+// Agent chips link to the agent's page; dev-tool chips have no page (empty href).
+// forwardRef so TooltipTrigger asChild can attach its ref to the DOM node.
+const ChipShell = forwardRef<
+  HTMLElement,
+  { agent: InsightsAgentChip } & ComponentPropsWithoutRef<"span">
+>(function ChipShell({ agent, children, ...rest }, ref) {
+  if (agent.href) {
+    return (
+      <Link ref={ref as Ref<HTMLAnchorElement>} to={agent.href} {...rest}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <span ref={ref as Ref<HTMLSpanElement>} {...rest}>
+      {children}
+    </span>
+  );
+});
+
+// External (non-deployed) dev-tool chips get a small tag in tooltips / overflow.
+function ExternalTag() {
+  return (
+    <span className="inline-flex items-center rounded border border-current px-1 py-px text-[10px] font-medium uppercase leading-none tracking-wide opacity-70">
+      External
+    </span>
   );
 }
 
@@ -428,12 +485,13 @@ function AgentChips({ agents }: { agents: InsightsAgentChip[] }) {
         <TooltipProvider key={agent.key} delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link to={agent.href} className="inline-flex rounded-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ChipShell agent={agent} className="inline-flex rounded-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <AgentChipAvatar agent={agent} />
-              </Link>
+              </ChipShell>
             </TooltipTrigger>
-            <TooltipContent side="top">
-              {agent.label}{agent.is_deleted ? " (deleted)" : ""}
+            <TooltipContent side="top" className="flex items-center gap-1.5">
+              <span>{agent.label}{agent.is_deleted ? " (deleted)" : ""}</span>
+              {!agent.href && <ExternalTag />}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -447,15 +505,16 @@ function AgentChips({ agents }: { agents: InsightsAgentChip[] }) {
           <ul className="min-h-0 overflow-y-auto">
             {agents.map((agent) => (
               <li key={agent.key}>
-                <Link
-                  to={agent.href}
+                <ChipShell
+                  agent={agent}
                   className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-body-sm hover:bg-muted/60"
                 >
                   <AgentChipAvatar agent={agent} />
                   <span className="min-w-0 truncate text-foreground">
                     {agent.label}{agent.is_deleted ? " (deleted)" : ""}
                   </span>
-                </Link>
+                  {!agent.href && <ExternalTag />}
+                </ChipShell>
               </li>
             ))}
           </ul>

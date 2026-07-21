@@ -558,6 +558,17 @@ type InsightsResponse struct {
 	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
 	Ranges             map[string]InsightsRange `json:"ranges"`
 	Tables             InsightsTables           `json:"tables"`
+	// DevtoolSources lists the dev-tool sources present in the account (Claude
+	// Code, Codex, …), for the Sources filter. Their usage is already folded into
+	// the ranges and tables above unless excluded via the hide_sources param.
+	DevtoolSources []DevtoolSourceRef `json:"devtool_sources,omitempty"`
+}
+
+// DevtoolSourceRef identifies one dev-tool source for the Sources filter.
+type DevtoolSourceRef struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Icon  string `json:"icon,omitempty"`
 }
 
 type InsightsRange struct {
@@ -620,6 +631,7 @@ type InsightsIdentityRef struct {
 	UserID        string       `json:"user_id,omitempty"`
 	UserDetails   *UserDetails `json:"user_details,omitempty"`
 	Tooltip       string       `json:"tooltip,omitempty"`
+	Icon          string       `json:"icon,omitempty"` // integration-icon key (dev-tool sources) → themed logo
 }
 
 type InsightsAgentChip struct {
@@ -629,6 +641,7 @@ type InsightsAgentChip struct {
 	AvatarAccount string `json:"avatar_account"`
 	AvatarName    string `json:"avatar_name"`
 	IsDeleted     bool   `json:"is_deleted,omitempty"`
+	Icon          string `json:"icon,omitempty"` // integration-icon key (dev-tool chips) → themed logo
 }
 
 type InsightsAgentMetrics struct {

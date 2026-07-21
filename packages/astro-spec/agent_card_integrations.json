@@ -40,5 +40,6 @@
   { "id": "elasticsearch", "name": "Elasticsearch", "aliases": ["elastic", "elastic-search", "es"] },
   { "id": "pinecone", "name": "Pinecone", "aliases": ["pinecone-db", "pinecone-api"] },
   { "id": "weaviate", "name": "Weaviate", "aliases": ["weaviate-db"] },
-  { "id": "qdrant", "name": "Qdrant", "aliases": ["qdrant-db"] }
+  { "id": "qdrant", "name": "Qdrant", "aliases": ["qdrant-db"] },
+  { "id": "astro", "name": "Astro", "aliases": ["astropods", "astro-agents", "astro-platform"] }
 ]

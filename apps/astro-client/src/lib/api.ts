@@ -1421,6 +1421,7 @@ export interface InsightsIdentityRef {
   user_id?: string;
   user_details?: UserDetails;
   tooltip?: string;
+  icon?: string; // integration-icon key (e.g. "anthropic") resolved to a themed brand logo
 }
 
 export interface InsightsAgentChip {
@@ -1430,6 +1431,7 @@ export interface InsightsAgentChip {
   avatar_account: string;
   avatar_name: string;
   is_deleted?: boolean;
+  icon?: string; // integration-icon key (e.g. "anthropic") → themed logo, for dev-tool chips
 }
 
 export interface InsightsStatCards {
@@ -1479,6 +1481,7 @@ export interface InsightsQueryParams {
   people_sort?: string;
   people_direction?: string;
   skip_ranges?: string;
+  hide_sources?: string; // comma-separated source keys (or "agents") to exclude from the fold-in
 }
 
 export interface InsightsTablePagination {
@@ -1514,6 +1517,15 @@ export interface InsightsResponse {
       pagination: InsightsTablePagination;
     };
   };
+  // Dev-tool sources present in the account, for the Sources filter. Their usage
+  // is already folded into ranges/tables unless excluded via hide_sources.
+  devtool_sources?: InsightsDevtoolSource[];
+}
+
+export interface InsightsDevtoolSource {
+  key: string;
+  label: string;
+  icon?: string;
 }
 
 export interface TraceEntry {

@@ -58,6 +58,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
@@ -1870,7 +1871,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
+			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache, promClient, memberemails.NewStore(db)),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -1884,6 +1885,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("people_sort", "People table sort key", false),
 				oapispec.QueryParam("people_direction", "People table sort direction: asc or desc", false),
 				oapispec.QueryParam("skip_ranges", "Set to true to omit chart range data for table-only refreshes", false),
+				oapispec.QueryParam("hide_sources", "Comma-separated source keys (or 'agents') to exclude from the dev-tool fold-in", false),
 				oapispec.Response(200, &handlers.InsightsResponse{}),
 			)
 

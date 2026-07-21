@@ -39,3 +39,27 @@ export function buildModelColorMap(models: string[]): Record<string, string> {
   models.forEach((m, i) => { map[m] = modelColor(i); });
   return map;
 }
+
+// Distinct palette for dev-tool sources in charts — visually separate from the
+// agent MODEL_PALETTE.
+const DEVTOOL_PALETTE = [
+  "var(--color-amber-500)",
+  "var(--color-purple-500)",
+  "var(--color-pink-500)",
+  "var(--color-green-500)",
+];
+
+export function devtoolColor(index: number): string {
+  return DEVTOOL_PALETTE[index % DEVTOOL_PALETTE.length];
+}
+
+// Brand presentation for known dev-tool sources: chart color + integration-icon
+// key. Unknown sources fall back to DEVTOOL_PALETTE with no logo.
+export const SOURCE_BRAND: Record<string, { color: string; icon?: string }> = {
+  "claude-code": { color: "var(--color-amber-500)", icon: "anthropic" },
+  codex: { color: "var(--color-foreground)", icon: "openai" },
+};
+
+export function devtoolSourceColor(key: string, index: number): string {
+  return SOURCE_BRAND[key]?.color ?? devtoolColor(index);
+}

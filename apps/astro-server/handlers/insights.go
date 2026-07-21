@@ -19,20 +19,36 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
 
-var insightsRangeSpecs = []struct {
+type insightsRangeSpec struct {
 	key  string
 	days int
-}{
+}
+
+var insightsRangeSpecs = []insightsRangeSpec{
 	{key: "7d", days: 7},
 	{key: "14d", days: 14},
 	{key: "30d", days: 30},
 	{key: "90d", days: 90},
+}
+
+// widestInsightsRange is the account-wide proxy for the (range-independent)
+// tables: the widest window we compute (max by days, order-independent).
+func widestInsightsRange() insightsRangeSpec {
+	widest := insightsRangeSpecs[0]
+	for _, s := range insightsRangeSpecs[1:] {
+		if s.days > widest.days {
+			widest = s
+		}
+	}
+	return widest
 }
 
 const (
@@ -64,10 +80,16 @@ type insightsTableParams struct {
 }
 
 type insightsRequestParams struct {
-	Query      string
-	Agents     insightsTableParams
-	People     insightsTableParams
-	SkipRanges bool
+	Query       string
+	Agents      insightsTableParams
+	People      insightsTableParams
+	SkipRanges  bool
+	HideSources map[string]bool // source keys (and "agents") excluded from the fold-in
+	// RestrictDevtoolToKey gates the per-developer dev-tool breakdown in the
+	// People view: empty = all developers (admins); otherwise only this identity
+	// key's own dev-tool spend is folded in (members see only themselves). Set
+	// from the caller's role, not a query param.
+	RestrictDevtoolToKey string
 }
 
 type insightsMemberProfile struct {
@@ -94,6 +116,8 @@ func GetAccountInsights(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
+	promClient *promquery.Client,
+	memberEmails *memberemails.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -114,7 +138,14 @@ func GetAccountInsights(
 			return
 		}
 
-		resp, err := ComputeInsightsWithParams(c.Request.Context(), log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, acct, time.Now().UTC(), parseInsightsRequestParams(c))
+		// Per-developer dev-tool spend in the People view is admin-only; members
+		// see only their own row. Aggregate spend stays visible to all members.
+		params := parseInsightsRequestParams(c)
+		if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:admin") {
+			params.RestrictDevtoolToKey = "member:" + user.ID
+		}
+
+		resp, err := ComputeInsightsWithParams(c.Request.Context(), log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, promClient, memberEmails, acct, time.Now().UTC(), params)
 		if err != nil {
 			log.Error("Failed to compute insights view model", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute insights"})
@@ -133,10 +164,12 @@ func ComputeInsights(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
+	promClient *promquery.Client,
+	memberEmails *memberemails.Store,
 	acct *account.Account,
 	now time.Time,
 ) (InsightsResponse, error) {
-	return ComputeInsightsWithParams(ctx, log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, acct, now, defaultInsightsRequestParams())
+	return ComputeInsightsWithParams(ctx, log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, promClient, memberEmails, acct, now, defaultInsightsRequestParams())
 }
 
 func ComputeInsightsWithParams(
@@ -148,6 +181,8 @@ func ComputeInsightsWithParams(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
+	promClient *promquery.Client,
+	memberEmails *memberemails.Store,
 	acct *account.Account,
 	now time.Time,
 	params insightsRequestParams,
@@ -160,8 +195,14 @@ func ComputeInsightsWithParams(
 	var deployments AccountDeploymentsSummaryResponse
 	var users AccountUsersSummaryResponse
 	var members map[string]insightsMemberProfile
+	var devtoolRanges map[string]DevtoolRange
 
 	g, gCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		// Best-effort: never fails the page. Nil prom client → no dev-tool data.
+		devtoolRanges = computeDevtoolForInsights(gCtx, log, promClient, memberEmails, acct.ID, params.SkipRanges)
+		return nil
+	})
 	g.Go(func() error {
 		resp, err := insightsAccountSummary(gCtx, log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, cache, acct)
 		if err != nil {
@@ -198,7 +239,7 @@ func ComputeInsightsWithParams(
 		return InsightsResponse{}, err
 	}
 
-	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, now, params)
+	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, devtoolRanges, now, params)
 	resp.MetricsUnavailable = summary.MetricsUnavailable || deployments.MetricsUnavailable || users.MetricsUnavailable
 	return resp, nil
 }
@@ -216,7 +257,23 @@ func parseInsightsRequestParams(c *gin.Context) insightsRequestParams {
 	params.Agents = parseInsightsTableParams(c, "agents", params.Agents)
 	params.People = parseInsightsTableParams(c, "people", params.People)
 	params.SkipRanges = strings.EqualFold(c.Query("skip_ranges"), "true")
+	params.HideSources = parseHideSources(c.Query("hide_sources"))
 	return params
+}
+
+// parseHideSources reads the comma-separated hide_sources param into a set of
+// lowercased source keys (and the "agents" pseudo-source).
+func parseHideSources(raw string) map[string]bool {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		if key := strings.ToLower(strings.TrimSpace(part)); key != "" {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 func parseInsightsTableParams(c *gin.Context, prefix string, defaults insightsTableParams) insightsTableParams {
@@ -403,7 +460,7 @@ func buildInsightsView(
 	members map[string]insightsMemberProfile,
 	now time.Time,
 ) InsightsResponse {
-	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, nil, now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
 }
 
 func buildInsightsViewWithParams(
@@ -412,12 +469,16 @@ func buildInsightsViewWithParams(
 	deployments AccountDeploymentsSummaryResponse,
 	users AccountUsersSummaryResponse,
 	members map[string]insightsMemberProfile,
+	devtoolRanges map[string]DevtoolRange,
 	now time.Time,
 	params insightsRequestParams,
 ) InsightsResponse {
 	depRows := deployments.Deployments
 	userRows := users.Users
 	identityByUser := insightsIdentityLookup(userRows)
+	hidden := params.HideSources
+	agentsHidden := hidden["agents"]
+	tableSources := devtoolRanges[widestInsightsRange().key].Sources
 
 	ranges := map[string]InsightsRange{}
 	if !params.SkipRanges {
@@ -427,7 +488,7 @@ func buildInsightsViewWithParams(
 			sliced := sliceInsightsDeployments(depRows, fromDate, toDate)
 			priorFrom, priorTo := priorWindow(fromDate, toDate)
 			prior := sumDeploymentWindow(depRows, priorFrom, priorTo)
-			ranges[spec.key] = InsightsRange{
+			r := InsightsRange{
 				Days:             spec.days,
 				Period:           period,
 				StatCards:        buildInsightsStatCards(sliced, prior),
@@ -435,19 +496,25 @@ func buildInsightsViewWithParams(
 				PeopleSpendChart: buildInsightsPeopleSpendChart(summary, period),
 				SeriesLabels:     buildInsightsSeriesLabels(sliced),
 			}
+			ranges[spec.key] = foldDevtoolRange(r, devtoolRanges[spec.key].Sources, hidden, agentsHidden)
 		}
 	}
 
-	// Tables intentionally use the full account aggregates, not the active
-	// chart range. The page's range selector scopes stat cards and charts;
-	// tables answer "who/what are the top spenders in the account data set?"
-	// and keep their own search/sort/page contract.
+	// Tables intentionally use the full account aggregates, not the active chart
+	// range. Dev-tool sources fold in before sort/paginate/percentage so they run
+	// through the one table pipeline; their contribution reflects the widest range.
+	agentRows, agentTotal := buildInsightsAgentRows(accountName, depRows, members, identityByUser)
+	agentRows, agentTotal = foldDevtoolAgentRows(agentRows, agentTotal, tableSources, hidden, agentsHidden)
+	peopleRows, peopleTotal := buildInsightsPeopleRows(accountName, userRows, depRows, members)
+	peopleRows, peopleTotal = foldDevtoolPeopleRows(peopleRows, peopleTotal, tableSources, hidden, agentsHidden, members, params.RestrictDevtoolToKey)
+
 	return InsightsResponse{
 		Ranges: ranges,
 		Tables: InsightsTables{
-			Agents: buildInsightsAgentsTable(accountName, depRows, members, identityByUser, params.Query, params.Agents),
-			People: buildInsightsPeopleTable(accountName, userRows, depRows, members, params.Query, params.People),
+			Agents: paginateInsightsAgentsTable(agentRows, agentTotal, params.Query, params.Agents),
+			People: paginateInsightsPeopleTable(peopleRows, peopleTotal, params.Query, params.People),
 		},
+		DevtoolSources: devtoolSourceRefs(tableSources),
 	}
 }
 
@@ -689,7 +756,7 @@ func buildInsightsSeriesLabels(rows []DeploymentSummaryEntry) map[string]string 
 	return labels
 }
 
-func buildInsightsAgentsTable(accountName string, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile, identityByUser map[string]UserIdentity, query string, params insightsTableParams) InsightsAgentsTable {
+func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile, identityByUser map[string]UserIdentity) ([]InsightsAgentRow, float64) {
 	totalCost := 0.0
 	for _, row := range deployments {
 		totalCost += row.CostUSD
@@ -745,10 +812,10 @@ func buildInsightsAgentsTable(accountName string, deployments []DeploymentSummar
 			NotInstrumented: dep.Requests == 0,
 		})
 	}
-	return paginateInsightsAgentsTable(rows, math.Round(totalCost*10000)/10000, query, params)
+	return rows, math.Round(totalCost*10000) / 10000
 }
 
-func buildInsightsPeopleTable(accountName string, users []UserSummaryEntry, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile, query string, params insightsTableParams) InsightsPeopleTable {
+func buildInsightsPeopleRows(accountName string, users []UserSummaryEntry, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile) ([]InsightsPersonRow, float64) {
 	depByID := make(map[string]DeploymentSummaryEntry, len(deployments))
 	for _, dep := range deployments {
 		depByID[dep.DeploymentID] = dep
@@ -782,16 +849,7 @@ func buildInsightsPeopleTable(accountName string, users []UserSummaryEntry, depl
 	if system != nil {
 		rows = append(rows, insightPersonRow(accountName, *system, totalCost, depByID, members))
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Identity.Kind == "system" && rows[j].Identity.Kind != "system" {
-			return false
-		}
-		if rows[j].Identity.Kind == "system" && rows[i].Identity.Kind != "system" {
-			return true
-		}
-		return rows[i].Metrics.CostUSD > rows[j].Metrics.CostUSD
-	})
-	return paginateInsightsPeopleTable(rows, math.Round(totalCost*10000)/10000, query, params)
+	return rows, math.Round(totalCost*10000) / 10000
 }
 
 func paginateInsightsAgentsTable(rows []InsightsAgentRow, totalCost float64, query string, params insightsTableParams) InsightsAgentsTable {
