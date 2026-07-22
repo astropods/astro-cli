@@ -14,6 +14,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { comparePersonalFirst } from "@/lib/account-order";
 
 export interface AgentDeploymentMenuTarget {
   id: string;
@@ -79,7 +80,9 @@ export function AgentDeploymentMenu({
         return true;
       }),
     }))
-    .filter((acct) => acct.deployments.length > 0);
+    .filter((acct) => acct.deployments.length > 0)
+    // Personal account first, then the rest alphabetically (shared with the org switcher).
+    .sort(comparePersonalFirst);
 
   const hasOtherAgents = accounts.some((acct) =>
     acct.deployments.some((dep) => dep.id !== deployment.id),

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { comparePersonalFirst } from "@/lib/account-order";
 import { useAuth } from "@/lib/auth";
 import {
   getOrgSwitchProgress,
@@ -67,10 +68,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
   }, [orgSwitching]);
 
   const sorted = useMemo(
-    () =>
-      [...accounts].sort((a, b) =>
-        a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name),
-      ),
+    () => [...accounts].sort(comparePersonalFirst),
     [accounts],
   );
 
