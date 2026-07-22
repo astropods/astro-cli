@@ -65,7 +65,7 @@ func TestGetAccountUsage_ReporterError(t *testing.T) {
 
 func TestGetAccountUsage_Success(t *testing.T) {
 	reporter := &fakeReporter{report: map[string]quota.ResourceUsage{
-		"agents":           {Used: 3, Limit: quota.Unlimited},
+		"blueprints":       {Used: 3, Limit: quota.Unlimited},
 		"knowledge_stores": {Used: 1, Limit: 5},
 	}}
 	router := setupUsageRouter(reporter)
@@ -83,16 +83,16 @@ func TestGetAccountUsage_Success(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// agents: usage 3 from quota, unlimited → no quota bar.
-	agents, ok := resp.Meters["agents"]
+	// blueprints: usage 3 from quota, unlimited → no quota bar.
+	blueprints, ok := resp.Meters["blueprints"]
 	if !ok {
-		t.Fatal("missing agents meter")
+		t.Fatal("missing blueprints meter")
 	}
-	if agents.Usage != 3 {
-		t.Errorf("agents usage: want 3, got %f", agents.Usage)
+	if blueprints.Usage != 3 {
+		t.Errorf("blueprints usage: want 3, got %f", blueprints.Usage)
 	}
-	if agents.Quota != nil {
-		t.Errorf("agents quota should be nil (unlimited), got %v", agents.Quota)
+	if blueprints.Quota != nil {
+		t.Errorf("blueprints quota should be nil (unlimited), got %v", blueprints.Quota)
 	}
 
 	ks, ok := resp.Meters["knowledge_stores"]

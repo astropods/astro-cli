@@ -42,10 +42,10 @@ type Config struct {
 	BillingGateEnforce      bool // BILLING_GATE_ENFORCE — false = observe/log, true = enforce 402s
 	BillingDunningGraceDays int  // BILLING_DUNNING_GRACE_DAYS — past_due→suspended window (default 7)
 	// QuotaDefaults holds the system-wide default per-account resource limits
-	// (agents, agent_builds, agent_deployments, members, knowledge_stores,
+	// (blueprints, agent_builds, agent_deployments, members, knowledge_stores,
 	// knowledge_endpoints). -1 = unlimited, 0 = disabled. Per-account overrides
 	// live in the account_limits table. Overridable via QUOTA_DEFAULTS
-	// ("agents=10,members=5,..."). See internal/quota.
+	// ("blueprints=10,members=5,..."). See internal/quota.
 	QuotaDefaults        map[string]int64
 	S3                   S3Config
 	GitHub               GitHubConfig
@@ -540,7 +540,7 @@ func loadSigningKey() []byte {
 // a per-account account_limits row overrides these.
 // Use -1 for unlimited, 0 to disable a feature.
 var quotaResourceDefaults = map[string]int64{
-	"agents":              5,
+	"blueprints":          5,
 	"agent_builds":        50,
 	"agent_deployments":   10,
 	"members":             5,

@@ -20,10 +20,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 )
 
-// Resource identifiers. These match the feature keys used by the former
-// entitlement path so response bodies are unchanged.
+// Resource identifiers used as quota keys and in 402 response bodies. The
+// blueprint-count key is "blueprints"; the agents table it counts is unchanged.
 const (
-	ResourceAgents             = "agents"
+	ResourceBlueprints         = "blueprints"
 	ResourceAgentBuilds        = "agent_builds"
 	ResourceAgentDeployments   = "agent_deployments"
 	ResourceMembers            = "members"
@@ -37,7 +37,7 @@ const Unlimited int64 = -1
 
 // AllResources is the full set of quota-managed resources, in display order.
 var AllResources = []string{
-	ResourceAgents,
+	ResourceBlueprints,
 	ResourceAgentBuilds,
 	ResourceAgentDeployments,
 	ResourceMembers,
@@ -74,7 +74,7 @@ type Reporter interface {
 // numbers match what the entitlement path saw. agent_builds is a per-period rate
 // limit and counts version publishes in the current calendar month (UTC).
 var countQueries = map[string]string{
-	ResourceAgents:           `SELECT COUNT(*) FROM agents WHERE account_id = $1 AND archived_at IS NULL`,
+	ResourceBlueprints:       `SELECT COUNT(*) FROM agents WHERE account_id = $1 AND archived_at IS NULL`,
 	ResourceAgentBuilds:      `SELECT COUNT(*) FROM agent_versions WHERE account_id = $1 AND published_at >= date_trunc('month', now())`,
 	ResourceAgentDeployments: `SELECT COUNT(*) FROM deployments WHERE account_id = $1 AND status IN ('pending', 'active')`,
 	ResourceMembers:          `SELECT COUNT(*) FROM account_members WHERE account_id = $1`,
@@ -215,10 +215,61 @@ func (c *DBChecker) Wrap(handler gin.HandlerFunc, resources ...string) gin.Handl
 	}
 }
 
-// resourceInfo mirrors the human-readable descriptions the entitlement path used
-// so 402 bodies are byte-identical.
+// WrapRegister guards the agent register (push) route by the account's :name
+// path param. Every push consumes a build, so ResourceAgentBuilds is always
+// checked. ResourceBlueprints (the blueprint-count limit) is checked only when the
+// push would create a new non-archived blueprint, so re-pushing an existing
+// blueprint is never blocked by the blueprint-count limit even at capacity.
+func (c *DBChecker) WrapRegister(handler gin.HandlerFunc) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(ctx)
+		if !ok {
+			handler(ctx)
+			return
+		}
+		resources := []string{ResourceAgentBuilds}
+		exists, err := c.blueprintExists(ctx.Request.Context(), acct.ID, ctx.Param("name"))
+		if err != nil {
+			// Fail open on the blueprint-count gate; the build gate still applies.
+			c.log.Warn("Blueprint existence check failed", "error", err, "account_id", acct.ID)
+			exists = true
+		}
+		if !exists {
+			resources = []string{ResourceBlueprints, ResourceAgentBuilds}
+		}
+		res, err := c.Check(ctx.Request.Context(), acct.ID, resources...)
+		if err != nil {
+			c.log.Warn("Quota check failed", "error", err, "account_id", acct.ID)
+			handler(ctx)
+			return
+		}
+		if res.Blocked {
+			ctx.JSON(http.StatusPaymentRequired, LimitResponse(res))
+			return
+		}
+		handler(ctx)
+	}
+}
+
+// blueprintExists reports whether a non-archived blueprint with the given name
+// already exists for the account. The register upsert un-archives on conflict,
+// so a name that is absent or archived would add to the non-archived count.
+func (c *DBChecker) blueprintExists(ctx context.Context, accountID, name string) (bool, error) {
+	var exists bool
+	err := c.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM agents WHERE account_id = $1 AND name = $2 AND archived_at IS NULL)`,
+		accountID, name,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check blueprint exists: %w", err)
+	}
+	return exists, nil
+}
+
+// resourceInfo holds the human-readable name and descriptions for each resource,
+// used to build 402 bodies.
 var resourceInfo = map[string]struct{ name, quotaDesc, planDesc string }{
-	ResourceAgents:             {"Agents", "Your account has reached the maximum number of registered agents.", "Agents are not included in your current plan."},
+	ResourceBlueprints:         {"Blueprints", "Your account has reached the maximum number of registered blueprints; archive unused blueprints to free capacity.", "Blueprints are not included in your current plan."},
 	ResourceAgentBuilds:        {"Agent Builds", "Your account has reached the maximum number of agent builds for this billing period.", "Agent builds are not included in your current plan."},
 	ResourceAgentDeployments:   {"Deployments", "Your account has reached the maximum number of active deployments.", "Deployments are not included in your current plan."},
 	ResourceMembers:            {"Members", "Your account has reached the maximum number of team members.", "Additional members are not included in your current plan."},
@@ -255,6 +306,6 @@ func LimitResponse(res Result) gin.H {
 		"feature": res.Resource,
 		"usage":   float64(res.Used),
 		"limit":   float64(res.Limit),
-		"details": fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.quotaDesc),
+		"details": fmt.Sprintf("%s limit reached (%d of %d used): %s To continue, request a quota increase from Settings > Usage.", info.name, res.Used, res.Limit, info.quotaDesc),
 	}
 }

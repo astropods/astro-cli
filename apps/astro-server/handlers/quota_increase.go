@@ -13,7 +13,7 @@ var validFeatureKeys = map[string]bool{
 	"compute":           true,
 	"agent_builds":      true,
 	"agent_deployments": true,
-	"agents":            true,
+	"blueprints":        true,
 	"members":           true,
 }
 

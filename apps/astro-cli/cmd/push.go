@@ -394,23 +394,30 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	}
 
 	if resp.StatusCode != http.StatusCreated {
-		// Read the full response body for detailed error logging
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			return fmt.Errorf("server returned status %d (failed to read response body: %w)", resp.StatusCode, readErr)
 		}
-
-		// Log the raw error response
-		log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body)) //nolint:gosec
-
-		// Try to parse as JSON for structured error
-		var errorResp map[string]interface{}
-		if err := json.Unmarshal(body, &errorResp); err == nil {
-			return fmt.Errorf("server returned error (status %d): %v", resp.StatusCode, errorResp)
+		if verbose {
+			log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body)) //nolint:gosec
 		}
 
-		// If not JSON, return the raw body
-		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		// Prefer the server's human-readable message (quota/entitlement limits,
+		// validation) over the raw body or a Go-map dump. Unmarshalling also
+		// decodes escapes like > back to '>'.
+		var apiErr struct {
+			Error   string `json:"error"`
+			Details string `json:"details"`
+		}
+		if json.Unmarshal(body, &apiErr) == nil {
+			if apiErr.Details != "" {
+				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
+			}
+			if apiErr.Error != "" {
+				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Error)
+			}
+		}
+		return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var result map[string]interface{}

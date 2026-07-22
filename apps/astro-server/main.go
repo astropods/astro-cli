@@ -1433,7 +1433,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			createBlueprintRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(createBlueprintRoutes, "", "Create a blueprint",
-					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db), "agents"),
+					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db), quota.ResourceBlueprints),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1469,7 +1469,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					quotaChecker.Wrap(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != ""), "agents", "agent_builds"),
+					quotaChecker.WrapRegister(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != "")),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

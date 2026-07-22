@@ -114,7 +114,7 @@ func TestRequestQuotaIncrease_DBError(t *testing.T) {
 
 	router := setupQuotaIncreaseRouter(db)
 	rec := postQuotaIncrease(router, map[string]any{
-		"feature_key": "agents",
+		"feature_key": "blueprints",
 		"reason":      "scaling up",
 	})
 

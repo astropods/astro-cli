@@ -203,7 +203,7 @@ function NewBlueprintContent() {
   // Only load usage once we hit the agents quota, to populate the request dialog.
   const isQuotaError = !!publishError?.usageUrl;
   const { data: usageData } = useAccountUsage(selectedOrg, isQuotaError);
-  const agentsMeter = usageData?.meters?.agents ?? { usage: 0, quota: undefined };
+  const blueprintsMeter = usageData?.meters?.blueprints ?? { usage: 0, quota: undefined };
 
   // Proactively check whether the selected org is already connected to GitHub.
   // If so, the source step can skip the "Connect GitHub" intermediate click and
@@ -365,7 +365,7 @@ function NewBlueprintContent() {
       const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       // Entitlement quota limits surface as HTTP 402; the entitlement middleware
       // sets error="Limit reached" (vs "Feature not available" for plan gaps).
-      // Offer a scoped usage link + quota-increase dialog for the agents limit.
+      // Offer a scoped usage link + quota-increase dialog for the blueprint limit.
       const isQuotaLimit = err instanceof ApiRequestError && err.status === 402
         && err.code === "Limit reached";
       const usageUrl = isQuotaLimit ? accountSettingsPath(accounts, selectedOrg, "billing") : undefined;
@@ -596,9 +596,9 @@ function NewBlueprintContent() {
 
                       {publishError?.usageUrl && (
                         <RequestIncreaseDialog
-                          featureKey="agents"
-                          label="Agents"
-                          meter={agentsMeter}
+                          featureKey="blueprints"
+                          label="Blueprints"
+                          meter={blueprintsMeter}
                           account={selectedOrg}
                           open={quotaDialogOpen}
                           onOpenChange={setQuotaDialogOpen}

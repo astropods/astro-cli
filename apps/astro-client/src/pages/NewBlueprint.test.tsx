@@ -226,18 +226,18 @@ describe('NewBlueprint – org scoping', () => {
   });
 });
 
-describe('NewBlueprint – agents-limit quota link', () => {
+describe('NewBlueprint – blueprint-limit quota link', () => {
   const LIMIT_BODY = {
     error: 'Limit reached',
     code: 'ENTITLEMENT_LIMIT_REACHED',
-    feature: 'agents',
+    feature: 'blueprints',
     usage: 5,
     limit: 5,
     details:
-      'Agents limit reached: Your account has reached the maximum number of registered agents. To continue, request a quota increase from Settings > Usage.',
+      'Blueprints limit reached (5 of 5 used): Your account has reached the maximum number of registered blueprints; archive unused blueprints to free capacity. To continue, request a quota increase from Settings > Usage.',
   };
 
-  it('links the agents-limit error to the org-scoped Settings → Usage page', async () => {
+  it('links the blueprint-limit error to the org-scoped Settings → Usage page', async () => {
     const auth: AuthContextType = {
       ...mockAuthContext,
       organizationId: 'org-id-2',
@@ -287,7 +287,7 @@ describe('NewBlueprint – agents-limit quota link', () => {
     expect(link).toHaveAttribute('href', '/settings/billing');
   });
 
-  it('opens the request-quota-increase dialog from the agents-limit message', async () => {
+  it('opens the request-quota-increase dialog from the blueprint-limit message', async () => {
     server.use(
       http.post('/api/v1/agents/:account', () => HttpResponse.json(LIMIT_BODY, { status: 402 })),
     );

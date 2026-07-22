@@ -28,7 +28,7 @@ export const meterMeta: Record<string, { label: string; unit?: string; decimals?
   compute:             { label: "Compute",              unit: "CU-hours", decimals: 2 },
   agent_builds:        { label: "Agent Builds",         unit: "builds" },
   agent_deployments:   { label: "Deployments" },
-  agents:              { label: "Agents" },
+  blueprints:          { label: "Blueprints" },
   members:             { label: "Members" },
   knowledge_stores:    { label: "Knowledge Stores" },
   knowledge_storage:   { label: "Knowledge Storage",    unit: "GB",       decimals: 2 },
