@@ -32,11 +32,9 @@ const (
 	chatUILogFile = ".chatui.log"
 )
 
-// chatUIServeCmd is a hidden, long-lived worker that serves the embedded chat
-// UI and proxies the deployment-scoped chat/messaging API to the local
-// messaging sidecar. `project start` spawns it detached so the chat UI survives
-// in background mode; foreground/--local stop it on exit. It is not meant to be
-// invoked directly by users.
+// chatUIServeCmd is a hidden worker that serves the embedded chat UI and proxies
+// the chat/messaging API to the local sidecar. Spawned detached by the dev
+// commands; not meant to be invoked directly.
 var chatUIServeCmd = &cobra.Command{
 	Use:    "chatui-serve",
 	Short:  "Internal: serve the local chat UI",
@@ -51,6 +49,7 @@ func init() {
 	chatUIServeCmd.Flags().String("messaging-url", "", "Base URL of the local messaging sidecar HTTP API")
 	chatUIServeCmd.Flags().String("agent-name", "", "Agent name for the synthesized local deployment")
 	chatUIServeCmd.Flags().String("agent-display", "", "Agent display name for the synthesized local deployment")
+	chatUIServeCmd.Flags().Bool("exit-with-parent", false, "Exit when the launching CLI dies (set for foreground/--local; off in background mode)")
 }
 
 func runChatUIServe(cmd *cobra.Command, _ []string) error {
@@ -66,25 +65,50 @@ func runChatUIServe(cmd *cobra.Command, _ []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Foreground/--local pass --exit-with-parent so the worker dies with the CLI
+	// even on force-quit; background mode omits it so the worker outlives the CLI.
+	if flagBool(cmd, "exit-with-parent") {
+		ctx = cancelOnParentExit(ctx)
+	}
 	return srv.ListenAndServe(ctx)
 }
 
-// startChatUI spawns the detached chat-UI worker for the current dev session and
-// records its PID under astDir. It is a no-op when the agent has no web chat
-// interface. Failures are surfaced as warnings, not fatal — the rest of the dev
-// environment still works without the chat UI.
-func startChatUI(astDir, agentName string, hasWebInterface bool) {
+// cancelOnParentExit cancels the returned context when the launching CLI dies.
+// The worker is a session leader (Setsid) and never sees the terminal's Ctrl+C,
+// so we watch for reparenting (ppid change) to follow the CLI's lifetime.
+func cancelOnParentExit(parent context.Context) context.Context {
+	ctx, cancel := context.WithCancel(parent)
+	startPPID := os.Getppid()
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if os.Getppid() != startPPID {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx
+}
+
+// startChatUI spawns the detached chat-UI worker and records its PID under
+// astDir. No-op without a web interface; failures warn rather than abort.
+func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool) {
 	if !hasWebInterface {
 		return
 	}
 
-	// Replace any worker orphaned by a previous session (e.g. a force-quit that
-	// left the detached worker holding :3100). Otherwise it would keep serving
-	// the old agent's chat and our new worker would fail to bind unnoticed. If we
-	// did displace one, wait for it to release the port before we rebind.
-	if stopChatUI(astDir) {
-		waitForPortFree(chatUIAddr, 3*time.Second)
-	}
+	// Reclaim the fixed, shared chat-UI port before spawning: stop this project's
+	// recorded worker, then reclaim the port from any other chatui-serve holding
+	// it (a force-quit leak or another agent's worker the pid file can't track).
+	stopChatUI(astDir)
+	reclaimChatUIPort(chatUIAddr)
 
 	self, err := os.Executable()
 	if err != nil {
@@ -101,12 +125,17 @@ func startChatUI(astDir, agentName string, hasWebInterface bool) {
 	defer func() { _ = logFile.Close() }()
 
 	messagingURL := "http://127.0.0.1:" + composeBuilder.MessagingWebHostPort
-	proc := exec.Command(self, "chatui-serve", //nolint:gosec // self path + fixed args
+	args := []string{
+		"chatui-serve",
 		"--addr", chatUIAddr,
 		"--messaging-url", messagingURL,
 		"--agent-name", agentName,
 		"--agent-display", agentName,
-	)
+	}
+	if exitWithParent {
+		args = append(args, "--exit-with-parent")
+	}
+	proc := exec.Command(self, args...) //nolint:gosec // self path + fixed args
 	proc.Stdout = logFile
 	proc.Stderr = logFile
 	// New session so the worker survives `project start -b` (background mode)
@@ -117,24 +146,26 @@ func startChatUI(astDir, agentName string, hasWebInterface bool) {
 		return
 	}
 
+	// Capture the pid before Release(), which invalidates proc.Process.Pid (-1);
+	// the readiness probe below needs the real pid to recognise its own worker.
+	workerPID := proc.Process.Pid
 	pidPath := filepath.Join(astDir, chatUIPidFile)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(proc.Process.Pid)), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(workerPID)), 0644); err != nil { //nolint:gosec
 		fmt.Printf("%s!%s %sFailed to record chat UI pid: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
 	}
 	// Detach: we manage lifecycle via the pid file, not via Wait.
 	_ = proc.Process.Release()
 
-	// Confirm the worker actually came up on :3100 — and that the responder is
-	// *this* worker (pid match), not an orphan we failed to displace — rather
-	// than silently advertising a dead or stale chat URL in the ready block.
-	switch waitForChatUIWorker(chatUIAddr, proc.Process.Pid, 3*time.Second) {
+	// Confirm our worker (by pid) is serving :3100 before advertising the chat
+	// URL, so we don't point users at a dead or stale worker.
+	switch waitForChatUIWorker(chatUIAddr, workerPID, 3*time.Second) {
 	case chatUIReady:
-		// up and healthy — nothing to say
+		// up and healthy, nothing to say
 	case chatUIPortBusy:
 		fmt.Printf("%s!%s %sChat UI port %s is held by another process; %s may show a stale agent%s\n",
 			colorYellow, colorReset, colorDim, chatUIAddr, chatUIURL, colorReset)
 	default: // chatUIUnreachable
-		fmt.Printf("%s!%s %sChat UI failed to start on %s — see %s%s\n",
+		fmt.Printf("%s!%s %sChat UI failed to start on %s, see %s%s\n",
 			colorYellow, colorReset, colorDim, chatUIURL, logPath, colorReset)
 		if tail := tailFile(logPath, 5); tail != "" {
 			fmt.Printf("%s%s%s\n", colorDim, tail, colorReset)
@@ -142,12 +173,9 @@ func startChatUI(astDir, agentName string, hasWebInterface bool) {
 	}
 }
 
-// stopChatUI terminates the chat-UI worker recorded under astDir, if any, and
-// reports whether it actually signaled one. It verifies the recorded pid still
-// belongs to a live chatui-serve process before signaling, so a stale pid file
-// (worker already gone, pid possibly recycled by the OS) can't take down an
-// unrelated process. The worker is its own session leader (Setsid in
-// startChatUI), so we signal the whole process group.
+// stopChatUI terminates the chat-UI worker recorded under astDir and reports
+// whether it signaled one. It confirms the pid is still a live chatui-serve
+// process first, so a stale/recycled pid can't kill an unrelated process.
 func stopChatUI(astDir string) bool {
 	pidPath := filepath.Join(astDir, chatUIPidFile)
 	data, err := os.ReadFile(pidPath) //nolint:gosec // path is under the project's .ast dir
@@ -160,18 +188,16 @@ func stopChatUI(astDir string) bool {
 		return false
 	}
 	if !isChatUIProcess(pid) {
-		return false // stale/recycled pid — not our worker; don't signal it
+		return false // stale/recycled pid, not our worker
 	}
 	// Negative pid → the whole process group (the worker is a session leader).
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 	return true
 }
 
-// isChatUIProcess reports whether pid is a live chatui-serve worker we started.
-// Liveness (signal 0) rules out a dead pid; the command-line check rules out an
-// unrelated process that reused a recycled pid. When the command line can't be
-// read we conservatively return false — leaking a dev worker is cheaper than
-// signaling a stranger.
+// isChatUIProcess reports whether pid is a live chatui-serve worker: signal 0
+// checks liveness, the command-line check rules out a recycled pid. Returns
+// false when the command line can't be read (leaking beats killing a stranger).
 func isChatUIProcess(pid int) bool {
 	if err := syscall.Kill(pid, 0); err != nil {
 		return false
@@ -183,9 +209,64 @@ func isChatUIProcess(pid int) bool {
 	return strings.Contains(cmdline, "chatui-serve")
 }
 
-// processCommandLine returns pid's command line for identity checks. Linux reads
-// /proc; macOS shells out to ps. Those are the only dev-supported OSes
-// (checkDockerRunning rejects Windows).
+// reclaimChatUIPort frees addr from any chatui-serve worker bound to it,
+// whichever session started it (the port is shared and the per-project pid file
+// can't track leaks). Only a chatui-serve listener is terminated (escalating to
+// SIGKILL); a non-chatui listener is left alone.
+func reclaimChatUIPort(addr string) {
+	pid, ok := chatUIListenerPID(addr)
+	if !ok || !isChatUIProcess(pid) {
+		return
+	}
+	// Negative pid → the whole process group (the worker is a session leader).
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	if portFreeWithin(addr, 2*time.Second) {
+		return
+	}
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	portFreeWithin(addr, 2*time.Second)
+}
+
+// chatUIListenerPID returns the pid listening on addr via lsof (present on the
+// dev-supported macOS/Linux); reports no listener when lsof fails or none binds.
+func chatUIListenerPID(addr string) (int, bool) {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, false
+	}
+	out, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output() //nolint:gosec // port is our fixed chat-UI port
+	if err != nil {
+		return 0, false
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, false
+	}
+	return pid, true
+}
+
+// portFreeWithin reports whether addr has no listener within timeout.
+func portFreeWithin(addr string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err != nil {
+			return true
+		}
+		_ = conn.Close()
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// processCommandLine returns pid's command line for identity checks: /proc on
+// Linux, ps on macOS (the only dev-supported OSes).
 func processCommandLine(pid int) (string, error) {
 	if runtime.GOOS == "linux" {
 		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)) //nolint:gosec // pid is our own recorded worker pid
@@ -253,21 +334,6 @@ func chatUIHealthPID(client *http.Client, url string) (pid int, ok bool) {
 		return 0, false
 	}
 	return body.PID, true
-}
-
-// waitForPortFree polls addr until nothing accepts a TCP connection there or the
-// timeout elapses. Used after displacing an orphaned worker so the port is free
-// before the replacement binds.
-func waitForPortFree(addr string, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
-		if err != nil {
-			return
-		}
-		_ = conn.Close()
-		time.Sleep(100 * time.Millisecond)
-	}
 }
 
 // tailFile returns the last n non-empty lines of the file at path (best-effort).

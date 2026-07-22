@@ -379,7 +379,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Serve astro-client's chat UI from the CLI (queen-style), proxying to the
 	// local messaging sidecar. Runs as a detached worker so it survives
 	// background mode; foreground/--local stop it on teardown.
-	startChatUI(astDir, astroSpec.Name, hasWebInterface)
+	// In foreground/--local the worker should die with the CLI (even on a
+	// force-quit); in background mode it must outlive the exiting CLI.
+	startChatUI(astDir, astroSpec.Name, hasWebInterface, !background)
 
 	// --local: run agent as local process and block
 	if local {
