@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Client talks to Bifrost. Two endpoints are involved:
@@ -223,9 +225,21 @@ func (c *Client) findCustomerByName(ctx context.Context, name string) (string, e
 
 // vkName builds a human-readable, attribution-bearing name. The account-id is
 // always present; a deployment/dev discriminator is appended when available.
+//
+// Dev keys get a per-mint-unique name: they rotate (the local reuse window is
+// shorter than the upstream TTL), so a re-mint runs while the predecessor VK is
+// still alive upstream — a fixed name would collide, since Bifrost enforces
+// unique VK names. The actor id keeps names distinct across users on one
+// account; the short nonce keeps successive mints for a single user distinct.
+// Orphaned keys are reaped by their upstream TTL and the best-effort
+// delete-of-predecessor in EnsureDevKey.
 func vkName(req KeyRequest) string {
 	if kind, _ := req.Metadata["kind"].(string); kind == "dev" {
-		return "dev/" + req.AccountID
+		name := "dev/" + req.AccountID
+		if actor, _ := req.Metadata["actor_user_id"].(string); actor != "" {
+			name += "/" + actor
+		}
+		return name + "/" + uuid.NewString()[:8]
 	}
 	if tags, ok := req.Metadata["tags"].([]string); ok {
 		for _, t := range tags {

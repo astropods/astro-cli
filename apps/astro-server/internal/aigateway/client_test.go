@@ -78,6 +78,43 @@ func TestGenerateKey_ScopesBedrockAndCarriesAccountID(t *testing.T) {
 	}
 }
 
+func TestVKName_DevKeysAreUniquePerMint(t *testing.T) {
+	// Dev keys rotate while the predecessor is still alive upstream, and two
+	// users share an account, so the VK name must be unique per mint (Bifrost
+	// enforces unique names). Assert the actor rides in the name and that two
+	// mints — same account, same actor — never collide.
+	mk := func(actor string) string {
+		return vkName(KeyRequest{
+			AccountID: "acct-42",
+			Metadata:  map[string]any{"kind": "dev", "actor_user_id": actor},
+		})
+	}
+	a1, a2 := mk("user-1"), mk("user-1")
+	if a1 == a2 {
+		t.Errorf("successive dev mints for one actor must not collide: %q == %q", a1, a2)
+	}
+	for _, n := range []string{a1, a2} {
+		if !strings.HasPrefix(n, "dev/acct-42/user-1/") {
+			t.Errorf("dev name must carry account + actor, got %q", n)
+		}
+	}
+	if b := mk("user-2"); strings.HasPrefix(b, "dev/acct-42/user-1/") {
+		t.Errorf("distinct actors must get distinct names, got %q", b)
+	}
+}
+
+func TestVKName_DeploymentKeysUnchanged(t *testing.T) {
+	// Deployment keys are unique per deployment and never re-mint, so their
+	// name stays stable (no nonce).
+	got := vkName(KeyRequest{
+		AccountID: "acct-42",
+		Metadata:  map[string]any{"tags": []string{"deployment:dep-7", "agent:foo"}},
+	})
+	if got != "acct-42/deployment:dep-7" {
+		t.Errorf("deployment VK name should be stable, got %q", got)
+	}
+}
+
 func TestCreateCustomer_CreatesWithBudgetAndReturnsID(t *testing.T) {
 	var captured bifrostCustomerRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
