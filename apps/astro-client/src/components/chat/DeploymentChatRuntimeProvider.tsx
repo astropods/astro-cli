@@ -7,6 +7,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { useDeploymentChat } from "@/hooks/use-deployment-chat";
+import { useDeploymentAgentConfig } from "@/api/queries/chat";
 import { chatMessagesToThreadMessages } from "@/lib/messaging/chat-message-adapter";
 import { dictationAdapter } from "@/lib/chat/dictation";
 import { useApiClient } from "@/lib/api-context";
@@ -72,6 +73,15 @@ export function DeploymentChatRuntimeProvider({
     [api, deploymentId],
   );
 
+  // Gate the composer's upload affordance on the agent actually supporting files:
+  // the sidecar reports capabilities.files only when it has storage AND the agent
+  // declared it consumes attachments. Absent capabilities (older sidecar / agent
+  // that didn't opt in) reads as false, so the button stays hidden rather than
+  // offering an upload the agent would silently ignore. The query is cached and
+  // shared with the inspector's fetch, so this adds no extra request.
+  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId);
+  const filesEnabled = agentConfig?.capabilities?.files === true;
+
   const onNew = useCallback(
     async (message: AppendMessage) => {
       // Join any text parts and collect uploaded-file references the composer's
@@ -104,7 +114,7 @@ export function DeploymentChatRuntimeProvider({
     convertMessage,
     adapters: {
       ...(dictationAdapter ? { dictation: dictationAdapter } : {}),
-      attachments: attachmentAdapter,
+      ...(filesEnabled ? { attachments: attachmentAdapter } : {}),
     },
   });
 
@@ -117,6 +127,7 @@ export function DeploymentChatRuntimeProvider({
       streamError,
       hasMoreHistory,
       loadOlderMessages,
+      filesEnabled,
     }),
     [
       activeConversationId,
@@ -126,6 +137,7 @@ export function DeploymentChatRuntimeProvider({
       streamError,
       streamingMessageId,
       threadIsRunning,
+      filesEnabled,
     ],
   );
 

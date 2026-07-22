@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   AlertCircle,
@@ -108,6 +108,17 @@ export function ChatInspectorPanel({
   const agentName = deployment?.display_name?.trim() || deployment?.name?.trim() || "Agent";
   const { data: statusData } = useDeploymentStatus(deploymentId);
 
+  // Hide the Files tab entirely unless the agent supports files (the sidecar has
+  // storage and the agent declared it). Cached + shared with the composer/settings
+  // fetch, so no extra request. If Files is the active tab when it disappears,
+  // fall back to Overview.
+  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId);
+  const filesEnabled = agentConfig?.capabilities?.files === true;
+  const visibleTabs = filesEnabled ? TABS : TABS.filter((t) => t.id !== "files");
+  useEffect(() => {
+    if (tab === "files" && !filesEnabled) onTabChange("overview");
+  }, [tab, filesEnabled, onTabChange]);
+
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="shrink-0 border-b border-border">
@@ -135,20 +146,20 @@ export function ChatInspectorPanel({
             <X className="size-4" />
           </Button>
         </div>
-        <InspectorTabs tab={tab} onTabChange={onTabChange} />
+        <InspectorTabs tabs={visibleTabs} tab={tab} onTabChange={onTabChange} />
       </div>
 
       <div className="chat-thread-scroll min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-7 px-5 py-5">
-          {tab === "overview" ? (
+          {tab === "files" && filesEnabled ? (
+            <DeploymentFilesPanel deploymentId={deploymentId} />
+          ) : tab === "settings" ? (
+            <SettingsTab key={deploymentId} deploymentId={deploymentId} />
+          ) : (
             <OverviewTab
               deploymentId={deploymentId}
               account={account}
             />
-          ) : tab === "files" ? (
-            <DeploymentFilesPanel deploymentId={deploymentId} />
-          ) : (
-            <SettingsTab key={deploymentId} deploymentId={deploymentId} />
           )}
         </div>
       </div>
@@ -166,15 +177,17 @@ export function ChatInspectorPanel({
 }
 
 function InspectorTabs({
+  tabs,
   tab,
   onTabChange,
 }: {
+  tabs: { id: ChatInspectorTab; label: string }[];
   tab: ChatInspectorTab;
   onTabChange: (tab: ChatInspectorTab) => void;
 }) {
   return (
     <nav className="mt-4 flex h-10 items-stretch gap-4 px-5" aria-label="Inspector tabs">
-      {TABS.map((t) => {
+      {tabs.map((t) => {
         const active = t.id === tab;
         return (
           <button

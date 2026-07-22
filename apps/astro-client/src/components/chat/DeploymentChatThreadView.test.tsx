@@ -117,6 +117,7 @@ function DraftHarness({ initialConversationId = "conv-a" as string | null }) {
     streamError: null,
     hasMoreHistory: false,
     loadOlderMessages: async () => {},
+    filesEnabled: false,
   };
   return (
     <AssistantRuntimeProvider runtime={runtime}>

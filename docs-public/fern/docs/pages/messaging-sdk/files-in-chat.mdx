@@ -30,7 +30,9 @@ sequenceDiagram
 
 ## Enable file-enabled chat
 
-Declare a messaging-capable agent. The deployed web chat and `ast dev` provision and mount the file store automatically; there is no separate files setting.
+File-enabled chat needs two things: a messaging deployment with the web adapter (which provisions and mounts the file store automatically), and an agent that declares it consumes files.
+
+First, declare a messaging agent. The file store is mounted automatically; there is no separate storage setting.
 
 ```yaml
 agent:
@@ -45,6 +47,32 @@ dev:
     messaging:
       adapters: [web]
 ```
+
+Then set `supportsFiles` in the config your agent sends at startup. The chat's upload controls (the paperclip, drag-and-drop, paste, and the Files tab) appear only for agents that set this flag, so an agent that ignores uploads never shows controls that do nothing. The flag defaults to off; having the file store mounted is not enough on its own. It gates only the upload affordances; agent-produced download chips render regardless.
+
+<Tabs>
+  <Tab title="Node.js">
+
+```typescript
+getConfig() {
+  return { systemPrompt: "Analyze user-provided documents.", tools: [], supportsFiles: true };
+}
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python
+def get_config(self) -> dict:
+    return {
+        "system_prompt": "Analyze user-provided documents.",
+        "tools": [],
+        "supports_files": True,
+    }
+```
+
+  </Tab>
+</Tabs>
 
 In local development, open the chat URL printed by `ast dev` (normally `http://localhost:3100`). Users can attach a file with the paperclip, drag and drop, or paste. The chat uploads the bytes when the message is sent and passes the resulting key with that message.
 
@@ -98,7 +126,7 @@ const adapter: AgentAdapter = {
   },
 
   getConfig() {
-    return { systemPrompt: "Analyze user-provided documents.", tools: [] };
+    return { systemPrompt: "Analyze user-provided documents.", tools: [], supportsFiles: true };
   },
 };
 ```
@@ -141,6 +169,7 @@ class DocumentAnalyst:
         return {
             "system_prompt": "Analyze user-provided documents.",
             "tools": [],
+            "supports_files": True,
         }
 ```
 

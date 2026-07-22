@@ -370,6 +370,10 @@ const DeploymentComposer: FC<{
   const dictation = useComposer((c) => c.dictation);
   const listening = isDictationActive(dictation);
   const shellRef = useRef<HTMLDivElement>(null);
+  // Only offer file attachments (paperclip + drag-drop) when the agent supports
+  // them; otherwise uploads would be silently ignored. Mirrors the adapter gate
+  // in DeploymentChatRuntimeProvider so the UI and the runtime stay in lockstep.
+  const { filesEnabled } = useDeploymentChatViewport();
 
   // Auto-focus on launch and when the agent becomes ready (#1355); skipped while
   // disabled or dictating. Esc/Enter are handled by the assistant-ui composer.
@@ -398,41 +402,41 @@ const DeploymentComposer: FC<{
     e.dataTransfer.types.includes("Files");
   const onDragEnter = useCallback(
     (e: DragEvent) => {
-      if (disabled || !draggingFiles(e)) return;
+      if (disabled || !filesEnabled || !draggingFiles(e)) return;
       e.preventDefault();
       dragDepth.current += 1;
       setIsDraggingFiles(true);
     },
-    [disabled],
+    [disabled, filesEnabled],
   );
   const onDragOver = useCallback(
     (e: DragEvent) => {
-      if (disabled || !draggingFiles(e)) return;
+      if (disabled || !filesEnabled || !draggingFiles(e)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     },
-    [disabled],
+    [disabled, filesEnabled],
   );
   const onDragLeave = useCallback(
     (e: DragEvent) => {
-      if (disabled || !draggingFiles(e)) return;
+      if (disabled || !filesEnabled || !draggingFiles(e)) return;
       dragDepth.current -= 1;
       if (dragDepth.current <= 0) {
         dragDepth.current = 0;
         setIsDraggingFiles(false);
       }
     },
-    [disabled],
+    [disabled, filesEnabled],
   );
   const onDrop = useCallback(
     (e: DragEvent) => {
-      if (disabled || !draggingFiles(e)) return;
+      if (disabled || !filesEnabled || !draggingFiles(e)) return;
       e.preventDefault();
       dragDepth.current = 0;
       setIsDraggingFiles(false);
       addFiles(e.dataTransfer.files);
     },
-    [disabled, addFiles],
+    [disabled, filesEnabled, addFiles],
   );
 
   // Text typed before dictation started, captured at the moment we start so
@@ -509,6 +513,7 @@ const DeploymentComposer: FC<{
               />
               <ComposerAction
                 disabled={disabled}
+                filesEnabled={filesEnabled}
                 onStartDictation={startDictation}
               />
             </div>
@@ -617,12 +622,13 @@ const ComposerAttachButton: FC<{ disabled?: boolean }> = ({ disabled }) => (
 
 const ComposerAction: FC<{
   disabled?: boolean;
+  filesEnabled?: boolean;
   onStartDictation: () => void;
-}> = ({ disabled, onStartDictation }) => {
+}> = ({ disabled, filesEnabled, onStartDictation }) => {
   const dictationSupported = useDictationSupported();
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-end gap-2">
-      <ComposerAttachButton disabled={disabled} />
+      {filesEnabled ? <ComposerAttachButton disabled={disabled} /> : null}
       {dictationSupported ? (
         <DictationButton disabled={disabled} onStart={onStartDictation} />
       ) : null}

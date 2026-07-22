@@ -863,9 +863,17 @@ export interface DeploymentAgentConfigTool {
   type?: string;
 }
 
+export interface DeploymentAgentConfigCapabilities {
+  // Uploads are usable: the sidecar has file storage AND the agent declared it
+  // consumes attachments. The composer hides its upload affordance when false;
+  // absent (older sidecar) is treated as false so the button stays hidden.
+  files?: boolean;
+}
+
 export interface DeploymentAgentConfig {
   systemPrompt: string;
   tools: DeploymentAgentConfigTool[];
+  capabilities?: DeploymentAgentConfigCapabilities;
 }
 
 export interface DeploymentChatConversationSummary {
