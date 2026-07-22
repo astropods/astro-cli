@@ -15,10 +15,12 @@ import (
 	"github.com/docker/compose/v5/pkg/api"
 )
 
-// agentDataVolume is the shared named volume every agent gets at
+// agentDataVolume is the compose volume key every agent gets at
 // spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
-// volume so its files API and the agent see one filesystem — the local-dev
-// analogue of the shared PVC used in Kubernetes deployments.
+// volume so its files API and the agent see one filesystem, the local-dev
+// analogue of the shared PVC used in Kubernetes deployments. Its docker volume
+// name is scoped per compose project (see where it's declared), so each agent
+// gets its own data and chat history and uploads don't leak between agents.
 const agentDataVolume = "agent-data"
 
 // messagingFilesDir is where the messaging sidecar reads/writes the files API
@@ -715,8 +717,13 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Persistent disk: every agent gets a /data volume, matching the default
 	// persistent disk provisioned in production. Keeps local state (e.g. a
-	// SQLite database under /data) across `ast dev` restarts.
-	project.Volumes[agentDataVolume] = types.VolumeConfig{Name: agentDataVolume}
+	// SQLite database under /data) across `ast dev` restarts. The name is scoped
+	// to the project so each agent gets its own volume; a shared fixed name would
+	// make one global volume, leaking chat history and uploaded files between
+	// agents.
+	project.Volumes[agentDataVolume] = types.VolumeConfig{
+		Name: fmt.Sprintf("%s-%s", project.Name, agentDataVolume),
+	}
 	agentService.Volumes = []types.ServiceVolumeConfig{
 		{
 			Type:   types.VolumeTypeVolume,

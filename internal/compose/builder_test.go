@@ -62,6 +62,26 @@ func TestBuildProject_ScopedName(t *testing.T) {
 	}
 }
 
+func TestBuildProject_AgentDataVolumeScopedName(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+
+	vol, ok := project.Volumes[agentDataVolume]
+	require.True(t, ok, "agent-data volume must be declared")
+	// A non-empty name is required: compose rejects an empty volume name at Up
+	// time. The name is scoped to the project so each agent gets its own volume;
+	// a shared fixed name would leak chat history and uploads between agents.
+	require.NotEmpty(t, vol.Name, "agent-data volume needs a non-empty name")
+	assert.Equal(t, "my-agent-agent-data", vol.Name)
+	assert.Contains(t, vol.Name, project.Name, "volume name must be project-scoped")
+}
+
 func TestBuildProject_SlackInterface(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
