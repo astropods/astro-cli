@@ -81,12 +81,18 @@ func deriveStatefulSetHealth(s *appsv1.StatefulSet) deploymentstore.WorkloadStat
 	}
 
 	rolloutComplete := s.Status.CurrentRevision == s.Status.UpdateRevision
+	// OnDelete never recreates pods on a spec change, so UpdatedReplicas and the
+	// revision pointers lag until a pod is manually deleted. A ready pod on the
+	// serving revision is the steady state — gate readiness on the ready count.
+	onDelete := s.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType
 	switch {
 	case desired == 0:
 		ws.Phase = deploymentstore.WorkloadPhaseReady
 	case s.Status.ObservedGeneration < s.Generation:
 		ws.Phase = deploymentstore.WorkloadPhaseProgressing
 		ws.Reason = "GenerationLag"
+	case onDelete && s.Status.ReadyReplicas >= desired:
+		ws.Phase = deploymentstore.WorkloadPhaseReady
 	case rolloutComplete && s.Status.UpdatedReplicas >= desired && s.Status.ReadyReplicas >= desired:
 		ws.Phase = deploymentstore.WorkloadPhaseReady
 	case s.Status.ReadyReplicas > 0 || s.Status.UpdatedReplicas > 0:

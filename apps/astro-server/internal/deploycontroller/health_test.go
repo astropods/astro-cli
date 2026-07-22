@@ -123,6 +123,23 @@ func TestDeriveStatefulSetHealth(t *testing.T) {
 	if got := deriveStatefulSetHealth(rolling); got.Phase != deploymentstore.WorkloadPhaseProgressing {
 		t.Errorf("rolling STS phase = %q, want progressing", got.Phase)
 	}
+
+	// OnDelete keeps the pod on the old revision after a spec change: ready pod,
+	// but UpdatedReplicas and revisions lag forever. Must still read as ready.
+	onDelete := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "db", Generation: 3},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas:       i32(1),
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+		},
+		Status: appsv1.StatefulSetStatus{
+			ObservedGeneration: 3, ReadyReplicas: 1, UpdatedReplicas: 0,
+			CurrentRevision: "rev-1", UpdateRevision: "rev-2",
+		},
+	}
+	if got := deriveStatefulSetHealth(onDelete); got.Phase != deploymentstore.WorkloadPhaseReady {
+		t.Errorf("OnDelete STS phase = %q, want ready", got.Phase)
+	}
 }
 
 func TestDeriveJobHealth(t *testing.T) {
