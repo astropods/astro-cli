@@ -1,7 +1,8 @@
 // Package ingest implements the OTLP/HTTP receiver: authenticate the bearer
 // ingest key, stamp identity attributes (optionally redacting prompt content),
 // and forward each signal to its store — traces to the account's Langfuse
-// project, metrics to VictoriaMetrics.
+// project, metrics to VictoriaMetrics, and logs transformed into spans and
+// forwarded to Langfuse's traces endpoint (see logs.go).
 package ingest
 
 import (
@@ -63,6 +64,7 @@ func New(st *store.Store, cfg *config.Config, log *slog.Logger) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/traces", h.handleTraces)
 	mux.HandleFunc("POST /v1/metrics", h.handleMetrics)
+	mux.HandleFunc("POST /v1/logs", h.handleLogs)
 	mux.HandleFunc("GET /livez", h.health)
 	mux.HandleFunc("GET /healthz", h.health)
 }
