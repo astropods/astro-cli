@@ -201,7 +201,7 @@ Deployment lifecycle transitions (deploy/undeploy/wakeup) write **anchor rows** 
 
 ## Payment method collection (Stripe card vault)
 
-Stripe collects and saves a card; astro-server never charges. Enabled only when `STRIPE_SECRET_KEY` is set; otherwise the UI shows "coming soon". No Stripe webhook — the confirm is synchronous and authoritative.
+Stripe collects and saves a card; astro-server never charges. Enabled only when `STRIPE_SECRET_KEY` is set; otherwise the UI shows "coming soon". The card-save **confirm** is synchronous and authoritative (no webhook needed for it); payment-**collection** lifecycle (charge failures, 3DS, uncollectible/void) is a separate inbound Stripe webhook — see [Webhooks](#webhooks-hosted-only).
 
 1. `POST …/billing/setup-intent` — ensure a Stripe customer (persisted on `accounts.stripe_customer_id`), return a SetupIntent client secret + publishable key.
 2. Client confirms the card with Stripe's embedded `PaymentElement` (name/address collected client-side; card never touches our server).
@@ -223,16 +223,63 @@ Saving a card lets Metronome auto-charge (`charge_automatically`); whether an ac
 | GET | `/billing/payment-method` | saved card summary |
 | DELETE | `/billing/payment-method` | remove card |
 | POST | `/webhooks/metronome` | inbound Metronome events (HMAC-verified) |
+| POST | `/webhooks/stripe` | inbound Stripe payment-collection events (signature-verified) *(planned)* |
 
 Read endpoints return `{available:false}` when the backend is `noop`/unconfigured, so the client renders a "not available" state rather than an error.
 
 ## Webhooks (hosted only)
 
-`POST /webhooks/metronome` verifies HMAC-SHA256 over `Metronome-Webhook-Date + "\n" + rawBody` (keyed by `METRONOME_WEBHOOK_SECRET`, hex-compared to `Metronome-Webhook-Signature`; raw body read before JSON middleware). Disabled (404) when the secret is unset. Event handlers are **log-only stubs today**:
+Two independent inbound sources, no overlap. **Metronome** delivers contract/invoice/alert lifecycle; **Stripe** delivers payment-collection lifecycle. Metronome explicitly does **not** relay Stripe payment events (*"no Metronome webhook is triggered for errors residing entirely within Stripe, such as payment failures"*), so dunning/collection state must come from Stripe directly — payment failure, 3DS, uncollectible, and void have no Metronome equivalent. Both endpoints verify a signature, 404 when their secret is unset, map the provider customer → account, and are best-effort (a webhook is never failed over gating bookkeeping). Sources: [Metronome webhooks](https://docs.metronome.com/guides/platform-configuration/setup-webhooks), [Stripe event types](https://docs.stripe.com/api/events/types).
 
-- `invoice.finalized` → (planned) fetch line items, reconcile.
-- `payment.failed` / `invoice.payment_failed` → (planned) map Metronome customer → account (`GetByMetronomeCustomerID`), set `dunning_since`, move `billing_status` → `past_due`; recovery clears it.
-- `alert.threshold_reached` → (planned) low-balance banner.
+### `POST /webhooks/metronome` — endpoint as-built, handlers log-only
+
+HMAC-SHA256 over `Metronome-Webhook-Date + "\n" + rawBody` (keyed by `METRONOME_WEBHOOK_SECRET`, hex-compared to `Metronome-Webhook-Signature`; raw body read before JSON middleware). Maps via `GetByMetronomeCustomerID`. Full catalog per [Metronome docs](https://docs.metronome.com/guides/platform-configuration/setup-webhooks); the `—` action means received-but-not-consumed.
+
+> Current code switches on speculative names (`payment.failed`, `invoice.payment_failed`, `alert.threshold_reached`, `invoice.paid`, `payment.succeeded`) that do **not** match this catalog — payment failures are a Stripe concern, not Metronome's. Rewire to the real names + the Stripe endpoint.
+
+| Metronome event | fires when | astro-server action |
+|---|---|---|
+| `alerts.spend_threshold_reached` | spend exceeds configured limit | `SetAlert` → `suspended` |
+| `alerts.usage_threshold_reached` | billable-metric usage over threshold | near-cap banner |
+| `alerts.low_remaining_credit_balance_reached` | prepaid credit balance low | top-up banner |
+| `alerts.low_remaining_commit_balance_reached` | commit balance low | top-up banner |
+| `alerts.invoice_total_reached` | invoice total over threshold | informational banner |
+| `invoice.finalized` | invoice finalized after grace | fetch line items, reconcile *(planned)* |
+| `invoice.billing_provider_error` | error sending invoice to Stripe (no customer / no valid PM) | alert billing owner, surface banner |
+| `payment_gate.payment_pending_action_required` | additional payment action needed (3DS) | surface action link — Metronome analog of Stripe `invoice.payment_action_required` |
+| `payment_gate.payment_status` | payment attempt status update | consume only if payment gating enabled Metronome-side |
+| `payment_gate.threshold_reached` | payment-gating threshold triggered | consume only if payment gating enabled |
+| `payment_gate.external_initiate` | payment via external gateway | consume only if payment gating enabled |
+| `integration.issue` | third-party integration error | log / alert |
+| `contract.create` · `.start` · `.edit` · `.end` · `.archive` | contract lifecycle | — |
+| `commit.create` · `.edit` · `.archive` · `.segment.start` · `.segment.end` | commit lifecycle | — |
+| `credit.create` · `.edit` · `.archive` · `.segment.start` · `.segment.end` | credit-grant lifecycle | — |
+| `marketplaces.aws_metering_disabled` · `.azure_metering_disabled` · `.gcp_metering_disabled` | marketplace customer disabled | — (no marketplace billing) |
+
+### `POST /webhooks/stripe` — planned
+
+The only source of payment-collection state. Verify with `stripe-go/v82/webhook.ConstructEvent` against the `Stripe-Signature` header, keyed by `STRIPE_WEBHOOK_SECRET`; disabled (404) when unset. Map Stripe customer → account via `stripe_customer_id`. astro-server **never charges** — collection and retry stay Stripe/Metronome's; the server only mirrors state into `account_billing_status`. Full catalog per [Stripe event types](https://docs.stripe.com/api/events/types); `—` means not consumed (Metronome/Stripe own that lifecycle). Availability is config- and API-version-dependent (auto-advance, reminder emails, exact property paths). Non-`invoice`/`payment_method` families are collapsed to one row each since none are consumed today.
+
+| Stripe event | fires when | astro-server action |
+|---|---|---|
+| `invoice.payment_failed` | auto-charge attempt fails | `SetDunningSince` → `past_due` |
+| `invoice.payment_action_required` | payment needs 3DS/further action (Stripe does **not** email on `charge_automatically`) | surface `hosted_invoice_url` in-app; keep/raise dunning |
+| `invoice.marked_uncollectible` | invoice marked uncollectible (auto-advance after retries) | terminal — force `suspended` / write-off |
+| `invoice.voided` | invoice voided | clear dunning + alert |
+| `invoice.paid` | payment attempt succeeds / marked paid out-of-band | clear dunning (recovery) |
+| `invoice.payment_succeeded` | payment attempt succeeds | recovery — reconcile with `invoice.paid`; consume one, not both |
+| `invoice.finalization_failed` | draft invoice cannot be finalized | alert billing owner *(candidate)* |
+| `invoice.overdue` | due date passed by configured days | escalate dunning *(candidate)* |
+| `invoice.will_be_due` | N days before due | pre-dunning reminder *(candidate)* |
+| `invoice.payment_attempt_required` | payment method unprocessable by Stripe | alert *(candidate)* |
+| `invoice.created` · `.updated` · `.deleted` · `.finalized` · `.sent` · `.upcoming` · `.overpaid` | invoice lifecycle owned by Metronome | — |
+| `payment_method.automatically_updated` | card network auto-updates an expired card | clear dunning; retry-charge is Stripe/Metronome-side |
+| `payment_method.attached` · `.updated` · `.detached` | payment-method CRUD (handled synchronously by the card vault) | — |
+| `charge.*` (`succeeded`, `failed`, `refunded`, `dispute.*`, …) | charge lifecycle | — (invoice-level events drive state; disputes may be a future signal) |
+| `payment_intent.*` (`succeeded`, `payment_failed`, `requires_action`, …) | PaymentIntent lifecycle | — (subsumed by invoice events) |
+| `customer.subscription.*`, `customer.source.*` | subscription / source lifecycle | — (Metronome owns subscriptions; card vault owns sources) |
+
+> `invoice.marked_uncollectible` → immediate `suspended` is stronger than `past_due` + grace; needs a new force-suspend path in the status machine (today only an uncleared alert or grace-expiry yields `suspended`). `invoice.paid` vs `invoice.payment_succeeded` overlap — pick one recovery trigger to avoid double-clearing.
 
 ## Packaging → Metronome primitives (out-of-band)
 
@@ -254,6 +301,7 @@ Products, billable metrics, rate cards, commits, and credit grants are configure
 | `METRONOME_WEBHOOK_SECRET` | Metronome webhook HMAC verification |
 | `STRIPE_SECRET_KEY` | enables the Stripe card vault |
 | `STRIPE_PUBLISHABLE_KEY` | surfaced to the client for the embedded PaymentElement |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification (payment-collection events) *(planned)* |
 | `QUOTA_ENFORCE` | enable DB-quota blocking (default false) |
 | `QUOTA_DEFAULTS` | system-wide default limits (`agents=10,members=5,…`) |
 | `BILLING_GATE_ENFORCE` | consumption gate: observe vs enforce *(planned)* |
@@ -285,5 +333,6 @@ Effective limit = `override(account, resource)` else config default.
 ## Open questions
 
 - **Provisioning surface** — enterprise/prepaid/subscription setup in `astro-queen` vs self-serve prepaid top-ups.
-- **Metronome alert config** — which balance/spend condition Metronome is configured to fire `alert.threshold_reached` on (drives the `suspended` transition); defined Metronome-side, confirmed with the billing owner.
-- **Unverified API details** to confirm against the SDK before coding: the recovery event type(s) that clear dunning; exact `AccessSchedule`/`InvoiceSchedule` sub-fields on commits.
+- **Metronome alert config** — which balance/spend condition Metronome fires `alerts.spend_threshold_reached` on (drives the `suspended` transition); defined Metronome-side, confirmed with the billing owner.
+- **Stripe webhook scope** — whether to consume Stripe collection events directly (planned `/webhooks/stripe`) is a design change from "server never consumes Stripe events"; confirm with the billing owner before building.
+- **Unverified API details** to confirm against the SDKs before coding: exact Stripe event property paths (`hosted_invoice_url`, customer id) and Metronome `payment_gate.*` payloads; exact `AccessSchedule`/`InvoiceSchedule` sub-fields on commits.
