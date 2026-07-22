@@ -1,10 +1,10 @@
 ---
 title: Mastra adapter
-subtitle: Connect a Mastra Agent to the Astro runtime with one line
+subtitle: Connect a Mastra Agent to the Astro AI runtime with one line
 slug: adapters/mastra
 ---
 
-[`@astropods/adapter-mastra`](https://www.npmjs.com/package/@astropods/adapter-mastra) wraps a [Mastra](https://mastra.ai) `Agent` and connects it to the Astro messaging sidecar. It translates Mastra's `fullStream` chunks into the shared `StreamHooks` lifecycle, wires STT/TTS through Mastra's `voice` provider, and auto-configures OTEL tracing when an exporter endpoint is set.
+[`@astropods/adapter-mastra`](https://www.npmjs.com/package/@astropods/adapter-mastra) wraps a [Mastra](https://mastra.ai) `Agent` and connects it to the Astro AI messaging sidecar. It translates Mastra's `fullStream` chunks into the shared `StreamHooks` lifecycle, wires STT/TTS through Mastra's `voice` provider, and auto-configures OTEL tracing when an exporter endpoint is set.
 
 ## Install
 
@@ -96,7 +96,7 @@ To enable voice, configure a Mastra `voice` provider when constructing the agent
 
 ## Tracing
 
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically wires Mastra observability so every LLM call and tool invocation produces a trace span. No code changes needed — Astro sets the env var on deployed agents.
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically wires Mastra observability so every LLM call and tool invocation produces a trace span. No code changes needed — Astro AI sets the env var on deployed agents.
 
 The adapter also derives the turn's W3C trace context from Mastra's stream (`traceId` / `spanId`) and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](../messaging-sdk/node#trace-context) for the wire shape.
 

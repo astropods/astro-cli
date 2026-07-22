@@ -87,6 +87,17 @@ navigation:
               - page: Claude Agent SDK
                 path: docs/pages/monitor-claude-agent-sdk.mdx
                 icon: fa-duotone fa-robot
+      - section: Monitor external agents
+        contents:
+          - page: Overview
+            path: docs/pages/monitor-external-agents.mdx
+            icon: fa-duotone fa-tower-broadcast
+          - section: Integrations
+            icon: fa-duotone fa-plug
+            contents:
+              - page: Claude Code
+                path: docs/pages/monitor-claude-code.mdx
+                icon: fa-duotone fa-terminal
       - section: Guides
         contents:
           - page: Using Knowledge stores

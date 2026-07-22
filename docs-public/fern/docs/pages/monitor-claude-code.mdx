@@ -1,0 +1,98 @@
+---
+title: Claude Code
+subtitle: Stream Claude Code usage telemetry from your team into Astro AI
+slug: monitor-claude-code
+---
+
+Claude Code can report its usage to Astro AI over OpenTelemetry. Once configured, sessions from across your team appear in your Astro AI dashboard with token usage, cost, models, and tool activity.
+
+You turn this on through your Anthropic admin console's **managed settings**, so it applies to everyone in your organization from one place.
+
+## Before you start
+
+- Admin access to your Astro AI account.
+- Admin access to your organization's Anthropic admin console, to edit Claude Code managed settings.
+- Claude Code installed on the machines you want to monitor.
+
+## Set up
+
+<Steps>
+  <Step title="Create an ingest key">
+    In Astro AI, go to **Settings → API Keys** and create a new ingest key. Give it a name you'll recognize (for example, `Engineering laptops`), then copy the secret — it's shown only once.
+
+    Astro AI generates a ready-to-paste settings block with your key and endpoint already filled in. Keep this open for the next step.
+  </Step>
+  <Step title="Add the managed settings block">
+    In your Anthropic admin console, open **Claude Code → Managed settings** and add the block Astro AI generated. It looks like this:
+
+    ```bash
+    CLAUDE_CODE_ENABLE_TELEMETRY        = 1
+    OTEL_METRICS_EXPORTER               = otlp
+    OTEL_TRACES_EXPORTER                = otlp
+    CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = 1
+    OTEL_EXPORTER_OTLP_PROTOCOL         = http/protobuf
+    OTEL_EXPORTER_OTLP_ENDPOINT         = <your-ingest-endpoint>
+    OTEL_EXPORTER_OTLP_HEADERS          = Authorization=Bearer <your-ingest-key>
+    OTEL_METRICS_INCLUDE_SESSION_ID     = false
+    ```
+
+    Copy the exact block from Astro AI — the endpoint and key are already filled in for you.
+
+    <Note>
+    Managed settings apply to your whole organization and refresh on each machine within about an hour. The first time a new setting reaches a machine, Claude Code asks that developer to approve it once.
+    </Note>
+  </Step>
+  <Step title="Confirm data is flowing">
+    Run a Claude Code session on a configured machine. Within a few minutes, that activity appears in your Astro AI dashboard, rolled up per team member and session.
+  </Step>
+</Steps>
+
+## Collect prompts and tool calls
+
+By default Astro AI collects usage metadata only — the text of prompts and responses stays on the machine. You can optionally include that content by adding the settings below to the managed settings block.
+
+**Prompts and responses** — records the text of each prompt and Claude's reply:
+
+```bash
+OTEL_LOGS_EXPORTER    = otlp
+OTEL_LOG_USER_PROMPTS = 1
+```
+
+**Tool calls** — records the inputs to the tools Claude Code runs:
+
+```bash
+OTEL_LOGS_EXPORTER    = otlp
+OTEL_LOG_TOOL_DETAILS = 1
+```
+
+Include `OTEL_LOGS_EXPORTER = otlp` once if you enable either option. Both are off unless you add them.
+
+<Warning>
+These options collect the contents of your team's Claude Code sessions. Enable them only where that's appropriate for your organization.
+</Warning>
+
+## What's collected
+
+| | Collected |
+|---|---|
+| **Always** | Session and interaction counts, token usage, cost, model names, and tool activity — attributed to the team member and session. |
+| **Prompts and responses** | Only when you add `OTEL_LOG_USER_PROMPTS`. |
+| **Tool inputs** | Only when you add `OTEL_LOG_TOOL_DETAILS`. |
+| **Never** | Raw model API request bodies. |
+
+## Manage keys
+
+- **Stop collecting** from a set of machines: revoke the ingest key in **Settings → API Keys**. Machines using it stop sending telemetry immediately.
+- **Rotate a key**: create a new one, update the managed settings block, then revoke the old key.
+- **Turn off content collection**: remove the optional settings from the block. To turn off telemetry entirely, remove the block or revoke the key.
+
+## Troubleshooting
+
+Nothing appearing in the dashboard:
+
+- Confirm the block is saved in Claude Code managed settings, and that developers have approved the new settings on their machines. Managed settings can take up to an hour to reach each machine.
+- Confirm the ingest key hasn't been revoked in **Settings → API Keys**.
+
+Prompts or tool calls not showing when you expect them:
+
+- Confirm `OTEL_LOGS_EXPORTER = otlp` is in the block alongside `OTEL_LOG_USER_PROMPTS = 1` or `OTEL_LOG_TOOL_DETAILS = 1`.

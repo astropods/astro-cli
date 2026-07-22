@@ -12,7 +12,7 @@ In the dashboard, go to **Knowledge → Add store** and enter your database's ho
 
 Once the store shows as **Ready**, it's available to use with your agents.
 
-If your database is behind a firewall but reachable over the public network, allowlist Astro's outbound IPs first — see [Allowlist Astro's egress IPs](/ip-allowlisting).
+If your database is behind a firewall but reachable over the public network, allowlist Astro AI's outbound IPs first — see [Allowlist Astro AI's egress IPs](/ip-allowlisting).
 
 ## Connect a private database
 
@@ -22,13 +22,13 @@ You'll need a database reachable inside an AWS VPC (RDS, Aurora, EC2-hosted, or 
 
 ```mermaid
 flowchart LR
-    subgraph astro["Astro VPC"]
+    subgraph astro["Astro AI VPC"]
         A[Agent pod] --> B[Interface VPC<br/>Endpoint]
     end
     subgraph yours["Your VPC / private network"]
         C[VPC Endpoint<br/>Service<br/>you approve] --> D[Internal NLB] --> E[Your database]
     end
-    B -- "1. Astro requests<br/>2. you approve" --> C
+    B -- "1. Astro AI requests<br/>2. you approve" --> C
 ```
 
 <Steps>
@@ -53,10 +53,10 @@ flowchart LR
     The store moves to **Pending** while it waits for your approval.
   </Step>
   <Step title="Approve the connection in AWS">
-    The store's detail page links you to the right AWS console page. In **VPC → Endpoints**, approve the pending connection request from Astro.
+    The store's detail page links you to the right AWS console page. In **VPC → Endpoints**, approve the pending connection request from Astro AI.
   </Step>
   <Step title="Wait for Ready">
-    Astro completes the connection and verifies reachability automatically. The store turns **Ready** when the path is live — no further action needed.
+    Astro AI completes the connection and verifies reachability automatically. The store turns **Ready** when the path is live — no further action needed.
   </Step>
 </Steps>
 
@@ -78,4 +78,4 @@ Each store has a detail page in the dashboard where you can check whether it's c
 ## Next steps
 
 - [Using Knowledge stores](/knowledge-store-agent): build and deploy an agent that uses a store, step by step
-- [Allowlist Astro's egress IPs](/ip-allowlisting): reach a firewalled database over the public network
+- [Allowlist Astro AI's egress IPs](/ip-allowlisting): reach a firewalled database over the public network

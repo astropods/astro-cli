@@ -1,13 +1,13 @@
 ---
 title: AI SDK
-subtitle: Send Vercel AI SDK telemetry to Astro and optionally serve the agent over Astro messaging
+subtitle: Send Vercel AI SDK telemetry to Astro AI and optionally serve the agent over Astro AI messaging
 slug: monitor-ai-sdk
 ---
 
 `@astropods/adapter-ai-sdk` exports two functions you can use independently:
 
-- `astroTelemetry()` returns AI SDK `experimental_telemetry` settings wired to Astro's OTLP exporter.
-- `serve()` connects a `ToolLoopAgent` (`Experimental_Agent`) to Astro's messaging service to make your agent compatible with the Astropods playground.
+- `astroTelemetry()` returns AI SDK `experimental_telemetry` settings wired to Astro AI's OTLP exporter.
+- `serve()` connects a `ToolLoopAgent` (`Experimental_Agent`) to Astro AI's messaging service to make your agent compatible with the Astropods playground.
 
 Targets `ai >= 6.0.0`.
 
@@ -17,7 +17,7 @@ Targets `ai >= 6.0.0`.
 bun add @astropods/adapter-ai-sdk
 ```
 
-## Send telemetry to Astro
+## Send telemetry to Astro AI
 
 Add `astroTelemetry()` into the agent's `experimental_telemetry`:
 
@@ -35,9 +35,9 @@ const agent = new Agent({
 
 Use this on its own when you serve the agent from your own framework and want AI traces reported in the dashboard.
 
-## Serve over Astro messaging
+## Serve over Astro AI messaging
 
-To run the agent on Astro messaging, pass it to `serve()`:
+To run the agent on Astro AI messaging, pass it to `serve()`:
 
 ```typescript
 import { Experimental_Agent as Agent } from "ai";

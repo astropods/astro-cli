@@ -1,10 +1,10 @@
 ---
 title: Mastra
-subtitle: Automatically instrument Mastra agents for monitoring in Astro
+subtitle: Automatically instrument Mastra agents for monitoring in Astro AI
 slug: monitor-mastra
 ---
 
-The `@astropods/adapter-mastra` package — the same one used to connect a Mastra agent to Astro messaging — auto-wires OpenTelemetry tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container. Model calls, tool calls, and agent steps flow into the dashboard automatically.
+The `@astropods/adapter-mastra` package — the same one used to connect a Mastra agent to Astro AI messaging — auto-wires OpenTelemetry tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container. Model calls, tool calls, and agent steps flow into the dashboard automatically.
 
 ## Install
 
@@ -29,11 +29,11 @@ serve(agent);
 
 Calling `serve()` registers the agent with the messaging service and configures observability in the same step. The agent's `name` is sent as the OpenTelemetry `service.name`; the platform-injected `OTEL_EXPORTER_OTLP_ENDPOINT` is used for export. No additional configuration is required.
 
-If your project constructs its own `Mastra` instance (e.g. for multi-agent workflows), `serve()` registers Astro's OpenTelemetry observability alongside any existing observability instances on that Mastra.
+If your project constructs its own `Mastra` instance (e.g. for multi-agent workflows), `serve()` registers Astro AI's OpenTelemetry observability alongside any existing observability instances on that Mastra.
 
 ## Verify
 
-Deploy the agent, send it a message, then open the agent's detail page in the Astro dashboard. Traces appear within ~30 seconds.
+Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
 
 If nothing shows up:
 

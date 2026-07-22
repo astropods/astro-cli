@@ -4,12 +4,12 @@ subtitle: Read user uploads and return downloadable files from a messaging agent
 slug: messaging-sdk/files-in-chat
 ---
 
-Astro's web chat can send files to an agent and render files from the agent as download chips. The transfer has two parts:
+Astro AI's web chat can send files to an agent and render files from the agent as download chips. The transfer has two parts:
 
 - The **Files API** moves bytes between the browser and the deployment's persistent file store.
 - The **messaging API** associates an uploaded file key with a user or assistant message.
 
-The browser never puts file bytes in a chat message. The agent normally does not call the Files API either: Astro mounts the same file store into the agent container and sets `AGENT_FILES_DIR` to its location (normally `/data/files`).
+The browser never puts file bytes in a chat message. The agent normally does not call the Files API either: Astro AI mounts the same file store into the agent container and sets `AGENT_FILES_DIR` to its location (normally `/data/files`).
 
 ```mermaid
 sequenceDiagram
@@ -78,7 +78,7 @@ In local development, open the chat URL printed by `ast dev` (normally `http://l
 
 ## Read files attached by a user
 
-When you use an Astro adapter, each call to your agent receives the current turn's files in `StreamOptions.attachments`. Treat this list as the authority for the turn. Do not enumerate the whole shared directory to decide which files belong to the current user.
+When you use an Astro AI adapter, each call to your agent receives the current turn's files in `StreamOptions.attachments`. Treat this list as the authority for the turn. Do not enumerate the whole shared directory to decide which files belong to the current user.
 
 Each attachment contains:
 
@@ -333,7 +333,7 @@ See the [Node messaging SDK](./node#inbound-message-anatomy) or [Python messagin
 
 ## Build a custom chat client
 
-Astro's built-in chat already implements this flow. A custom client must use both APIs in order:
+Astro AI's built-in chat already implements this flow. A custom client must use both APIs in order:
 
 <Steps>
   <Step title="Reserve a file key">
@@ -370,7 +370,7 @@ The response contains an opaque `key` and an `upload` descriptor:
   </Step>
   <Step title="Upload the bytes">
 
-Resolve a relative `upload.url` against `/api/v1/deployments/{deploymentId}/files/`. Absolute URLs are presigned storage URLs and must be used unchanged. Send the bytes with the returned method and headers. Include the user's Astro credentials only for a same-origin Astro URL; never forward them to a presigned cross-origin URL.
+Resolve a relative `upload.url` against `/api/v1/deployments/{deploymentId}/files/`. Absolute URLs are presigned storage URLs and must be used unchanged. Send the bytes with the returned method and headers. Include the user's Astro AI credentials only for a same-origin Astro AI URL; never forward them to a presigned cross-origin URL.
 
 The upload is not attachable until this request succeeds. A `413` means the declared or received file is too large; `507` means the deployment volume cannot fit it.
 

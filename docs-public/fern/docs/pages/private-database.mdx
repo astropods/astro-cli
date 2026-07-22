@@ -1,10 +1,10 @@
 ---
-title: Allowlist Astro's egress IPs
+title: Allowlist Astro AI's egress IPs
 subtitle: Let agents reach a database behind your firewall over the public network
 slug: ip-allowlisting
 ---
 
-Agents run in Astro's managed cloud. If your database sits behind a firewall but is reachable over the public network, you can let agents through by allowlisting Astro's outbound IPs — no AWS account or infrastructure changes needed on your side.
+Agents run in Astro AI's managed cloud. If your database sits behind a firewall but is reachable over the public network, you can let agents through by allowlisting Astro AI's outbound IPs — no AWS account or infrastructure changes needed on your side.
 
 <Note>
 If your database is in an AWS VPC and you don't want any inbound public access, connect it privately over AWS PrivateLink instead — see [Knowledge stores](/knowledge-stores#connect-a-private-database).
@@ -12,7 +12,7 @@ If your database is in an AWS VPC and you don't want any inbound public access, 
 
 ```mermaid
 flowchart LR
-    subgraph astro["Astro infrastructure"]
+    subgraph astro["Astro AI infrastructure"]
         A[Agent pod] --> B[NAT Gateway<br/>3.213.168.251<br/>13.222.89.6]
     end
     B --> C[Internet]
@@ -23,7 +23,7 @@ flowchart LR
 ```
 
 <Steps>
-  <Step title="Get Astro's egress IPs">
+  <Step title="Get Astro AI's egress IPs">
     All agent workloads egress through the following static Elastic IPs. These are fixed and do not change unless we announce it:
 
     | IP | CIDR |
@@ -40,7 +40,7 @@ flowchart LR
     | GCP Cloud SQL | Authorized networks: add each IP with `/32` mask |
     | Azure Database | Firewall rules: one rule per IP |
     | Self-hosted (on-prem) | Firewall / VPN policy: allow TCP from each IP to your DB host and port |
-    | Corporate VPN with split tunneling | Add Astro's IPs to your VPN's allowed-source list for the DB subnet |
+    | Corporate VPN with split tunneling | Add Astro AI's IPs to your VPN's allowed-source list for the DB subnet |
 
     Use the port your database listens on. Common defaults: PostgreSQL `5432`, MySQL `3306`, MSSQL `1433`, MongoDB `27017`, Redis `6379`. Check your database's documentation if you're unsure.
   </Step>

@@ -4,7 +4,7 @@ subtitle: Configure an agent that ships its own web UI instead of a chat sidecar
 slug: frontend-agents
 ---
 
-By default, Astro wraps your agent in a messaging sidecar that gives it a chat UI, Slack adapter, and OIDC-authenticated web view. If you'd rather serve your own web interface — a custom dashboard, a static SPA, a server-rendered app — set `agent.interfaces.frontend: true` and the platform will route incoming traffic straight to your container.
+By default, Astro AI wraps your agent in a messaging sidecar that gives it a chat UI, Slack adapter, and OIDC-authenticated web view. If you'd rather serve your own web interface — a custom dashboard, a static SPA, a server-rendered app — set `agent.interfaces.frontend: true` and the platform will route incoming traffic straight to your container.
 
 ## What `frontend: true` does
 
@@ -166,7 +166,7 @@ Use this when you want a custom UI plus the platform's built-in Slack integratio
 The default messaging adapter wraps the agent in OIDC sign-in. A frontend agent does not — your container receives raw HTTP. If your frontend needs auth, handle it inside the container (a session middleware, a JWT verifier, a third-party identity provider, etc.). For internal-only tooling, the [`anyone` grant](/accounts) controls who can reach the hostname but does not gate the request itself with a sign-in.
 
 <Callout intent="info">
-Want Astro's built-in login gate (the same OIDC sign-in the messaging adapter provides) in front of your frontend agent? It's not supported today — [open a feature request](https://github.com/astropods/.github/issues/new) and we'll prioritize based on demand.
+Want Astro AI's built-in login gate (the same OIDC sign-in the messaging adapter provides) in front of your frontend agent? It's not supported today — [open a feature request](https://github.com/astropods/.github/issues/new) and we'll prioritize based on demand.
 </Callout>
 
 ---

@@ -1,10 +1,10 @@
 ---
 title: LangChain adapter
-subtitle: Connect a LangChain / LangGraph agent to the Astro runtime
+subtitle: Connect a LangChain / LangGraph agent to the Astro AI runtime
 slug: adapters/langchain
 ---
 
-[`astropods-adapter-langchain`](https://pypi.org/project/astropods-adapter-langchain/) wraps a LangChain executor — either `langchain.agents.create_agent` or `langgraph.prebuilt.create_react_agent` — and connects it to the Astro messaging sidecar. It runs `astream(stream_mode="updates")` under the hood, translates graph updates into the shared `StreamHooks` lifecycle, and auto-configures OTEL tracing.
+[`astropods-adapter-langchain`](https://pypi.org/project/astropods-adapter-langchain/) wraps a LangChain executor — either `langchain.agents.create_agent` or `langgraph.prebuilt.create_react_agent` — and connects it to the Astro AI messaging sidecar. It runs `astream(stream_mode="updates")` under the hood, translates graph updates into the shared `StreamHooks` lifecycle, and auto-configures OTEL tracing.
 
 ## Install
 
@@ -122,7 +122,7 @@ LangChain has no native TTS path, so the adapter does STT only. If you need TTS,
 
 ## Tracing
 
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically instruments LangChain so every LLM call and tool invocation produces a trace span. No code changes needed — Astro sets the env var on deployed agents.
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically instruments LangChain so every LLM call and tool invocation produces a trace span. No code changes needed — Astro AI sets the env var on deployed agents.
 
 The adapter also derives the turn's W3C trace context from its root span and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](../messaging-sdk/python#trace-context) for the wire shape.
 

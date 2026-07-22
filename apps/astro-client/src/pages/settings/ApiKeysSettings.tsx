@@ -5,6 +5,7 @@ import { KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { CopyButton } from '@/components/ui/copy-button'
 import {
   DropdownMenu,
@@ -47,18 +48,26 @@ export const meta: MetaFunction = () => [{ title: "API Keys - Settings | Astro" 
 // of emitting a plausible-but-wrong URL.
 const UNSET_ENDPOINT_PLACEHOLDER = '<OTEL_INGEST_ENDPOINT not set>'
 
+/** Content-collection options that append logs-signal settings to the block. */
+type CollectionOptions = { collectPrompts: boolean; storeToolCalls: boolean }
+
 /** Builds the Anthropic managed-settings env block for a freshly created key. */
-function managedSettingsBlock(endpoint: string, token: string): string {
-  return [
-    'CLAUDE_CODE_ENABLE_TELEMETRY        = 1',
-    'OTEL_METRICS_EXPORTER               = otlp',
-    'OTEL_TRACES_EXPORTER                = otlp',
-    'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = 1',
-    'OTEL_EXPORTER_OTLP_PROTOCOL         = http/protobuf',
-    `OTEL_EXPORTER_OTLP_ENDPOINT         = ${endpoint || UNSET_ENDPOINT_PLACEHOLDER}`,
-    `OTEL_EXPORTER_OTLP_HEADERS          = Authorization=Bearer ${token}`,
-    'OTEL_METRICS_INCLUDE_SESSION_ID     = false',
-  ].join('\n')
+function managedSettingsBlock(endpoint: string, token: string, opts: CollectionOptions): string {
+  const vars: [string, string][] = [
+    ['CLAUDE_CODE_ENABLE_TELEMETRY', '1'],
+    ['OTEL_METRICS_EXPORTER', 'otlp'],
+    ['OTEL_TRACES_EXPORTER', 'otlp'],
+    ['CLAUDE_CODE_ENHANCED_TELEMETRY_BETA', '1'],
+    ['OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf'],
+    ['OTEL_EXPORTER_OTLP_ENDPOINT', endpoint || UNSET_ENDPOINT_PLACEHOLDER],
+    ['OTEL_EXPORTER_OTLP_HEADERS', `Authorization=Bearer ${token}`],
+    ['OTEL_METRICS_INCLUDE_SESSION_ID', 'false'],
+  ]
+  // Prompt/response text and tool inputs ride the logs signal, off unless opted in.
+  if (opts.collectPrompts || opts.storeToolCalls) vars.push(['OTEL_LOGS_EXPORTER', 'otlp'])
+  if (opts.collectPrompts) vars.push(['OTEL_LOG_USER_PROMPTS', '1'])
+  if (opts.storeToolCalls) vars.push(['OTEL_LOG_TOOL_DETAILS', '1'])
+  return vars.map(([k, v]) => `${k.padEnd(36)}= ${v}`).join('\n')
 }
 
 export function IngestKeysPanel({ account }: { account: string }) {
@@ -70,12 +79,16 @@ export function IngestKeysPanel({ account }: { account: string }) {
   const [name, setName] = useState('')
   const [created, setCreated] = useState<CreateOtelIngestKeyResponse | null>(null)
   const [revokeKey, setRevokeKey] = useState<OtelIngestKey | null>(null)
+  const [collectPrompts, setCollectPrompts] = useState(false)
+  const [storeToolCalls, setStoreToolCalls] = useState(false)
 
   const keys = data?.tokens ?? []
   const endpoint = data?.endpoint ?? ''
 
   const openNew = () => {
     setName('')
+    setCollectPrompts(false)
+    setStoreToolCalls(false)
     setNewOpen(true)
   }
 
@@ -206,17 +219,44 @@ export function IngestKeysPanel({ account }: { account: string }) {
                 <CopyButton copyText={created.token} title="Copy key" iconClassName="size-3.5" />
               </div>
 
+              <div className="space-y-2.5 min-w-0">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Collect prompts and responses</p>
+                    <p className="text-xs text-muted-foreground">
+                      Include the text of prompts and Claude's replies.
+                    </p>
+                  </div>
+                  <Switch checked={collectPrompts} onCheckedChange={setCollectPrompts} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Store tool calls</p>
+                    <p className="text-xs text-muted-foreground">
+                      Include the inputs to the tools Claude Code runs.
+                    </p>
+                  </div>
+                  <Switch checked={storeToolCalls} onCheckedChange={setStoreToolCalls} />
+                </div>
+              </div>
+
               <div className="space-y-1.5 min-w-0">
                 <div className="flex items-center justify-between">
                   <Label>Managed settings block</Label>
                   <CopyButton
-                    copyText={managedSettingsBlock(created.endpoint ?? endpoint, created.token)}
+                    copyText={managedSettingsBlock(created.endpoint ?? endpoint, created.token, {
+                      collectPrompts,
+                      storeToolCalls,
+                    })}
                     title="Copy block"
                     iconClassName="size-3.5"
                   />
                 </div>
                 <pre className="w-full min-w-0 overflow-x-auto rounded-md bg-surface border border-border p-3 font-mono text-[11px] leading-relaxed text-foreground">
-                  {managedSettingsBlock(created.endpoint ?? endpoint, created.token)}
+                  {managedSettingsBlock(created.endpoint ?? endpoint, created.token, {
+                    collectPrompts,
+                    storeToolCalls,
+                  })}
                 </pre>
               </div>
             </div>

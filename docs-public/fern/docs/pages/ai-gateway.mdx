@@ -1,6 +1,6 @@
 ---
 title: AI Gateway
-subtitle: Use Astro-provided LLM access without managing your own provider keys
+subtitle: Use Astro AI-provided LLM access without managing your own provider keys
 slug: ai-gateway
 ---
 
@@ -189,7 +189,7 @@ Use `titan-embed-text-v2` on the embeddings endpoint for RAG and vector search. 
 ```python title="Python"
 resp = client.embeddings.create(
     model="titan-embed-text-v2",
-    input="Astro deploys agents as containers.",
+    input="Astro AI deploys agents as containers.",
 )
 vector = resp.data[0].embedding   # list[float], length 1024
 ```
@@ -197,7 +197,7 @@ vector = resp.data[0].embedding   # list[float], length 1024
 ```typescript title="TypeScript"
 const resp = await client.embeddings.create({
     model: "titan-embed-text-v2",
-    input: "Astro deploys agents as containers.",
+    input: "Astro AI deploys agents as containers.",
 });
 const vector = resp.data[0].embedding; // number[], length 1024
 ```

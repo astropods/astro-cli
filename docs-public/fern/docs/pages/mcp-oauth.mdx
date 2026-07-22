@@ -6,7 +6,7 @@ slug: mcp-oauth
 
 Hosted [MCP](https://modelcontextprotocol.io) servers expose their tools over **OAuth 2.1**. A Mastra agent can use them directly: `MCPClient` pulls the tools, and `@mastra/mcp`'s `MCPOAuthClientProvider` handles dynamic client registration (RFC 7591) and PKCE for you.
 
-The one part that trips people up on a deployed agent is the **redirect URI**. After a user approves access, the OAuth provider sends their browser to that URL with an authorization code, so it has to resolve back to *your* agent. Locally that's `http://localhost`, but in production it needs to be your agent's public hostname. Astro injects exactly that as [`ASTRO_EXTERNAL_AGENT_URL`](#the-astro_external_agent_url-variable), so you can forge the redirect at runtime and complete the flow hands-free.
+The one part that trips people up on a deployed agent is the **redirect URI**. After a user approves access, the OAuth provider sends their browser to that URL with an authorization code, so it has to resolve back to *your* agent. Locally that's `http://localhost`, but in production it needs to be your agent's public hostname. Astro AI injects exactly that as [`ASTRO_EXTERNAL_AGENT_URL`](#the-astro_external_agent_url-variable), so you can forge the redirect at runtime and complete the flow hands-free.
 
 This guide shows the full setup end to end.
 
