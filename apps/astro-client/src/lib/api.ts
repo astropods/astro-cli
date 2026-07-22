@@ -787,18 +787,25 @@ export type DeploymentStatusReason =
   | "provisioning"
   | "ready";
 
+// A workload holding the deployment in "deploying": phase "missing" (declared
+// but not yet observed) or an observed phase that isn't ready.
+export interface WaitingWorkload {
+  workload: string;
+  component?: string;
+  phase: string;
+  reason?: string;
+  message?: string;
+}
+
 // DeploymentStatus is the body of GET /deployments/:id/status (no envelope).
 // Mirrors handlers.DeploymentStatus on the server. Live replica/ready counts
 // and per-workload state live on DeploymentRuntime; this stays narrow.
-//
-// `details` is a human-readable sentence ("3 of 4 workloads ready", "Pods are
-// being provisioned") suitable for tooltips. `reason` is the machine-readable
-// companion.
 export interface DeploymentStatus {
   value: DeploymentStatusValue;
   reason: DeploymentStatusReason;
   details: string;
   error_message?: string;
+  waiting_on?: WaitingWorkload[]; // set only while value === "deploying"
 }
 
 // DeploymentRuntime is the observed-runtime view (GET /deployments/:id/runtime).

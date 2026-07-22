@@ -1231,12 +1231,28 @@ type DeploymentRecord struct {
 // rendered in tooltips / status panels.
 //
 // Live replica/ready counts and per-workload state live on the runtime
-// endpoint; this endpoint intentionally stays narrow.
+// endpoint; this endpoint intentionally stays narrow. WaitingOn is populated
+// only while value=="deploying".
 type DeploymentStatus struct {
-	Value        string `json:"value"`
-	Reason       string `json:"reason"`
-	Details      string `json:"details"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	Value        string            `json:"value"`
+	Reason       string            `json:"reason"`
+	Details      string            `json:"details"`
+	ErrorMessage string            `json:"error_message,omitempty"`
+	WaitingOn    []WaitingWorkload `json:"waiting_on,omitempty"`
+}
+
+// WaitingPhaseMissing marks a declared workload the controller has not yet
+// observed in the cluster; it is not a deploymentstore.WorkloadPhase*.
+const WaitingPhaseMissing = "missing"
+
+// WaitingWorkload is one declared workload holding the deployment in "deploying":
+// either not yet observed (Phase=="missing") or observed but not yet ready.
+type WaitingWorkload struct {
+	Workload  string `json:"workload"`
+	Component string `json:"component,omitempty"`
+	Phase     string `json:"phase"`
+	Reason    string `json:"reason,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // Stable reason codes — keep in sync with the client's DeploymentStatusReason
@@ -2091,6 +2107,16 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		case deploymentstore.StatusDeploying:
 			status.Value, status.Reason = "deploying", StatusReasonProvisioning
 			status.Details = "Waiting for workloads to become ready"
+			// Name the declared workloads still blocking the transition to active;
+			// best-effort, falling back to the static message on a read error.
+			if expected, expErr := deployStore.GetWorkloads(dbDep.ID); expErr == nil {
+				if observed, obsErr := deployStore.GetWorkloadStatuses(dbDep.ID); obsErr == nil {
+					status.WaitingOn = waitingOnFromWorkloads(expected, observed)
+					if len(status.WaitingOn) > 0 {
+						status.Details = deployingDetail(status.WaitingOn)
+					}
+				}
+			}
 			c.JSON(http.StatusOK, status)
 			return
 		}
@@ -2112,6 +2138,64 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		}
 		c.JSON(http.StatusOK, status)
 	}
+}
+
+// waitingOnFromWorkloads mirrors deploycontroller.aggregateDeploymentPhase:
+// every declared workload that is unobserved ("missing") or observed but not yet
+// ready/complete. An empty result means the gate would pass.
+func waitingOnFromWorkloads(expected []*deploymentstore.Workload, observed []deploymentstore.WorkloadStatus) []WaitingWorkload {
+	byName := make(map[string]deploymentstore.WorkloadStatus, len(observed))
+	for _, o := range observed {
+		byName[o.WorkloadName] = o
+	}
+	var waiting []WaitingWorkload
+	for _, w := range expected {
+		o, ok := byName[w.Name]
+		if !ok {
+			waiting = append(waiting, WaitingWorkload{
+				Workload:  w.Name,
+				Component: w.ComponentKind,
+				Phase:     WaitingPhaseMissing,
+			})
+			continue
+		}
+		if o.Phase == deploymentstore.WorkloadPhaseReady || o.Phase == deploymentstore.WorkloadPhaseComplete {
+			continue
+		}
+		waiting = append(waiting, WaitingWorkload{
+			Workload:  w.Name,
+			Component: w.ComponentKind,
+			Phase:     o.Phase,
+			Reason:    o.Reason,
+			Message:   o.Message,
+		})
+	}
+	return waiting
+}
+
+// deployingDetail names up to maxNamed waiting workloads and elides the rest,
+// e.g. "Waiting for foo (not yet created), bar (ContainerCreating) and 2 more".
+func deployingDetail(waiting []WaitingWorkload) string {
+	const maxNamed = 3
+	parts := make([]string, 0, maxNamed)
+	for i, w := range waiting {
+		if i == maxNamed {
+			break
+		}
+		switch {
+		case w.Phase == WaitingPhaseMissing:
+			parts = append(parts, w.Workload+" (not yet created)")
+		case w.Reason != "":
+			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Reason))
+		default:
+			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Phase))
+		}
+	}
+	detail := "Waiting for " + strings.Join(parts, ", ")
+	if extra := len(waiting) - maxNamed; extra > 0 {
+		detail += fmt.Sprintf(" and %d more", extra)
+	}
+	return detail
 }
 
 // messagingContainerName is the K8s container name of the messaging sidecar.
