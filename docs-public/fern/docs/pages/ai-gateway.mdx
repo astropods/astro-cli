@@ -250,6 +250,67 @@ except json.JSONDecodeError:
     result = {"sentiment": "unknown"}
 ```
 
+## Native Anthropic API (Claude Code, Claude Agent SDK)
+
+Agents built on the native Anthropic Messages API — Claude Code, the Claude Agent SDK, or the `@anthropic-ai/sdk` client — can't use the OpenAI-compatible surface above. Use the gateway's **`/anthropic`** passthrough endpoint instead. This is the only way to run a Claude-Code-based agent on the gateway.
+
+The platform injects only `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` — it does **not** set any `ANTHROPIC_*` variables. You map them yourself, and there are three gateway-specific details:
+
+| Detail | Value | Why |
+| ------ | ----- | --- |
+| **Base URL** | `${ASTRO_GATEWAY_URL}/anthropic` | The client appends `/v1/messages`, giving `${ASTRO_GATEWAY_URL}/anthropic/v1/messages`. |
+| **Auth header** | `x-bf-vk: ${ASTRO_GATEWAY_API_KEY}` | The gateway reads the virtual key from `x-bf-vk` — not `Authorization` / `x-api-key`, which it ignores. |
+| **Model id** | `bedrock/claude-opus-4-8` (or `-sonnet-4-6`, `-haiku-4-5`) | Models are served under `bedrock/<name>` ids; bare `claude-*` returns 401. |
+
+<Callout intent="warning">
+**Set `x-bf-vk`, not a Bearer token and disable Claude Code's pre-release beta flags (`CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`)
+</Callout>
+
+<CodeBlocks>
+
+```bash title="Claude Code / Claude Agent SDK (env)"
+export ANTHROPIC_BASE_URL="$ASTRO_GATEWAY_URL/anthropic"
+# Bifrost reads the virtual key from x-bf-vk; ANTHROPIC_AUTH_TOKEN is set only so
+# the client has *a* credential (the gateway ignores it).
+export ANTHROPIC_CUSTOM_HEADERS="x-bf-vk: $ASTRO_GATEWAY_API_KEY"
+export ANTHROPIC_AUTH_TOKEN="$ASTRO_GATEWAY_API_KEY"
+# Bedrock-served model ids (bare claude-* returns 401):
+export ANTHROPIC_MODEL="bedrock/claude-opus-4-8"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="bedrock/claude-sonnet-4-6"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="bedrock/claude-haiku-4-5"
+# Bedrock rejects Claude Code's first-party pre-release beta flags:
+export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+# then run `claude` (or the Agent SDK) as usual
+```
+
+```typescript title="Anthropic SDK (TypeScript)"
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic({
+    baseURL: `${process.env.ASTRO_GATEWAY_URL}/anthropic`,   // client appends /v1/messages
+    authToken: process.env.ASTRO_GATEWAY_API_KEY,            // placeholder; gateway ignores it
+    defaultHeaders: { "x-bf-vk": process.env.ASTRO_GATEWAY_API_KEY! },  // the real auth
+});
+
+const message = await client.messages.create({
+    model: "bedrock/claude-opus-4-8",
+    max_tokens: 1024,
+    messages: [{ role: "user", content: "Hello" }],
+});
+```
+
+```bash title="Raw HTTP"
+curl "$ASTRO_GATEWAY_URL/anthropic/v1/messages" \
+    -H "x-bf-vk: $ASTRO_GATEWAY_API_KEY" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "content-type: application/json" \
+    -d '{"model":"bedrock/claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+</CodeBlocks>
+
+Streaming, client-defined tool use, and adaptive thinking all work over this path. Anthropic's **server-side tools** (`web_search`, `web_fetch`, code execution, computer use) are **not** available — the models run on Amazon Bedrock, which doesn't host them. If your agent needs web search, wire up your own tool (call a search API and feed the result back as a tool result).
+
 ## Local development
 
 `ast dev` handles the gateway automatically. Run:
@@ -292,6 +353,7 @@ The gateway returns standard OpenAI-style error responses. Common cases:
 
 ## What it doesn't cover
 
-- **Provider-native SDKs and prefixes.** The gateway serves models from several providers (Anthropic Claude, Amazon Nova/Titan, Mistral), but you call them all through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with a provider prefix such as `anthropic/`.
+- **Provider-native SDKs and prefixes (except Anthropic).** Call models through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with a provider prefix such as `anthropic/`. The one exception is the native Anthropic Messages API, served on the `/anthropic` passthrough for Claude Code / Claude Agent SDK agents — see [Native Anthropic API](#native-anthropic-api-claude-code-claude-agent-sdk).
+- **Anthropic server-side tools.** `web_search`, `web_fetch`, code execution, and computer use aren't available — models run on Amazon Bedrock, which doesn't host them. Client-defined tools work normally.
 - **Image generation.** No image-generation models are offered. Image *input* (vision) is supported by `pixtral-large`.
 - **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; reach out to support.
