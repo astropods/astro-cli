@@ -764,6 +764,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		aiGatewayProvisioner = aigateway.NewProvisioner(
 			aigateway.NewClient(cfg.Deployment.AIGatewayURL, cfg.Deployment.AIGatewayAdminURL, cfg.Deployment.AIGatewayAdminAuth),
 			accountStore,
+			billing.NewAliasSyncer(billingProvider, accountStore, cfg.BillingBackend(), log),
 		)
 		aiGatewayDevStore = aigateway.NewDevStore(db)
 	}

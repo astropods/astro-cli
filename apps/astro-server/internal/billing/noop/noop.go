@@ -29,6 +29,11 @@ func (p *Provider) CreateCustomer(ctx context.Context, a billing.Account) (strin
 // DeleteCustomer is a no-op.
 func (p *Provider) DeleteCustomer(ctx context.Context, customerID string) error { return nil }
 
+// SetIngestAliases is a no-op; OSS keeps no customer records.
+func (p *Provider) SetIngestAliases(ctx context.Context, customerID string, aliases []string) error {
+	return nil
+}
+
 // IngestUsage discards usage; OSS is unmetered.
 func (p *Provider) IngestUsage(ctx context.Context, events []billing.UsageEvent) error { return nil }
 

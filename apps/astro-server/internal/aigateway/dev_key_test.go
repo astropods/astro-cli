@@ -64,7 +64,7 @@ func TestEnsureDevKey_MintsFreshWhenAbsent(t *testing.T) {
 	mock.ExpectQuery("WITH existing AS").
 		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow(nil))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(
@@ -98,7 +98,7 @@ func TestEnsureDevKey_ReusesWhenNotExpired(t *testing.T) {
 			nil, nil, expiresAt, time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, gotExpiresAt, err := provisioner.EnsureDevKey(
@@ -135,7 +135,7 @@ func TestEnsureDevKey_ReplacesWhenExpiring(t *testing.T) {
 	mock.ExpectQuery("WITH existing AS").
 		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("tok-old"))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	devStore := NewDevStore(db)
 
 	apiKey, _, _, err := provisioner.EnsureDevKey(
@@ -175,7 +175,7 @@ func TestEnsureDevKey_PerUserIsolation(t *testing.T) {
 			nil, nil, expiresAt, time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	devStore := NewDevStore(db)
 
 	aliceKey, _, _, err := provisioner.EnsureDevKey(
@@ -221,7 +221,7 @@ func TestRevokeAccountDevKeys_SweepsUpstreamThenDeletesRows(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	devStore := NewDevStore(db)
 
 	err = provisioner.RevokeAccountDevKeys(context.Background(), devStore, "acct-1")

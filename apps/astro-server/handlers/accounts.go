@@ -252,11 +252,13 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 
 		// Create billing customer (non-blocking — failure is logged, not fatal)
 		if billingProvider != nil {
+			bifrostCustomerID, _ := accountStore.GetBifrostCustomerID(acct.ID)
 			customerID, omErr := billingProvider.CreateCustomer(c.Request.Context(), billing.Account{
-				ID:         acct.ID,
-				Name:       acct.Name,
-				Type:       acct.Type,
-				OwnerEmail: user.Email,
+				ID:                acct.ID,
+				Name:              acct.Name,
+				Type:              acct.Type,
+				OwnerEmail:        user.Email,
+				BifrostCustomerID: bifrostCustomerID,
 			})
 			if omErr != nil {
 				log.Error("Failed to create billing customer", "error", omErr, "account_id", acct.ID)

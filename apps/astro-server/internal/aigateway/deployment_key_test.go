@@ -80,7 +80,7 @@ func TestEnsureDeploymentKey_MintsWhenAbsentAndStampsMetadata(t *testing.T) {
 		WithArgs("dep-1", "acct-1", "tok-fresh", "sk-bf-fresh", []byte(nil), []byte(nil), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(db)
 
 	apiKey, baseURL, err := provisioner.EnsureDeploymentKey(
@@ -130,7 +130,7 @@ func TestEnsureDeploymentKey_IsIdempotentOnExistingRow(t *testing.T) {
 			nil, nil, time.Now(), time.Now(), time.Now(),
 		))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(db)
 
 	apiKey, _, err := provisioner.EnsureDeploymentKey(
@@ -146,7 +146,7 @@ func TestEnsureDeploymentKey_IsIdempotentOnExistingRow(t *testing.T) {
 }
 
 func TestEnsureDeploymentKey_RequiresAccountAndDeployment(t *testing.T) {
-	provisioner := NewProvisioner(NewClient("http://nope", "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient("http://nope", "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(nil)
 
 	_, _, err := provisioner.EnsureDeploymentKey(
@@ -188,7 +188,7 @@ func TestRevokeDeploymentKey_DeletesUpstreamAndRow(t *testing.T) {
 		WithArgs("dep-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(db)
 	require.NoError(t, provisioner.RevokeDeploymentKey(context.Background(), store, "dep-1"))
 	assert.Equal(t, int32(1), deleteCalls.Load())
@@ -209,7 +209,7 @@ func TestRevokeDeploymentKey_NoopWhenRowMissing(t *testing.T) {
 		WithArgs("dep-missing").
 		WillReturnRows(sqlmock.NewRows(deploymentKeyColumns))
 
-	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore())
+	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(db)
 	require.NoError(t, provisioner.RevokeDeploymentKey(context.Background(), store, "dep-missing"))
 	require.NoError(t, mock.ExpectationsWereMet())

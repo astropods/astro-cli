@@ -216,6 +216,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 					cfg.ServerConfig.Deployment.AIGatewayAdminAuth,
 				),
 				cfg.AccountStore,
+				billingpkg.NewAliasSyncer(cfg.Billing, cfg.AccountStore, cfg.BillingBackend, cfg.Logger),
 			)
 		}
 	}

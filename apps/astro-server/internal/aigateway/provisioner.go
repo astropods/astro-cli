@@ -21,6 +21,7 @@ import (
 type Provisioner struct {
 	client    *Client
 	customers CustomerStore
+	aliaser   BillingAliaser
 }
 
 // CustomerStore persists the per-account Bifrost customer id (the accounts
@@ -30,10 +31,17 @@ type CustomerStore interface {
 	SetBifrostCustomerID(accountID, customerID string) error
 }
 
+// BillingAliaser records a newly created Bifrost customer id as an ingest alias
+// on the account's billing customer. Optional (nil when billing is disabled).
+type BillingAliaser interface {
+	SyncBifrostAlias(ctx context.Context, accountID, bifrostCustomerID string) error
+}
+
 // NewProvisioner constructs a Provisioner. customers may be nil in setups that
 // never mint keys (feature disabled); ensureCustomer guards against that.
-func NewProvisioner(client *Client, customers CustomerStore) *Provisioner {
-	return &Provisioner{client: client, customers: customers}
+// aliaser may be nil when billing is disabled.
+func NewProvisioner(client *Client, customers CustomerStore, aliaser BillingAliaser) *Provisioner {
+	return &Provisioner{client: client, customers: customers, aliaser: aliaser}
 }
 
 // ensureCustomer resolves the account's Bifrost customer id, creating the
@@ -57,6 +65,9 @@ func (p *Provisioner) ensureCustomer(ctx context.Context, accountID string) (str
 	}
 	if err := p.customers.SetBifrostCustomerID(accountID, customerID); err != nil {
 		return "", fmt.Errorf("persist customer id: %w", err)
+	}
+	if p.aliaser != nil {
+		_ = p.aliaser.SyncBifrostAlias(ctx, accountID, customerID)
 	}
 	return customerID, nil
 }

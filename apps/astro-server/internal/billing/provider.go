@@ -42,6 +42,8 @@ type Account struct {
 	Name       string
 	Type       string
 	OwnerEmail string
+	// BifrostCustomerID, when set, is added as an ingest alias at creation.
+	BifrostCustomerID string
 }
 
 // BillingProvider is the provider-agnostic metering contract: customer
@@ -52,6 +54,8 @@ type BillingProvider interface {
 	CreateCustomer(ctx context.Context, a Account) (customerID string, err error)
 	// DeleteCustomer removes/archives the customer.
 	DeleteCustomer(ctx context.Context, customerID string) error
+	// SetIngestAliases replaces the customer's ingest aliases.
+	SetIngestAliases(ctx context.Context, customerID string, aliases []string) error
 	// IngestUsage sends a batch of metered usage events (idempotent per TransactionID).
 	IngestUsage(ctx context.Context, events []UsageEvent) error
 

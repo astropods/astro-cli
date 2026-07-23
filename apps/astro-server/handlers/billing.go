@@ -42,11 +42,13 @@ func resolveBillingCustomer(c *gin.Context, log *logger.Logger, accountStore *ac
 	}
 
 	// Lazily provision the customer on first billing access.
+	bifrostCustomerID, _ := accountStore.GetBifrostCustomerID(acct.ID)
 	customerID, err = billingProvider.CreateCustomer(c.Request.Context(), billing.Account{
-		ID:         acct.ID,
-		Name:       acct.Name,
-		Type:       acct.Type,
-		OwnerEmail: acct.Email,
+		ID:                acct.ID,
+		Name:              acct.Name,
+		Type:              acct.Type,
+		OwnerEmail:        acct.Email,
+		BifrostCustomerID: bifrostCustomerID,
 	})
 	if err != nil {
 		log.Error("Failed to create billing customer", "error", err, "account_id", acct.ID)

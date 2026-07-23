@@ -55,14 +55,30 @@ func New(cfg Config) *Provider {
 // CreateCustomer creates a Metronome customer keyed on the Astro account ID as
 // an ingest alias, so usage events attribute by account ID.
 func (p *Provider) CreateCustomer(ctx context.Context, a billing.Account) (string, error) {
+	aliases := []string{a.ID}
+	if a.BifrostCustomerID != "" {
+		aliases = append(aliases, a.BifrostCustomerID)
+	}
 	resp, err := p.mc.V1.Customers.New(ctx, metronome.V1CustomerNewParams{
 		Name:          a.Name,
-		IngestAliases: []string{a.ID},
+		IngestAliases: aliases,
 	})
 	if err != nil {
 		return "", fmt.Errorf("metronome create customer: %w", err)
 	}
 	return resp.Data.ID, nil
+}
+
+// SetIngestAliases replaces the customer's ingest aliases.
+func (p *Provider) SetIngestAliases(ctx context.Context, customerID string, aliases []string) error {
+	err := p.mc.V1.Customers.SetIngestAliases(ctx, metronome.V1CustomerSetIngestAliasesParams{
+		CustomerID:    customerID,
+		IngestAliases: aliases,
+	})
+	if err != nil {
+		return fmt.Errorf("metronome set ingest aliases: %w", err)
+	}
+	return nil
 }
 
 // DeleteCustomer archives the customer (Metronome has no hard delete).
