@@ -64,10 +64,10 @@ func TestRegisteredJobKinds_AvailableWithoutWorkers(t *testing.T) {
 	}
 
 	for _, kind := range []string{
-		"deploy",
-		"github_build",
+		"deployment.deploy",
+		"build.github",
 		"metering.heartbeat",
-		"wakeup",
+		"deployment.wakeup",
 	} {
 		if _, ok := seen[kind]; !ok {
 			t.Errorf("RegisteredJobKinds missing %q", kind)
@@ -197,8 +197,8 @@ func exprTypeName(expr ast.Expr) string {
 
 func TestDeployArgs_Kind(t *testing.T) {
 	args := DeployArgs{DeploymentID: "dep-123"}
-	if kind := args.Kind(); kind != "deploy" {
-		t.Errorf("DeployArgs.Kind() = %q, want %q", kind, "deploy")
+	if kind := args.Kind(); kind != "deployment.deploy" {
+		t.Errorf("DeployArgs.Kind() = %q, want %q", kind, "deployment.deploy")
 	}
 }
 
@@ -240,8 +240,8 @@ func TestDeployArgs_InsertOpts(t *testing.T) {
 
 func TestUndeployArgs_Kind(t *testing.T) {
 	args := UndeployArgs{DeploymentID: "dep-456"}
-	if kind := args.Kind(); kind != "undeploy" {
-		t.Errorf("UndeployArgs.Kind() = %q, want %q", kind, "undeploy")
+	if kind := args.Kind(); kind != "deployment.undeploy" {
+		t.Errorf("UndeployArgs.Kind() = %q, want %q", kind, "deployment.undeploy")
 	}
 }
 
@@ -262,8 +262,8 @@ func TestUndeployArgs_InsertOpts(t *testing.T) {
 
 func TestWakeUpArgs_Kind(t *testing.T) {
 	args := WakeUpArgs{DeploymentID: "dep-789"}
-	if kind := args.Kind(); kind != "wakeup" {
-		t.Errorf("WakeUpArgs.Kind() = %q, want %q", kind, "wakeup")
+	if kind := args.Kind(); kind != "deployment.wakeup" {
+		t.Errorf("WakeUpArgs.Kind() = %q, want %q", kind, "deployment.wakeup")
 	}
 }
 

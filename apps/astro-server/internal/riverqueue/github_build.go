@@ -24,8 +24,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 )
 
-const queueGitHubBuild = "github_build"
-
 // GitHubBuildArgs are the job arguments for the GitHub build worker.
 type GitHubBuildArgs struct {
 	ConnectionID  string `json:"connection_id"`
@@ -36,7 +34,7 @@ type GitHubBuildArgs struct {
 	ClusterID     string `json:"cluster_id,omitempty"`
 }
 
-func (GitHubBuildArgs) Kind() string { return "github_build" }
+func (GitHubBuildArgs) Kind() string { return "build.github" }
 
 func init() {
 	registerJobKind[GitHubBuildArgs]()
@@ -44,7 +42,7 @@ func init() {
 
 func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       queueGitHubBuild,
+		Queue:       queueBuild,
 		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
@@ -62,15 +60,15 @@ func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 // image with BuildKit, and registers the result in the agent index.
 type GitHubBuildWorker struct {
 	river.WorkerDefaults[GitHubBuildArgs]
-	pipesClient     *pipes.Client
-	ghStore         *githubconnection.Store
-	agentIndex      *agentindex.Index
-	readmeAssets    *readmeassets.Store
-	builder         *githubbuild.Builder // primary cluster; EnsureInfrastructure only
-	registry        *k8s.Registry
-	cfg             *config.Config
-	log             *logger.Logger
-	db              *sql.DB
+	pipesClient  *pipes.Client
+	ghStore      *githubconnection.Store
+	agentIndex   *agentindex.Index
+	readmeAssets *readmeassets.Store
+	builder      *githubbuild.Builder // primary cluster; EnsureInfrastructure only
+	registry     *k8s.Registry
+	cfg          *config.Config
+	log          *logger.Logger
+	db           *sql.DB
 	// deployStore + cache are used to fan out deploy-cache invalidations to
 	// downstream consumers once a new agent build is registered.
 	deployStore *deploymentstore.Store
@@ -84,17 +82,17 @@ func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.S
 		builder = githubbuild.New(registry.Default(), cfg, log)
 	}
 	return &GitHubBuildWorker{
-		pipesClient:     pipesClient,
-		ghStore:         ghStore,
-		agentIndex:      agentIndex,
-		readmeAssets:    readmeAssets,
-		builder:         builder,
-		registry:        registry,
-		cfg:             cfg,
-		log:             log,
-		db:              db,
-		deployStore:     deployStore,
-		cache:           cache,
+		pipesClient:  pipesClient,
+		ghStore:      ghStore,
+		agentIndex:   agentIndex,
+		readmeAssets: readmeAssets,
+		builder:      builder,
+		registry:     registry,
+		cfg:          cfg,
+		log:          log,
+		db:           db,
+		deployStore:  deployStore,
+		cache:        cache,
 	}
 }
 

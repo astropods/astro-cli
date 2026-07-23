@@ -18,6 +18,10 @@ type DunningSweepArgs struct{}
 
 func (DunningSweepArgs) Kind() string { return "billing.dunning_sweep" }
 
+func (DunningSweepArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueBilling}
+}
+
 func init() {
 	registerJobKind[DunningSweepArgs]()
 }

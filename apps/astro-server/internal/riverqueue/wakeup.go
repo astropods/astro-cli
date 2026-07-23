@@ -18,7 +18,7 @@ type WakeUpArgs struct {
 	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
-func (WakeUpArgs) Kind() string { return "wakeup" }
+func (WakeUpArgs) Kind() string { return "deployment.wakeup" }
 
 func init() {
 	registerJobKind[WakeUpArgs]()

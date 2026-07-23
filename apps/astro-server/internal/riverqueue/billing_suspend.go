@@ -19,6 +19,10 @@ type BillingSuspendArgs struct {
 
 func (BillingSuspendArgs) Kind() string { return "billing.suspend" }
 
+func (BillingSuspendArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueBilling}
+}
+
 // BillingResumeArgs restores an account's billing-suspended deployments on
 // recovery.
 type BillingResumeArgs struct {
@@ -26,6 +30,10 @@ type BillingResumeArgs struct {
 }
 
 func (BillingResumeArgs) Kind() string { return "billing.resume" }
+
+func (BillingResumeArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueBilling}
+}
 
 func init() {
 	registerJobKind[BillingSuspendArgs]()

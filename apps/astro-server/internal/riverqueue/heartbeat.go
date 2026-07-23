@@ -16,6 +16,10 @@ type MeteringArgs struct{}
 
 func (MeteringArgs) Kind() string { return "metering.heartbeat" }
 
+func (MeteringArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMetering}
+}
+
 func init() {
 	registerJobKind[MeteringArgs]()
 }

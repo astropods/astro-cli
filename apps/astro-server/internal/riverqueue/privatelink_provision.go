@@ -21,7 +21,11 @@ type PrivateLinkProvisionArgs struct {
 	StoreID string `json:"store_id"`
 }
 
-func (PrivateLinkProvisionArgs) Kind() string { return "privatelink_provision" }
+func (PrivateLinkProvisionArgs) Kind() string { return "privatelink.provision" }
+
+func (PrivateLinkProvisionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
 
 func init() {
 	registerJobKind[PrivateLinkProvisionArgs]()

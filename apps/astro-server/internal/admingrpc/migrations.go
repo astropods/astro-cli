@@ -129,21 +129,21 @@ func populateMigrationJobFields(j *adminv1.ClusterMigrationJob, kind, argsJSON s
 		j.DeploymentId = args.DeploymentID
 	}
 	switch kind {
-	case "migrate_deployment_cluster":
+	case "deployment.migrate_cluster":
 		j.SourceClusterId = args.SourceClusterID
 		j.TargetClusterId = args.TargetClusterID
-	case "deploy":
+	case "deployment.deploy":
 		j.DeployClusterId = args.ClusterID
 	}
 }
 
 // Include all migrate jobs; deploy jobs only when enqueued soon after a migrate for the same deployment.
 const clusterMigrationJobsWhereSQL = `
-		(j.kind = 'migrate_deployment_cluster'
-		 OR (j.kind = 'deploy'
+		(j.kind = 'deployment.migrate_cluster'
+		 OR (j.kind = 'deployment.deploy'
 		     AND EXISTS (
 		       SELECT 1 FROM river.river_job m
-		       WHERE m.kind = 'migrate_deployment_cluster'
+		       WHERE m.kind = 'deployment.migrate_cluster'
 		         AND m.args->>'deployment_id' = j.args->>'deployment_id'
 		         AND m.created_at <= j.created_at
 		         AND j.created_at <= m.created_at + interval '2 hours'

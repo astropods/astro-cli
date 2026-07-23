@@ -17,7 +17,11 @@ import (
 // AccountPurgeArgs are the job arguments for the account purge periodic worker.
 type AccountPurgeArgs struct{}
 
-func (AccountPurgeArgs) Kind() string { return "account_purge" }
+func (AccountPurgeArgs) Kind() string { return "account.purge" }
+
+func (AccountPurgeArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
 
 func init() {
 	registerJobKind[AccountPurgeArgs]()

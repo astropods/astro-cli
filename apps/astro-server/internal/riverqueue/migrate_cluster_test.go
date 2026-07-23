@@ -3,8 +3,8 @@ package riverqueue
 import "testing"
 
 func TestMigrateDeploymentClusterArgs_Kind(t *testing.T) {
-	if got := (MigrateDeploymentClusterArgs{}).Kind(); got != "migrate_deployment_cluster" {
-		t.Fatalf("Kind() = %q, want migrate_deployment_cluster", got)
+	if got := (MigrateDeploymentClusterArgs{}).Kind(); got != "deployment.migrate_cluster" {
+		t.Fatalf("Kind() = %q, want deployment.migrate_cluster", got)
 	}
 }
 

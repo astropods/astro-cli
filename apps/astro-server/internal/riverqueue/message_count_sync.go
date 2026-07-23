@@ -16,7 +16,11 @@ import (
 // MessageCountSyncArgs are the job arguments for the message count sync worker.
 type MessageCountSyncArgs struct{}
 
-func (MessageCountSyncArgs) Kind() string { return "metrics.message_count_sync" }
+func (MessageCountSyncArgs) Kind() string { return "metering.message_count_sync" }
+
+func (MessageCountSyncArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMetering}
+}
 
 func init() {
 	registerJobKind[MessageCountSyncArgs]()

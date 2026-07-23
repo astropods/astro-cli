@@ -25,6 +25,10 @@ type ObsSummaryRefreshArgs struct{}
 
 func (ObsSummaryRefreshArgs) Kind() string { return "obs.summary_refresh" }
 
+func (ObsSummaryRefreshArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueInsights}
+}
+
 func init() {
 	registerJobKind[ObsSummaryRefreshArgs]()
 }

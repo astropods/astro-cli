@@ -17,7 +17,11 @@ import (
 // backfill worker.
 type BlueprintAvatarBackfillArgs struct{}
 
-func (BlueprintAvatarBackfillArgs) Kind() string { return "blueprint_avatar.backfill" }
+func (BlueprintAvatarBackfillArgs) Kind() string { return "avatar.blueprint_backfill" }
+
+func (BlueprintAvatarBackfillArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
 
 func init() {
 	registerJobKind[BlueprintAvatarBackfillArgs]()

@@ -17,6 +17,10 @@ type ProviderBackfillArgs struct{}
 
 func (ProviderBackfillArgs) Kind() string { return "workload.provider_backfill" }
 
+func (ProviderBackfillArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
+
 func init() {
 	registerJobKind[ProviderBackfillArgs]()
 }

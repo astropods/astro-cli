@@ -18,8 +18,8 @@ import (
 
 func TestMessageCountSyncArgs_Kind(t *testing.T) {
 	args := MessageCountSyncArgs{}
-	if kind := args.Kind(); kind != "metrics.message_count_sync" {
-		t.Errorf("Kind() = %q, want %q", kind, "metrics.message_count_sync")
+	if kind := args.Kind(); kind != "metering.message_count_sync" {
+		t.Errorf("Kind() = %q, want %q", kind, "metering.message_count_sync")
 	}
 }
 

@@ -21,7 +21,11 @@ import (
 // KnowledgeReconcileArgs are the job arguments for the knowledge store reconciler.
 type KnowledgeReconcileArgs struct{}
 
-func (KnowledgeReconcileArgs) Kind() string { return "knowledge_reconcile" }
+func (KnowledgeReconcileArgs) Kind() string { return "knowledge.reconcile" }
+
+func (KnowledgeReconcileArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
 
 func init() {
 	registerJobKind[KnowledgeReconcileArgs]()

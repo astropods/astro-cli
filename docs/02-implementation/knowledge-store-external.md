@@ -331,7 +331,7 @@ type PrivateLinkProvisionArgs struct {
     StoreID string `json:"store_id"`
 }
 
-func (PrivateLinkProvisionArgs) Kind() string { return "privatelink_provision" }
+func (PrivateLinkProvisionArgs) Kind() string { return "privatelink.provision" }
 ```
 
 This is a one-shot job (not periodic). Enqueued by the handler.
@@ -450,7 +450,7 @@ type PrivateLinkDeleteArgs struct {
     StoreID string `json:"store_id"`
 }
 
-func (PrivateLinkDeleteArgs) Kind() string { return "privatelink_delete" }
+func (PrivateLinkDeleteArgs) Kind() string { return "privatelink.delete" }
 ```
 
 **Work function:**

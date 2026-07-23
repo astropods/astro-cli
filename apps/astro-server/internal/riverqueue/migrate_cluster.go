@@ -21,7 +21,7 @@ type MigrateDeploymentClusterArgs struct {
 	SourceClusterID string `json:"source_cluster_id,omitempty"`
 }
 
-func (MigrateDeploymentClusterArgs) Kind() string { return "migrate_deployment_cluster" }
+func (MigrateDeploymentClusterArgs) Kind() string { return "deployment.migrate_cluster" }
 
 func init() {
 	registerJobKind[MigrateDeploymentClusterArgs]()

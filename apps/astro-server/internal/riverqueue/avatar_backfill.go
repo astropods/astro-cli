@@ -15,6 +15,10 @@ type AvatarBackfillArgs struct{}
 
 func (AvatarBackfillArgs) Kind() string { return "avatar.backfill" }
 
+func (AvatarBackfillArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
+
 func init() {
 	registerJobKind[AvatarBackfillArgs]()
 }

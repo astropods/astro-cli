@@ -22,6 +22,10 @@ type InsightsRefreshArgs struct{}
 
 func (InsightsRefreshArgs) Kind() string { return "insights.refresh" }
 
+func (InsightsRefreshArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueInsights}
+}
+
 func init() {
 	registerJobKind[InsightsRefreshArgs]()
 	registerJobKind[InsightsRefreshAccountArgs]()
@@ -38,6 +42,10 @@ type InsightsRefreshAccountArgs struct {
 }
 
 func (InsightsRefreshAccountArgs) Kind() string { return "insights.refresh_account" }
+
+func (InsightsRefreshAccountArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueInsights}
+}
 
 // InsightsRefreshWorker is the discovery worker. It enumerates accounts
 // that have Langfuse provisioned and enqueues one per-account refresh job.

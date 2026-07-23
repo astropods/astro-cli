@@ -75,7 +75,7 @@ A periodic River job that finds accounts past the retention period and hard-dele
 
 ```go
 type AccountPurgeArgs struct{}
-func (AccountPurgeArgs) Kind() string { return "account_purge" }
+func (AccountPurgeArgs) Kind() string { return "account.purge" }
 ```
 
 Worker runs on the default queue. On each tick:

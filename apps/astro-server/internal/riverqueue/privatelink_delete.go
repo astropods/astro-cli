@@ -18,7 +18,11 @@ type PrivateLinkDeleteArgs struct {
 	EndpointID string `json:"endpoint_id"`
 }
 
-func (PrivateLinkDeleteArgs) Kind() string { return "privatelink_delete" }
+func (PrivateLinkDeleteArgs) Kind() string { return "privatelink.delete" }
+
+func (PrivateLinkDeleteArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: queueMaintenance}
+}
 
 func init() {
 	registerJobKind[PrivateLinkDeleteArgs]()

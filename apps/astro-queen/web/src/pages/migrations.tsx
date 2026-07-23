@@ -62,7 +62,7 @@ function jobStateClass(state: string): string {
 }
 
 function migrateRouteLabel(j: ClusterMigrationJob): string {
-  if (j.kind !== "migrate_deployment_cluster") return "—";
+  if (j.kind !== "deployment.migrate_cluster") return "—";
   return `${formatClusterId(j.source_cluster_id)} → ${formatClusterId(j.target_cluster_id)}`;
 }
 
@@ -89,13 +89,13 @@ export function MigrationsPage() {
           <h1 className="text-xl font-semibold">Cluster migrations</h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
             Audit trail for account cluster moves: <code className="text-xs">deployment_events</code> and River{" "}
-            <code className="text-xs">migrate_deployment_cluster</code> / <code className="text-xs">deploy</code> jobs.
+            <code className="text-xs">deployment.migrate_cluster</code> / <code className="text-xs">deployment.deploy</code> jobs.
             For placement alignment use{" "}
             <Link to="/admin/deployments?mismatch=1" className="text-honey-dark hover:underline">
               Deployments (mismatch)
             </Link>
             . Fast migrate rows are normal — that job only
-            updates routing and enqueues <code className="text-xs">deploy</code>.
+            updates routing and enqueues <code className="text-xs">deployment.deploy</code>.
           </p>
         </div>
 
@@ -212,7 +212,7 @@ function JobsTable({ jobs }: { jobs: ClusterMigrationJob[] }) {
               </td>
               <td className="px-3 py-1.5 font-mono">{j.kind}</td>
               <td className="px-3 py-1.5 font-mono">
-                {j.kind === "migrate_deployment_cluster"
+                {j.kind === "deployment.migrate_cluster"
                   ? migrateRouteLabel(j)
                   : formatClusterId(j.deploy_cluster_id)}
               </td>
@@ -239,7 +239,7 @@ function JobsTable({ jobs }: { jobs: ClusterMigrationJob[] }) {
                   "—"
                 )}
               </td>
-              <td className="px-3 py-1.5 font-mono" title={j.kind === "migrate_deployment_cluster" ? "Migrate job only updates DB and enqueues deploy" : undefined}>
+              <td className="px-3 py-1.5 font-mono" title={j.kind === "deployment.migrate_cluster" ? "Migrate job only updates DB and enqueues deploy" : undefined}>
                 {j.finalized_at ? `${j.duration_ms}ms` : "—"}
               </td>
               <td className="px-3 py-1.5">

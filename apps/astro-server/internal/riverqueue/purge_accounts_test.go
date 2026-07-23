@@ -15,8 +15,8 @@ import (
 )
 
 func TestAccountPurgeArgs_Kind(t *testing.T) {
-	if kind := (AccountPurgeArgs{}).Kind(); kind != "account_purge" {
-		t.Errorf("Kind() = %q, want %q", kind, "account_purge")
+	if kind := (AccountPurgeArgs{}).Kind(); kind != "account.purge" {
+		t.Errorf("Kind() = %q, want %q", kind, "account.purge")
 	}
 }
 

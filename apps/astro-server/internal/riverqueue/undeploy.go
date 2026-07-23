@@ -23,7 +23,7 @@ type UndeployArgs struct {
 	ClusterID    string `json:"cluster_id,omitempty"`
 }
 
-func (UndeployArgs) Kind() string { return "undeploy" }
+func (UndeployArgs) Kind() string { return "deployment.undeploy" }
 
 func init() {
 	registerJobKind[UndeployArgs]()

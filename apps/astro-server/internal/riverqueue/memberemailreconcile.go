@@ -46,7 +46,7 @@ func init() {
 
 func (MemberEmailReconcileArgs) InsertOpts() river.InsertOpts {
 	// Default queue: a long backfill run shares the general worker pool.
-	return river.InsertOpts{Queue: river.QueueDefault}
+	return river.InsertOpts{Queue: queueMaintenance}
 }
 
 type MemberEmailReconcileWorker struct {

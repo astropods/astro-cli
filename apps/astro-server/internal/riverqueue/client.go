@@ -30,8 +30,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 )
 
-const queueDeploy = "deploy"
-
 // Config holds dependencies that River workers need.
 type Config struct {
 	DB                   *sql.DB
@@ -112,7 +110,11 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 			queueDeploy:        {MaxWorkers: 5},
-			queueGitHubBuild:   {MaxWorkers: 3},
+			queueBuild:         {MaxWorkers: 3},
+			queueBilling:       {MaxWorkers: 3},
+			queueMetering:      {MaxWorkers: 3},
+			queueInsights:      {MaxWorkers: 3},
+			queueMaintenance:   {MaxWorkers: 5},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
@@ -264,7 +266,7 @@ func (q *Queue) EnqueueGitHubBuild(ctx context.Context, args GitHubBuildArgs) er
 func (q *Queue) CancelGitHubBuildsForConnection(ctx context.Context, connectionID string) {
 	rows, err := q.pool.Query(ctx, `
 		SELECT id FROM river.river_jobs
-		WHERE kind = 'github_build'
+		WHERE kind = 'build.github'
 		  AND args->>'connection_id' = $1
 		  AND state IN ('available', 'pending', 'running', 'scheduled')
 	`, connectionID)
