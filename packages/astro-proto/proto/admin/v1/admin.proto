@@ -44,6 +44,12 @@ service AdminService {
   rpc DeregisterCluster(DeregisterClusterRequest) returns (DeregisterClusterResponse);
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc GetAccountMetronomeAliases(GetAccountMetronomeAliasesRequest) returns (MetronomeAliasStatus);
+  rpc RecoverAccountMetronomeAliases(RecoverAccountMetronomeAliasesRequest) returns (MetronomeAliasStatus);
+  rpc RegisterAccountMetronome(RegisterAccountMetronomeRequest) returns (RegisterAccountMetronomeResponse);
+  rpc RecoverAccountLangfuse(RecoverAccountLangfuseRequest) returns (RecoverAccountLangfuseResponse);
+  rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
   rpc SetAccountCluster(SetAccountClusterRequest) returns (SetAccountClusterResponse);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
@@ -675,11 +681,97 @@ message AdminAccount {
   string created_at = 9;
   string updated_at = 10;
   string cluster_id = 11; // empty = primary cluster
+  string billing_status = 12; // active | past_due | suspended; empty = never billed
 }
 
 message ListAccountsResponse {
   repeated AdminAccount accounts = 1;
   int32 count = 2;
+}
+
+message GetAccountRequest {
+  string account_id = 1;
+}
+
+// AccountBillingInfo reflects account_billing_status plus the raw billing-provider
+// linkage IDs. status is empty when the account has no billing row (never charged).
+// Customer IDs are surfaced verbatim — this is an admin-only view.
+message AccountBillingInfo {
+  string status = 1; // active | past_due | suspended
+  string reason = 2;
+  string dunning_since = 3; // RFC3339, empty if not in dunning
+  bool alert_active = 4;
+  string updated_at = 5;
+  string metronome_customer_id = 6; // hosted billing linkage
+  string stripe_customer_id = 7;    // card vault (saved payment method)
+  string bifrost_customer_id = 8;
+}
+
+// AccountResourceLimit carries current usage and the effective limit for one
+// quota-managed resource. limit: -1 unlimited, 0 disabled.
+message AccountResourceLimit {
+  string resource = 1;
+  int64 used = 2;
+  int64 limit = 3;
+}
+
+message AccountMemberInfo {
+  string user_id = 1;
+  string email = 2;
+  string created_at = 3;
+  bool is_owner = 4;
+}
+
+message GetAccountResponse {
+  AdminAccount account = 1;
+  AccountBillingInfo billing = 2;
+  repeated AccountResourceLimit limits = 3;
+  repeated AccountMemberInfo members = 4;
+  string langfuse_project_id = 5; // empty when Langfuse is not connected
+}
+
+message GetAccountMetronomeAliasesRequest {
+  string account_id = 1;
+}
+
+message RecoverAccountMetronomeAliasesRequest {
+  string account_id = 1;
+}
+
+message RegisterAccountMetronomeRequest {
+  string account_id = 1;
+}
+
+message RegisterAccountMetronomeResponse {
+  string metronome_customer_id = 1;
+}
+
+message RecoverAccountLangfuseRequest {
+  string account_id = 1;
+}
+
+message RecoverAccountLangfuseResponse {
+  string langfuse_project_id = 1;
+}
+
+message RecoverAccountBifrostRequest {
+  string account_id = 1;
+}
+
+message RecoverAccountBifrostResponse {
+  string bifrost_customer_id = 1;
+}
+
+// MetronomeAliasStatus reports whether an account's Metronome customer carries
+// the ingest aliases it should ({account_id, bifrost_customer_id}). Live check
+// against the Metronome API.
+message MetronomeAliasStatus {
+  bool configured = 1;         // provider available and account has a Metronome customer
+  bool ok = 2;                 // all expected aliases present
+  repeated string expected = 3;
+  repeated string actual = 4;
+  repeated string missing = 5;
+  string error = 6;            // set when the Metronome lookup failed
 }
 
 message RenameAccountRequest {

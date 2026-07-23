@@ -56,6 +56,9 @@ type BillingProvider interface {
 	DeleteCustomer(ctx context.Context, customerID string) error
 	// SetIngestAliases replaces the customer's ingest aliases.
 	SetIngestAliases(ctx context.Context, customerID string, aliases []string) error
+	// GetIngestAliases returns the customer's current ingest aliases. Returns
+	// ErrBillingUnavailable when the backend keeps no customer records (OSS noop).
+	GetIngestAliases(ctx context.Context, customerID string) ([]string, error)
 	// IngestUsage sends a batch of metered usage events (idempotent per TransactionID).
 	IngestUsage(ctx context.Context, events []UsageEvent) error
 

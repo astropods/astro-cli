@@ -7,18 +7,21 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
@@ -79,4 +82,10 @@ type Clients struct {
 	K8sCache   k8scache.Cache
 	Preflight  *k8s.ImagePreflighter
 	Queue      *riverqueue.Queue
+
+	// Observability provisioners, wired onto the admin server for the account
+	// detail view's recover actions. Nil when their backends are unconfigured.
+	AIGateway           *aigateway.Provisioner
+	LangfuseProvisioner *langfuse.Provisioner
+	KMSClient           envelope.KMSClient
 }

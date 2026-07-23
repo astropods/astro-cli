@@ -550,6 +550,18 @@ func runAPI(
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
 	adminSrv.SetWorkOSClient(workosClient)
 
+	// Wire the quota reporter for the account detail view (usage + limits).
+	adminSrv.SetQuotaReporter(quotaChecker)
+
+	// Wire the billing provider for the Metronome ingest-alias health check.
+	adminSrv.SetBillingProvider(billingProvider)
+
+	// Wire the observability provisioners for the account detail view's recover
+	// actions (Langfuse project, Bifrost customer). Built in setupRoutes and
+	// stashed on deps; nil when their backends are unconfigured.
+	adminSrv.SetLangfuseProvisioner(deps.Clients.LangfuseProvisioner, deps.Clients.KMSClient, cfg.Deployment.KMSKeyARN)
+	adminSrv.SetAIGatewayProvisioner(deps.Clients.AIGateway)
+
 	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
 	adminSrv.SetImageRefresher(imagecache.New(cfg.Deployment.AWSRegion))
 
@@ -768,6 +780,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		)
 		aiGatewayDevStore = aigateway.NewDevStore(db)
 	}
+	deps.Clients.AIGateway = aiGatewayProvisioner
 
 	// OTel ingest keys (account-scoped telemetry credential for local coding
 	// tools). At key creation we best-effort ensure the account's Langfuse
@@ -793,6 +806,8 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 		}
 	}
+	deps.Clients.LangfuseProvisioner = ingestLangfuseProvisioner
+	deps.Clients.KMSClient = ingestKMSClient
 
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.

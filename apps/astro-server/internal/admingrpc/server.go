@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,18 +19,23 @@ import (
 	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/lib/pq"
@@ -78,6 +84,24 @@ type Server struct {
 	auditStore   *auditlog.Store
 	workosClient *auth.WorkOSClient
 
+	// quotaReporter resolves per-account resource usage and effective limits for
+	// the account detail view. Nil until SetQuotaReporter is called; GetAccount
+	// then returns no limits rather than failing.
+	quotaReporter quota.Reporter
+
+	// billingProvider backs the Metronome ingest-alias health check on the account
+	// detail view. Nil until SetBillingProvider is called; the check then reports
+	// "not configured" rather than failing.
+	billingProvider billing.BillingProvider
+
+	// Langfuse + Bifrost recovery for the account detail view. Each is nil until
+	// its setter is called; the corresponding recover RPC then reports "not
+	// configured" rather than failing.
+	langfuseProvisioner  *langfuse.Provisioner
+	kmsClient            envelope.KMSClient
+	kmsKeyARN            string
+	aiGatewayProvisioner *aigateway.Provisioner
+
 	// Ingress domain config — needed by RepairNormalizedSpec to regenerate ingress rows
 	ingressDomain          string
 	ingestionIngressDomain string
@@ -115,6 +139,32 @@ func (s *Server) SetWorkOSClientID(id string) {
 // SetWorkOSClient sets the WorkOS client for resolving user emails.
 func (s *Server) SetWorkOSClient(c *auth.WorkOSClient) {
 	s.workosClient = c
+}
+
+// SetQuotaReporter sets the reporter used by GetAccount to resolve per-account
+// resource usage and effective limits.
+func (s *Server) SetQuotaReporter(r quota.Reporter) {
+	s.quotaReporter = r
+}
+
+// SetBillingProvider sets the billing provider used to check a Metronome
+// customer's ingest aliases from the account detail view.
+func (s *Server) SetBillingProvider(p billing.BillingProvider) {
+	s.billingProvider = p
+}
+
+// SetLangfuseProvisioner wires the Langfuse project provisioner (and the KMS
+// deps it needs) used by RecoverAccountLangfuse.
+func (s *Server) SetLangfuseProvisioner(p *langfuse.Provisioner, kmsClient envelope.KMSClient, kmsKeyARN string) {
+	s.langfuseProvisioner = p
+	s.kmsClient = kmsClient
+	s.kmsKeyARN = kmsKeyARN
+}
+
+// SetAIGatewayProvisioner wires the AI-gateway provisioner used by
+// RecoverAccountBifrost to ensure a Bifrost customer.
+func (s *Server) SetAIGatewayProvisioner(p *aigateway.Provisioner) {
+	s.aiGatewayProvisioner = p
 }
 
 // New creates a new admin gRPC server.
@@ -1464,8 +1514,10 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			a.deleted_at,
 			a.created_at,
 			a.updated_at,
-			COALESCE(a.cluster_id, '') AS cluster_id
+			COALESCE(a.cluster_id, '') AS cluster_id,
+			COALESCE(bs.status, '') AS billing_status
 		FROM accounts a
+		LEFT JOIN account_billing_status bs ON bs.account_id = a.id
 		ORDER BY a.deleted_at NULLS FIRST, a.created_at DESC
 	`)
 	if err != nil {
@@ -1478,7 +1530,7 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 		var acct adminv1.AdminAccount
 		var deletedAt sql.NullTime
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID); err != nil {
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID, &acct.BillingStatus); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if deletedAt.Valid {
@@ -1496,6 +1548,396 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 		Accounts: accounts,
 		Count:    int32(len(accounts)), //nolint:gosec // bounded by DB rows
 	}, nil
+}
+
+// GetAccount returns one account with its billing status, per-resource usage and
+// limits, and member roster. It aggregates the DB-owned account facts an admin
+// needs on the account detail page; live cluster state is not consulted here.
+func (s *Server) GetAccount(ctx context.Context, req *adminv1.GetAccountRequest) (*adminv1.GetAccountResponse, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+
+	acct := &adminv1.AdminAccount{}
+	billing := &adminv1.AccountBillingInfo{}
+	var deletedAt sql.NullTime
+	var createdAt, updatedAt time.Time
+	var langfuseProjectID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			a.id,
+			a.name,
+			a.type,
+			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '') AS owner_user_id,
+			(SELECT COUNT(*) FROM account_members WHERE account_id = a.id) AS member_count,
+			EXISTS(SELECT 1 FROM account_langfuse WHERE account_id = a.id) AS has_langfuse,
+			a.deleted_at,
+			a.created_at,
+			a.updated_at,
+			COALESCE(a.cluster_id, '') AS cluster_id,
+			COALESCE(a.metronome_customer_id, '') AS metronome_customer_id,
+			COALESCE(a.stripe_customer_id, '') AS stripe_customer_id,
+			COALESCE(a.bifrost_customer_id, '') AS bifrost_customer_id,
+			COALESCE((SELECT langfuse_project_id FROM account_langfuse WHERE account_id = a.id), '') AS langfuse_project_id
+		FROM accounts a
+		WHERE a.id = $1
+	`, req.AccountID).Scan(
+		&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse,
+		&deletedAt, &createdAt, &updatedAt, &acct.ClusterID,
+		&billing.MetronomeCustomerID, &billing.StripeCustomerID, &billing.BifrostCustomerID,
+		&langfuseProjectID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	if deletedAt.Valid {
+		acct.DeletedAt = deletedAt.Time.Format(time.RFC3339)
+	}
+	acct.CreatedAt = createdAt.Format(time.RFC3339)
+	acct.UpdatedAt = updatedAt.Format(time.RFC3339)
+
+	// Billing status row is optional — an account that has never been billed has
+	// no row, which we surface as an empty status rather than an error.
+	var reason sql.NullString
+	var dunningSince, billingUpdatedAt sql.NullTime
+	err = s.db.QueryRowContext(ctx,
+		`SELECT status, reason, dunning_since, alert_active, updated_at
+		 FROM account_billing_status WHERE account_id = $1`,
+		req.AccountID,
+	).Scan(&billing.Status, &reason, &dunningSince, &billing.AlertActive, &billingUpdatedAt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("get billing status: %w", err)
+	}
+	if reason.Valid {
+		billing.Reason = reason.String
+	}
+	if dunningSince.Valid {
+		billing.DunningSince = dunningSince.Time.Format(time.RFC3339)
+	}
+	if billingUpdatedAt.Valid {
+		billing.UpdatedAt = billingUpdatedAt.Time.Format(time.RFC3339)
+	}
+	acct.BillingStatus = billing.Status
+
+	limits, err := s.accountLimits(ctx, req.AccountID)
+	if err != nil {
+		return nil, err
+	}
+
+	members, err := s.accountMembers(ctx, req.AccountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adminv1.GetAccountResponse{
+		Account:           acct,
+		Billing:           billing,
+		Limits:            limits,
+		Members:           members,
+		LangfuseProjectID: langfuseProjectID,
+	}, nil
+}
+
+// accountLimits reports usage and effective limit for every quota-managed
+// resource, in display order. Returns nil when no reporter is configured.
+func (s *Server) accountLimits(ctx context.Context, accountID string) ([]*adminv1.AccountResourceLimit, error) {
+	if s.quotaReporter == nil {
+		return nil, nil
+	}
+	usage, err := s.quotaReporter.Report(ctx, accountID, quota.AllResources...)
+	if err != nil {
+		return nil, fmt.Errorf("report account limits: %w", err)
+	}
+	limits := make([]*adminv1.AccountResourceLimit, 0, len(quota.AllResources))
+	for _, resource := range quota.AllResources {
+		u := usage[resource]
+		limits = append(limits, &adminv1.AccountResourceLimit{
+			Resource: resource,
+			Used:     u.Used,
+			Limit:    u.Limit,
+		})
+	}
+	return limits, nil
+}
+
+// accountMembers returns the member roster with a best-effort email (preferring
+// verified addresses) and the earliest-joined member flagged as owner.
+func (s *Server) accountMembers(ctx context.Context, accountID string) ([]*adminv1.AccountMemberInfo, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			m.user_id,
+			COALESCE((
+				SELECT e.email FROM account_member_emails e
+				WHERE e.user_id = m.user_id
+				ORDER BY e.verified DESC, e.updated_at DESC
+				LIMIT 1
+			), '') AS email,
+			m.created_at
+		FROM account_members m
+		WHERE m.account_id = $1
+		ORDER BY m.created_at ASC
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list account members: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var members []*adminv1.AccountMemberInfo
+	for rows.Next() {
+		var m adminv1.AccountMemberInfo
+		var createdAt time.Time
+		if err := rows.Scan(&m.UserID, &m.Email, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan account member: %w", err)
+		}
+		m.CreatedAt = createdAt.Format(time.RFC3339)
+		m.IsOwner = len(members) == 0 // earliest-joined is the owner
+		members = append(members, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("account members rows error: %w", err)
+	}
+	return members, nil
+}
+
+// GetAccountMetronomeAliases checks, live against the Metronome API, whether the
+// account's Metronome customer carries the ingest aliases it should. The expected
+// set mirrors what CreateCustomer/SyncBifrostAlias write: the account ID, plus the
+// Bifrost customer ID when the account has one.
+func (s *Server) GetAccountMetronomeAliases(ctx context.Context, req *adminv1.GetAccountMetronomeAliasesRequest) (*adminv1.MetronomeAliasStatus, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+
+	var metronomeCustomerID, bifrostCustomerID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(metronome_customer_id, ''), COALESCE(bifrost_customer_id, '')
+		 FROM accounts WHERE id = $1`,
+		req.AccountID,
+	).Scan(&metronomeCustomerID, &bifrostCustomerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get account billing ids: %w", err)
+	}
+
+	// No hosted-billing customer (or no provider) means there is nothing to check.
+	if s.billingProvider == nil || metronomeCustomerID == "" {
+		return &adminv1.MetronomeAliasStatus{Configured: false}, nil
+	}
+
+	expected := []string{req.AccountID}
+	if bifrostCustomerID != "" {
+		expected = append(expected, bifrostCustomerID)
+	}
+
+	actual, err := s.billingProvider.GetIngestAliases(ctx, metronomeCustomerID)
+	if err != nil {
+		return &adminv1.MetronomeAliasStatus{Configured: true, Expected: expected, Error: err.Error()}, nil
+	}
+
+	var missing []string
+	for _, want := range expected {
+		if !slices.Contains(actual, want) {
+			missing = append(missing, want)
+		}
+	}
+
+	return &adminv1.MetronomeAliasStatus{
+		Configured: true,
+		OK:         len(missing) == 0,
+		Expected:   expected,
+		Actual:     actual,
+		Missing:    missing,
+	}, nil
+}
+
+// RecoverAccountMetronomeAliases writes the expected ingest aliases
+// ({account_id, bifrost_customer_id}) onto the account's Metronome customer, then
+// returns the re-checked status. Used from the admin panel to repair a customer
+// whose aliases drifted or were never set.
+func (s *Server) RecoverAccountMetronomeAliases(ctx context.Context, req *adminv1.RecoverAccountMetronomeAliasesRequest) (*adminv1.MetronomeAliasStatus, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+
+	var metronomeCustomerID, bifrostCustomerID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(metronome_customer_id, ''), COALESCE(bifrost_customer_id, '')
+		 FROM accounts WHERE id = $1`,
+		req.AccountID,
+	).Scan(&metronomeCustomerID, &bifrostCustomerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get account billing ids: %w", err)
+	}
+	if s.billingProvider == nil {
+		return nil, status.Error(codes.FailedPrecondition, "billing provider not configured")
+	}
+	if metronomeCustomerID == "" {
+		return nil, status.Error(codes.FailedPrecondition, "account has no Metronome customer to recover")
+	}
+
+	expected := []string{req.AccountID}
+	if bifrostCustomerID != "" {
+		expected = append(expected, bifrostCustomerID)
+	}
+	if err := s.billingProvider.SetIngestAliases(ctx, metronomeCustomerID, expected); err != nil {
+		return nil, fmt.Errorf("set ingest aliases: %w", err)
+	}
+
+	s.log.Info("Recovered Metronome ingest aliases",
+		"account_id", req.AccountID, "customer_id", metronomeCustomerID, "aliases", expected)
+
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.BillingRecoverAliases
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin recovered Metronome ingest aliases"
+		evt.Metadata = map[string]any{"customer_id": metronomeCustomerID, "aliases": expected}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	// Return the freshly re-checked status.
+	return s.GetAccountMetronomeAliases(ctx, &adminv1.GetAccountMetronomeAliasesRequest{AccountID: req.AccountID})
+}
+
+// RegisterAccountMetronome creates a Metronome customer for the account when it
+// has none, persisting the returned customer id. Idempotent — returns the
+// existing id if already registered. CreateCustomer seeds the ingest aliases
+// ({account_id, bifrost_customer_id}) at creation.
+func (s *Server) RegisterAccountMetronome(ctx context.Context, req *adminv1.RegisterAccountMetronomeRequest) (*adminv1.RegisterAccountMetronomeResponse, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	if s.billingProvider == nil {
+		return nil, status.Error(codes.FailedPrecondition, "billing provider not configured")
+	}
+
+	var name, existing, bifrost string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT name, COALESCE(metronome_customer_id, ''), COALESCE(bifrost_customer_id, '')
+		 FROM accounts WHERE id = $1`,
+		req.AccountID,
+	).Scan(&name, &existing, &bifrost)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	if existing != "" {
+		return &adminv1.RegisterAccountMetronomeResponse{MetronomeCustomerID: existing}, nil
+	}
+
+	customerID, err := s.billingProvider.CreateCustomer(ctx, billing.Account{
+		ID:                req.AccountID,
+		Name:              name,
+		BifrostCustomerID: bifrost,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create metronome customer: %w", err)
+	}
+	if customerID == "" {
+		return nil, status.Error(codes.FailedPrecondition, "billing provider returned no customer id (backend may be unmetered)")
+	}
+
+	if err := account.NewAccountStore(s.db).SetMetronomeCustomerID(req.AccountID, customerID); err != nil {
+		return nil, fmt.Errorf("persist metronome customer id: %w", err)
+	}
+
+	s.log.Info("Registered Metronome customer", "account_id", req.AccountID, "customer_id", customerID)
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.BillingRegisterMetronome
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin registered Metronome customer"
+		evt.Metadata = map[string]any{"customer_id": customerID}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	return &adminv1.RegisterAccountMetronomeResponse{MetronomeCustomerID: customerID}, nil
+}
+
+// RecoverAccountLangfuse provisions the account's Langfuse project if missing
+// (idempotent) and returns the project id. Mirrors the lazy provisioning the
+// deploy and ingest-key paths perform, but on demand from the admin panel.
+func (s *Server) RecoverAccountLangfuse(ctx context.Context, req *adminv1.RecoverAccountLangfuseRequest) (*adminv1.RecoverAccountLangfuseResponse, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	if s.langfuseProvisioner == nil {
+		return nil, status.Error(codes.FailedPrecondition, "langfuse provisioning not configured")
+	}
+
+	var accountName string
+	err := s.db.QueryRowContext(ctx, `SELECT name FROM accounts WHERE id = $1`, req.AccountID).Scan(&accountName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+
+	store := langfuse.NewStore(s.db)
+	if _, _, err := s.langfuseProvisioner.EnsureProject(ctx, store, s.kmsKeyARN, s.kmsClient, req.AccountID, accountName); err != nil {
+		return nil, fmt.Errorf("ensure langfuse project: %w", err)
+	}
+
+	var projectID string
+	if row, err := store.Get(req.AccountID); err == nil && row != nil {
+		projectID = row.LangfuseProjectID
+	}
+
+	s.log.Info("Recovered Langfuse project", "account_id", req.AccountID, "project_id", projectID)
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.ObservabilityRecoverLangfuse
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin recovered Langfuse project"
+		evt.Metadata = map[string]any{"project_id": projectID}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	return &adminv1.RecoverAccountLangfuseResponse{LangfuseProjectID: projectID}, nil
+}
+
+// RecoverAccountBifrost ensures the account's Bifrost customer exists (idempotent)
+// and returns its id. Also re-syncs the Metronome ingest alias when a new customer
+// is minted (handled inside EnsureCustomer).
+func (s *Server) RecoverAccountBifrost(ctx context.Context, req *adminv1.RecoverAccountBifrostRequest) (*adminv1.RecoverAccountBifrostResponse, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	if s.aiGatewayProvisioner == nil {
+		return nil, status.Error(codes.FailedPrecondition, "ai gateway not configured")
+	}
+
+	customerID, err := s.aiGatewayProvisioner.EnsureCustomer(ctx, req.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("ensure bifrost customer: %w", err)
+	}
+
+	s.log.Info("Recovered Bifrost customer", "account_id", req.AccountID, "customer_id", customerID)
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.ObservabilityRecoverBifrost
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin recovered Bifrost customer"
+		evt.Metadata = map[string]any{"customer_id": customerID}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	return &adminv1.RecoverAccountBifrostResponse{BifrostCustomerID: customerID}, nil
 }
 
 // ListAgents returns all agents across accounts with version counts.

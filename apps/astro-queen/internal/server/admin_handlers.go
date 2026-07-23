@@ -9,6 +9,12 @@ import (
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts", s.handleListAccounts)
+	mux.HandleFunc("GET /api/admin/accounts/{id}", s.handleGetAccount)
+	mux.HandleFunc("GET /api/admin/accounts/{id}/metronome-aliases", s.handleGetAccountMetronomeAliases)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/metronome-aliases/recover", s.handleRecoverAccountMetronomeAliases)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/metronome/register", s.handleRegisterAccountMetronome)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/langfuse/recover", s.handleRecoverAccountLangfuse)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/cluster", s.handleSetAccountCluster)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/invalidate-cache", s.handleInvalidateAccountCaches)
@@ -39,6 +45,72 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.ListAccounts(r.Context(), &adminv1.ListAccountsRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.GetAccount(r.Context(), &adminv1.GetAccountRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetAccountMetronomeAliases(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.GetAccountMetronomeAliases(r.Context(), &adminv1.GetAccountMetronomeAliasesRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRecoverAccountMetronomeAliases(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RecoverAccountMetronomeAliases(r.Context(), &adminv1.RecoverAccountMetronomeAliasesRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRegisterAccountMetronome(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RegisterAccountMetronome(r.Context(), &adminv1.RegisterAccountMetronomeRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRecoverAccountLangfuse(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RecoverAccountLangfuse(r.Context(), &adminv1.RecoverAccountLangfuseRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRecoverAccountBifrost(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RecoverAccountBifrost(r.Context(), &adminv1.RecoverAccountBifrostRequest{
+		AccountID: r.PathValue("id"),
+	})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

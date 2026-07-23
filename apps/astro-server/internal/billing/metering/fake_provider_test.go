@@ -93,6 +93,9 @@ func (p *fakeProvider) DeleteCustomer(context.Context, string) error { return ni
 func (p *fakeProvider) SetIngestAliases(context.Context, string, []string) error {
 	return nil
 }
+func (p *fakeProvider) GetIngestAliases(context.Context, string) ([]string, error) {
+	return nil, nil
+}
 func (p *fakeProvider) UsageData(context.Context, string, time.Time, time.Time) (any, error) {
 	return nil, billing.ErrBillingUnavailable
 }

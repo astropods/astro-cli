@@ -272,21 +272,99 @@ type RestartDeploymentResponse struct {
 type ListAccountsRequest struct{}
 
 type AdminAccount struct {
-	ID          string `json:"id,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Type        string `json:"type,omitempty"`
-	OwnerUserID string `json:"owner_user_id,omitempty"`
-	MemberCount int32  `json:"member_count,omitempty"`
-	HasLangfuse bool   `json:"has_langfuse"`
-	DeletedAt   string `json:"deleted_at,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
-	ClusterID   string `json:"cluster_id,omitempty"`
+	ID            string `json:"id,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Type          string `json:"type,omitempty"`
+	OwnerUserID   string `json:"owner_user_id,omitempty"`
+	MemberCount   int32  `json:"member_count,omitempty"`
+	HasLangfuse   bool   `json:"has_langfuse"`
+	DeletedAt     string `json:"deleted_at,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	ClusterID     string `json:"cluster_id,omitempty"`
+	BillingStatus string `json:"billing_status,omitempty"`
 }
 
 type ListAccountsResponse struct {
 	Accounts []*AdminAccount `json:"accounts,omitempty"`
 	Count    int32           `json:"count,omitempty"`
+}
+
+type GetAccountRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type AccountBillingInfo struct {
+	Status              string `json:"status,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+	DunningSince        string `json:"dunning_since,omitempty"`
+	AlertActive         bool   `json:"alert_active"`
+	UpdatedAt           string `json:"updated_at,omitempty"`
+	MetronomeCustomerID string `json:"metronome_customer_id,omitempty"`
+	StripeCustomerID    string `json:"stripe_customer_id,omitempty"`
+	BifrostCustomerID   string `json:"bifrost_customer_id,omitempty"`
+}
+
+type AccountResourceLimit struct {
+	Resource string `json:"resource,omitempty"`
+	Used     int64  `json:"used"`
+	Limit    int64  `json:"limit"`
+}
+
+type AccountMemberInfo struct {
+	UserID    string `json:"user_id,omitempty"`
+	Email     string `json:"email,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	IsOwner   bool   `json:"is_owner"`
+}
+
+type GetAccountResponse struct {
+	Account           *AdminAccount           `json:"account,omitempty"`
+	Billing           *AccountBillingInfo     `json:"billing,omitempty"`
+	Limits            []*AccountResourceLimit `json:"limits,omitempty"`
+	Members           []*AccountMemberInfo    `json:"members,omitempty"`
+	LangfuseProjectID string                  `json:"langfuse_project_id,omitempty"`
+}
+
+type GetAccountMetronomeAliasesRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RecoverAccountMetronomeAliasesRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RegisterAccountMetronomeRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RegisterAccountMetronomeResponse struct {
+	MetronomeCustomerID string `json:"metronome_customer_id,omitempty"`
+}
+
+type RecoverAccountLangfuseRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RecoverAccountLangfuseResponse struct {
+	LangfuseProjectID string `json:"langfuse_project_id,omitempty"`
+}
+
+type RecoverAccountBifrostRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RecoverAccountBifrostResponse struct {
+	BifrostCustomerID string `json:"bifrost_customer_id,omitempty"`
+}
+
+type MetronomeAliasStatus struct {
+	Configured bool     `json:"configured"`
+	OK         bool     `json:"ok"`
+	Expected   []string `json:"expected,omitempty"`
+	Actual     []string `json:"actual,omitempty"`
+	Missing    []string `json:"missing,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 type RenameAccountRequest struct {

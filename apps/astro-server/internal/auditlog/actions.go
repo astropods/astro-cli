@@ -6,7 +6,12 @@ const (
 	AccountRename     = "account.rename"
 	AccountSetCluster = "account.set_cluster"
 	AccountDelete     = "account.delete"
-	ProfileUpdate     = "profile.update"
+
+	BillingRecoverAliases        = "billing.recover_aliases"
+	BillingRegisterMetronome     = "billing.register_metronome"
+	ObservabilityRecoverLangfuse = "observability.recover_langfuse"
+	ObservabilityRecoverBifrost  = "observability.recover_bifrost"
+	ProfileUpdate                = "profile.update"
 
 	MemberAdd        = "member.add"
 	MemberUpdateRole = "member.update_role"

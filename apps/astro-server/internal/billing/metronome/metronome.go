@@ -81,6 +81,15 @@ func (p *Provider) SetIngestAliases(ctx context.Context, customerID string, alia
 	return nil
 }
 
+// GetIngestAliases returns the customer's current ingest aliases.
+func (p *Provider) GetIngestAliases(ctx context.Context, customerID string) ([]string, error) {
+	resp, err := p.mc.V1.Customers.Get(ctx, metronome.V1CustomerGetParams{CustomerID: customerID})
+	if err != nil {
+		return nil, fmt.Errorf("metronome get customer: %w", err)
+	}
+	return resp.Data.IngestAliases, nil
+}
+
 // DeleteCustomer archives the customer (Metronome has no hard delete).
 func (p *Provider) DeleteCustomer(ctx context.Context, customerID string) error {
 	_, err := p.mc.V1.Customers.Archive(ctx, metronome.V1CustomerArchiveParams{

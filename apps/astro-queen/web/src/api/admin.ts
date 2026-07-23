@@ -6,6 +6,11 @@ import type {
   ListDeploymentsResponse,
   GetDeploymentResponse,
   ListAccountsResponse,
+  GetAccountResponse,
+  MetronomeAliasStatus,
+  RegisterAccountMetronomeResponse,
+  RecoverAccountLangfuseResponse,
+  RecoverAccountBifrostResponse,
   ListBlueprintsResponse,
   GetBlueprintBuildsResponse,
   ClusterStatusResponse,
@@ -100,6 +105,113 @@ export function useAccounts() {
   });
 }
 
+export function useAccount(id: string) {
+  return useQuery({
+    queryKey: adminKeys.account(id),
+    queryFn: () =>
+      api.get<GetAccountResponse>(`/api/admin/accounts/${encodeURIComponent(id)}`),
+    enabled: !!id,
+  });
+}
+
+// Live check against Metronome — enabled only when the account has a hosted
+// billing customer, since the check is a no-op otherwise.
+export function useAccountMetronomeAliases(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.accountMetronomeAliases(id),
+    queryFn: () =>
+      api.get<MetronomeAliasStatus>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/metronome-aliases`,
+      ),
+    enabled: !!id && enabled,
+  });
+}
+
+// Writes the expected ingest aliases onto the Metronome customer and returns the
+// re-checked status.
+export function useRecoverAccountMetronomeAliases() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<MetronomeAliasStatus>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/metronome-aliases/recover`,
+        {},
+      ),
+    onSuccess: (data, id) => {
+      qc.setQueryData(adminKeys.accountMetronomeAliases(id), data);
+    },
+  });
+}
+
+// Creates a Metronome customer for the account when it has none (idempotent).
+export function useRegisterAccountMetronome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RegisterAccountMetronomeResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/metronome/register`,
+        {},
+      ),
+    onSuccess: (data, id) => {
+      qc.setQueryData<GetAccountResponse>(adminKeys.account(id), (old) =>
+        old && old.billing
+          ? { ...old, billing: { ...old.billing, metronome_customer_id: data.metronome_customer_id ?? "" } }
+          : old,
+      );
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+      // A fresh customer is seeded with the ingest aliases — re-check them.
+      qc.invalidateQueries({ queryKey: adminKeys.accountMetronomeAliases(id) });
+    },
+  });
+}
+
+// Provisions the account's Langfuse project if missing (idempotent).
+export function useRecoverAccountLangfuse() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RecoverAccountLangfuseResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/langfuse/recover`,
+        {},
+      ),
+    onSuccess: (data, id) => {
+      // Reflect the new project id immediately, then reconcile.
+      qc.setQueryData<GetAccountResponse>(adminKeys.account(id), (old) =>
+        old
+          ? {
+              ...old,
+              langfuse_project_id: data.langfuse_project_id,
+              account: { ...old.account, has_langfuse: true },
+            }
+          : old,
+      );
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+    },
+  });
+}
+
+// Ensures the account's Bifrost customer exists (idempotent).
+export function useRecoverAccountBifrost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RecoverAccountBifrostResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/bifrost/recover`,
+        {},
+      ),
+    onSuccess: (data, id) => {
+      qc.setQueryData<GetAccountResponse>(adminKeys.account(id), (old) =>
+        old && old.billing
+          ? { ...old, billing: { ...old.billing, bifrost_customer_id: data.bifrost_customer_id ?? "" } }
+          : old,
+      );
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+      // A new Bifrost customer becomes a Metronome alias — re-check that too.
+      qc.invalidateQueries({ queryKey: adminKeys.accountMetronomeAliases(id) });
+    },
+  });
+}
+
 export function useRenameAccount() {
   const qc = useQueryClient();
   return useMutation({
@@ -107,8 +219,9 @@ export function useRenameAccount() {
       api.put(`/api/admin/accounts/${encodeURIComponent(id)}/rename`, {
         new_name: newName,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
     },
   });
 }
@@ -121,8 +234,9 @@ export function useSetAccountCluster() {
         `/api/admin/accounts/${encodeURIComponent(id)}/cluster`,
         { cluster_id: clusterId },
       ),
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
       qc.invalidateQueries({ queryKey: adminKeys.migrations() });
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },

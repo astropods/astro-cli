@@ -313,11 +313,65 @@ export interface AdminAccount {
   created_at: string;
   updated_at: string;
   cluster_id?: string;
+  billing_status?: string; // active | past_due | suspended; "" = never billed
 }
 
 export interface ListAccountsResponse {
   accounts: AdminAccount[];
   count: number;
+}
+
+export interface AccountBillingInfo {
+  status: string; // active | past_due | suspended; "" = never billed
+  reason: string;
+  dunning_since: string;
+  alert_active: boolean;
+  updated_at: string;
+  metronome_customer_id: string;
+  stripe_customer_id: string;
+  bifrost_customer_id: string;
+}
+
+export interface AccountResourceLimit {
+  resource: string;
+  used: number;
+  limit: number; // -1 unlimited, 0 disabled
+}
+
+export interface AccountMemberInfo {
+  user_id: string;
+  email: string;
+  created_at: string;
+  is_owner: boolean;
+}
+
+export interface GetAccountResponse {
+  account: AdminAccount;
+  billing?: AccountBillingInfo;
+  limits?: AccountResourceLimit[];
+  members?: AccountMemberInfo[];
+  langfuse_project_id?: string;
+}
+
+export interface MetronomeAliasStatus {
+  configured: boolean; // provider available and account has a Metronome customer
+  ok: boolean;
+  expected?: string[];
+  actual?: string[];
+  missing?: string[];
+  error?: string;
+}
+
+export interface RegisterAccountMetronomeResponse {
+  metronome_customer_id?: string;
+}
+
+export interface RecoverAccountLangfuseResponse {
+  langfuse_project_id?: string;
+}
+
+export interface RecoverAccountBifrostResponse {
+  bifrost_customer_id?: string;
 }
 
 export interface AdminBlueprint {

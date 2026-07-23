@@ -3,6 +3,9 @@ export const adminKeys = {
   deployments: () => [...adminKeys.all, "deployments"] as const,
   deployment: (id: string) => [...adminKeys.all, "deployment", id] as const,
   accounts: () => [...adminKeys.all, "accounts"] as const,
+  account: (id: string) => [...adminKeys.all, "account", id] as const,
+  accountMetronomeAliases: (id: string) =>
+    [...adminKeys.all, "account", id, "metronome-aliases"] as const,
   blueprints: () => [...adminKeys.all, "blueprints"] as const,
   blueprintBuilds: (account: string, name: string) =>
     [...adminKeys.all, "blueprintBuilds", account, name] as const,

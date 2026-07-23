@@ -12,7 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Check, X } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
-const FEATURE_LABELS: Record<string, string> = {
+export const FEATURE_LABELS: Record<string, string> = {
   agent_builds: "Agent Builds",
   agent_deployments: "Deployments",
   blueprints: "Blueprints",

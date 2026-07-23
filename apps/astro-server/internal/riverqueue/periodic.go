@@ -110,11 +110,11 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		// captured at auth time (login + account create); this reconcile is the
 		// safety net that fills any gaps by querying WorkOS directly.
 		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(10*time.Minute),
+			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) {
 				return MemberEmailReconcileArgs{}, &river.InsertOpts{
 					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 10 * time.Minute,
+						ByPeriod: 24 * time.Hour,
 					},
 				}
 			},

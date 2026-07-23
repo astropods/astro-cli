@@ -19,6 +19,12 @@ type AdminServiceClient interface {
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
 	RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error)
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
+	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*GetAccountResponse, error)
+	GetAccountMetronomeAliases(ctx context.Context, in *GetAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error)
+	RecoverAccountMetronomeAliases(ctx context.Context, in *RecoverAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error)
+	RegisterAccountMetronome(ctx context.Context, in *RegisterAccountMetronomeRequest, opts ...grpc.CallOption) (*RegisterAccountMetronomeResponse, error)
+	RecoverAccountLangfuse(ctx context.Context, in *RecoverAccountLangfuseRequest, opts ...grpc.CallOption) (*RecoverAccountLangfuseResponse, error)
+	RecoverAccountBifrost(ctx context.Context, in *RecoverAccountBifrostRequest, opts ...grpc.CallOption) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
 	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
@@ -118,6 +124,54 @@ func (c *adminServiceClient) RestartDeployment(ctx context.Context, in *RestartD
 func (c *adminServiceClient) ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error) {
 	out := new(ListAccountsResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAccounts", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*GetAccountResponse, error) {
+	out := new(GetAccountResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAccount", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetAccountMetronomeAliases(ctx context.Context, in *GetAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error) {
+	out := new(MetronomeAliasStatus)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAccountMetronomeAliases", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RecoverAccountMetronomeAliases(ctx context.Context, in *RecoverAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error) {
+	out := new(MetronomeAliasStatus)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RecoverAccountMetronomeAliases", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RegisterAccountMetronome(ctx context.Context, in *RegisterAccountMetronomeRequest, opts ...grpc.CallOption) (*RegisterAccountMetronomeResponse, error) {
+	out := new(RegisterAccountMetronomeResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RegisterAccountMetronome", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RecoverAccountLangfuse(ctx context.Context, in *RecoverAccountLangfuseRequest, opts ...grpc.CallOption) (*RecoverAccountLangfuseResponse, error) {
+	out := new(RecoverAccountLangfuseResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RecoverAccountLangfuse", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RecoverAccountBifrost(ctx context.Context, in *RecoverAccountBifrostRequest, opts ...grpc.CallOption) (*RecoverAccountBifrostResponse, error) {
+	out := new(RecoverAccountBifrostResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RecoverAccountBifrost", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -500,6 +554,12 @@ type AdminServiceServer interface {
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
 	RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error)
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
+	GetAccount(context.Context, *GetAccountRequest) (*GetAccountResponse, error)
+	GetAccountMetronomeAliases(context.Context, *GetAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error)
+	RecoverAccountMetronomeAliases(context.Context, *RecoverAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error)
+	RegisterAccountMetronome(context.Context, *RegisterAccountMetronomeRequest) (*RegisterAccountMetronomeResponse, error)
+	RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error)
+	RecoverAccountBifrost(context.Context, *RecoverAccountBifrostRequest) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
 	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
@@ -574,6 +634,24 @@ func (UnimplementedAdminServiceServer) RestartDeployment(context.Context, *Resta
 
 func (UnimplementedAdminServiceServer) ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAccounts not implemented")
+}
+func (UnimplementedAdminServiceServer) GetAccount(context.Context, *GetAccountRequest) (*GetAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccount not implemented")
+}
+func (UnimplementedAdminServiceServer) GetAccountMetronomeAliases(context.Context, *GetAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountMetronomeAliases not implemented")
+}
+func (UnimplementedAdminServiceServer) RecoverAccountMetronomeAliases(context.Context, *RecoverAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecoverAccountMetronomeAliases not implemented")
+}
+func (UnimplementedAdminServiceServer) RegisterAccountMetronome(context.Context, *RegisterAccountMetronomeRequest) (*RegisterAccountMetronomeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterAccountMetronome not implemented")
+}
+func (UnimplementedAdminServiceServer) RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecoverAccountLangfuse not implemented")
+}
+func (UnimplementedAdminServiceServer) RecoverAccountBifrost(context.Context, *RecoverAccountBifrostRequest) (*RecoverAccountBifrostResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecoverAccountBifrost not implemented")
 }
 
 func (UnimplementedAdminServiceServer) RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error) {
@@ -858,6 +936,96 @@ func _AdminService_ListAccounts_Handler(srv interface{}, ctx context.Context, de
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAccounts"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).ListAccounts(ctx, req.(*ListAccountsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAccount"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAccount(ctx, req.(*GetAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetAccountMetronomeAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountMetronomeAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAccountMetronomeAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAccountMetronomeAliases"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAccountMetronomeAliases(ctx, req.(*GetAccountMetronomeAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RecoverAccountMetronomeAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecoverAccountMetronomeAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RecoverAccountMetronomeAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RecoverAccountMetronomeAliases"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RecoverAccountMetronomeAliases(ctx, req.(*RecoverAccountMetronomeAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RegisterAccountMetronome_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterAccountMetronomeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RegisterAccountMetronome(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RegisterAccountMetronome"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RegisterAccountMetronome(ctx, req.(*RegisterAccountMetronomeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RecoverAccountLangfuse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecoverAccountLangfuseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RecoverAccountLangfuse(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RecoverAccountLangfuse"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RecoverAccountLangfuse(ctx, req.(*RecoverAccountLangfuseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RecoverAccountBifrost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecoverAccountBifrostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RecoverAccountBifrost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RecoverAccountBifrost"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RecoverAccountBifrost(ctx, req.(*RecoverAccountBifrostRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1563,6 +1731,12 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
 		{MethodName: "RestartDeployment", Handler: _AdminService_RestartDeployment_Handler},
 		{MethodName: "ListAccounts", Handler: _AdminService_ListAccounts_Handler},
+		{MethodName: "GetAccount", Handler: _AdminService_GetAccount_Handler},
+		{MethodName: "GetAccountMetronomeAliases", Handler: _AdminService_GetAccountMetronomeAliases_Handler},
+		{MethodName: "RecoverAccountMetronomeAliases", Handler: _AdminService_RecoverAccountMetronomeAliases_Handler},
+		{MethodName: "RegisterAccountMetronome", Handler: _AdminService_RegisterAccountMetronome_Handler},
+		{MethodName: "RecoverAccountLangfuse", Handler: _AdminService_RecoverAccountLangfuse_Handler},
+		{MethodName: "RecoverAccountBifrost", Handler: _AdminService_RecoverAccountBifrost_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
 		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},

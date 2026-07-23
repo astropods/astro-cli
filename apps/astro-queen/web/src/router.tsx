@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 import { AppShell } from "@/components/layout/app-shell";
 
 import { AccountsPage } from "@/pages/accounts";
+import { AccountDetailPage } from "@/pages/account-detail";
 import { DeploymentsPage } from "@/pages/deployments";
 import { DeploymentDetailPage } from "@/pages/deployment-detail";
 import { BlueprintsPage } from "@/pages/blueprints";
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/admin/deployments" replace /> },
       { path: "admin/accounts", element: <AccountsPage /> },
+      { path: "admin/accounts/:id", element: <AccountDetailPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
       { path: "admin/blueprints", element: <BlueprintsPage /> },

@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Users,
   Bot,
-
   Wifi,
   Send,
   Waves,
@@ -14,155 +13,80 @@ import {
   Globe,
   MessageSquare,
   ExternalLink,
-  ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { useEnv } from "@/api/admin";
 
-const sections = [
-  {
-    key: "admin",
-    label: "Admin",
-    links: [
-      { to: "/admin/quota-requests", label: "Quota Requests", icon: ArrowUpCircle },
-      { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
-      { to: "/admin/accounts", label: "Accounts", icon: Users },
-      { to: "/admin/migrations", label: "Migrations", icon: ArrowLeftRight },
-      { to: "/admin/clusters", label: "Clusters", icon: Globe },
-      { to: "/admin/blueprints", label: "Blueprints", icon: Bot },
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  external?: boolean;
+};
 
-      { to: "/admin/devices", label: "Devices", icon: Wifi },
-      { to: "/admin/api-client", label: "API Client", icon: Send },
-      { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
-      { to: "/admin/jobs", label: "Jobs", icon: Waves },
-    ],
-  },
+const links: NavItem[] = [
+  { to: "/admin/accounts", label: "Accounts", icon: Users },
+  { to: "/admin/quota-requests", label: "Quota Requests", icon: ArrowUpCircle },
+  { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
+  { to: "/admin/clusters", label: "Clusters", icon: Globe },
+  { to: "/admin/migrations", label: "Migrations", icon: ArrowLeftRight },
+  { to: "/admin/blueprints", label: "Blueprints", icon: Bot },
+  { to: "/admin/devices", label: "Devices", icon: Wifi },
+  { to: "/admin/feedback", label: "Feedback", icon: MessageSquare },
+  { to: "/admin/jobs", label: "Jobs", icon: Waves },
+  { to: "/admin/api-client", label: "API Client", icon: Send },
 ];
 
-function TreeSection({
-  section,
-  open,
-  onToggle,
-  collapsed,
-}: {
-  section: (typeof sections)[number] & { homeTo?: string };
-  open: boolean;
-  onToggle: () => void;
-  collapsed: boolean;
-}) {
-  if (collapsed) {
+function NavRow({ link, collapsed }: { link: NavItem; collapsed: boolean }) {
+  if (link.external) {
     return (
-      <div className="flex flex-col items-center gap-1">
-        {section.links.map((link) =>
-          "external" in link && link.external ? (
-            <a
-              key={link.to}
-              href={link.to}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={link.label}
-              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-glass-light hover:text-foreground transition-colors"
-            >
-              <link.icon className="size-3.5" />
-            </a>
-          ) : (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              title={link.label}
-              className={({ isActive }) =>
-                cn(
-                  "flex size-7 items-center justify-center rounded transition-colors",
-                  isActive
-                    ? "bg-pollen/80 text-honey-dark"
-                    : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
-                )
-              }
-            >
-              <link.icon className="size-3.5" />
-            </NavLink>
-          )
+      <a
+        href={link.to}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={collapsed ? link.label : undefined}
+        className={cn(
+          "flex items-center rounded text-muted-foreground hover:bg-glass-light hover:text-foreground transition-colors",
+          collapsed
+            ? "size-7 justify-center"
+            : "gap-1.5 px-1.5 py-[3px] text-xs"
         )}
-      </div>
+      >
+        <link.icon className={collapsed ? "size-3.5" : "size-3 shrink-0"} />
+        {!collapsed && (
+          <>
+            {link.label}
+            <ExternalLink className="ml-auto size-2.5 opacity-50" />
+          </>
+        )}
+      </a>
     );
   }
 
   return (
-    <div>
-      <div className="flex items-center gap-0.5">
-        <button
-          onClick={onToggle}
-          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronRight
-            className={cn("size-3 transition-transform", open && "rotate-90")}
-          />
-        </button>
-        {section.homeTo ? (
-          <NavLink
-            to={section.homeTo}
-            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {section.label}
-          </NavLink>
-        ) : (
-          <button
-            onClick={onToggle}
-            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {section.label}
-          </button>
-        )}
-      </div>
-      {open && (
-        <nav className="ml-1.5 border-l border-glass-border-honey pl-2 mt-0.5">
-          {section.links.map((link) =>
-            "external" in link && link.external ? (
-              <a
-                key={link.to}
-                href={link.to}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded px-1.5 py-[3px] text-xs text-muted-foreground hover:bg-glass-light hover:text-foreground transition-colors"
-              >
-                <link.icon className="size-3 shrink-0" />
-                {link.label}
-                <ExternalLink className="ml-auto size-2.5 opacity-50" />
-              </a>
-            ) : (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-1.5 rounded px-1.5 py-[3px] text-xs transition-colors",
-                    isActive
-                      ? "bg-pollen/80 text-honey-dark"
-                      : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
-                  )
-                }
-              >
-                <link.icon className="size-3 shrink-0" />
-                {link.label}
-              </NavLink>
-            )
-          )}
-        </nav>
-      )}
-    </div>
+    <NavLink
+      to={link.to}
+      title={collapsed ? link.label : undefined}
+      className={({ isActive }) =>
+        cn(
+          "flex items-center rounded transition-colors",
+          collapsed ? "size-7 justify-center" : "gap-1.5 px-1.5 py-[3px] text-xs",
+          isActive
+            ? "bg-pollen/80 text-honey-dark"
+            : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
+        )
+      }
+    >
+      <link.icon className={collapsed ? "size-3.5" : "size-3 shrink-0"} />
+      {!collapsed && link.label}
+    </NavLink>
   );
 }
 
 export function AppShell() {
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    admin: true,
-  });
   const [collapsed, setCollapsed] = useState(false);
   const { data: envData } = useEnv();
-
-  const toggle = (key: string) =>
-    setOpenSections((s) => ({ ...s, [key]: !s[key] }));
 
   return (
     <div className="flex h-screen">
@@ -189,17 +113,16 @@ export function AppShell() {
             {collapsed ? <PanelLeftOpen className="size-3.5" /> : <PanelLeftClose className="size-3.5" />}
           </button>
         </div>
-        <div className={cn("flex flex-1 flex-col gap-3 overflow-y-auto", !collapsed && "px-1")}>
-          {sections.map((s) => (
-            <TreeSection
-              key={s.key}
-              section={s}
-              open={openSections[s.key] ?? true}
-              onToggle={() => toggle(s.key)}
-              collapsed={collapsed}
-            />
+        <nav
+          className={cn(
+            "flex flex-1 flex-col overflow-y-auto",
+            collapsed ? "items-center gap-1" : "gap-0.5 px-1"
+          )}
+        >
+          {links.map((link) => (
+            <NavRow key={link.to} link={link} collapsed={collapsed} />
           ))}
-        </div>
+        </nav>
         {!collapsed && (
           <div className="mt-2 border-t border-glass-border-honey px-1 pt-2">
             <p className="text-[9px] text-muted-foreground">astro admin toolkit</p>

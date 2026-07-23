@@ -44,6 +44,13 @@ func NewProvisioner(client *Client, customers CustomerStore, aliaser BillingAlia
 	return &Provisioner{client: client, customers: customers, aliaser: aliaser}
 }
 
+// EnsureCustomer resolves (and provisions if missing) the account's Bifrost
+// customer, returning the customer id. Idempotent — safe to call for repair from
+// admin tooling without minting any virtual key.
+func (p *Provisioner) EnsureCustomer(ctx context.Context, accountID string) (string, error) {
+	return p.ensureCustomer(ctx, accountID)
+}
+
 // ensureCustomer resolves the account's Bifrost customer id, creating the
 // customer (with the per-account budget) on first use and persisting the id on
 // the account. The budget lives on the customer, so every VK under it shares

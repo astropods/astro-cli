@@ -34,6 +34,11 @@ func (p *Provider) SetIngestAliases(ctx context.Context, customerID string, alia
 	return nil
 }
 
+// GetIngestAliases reports no customer records; OSS keeps none.
+func (p *Provider) GetIngestAliases(ctx context.Context, customerID string) ([]string, error) {
+	return nil, billing.ErrBillingUnavailable
+}
+
 // IngestUsage discards usage; OSS is unmetered.
 func (p *Provider) IngestUsage(ctx context.Context, events []billing.UsageEvent) error { return nil }
 

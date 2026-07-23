@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   useJobKinds,
@@ -21,7 +21,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { formatApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { AlertTriangle, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 const PAGE_SIZE = 25;
 
@@ -83,25 +83,22 @@ function ErrorNotice({ label, error }: { label: string; error: unknown }) {
   );
 }
 
-function StatCard({ label, value, warn, onClick }: { label: string; value: number; warn?: boolean; onClick?: () => void }) {
+function StatCard({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      className="glass rounded px-3 py-2 text-center min-w-[80px] transition-all hover:ring-1 hover:ring-glass-border-honey"
-    >
+    <div className="glass rounded px-3 py-2 text-center min-w-[80px]">
       <div className={cn("text-lg font-mono font-semibold leading-tight", warn && value > 0 ? "text-red-600" : "")}>{value}</div>
       <div className="text-[10px] text-muted-foreground capitalize">{label}</div>
-    </button>
+    </div>
   );
 }
 
-function ExpandedJob({ job }: { job: AdminJob }) {
+function ExpandedJob({ job, colSpan }: { job: AdminJob; colSpan: number }) {
   const { data: detail, isLoading } = useAdminJob(job.id);
   const errors = detail?.errors ?? job.errors;
 
   return (
     <tr>
-      <td colSpan={8} className="bg-pollen-light px-4 py-3">
+      <td colSpan={colSpan} className="bg-pollen-light px-4 py-3">
         <div className="space-y-2 text-xs">
           <div>
             <span className="font-medium text-muted-foreground">Args</span>
@@ -175,85 +172,169 @@ function TriggerModal({ kindInfo, onClose }: { kindInfo: JobKindInfo; onClose: (
   );
 }
 
+// Per-worker job history: the state filter + paginated job list for a single kind,
+// with retry/cancel actions and expandable args/errors. Replaces the old global
+// History tab so history is always scoped to the worker you're looking at.
+function WorkerHistory({ kind, anchorJobId }: { kind: string; anchorJobId?: number | null }) {
+  const [stateFilter, setStateFilter] = useState(() => (anchorJobId != null ? "all" : "completed"));
+  const [cursors, setCursors] = useState<HistoryCursor[]>([]);
+  const [expandedId, setExpandedId] = useState<number | null>(anchorJobId ?? null);
+  const highlightRef = useRef<HTMLTableRowElement | null>(null);
+
+  const currentCursor = cursors[cursors.length - 1] ?? (anchorJobId != null ? { anchorId: anchorJobId } : {});
+  const jobsQuery = useAdminJobs({
+    state: stateFilter === "all" ? "" : stateFilter,
+    kinds: [kind],
+    limit: PAGE_SIZE,
+    beforeId: currentCursor.beforeId,
+    anchorId: currentCursor.anchorId,
+  });
+
+  const cancelJobs = useCancelJobs();
+  const retryJobs = useRetryJobs();
+
+  const jobs = jobsQuery.data?.jobs ?? [];
+  const canGoBack = cursors.length > 0;
+  const nextBeforeID = jobsQuery.data?.next_before_id;
+  const canGoForward = Boolean(jobsQuery.data?.has_more && nextBeforeID != null);
+
+  useEffect(() => { setCursors([]); }, [stateFilter]);
+
+  useEffect(() => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [jobs]);
+
+  return (
+    <div className="space-y-2 px-4 py-3">
+      <Select value={stateFilter} onValueChange={setStateFilter}>
+        <SelectTrigger className="h-7 w-36 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">all states</SelectItem>
+          {JOB_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+        </SelectContent>
+      </Select>
+
+      {jobsQuery.isLoading ? (
+        <TableSkeleton />
+      ) : jobsQuery.error ? (
+        <ErrorNotice label="Failed to load job history" error={jobsQuery.error} />
+      ) : jobs.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No jobs match the current filter.</p>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-lg glass">
+            <table className="w-full text-xs whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-glass-border-honey glass-subtle text-left text-[10px] text-muted-foreground">
+                  <th className="px-3 py-2">ID</th>
+                  <th className="px-3 py-2">Queue</th>
+                  <th className="px-3 py-2">State</th>
+                  <th className="px-3 py-2">Created</th>
+                  <th className="px-3 py-2">Finalized</th>
+                  <th className="px-3 py-2 text-right">Attempt</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => {
+                  const isHighlight = j.id === anchorJobId;
+                  const isExpanded = expandedId === j.id;
+                  return [
+                    <tr
+                      key={j.id}
+                      ref={isHighlight ? highlightRef : undefined}
+                      onClick={() => setExpandedId(isExpanded ? null : j.id)}
+                      className={cn(
+                        "cursor-pointer border-b border-glass-border-honey/40 last:border-0 hover:bg-pollen-light/40 transition-colors",
+                        isHighlight ? "bg-amber-100/60" : "",
+                        isExpanded ? "bg-pollen-light/60" : "",
+                      )}
+                    >
+                      <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground">{j.id}</td>
+                      <td className="px-3 py-1.5 font-mono">{j.queue}</td>
+                      <td className="px-3 py-1.5">
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", stateBadgeClass(j.state))}>{j.state}</span>
+                      </td>
+                      <td className="px-3 py-1.5">{formatRelative(j.created_at)}</td>
+                      <td className="px-3 py-1.5">{formatRelative(j.finalized_at)}</td>
+                      <td className="px-3 py-1.5 text-right">{j.attempt}/{j.max_attempts}</td>
+                      <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          {(j.state === "discarded" || j.state === "cancelled") && (
+                            <Button size="sm" variant="outline" className="h-5 px-2 text-[10px]" onClick={() => retryJobs.mutate([j.id])}>Retry</Button>
+                          )}
+                          {(j.state === "available" || j.state === "scheduled" || j.state === "pending") && (
+                            <Button size="sm" variant="outline" className="h-5 px-2 text-[10px]" onClick={() => { if (confirm(`Cancel job ${j.id}?`)) cancelJobs.mutate([j.id]); }}>Cancel</Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>,
+                    isExpanded ? <ExpandedJob key={`${j.id}-exp`} job={j} colSpan={7} /> : null,
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {(canGoBack || canGoForward) && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Page {cursors.length + 1} ({jobs.length} jobs)</span>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" disabled={!canGoBack} onClick={() => setCursors((c) => c.slice(0, -1))} className="size-6">
+                  <ChevronLeft className="size-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" disabled={!canGoForward} onClick={() => nextBeforeID != null && setCursors((c) => [...c, { beforeId: nextBeforeID }])} className="size-6">
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function JobsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightJob = searchParams.get("job");
   const parsedHighlightJobID = highlightJob ? Number(highlightJob) : null;
   const highlightJobID =
     parsedHighlightJobID != null && Number.isFinite(parsedHighlightJobID) ? parsedHighlightJobID : null;
-  const activeTab = searchParams.get("tab") ?? (highlightJob ? "history" : "overview");
+  const activeTab = searchParams.get("tab") ?? (highlightJob ? "workers" : "overview");
 
-  const [stateFilter, setStateFilter] = useState(() => (highlightJobID != null ? "all" : "completed")); // "all" = no filter
-  const [kindFilter, setKindFilter] = useState("");
-  const [queueFilter, setQueueFilter] = useState("");
-  const [historyCursors, setHistoryCursors] = useState<HistoryCursor[]>([]);
-  const [expandedId, setExpandedId] = useState<number | null>(highlightJobID);
+  const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [triggerKind, setTriggerKind] = useState<JobKindInfo | null>(null);
-  const highlightRef = useRef<HTMLTableRowElement | null>(null);
 
   const jobKindsQuery = useJobKinds();
   const jobStatesQuery = useJobStates();
   const adminQueuesQuery = useAdminQueues();
   const runningJobsQuery = useAdminJobs({ state: "running", limit: 100 });
-  const currentHistoryCursor = historyCursors[historyCursors.length - 1] ?? (highlightJobID != null ? { anchorId: highlightJobID } : {});
-  const allJobsQuery = useAdminJobs({
-    state: stateFilter === "all" ? "" : (stateFilter || "completed"),
-    kinds: kindFilter ? [kindFilter] : undefined,
-    queue: queueFilter || undefined,
-    limit: PAGE_SIZE,
-    beforeId: currentHistoryCursor.beforeId,
-    anchorId: currentHistoryCursor.anchorId,
-  });
   const recentJobsQuery = useAdminJobs({ state: "completed", limit: 200 });
+
+  // Deep-links land as ?job=<id>; resolve the job's kind so we can auto-expand
+  // that worker's history and highlight the row inside it.
+  const highlightJobDetail = useAdminJob(highlightJobID);
+  const highlightKind = highlightJobDetail.data?.kind ?? null;
 
   const kinds = jobKindsQuery.data;
   const states = jobStatesQuery.data;
   const queues = adminQueuesQuery.data;
   const runningJobs = runningJobsQuery.data?.jobs;
-  const allJobs = allJobsQuery.data?.jobs;
   const recentJobs = recentJobsQuery.data?.jobs;
 
   const pauseQueue = usePauseQueue();
   const resumeQueue = useResumeQueue();
   const cancelJobs = useCancelJobs();
-  const retryJobs = useRetryJobs();
-  const mutationError = pauseQueue.error ?? resumeQueue.error ?? cancelJobs.error ?? retryJobs.error;
-
-  const pageData = useMemo(() => allJobs ?? [], [allJobs]);
-  const canGoBack = historyCursors.length > 0;
-  const nextBeforeID = allJobsQuery.data?.next_before_id;
-  const canGoForward = Boolean(allJobsQuery.data?.has_more && nextBeforeID != null);
+  const mutationError = pauseQueue.error ?? resumeQueue.error ?? cancelJobs.error;
 
   useEffect(() => {
-    if (highlightJobID != null) {
-      setStateFilter("all");
-    }
-    setExpandedId(highlightJobID);
-  }, [highlightJobID]);
-
-  useEffect(() => { setHistoryCursors([]); }, [stateFilter, kindFilter, queueFilter, highlightJobID]);
-
-  useEffect(() => {
-    if (highlightRef.current) {
-      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [allJobs]);
-
-  const queueNames = useMemo(() => {
-    const fromQueues = (queues ?? []).map((q) => q.name);
-    const fromJobs = [...new Set((allJobs ?? []).map((j) => j.queue))];
-    return [...new Set([...fromQueues, ...fromJobs])].sort();
-  }, [queues, allJobs]);
-
-  const goToOlderJobs = () => {
-    if (nextBeforeID != null) {
-      setHistoryCursors((cursors) => [...cursors, { beforeId: nextBeforeID }]);
-    }
-  };
-
-  const goToNewerJobs = () => {
-    setHistoryCursors((cursors) => cursors.slice(0, -1));
-  };
+    if (highlightKind) setExpandedKind(highlightKind);
+  }, [highlightKind]);
 
   const setTab = (tab: string) => {
     const next = new URLSearchParams(searchParams);
@@ -261,7 +342,6 @@ export function JobsPage() {
     else next.set("tab", tab);
     setSearchParams(next, { replace: true });
   };
-
 
   return (
     <div className="space-y-4">
@@ -271,12 +351,11 @@ export function JobsPage() {
       <Tabs value={activeTab} onValueChange={setTab}>
         <TabsList variant="line">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="running">
-            Running {runningJobs && runningJobs.length > 0 ? `(${runningJobs.length})` : ""}
-          </TabsTrigger>
           <TabsTrigger value="workers">
             Workers {kinds ? `(${kinds.length})` : ""}
+          </TabsTrigger>
+          <TabsTrigger value="running">
+            Running {runningJobs && runningJobs.length > 0 ? `(${runningJobs.length})` : ""}
           </TabsTrigger>
         </TabsList>
 
@@ -297,7 +376,6 @@ export function JobsPage() {
                     label={s}
                     value={states[s as keyof typeof states]}
                     warn={s === "discarded"}
-                    onClick={() => { setStateFilter(s); setTab("history"); }}
                   />
                 ))}
               </div>
@@ -348,130 +426,6 @@ export function JobsPage() {
               </div>
             )}
           </div>
-        </TabsContent>
-
-        {/* History tab */}
-        <TabsContent value="history" className="space-y-3 mt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={stateFilter} onValueChange={(v) => setStateFilter(v)}>
-              <SelectTrigger className="h-7 w-36 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">all</SelectItem>
-                {JOB_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Select value={kindFilter || "_all"} onValueChange={(v) => setKindFilter(v === "_all" ? "" : v)}>
-              <SelectTrigger className="h-7 w-52 text-xs">
-                <SelectValue placeholder="All kinds" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_all">All kinds</SelectItem>
-                {(kinds ?? []).map((k) => <SelectItem key={k.kind} value={k.kind}>{k.kind}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Select value={queueFilter || "_all"} onValueChange={(v) => setQueueFilter(v === "_all" ? "" : v)}>
-              <SelectTrigger className="h-7 w-36 text-xs">
-                <SelectValue placeholder="All queues" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_all">All queues</SelectItem>
-                {queueNames.map((q) => <SelectItem key={q} value={q}>{q}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            {(kindFilter || queueFilter) && (
-              <button
-                onClick={() => { setKindFilter(""); setQueueFilter(""); }}
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3" /> Clear
-              </button>
-            )}
-          </div>
-
-          {allJobsQuery.isLoading ? (
-            <TableSkeleton />
-          ) : allJobsQuery.error ? (
-            <ErrorNotice label="Failed to load job history" error={allJobsQuery.error} />
-          ) : pageData.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No jobs match the current filters.</p>
-          ) : (
-            <>
-              <div className="overflow-x-auto rounded-lg glass">
-                <table className="w-full text-xs whitespace-nowrap">
-                  <thead>
-                    <tr className="border-b border-glass-border-honey glass-subtle text-left text-[10px] text-muted-foreground">
-                      <th className="px-3 py-2">ID</th>
-                      <th className="px-3 py-2">Kind</th>
-                      <th className="px-3 py-2">Queue</th>
-                      <th className="px-3 py-2">State</th>
-                      <th className="px-3 py-2">Created</th>
-                      <th className="px-3 py-2">Finalized</th>
-                      <th className="px-3 py-2 text-right">Attempt</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageData.map((j) => {
-                      const isHighlight = String(j.id) === highlightJob;
-                      const isExpanded = expandedId === j.id;
-                      return [
-                        <tr
-                          key={j.id}
-                          ref={isHighlight ? highlightRef : undefined}
-                          onClick={() => setExpandedId(isExpanded ? null : j.id)}
-                          className={cn(
-                            "cursor-pointer border-b border-glass-border-honey/40 last:border-0 hover:bg-pollen-light/40 transition-colors",
-                            isHighlight ? "bg-amber-100/60" : "",
-                            isExpanded ? "bg-pollen-light/60" : "",
-                          )}
-                        >
-                          <td className="px-3 py-1.5 font-mono text-[10px] text-muted-foreground">{j.id}</td>
-                          <td className="px-3 py-1.5 font-mono">{j.kind}</td>
-                          <td className="px-3 py-1.5 font-mono">{j.queue}</td>
-                          <td className="px-3 py-1.5">
-                            <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", stateBadgeClass(j.state))}>{j.state}</span>
-                          </td>
-                          <td className="px-3 py-1.5">{formatRelative(j.created_at)}</td>
-                          <td className="px-3 py-1.5">{formatRelative(j.finalized_at)}</td>
-                          <td className="px-3 py-1.5 text-right">{j.attempt}/{j.max_attempts}</td>
-                          <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1">
-                              {(j.state === "discarded" || j.state === "cancelled" || j.state === "completed") && (
-                                <Button size="sm" variant="outline" className="h-5 px-2 text-[10px]" onClick={() => retryJobs.mutate([j.id])}>Retry</Button>
-                              )}
-                              {(j.state === "available" || j.state === "scheduled" || j.state === "pending") && (
-                                <Button size="sm" variant="outline" className="h-5 px-2 text-[10px]" onClick={() => { if (confirm(`Cancel job ${j.id}?`)) cancelJobs.mutate([j.id]); }}>Cancel</Button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>,
-                        isExpanded ? <ExpandedJob key={`${j.id}-exp`} job={j} /> : null,
-                      ];
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {(canGoBack || canGoForward) && (
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Page {historyCursors.length + 1} ({pageData.length} jobs)</span>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" disabled={!canGoBack} onClick={goToNewerJobs} className="size-6">
-                      <ChevronLeft className="size-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" disabled={!canGoForward} onClick={goToOlderJobs} className="size-6">
-                      <ChevronRight className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
         </TabsContent>
 
         {/* Running tab */}
@@ -536,6 +490,7 @@ export function JobsPage() {
                 <table className="w-full text-xs whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-glass-border-honey glass-subtle text-left text-[10px] text-muted-foreground">
+                      <th className="px-3 py-2 w-4" />
                       <th className="px-3 py-2">Kind</th>
                       <th className="px-3 py-2">Queue (recent)</th>
                       <th className="px-3 py-2">Last seen</th>
@@ -545,25 +500,39 @@ export function JobsPage() {
                   <tbody>
                     {kinds.map((kindInfo) => {
                       const recent = (recentJobs ?? []).find((j) => j.kind === kindInfo.kind);
-                      return (
-                        <tr key={kindInfo.kind} className="border-b border-glass-border-honey/40 last:border-0">
-                          <td className="px-3 py-1.5">
-                            <button
-                              className="font-mono text-honey-dark hover:underline"
-                              onClick={() => { setKindFilter(kindInfo.kind); setTab("history"); }}
-                            >
-                              {kindInfo.kind}
-                            </button>
+                      const isExpanded = expandedKind === kindInfo.kind;
+                      return [
+                        <tr
+                          key={kindInfo.kind}
+                          onClick={() => setExpandedKind(isExpanded ? null : kindInfo.kind)}
+                          className={cn(
+                            "cursor-pointer border-b border-glass-border-honey/40 last:border-0 hover:bg-pollen-light/40 transition-colors",
+                            isExpanded ? "bg-pollen-light/60" : "",
+                          )}
+                        >
+                          <td className="px-3 py-1.5 text-muted-foreground">
+                            <ChevronDown className={cn("size-3.5 transition-transform", isExpanded ? "" : "-rotate-90")} />
                           </td>
+                          <td className="px-3 py-1.5 font-mono text-honey-dark">{kindInfo.kind}</td>
                           <td className="px-3 py-1.5 font-mono text-muted-foreground">{recent?.queue ?? "—"}</td>
                           <td className="px-3 py-1.5 text-muted-foreground">{recent ? formatRelative(recent.created_at) : "—"}</td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
                             <Button size="sm" variant="outline" className="h-5 px-2 text-[10px]" onClick={() => setTriggerKind(kindInfo)}>
                               Trigger
                             </Button>
                           </td>
-                        </tr>
-                      );
+                        </tr>,
+                        isExpanded ? (
+                          <tr key={`${kindInfo.kind}-hist`}>
+                            <td colSpan={5} className="bg-pollen-light/30 p-0">
+                              <WorkerHistory
+                                kind={kindInfo.kind}
+                                anchorJobId={highlightKind === kindInfo.kind ? highlightJobID : null}
+                              />
+                            </td>
+                          </tr>
+                        ) : null,
+                      ];
                     })}
                   </tbody>
                 </table>

@@ -168,7 +168,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		emails:       memberEmailStore,
 		log:          log,
 	})
-	log.Info("river: registered worker", "worker", "MemberEmailReconcileWorker", "period", "10m")
+	log.Info("river: registered worker", "worker", "MemberEmailReconcileWorker", "period", "24h")
 
 	store := deploymentstore.NewStore(cfg.DB)
 
