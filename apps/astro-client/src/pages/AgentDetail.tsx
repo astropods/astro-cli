@@ -10,7 +10,7 @@ import { AgentStatusToggle } from "@/components/agent-detail/AgentStatusToggle";
 import { useDeployment, useDeployments, useDeploymentRuntime, useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentRuntime } from "@/lib/api";
 import { chatDeploymentPath } from "@/lib/routes";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, PackageX } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { getLaunchDisabledMessage, isChatListEligible, withLatestBuildId } from "@/lib/deployment-utils";
@@ -61,7 +61,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { account, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const location = useLocation();
   const isConfigureTab = location.pathname.endsWith("/configure");
-  const { data } = useDeployment(deploymentId ?? "", true, {
+  const { data, isLoading } = useDeployment(deploymentId ?? "", true, {
     initialData: loaderData.deployment
       ? { deployment: loaderData.deployment }
       : undefined,
@@ -87,6 +87,9 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const context: AgentDetailContext | null = deployment
     ? { deployment, runtime, account: account ?? "", deploymentId: deploymentId ?? "" }
     : null;
+  // Deleted/unknown deployment: the record 404s and no context can be built.
+  // Show a not-found state instead of handing child tabs a null context (crash).
+  const notFound = !deployment && !isLoading;
 
   return (
     <div key={deploymentId} className="relative -mt-px min-h-0 flex-1">
@@ -155,9 +158,30 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         )}
       </header>
       <div className="relative z-10 flex min-h-0 flex-1">
-        <Outlet context={context} />
+        {context ? (
+          <Outlet context={context} />
+        ) : notFound ? (
+          <DeploymentNotFound />
+        ) : null}
       </div>
     </div>
+    </div>
+  );
+}
+
+function DeploymentNotFound() {
+  return (
+    <div className="pointer-events-auto z-10 flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <PackageX className="size-10 text-muted-foreground" aria-hidden />
+      <div className="space-y-1">
+        <h1 className="text-heading-4 text-foreground">Deployment not found</h1>
+        <p className="text-body-sm text-muted-foreground">
+          This agent may have been deleted or is no longer available.
+        </p>
+      </div>
+      <Button asChild variant="outline" size="sm">
+        <Link to="/agents">Back to agents</Link>
+      </Button>
     </div>
   );
 }
