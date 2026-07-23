@@ -475,13 +475,18 @@ func (c *Controller) persistRuntimeSnapshot(ctx context.Context, w *clusterWatch
 //   - any workload failed                       → failed
 //   - otherwise                                 → leave it (still deploying)
 //
-// Transitions fire only on an actual phase change, so a healthy deployment
-// re-synced every resync does not spam deployment_events.
+// failed is drivable, not terminal: the verdict comes from live observation, so
+// a deployment whose pods later recover (crash loop settles, a fixed image gets
+// pulled) is driven failed → active on the next sync. Transitions fire only on
+// an actual phase change, so a healthy deployment re-synced every resync does
+// not spam deployment_events.
 func (c *Controller) driveLifecycle(dep *deploymentstore.Deployment, observed []deploymentstore.WorkloadStatus) error {
-	// Only deploying (worker handed off) and active (post-deploy regression) are
-	// drivable. pending/provisioning are the worker's; stopped/undeploying/
-	// undeployed/failed are terminal/hands-off.
-	if dep.Status != deploymentstore.StatusDeploying && dep.Status != deploymentstore.StatusActive {
+	// deploying (worker handed off), active (post-deploy regression), and failed
+	// (recovery) are drivable. pending/provisioning are the worker's;
+	// stopped/undeploying/undeployed are hands-off.
+	if dep.Status != deploymentstore.StatusDeploying &&
+		dep.Status != deploymentstore.StatusActive &&
+		dep.Status != deploymentstore.StatusFailed {
 		return nil
 	}
 
@@ -504,10 +509,11 @@ func (c *Controller) driveLifecycle(dep *deploymentstore.Deployment, observed []
 			c.log.Info("deploycontroller: deployment failed", "deployment_id", dep.ID, "reason", reason)
 		}
 
-	case phase == deploymentstore.WorkloadPhaseReady && dep.Status == deploymentstore.StatusDeploying:
+	case phase == deploymentstore.WorkloadPhaseReady &&
+		(dep.Status == deploymentstore.StatusDeploying || dep.Status == deploymentstore.StatusFailed):
 		applied, err := c.store.UpdateStatusIfCurrent(dep.ID,
 			deploymentstore.StatusUpdate{Status: deploymentstore.StatusActive},
-			deploymentstore.StatusDeploying)
+			deploymentstore.StatusDeploying, deploymentstore.StatusFailed)
 		if err != nil {
 			return fmt.Errorf("mark active: %w", err)
 		}
