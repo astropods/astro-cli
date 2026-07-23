@@ -1054,32 +1054,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
 				)
-
-				// OTel ingest keys — account-scoped telemetry credential for
-				// local coding tools (e.g. Claude Code). Admin-only: the key is
-				// forced org-wide onto developer machines.
-				api.GET(accountAdmin, "/otel-keys", "List OTel ingest keys", handlers.ListOtelIngestTokens(log, ingestTokenStore, cfg),
-					oapispec.Tags("Observability"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
-				)
-				api.POST(accountAdmin, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg),
-					oapispec.Tags("Observability"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Body(&handlers.CreateOtelIngestTokenRequest{}),
-					oapispec.Response(201, &handlers.CreateOtelIngestTokenResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-				)
-				api.DELETE(accountAdmin, "/otel-keys/:tokenID", "Revoke an OTel ingest key", handlers.RevokeOtelIngestToken(log, ingestTokenStore),
-					oapispec.Tags("Observability"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("tokenID", "Ingest key ID"),
-					oapispec.Response(200, &handlers.MessageResponse{}),
-					oapispec.Response(404, &handlers.ErrorResponse{}),
-				)
 			}
 
 			// Account-scoped routes (admin or owner — org:manage).
@@ -1103,6 +1077,32 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(201, &handlers.QuotaIncreaseResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+
+				// OTel ingest keys — account-scoped telemetry credential for
+				// local coding tools (e.g. Claude Code). Requires org:manage:
+				// the key is forced org-wide onto developer machines.
+				api.GET(accountManage, "/otel-keys", "List OTel ingest keys", handlers.ListOtelIngestTokens(log, ingestTokenStore, cfg),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
+				)
+				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.CreateOtelIngestTokenRequest{}),
+					oapispec.Response(201, &handlers.CreateOtelIngestTokenResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+				api.DELETE(accountManage, "/otel-keys/:tokenID", "Revoke an OTel ingest key", handlers.RevokeOtelIngestToken(log, ingestTokenStore),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("tokenID", "Ingest key ID"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
 
 				api.GET(accountManage, "/billing/usage", "Get billing usage", handlers.GetBillingUsage(log, accountStore, billingProvider, cfg.BillingBackend()),
