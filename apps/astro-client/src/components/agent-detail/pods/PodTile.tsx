@@ -26,6 +26,13 @@ export interface PodStatusInfo {
   label: string;
 }
 
+// The server emits capitalized container states ("Running", "Waiting",
+// "Terminated"); normalize so the check is casing-independent.
+function isProblemState(state: string | undefined): boolean {
+  const s = state?.toLowerCase();
+  return s === "waiting" || s === "terminated";
+}
+
 export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatusInfo {
   if (!workload) return { status: "pending", label: "Starting" };
 
@@ -33,7 +40,7 @@ export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatus
   if (workload.kind === "CronJob") return deriveCronJobStatus(workload.status);
 
   if (!workload.containers || workload.containers.length === 0) return { status: "pending", label: "Starting" };
-  if (workload.containers.some((c) => c.state === "waiting" || c.state === "terminated")) return { status: "unhealthy", label: "Error" };
+  if (workload.containers.some((c) => isProblemState(c.state))) return { status: "unhealthy", label: "Error" };
   if (workload.containers.every((c) => c.ready)) {
     if (isFlapping(workload)) return { status: "warning", label: "Degraded" };
     return { status: "healthy", label: "Online" };
@@ -95,7 +102,7 @@ function parseAgeToHours(age?: string): number {
 function findUnhealthyContainer(workload: WorkloadDetail): string {
   const containers = workload.containers ?? [];
   const unhealthy = containers.find(
-    (c) => !c.ready || c.state === "waiting" || c.state === "terminated",
+    (c) => !c.ready || isProblemState(c.state),
   );
   return unhealthy?.name ?? containers[0]?.name ?? "";
 }
@@ -281,7 +288,12 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
   );
   const { byContainer, report } = useContainerErrors();
   if (!workload) return null;
-  const lastError = errorLogs?.[0]?.message ?? null;
+  // Prefer the container's own failure explanation (ImagePullBackOff produces no logs).
+  const statusError =
+    status === "unhealthy"
+      ? (workload.containers ?? []).find((c) => c.name === containerName)?.message ?? null
+      : null;
+  const lastError = statusError ?? errorLogs?.[0]?.message ?? null;
   // "Restarting frequently" only applies to long-running pods that are
   // flapping (isFlapping → status="warning"). Job/CronJob also use the
   // "warning" status for Suspended state, but that has no restart-count

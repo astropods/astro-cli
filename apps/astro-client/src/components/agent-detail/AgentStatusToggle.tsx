@@ -73,26 +73,31 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
 
   return (
     <div data-testid="agent-status-toggle" className="flex items-center gap-2.5">
-      <span className="inline-flex items-center gap-2">
-        {transitioning ? (
-          <Loader2 className={cn("size-3 shrink-0 animate-spin", accentClass)} />
-        ) : (
-          <span
-            className={cn(
-              "size-2 shrink-0 rounded-full",
-              errored
-                ? "bg-red-600 dark:bg-red-400"
-                : checked
-                  ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
-                  : "bg-stone-500 dark:bg-stone-400",
-            )}
-          />
-        )}
-        <span className={cn("text-body font-medium tracking-wide", accentClass)}>
-          {label}
-        </span>
-      </span>
       <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex cursor-default items-center gap-2">
+              {transitioning ? (
+                <Loader2 className={cn("size-3 shrink-0 animate-spin", accentClass)} />
+              ) : (
+                <span
+                  className={cn(
+                    "size-2 shrink-0 rounded-full",
+                    errored
+                      ? "bg-red-600 dark:bg-red-400"
+                      : checked
+                        ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
+                        : "bg-stone-500 dark:bg-stone-400",
+                  )}
+                />
+              )}
+              <span className={cn("text-body font-medium tracking-wide", accentClass)}>
+                {label}
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{statusDetails || label}</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex items-center">
@@ -106,7 +111,7 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
           <TooltipContent side="bottom">
             {transitioning
               ? (checked ? "Deploying agent…" : "Pausing agent…")
-              : statusDetails || (checked ? "Pause this agent" : "Redeploy this agent")}
+              : (checked ? "Pause this agent" : "Redeploy this agent")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

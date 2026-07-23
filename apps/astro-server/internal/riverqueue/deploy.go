@@ -60,6 +60,7 @@ type DeployWorker struct {
 	langfuseBaseURL string
 	log             *logger.Logger
 	cache           k8scache.Cache
+	reconcile       func(namespace string)
 }
 
 func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) error {
@@ -132,8 +133,12 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 	}
 	// Manifests applied. The deployment controller now drives deploying →
 	// active/failed from observed workload health and starts compute billing on
-	// the real active transition. Invalidate so the agents page reflects the
-	// deploying state immediately.
+	// the real active transition. Kick an immediate reconcile so a no-change
+	// redeploy (no informer event) doesn't wait for the resync.
+	if w.reconcile != nil {
+		w.reconcile(dep.Namespace)
+	}
+	// Invalidate so the agents page reflects the deploying state immediately.
 	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 
 	if w.langfuseStore != nil && w.datasetStore != nil {

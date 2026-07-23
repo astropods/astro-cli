@@ -629,8 +629,7 @@ export interface ContainerStatus {
   state: string;
   ready: boolean;
   restart_count: number;
-  reason?: string;
-  message?: string;
+  message?: string; // plain-language explanation when unhealthy
 }
 
 // WorkloadDetail is the JOINED view of a workload — what the page builds by
@@ -787,14 +786,17 @@ export type DeploymentStatusReason =
   | "provisioning"
   | "ready";
 
-// A workload holding the deployment in "deploying": phase "missing" (declared
-// but not yet observed) or an observed phase that isn't ready.
-export interface WaitingWorkload {
+// A workload keeping a deployment out of "active": still settling (waiting_on —
+// phase "missing" or an observed phase that isn't ready) or terminally broken
+// (failed_on — phase "failed"). message is a plain-language explanation; raw
+// K8s reason codes are never sent.
+export interface WorkloadIssue {
   workload: string;
   component?: string;
   phase: string;
-  reason?: string;
   message?: string;
+  title?: string;
+  guidance?: string;
 }
 
 // DeploymentStatus is the body of GET /deployments/:id/status (no envelope).
@@ -805,7 +807,8 @@ export interface DeploymentStatus {
   reason: DeploymentStatusReason;
   details: string;
   error_message?: string;
-  waiting_on?: WaitingWorkload[]; // set only while value === "deploying"
+  waiting_on?: WorkloadIssue[]; // set only while value === "deploying"
+  failed_on?: WorkloadIssue[]; // set only while value === "error"
 }
 
 // DeploymentRuntime is the observed-runtime view (GET /deployments/:id/runtime).

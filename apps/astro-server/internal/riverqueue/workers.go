@@ -228,6 +228,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		langfuseBaseURL: langfuseBaseURL,
 		log:             log,
 		cache:           cfg.K8sCache,
+		reconcile:       cfg.ReconcileDeployment,
 	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
 	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{

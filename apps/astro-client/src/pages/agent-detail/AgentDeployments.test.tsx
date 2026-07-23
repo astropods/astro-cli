@@ -341,11 +341,11 @@ describe("user inspects pod details", () => {
     expect(screen.queryByText("Starting")).not.toBeInTheDocument();
   });
 
-  it("General tab shows Domains and Environment Variables sections", async () => {
+  it("General tab shows Domains and Containers sections", async () => {
     const { user } = renderDeployments();
     await user.click(await screen.findByText("agent"));
     expect(await screen.findByText("Domains")).toBeInTheDocument();
-    expect(screen.getByText("Environment Variables")).toBeInTheDocument();
+    expect(screen.getByText("Containers")).toBeInTheDocument();
     expect(screen.getByText("https://agent.example.com")).toBeInTheDocument();
   });
 
@@ -399,7 +399,6 @@ describe("user inspects pod details", () => {
     );
     await user.click(await screen.findByText("agent"));
     expect(await screen.findByText("No domains configured")).toBeInTheDocument();
-    expect(screen.getByText("No environment variables")).toBeInTheDocument();
   });
 
   it("clicking close dismisses the detail panel", async () => {
@@ -478,7 +477,10 @@ describe("user views pod events", () => {
     await user.click(await screen.findByText("agent"));
     await user.click(screen.getByRole("button", { name: "Events" }));
     expect(await screen.findByText("Scheduled")).toBeInTheDocument();
-    expect(screen.getByText("Unhealthy")).toBeInTheDocument();
+    const unhealthy = screen.getByText("Unhealthy");
+    expect(unhealthy).toBeInTheDocument();
+    // The raw message lives in the expanded row detail.
+    await user.click(unhealthy);
     expect(screen.getByText("Readiness probe failed")).toBeInTheDocument();
   });
 

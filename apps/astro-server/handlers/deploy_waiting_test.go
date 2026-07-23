@@ -56,7 +56,7 @@ func TestWaitingOnFromWorkloads(t *testing.T) {
 			t.Fatalf("expected 1 waiting workload, got %+v", got)
 		}
 		if got[0].Workload != "sasbot-agent" || got[0].Phase != deploymentstore.WorkloadPhaseProgressing ||
-			got[0].Reason != "ContainerCreating" || got[0].Message != "pulling image" {
+			got[0].Message != "Starting up" {
 			t.Fatalf("unexpected waiting workload: %+v", got[0])
 		}
 	})
@@ -64,18 +64,18 @@ func TestWaitingOnFromWorkloads(t *testing.T) {
 
 func TestDeployingDetail(t *testing.T) {
 	t.Run("names missing and progressing", func(t *testing.T) {
-		got := deployingDetail([]WaitingWorkload{
+		got := deployingDetail([]WorkloadIssue{
 			{Workload: "ingest", Phase: WaitingPhaseMissing},
-			{Workload: "agent", Phase: deploymentstore.WorkloadPhaseProgressing, Reason: "ContainerCreating"},
+			{Workload: "agent", Phase: deploymentstore.WorkloadPhaseProgressing, Message: "Starting up"},
 		})
-		want := "Waiting for ingest (not yet created), agent (ContainerCreating)"
+		want := "Waiting for ingest (not yet created), agent (Starting up)"
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 
 	t.Run("elides beyond max named", func(t *testing.T) {
-		got := deployingDetail([]WaitingWorkload{
+		got := deployingDetail([]WorkloadIssue{
 			{Workload: "a", Phase: WaitingPhaseMissing},
 			{Workload: "b", Phase: WaitingPhaseMissing},
 			{Workload: "c", Phase: WaitingPhaseMissing},
@@ -89,7 +89,7 @@ func TestDeployingDetail(t *testing.T) {
 	})
 
 	t.Run("falls back to phase when no reason", func(t *testing.T) {
-		got := deployingDetail([]WaitingWorkload{
+		got := deployingDetail([]WorkloadIssue{
 			{Workload: "agent", Phase: deploymentstore.WorkloadPhaseProgressing},
 		})
 		want := "Waiting for agent (progressing)"
@@ -97,4 +97,43 @@ func TestDeployingDetail(t *testing.T) {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
+}
+
+func TestFailedWorkloads(t *testing.T) {
+	expected := []*deploymentstore.Workload{
+		wl("sasbot-agent", "agent"),
+		wl("sasbot-collector", "collector"),
+	}
+	observed := []deploymentstore.WorkloadStatus{
+		{WorkloadName: "sasbot-agent", Phase: deploymentstore.WorkloadPhaseFailed, Reason: "ImagePullBackOff", Message: "app: back-off pulling image"},
+		{WorkloadName: "sasbot-collector", Phase: deploymentstore.WorkloadPhaseReady},
+	}
+	got := failedWorkloads(expected, observed)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 failed workload, got %+v", got)
+	}
+	// The raw K8s reason is humanized; the cryptic code is never surfaced.
+	if got[0].Workload != "sasbot-agent" || got[0].Component != "agent" ||
+		got[0].Message != "Couldn't pull the container image" {
+		t.Fatalf("unexpected failed workload: %+v", got[0])
+	}
+}
+
+func TestFailedDetail(t *testing.T) {
+	got := failedDetail([]WorkloadIssue{
+		{Workload: "sasbot-agent", Phase: deploymentstore.WorkloadPhaseFailed, Message: "Couldn't pull the container image"},
+	})
+	want := "Deployment failed: sasbot-agent (Couldn't pull the container image)"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestHumanizeWorkloadReason(t *testing.T) {
+	if got := humanizeWorkloadReason("ImagePullBackOff"); got != "Couldn't pull the container image" {
+		t.Fatalf("ImagePullBackOff => %q", got)
+	}
+	if got := humanizeWorkloadReason("SomeUnknownCode"); got != "" {
+		t.Fatalf("unknown code should humanize to empty, got %q", got)
+	}
 }

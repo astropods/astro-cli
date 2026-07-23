@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +28,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
+	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -1079,8 +1079,7 @@ type ContainerStatus struct {
 	State        string `json:"state"`
 	Ready        bool   `json:"ready"`
 	RestartCount int32  `json:"restart_count"`
-	Reason       string `json:"reason,omitempty"`
-	Message      string `json:"message,omitempty"`
+	Message      string `json:"message,omitempty"` // plain-language explanation when unhealthy
 }
 
 // WorkloadDetail represents a k8s workload — Deployment, StatefulSet, Job
@@ -1231,28 +1230,60 @@ type DeploymentRecord struct {
 // rendered in tooltips / status panels.
 //
 // Live replica/ready counts and per-workload state live on the runtime
-// endpoint; this endpoint intentionally stays narrow. WaitingOn is populated
-// only while value=="deploying".
+// endpoint; this endpoint intentionally stays narrow. WaitingOn is set only
+// while value=="deploying"; FailedOn only while value=="error".
 type DeploymentStatus struct {
-	Value        string            `json:"value"`
-	Reason       string            `json:"reason"`
-	Details      string            `json:"details"`
-	ErrorMessage string            `json:"error_message,omitempty"`
-	WaitingOn    []WaitingWorkload `json:"waiting_on,omitempty"`
+	Value        string          `json:"value"`
+	Reason       string          `json:"reason"`
+	Details      string          `json:"details"`
+	ErrorMessage string          `json:"error_message,omitempty"`
+	WaitingOn    []WorkloadIssue `json:"waiting_on,omitempty"`
+	FailedOn     []WorkloadIssue `json:"failed_on,omitempty"`
 }
 
 // WaitingPhaseMissing marks a declared workload the controller has not yet
 // observed in the cluster; it is not a deploymentstore.WorkloadPhase*.
 const WaitingPhaseMissing = "missing"
 
-// WaitingWorkload is one declared workload holding the deployment in "deploying":
-// either not yet observed (Phase=="missing") or observed but not yet ready.
-type WaitingWorkload struct {
+// WorkloadIssue is one workload keeping a deployment out of "active": still
+// settling (WaitingOn — Phase "missing" or an observed phase that isn't ready)
+// or terminally broken (FailedOn — Phase "failed"). Message is a plain-language
+// explanation; raw K8s reason codes are never surfaced to clients.
+type WorkloadIssue struct {
 	Workload  string `json:"workload"`
 	Component string `json:"component,omitempty"`
 	Phase     string `json:"phase"`
-	Reason    string `json:"reason,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Guidance  string `json:"guidance,omitempty"`
+}
+
+// humanizeWorkloadReason maps a K8s reason code to a plain-language explanation.
+// Unknown codes return "" so the UI falls back to the phase — raw codes like
+// "ImagePullBackOff" are never sent to clients.
+func humanizeWorkloadReason(reason string) string {
+	switch reason {
+	case "ImagePullBackOff", "ErrImagePull":
+		return "Couldn't pull the container image"
+	case "InvalidImageName":
+		return "The container image name is invalid"
+	case "CreateContainerError", "RunContainerError":
+		return "The container failed to start"
+	case "CrashLoopBackOff":
+		return "The container keeps crashing on startup"
+	case "OOMKilled":
+		return "The container ran out of memory"
+	case "ProgressDeadlineExceeded":
+		return "Timed out waiting to become ready"
+	case "BackoffLimitExceeded":
+		return "A setup job failed"
+	case "DeadlineExceeded":
+		return "A setup job timed out"
+	case "GenerationLag", "ContainerCreating", "PodInitializing":
+		return "Starting up"
+	default:
+		return ""
+	}
 }
 
 // Stable reason codes — keep in sync with the client's DeploymentStatusReason
@@ -2097,6 +2128,15 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			if status.ErrorMessage != "" {
 				status.Details = "Deployment failed: " + status.ErrorMessage
 			}
+			// Name the workloads that failed and why, rather than a bare reason code.
+			if expected, expErr := deployStore.GetWorkloads(dbDep.ID); expErr == nil {
+				if observed, obsErr := deployStore.GetWorkloadStatuses(dbDep.ID); obsErr == nil {
+					status.FailedOn = failedWorkloads(expected, observed)
+					if len(status.FailedOn) > 0 {
+						status.Details = failedDetail(status.FailedOn)
+					}
+				}
+			}
 			c.JSON(http.StatusOK, status)
 			return
 		case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
@@ -2143,16 +2183,16 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 // waitingOnFromWorkloads mirrors deploycontroller.aggregateDeploymentPhase:
 // every declared workload that is unobserved ("missing") or observed but not yet
 // ready/complete. An empty result means the gate would pass.
-func waitingOnFromWorkloads(expected []*deploymentstore.Workload, observed []deploymentstore.WorkloadStatus) []WaitingWorkload {
+func waitingOnFromWorkloads(expected []*deploymentstore.Workload, observed []deploymentstore.WorkloadStatus) []WorkloadIssue {
 	byName := make(map[string]deploymentstore.WorkloadStatus, len(observed))
 	for _, o := range observed {
 		byName[o.WorkloadName] = o
 	}
-	var waiting []WaitingWorkload
+	var waiting []WorkloadIssue
 	for _, w := range expected {
 		o, ok := byName[w.Name]
 		if !ok {
-			waiting = append(waiting, WaitingWorkload{
+			waiting = append(waiting, WorkloadIssue{
 				Workload:  w.Name,
 				Component: w.ComponentKind,
 				Phase:     WaitingPhaseMissing,
@@ -2162,20 +2202,44 @@ func waitingOnFromWorkloads(expected []*deploymentstore.Workload, observed []dep
 		if o.Phase == deploymentstore.WorkloadPhaseReady || o.Phase == deploymentstore.WorkloadPhaseComplete {
 			continue
 		}
-		waiting = append(waiting, WaitingWorkload{
+		waiting = append(waiting, WorkloadIssue{
 			Workload:  w.Name,
 			Component: w.ComponentKind,
 			Phase:     o.Phase,
-			Reason:    o.Reason,
-			Message:   o.Message,
+			Message:   humanizeWorkloadReason(o.Reason),
 		})
 	}
 	return waiting
 }
 
+// failedWorkloads returns the observed workloads in phase "failed", carrying the
+// failure reason/message and the declared component kind.
+func failedWorkloads(expected []*deploymentstore.Workload, observed []deploymentstore.WorkloadStatus) []WorkloadIssue {
+	component := make(map[string]string, len(expected))
+	for _, w := range expected {
+		component[w.Name] = w.ComponentKind
+	}
+	var failed []WorkloadIssue
+	for _, o := range observed {
+		if o.Phase != deploymentstore.WorkloadPhaseFailed {
+			continue
+		}
+		title, guidance, _, _ := deploycontroller.HumanizeEvent(o.Reason, o.Message)
+		failed = append(failed, WorkloadIssue{
+			Workload:  o.WorkloadName,
+			Component: component[o.WorkloadName],
+			Phase:     o.Phase,
+			Message:   humanizeWorkloadReason(o.Reason),
+			Title:     title,
+			Guidance:  guidance,
+		})
+	}
+	return failed
+}
+
 // deployingDetail names up to maxNamed waiting workloads and elides the rest,
 // e.g. "Waiting for foo (not yet created), bar (ContainerCreating) and 2 more".
-func deployingDetail(waiting []WaitingWorkload) string {
+func deployingDetail(waiting []WorkloadIssue) string {
 	const maxNamed = 3
 	parts := make([]string, 0, maxNamed)
 	for i, w := range waiting {
@@ -2185,14 +2249,36 @@ func deployingDetail(waiting []WaitingWorkload) string {
 		switch {
 		case w.Phase == WaitingPhaseMissing:
 			parts = append(parts, w.Workload+" (not yet created)")
-		case w.Reason != "":
-			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Reason))
+		case w.Message != "":
+			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Message))
 		default:
 			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Phase))
 		}
 	}
 	detail := "Waiting for " + strings.Join(parts, ", ")
 	if extra := len(waiting) - maxNamed; extra > 0 {
+		detail += fmt.Sprintf(" and %d more", extra)
+	}
+	return detail
+}
+
+// failedDetail names up to maxNamed failed workloads with their reason,
+// e.g. "Deployment failed: sasbot-agent (ImagePullBackOff)".
+func failedDetail(failed []WorkloadIssue) string {
+	const maxNamed = 3
+	parts := make([]string, 0, maxNamed)
+	for i, w := range failed {
+		if i == maxNamed {
+			break
+		}
+		if w.Message != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", w.Workload, w.Message))
+		} else {
+			parts = append(parts, w.Workload)
+		}
+	}
+	detail := "Deployment failed: " + strings.Join(parts, ", ")
+	if extra := len(failed) - maxNamed; extra > 0 {
 		detail += fmt.Sprintf(" and %d more", extra)
 	}
 	return detail
@@ -2307,8 +2393,7 @@ func containerStatusesFromSnapshot(cs []deploymentstore.RuntimeContainer) []Cont
 			State:        c.State,
 			Ready:        c.Ready,
 			RestartCount: c.RestartCount,
-			Reason:       c.Reason,
-			Message:      c.Message,
+			Message:      humanizeWorkloadReason(c.Reason),
 		})
 	}
 	return out
@@ -2667,91 +2752,14 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 	}
 }
 
-// humanizeDeploymentEvent maps a Kubernetes pod event to a plain-language title,
-// guidance, and severity for the deployment Events tab and the stuck-deploy
-// banner, covering the common working, transient, and error/stuck states.
-// severity is "info" (normal progress), "transient" (self-recovering), or
-// "stuck" (needs user action); the client's stuck banner triggers on "stuck".
-// ok is false for events we have no copy for, in which case the UI falls back to
-// the raw reason/message. The message is needed to disambiguate reasons that
-// cover more than one failure mode (BackOff is both crash-loop restarts and
-// image-pull back-off; Failed is both image-pull failures and other errors).
-// Mirrors humanizeKnowledgeEvent.
-func humanizeDeploymentEvent(reason, message string) (title, guidance, severity string, ok bool) {
-	msg := strings.ToLower(message)
-	imagePull := func() (string, string, string, bool) {
-		return "Action required: Image pull failed",
-			"The container image can't be pulled. Check the image name and tag, and that the registry is reachable with valid credentials, then redeploy.",
-			"stuck", true
-	}
-	crashLoop := func() (string, string, string, bool) {
-		return "Action required: Container crash looping",
-			"The container keeps starting and exiting. This is usually a bad start command or a missing secret or environment variable. Check the pod logs for the crash reason, fix it, then redeploy.",
-			"stuck", true
-	}
-
-	switch reason {
-	// Working — normal progress toward a running agent.
-	case "Scheduled":
-		return "Scheduled", "Your agent has been assigned to a node.", "info", true
-	case "Pulling":
-		return "Downloading image", "Fetching your agent's container image — this may take a moment.", "info", true
-	case "Pulled":
-		return "Image ready", "Your agent's container image is downloaded and ready.", "info", true
-	case "Created":
-		return "Preparing agent", "Your agent's container has been created.", "info", true
-	case "Started":
-		return "Starting up", "Your agent is booting and will be ready shortly.", "info", true
-
-	// Transient — self-recovering, no user action needed.
-	case "Unhealthy":
-		return "Health check pending", "Your agent is still initializing — waiting for it to pass health checks.", "transient", true
-	case "BackOff":
-		// BackOff covers both image-pull back-off and crash-loop restarts;
-		// disambiguate by message, else treat as a transient retry.
-		switch {
-		case strings.Contains(msg, "pull"), strings.Contains(msg, "image"):
-			return imagePull()
-		case strings.Contains(msg, "restart"), strings.Contains(msg, "crash"):
-			return crashLoop()
-		default:
-			return "Retrying", "A transient issue occurred; the system is retrying automatically.", "transient", true
-		}
-
-	// Stuck / error states.
-	case "ImagePullBackOff", "ErrImagePull", "ErrImageNeverPull", "InvalidImageName":
-		return imagePull()
-	case "CrashLoopBackOff":
-		return crashLoop()
-	case "Failed":
-		// Failed is generic; only surface the image-pull variant, otherwise
-		// leave it raw for the UI to show the reason/message.
-		if strings.Contains(msg, "image") || strings.Contains(msg, "pull") {
-			return imagePull()
-		}
-		return "", "", "", false
-	case "FailedScheduling":
-		return "Action required: Deployment stuck",
-			"This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure → Advanced sizing and redeploy.",
-			"stuck", true
-	case "FailedMount", "FailedAttachVolume":
-		return "Storage issue", "There was a problem attaching storage; the system will retry.", "transient", true
-	}
-	return "", "", "", false
-}
-
-// GetDeploymentEvents returns Kubernetes events for a deployment's namespace.
-func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
-	const cachePrefix = "astro:k8s:events:"
-	const cacheTTL = 10 * time.Minute
-
+// GetDeploymentEvents returns the deployment's Kubernetes events from the
+// controller-maintained snapshot (deployment_runtime_status) instead of a live
+// K8s read: the controller lists, scopes to current objects, humanizes, and
+// sorts them newest-first each sync (see deploycontroller.buildDeploymentEvents).
+func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if !k8sRegistryReady(k8sReg) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
@@ -2761,70 +2769,31 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 			return
 		}
 
-		k8sClient, ok := clusterClientForDeployment(c, k8sReg, dep)
-		if !ok {
-			return
-		}
-
-		ctx := c.Request.Context()
-		cacheKey := cachePrefix + dep.Namespace
-		transitional := dep.Status == deploymentstore.StatusPending ||
-			dep.Status == deploymentstore.StatusProvisioning ||
-			dep.Status == deploymentstore.StatusUndeploying
-
-		if !transitional {
-			if data, ok := cache.Get(ctx, cacheKey); ok {
-				var resp DeploymentEventsResponse
-				if err := json.Unmarshal(data, &resp); err == nil {
-					c.JSON(http.StatusOK, resp)
-					return
-				}
-			}
-		}
-
-		eventList, err := k8sClient.Clientset().CoreV1().Events(dep.Namespace).List(ctx, metav1.ListOptions{Limit: 200})
+		snap, _, err := deployStore.GetRuntimeSnapshot(dep.ID)
 		if err != nil {
-			log.Error("Failed to list events", "error", err, "namespace", dep.Namespace)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list kubernetes events"})
+			log.Error("Failed to read events snapshot", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read deployment events"})
 			return
 		}
 
-		items := make([]K8sEventItem, 0, len(eventList.Items))
-		for _, evt := range eventList.Items {
-			lastTS := evt.LastTimestamp.Time
-			if lastTS.IsZero() {
-				lastTS = evt.EventTime.Time
+		resp := DeploymentEventsResponse{Events: []K8sEventItem{}}
+		if snap != nil {
+			resp.Events = make([]K8sEventItem, 0, len(snap.Events))
+			for _, e := range snap.Events {
+				resp.Events = append(resp.Events, K8sEventItem{
+					Type:           e.Type,
+					Reason:         e.Reason,
+					Message:        e.Message,
+					ObjectKind:     e.ObjectKind,
+					ObjectName:     e.ObjectName,
+					Count:          e.Count,
+					FirstTimestamp: e.FirstTimestamp,
+					LastTimestamp:  e.LastTimestamp,
+					Title:          e.Title,
+					Guidance:       e.Guidance,
+					Severity:       e.Severity,
+				})
 			}
-			if lastTS.IsZero() {
-				lastTS = evt.CreationTimestamp.Time
-			}
-			firstTS := evt.FirstTimestamp.Time
-			if firstTS.IsZero() {
-				firstTS = lastTS
-			}
-			title, guidance, severity, _ := humanizeDeploymentEvent(evt.Reason, evt.Message)
-			items = append(items, K8sEventItem{
-				Type:           evt.Type,
-				Reason:         evt.Reason,
-				Message:        evt.Message,
-				ObjectKind:     evt.InvolvedObject.Kind,
-				ObjectName:     evt.InvolvedObject.Name,
-				Count:          evt.Count,
-				FirstTimestamp: firstTS.UTC().Format(time.RFC3339),
-				LastTimestamp:  lastTS.UTC().Format(time.RFC3339),
-				Title:          title,
-				Guidance:       guidance,
-				Severity:       severity,
-			})
-		}
-
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].LastTimestamp > items[j].LastTimestamp
-		})
-
-		resp := DeploymentEventsResponse{Events: items}
-		if data, err := json.Marshal(resp); err == nil {
-			_ = cache.Set(ctx, cacheKey, data, cacheTTL)
 		}
 		c.JSON(http.StatusOK, resp)
 	}
@@ -4361,8 +4330,10 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 			return
 		}
 
-		if dep.Status != deploymentstore.StatusActive {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active"})
+		switch dep.Status {
+		case deploymentstore.StatusPending, deploymentstore.StatusProvisioning,
+			deploymentstore.StatusDeploying, deploymentstore.StatusUndeploying:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment cannot be paused while it is still deploying"})
 			return
 		}
 

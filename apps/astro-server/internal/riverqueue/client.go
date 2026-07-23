@@ -67,6 +67,10 @@ type Config struct {
 	// dragging the handlers package into the riverqueue import graph
 	// (handlers→riverqueue already exists for the GitHub-build worker).
 	InsightsSummaryComputer InsightsSummaryComputer
+	// ReconcileDeployment, when set, is called with a namespace right after the
+	// DeployWorker marks a deployment "deploying", so the controller reconciles
+	// it immediately instead of waiting for the next resync. Optional.
+	ReconcileDeployment func(namespace string)
 }
 
 // InsightsSummaryComputer is the contract for refreshing one account's

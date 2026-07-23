@@ -3,7 +3,6 @@ import { resetMockBackend } from "./helpers";
 
 const DEPLOYMENTS = "/testuser/agents/dep-slack-full-1/deployments";
 const STATUS_ROUTE = /\/deployments\/[^/]+\/status$/;
-const EVENTS_ROUTE = /\/deployments\/[^/]+\/events$/;
 const HISTORY_ROUTE = /\/deployment\/history(\?|$)/;
 
 function deployingStatus() {
@@ -14,23 +13,26 @@ function deployingStatus() {
   };
 }
 
-// A stuck-severity deployment event. Status is now controller-driven and the
-// client-side real-age backstop is gone, so a stuck event is the only thing
-// that surfaces the banner.
-function stuckEvent() {
+// A failed deployment whose failed_on names the cause. The failure banner is
+// driven by the deployment's own failure state (value "error" + failed_on), not
+// by scanning K8s events.
+function failedStatus() {
   return {
-    type: "Warning",
-    reason: "FailedScheduling",
-    message: "0/3 nodes are available: insufficient cpu",
-    object_kind: "Pod",
-    object_name: "agent-xyz",
-    count: 1,
-    first_timestamp: "2026-07-08T00:00:00Z",
-    last_timestamp: "2026-07-08T00:05:00Z",
-    title: "Action required: Deployment stuck",
-    guidance:
-      "This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure and redeploy.",
-    severity: "stuck",
+    value: "error",
+    reason: "failed",
+    details: "Deployment failed: agent (Action required: Deployment stuck)",
+    error_message: "FailedScheduling",
+    failed_on: [
+      {
+        workload: "agent",
+        component: "agent",
+        phase: "failed",
+        message: "Timed out waiting to become ready",
+        title: "Action required: Deployment stuck",
+        guidance:
+          "This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure and redeploy.",
+      },
+    ],
   };
 }
 
@@ -66,29 +68,11 @@ test("recovery actions stay enabled during a deploy (issue #1584)", async ({ pag
   await expect(page.getByRole("menuitem", { name: "Restart" })).toBeEnabled();
 });
 
-test("a stuck deploy names the specific cause from a humanized event", async ({ page }) => {
+test("a failed deploy names the specific cause from its failure reason", async ({ page }) => {
   test.setTimeout(60_000);
-  // No status_changed_at means the real-age backstop never fires, so this proves
-  // the banner is event-driven: a stuck-severity event surfaces the banner and
-  // names the cause on its own.
-  await routeJson(page, STATUS_ROUTE, deployingStatus());
-  await routeJson(page, EVENTS_ROUTE, {
-    events: [
-      {
-        type: "Warning",
-        reason: "FailedScheduling",
-        message: "0/3 nodes are available: insufficient cpu",
-        object_kind: "Pod",
-        object_name: "agent-xyz",
-        count: 1,
-        first_timestamp: "2026-07-08T00:00:00Z",
-        last_timestamp: "2026-07-08T00:05:00Z",
-        title: "Action required: Deployment stuck",
-        guidance: "This agent requests more CPU/memory than any node has available, so it can't be placed. Reduce its resources under Configure and redeploy.",
-        severity: "stuck",
-      },
-    ],
-  });
+  // The banner is driven by the deployment's own failure state (value "error"
+  // + failed_on), which names the cause on its own.
+  await routeJson(page, STATUS_ROUTE, failedStatus());
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
@@ -99,31 +83,29 @@ test("a stuck deploy names the specific cause from a humanized event", async ({ 
   await expect(page.getByText("Fix prompt copied")).toBeVisible();
 });
 
-test("a stuck deploy with no earlier good version offers Pause as the primary action", async ({ page }) => {
+test("a failed deploy with no earlier good version offers Pause as the primary action", async ({ page }) => {
   test.setTimeout(60_000);
-  await routeJson(page, STATUS_ROUTE, deployingStatus());
-  await routeJson(page, EVENTS_ROUTE, { events: [stuckEvent()] });
+  await routeJson(page, STATUS_ROUTE, failedStatus());
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
   await expect(page.getByRole("link", { name: "Why deploys get stuck" })).toBeVisible();
 
   // With no earlier good version (the default fixture has one revision), the
-  // primary action pauses the stuck deploy directly.
+  // primary action pauses the failed deploy directly.
   const stopped = page.waitForResponse(/\/deployments\/[^/]+\/stop$/);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await stopped;
 });
 
-test("a stuck deploy with an earlier good version offers a rollback", async ({ page }) => {
+test("a failed deploy with an earlier good version offers a rollback", async ({ page }) => {
   test.setTimeout(60_000);
-  await routeJson(page, STATUS_ROUTE, deployingStatus());
-  await routeJson(page, EVENTS_ROUTE, { events: [stuckEvent()] });
-  // History: the current (stuck) revision plus an earlier healthy one to roll
+  await routeJson(page, STATUS_ROUTE, failedStatus());
+  // History: the current (failed) revision plus an earlier healthy one to roll
   // back to. No `$` anchor: the request carries a `?deployment_id=` query.
   await routeJson(page, HISTORY_ROUTE, {
     deployments: [
-      { id: "dep-slack-full-1", agent_name: "slack-config-full", revision: 3, build_id: "build-125", namespace: "ns", display_name: "Slack Full Bot", is_current: true, status: "deploying", deployed_at: "2026-07-08T00:00:02Z", spec: {}, source: "github" },
+      { id: "dep-slack-full-1", agent_name: "slack-config-full", revision: 3, build_id: "build-125", namespace: "ns", display_name: "Slack Full Bot", is_current: true, status: "failed", deployed_at: "2026-07-08T00:00:02Z", spec: {}, source: "github" },
       { id: "dep-slack-full-1", agent_name: "slack-config-full", revision: 2, build_id: "build-124", namespace: "ns", display_name: "Slack Full Bot", is_current: false, status: "healthy", deployed_at: "2026-07-08T00:00:01Z", spec: {}, source: "github" },
     ],
     count: 2,

@@ -649,6 +649,25 @@ func runWorker(
 	workerLangfuseStore := langfuse.NewStore(db)
 	workerSlackStore := slackidentity.NewStore(db)
 
+	// Start the event-driven deployment controller before the River queue so the
+	// DeployWorker can trigger an immediate reconcile when it marks a deployment
+	// "deploying" (otherwise a no-change redeploy waits for the resync). It
+	// watches managed K8s workloads via informers, persists observed health to
+	// deployment_runtime_status, and drives deploying → active/failed — starting
+	// compute billing on the real active transition. Wired to workerCtx.
+	//
+	// ASSUMES a single astro-worker replica: it runs unconditionally, so N>1
+	// replicas would each run their own informers + writes (wasteful, and racy on
+	// the per-deployment full-replace). Before scaling the worker, wrap this in
+	// leader election (e.g. a Postgres advisory lock) and pass a leader context.
+	var reconcileDeployment func(namespace string)
+	if k8sReg != nil {
+		billingState := metering.NewBillingStateManager(billingProvider, db, log)
+		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore, billingState)
+		reconcileDeployment = controller.EnqueueNamespace
+		go controller.Run(workerCtx)
+	}
+
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
@@ -671,6 +690,7 @@ func runWorker(
 		GitHubStore:             ghStore,
 		ImagePreflighter:        imagePreflighter,
 		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore, workerSlackStore),
+		ReconcileDeployment:     reconcileDeployment,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -687,24 +707,6 @@ func runWorker(
 			}()
 
 		}
-	}
-
-	// Start the event-driven deployment controller: it watches managed K8s
-	// workloads via informers, persists their observed health to
-	// deployment_workload_status, and drives the deployment lifecycle
-	// (deploying → active/failed) from that observed health — starting compute
-	// billing on the real active transition. Wired to workerCtx so it shuts
-	// down with the worker process.
-	//
-	// ASSUMES a single astro-worker replica: it runs unconditionally, so N>1
-	// replicas would each run their own informers + writes (wasteful, and
-	// racy on the per-deployment full-replace). Controller.Run is already
-	// ctx-driven, so before scaling the worker, wrap this in leader election
-	// (e.g. a Postgres advisory lock) and pass it a leader-scoped context.
-	if k8sReg != nil {
-		billingState := metering.NewBillingStateManager(billingProvider, db, log)
-		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore, billingState)
-		go controller.Run(workerCtx)
 	}
 
 	return cancel
@@ -1801,7 +1803,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, nil),
 				oapispec.Response(501, &handlers.ErrorResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, k8sReg, deploymentStore, k8sCache),
+			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

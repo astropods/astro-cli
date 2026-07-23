@@ -58,6 +58,17 @@ describe("derivePodStatus", () => {
     const workload = makeWorkload({ kind: "Deployment", containers: [] });
     expect(derivePodStatus(workload)).toEqual({ status: "pending", label: "Starting" });
   });
+
+  it("reports Error for a capitalized Waiting container (server casing)", () => {
+    const workload = makeWorkload({
+      kind: "StatefulSet",
+      containers: [
+        { name: "app", state: "Waiting", ready: false, restart_count: 0, message: "Couldn't pull the container image" },
+        { name: "messaging", state: "Running", ready: true, restart_count: 0 },
+      ],
+    });
+    expect(derivePodStatus(workload)).toEqual({ status: "unhealthy", label: "Error" });
+  });
 });
 
 describe("PodTile rendering — null-containers regression", () => {

@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	batchlisters "k8s.io/client-go/listers/batch/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -100,6 +101,9 @@ type clusterWatcher struct {
 	cronJobs  batchlisters.CronJobLister
 	pods      corelisters.PodLister
 	services  corelisters.ServiceLister
+	// clientset lists namespace Events on each sync — events are unlabeled, so
+	// they can't ride the label-scoped informer caches like the other resources.
+	clientset kubernetes.Interface
 	// synced flips true once every informer has completed its initial LIST.
 	// sync() refuses to write before this to avoid persisting a partial set
 	// from an event that fires while other caches are still warming.
@@ -216,6 +220,7 @@ func (c *Controller) startWatcher(ctx context.Context, clusterID string, isPrima
 		cronJobs:  cronInf.Lister(),
 		pods:      podInf.Lister(),
 		services:  svcInf.Lister(),
+		clientset: kc.Clientset(),
 		synced:    &atomic.Bool{},
 	}
 
@@ -285,6 +290,21 @@ func (c *Controller) eventHandler(clusterID string) cache.ResourceEventHandlerFu
 	}
 }
 
+// EnqueueNamespace triggers an immediate reconcile of a namespace across every
+// watched cluster (sync's per-cluster guard drops the non-matching ones). The
+// deploy worker calls this when it sets a deployment to "deploying" so a
+// no-change redeploy goes active in seconds instead of waiting for the resync.
+func (c *Controller) EnqueueNamespace(namespace string) {
+	if namespace == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for cluster := range c.watchers {
+		c.queue.Add(queueKey{cluster: cluster, namespace: namespace})
+	}
+}
+
 func (c *Controller) runWorker(ctx context.Context) {
 	for {
 		key, shutdown := c.queue.Get()
@@ -317,7 +337,7 @@ func (c *Controller) processKey(ctx context.Context, key queueKey) {
 // sync re-derives the full workload-status set for a deployment namespace from
 // the informer cache and persists it. Shadow mode: it does not touch the
 // deployment-level lifecycle status.
-func (c *Controller) sync(_ context.Context, key queueKey) error {
+func (c *Controller) sync(ctx context.Context, key queueKey) error {
 	c.mu.Lock()
 	w := c.watchers[key.cluster]
 	c.mu.Unlock()
@@ -403,7 +423,7 @@ func (c *Controller) sync(_ context.Context, key queueKey) error {
 	// Persist the full runtime snapshot (pods/containers/services) the runtime
 	// endpoint reads. Best-effort: a write failure is logged but must not stall
 	// the lifecycle transition below — the next resync retries.
-	if err := c.persistRuntimeSnapshot(w, dep, key.namespace); err != nil {
+	if err := c.persistRuntimeSnapshot(ctx, w, dep, key.namespace); err != nil {
 		c.log.Warn("deploycontroller: persist runtime snapshot failed",
 			"deployment_id", dep.ID, "namespace", key.namespace, "error", err)
 	}
@@ -412,10 +432,11 @@ func (c *Controller) sync(_ context.Context, key queueKey) error {
 }
 
 // persistRuntimeSnapshot builds the deployment's full runtime view from the
-// informer caches and upserts it, skipping the write when nothing changed since
-// the last sync. An empty snapshot (namespace torn down) clears the row and
-// forgets the diff-cache entry so it can't accumulate dead deployment ids.
-func (c *Controller) persistRuntimeSnapshot(w *clusterWatcher, dep *deploymentstore.Deployment, ns string) error {
+// informer caches, attaches the namespace's current events (a live List, scoped
+// to the observed objects), and upserts it — skipping the write when nothing
+// changed since the last sync. An empty snapshot (namespace torn down) clears the
+// row and forgets the diff-cache entry so it can't accumulate dead deployment ids.
+func (c *Controller) persistRuntimeSnapshot(ctx context.Context, w *clusterWatcher, dep *deploymentstore.Deployment, ns string) error {
 	snap, err := buildRuntimeSnapshot(w, ns)
 	if err != nil {
 		return err
@@ -423,6 +444,13 @@ func (c *Controller) persistRuntimeSnapshot(w *clusterWatcher, dep *deploymentst
 	if len(snap.Workloads) == 0 && len(snap.Services) == 0 {
 		c.snapHashes.Delete(dep.ID)
 		return c.store.DeleteRuntimeSnapshot(dep.ID)
+	}
+	// Events ride the same snapshot but come from a live List (they're unlabeled).
+	// Best-effort: on failure keep the runtime view and retry events next sync.
+	if events, evErr := buildDeploymentEvents(ctx, w.clientset, ns, currentObjectNames(snap)); evErr != nil {
+		c.log.Warn("deploycontroller: list events failed", "deployment_id", dep.ID, "namespace", ns, "error", evErr)
+	} else {
+		snap.Events = events
 	}
 	hash, err := snapshotHash(snap)
 	if err != nil {

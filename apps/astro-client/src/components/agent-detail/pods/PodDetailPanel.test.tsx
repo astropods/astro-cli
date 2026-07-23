@@ -51,14 +51,36 @@ describe("PodDetailPanel — Events tab", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Events" }));
 
-    // Server title leads as the headline…
-    expect(await screen.findByText("Action required. Deployment stuck")).toBeInTheDocument();
-    // …the raw reason is still shown (as a secondary tag)…
-    expect(screen.getByText(/FailedScheduling/)).toBeInTheDocument();
-    // …the server guidance is rendered…
+    // The friendly humanized title is the row summary (never the raw message)…
+    const summary = await screen.findByText("Action required. Deployment stuck");
+    expect(summary).toBeInTheDocument();
+    // …expanding reveals the guidance, raw message, and reason.
+    fireEvent.click(summary);
     expect(screen.getByText(/Advanced sizing/)).toBeInTheDocument();
-    // …and the full K8s message is rendered verbatim (not summarized away).
     expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByText(/FailedScheduling/)).toBeInTheDocument();
+  });
+
+  it("shows per-container status, failure message, and env together on the General tab", () => {
+    const withContainers: WorkloadDetail = {
+      ...workload,
+      containers: [
+        { name: "app", state: "Waiting", ready: false, restart_count: 0, message: "Couldn't pull the container image" },
+        { name: "messaging", state: "Running", ready: true, restart_count: 0 },
+      ],
+      env: { agent: [{ name: "API_KEY", value: "secret", is_secret: true }] },
+    };
+
+    renderWithProviders(
+      <PodDetailPanel workload={withContainers} deploymentId="dep-1" onClose={() => {}} />,
+    );
+
+    expect(screen.getByText("Containers")).toBeInTheDocument();
+    expect(screen.getByText("app")).toBeInTheDocument();
+    expect(screen.getByText("messaging")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't pull the container image")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByText("API_KEY")).toBeInTheDocument();
   });
 
   it("renders the raw reason and no guidance for events without server copy", async () => {
@@ -80,9 +102,12 @@ describe("PodDetailPanel — Events tab", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Events" }));
 
-    // Unmapped reason is the headline, verbatim…
-    expect(await screen.findByText("Unhealthy")).toBeInTheDocument();
-    // …and no humanized guidance is shown.
+    // No humanized title, so the reason is the row summary (not the raw message)…
+    const summary = await screen.findByText("Unhealthy");
+    expect(summary).toBeInTheDocument();
+    // …expanding reveals the raw message and no humanized guidance.
+    fireEvent.click(summary);
+    expect(screen.getByText(/Readiness probe failed/)).toBeInTheDocument();
     expect(screen.queryByText("Action required. Deployment stuck")).not.toBeInTheDocument();
     expect(screen.queryByText(/Advanced sizing/)).not.toBeInTheDocument();
   });

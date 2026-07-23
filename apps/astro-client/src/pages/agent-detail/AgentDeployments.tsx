@@ -9,7 +9,7 @@ import { PodTile } from "@/components/agent-detail/pods/PodTile";
 import { DeploymentHistoryPanel } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
 import { PodDetailPanel } from "@/components/agent-detail/pods/PodDetailPanel";
 import { useContainerSize } from "@/hooks/use-container-size";
-import { useDeploymentEvents, useDeploymentHistory, useDeploymentStatus, useStopDeployment } from "@/api/queries/deployments";
+import { useDeploymentHistory, useDeploymentStatus, useStopDeployment } from "@/api/queries/deployments";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { isPausedState } from "@/lib/deployment-utils";
 import type { WorkloadDetail } from "@/lib/api";
@@ -37,28 +37,15 @@ export default function AgentDeployments() {
   } = useAgentDetailContext();
   const paused = isPausedState(deployment);
 
-  // Stuck-deploy banner, driven entirely by server-surfaced state: while
-  // deploying, the server emits the blocking Kubernetes event with a humanized
-  // title + guidance and a "stuck" severity, so a real cause (image pull, crash
-  // loop, failed scheduling) drives the banner and names itself. (The deployment
-  // controller also drives such a deploy to `failed` with the reason.) A
-  // redeploy usually hits the same wall, so the headline action is a rollback to
-  // the last version that deployed cleanly, with pause alongside.
+  // Failure banner: shown only once the deploy has failed, named from the
+  // server-humanized failed_on reason (never from raw K8s events).
   const navigate = useNavigate();
   const { data: statusData } = useDeploymentStatus(deployment.id);
-  const isDeploying = statusData?.value === "deploying";
+  const hasFailed = statusData?.value === "error";
+  const failure = hasFailed ? statusData?.failed_on?.[0] ?? null : null;
   const stopMutation = useStopDeployment(account);
-  const { data: history } = useDeploymentHistory(account, deployment.name, deployment.id, isDeploying);
-  const { data: events } = useDeploymentEvents(deployment.id, isDeploying);
-  // The most recent stuck-severity warning names the specific cause.
-  const stuckCause = useMemo(() => {
-    const stuck = (events?.events ?? []).filter((e) => e.severity === "stuck" && e.title && e.guidance);
-    return stuck.sort((a, b) => b.last_timestamp.localeCompare(a.last_timestamp))[0] ?? null;
-  }, [events]);
-  const showStuckBanner = isDeploying && stuckCause !== null;
-  // Last good version = the highest-revision past deploy that is not the current
-  // one and did not fail. null on a first deploy, when the banner falls back to
-  // Pause as the primary action.
+  const { data: history } = useDeploymentHistory(account, deployment.name, deployment.id, hasFailed);
+  // Last good version = highest-revision past deploy that isn't current and didn't fail.
   const lastGood = useMemo(() => {
     const recs = [...(history?.deployments ?? [])].sort((a, b) => b.revision - a.revision);
     return recs.find((r) => !r.is_current && !FAILED_DEPLOY_STATUSES.has((r.status ?? "").toLowerCase())) ?? null;
@@ -73,15 +60,13 @@ export default function AgentDeployments() {
       relative: "path",
     });
   }, [navigate, lastGood]);
-  // On the specific-cause variant, hand the named cause to Claude Code so it can
-  // dig into the pod logs and propose a fix.
   const { copy } = useCopyToClipboard();
   const copyFixPrompt = useCallback(async () => {
-    const cause = stuckCause ? `: ${stuckCause.title}. ${stuckCause.guidance}` : " in the deploying state";
-    const prompt = `My Astro deployment "${deployment.name}" is stuck${cause} Read the pod logs and events, confirm the cause, and tell me how to fix it.`;
+    const cause = failure ? `: ${failure.title}. ${failure.guidance}` : "";
+    const prompt = `My Astro deployment "${deployment.name}" failed${cause} Read the pod logs and events, confirm the cause, and tell me how to fix it.`;
     if (await copy(prompt)) toast("Fix prompt copied");
     else toast.error("Couldn't copy the prompt");
-  }, [copy, deployment.name, stuckCause]);
+  }, [copy, deployment.name, failure]);
 
   // Merge record (spec) + runtime (live) workloads by name, keyed by the
   // union of both sides. The SPEC list is the stable source of truth for
@@ -176,24 +161,24 @@ export default function AgentDeployments() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {showStuckBanner && (
+      {hasFailed && (
         // pt-24 clears the absolutely-positioned tab bar and the agent identity
         // header (both anchored at top-4); max-w-3xl keeps the copy readable.
         <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-24">
           <ActionPanel
             tone="warning"
-            title={stuckCause?.title ?? "This deploy is stuck"}
+            title={failure?.title ?? "Deployment failed"}
             primaryLabel={lastGood ? "Roll back" : "Pause"}
             onPrimary={lastGood ? rollBack : pauseDeploy}
             secondaryLabel={lastGood ? "Pause" : undefined}
             onSecondary={lastGood ? pauseDeploy : undefined}
           >
             <p>
-              {stuckCause
-                ? `${stuckCause.guidance} `
+              {failure?.guidance
+                ? `${failure.guidance} `
                 : lastGood
                   ? "Rolling back to the last clean version is usually the fastest fix, or pause to investigate. "
-                  : "Pause to investigate, or check the pod logs below for what is holding it up. "}
+                  : "Pause to investigate, or check the pod logs below for what went wrong. "}
               <a
                 href={STUCK_DEPLOY_DOCS_URL}
                 target="_blank"
@@ -202,7 +187,7 @@ export default function AgentDeployments() {
               >
                 Why deploys get stuck
               </a>
-              {stuckCause && (
+              {failure && (
                 <>
                   <span aria-hidden className="mx-1.5 opacity-50">&middot;</span>
                   <button

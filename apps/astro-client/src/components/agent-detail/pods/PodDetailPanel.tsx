@@ -1,13 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { X, ExternalLink, TriangleAlert, CheckCircle2, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { X, ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
 import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
-import { formatTimeAgo } from "@/lib/time-format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent } from "@/lib/api";
+import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent, ContainerStatus } from "@/lib/api";
 import { useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
 import { POD_STATUS_STYLES, resolvePodStatus } from "./PodTile";
 import { PanelSection } from "../PanelSection";
@@ -243,6 +242,8 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
     });
   }, [workload.containers, workload.component, workload.env]);
 
+  const containers = workload.containers ?? [];
+
   return (
     <div className="flex flex-col gap-6">
       <PanelSection
@@ -258,29 +259,19 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
         </div>
       </PanelSection>
 
-      <PanelSection
-        title="Environment Variables"
-        description="Variables injected into this pod on startup."
-        isEmpty={envByContainer.every((c) => c.vars.length === 0)}
-        emptyState="No environment variables"
-      >
-        <div className="flex flex-col gap-4">
-          {envByContainer.map((container) => (
-            container.vars.length > 0 && (
-              <div key={container.containerName}>
-                {envByContainer.length > 1 && (
-                  <h4 className="mb-2 text-mono-sm font-medium text-muted-foreground">{container.containerName}</h4>
-                )}
-                <div className="grid grid-cols-[auto_1fr] overflow-hidden rounded border border-border @max-[450px]:grid-cols-1">
-                  {container.vars.map((env, i) => (
-                    <EnvVarRow key={env.name} name={env.name} value={env.value} secret={env.secret} isLast={i === container.vars.length - 1} />
-                  ))}
-                </div>
-              </div>
-            )
-          ))}
-        </div>
-      </PanelSection>
+      {containers.length > 0 && (
+        <PanelSection title="Containers" description="Status and environment of each container in this pod.">
+          <div className="flex flex-col gap-4">
+            {containers.map((c) => (
+              <ContainerCard
+                key={c.name}
+                container={c}
+                vars={envByContainer.find((e) => e.containerName === c.name)?.vars ?? []}
+              />
+            ))}
+          </div>
+        </PanelSection>
+      )}
 
       {workload.pod_name && (
         <PanelSection
@@ -289,6 +280,49 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
         >
           <RestartPodButton deploymentId={deploymentId} podName={workload.pod_name} />
         </PanelSection>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Container card — status header + environment
+// ---------------------------------------------------------------------------
+
+interface EnvVar { name: string; value: string; secret: boolean }
+
+function ContainerCard({ container, vars }: { container: ContainerStatus; vars: EnvVar[] }) {
+  const state = container.state?.toLowerCase();
+  const problem = !container.ready && (state === "waiting" || state === "terminated");
+  const square = container.ready
+    ? "bg-green-500 dark:bg-green-400"
+    : problem
+      ? "bg-red-400 dark:bg-red-400"
+      : "bg-blue-400 dark:bg-blue-400";
+
+  const statusText = [
+    container.ready ? "Ready" : container.state,
+    container.restart_count > 0 ? `${container.restart_count} restart${container.restart_count > 1 ? "s" : ""}` : "",
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div className="overflow-hidden rounded border border-border">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className={cn("size-3 shrink-0 rounded-sm", square)} />
+        <span className="text-mono-sm text-foreground">{container.name}</span>
+        <span className="ml-auto text-mono-sm text-muted-foreground">{statusText}</span>
+      </div>
+      {container.message && (
+        <p className={cn("px-3 pb-2.5 text-body-sm", problem ? "text-red-500 dark:text-red-400" : "text-muted-foreground")}>
+          {container.message}
+        </p>
+      )}
+      {vars.length > 0 && (
+        <div className="grid grid-cols-[auto_1fr] border-t border-border @max-[450px]:grid-cols-1">
+          {vars.map((env, i) => (
+            <EnvVarRow key={env.name} name={env.name} value={env.value} secret={env.secret} isLast={i === vars.length - 1} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -345,96 +379,91 @@ function EnvVarRow({ name, value, secret, isLast }: { name: string; value: strin
 function EventsTab({ deploymentId }: { deploymentId: string }) {
   const { data, isLoading } = useDeploymentEvents(deploymentId);
   const events = data?.events ?? [];
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   if (isLoading) {
     return <p className="text-body-sm text-muted-foreground">Loading events…</p>;
   }
-
   if (events.length === 0) {
     return <p className="text-body-sm text-faint-foreground">No events</p>;
   }
 
+  const toggle = (i: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+
   return (
     <div className="flex flex-col">
+      <div className="flex items-center gap-3 border-b border-border px-2 py-2 text-label uppercase text-faint-foreground">
+        <span className="min-w-0 flex-1">Summary</span>
+        <span className="w-14 text-right">Count</span>
+        <span className="w-12 text-right">Age</span>
+        <span className="w-4 shrink-0" />
+      </div>
       {events.map((evt, i) => (
-        <EventRow key={`${evt.reason}-${evt.object_name}-${i}`} event={evt} isLast={i === events.length - 1} />
+        <EventRow key={i} event={evt} expanded={expanded.has(i)} onToggle={() => toggle(i)} />
       ))}
     </div>
   );
 }
 
-function EventRow({ event, isLast }: { event: K8sEvent; isLast: boolean }) {
-  const isWarning = event.type === "Warning";
-  // The server humanizes events that mean "stuck — needs action" (e.g.
-  // FailedScheduling) into a plain-language title + guidance. When present we
-  // lead with that and still show the raw reason + full K8s message below.
-  const humanized = !!event.title;
-
-  return (
-    <div className={cn(
-      "flex gap-3 py-3",
-      !isLast && "border-b border-border/40",
-    )}>
-      <div className="mt-0.5 shrink-0">
-        {isWarning ? (
-          <TriangleAlert className="size-4 text-amber-400" />
-        ) : (
-          <CheckCircle2 className="size-4 text-green-600 dark:text-green-400/60" />
-        )}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-mono-sm font-medium text-foreground">{humanized ? event.title : event.reason}</span>
-          <span className="shrink-0 text-mono-sm text-faint-foreground">
-            {formatTimeAgo(event.last_timestamp)}
-          </span>
-        </div>
-        <span className="text-mono-sm text-muted-foreground break-all">
-          {humanized ? `${event.reason} · ` : ""}{event.object_kind}/{event.object_name}
-          {event.count > 1 && ` ×${event.count}`}
-        </span>
-        {event.guidance && <p className="text-body-sm text-foreground/80">{event.guidance}</p>}
-        <EventMessage message={event.message} />
-      </div>
-    </div>
-  );
+// Left-bar color has three levels: red for stuck states that need action
+// (e.g. ImagePullBackOff), amber for other Warnings, and muted for Normal events
+// (including back-offs, which aren't errors on their own).
+function eventBarColor(event: K8sEvent): string {
+  if (event.severity === "stuck") return "bg-red-400 dark:bg-red-400";
+  if (event.type === "Warning") return "bg-amber-400 dark:bg-amber-400";
+  return "bg-muted-foreground/40";
 }
 
-// Event messages (especially K8s scheduling/error detail) can run long. Clamp to
-// a few lines and reveal a "Show more" toggle only when the text actually
-// overflows, so a long error is fully readable without a permanently expanded list.
-function EventMessage({ message }: { message: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
-  const ref = useRef<HTMLParagraphElement>(null);
+// compactAge renders a K8s-style short duration since an RFC3339 timestamp, e.g.
+// "5d1h", "3h20m", "45m", "30s".
+function compactAge(iso?: string): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  let s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  if (d > 0) return h > 0 ? `${d}d${h}h` : `${d}d`;
+  if (h > 0) return m > 0 ? `${h}h${m}m` : `${h}h`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
 
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Measured while clamped (initial render), so scrollHeight > clientHeight
-    // means the message is truncated and worth offering a toggle for.
-    setOverflowing(el.scrollHeight > el.clientHeight + 1);
-  }, [message]);
-
+function EventRow({ event, expanded, onToggle }: { event: K8sEvent; expanded: boolean; onToggle: () => void }) {
+  // Summary is the friendly humanized line — never the raw K8s message/code. The
+  // color bar (type) and the expanded detail distinguish otherwise-similar events.
+  const summary = event.title || event.reason;
   return (
-    <div className="flex flex-col items-start gap-0.5">
-      <p
-        ref={ref}
-        className={cn(
-          "text-body-sm text-muted-foreground",
-          !expanded && "line-clamp-1",
-        )}
+    <div className="border-b border-border/50">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-muted/40"
       >
-        {message}
-      </p>
-      {(overflowing || expanded) && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-mono-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
+        <span className={cn("h-6 w-1 shrink-0 rounded-full", eventBarColor(event))} />
+        <span className="min-w-0 flex-1 truncate text-body-sm text-foreground" title={summary}>{summary}</span>
+        <span className="w-14 shrink-0 text-right text-mono-sm text-muted-foreground">{event.count > 0 ? event.count : ""}</span>
+        <span className="w-12 shrink-0 text-right text-mono-sm text-muted-foreground">{compactAge(event.last_timestamp)}</span>
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+      </button>
+      {expanded && (
+        <div className="flex flex-col gap-2 pb-3 pl-4 pr-2">
+          {event.guidance && <p className="text-body-sm text-foreground/80">{event.guidance}</p>}
+          <p className="whitespace-pre-line break-words text-mono-sm text-muted-foreground">{event.message}</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-mono-sm text-faint-foreground">
+            <span>{event.reason}</span>
+            <span>{event.object_kind}/{event.object_name}</span>
+            {event.first_timestamp && <span>First seen {compactAge(event.first_timestamp)} ago</span>}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -30,6 +30,28 @@ type RuntimeSnapshot struct {
 	ManualIngestions []string          `json:"manual_ingestions,omitempty"`
 	Services         []RuntimeService  `json:"services,omitempty"`
 	Workloads        []RuntimeWorkload `json:"workloads,omitempty"`
+	// Events is the filtered, humanized, newest-first view of the deployment's
+	// K8s namespace events — the read model behind GET /deployments/:id/events.
+	// Written by the controller each sync from a live List (events are unlabeled,
+	// so not in the informer caches). Scoped to the deployment's current objects.
+	Events []EventItem `json:"events,omitempty"`
+}
+
+// EventItem is one humanized Kubernetes event. Timestamps are RFC3339 strings,
+// formatted at write time. Title/Guidance/Severity are populated for reasons the
+// controller recognizes; empty otherwise (the UI falls back to Reason/Message).
+type EventItem struct {
+	Type           string `json:"type"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message"`
+	ObjectKind     string `json:"object_kind"`
+	ObjectName     string `json:"object_name"`
+	Count          int32  `json:"count"`
+	FirstTimestamp string `json:"first_timestamp"`
+	LastTimestamp  string `json:"last_timestamp"`
+	Title          string `json:"title,omitempty"`
+	Guidance       string `json:"guidance,omitempty"`
+	Severity       string `json:"severity,omitempty"`
 }
 
 // RuntimeService is one managed Service observed in the deployment namespace.
