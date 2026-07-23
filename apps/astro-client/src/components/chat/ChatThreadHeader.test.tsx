@@ -72,7 +72,11 @@ const deployment: AgentDeploymentSummary = {
 
 function renderHeader(
   eligibleDeploymentIds: Set<string>,
-  extra?: { sessions?: ChatSession[]; activeConversationId?: string },
+  extra?: {
+    sessions?: ChatSession[];
+    activeConversationId?: string;
+    onRenameSession?: (conversationId: string, title: string) => void;
+  },
 ) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -84,6 +88,7 @@ function renderHeader(
           sessions={extra?.sessions ?? []}
           activeConversationId={extra?.activeConversationId}
           onSelectSession={vi.fn()}
+          onRenameSession={extra?.onRenameSession}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -175,5 +180,47 @@ describe("ChatThreadHeader window controls", () => {
     const link = screen.getByRole("link", { name: "Open chat in new tab" });
     expect(link).toHaveAttribute("href", "/chat/dep-1?conversation=c1");
     expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("renames the active conversation from the title", async () => {
+    const user = userEvent.setup();
+    const onRenameSession = vi.fn();
+
+    renderHeader(new Set(["dep-1"]), {
+      sessions: [session()],
+      activeConversationId: "c1",
+      onRenameSession,
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Rename conversation title" }),
+    );
+    const input = screen.getByRole("textbox", { name: "Conversation title" });
+    expect(input).toHaveValue("Weekend trip to Lisbon");
+
+    await user.clear(input);
+    await user.type(input, "Updated itinerary{Enter}");
+
+    expect(onRenameSession).toHaveBeenCalledWith("c1", "Updated itinerary");
+  });
+
+  it("ignores blank title edits", async () => {
+    const user = userEvent.setup();
+    const onRenameSession = vi.fn();
+
+    renderHeader(new Set(["dep-1"]), {
+      sessions: [session()],
+      activeConversationId: "c1",
+      onRenameSession,
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Rename conversation title" }),
+    );
+    const input = screen.getByRole("textbox", { name: "Conversation title" });
+    await user.clear(input);
+    await user.keyboard("{Enter}");
+
+    expect(onRenameSession).not.toHaveBeenCalled();
   });
 });

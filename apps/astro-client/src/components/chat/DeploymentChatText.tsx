@@ -8,6 +8,7 @@ import {
   deploymentChatStreamdownControls,
   deploymentChatStreamdownPlugins,
 } from "@/lib/chat/streamdown";
+import { cn } from "@/lib/utils";
 
 const SHIKI_THEME: [BundledTheme, BundledTheme] = [
   "github-light",
@@ -36,6 +37,15 @@ const ANIMATE_OPTIONS = {
   stagger: 0,
 } as const;
 
+const chatMessageLinkClasses = [
+  "[&_a]:text-foreground",
+  "[&_a]:underline",
+  "[&_a]:decoration-muted-foreground/50",
+  "[&_a]:underline-offset-4",
+  "[&_a:hover]:text-foreground",
+  "[&_a:hover]:decoration-foreground",
+].join(" ");
+
 export const DeploymentChatText: FC = () => {
   const messageId = useAuiState((s) => s.message.id);
   const streamingMessageId = useDeploymentChatStreamingMessageId();
@@ -55,7 +65,7 @@ export const DeploymentChatText: FC = () => {
       plugins={deploymentChatStreamdownPlugins}
       controls={deploymentChatStreamdownControls}
       shikiTheme={SHIKI_THEME}
-      className={proseClasses}
+      className={cn(proseClasses, chatMessageLinkClasses)}
     >
       {text}
     </Streamdown>

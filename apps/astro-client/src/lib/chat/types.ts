@@ -1,5 +1,7 @@
 import type { AgentDeploymentSummary } from "@/lib/api";
 
+export const DEFAULT_CONVERSATION_TITLE = "New conversation";
+
 /** Sidebar / session list entry (messages loaded per thread from the server). */
 export interface ChatSession {
   conversationId: string;

@@ -480,7 +480,7 @@ const DeploymentComposer: FC<{
         ref={shellRef}
         data-slot="aui_composer-shell"
         className={cn(
-          "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow]",
+          "bg-surface/70 flex w-full flex-col gap-2 rounded-(--composer-radius) border border-input p-(--composer-padding) transition-[border-color,box-shadow] dark:bg-card/80",
           "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
           isDraggingFiles && "border-primary/70 ring-2 ring-primary/15",
           disabled && "pointer-events-none opacity-60",
@@ -587,7 +587,7 @@ const DictationButton: FC<{ disabled?: boolean; onStart: () => void }> = ({
       variant="ghost"
       size="icon"
       disabled={disabled}
-      className="aui-composer-mic size-8 rounded-full"
+      className="aui-composer-mic size-8"
       aria-label="Dictate"
       onClick={onStart}
     >
@@ -609,7 +609,7 @@ const ComposerAttachButton: FC<{ disabled?: boolean }> = ({ disabled }) => (
           aria-label="Attach files"
           className={cn(
             chatButtonVariants({ variant: "ghost", size: "icon" }),
-            "aui-composer-attach size-8 rounded-full",
+            "aui-composer-attach size-8",
           )}
         >
           <Paperclip className="size-4" />
@@ -777,7 +777,7 @@ const UserMessage: FC<{ deploymentId: string }> = ({ deploymentId }) => (
     data-role="user"
     className="fade-in slide-in-from-bottom-1 animate-in flex justify-end px-2 duration-150"
   >
-    <div className="bg-muted text-foreground max-w-[min(100%,42rem)] rounded-2xl px-4 py-2.5 text-sm wrap-break-word">
+    <div className="max-w-[min(100%,42rem)] rounded-[18px] bg-muted px-4 py-2.5 text-sm text-foreground wrap-break-word dark:bg-accent">
       <div className="empty:hidden mb-1.5 flex flex-wrap justify-end gap-1.5">
         <MessagePrimitive.Attachments>
           {({ attachment }) => (

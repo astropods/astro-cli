@@ -1,8 +1,8 @@
 import { ExternalLink, PanelRight, SquarePen } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { ChatSession } from "@/lib/chat/types";
+import { DEFAULT_CONVERSATION_TITLE, type ChatSession } from "@/lib/chat/types";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useDeployments, useDeploymentsSummary } from "@/api/queries/deployments";
@@ -96,9 +96,46 @@ export function ChatThreadHeader({
     setSeen(true);
   };
 
-  const activeTitle = sessions
-    .find((s) => s.conversationId === activeConversationId)
-    ?.title.trim();
+  const activeSession = sessions.find(
+    (s) => s.conversationId === activeConversationId,
+  );
+  const activeTitle = activeSession
+    ? activeSession.title.trim() || DEFAULT_CONVERSATION_TITLE
+    : undefined;
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+
+  const startTitleEdit = () => {
+    if (!activeSession || !onRenameSession) return;
+    setDraftTitle(activeSession.title);
+    setEditingTitle(true);
+  };
+
+  const commitTitleEdit = () => {
+    if (!activeSession) {
+      setEditingTitle(false);
+      setDraftTitle("");
+      return;
+    }
+    const next = draftTitle.trim();
+    if (next && next !== activeSession.title) {
+      onRenameSession?.(activeSession.conversationId, next);
+    }
+    setEditingTitle(false);
+    setDraftTitle("");
+  };
+
+  const cancelTitleEdit = () => {
+    setEditingTitle(false);
+    setDraftTitle("");
+  };
+
+  const focusTitleInput = useCallback((el: HTMLInputElement | null) => {
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }, []);
 
   return (
     <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border/60 px-3 md:px-4">
@@ -121,30 +158,77 @@ export function ChatThreadHeader({
         <ChatAgentSwitchCoachmark onClose={dismissCoachmark} />
       ) : null}
 
+      <div
+        aria-hidden
+        className="h-5 shrink-0 border-l border-border/70 dark:border-white/10"
+      />
+
       {activeTitle ? (
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <p
-            className="truncate text-body-sm font-medium text-foreground"
-            title={activeTitle}
-          >
-            {activeTitle}
-          </p>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href={chatDeploymentPath(deployment.id, activeConversationId)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open chat in new tab"
-                  className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <ExternalLink className="size-3" />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Open in new tab</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {editingTitle ? (
+            <div className="relative -ml-1.5 inline-block max-w-full min-w-0 align-middle">
+              <span
+                aria-hidden
+                className="invisible block max-w-full truncate whitespace-pre rounded-sm border border-transparent px-1.5 py-1 text-body font-normal"
+              >
+                {draftTitle || DEFAULT_CONVERSATION_TITLE}
+              </span>
+              <input
+                ref={focusTitleInput}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTitleEdit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelTitleEdit();
+                  }
+                }}
+                onBlur={commitTitleEdit}
+                maxLength={200}
+                placeholder={DEFAULT_CONVERSATION_TITLE}
+                aria-label="Conversation title"
+                className="absolute inset-0 h-full w-full min-w-0 rounded-sm border border-transparent bg-muted/60 px-1.5 py-1 text-body font-normal text-foreground outline-none transition-colors focus:border-ring focus:bg-card dark:bg-muted dark:focus:bg-muted"
+              />
+            </div>
+          ) : onRenameSession ? (
+            <button
+              type="button"
+              className="-ml-1.5 max-w-full min-w-0 cursor-text truncate rounded-sm px-1.5 py-1 text-left text-body font-normal text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-muted"
+              title={activeTitle}
+              aria-label="Rename conversation title"
+              onClick={startTitleEdit}
+            >
+              {activeTitle}
+            </button>
+          ) : (
+            <p
+              className="truncate text-body font-normal text-foreground"
+              title={activeTitle}
+            >
+              {activeTitle}
+            </p>
+          )}
+          {editingTitle ? null : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    href={chatDeploymentPath(deployment.id, activeConversationId)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open chat in new tab"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ExternalLink className="size-3" />
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Open in new tab</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       ) : (
         <span className="min-w-0 flex-1" aria-hidden />
@@ -175,7 +259,6 @@ export function ChatThreadHeader({
           sessions={sessions}
           activeConversationId={activeConversationId}
           onSelectSession={onSelectSession}
-          onRenameSession={onRenameSession}
           onDeleteSession={onDeleteSession}
         />
 
@@ -189,7 +272,8 @@ export function ChatThreadHeader({
                   size="sm"
                   className={cn(
                     "h-8 gap-1.5 px-2.5 text-body-sm font-medium",
-                    inspectorOpen && "bg-muted text-foreground",
+                    inspectorOpen &&
+                      "bg-muted text-foreground ring-1 ring-inset ring-border/70 dark:bg-muted dark:ring-white/12",
                   )}
                   aria-label="Agent details"
                   aria-pressed={inspectorOpen}
