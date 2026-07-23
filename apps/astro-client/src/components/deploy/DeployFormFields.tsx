@@ -1,9 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router";
 import { Camera } from "lucide-react";
-import { useAccountUsage } from "@/api/queries/usage";
-import { accountSettingsPath } from "@/lib/settings-paths";
-import { RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
@@ -48,18 +44,9 @@ export interface DeployFormFieldsProps {
 
 export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
-  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const deployNameErrorId = "agent-name-error";
-  const { data: usageData } = useAccountUsage(form.targetAccount);
-  // Settings → Usage lives at a different path for personal vs. organization
-  // accounts. Scope the link to the deploy target (from form.accounts, which
-  // already holds it) rather than the user's personal account.
-  const billingSettingsPath = accountSettingsPath(form.accounts, form.targetAccount, "billing");
   const hasKnowledgeEntries = form.knowledgeEntries && Object.keys(form.knowledgeEntries).length > 0;
   const { data: knowledgeStores } = useKnowledgeStores(form.targetAccount, hasKnowledgeEntries);
-  const computeMeter = usageData?.meters?.compute ?? { usage: 0, quota: undefined };
-  const isAtComputeLimit = computeMeter.quota != null && computeMeter.usage >= computeMeter.quota;
-  const showComputeLimit = isAtComputeLimit || (!!form.deployError && /compute limit/i.test(form.deployError.message));
   const importableKeys = new Set<string>([
     ...form.requiredVariables.map(([key]) => key),
     ...form.optionalVariables.map(([key]) => key),
@@ -311,35 +298,7 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
       )}
 
       {/* Error — rendered last so it sits just above the action bar */}
-      {showComputeLimit ? (
-        <>
-          <ErrorPanel title="Compute limit reached">
-            All compute hours for this billing period have been used. Review your{" "}
-            <Link
-              to={billingSettingsPath}
-              className="underline underline-offset-2 font-medium cursor-pointer"
-            >
-              billing in Settings
-            </Link>{" "}
-            or{" "}
-            <button
-              type="button"
-              className="underline underline-offset-2 font-medium cursor-pointer"
-              onClick={() => setQuotaDialogOpen(true)}
-            >
-              request a quota increase
-            </button>.
-          </ErrorPanel>
-          <RequestIncreaseDialog
-            featureKey="compute"
-            label="Compute unit hours"
-            meter={computeMeter}
-            account={form.targetAccount}
-            open={quotaDialogOpen}
-            onOpenChange={setQuotaDialogOpen}
-          />
-        </>
-      ) : form.deployError ? (
+      {form.deployError ? (
         <ErrorPanel title={form.deployError.message}>
           {form.deployError.details ?? null}
         </ErrorPanel>

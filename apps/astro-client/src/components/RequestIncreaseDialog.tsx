@@ -22,17 +22,16 @@ export function formatNumber(value: number, decimals = 1): string {
   });
 }
 
-// Display metadata for quota/usage feature keys. Shared by the request dialog's
-// feature picker and the quota-requests table.
+// Display metadata for quota feature keys. Shared by the request dialog's
+// feature picker and the quota-requests table. Only count-enforced resources
+// are quotas; metered features (compute, knowledge storage/compute) are gated
+// by billing and are not requestable here.
 export const meterMeta: Record<string, { label: string; unit?: string; decimals?: number }> = {
-  compute:             { label: "Compute",              unit: "CU-hours", decimals: 2 },
   agent_builds:        { label: "Agent Builds",         unit: "builds" },
   agent_deployments:   { label: "Deployments" },
   blueprints:          { label: "Blueprints" },
   members:             { label: "Members" },
   knowledge_stores:    { label: "Knowledge Stores" },
-  knowledge_storage:   { label: "Knowledge Storage",    unit: "GB",       decimals: 2 },
-  knowledge_compute:   { label: "Knowledge Compute",    unit: "CU-hours", decimals: 2 },
   knowledge_endpoints: { label: "PrivateLink Endpoints" },
 };
 

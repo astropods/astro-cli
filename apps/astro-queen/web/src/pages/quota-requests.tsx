@@ -13,11 +13,12 @@ import { Check, X } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
 const FEATURE_LABELS: Record<string, string> = {
-  compute: "Compute",
   agent_builds: "Agent Builds",
   agent_deployments: "Deployments",
-  agents: "Agents",
+  blueprints: "Blueprints",
   members: "Members",
+  knowledge_stores: "Knowledge Stores",
+  knowledge_endpoints: "PrivateLink Endpoints",
 };
 
 const STATUS_STYLES: Record<string, string> = {

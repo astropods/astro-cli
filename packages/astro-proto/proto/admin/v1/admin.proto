@@ -392,7 +392,6 @@ message ResumeQueueRequest {
 }
 
 message ResumeQueueResponse {}
-}
 
 message QuotaIncreaseRequestProto {
   string id = 1;

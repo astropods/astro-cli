@@ -6,16 +6,9 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/gin-gonic/gin"
 )
-
-var validFeatureKeys = map[string]bool{
-	"compute":           true,
-	"agent_builds":      true,
-	"agent_deployments": true,
-	"blueprints":        true,
-	"members":           true,
-}
 
 // QuotaIncreaseInput is the request body for creating a quota increase request.
 type QuotaIncreaseInput struct {
@@ -50,7 +43,7 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		if !validFeatureKeys[input.FeatureKey] {
+		if !quota.IsResource(input.FeatureKey) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid feature_key"})
 			return
 		}
@@ -130,6 +123,11 @@ func ListQuotaIncreaseRequests(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 				item.CreatedAt = createdAt.Time.Format("2006-01-02T15:04:05Z")
 			}
 			items = append(items, item)
+		}
+		if err := rows.Err(); err != nil {
+			log.Error("Failed to iterate quota increase requests", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list requests"})
+			return
 		}
 
 		if items == nil {

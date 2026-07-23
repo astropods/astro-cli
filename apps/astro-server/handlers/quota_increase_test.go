@@ -67,7 +67,7 @@ func TestRequestQuotaIncrease_MissingReason(t *testing.T) {
 	router := setupQuotaIncreaseRouter(db)
 
 	rec := postQuotaIncrease(router, map[string]any{
-		"feature_key": "compute",
+		"feature_key": "agent_builds",
 	})
 
 	if rec.Code != http.StatusBadRequest {
@@ -84,7 +84,7 @@ func TestRequestQuotaIncrease_Success(t *testing.T) {
 
 	router := setupQuotaIncreaseRouter(db)
 	rec := postQuotaIncrease(router, map[string]any{
-		"feature_key":   "compute",
+		"feature_key":   "agent_builds",
 		"current_usage": 8.5,
 		"reason":        "running large workloads",
 	})

@@ -3,10 +3,13 @@ package admingrpc
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
@@ -64,36 +67,76 @@ func (s *Server) ListQuotaIncreaseRequests(ctx context.Context, req *adminv1.Lis
 	}, nil
 }
 
-// ApproveQuotaIncrease marks a pending request as approved.
+// ApproveQuotaIncrease marks a pending request as approved and applies the
+// granted amount as the account's new absolute limit for the requested
+// resource. The request update and the account_limits write happen in one
+// transaction so an approved request is never left without an applied grant.
 func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQuotaIncreaseRequest) (*adminv1.ApproveQuotaIncreaseResponse, error) {
 	if req.RequestID == "" || req.GrantAmount <= 0 {
 		return nil, fmt.Errorf("request_id and positive grant_amount are required")
 	}
 
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE quota_increase_requests
-		 SET status = 'approved', grant_amount = $1, resolved_by = 'admin', resolved_at = NOW(), resolution_note = $2
-		 WHERE id = $3 AND status = 'pending'`,
-		req.GrantAmount, req.Note, req.RequestID,
-	)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("update quota request: %w", err)
+		return nil, fmt.Errorf("begin approval tx: %w", err)
 	}
-	affected, _ := result.RowsAffected()
-	if affected == 0 {
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+
+	// Lock the pending request and read the account + resource it targets.
+	var accountID, featureKey string
+	err = tx.QueryRowContext(ctx,
+		`SELECT account_id, feature_key FROM quota_increase_requests
+		 WHERE id = $1 AND status = 'pending' FOR UPDATE`,
+		req.RequestID,
+	).Scan(&accountID, &featureKey)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("request not found or already resolved")
 	}
+	if err != nil {
+		return nil, fmt.Errorf("load quota request: %w", err)
+	}
 
-	s.log.Info("Quota increase approved", "request_id", req.RequestID, "grant_amount", req.GrantAmount)
+	// A grant only applies to a count-enforced resource; metered features are
+	// gated by billing and have no account_limits row to raise. Such requests
+	// should never exist (rejected at request time) but guard defensively.
+	if !quota.IsResource(featureKey) {
+		return nil, fmt.Errorf("cannot grant quota for non-managed feature %q; deny it instead", featureKey)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE quota_increase_requests
+		 SET status = 'approved', grant_amount = $1, resolved_by = 'astro-team', resolved_at = NOW(), resolution_note = $2
+		 WHERE id = $3`,
+		req.GrantAmount, req.Note, req.RequestID,
+	); err != nil {
+		return nil, fmt.Errorf("update quota request: %w", err)
+	}
+
+	// Apply the grant as the new absolute limit (count resources are integers).
+	limit := int64(math.Round(req.GrantAmount))
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO account_limits (account_id, resource, limit_value)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (account_id, resource) DO UPDATE SET limit_value = EXCLUDED.limit_value`,
+		accountID, featureKey, limit,
+	); err != nil {
+		return nil, fmt.Errorf("apply account limit: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit quota approval: %w", err)
+	}
+
+	s.log.Info("Quota increase approved",
+		"request_id", req.RequestID, "account_id", accountID, "resource", featureKey, "limit", limit)
 
 	if s.auditStore != nil {
-		accountID := s.lookupQuotaRequestAccountID(ctx, req.RequestID)
 		evt := auditlog.ForAdmin(accountID, "grpc")
 		evt.Action = auditlog.QuotaApprove
 		evt.ResourceType = "quota_request"
 		evt.ResourceID = req.RequestID
 		evt.Description = "Admin approved quota increase"
-		evt.Metadata = map[string]any{"grant_amount": req.GrantAmount, "note": req.Note}
+		evt.Metadata = map[string]any{"resource": featureKey, "grant_amount": req.GrantAmount, "limit": limit, "note": req.Note}
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
@@ -108,7 +151,7 @@ func (s *Server) DenyQuotaIncrease(ctx context.Context, req *adminv1.DenyQuotaIn
 
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE quota_increase_requests
-		 SET status = 'denied', resolved_by = 'admin', resolved_at = NOW(), resolution_note = $1
+		 SET status = 'denied', resolved_by = 'astro-team', resolved_at = NOW(), resolution_note = $1
 		 WHERE id = $2 AND status = 'pending'`,
 		req.Note, req.RequestID,
 	)

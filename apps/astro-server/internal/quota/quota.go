@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/gin-gonic/gin"
 
@@ -43,6 +44,13 @@ var AllResources = []string{
 	ResourceMembers,
 	ResourceKnowledgeStores,
 	ResourceKnowledgeEndpoints,
+}
+
+// IsResource reports whether key is a quota-managed (count-enforced) resource.
+// Metered features (compute, knowledge storage/compute) are gated by billing,
+// not by account_limits, so they are not resources.
+func IsResource(key string) bool {
+	return slices.Contains(AllResources, key)
 }
 
 // ResourceUsage is the current usage and effective limit for a resource.
