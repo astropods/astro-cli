@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -57,6 +58,24 @@ type CriterionCounts struct {
 	BadCount  int
 }
 
+// Prediction is an Astro-managed judge's stored prediction for one trace.
+type Prediction struct {
+	VerdictScore float64
+	Confidence   int
+	Explanation  string
+	JudgeVersion string
+	Criteria     []PredictionCriterion
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// PredictionCriterion is one predicted score on a server-owned criterion
+// dimension.
+type PredictionCriterion struct {
+	Dimension CriterionDimension
+	Value     float64
+}
+
 // ErrAlreadyJudged is returned by Insert when (eval_dataset_id, trace_id) is already present.
 var ErrAlreadyJudged = errors.New("trace already judged")
 
@@ -66,6 +85,123 @@ type Store struct {
 
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// GetPredictions returns stored predictions for the requested trace IDs, keyed
+// by trace ID. Criteria are ordered by dimension key.
+func (s *Store) GetPredictions(evalDatasetID string, traceIDs []string) (map[string]Prediction, error) {
+	out := make(map[string]Prediction, len(traceIDs))
+	if len(traceIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := s.db.Query(`
+		SELECT p.trace_id, p.verdict_score, p.confidence, p.explanation,
+		       p.judge_version, p.created_at, p.updated_at,
+		       c.dimension_key, c.dimension_value
+		FROM eval_dataset_judgment_predictions p
+		LEFT JOIN eval_dataset_judgment_prediction_criteria c
+		  ON c.eval_dataset_id = p.eval_dataset_id
+		 AND c.trace_id = p.trace_id
+		WHERE p.eval_dataset_id = $1 AND p.trace_id = ANY($2)
+		ORDER BY p.trace_id, c.dimension_key
+	`, evalDatasetID, pq.Array(traceIDs))
+	if err != nil {
+		return nil, fmt.Errorf("judgmentstore get predictions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			traceID        string
+			prediction     Prediction
+			dimensionKey   sql.NullString
+			dimensionValue sql.NullFloat64
+		)
+		if err := rows.Scan(
+			&traceID,
+			&prediction.VerdictScore,
+			&prediction.Confidence,
+			&prediction.Explanation,
+			&prediction.JudgeVersion,
+			&prediction.CreatedAt,
+			&prediction.UpdatedAt,
+			&dimensionKey,
+			&dimensionValue,
+		); err != nil {
+			return nil, fmt.Errorf("judgmentstore get predictions scan: %w", err)
+		}
+
+		if existing, ok := out[traceID]; ok {
+			prediction.Criteria = existing.Criteria
+		}
+		if dimensionKey.Valid && dimensionValue.Valid {
+			prediction.Criteria = append(prediction.Criteria, PredictionCriterion{
+				Dimension: CriterionDimension(dimensionKey.String),
+				Value:     dimensionValue.Float64,
+			})
+		}
+		out[traceID] = prediction
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("judgmentstore get predictions iter: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertPrediction stores a prediction and completely replaces its criteria in
+// one transaction. An update preserves created_at and refreshes updated_at.
+func (s *Store) UpsertPrediction(evalDatasetID, traceID string, prediction Prediction) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("judgmentstore upsert prediction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	_, err = tx.Exec(`
+		INSERT INTO eval_dataset_judgment_predictions (
+			eval_dataset_id, trace_id, verdict_score, confidence, explanation, judge_version
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (eval_dataset_id, trace_id) DO UPDATE SET
+			verdict_score = EXCLUDED.verdict_score,
+			confidence = EXCLUDED.confidence,
+			explanation = EXCLUDED.explanation,
+			judge_version = EXCLUDED.judge_version,
+			updated_at = now()
+	`, evalDatasetID, traceID, prediction.VerdictScore, prediction.Confidence, prediction.Explanation, prediction.JudgeVersion)
+	if err != nil {
+		return fmt.Errorf("judgmentstore upsert prediction row: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		DELETE FROM eval_dataset_judgment_prediction_criteria
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+	`, evalDatasetID, traceID); err != nil {
+		return fmt.Errorf("judgmentstore replace prediction criteria delete: %w", err)
+	}
+
+	if len(prediction.Criteria) > 0 {
+		keys := make([]string, len(prediction.Criteria))
+		values := make([]float64, len(prediction.Criteria))
+		for i, criterion := range prediction.Criteria {
+			keys[i] = string(criterion.Dimension)
+			values[i] = criterion.Value
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO eval_dataset_judgment_prediction_criteria (
+				eval_dataset_id, trace_id, dimension_key, dimension_value
+			)
+			SELECT $1, $2, unnest($3::text[]), unnest($4::numeric[])
+		`, evalDatasetID, traceID, pq.Array(keys), pq.Array(values)); err != nil {
+			return fmt.Errorf("judgmentstore replace prediction criteria insert: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("judgmentstore upsert prediction commit: %w", err)
+	}
+	return nil
 }
 
 // Insert records a verdict for a trace. Returns ErrAlreadyJudged if a row already exists.

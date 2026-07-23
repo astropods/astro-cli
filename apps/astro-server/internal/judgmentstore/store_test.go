@@ -2,12 +2,244 @@ package judgmentstore
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 )
+
+func TestGetPredictions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	createdAt := time.Date(2026, time.July, 21, 10, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(time.Hour)
+	columns := []string{
+		"trace_id", "verdict_score", "confidence", "explanation", "judge_version",
+		"created_at", "updated_at", "dimension_key", "dimension_value",
+	}
+	mock.ExpectQuery("FROM eval_dataset_judgment_predictions").
+		WithArgs("dataset-1", pq.Array([]string{"trace-2", "trace-1"})).
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow("trace-1", -0.75, 91, "Misses a required constraint.", "dataset-review-v1", createdAt, updatedAt, "accuracy", -0.9).
+			AddRow("trace-1", -0.75, 91, "Misses a required constraint.", "dataset-review-v1", createdAt, updatedAt, "tone", -0.2).
+			AddRow("trace-2", 0.4, 62, "Useful response.", "dataset-review-v1", createdAt, createdAt, nil, nil))
+
+	store := NewStore(db)
+	got, err := store.GetPredictions("dataset-1", []string{"trace-2", "trace-1"})
+	if err != nil {
+		t.Fatalf("GetPredictions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("GetPredictions len = %d, want 2", len(got))
+	}
+
+	first := got["trace-1"]
+	if first.VerdictScore != -0.75 || first.Confidence != 91 || first.Explanation != "Misses a required constraint." || first.JudgeVersion != "dataset-review-v1" {
+		t.Fatalf("trace-1 prediction = %+v", first)
+	}
+	if !first.CreatedAt.Equal(createdAt) || !first.UpdatedAt.Equal(updatedAt) {
+		t.Fatalf("trace-1 timestamps = %v/%v, want %v/%v", first.CreatedAt, first.UpdatedAt, createdAt, updatedAt)
+	}
+	wantCriteria := []PredictionCriterion{
+		{Dimension: DimensionAccuracy, Value: -0.9},
+		{Dimension: DimensionTone, Value: -0.2},
+	}
+	if len(first.Criteria) != len(wantCriteria) {
+		t.Fatalf("trace-1 criteria = %+v, want %+v", first.Criteria, wantCriteria)
+	}
+	for i := range wantCriteria {
+		if first.Criteria[i] != wantCriteria[i] {
+			t.Errorf("trace-1 criteria[%d] = %+v, want %+v", i, first.Criteria[i], wantCriteria[i])
+		}
+	}
+
+	second := got["trace-2"]
+	if second.Criteria != nil {
+		t.Fatalf("trace-2 criteria = %+v, want nil", second.Criteria)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestGetPredictionsEmptyTraceIDsDoesNotQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	store := NewStore(db)
+	got, err := store.GetPredictions("dataset-1", nil)
+	if err != nil {
+		t.Fatalf("GetPredictions: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("GetPredictions = %+v, want empty map", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUpsertPredictionReplacesCriteria(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)INSERT INTO eval_dataset_judgment_predictions.*ON CONFLICT.*updated_at = now\(\)`).
+		WithArgs("dataset-1", "trace-1", -0.6, 88, "Incorrect result.", "dataset-review-v1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("INSERT INTO eval_dataset_judgment_prediction_criteria").
+		WithArgs(
+			"dataset-1",
+			"trace-1",
+			pq.Array([]string{"accuracy", "completeness"}),
+			pq.Array([]float64{-0.8, -0.4}),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+		VerdictScore: -0.6,
+		Confidence:   88,
+		Explanation:  "Incorrect result.",
+		JudgeVersion: "dataset-review-v1",
+		Criteria: []PredictionCriterion{
+			{Dimension: DimensionAccuracy, Value: -0.8},
+			{Dimension: DimensionCompleteness, Value: -0.4},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertPrediction: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUpsertPredictionClearsCriteria(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").
+		WithArgs("dataset-1", "trace-1", 0.1, 50, "Unclear.", "dataset-review-v2").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	store := NewStore(db)
+	if err := store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+		VerdictScore: 0.1,
+		Confidence:   50,
+		Explanation:  "Unclear.",
+		JudgeVersion: "dataset-review-v2",
+	}); err != nil {
+		t.Fatalf("UpsertPrediction: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUpsertPredictionRollsBackOnWriteFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(sqlmock.Sqlmock)
+	}{
+		{
+			name: "prediction",
+			setup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").WillReturnError(errors.New("prediction failed"))
+			},
+		},
+		{
+			name: "criteria delete",
+			setup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").WillReturnError(errors.New("delete failed"))
+			},
+		},
+		{
+			name: "criteria insert",
+			setup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("INSERT INTO eval_dataset_judgment_prediction_criteria").WillReturnError(errors.New("insert failed"))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+
+			mock.ExpectBegin()
+			tt.setup(mock)
+			mock.ExpectRollback()
+
+			store := NewStore(db)
+			err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+				JudgeVersion: "dataset-review-v1",
+				Criteria: []PredictionCriterion{
+					{Dimension: DimensionAccuracy, Value: -0.5},
+				},
+			})
+			if err == nil {
+				t.Fatal("UpsertPrediction error = nil, want write error")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("unmet expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestUpsertPredictionReturnsCommitError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
+
+	store := NewStore(db)
+	err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{JudgeVersion: "dataset-review-v1"})
+	if err == nil || !strings.Contains(err.Error(), "commit failed") {
+		t.Fatalf("UpsertPrediction error = %v, want commit error", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
 
 func TestInsertRejectsInvalidVerdict(t *testing.T) {
 	db, mock, err := sqlmock.New()
