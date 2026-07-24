@@ -574,16 +574,8 @@ func expectDeploymentAccountAccess(mock sqlmock.Sqlmock) {
 	now := time.Now()
 	mock.ExpectQuery(`FROM accounts a`).
 		WithArgs("alpha").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
-			"display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number",
-			"bio", "location", "email", "local_timezone", "pronouns", "website", "social_links",
-			"blueprint_order",
-		}).AddRow(
-			"acct-1", "alpha", "organization", nil, nil, now, now,
-			"Alpha", nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, "{}", "{}",
-		))
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow("acct-1", "alpha", "organization", nil, nil, now, now)...))
 	mock.ExpectQuery(`FROM account_members`).
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
