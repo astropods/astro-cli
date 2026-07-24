@@ -54,33 +54,41 @@ func ParseBlueprintListFilters(c *gin.Context) (BlueprintListFilters, error) {
 		return f, fmt.Errorf("sort must be 'name' or 'newest'")
 	}
 
+	limit, offset, err := parseListPagination(c)
+	if err != nil {
+		return f, err
+	}
+	f.Limit = limit
+	f.Offset = offset
+
+	return f, nil
+}
+
+func parseListPagination(c *gin.Context) (int, int, error) {
 	limit := defaultBlueprintListLimit
 	if limitStr := strings.TrimSpace(c.Query("limit")); limitStr != "" {
 		parsed, err := strconv.Atoi(limitStr)
 		if err != nil || parsed < 1 {
-			return f, fmt.Errorf("limit must be a positive integer")
+			return 0, 0, fmt.Errorf("limit must be a positive integer")
 		}
 		if parsed > maxBlueprintListLimit {
 			parsed = maxBlueprintListLimit
 		}
 		limit = parsed
 	}
-	f.Limit = limit
 
 	offset := 0
 	if offsetStr := strings.TrimSpace(c.Query("offset")); offsetStr != "" {
 		parsed, err := strconv.Atoi(offsetStr)
 		if err != nil || parsed < 0 {
-			return f, fmt.Errorf("offset must be a non-negative integer")
+			return 0, 0, fmt.Errorf("offset must be a non-negative integer")
 		}
 		if parsed > maxBlueprintListOffset {
-			return f, fmt.Errorf("offset must be at most %d", maxBlueprintListOffset)
+			return 0, 0, fmt.Errorf("offset must be at most %d", maxBlueprintListOffset)
 		}
 		offset = parsed
 	}
-	f.Offset = offset
-
-	return f, nil
+	return limit, offset, nil
 }
 
 func writeListFilterError(c *gin.Context, err error) {

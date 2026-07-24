@@ -108,14 +108,18 @@ const (
 const storeColumns = `id, account_id, name, arn, provider, mode, status, storage, storage_class,
        public, public_host, encrypted_data_key, kms_key_arn, error, created_at, updated_at`
 
-func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error) {
-	var s KnowledgeStore
-	err := row.Scan(
+func storeScanDest(s *KnowledgeStore) []any {
+	return []any{
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
 		&s.Mode, &s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
 		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error,
 		&s.CreatedAt, &s.UpdatedAt,
-	)
+	}
+}
+
+func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error) {
+	var s KnowledgeStore
+	err := row.Scan(storeScanDest(&s)...)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +229,36 @@ func (s *Store) ListByAccount(accountID string) ([]*KnowledgeStore, error) {
 		stores = append(stores, ks)
 	}
 	return stores, rows.Err()
+}
+
+// ListByAccountPage returns a bounded page and the account's total store count.
+func (s *Store) ListByAccountPage(ctx context.Context, accountID string, limit, offset int) ([]*KnowledgeStore, int, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT `+storeColumns+`, COUNT(*) OVER()
+		 FROM knowledge_stores
+		 WHERE account_id = $1
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT $2 OFFSET $3`,
+		accountID,
+		limit,
+		offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	stores := make([]*KnowledgeStore, 0)
+	total := 0
+	for rows.Next() {
+		var store KnowledgeStore
+		if err := rows.Scan(append(storeScanDest(&store), &total)...); err != nil {
+			return nil, 0, err
+		}
+		stores = append(stores, &store)
+	}
+	return stores, total, rows.Err()
 }
 
 // SetStatus updates the store status and clears any error.

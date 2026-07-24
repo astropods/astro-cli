@@ -1,6 +1,7 @@
 package deploymentstore
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -140,17 +141,16 @@ const deploymentColumns = `id, account_id, source_account_id, agent_name, build_
        status, error_message, error_details, status_changed_at, current_revision,
        deployed_at, undeployed_at, avatar_colors, avatar_updated_at`
 
-// scanDeployment scans a full deployment row into a Deployment struct.
-func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
-	var d Deployment
-	var errorDetails []byte
-	var clusterID sql.NullString
-	err := row.Scan(
+func deploymentScanDest(d *Deployment, errorDetails *[]byte, clusterID *sql.NullString) []any {
+	return []any{
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
-		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN, &clusterID,
-		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
+		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN, clusterID,
+		&d.Status, &d.ErrorMessage, errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
 		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors, &d.AvatarUpdatedAt,
-	)
+	}
+}
+
+func finishDeploymentScan(d *Deployment, errorDetails []byte, clusterID sql.NullString) {
 	if clusterID.Valid && clusterID.String != "" {
 		s := clusterID.String
 		d.ClusterID = &s
@@ -158,7 +158,18 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	if errorDetails != nil {
 		d.ErrorDetails = errorDetails
 	}
-	return &d, err
+}
+
+// scanDeployment scans a full deployment row into a Deployment struct.
+func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
+	var d Deployment
+	var errorDetails []byte
+	var clusterID sql.NullString
+	if err := row.Scan(deploymentScanDest(&d, &errorDetails, &clusterID)...); err != nil {
+		return nil, err
+	}
+	finishDeploymentScan(&d, errorDetails, clusterID)
+	return &d, nil
 }
 
 // EffectiveClusterID returns the additional-cluster registry id, or empty
@@ -401,7 +412,7 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 		SELECT `+deploymentColumns+`
 		FROM deployments
 		WHERE account_id = $1 AND status != 'undeployed'
-		ORDER BY deployed_at DESC
+		ORDER BY deployed_at DESC, id DESC
 	`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query visible deployments by account: %w", err)
@@ -420,6 +431,48 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
 	}
 	return deployments, nil
+}
+
+// GetVisibleDeploymentsByAccountPage returns a bounded page and the account's
+// total number of non-undeployed deployments.
+func (s *Store) GetVisibleDeploymentsByAccountPage(ctx context.Context, accountID string, limit, offset int) ([]*Deployment, int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+deploymentColumns+`, COUNT(*) OVER()
+		FROM deployments
+		WHERE account_id = $1 AND status != 'undeployed'
+		ORDER BY deployed_at DESC, id DESC
+		LIMIT $2 OFFSET $3
+	`, accountID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query visible deployment page by account: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	deployments := make([]*Deployment, 0)
+	total := 0
+	for rows.Next() {
+		var d Deployment
+		var errorDetails []byte
+		var clusterID sql.NullString
+		if err := rows.Scan(append(deploymentScanDest(&d, &errorDetails, &clusterID), &total)...); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan deployment page: %w", err)
+		}
+		finishDeploymentScan(&d, errorDetails, clusterID)
+		deployments = append(deployments, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating deployment page rows: %w", err)
+	}
+	if len(deployments) == 0 && offset > 0 {
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM deployments
+			WHERE account_id = $1 AND status != 'undeployed'
+		`, accountID).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("failed to count visible deployments by account: %w", err)
+		}
+	}
+	return deployments, total, nil
 }
 
 // GetVisibleDeploymentsByAccountAndBuilds is the build-filtered variant of

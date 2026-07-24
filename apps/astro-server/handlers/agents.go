@@ -361,6 +361,16 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 // ListAccountAgents handles GET /api/v1/agents/:account
 // Lists all public agents for an account. Members also see private agents.
 func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store, workos userGetter) gin.HandlerFunc {
+	dependencies := accountAgentListDependencies{
+		index:       index,
+		accounts:    accountStore,
+		hearts:      hearts,
+		metrics:     metrics,
+		deployments: deploys,
+		avatars:     avatarStore,
+		audit:       auditStore,
+		workosUsers: workos,
+	}
 	return func(c *gin.Context) {
 		filters, err := ParseBlueprintListFilters(c)
 		if err != nil {
@@ -389,78 +399,111 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			listOpts.Visibility = "public"
 		}
 
-		page, err := index.ListForAccount(acct.ID, listOpts)
+		responses, total, err := listAccountAgentResponses(
+			c.Request.Context(),
+			dependencies,
+			accountAgentListScope{
+				id:   acct.ID,
+				name: accountName,
+			},
+			listOpts,
+		)
 		if err != nil {
 			log.Error("Failed to list agents for account", "error", err, "account", accountName)
 			writeBlueprintListInternalError(c, "Failed to list agents")
 			return
 		}
 
-		// Bulk-fetch heart counts for this account
-		counts, _ := hearts.BulkCount(c.Request.Context(), acct.ID)
-		if counts == nil {
-			counts = map[string]int{}
-		}
-
-		// Bulk-fetch message counts for this account
-		mc, _ := metrics.BulkMessageCounts(acct.ID)
-		if mc == nil {
-			mc = map[string]int64{}
-		}
-
-		// Bulk-fetch deploy counts for this account
-		dc, _ := deploys.BulkDeploymentCounts(acct.ID)
-		if dc == nil {
-			dc = map[string]int64{}
-		}
-
-		publisherActors := make(map[string][]string)
-		if auditStore != nil && workos != nil {
-			if bulk, err := auditStore.BulkDistinctActorsFor(c.Request.Context(), acct.ID, auditlog.AgentRegister, "agent", nil); err == nil {
-				publisherActors = bulk
-			}
-		}
-		userCache := make(map[string]*auth.User)
-
-		responses := make([]AgentResponse, 0, len(page.Agents))
-		for _, agent := range page.Agents {
-			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
-			for _, v := range agent.Versions {
-				versions = append(versions, buildVersionResponse(v))
-			}
-
-			resp := AgentResponse{
-				Account:    accountName,
-				Name:       agent.Name,
-				Registry:   agent.Registry,
-				Visibility: agent.Visibility,
-				Versions:   versions,
-				HeartCount: counts[agent.Name],
-				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
-			}
-			if avatarStore != nil {
-				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarUpdatedAt)
-				var existing json.RawMessage
-				if agent.AvatarColors != nil {
-					existing = *agent.AvatarColors
-				}
-				resp.AvatarColors = colorextract.EnsureCurrent(c.Request.Context(), existing,
-					func(ctx context.Context) ([]byte, error) {
-						return avatarStore.ReadAgentAvatar(ctx, accountName, agent.Name)
-					},
-					func(ctx context.Context, j []byte) error {
-						return index.SetAvatarColors(agent.AccountID, agent.Name, j)
-					},
-				)
-			}
-			if actorIDs := publisherActors[agent.Name]; len(actorIDs) > 0 {
-				resp.Publishers = resolvePublishers(c.Request.Context(), actorIDs, workos, accountStore, userCache)
-			}
-			responses = append(responses, resp)
-		}
-
-		writeBlueprintListResponse(c, responses, filters, page.Total)
+		writeBlueprintListResponse(c, responses, filters, total)
 	}
+}
+
+type accountAgentListDependencies struct {
+	index       *agentindex.Index
+	accounts    *account.AccountStore
+	hearts      *heartstore.Store
+	metrics     *metricsstore.Store
+	deployments *deploymentstore.Store
+	avatars     *avatar.Store
+	audit       *auditlog.Store
+	workosUsers userGetter
+}
+
+type accountAgentListScope struct {
+	id   string
+	name string
+}
+
+func listAccountAgentResponses(
+	ctx context.Context,
+	dependencies accountAgentListDependencies,
+	scope accountAgentListScope,
+	listOpts agentindex.BlueprintListOptions,
+) ([]AgentResponse, int, error) {
+	page, err := dependencies.index.ListForAccount(scope.id, listOpts)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	counts, _ := dependencies.hearts.BulkCount(ctx, scope.id)
+	if counts == nil {
+		counts = map[string]int{}
+	}
+	messageCounts, _ := dependencies.metrics.BulkMessageCounts(scope.id)
+	if messageCounts == nil {
+		messageCounts = map[string]int64{}
+	}
+	deployCounts, _ := dependencies.deployments.BulkDeploymentCounts(scope.id)
+	if deployCounts == nil {
+		deployCounts = map[string]int64{}
+	}
+
+	publisherActors := make(map[string][]string)
+	if dependencies.audit != nil && dependencies.workosUsers != nil {
+		if bulk, err := dependencies.audit.BulkDistinctActorsFor(ctx, scope.id, auditlog.AgentRegister, "agent", nil); err == nil {
+			publisherActors = bulk
+		}
+	}
+	userCache := make(map[string]*auth.User)
+
+	responses := make([]AgentResponse, 0, len(page.Agents))
+	for _, agent := range page.Agents {
+		versions := make([]AgentVersionResponse, 0, len(agent.Versions))
+		for _, version := range agent.Versions {
+			versions = append(versions, buildVersionResponse(version))
+		}
+
+		resp := AgentResponse{
+			Account:    scope.name,
+			Name:       agent.Name,
+			Registry:   agent.Registry,
+			Visibility: agent.Visibility,
+			Versions:   versions,
+			HeartCount: counts[agent.Name],
+			Metrics:    agentMetrics(messageCounts[agent.Name], deployCounts[agent.Name]),
+		}
+		if dependencies.avatars != nil {
+			resp.AvatarURL = dependencies.avatars.AgentAvatarURL(scope.name, agent.Name, agent.AvatarUpdatedAt)
+			var existing json.RawMessage
+			if agent.AvatarColors != nil {
+				existing = *agent.AvatarColors
+			}
+			resp.AvatarColors = colorextract.EnsureCurrent(ctx, existing,
+				func(ctx context.Context) ([]byte, error) {
+					return dependencies.avatars.ReadAgentAvatar(ctx, scope.name, agent.Name)
+				},
+				func(ctx context.Context, colors []byte) error {
+					return dependencies.index.SetAvatarColors(agent.AccountID, agent.Name, colors)
+				},
+			)
+		}
+		if actorIDs := publisherActors[agent.Name]; len(actorIDs) > 0 {
+			resp.Publishers = resolvePublishers(ctx, actorIDs, dependencies.workosUsers, dependencies.accounts, userCache)
+		}
+		responses = append(responses, resp)
+	}
+
+	return responses, page.Total, nil
 }
 
 type userGetter interface {

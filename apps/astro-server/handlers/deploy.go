@@ -1509,44 +1509,71 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 	}
 }
 
+type deploymentListDependencies struct {
+	log         *logger.Logger
+	accounts    *account.AccountStore
+	deployments *deploymentstore.Store
+	agents      *agentindex.Index
+	avatars     *avatar.Store
+	audit       *auditlog.Store
+}
+
+type deploymentListScope struct {
+	id   string
+	name string
+}
+
+type deploymentListPage struct {
+	limit  int
+	offset int
+}
+
 // enrichDeploymentsForAccount loads visible deployments for one account and
 // runs the standard enrichment pipeline (messaging URLs, audit timestamps,
 // avatars, latest build IDs). Shared between the per-account and cross-
 // account paths of ListDeployments so the two paths cannot drift.
 func enrichDeploymentsForAccount(
 	ctx context.Context,
-	log *logger.Logger,
-	accountID string,
-	accountName string,
+	dependencies deploymentListDependencies,
+	scope deploymentListScope,
 	buildIDs []string,
-	accountStore *account.AccountStore,
-	deployStore *deploymentstore.Store,
-	agentIdx *agentindex.Index,
-	avatarStore *avatar.Store,
-	auditStore *auditlog.Store,
 ) ([]AgentDeploymentSummary, error) {
 	var (
 		dbDeps []*deploymentstore.Deployment
 		err    error
 	)
 	if len(buildIDs) > 0 {
-		dbDeps, err = deployStore.GetVisibleDeploymentsByAccountAndBuilds(accountID, buildIDs)
+		dbDeps, err = dependencies.deployments.GetVisibleDeploymentsByAccountAndBuilds(scope.id, buildIDs)
 	} else {
-		dbDeps, err = deployStore.GetVisibleDeploymentsByAccount(accountID)
+		dbDeps, err = dependencies.deployments.GetVisibleDeploymentsByAccount(scope.id)
 	}
 	if err != nil {
 		return nil, err
 	}
 
+	return enrichDeploymentRows(
+		ctx,
+		dependencies,
+		scope,
+		dbDeps,
+	)
+}
+
+func enrichDeploymentRows(
+	ctx context.Context,
+	dependencies deploymentListDependencies,
+	scope deploymentListScope,
+	dbDeps []*deploymentstore.Deployment,
+) ([]AgentDeploymentSummary, error) {
 	allDeployments := make([]AgentDeployment, len(dbDeps))
 	depIDs := make([]string, len(dbDeps))
 	for i, dbDep := range dbDeps {
-		allDeployments[i] = agentDeploymentFromDB(log, dbDep)
+		allDeployments[i] = agentDeploymentFromDB(dependencies.log, dbDep)
 		depIDs[i] = dbDep.ID
 	}
 
-	if messagingURLs, merr := deployStore.GetMessagingURLs(depIDs); merr != nil {
-		log.Warn("Failed to load messaging URLs", "error", merr)
+	if messagingURLs, merr := dependencies.deployments.GetMessagingURLs(depIDs); merr != nil {
+		dependencies.log.Warn("Failed to load messaging URLs", "error", merr)
 	} else {
 		for i, d := range allDeployments {
 			if url, ok := messagingURLs[d.ID]; ok {
@@ -1558,16 +1585,16 @@ func enrichDeploymentsForAccount(
 	}
 
 	messagingWebConfigured := make(map[string]bool)
-	if webConfigured, werr := deployStore.GetMessagingWebConfigured(ctx, depIDs); werr != nil {
-		log.Warn("Failed to load messaging web configured flags", "error", werr)
+	if webConfigured, werr := dependencies.deployments.GetMessagingWebConfigured(ctx, depIDs); werr != nil {
+		dependencies.log.Warn("Failed to load messaging web configured flags", "error", werr)
 	} else {
 		messagingWebConfigured = webConfigured
 	}
 
-	if auditStore != nil && len(allDeployments) > 0 {
-		latestMap, err := auditStore.LatestPerResource(ctx, accountID, "deployment", depIDs)
+	if dependencies.audit != nil && len(allDeployments) > 0 {
+		latestMap, err := dependencies.audit.LatestPerResource(ctx, scope.id, "deployment", depIDs)
 		if err != nil {
-			log.Warn("Failed to load audit timestamps for deployments", "error", err)
+			dependencies.log.Warn("Failed to load audit timestamps for deployments", "error", err)
 		} else {
 			for i, d := range allDeployments {
 				if latest, ok := latestMap[d.ID]; ok {
@@ -1585,9 +1612,9 @@ func enrichDeploymentsForAccount(
 		}
 	}
 
-	if avatarStore != nil {
+	if dependencies.avatars != nil {
 		for i := range allDeployments {
-			allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dbDeps[i].ID, dbDeps[i].AvatarUpdatedAt)
+			allDeployments[i].AvatarURL = dependencies.avatars.DeploymentAvatarURL(dbDeps[i].ID, dbDeps[i].AvatarUpdatedAt)
 		}
 	}
 	for i, d := range allDeployments {
@@ -1596,15 +1623,15 @@ func enrichDeploymentsForAccount(
 				allDeployments[i].AvatarColors = colors
 			}
 		}
-		if avatarStore != nil {
+		if dependencies.avatars != nil {
 			allDeployments[i].AvatarColors = colorextract.EnsureCurrent(ctx, allDeployments[i].AvatarColors,
-				func(ctx context.Context) ([]byte, error) { return avatarStore.ReadDeploymentAvatar(ctx, d.ID) },
-				func(ctx context.Context, j []byte) error { return deployStore.SetAvatarColors(d.ID, j) },
+				func(ctx context.Context) ([]byte, error) { return dependencies.avatars.ReadDeploymentAvatar(ctx, d.ID) },
+				func(ctx context.Context, j []byte) error { return dependencies.deployments.SetAvatarColors(d.ID, j) },
 			)
 		}
 	}
 
-	populateLatestBuildIDs(log, agentIdx, accountStore, dbDeps, allDeployments)
+	populateLatestBuildIDs(dependencies.log, dependencies.agents, dependencies.accounts, dbDeps, allDeployments)
 
 	summaries := make([]AgentDeploymentSummary, len(allDeployments))
 	for i, d := range allDeployments {
@@ -1617,8 +1644,8 @@ func enrichDeploymentsForAccount(
 			LatestBuildID:          d.LatestBuildID,
 			Status:                 d.Status,
 			Namespace:              d.Namespace,
-			AccountID:              accountID,
-			AccountName:            accountName,
+			AccountID:              scope.id,
+			AccountName:            scope.name,
 			ExternalURLs:           d.ExternalURLs,
 			MessagingWebConfigured: messagingWebConfigured[d.ID],
 			CreatedAt:              d.CreatedAt,
@@ -1626,6 +1653,76 @@ func enrichDeploymentsForAccount(
 		}
 	}
 	return summaries, nil
+}
+
+func enrichDeploymentPageForAccount(
+	ctx context.Context,
+	dependencies deploymentListDependencies,
+	scope deploymentListScope,
+	page deploymentListPage,
+) ([]AgentDeploymentSummary, int, error) {
+	dbDeps, total, err := dependencies.deployments.GetVisibleDeploymentsByAccountPage(
+		ctx,
+		scope.id,
+		page.limit,
+		page.offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	summaries, err := enrichDeploymentRows(
+		ctx,
+		dependencies,
+		scope,
+		dbDeps,
+	)
+	return summaries, total, err
+}
+
+func deploymentResponsePage(response ListDeploymentsResponse, limit, offset int) ListDeploymentsResponse {
+	start := min(offset, len(response.Deployments))
+	end := min(start+limit, len(response.Deployments))
+	deployments := append([]AgentDeploymentSummary{}, response.Deployments[start:end]...)
+	return ListDeploymentsResponse{
+		Deployments: deployments,
+		Count:       response.Count,
+	}
+}
+
+// loadCachedDeploymentsForAccount returns one bounded account page. It slices
+// the invalidated whole-account cache when present and otherwise performs a
+// paginated database read.
+func loadCachedDeploymentsForAccount(
+	ctx context.Context,
+	dependencies deploymentListDependencies,
+	scope deploymentListScope,
+	page deploymentListPage,
+	cache k8scache.Cache,
+) (ListDeploymentsResponse, error) {
+	if cached, ok := deploycache.Get(ctx, cache, scope.id); ok {
+		var response ListDeploymentsResponse
+		if err := json.Unmarshal(cached, &response); err == nil {
+			return deploymentResponsePage(response, page.limit, page.offset), nil
+		} else {
+			dependencies.log.Warn("Failed to decode cached deployment list", "account_id", scope.id, "error", err)
+		}
+	}
+
+	deployments, total, err := enrichDeploymentPageForAccount(
+		ctx,
+		dependencies,
+		scope,
+		page,
+	)
+	if err != nil {
+		return ListDeploymentsResponse{}, err
+	}
+
+	response := ListDeploymentsResponse{
+		Deployments: deployments,
+		Count:       total,
+	}
+	return response, nil
 }
 
 // maxBuildIDFilter caps the number of build IDs accepted in a single
@@ -1678,6 +1775,14 @@ func parseBuildIDFilter(c *gin.Context) []string {
 // local-mode (NodePort, written post-apply) and remote (Ingress hostname,
 // written at normalization).
 func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+	dependencies := deploymentListDependencies{
+		log:         log,
+		accounts:    accountStore,
+		deployments: deployStore,
+		agents:      agentIdx,
+		avatars:     avatarStore,
+		audit:       auditStore,
+	}
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -1750,7 +1855,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			ctx := c.Request.Context()
 			for i, a := range accounts {
 				g.Go(func() error {
-					summaries, err := enrichDeploymentsForAccount(ctx, log, a.ID, a.Name, buildIDs, accountStore, deployStore, agentIdx, avatarStore, auditStore)
+					summaries, err := enrichDeploymentsForAccount(
+						ctx,
+						dependencies,
+						deploymentListScope{id: a.ID, name: a.Name},
+						buildIDs,
+					)
 					if err != nil {
 						log.Warn("Failed to load deployments for account in cross-account list", "account_id", a.ID, "error", err)
 						return nil
@@ -1794,24 +1904,37 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			"user_id", user.ID,
 		)
 
-		// Read-through deploy cache. Write paths (deploy/undeploy/reconcile/
-		// avatar/display-name/publish) invalidate per account, so a hit here
-		// returns a payload that's accurate up to the most recent mutation.
-		// SafetyTTL bounds worst-case staleness if a future write site
-		// forgets to bust.
-		//
-		// Cache stores the unfiltered list keyed by account ID. A build_id
-		// filter would explode the key space, so skip the cache when the
-		// filter is set — the filtered consumer (blueprint sidebar) only
-		// pulls a handful of rows, so the cache win isn't load-bearing.
+		var response ListDeploymentsResponse
 		if len(buildIDs) == 0 {
 			if cached, ok := deploycache.Get(c.Request.Context(), cache, acct.ID); ok {
 				c.Data(http.StatusOK, "application/json", cached)
 				return
 			}
-		}
 
-		summaries, err := enrichDeploymentsForAccount(c.Request.Context(), log, acct.ID, acct.Name, buildIDs, accountStore, deployStore, agentIdx, avatarStore, auditStore)
+			var summaries []AgentDeploymentSummary
+			summaries, err = enrichDeploymentsForAccount(
+				c.Request.Context(),
+				dependencies,
+				deploymentListScope{id: acct.ID, name: acct.Name},
+				nil,
+			)
+			response = ListDeploymentsResponse{
+				Deployments: summaries,
+				Count:       len(summaries),
+			}
+		} else {
+			var summaries []AgentDeploymentSummary
+			summaries, err = enrichDeploymentsForAccount(
+				c.Request.Context(),
+				dependencies,
+				deploymentListScope{id: acct.ID, name: acct.Name},
+				buildIDs,
+			)
+			response = ListDeploymentsResponse{
+				Deployments: summaries,
+				Count:       len(summaries),
+			}
+		}
 		if err != nil {
 			log.Error("Failed to load deployments from DB", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -1820,25 +1943,20 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			})
 			return
 		}
-
-		// Marshal once. Cache only the unfiltered envelope — filtered
-		// responses are skipped above and shouldn't be written back here.
-		body, marshalErr := json.Marshal(gin.H{
-			"deployments": summaries,
-			"count":       len(summaries),
-		})
-		if marshalErr != nil {
-			log.Error("Failed to marshal deployment list response", "error", marshalErr)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode deployments"})
+		if len(buildIDs) == 0 {
+			body, marshalErr := json.Marshal(response)
+			if marshalErr != nil {
+				log.Error("Failed to encode deployment list", "account_id", acct.ID, "error", marshalErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode deployments"})
+				return
+			}
+			if cacheErr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cacheErr != nil {
+				log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cacheErr)
+			}
+			c.Data(http.StatusOK, "application/json", body)
 			return
 		}
-		if len(buildIDs) == 0 {
-			if cerr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cerr != nil {
-				// Cache failure is non-fatal — next request just repopulates.
-				log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cerr)
-			}
-		}
-		c.Data(http.StatusOK, "application/json", body)
+		c.JSON(http.StatusOK, response)
 	}
 }
 
