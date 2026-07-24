@@ -113,16 +113,20 @@ rollout signals and persisted per-workload.
 
 ### Where it runs — worker vs API split
 
-`astro-worker` runs `replicas: 1` (all River workers + periodic jobs).
-`astro-server` (API) runs multiple replicas with an insert-only queue. The
-controller lives in the **single-replica worker**, so there is a single writer —
-no leader election needed today. Because the API replicas cannot see the
-worker's in-memory informer cache, the controller **persists observed state to
-the DB**, and the API reads from there.
+`astro-worker` runs the River workers + periodic jobs; `astro-server` (API) runs
+multiple replicas with an insert-only queue. The controller lives in the worker
+under **Postgres advisory-lock leader election** (`internal/leaderelection`), so
+exactly one replica runs its informers and DB writes even if the worker scales
+past one replica — the rest idle as hot standbys and take over when the leader's
+lock connection drops. Because the API replicas cannot see the leader's in-memory
+informer cache, the controller **persists observed state to the DB**, and the API
+reads from there. The DeployWorker's immediate-reconcile nudge can originate on
+any replica, so it is routed to the leader through Postgres `LISTEN/NOTIFY`
+(`internal/pgnotify`) rather than an in-process enqueue.
 
 ```mermaid
 graph TB
-  subgraph worker["astro-worker (replicas: 1)"]
+  subgraph worker["astro-worker (leader-elected)"]
     CTRL["Deployment Controller<br/>informers + workqueue"]
     DWk["DeployWorker (River)"]
   end
@@ -368,7 +372,7 @@ unreachable cluster returns the last-observed snapshot (or an empty runtime the
 UI already renders as "loading"), where it used to return `503`. There is no
 live fallback — an unobserved deployment reads empty until the controller's
 first sync. This makes the controller the *sole* writer of the runtime view, so
-its HA (below) matters more.
+its HA matters — handled by the controller's leader election (below).
 
 - **Adds a Services informer** to the controller (Services carry
   `managed-by=astro-server`, so the same label-scoped factory sees them).
@@ -421,16 +425,18 @@ graph LR
   more `503` on a down cluster). `manual_ingestions` not yet moved off its
   namespace annotation.
 
+## Resolved
+
+- **HA of the controller.** Done — the controller runs under Postgres
+  advisory-lock leader election (`internal/leaderelection`, via `go-pglock`), so
+  only the lock holder runs its informers and DB writes and the worker can scale
+  past one replica safely. A K8s `Lease` (client-go) was the alternative but
+  needs `coordination.k8s.io` RBAC and a home cluster; the advisory lock reuses
+  the DB already central to the read-model. On a leader's connection loss a
+  heartbeat steps it down before a standby takes over.
+
 ## Open Decisions
 
-- **HA of the controller.** Relies on `astro-worker` staying `replicas: 1`
-  (single writer). If the worker ever scales out, wrap the controller in
-  client-go leader election (a `Lease`). Recommend designing the entrypoint so
-  leader election can be added without restructuring. **This matters more after
-  Phase 5:** the controller is now the sole writer of both `/status` and
-  `/runtime`, so a controller outage freezes the runtime view (it goes stale
-  silently rather than erroring) — leader election should land before scaling
-  the worker.
 - **Resync period.** The safety-net cadence for full re-derivation (e.g. 1–2m) —
   trades API-server relist cost against staleness bound.
 - **Deadline ownership.** Rely on K8s `progressDeadlineSeconds` for Deployments;
@@ -442,9 +448,11 @@ graph LR
 - `DeployWorker.Work` (`internal/riverqueue/deploy.go:132`) — stop setting
   `active`; set `deploying` and hand off to the controller.
 - `internal/riverqueue/reconcile.go` + `periodic.go:42-57` — delete.
-- New: controller package started from the worker entrypoint
-  (`riverqueue/client.go` `New`, the workers-enabled path), one informer factory
-  per `k8s.Registry` cluster.
+- Controller package started from the worker entrypoint (`main.go` `runWorker`,
+  the workers-enabled path), one informer factory per `k8s.Registry` cluster.
+- `internal/leaderelection` — advisory-lock election wrapping `controller.Run`,
+  wired in `main.go` `runWorker`; `internal/pgnotify` — `LISTEN/NOTIFY` reconcile
+  nudge routed from the DeployWorker to the leader's controller.
 - `GetDeploymentStatus` — reads persisted `deployment_workload_status`
   (Phase 3). `GetDeploymentRuntime` — reads `deployment_runtime_status` and
   projects the snapshot; no K8s client calls (Phase 5).

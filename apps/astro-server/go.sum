@@ -8,6 +8,8 @@ github.com/Metronome-Industries/metronome-go/v3 v3.9.0 h1:C9Z3SGLet2kjV/rFrbTmj9
 github.com/Metronome-Industries/metronome-go/v3 v3.9.0/go.mod h1:av/XmTcRvtWg9zuNMmEE+nH82e3sjS0aRS2n3Ri/Fzs=
 github.com/alicebob/miniredis/v2 v2.37.0 h1:RheObYW32G1aiJIj81XVt78ZHJpHonHLHW7OLIshq68=
 github.com/alicebob/miniredis/v2 v2.37.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
+github.com/allisson/go-pglock/v3 v3.2.0 h1:1Tut4nz9zy+geEfKLPw8IbTl1f5QIlU2GguTEfgvjM4=
+github.com/allisson/go-pglock/v3 v3.2.0/go.mod h1:oS4BrOss1aezp5ZxVALJ9Q2ktDIUuvVxV4/3m6U5ETE=
 github.com/aws/aws-sdk-go-v2 v1.41.5 h1:dj5kopbwUsVUVFgO4Fi5BIT3t4WyqIDjGKCangnV/yY=
 github.com/aws/aws-sdk-go-v2 v1.41.5/go.mod h1:mwsPRE8ceUUpiTgF7QmQIJ7lgsKUPQOUl3o72QBrE1o=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.7 h1:3kGOqnh1pPeddVa/E37XNTaWJ8W6vrbYV9lJEkCnhuY=

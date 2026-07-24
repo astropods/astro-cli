@@ -172,3 +172,6 @@ assets/avatars/
 # Certificates
 .certs/
 *.pem
+
+# git worktrees created for parallel development
+.worktrees/

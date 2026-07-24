@@ -58,6 +58,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/leaderelection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
@@ -66,6 +67,7 @@ import (
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/payment"
+	"github.com/astropods/astro/apps/astro-server/internal/pgnotify"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
@@ -668,16 +670,36 @@ func runWorker(
 	// deployment_runtime_status, and drives deploying → active/failed — starting
 	// compute billing on the real active transition. Wired to workerCtx.
 	//
-	// ASSUMES a single astro-worker replica: it runs unconditionally, so N>1
-	// replicas would each run their own informers + writes (wasteful, and racy on
-	// the per-deployment full-replace). Before scaling the worker, wrap this in
-	// leader election (e.g. a Postgres advisory lock) and pass a leader context.
+	// The controller is the sole writer of the deployment read-model, so it must
+	// run on exactly one replica. Rather than depend on astro-worker staying
+	// replicas: 1, it runs under a Postgres advisory-lock leader election: only
+	// the replica holding the lock runs its informers and DB writes; the rest
+	// idle as hot standbys and take over when the leader's connection drops. At
+	// replicas: 1 the sole replica is always leader, so behavior is unchanged.
 	var reconcileDeployment func(namespace string)
 	if k8sReg != nil {
 		billingState := metering.NewBillingStateManager(billingProvider, db, log)
 		controller := deploycontroller.New(log, k8sReg, workerDeploymentStore, billingState)
-		reconcileDeployment = controller.EnqueueNamespace
-		go controller.Run(workerCtx)
+		// The DeployWorker may run on any replica, but only the leader drains the
+		// controller's queue. Route the immediate-reconcile nudge through Postgres
+		// LISTEN/NOTIFY so it reaches the leader regardless of which replica
+		// applied the deployment; a dropped nudge falls back to the resync.
+		dsn := cfg.Database.URL
+		reconcileDeployment = func(namespace string) {
+			if err := pgnotify.Notify(workerCtx, db, pgnotify.DeployReconcileChannel, namespace); err != nil {
+				log.Warn("deploycontroller: publish reconcile nudge failed", "namespace", namespace, "error", err)
+			}
+		}
+		go leaderelection.Run(workerCtx, db, leaderelection.Config{
+			LockKey: leaderelection.Key("deploy-controller"),
+			Name:    "deploy-controller",
+			Logger:  log,
+		}, func(leaderCtx context.Context) {
+			// Feed leader-received nudges into the controller queue; the listener's
+			// lifetime is tied to leadership via leaderCtx.
+			go pgnotify.Listen(leaderCtx, dsn, pgnotify.DeployReconcileChannel, log, controller.EnqueueNamespace)
+			controller.Run(leaderCtx)
+		})
 	}
 
 	// Start River queue (handles all periodic workers)
