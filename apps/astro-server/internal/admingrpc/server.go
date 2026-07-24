@@ -962,8 +962,10 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 				CreatedAt: p.CreationTimestamp.Format(time.RFC3339),
 			}
 
-			// Container statuses
-			for _, cs := range p.Status.ContainerStatuses {
+			// Container statuses. Init containers (which include native sidecars
+			// like the messaging container, added as restartPolicy: Always init
+			// containers) live in a separate list, so fold both in and tag origin.
+			appendStatus := func(cs corev1.ContainerStatus, init bool) {
 				state := "Unknown"
 				switch {
 				case cs.State.Running != nil:
@@ -985,14 +987,24 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 					RestartCount: cs.RestartCount,
 					State:        state,
 					Image:        cs.Image,
+					Init:         init,
 				})
 			}
+			for _, cs := range p.Status.ContainerStatuses {
+				appendStatus(cs, false)
+			}
+			for _, cs := range p.Status.InitContainerStatuses {
+				appendStatus(cs, true)
+			}
 
-			// Container resources, security, mounts, envFrom
-			for _, c := range p.Spec.Containers {
+			// Container resources, security, mounts, envFrom — for regular and
+			// init/sidecar containers alike.
+			appendResources := func(c corev1.Container, init bool) {
 				cr := &adminv1.K8sContainerResources{
 					Name:            c.Name,
 					ImagePullPolicy: string(c.ImagePullPolicy),
+					Init:            init,
+					Sidecar:         init && c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways,
 				}
 				if req := c.Resources.Requests; req != nil {
 					if v, ok := req[corev1.ResourceCPU]; ok {
@@ -1046,6 +1058,12 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 					}
 				}
 				pi.Containers = append(pi.Containers, cr)
+			}
+			for _, c := range p.Spec.Containers {
+				appendResources(c, false)
+			}
+			for _, c := range p.Spec.InitContainers {
+				appendResources(c, true)
 			}
 
 			// Pod-level security context
@@ -2575,47 +2593,6 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 	}
 
 	return nil
-}
-
-// SetAdapters updates the messaging adapters on a deployment's stored spec.
-func (s *Server) SetAdapters(_ context.Context, req *adminv1.SetAdaptersRequest) (*adminv1.SetAdaptersResponse, error) {
-	if req.DeploymentId == "" {
-		return nil, fmt.Errorf("deployment_id is required")
-	}
-
-	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
-	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
-	}
-	if dep == nil {
-		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
-	}
-
-	var ds spec.AstroDeploymentSpec
-	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err != nil {
-		return nil, fmt.Errorf("parse deployment spec: %w", err)
-	}
-
-	if ds.Interfaces == nil {
-		ds.Interfaces = &spec.DeploymentInterfaces{}
-	}
-
-	ds.Interfaces.Adapters = req.Adapters
-
-	fixedJSON, err := json.Marshal(&ds)
-	if err != nil {
-		return nil, fmt.Errorf("marshal updated spec: %w", err)
-	}
-	if err := s.deployStore.UpdateDeploymentSpecJSON(dep.ID, string(fixedJSON)); err != nil {
-		return nil, fmt.Errorf("update deployment spec: %w", err)
-	}
-
-	s.log.Info("Set adapters", "deployment_id", req.DeploymentId, "adapters", req.Adapters)
-
-	return &adminv1.SetAdaptersResponse{
-		Status:   "ok",
-		Adapters: req.Adapters,
-	}, nil
 }
 
 // GetDeploymentJobs returns River job history for a deployment.

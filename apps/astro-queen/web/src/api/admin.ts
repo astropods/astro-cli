@@ -726,20 +726,6 @@ export function usePodEnv(id: string, pod: string) {
   });
 }
 
-export function useSetAdapters() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, adapters }: { id: string; adapters: string[] }) =>
-      api.post<{ status: string; adapters: string[] }>(
-        `/api/admin/deployments/${encodeURIComponent(id)}/adapters`,
-        { adapters },
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
-    },
-  });
-}
-
 export function useClusters(enabledOnly?: boolean) {
   return useQuery({
     queryKey: adminKeys.clusters(enabledOnly),

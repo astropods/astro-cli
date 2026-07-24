@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useStopDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Play, Pause, Wrench, Layers, CheckCircle2 } from "lucide-react";
-import { deriveDisplayDeploymentStatus } from "@/lib/display-deployment-status";
+import { Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Play, Pause, Wrench, CheckCircle2, Clock, Cog, UploadCloud, XCircle, Ban, CircleSlash, Loader2, type LucideIcon } from "lucide-react";
+import { deriveDisplayDeploymentStatus, type DisplayDeploymentStatus } from "@/lib/display-deployment-status";
 import {
   cn,
   formatDateTime,
@@ -17,7 +16,7 @@ import {
   specTargetClusterId,
 } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminVariable } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminVariable, AdminDeployment, K8sContainerStatus, K8sContainerResources } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,11 +34,8 @@ export function DeploymentDetailPage() {
   const reapplyMut = useReapplyDeployment();
   const repairMut = useRepairNormalizedSpec();
   const restartPodMut = useRestartPod();
-  const setAdaptersMut = useSetAdapters();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
-  const [adaptersOpen, setAdaptersOpen] = useState(false);
-  const [pendingAdapters, setPendingAdapters] = useState<string>("none");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const showSuccess = (msg: string) => {
@@ -53,11 +49,6 @@ export function DeploymentDetailPage() {
 
   const { deployment: dep, cluster_status: cs, events, revisions } = data;
   const displayStatus = deriveDisplayDeploymentStatus(dep, cs);
-  const isTransitional =
-    ["pending", "provisioning", "undeploying"].includes(dep.status) ||
-    displayStatus.value === "deploying" ||
-    displayStatus.value === "undeploying";
-  const isRuntimeDeploying = displayStatus.differsFromDB && displayStatus.value === "deploying";
 
   return (
     <div className="space-y-6">
@@ -71,12 +62,6 @@ export function DeploymentDetailPage() {
         <div>
           <h2 className="text-xl font-semibold">{dep.name}</h2>
           <p className="text-sm text-muted-foreground">{dep.namespace}</p>
-          {cs && (
-            <p className="text-xs text-muted-foreground">
-              Live K8s data from{" "}
-              <span className="font-mono">{formatClusterId(cs.resolved_cluster_id)}</span>
-            </p>
-          )}
         </div>
         <div className="flex gap-2">
           {dep.status === "stopped" && (
@@ -143,17 +128,6 @@ export function DeploymentDetailPage() {
             Repair
           </Button>
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setPendingAdapters(data.adapters?.length ? data.adapters.sort().join(",") : "none");
-              setAdaptersOpen(true);
-            }}
-          >
-            <Layers className="size-3.5" />
-            Set Adapters
-          </Button>
-          <Button
             variant="destructive"
             size="sm"
             onClick={() => {
@@ -169,29 +143,42 @@ export function DeploymentDetailPage() {
         </div>
       </div>
 
-      {/* Status banner */}
-      {dep.status === "failed" && dep.error_message && (
-        <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-medium">Deployment Failed</p>
-            <p className="mt-0.5 text-red-700">{dep.error_message}</p>
-            {dep.error_details && dep.error_details.length > 0 && (
-              <ul className="mt-1.5 list-disc pl-4 text-red-700 space-y-0.5">
-                {dep.error_details.map((d, i) => (
-                  <li key={i}>
-                    {d.kind && d.resource ? (
-                      <><span className="font-medium">{d.kind}/{d.resource}:</span> {d.error}</>
-                    ) : (
-                      d.error
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+      {(() => {
+        const accountHref = dep.account_id
+          ? `/admin/accounts?q=${encodeURIComponent(dep.account_id)}`
+          : dep.account_name
+            ? `/admin/accounts?q=${encodeURIComponent(dep.account_name)}`
+            : undefined;
+        return (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              Account{" "}
+              {accountHref ? (
+                <Link to={accountHref} className="text-blue-600 hover:underline">{dep.account_name || "-"}</Link>
+              ) : (
+                <span className="text-foreground">{dep.account_name || "-"}</span>
+              )}
+            </span>
+            <span>
+              Cluster{" "}
+              <span className={cn("font-mono", dep.placement_mismatch ? "font-medium text-amber-700" : "text-foreground")}>
+                {formatClusterId(dep.cluster_id)}
+              </span>
+              {dep.placement_mismatch && (
+                <span className="text-amber-700"> ≠ {formatClusterId(dep.account_cluster_id)}</span>
+              )}
+            </span>
+            <span>Owner <span className="text-foreground">{dep.owner_email || "-"}</span></span>
+            <span>
+              Revision <span className="text-foreground">{dep.current_revision != null ? `rev ${dep.current_revision}` : "-"}</span>
+            </span>
+            <span>Created <span className="text-foreground">{formatDateTime(dep.created_at)}</span></span>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      <DeploymentLifecycle dep={dep} display={displayStatus} />
+
       {dep.status === "stopped" && (
         <div className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
           <Pause className="mt-0.5 size-4 shrink-0" />
@@ -201,72 +188,6 @@ export function DeploymentDetailPage() {
           </div>
         </div>
       )}
-      {isRuntimeDeploying && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-950 dark:text-amber-100">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <div>
-            <p className="font-medium">Deploying in cluster</p>
-            <p className="mt-0.5 text-amber-900/90 dark:text-amber-100/90">
-              DB status is <span className="font-mono">active</span> but the agent workload is not ready yet
-              {displayStatus.details ? ` — ${displayStatus.details}` : ""} (same as product UI).
-            </p>
-          </div>
-        </div>
-      )}
-      {isTransitional && !isRuntimeDeploying && (
-        <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
-          <span className="relative flex size-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-blue-500" />
-          </span>
-          <span className="capitalize">{displayStatus.value}…</span>
-        </div>
-      )}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-3 sm:gap-4">
-        <InfoCard
-          label="Status"
-          value={displayStatus.value}
-          mismatch={displayStatus.differsFromDB}
-          mismatchHint={displayStatus.differsFromDB ? `DB record: ${dep.status}` : undefined}
-        />
-        <InfoCard
-          label="Account"
-          value={dep.account_name}
-          href={
-            dep.account_id
-              ? `/admin/accounts?q=${encodeURIComponent(dep.account_id)}`
-              : dep.account_name
-                ? `/admin/accounts?q=${encodeURIComponent(dep.account_name)}`
-                : undefined
-          }
-        />
-        <InfoCard
-          label="Deployment cluster"
-          value={formatClusterId(dep.cluster_id)}
-          mono
-          mismatch={dep.placement_mismatch}
-          mismatchHint={
-            dep.placement_mismatch
-              ? `Account pinned to ${formatClusterId(dep.account_cluster_id)}`
-              : undefined
-          }
-        />
-        <InfoCard
-          label="Account cluster"
-          value={formatClusterId(dep.account_cluster_id)}
-          mono
-          mismatch={dep.placement_mismatch}
-          mismatchHint={
-            dep.placement_mismatch
-              ? `Deployment routes to ${formatClusterId(dep.cluster_id)}`
-              : undefined
-          }
-        />
-        <InfoCard label="Owner" value={dep.owner_email || "-"} />
-        <InfoCard label="Build ID" value={dep.build_id} mono />
-        <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
-        <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
-      </div>
       {data.placement_hint && dep.placement_mismatch && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3 text-xs text-amber-950">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
@@ -276,64 +197,29 @@ export function DeploymentDetailPage() {
       {(() => {
         const image = data.workloads?.[0]?.image;
         const ecrRegion = image ? ecrRegionFromImage(image) : null;
-        if (!ecrRegion) return null;
-        const depCluster = formatClusterId(dep.cluster_id);
+        const liveFrom = cs ? formatClusterId(cs.resolved_cluster_id) : null;
+        if (!ecrRegion && !liveFrom) return null;
         return (
           <p className="text-[11px] text-muted-foreground">
-            Agent image ECR region: <span className="font-mono">{ecrRegion}</span>
-            {depCluster !== "primary" && depCluster !== ecrRegion && (
-              <> · deployment routes to <span className="font-mono">{depCluster}</span></>
-            )}
+            {liveFrom && <>Live K8s data from <span className="font-mono">{liveFrom}</span></>}
+            {liveFrom && ecrRegion && " · "}
+            {ecrRegion && <>agent image ECR region <span className="font-mono">{ecrRegion}</span></>}
           </p>
         );
       })()}
 
-      <Dialog open={adaptersOpen} onOpenChange={setAdaptersOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Set Adapters</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <Select value={pendingAdapters} onValueChange={setPendingAdapters}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="slack">Slack</SelectItem>
-                <SelectItem value="web">Web</SelectItem>
-                <SelectItem value="slack,web">Slack + Web</SelectItem>
-                <SelectItem value="none">None</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setAdaptersOpen(false)}>Cancel</Button>
-            <Button
-              size="sm"
-              disabled={setAdaptersMut.isPending}
-              onClick={() => {
-                const adapters = pendingAdapters === "none" ? [] : pendingAdapters.split(",");
-                setAdaptersMut.mutate({ id: id!, adapters }, {
-                  onSuccess: () => {
-                    refetch();
-                    setAdaptersOpen(false);
-                  },
-                });
-              }}
-            >
-              {setAdaptersMut.isPending ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {cs?.summary && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <StatCard label="Pods" value={cs.summary.total_pods} sub={`${cs.summary.running_pods} running`} />
-          <StatCard label="Deployments" value={cs.summary.total_deployments} />
-          <StatCard label="Services" value={cs.summary.total_services} />
-          <StatCard label="Ingresses" value={cs.summary.total_ingresses} />
-          <StatCard label="Events" value={cs.summary.total_events} sub={cs.summary.warning_events > 0 ? `${cs.summary.warning_events} warnings` : undefined} warn={cs.summary.warning_events > 0} />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg glass px-3 py-2 text-xs text-muted-foreground">
+          <StatItem value={cs.summary.total_pods} label="pods" note={cs.summary.total_pods > 0 ? `${cs.summary.running_pods} running` : undefined} />
+          <StatItem value={cs.summary.total_deployments} label="deployments" />
+          <StatItem value={cs.summary.total_services} label="services" />
+          <StatItem value={cs.summary.total_ingresses} label="ingresses" />
+          <StatItem
+            value={cs.summary.total_events}
+            label="events"
+            note={cs.summary.warning_events > 0 ? `${cs.summary.warning_events} warnings` : undefined}
+            warn={cs.summary.warning_events > 0}
+          />
         </div>
       )}
 
@@ -348,14 +234,14 @@ export function DeploymentDetailPage() {
       >
         <TabsList variant="line">
           <TabsTrigger value="events">Events & Jobs</TabsTrigger>
-          <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="variables">Variables ({data.variables?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="spec">Spec</TabsTrigger>
         </TabsList>
 
         <TabsContent value="events" className="space-y-4 mt-2">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="space-y-4">
             {/* Event Timeline */}
             <div>
               <h3 className="text-sm font-medium text-muted-foreground mb-2">Event Timeline ({events?.length ?? 0})</h3>
@@ -448,33 +334,33 @@ export function DeploymentDetailPage() {
           {cs?.pods?.length > 0 ? (
             <div className="space-y-2">
               {cs.pods.map((pod) => (
-                <div key={pod.name}>
-                  <PodRow
-                    pod={pod}
-                    deploymentId={id!}
-                    onSelect={setSelectedPod}
-                    onRestart={(podName) => {
-                      if (confirm(`Delete pod ${podName}? Kubernetes will recreate it.`)) {
-                        restartPodMut.mutate({ id: id!, pod: podName });
-                      }
-                    }}
-                    isRestarting={restartPodMut.isPending}
-                  />
-                  {selectedPod && selectedPod.name === pod.name && (
-                    <PodDetail
-                      deploymentId={selectedPod.deploymentId}
-                      pod={selectedPod.name}
-                      container={selectedPod.container}
-                      mode={selectedPod.mode}
-                      onClose={() => setSelectedPod(null)}
-                    />
-                  )}
-                </div>
+                <PodRow
+                  key={pod.name}
+                  pod={pod}
+                  deploymentId={id!}
+                  onSelect={setSelectedPod}
+                  onRestart={(podName) => {
+                    if (confirm(`Delete pod ${podName}? Kubernetes will recreate it.`)) {
+                      restartPodMut.mutate({ id: id!, pod: podName });
+                    }
+                  }}
+                  isRestarting={restartPodMut.isPending}
+                />
               ))}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">No pods found.</p>
           )}
+          <Dialog open={!!selectedPod} onOpenChange={(open) => { if (!open) setSelectedPod(null); }}>
+            {selectedPod && (
+              <PodDetail
+                deploymentId={selectedPod.deploymentId}
+                pod={selectedPod.name}
+                container={selectedPod.container}
+                mode={selectedPod.mode}
+              />
+            )}
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="variables" className="mt-2">
@@ -510,6 +396,229 @@ export function DeploymentDetailPage() {
   );
 }
 
+type LifecycleTone = "neutral" | "progress" | "good" | "bad" | "warn";
+
+const STATE_META: Record<string, { label: string; icon: LucideIcon; tone: LifecycleTone }> = {
+  pending:      { label: "Pending",      icon: Clock,        tone: "neutral" },
+  provisioning: { label: "Provisioning", icon: Cog,          tone: "progress" },
+  deploying:    { label: "Deploying",    icon: UploadCloud,  tone: "progress" },
+  active:       { label: "Active",       icon: CheckCircle2, tone: "good" },
+  failed:       { label: "Failed",       icon: XCircle,      tone: "bad" },
+  stopped:      { label: "Paused",       icon: Pause,        tone: "neutral" },
+  suspended:    { label: "Suspended",    icon: Ban,          tone: "warn" },
+  undeploying:  { label: "Undeploying",  icon: Loader2,      tone: "warn" },
+  undeployed:   { label: "Undeployed",   icon: CircleSlash,  tone: "neutral" },
+};
+
+const HAPPY_PATH = ["pending", "provisioning", "deploying", "active"] as const;
+const HAPPY_RANK: Record<string, number> = { pending: 0, provisioning: 1, deploying: 2, active: 3 };
+const EXCEPTION_STATES = ["failed", "stopped", "suspended", "undeploying", "undeployed"] as const;
+
+const TONE_CURRENT: Record<LifecycleTone, string> = {
+  neutral:  "border-blue-500 bg-blue-500/15 text-blue-600",
+  progress: "border-blue-500 bg-blue-500/15 text-blue-600",
+  good:     "border-green-500 bg-green-500/20 text-green-600",
+  bad:      "border-red-500 bg-red-500/15 text-red-600",
+  warn:     "border-amber-500 bg-amber-500/15 text-amber-600",
+};
+
+/**
+ * Renders the deployment lifecycle state machine and marks where the current
+ * deployment sits. The happy path (pending → provisioning → deploying → active)
+ * is the spine; exception/teardown states hang below as off-ramps. Position is
+ * driven by the DB status, with the one runtime nuance the product UI also shows:
+ * DB `active` but workloads not yet ready reads as still-deploying.
+ */
+function DeploymentLifecycle({ dep, display }: { dep: AdminDeployment; display: DisplayDeploymentStatus }) {
+  const status = dep.status;
+  const inHappy = status in HAPPY_RANK;
+  const isFailed = status === "failed";
+  const isTeardown = status === "undeploying" || status === "undeployed";
+  const isPaused = status === "stopped" || status === "suspended";
+  // DB says active, but the agent workload isn't ready in-cluster yet.
+  const runtimeDeploying = status === "active" && display.differsFromDB && display.value === "deploying";
+  // A healthy, settled active deployment shouldn't pulse — it's at rest.
+  const settledActive = status === "active" && !runtimeDeploying;
+  // Only states actively transitioning should pulse; failed/paused are at rest.
+  const inMotion =
+    ["pending", "provisioning", "deploying", "undeploying"].includes(status) || runtimeDeploying;
+
+  const nodeKind = (i: number): "done" | "current" | "upcoming" => {
+    if (inHappy) {
+      const rank = HAPPY_RANK[status];
+      if (i < rank) return "done";
+      if (i === rank) return settledActive ? "done" : "current";
+      return "upcoming";
+    }
+    // Exception states: everything the deployment already cleared reads as done.
+    if (isPaused || isTeardown) return "done"; // was active before diverging
+    if (isFailed) return i < 3 ? "done" : "upcoming"; // active never reached (still recoverable)
+    return "upcoming";
+  };
+
+  const meta = STATE_META[status] ?? { label: status, icon: CircleSlash, tone: "neutral" as LifecycleTone };
+  const changedAgo = dep.status_changed_at
+    ? formatDistanceToNow(new Date(dep.status_changed_at), { addSuffix: true })
+    : null;
+  // The failed banner below owns the error text; don't echo it here.
+  const description = isFailed ? null : display.details;
+
+  return (
+    <div className="rounded-lg glass p-4">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Lifecycle</span>
+          <StateChip label={meta.label} tone={meta.tone} pulse={inMotion} />
+        </div>
+        {(description || changedAgo) && (
+          <p className="text-xs text-muted-foreground">
+            {description}
+            {changedAgo && (
+              <span className="text-muted-foreground/60">
+                {description ? " · " : ""}since {changedAgo}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* Happy-path spine */}
+      <div className="flex items-start">
+        {HAPPY_PATH.map((key, i) => {
+          const kind = nodeKind(i);
+          const nodeMeta = STATE_META[key];
+          // The active node turns amber while runtime-deploying to flag the gap.
+          const tone: LifecycleTone = key === "active" && runtimeDeploying ? "warn" : nodeMeta.tone;
+          // The connector out of a completed node is filled; otherwise muted.
+          const connectorFilled = kind === "done";
+          return (
+            <div key={key} className="flex flex-1 items-start last:flex-none">
+              <LifecycleNode meta={{ ...nodeMeta, tone }} kind={kind} pulse={kind === "current"} />
+              {i < HAPPY_PATH.length - 1 && (
+                <div
+                  className={cn(
+                    "mt-4 h-0.5 flex-1 rounded-full",
+                    connectorFilled ? "bg-honey/50" : "bg-border",
+                  )}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Exception & teardown states */}
+      <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-glass-border-honey/50 pt-3">
+        <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          Off-ramps
+        </span>
+        {EXCEPTION_STATES.map((key) => (
+          <ExceptionChip key={key} meta={STATE_META[key]} active={status === key} />
+        ))}
+      </div>
+
+      {/* Failure reason, folded in subtly rather than as a separate red banner. */}
+      {isFailed && dep.error_message && (
+        <div className="mt-3 flex items-start gap-1.5 border-t border-red-500/15 pt-3 text-xs text-red-600/90">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium">{dep.error_message}</p>
+            {dep.error_details && dep.error_details.length > 0 && (
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-red-600/70">
+                {dep.error_details.map((d, i) => (
+                  <li key={i}>
+                    {d.kind && d.resource ? (
+                      <><span className="font-medium">{d.kind}/{d.resource}:</span> {d.error}</>
+                    ) : (
+                      d.error
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LifecycleNode({
+  meta,
+  kind,
+  pulse,
+}: {
+  meta: { label: string; icon: LucideIcon; tone: LifecycleTone };
+  kind: "done" | "current" | "upcoming";
+  pulse: boolean;
+}) {
+  const Icon = meta.icon;
+  const circle =
+    kind === "current"
+      ? TONE_CURRENT[meta.tone]
+      : kind === "done"
+        ? meta.tone === "good"
+          ? "border-green-500/50 bg-green-500/15 text-green-600"
+          : "border-honey/50 bg-honey/15 text-honey-dark"
+        : "border-border bg-transparent text-muted-foreground/40";
+
+  return (
+    <div className="flex w-16 shrink-0 flex-col items-center gap-1.5">
+      <span className={cn("relative flex size-8 items-center justify-center rounded-full border", circle)}>
+        {pulse && (
+          <span className="absolute inline-flex size-full animate-ping rounded-full border border-current opacity-40" />
+        )}
+        <Icon className={cn("size-4", meta.icon === Loader2 && kind === "current" && "animate-spin")} />
+      </span>
+      <span
+        className={cn(
+          "text-center text-[11px] leading-tight",
+          kind === "upcoming" ? "text-muted-foreground/50" : "text-foreground",
+          kind === "current" && "font-medium",
+        )}
+      >
+        {meta.label}
+      </span>
+    </div>
+  );
+}
+
+function StateChip({ label, tone, pulse }: { label: string; tone: LifecycleTone; pulse: boolean }) {
+  const toneClass: Record<LifecycleTone, string> = {
+    neutral:  "bg-blue-500/10 text-blue-600",
+    progress: "bg-blue-500/10 text-blue-600",
+    good:     "bg-green-500/10 text-green-600",
+    bad:      "bg-red-500/10 text-red-600",
+    warn:     "bg-amber-500/10 text-amber-600",
+  };
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium", toneClass[tone])}>
+      {pulse && (
+        <span className="relative flex size-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
+          <span className="relative inline-flex size-1.5 rounded-full bg-current" />
+        </span>
+      )}
+      {label}
+    </span>
+  );
+}
+
+function ExceptionChip({ meta, active }: { meta: { label: string; icon: LucideIcon; tone: LifecycleTone }; active: boolean }) {
+  const Icon = meta.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px]",
+        active ? cn("border", TONE_CURRENT[meta.tone]) : "text-muted-foreground/40",
+      )}
+    >
+      <Icon className={cn("size-3", active && meta.icon === Loader2 && "animate-spin")} />
+      {meta.label}
+    </span>
+  );
+}
+
 function EventTimeline({ events }: { events: DeploymentEvent[] }) {
   const statusColors: Record<string, string> = {
     active: "bg-green-500",
@@ -521,7 +630,7 @@ function EventTimeline({ events }: { events: DeploymentEvent[] }) {
   };
 
   return (
-    <div className="max-h-[400px] overflow-auto rounded-lg glass">
+    <div className="max-h-56 overflow-auto rounded-lg glass">
       <table className="w-full text-xs">
         <thead className="sticky top-0 z-10 glass-subtle">
           <tr className="border-b border-glass-border-honey">
@@ -533,8 +642,8 @@ function EventTimeline({ events }: { events: DeploymentEvent[] }) {
         <tbody>
           {events.map((ev, i) => (
             <tr key={i} className="border-b border-comb-light">
-              <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap" title={formatDateTime(ev.created_at)}>
-                {formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })}
+              <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap" title={ev.created_at}>
+                {formatDateTime(ev.created_at)}
               </td>
               <td className="px-3 py-1.5 whitespace-nowrap">
                 <span className="flex items-center gap-1.5">
@@ -689,58 +798,12 @@ function JobsTable({ jobs, highlightJobId }: { jobs: DeploymentJob[]; highlightJ
   );
 }
 
-function InfoCard({
-  label,
-  value,
-  mono,
-  mismatch,
-  mismatchHint,
-  href,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  mismatch?: boolean;
-  mismatchHint?: string;
-  href?: string;
-}) {
-  const valueClass = `mt-0.5 block break-words text-sm leading-snug ${
-    mono ? "font-mono text-xs" : ""
-  } ${mismatch ? "font-semibold text-amber-950" : ""}`;
-
+function StatItem({ value, label, note, warn }: { value: number; label: string; note?: string; warn?: boolean }) {
   return (
-    <div
-      className={`rounded-lg px-3 py-2 ${
-        mismatch ? "border border-amber-300/70 bg-amber-50/40 ring-1 ring-amber-200/50" : "glass"
-      }`}
-    >
-      <p className={`text-xs ${mismatch ? "font-medium text-amber-900" : "text-muted-foreground"}`}>
-        {label}
-        {mismatch && <span className="ml-1 text-[10px] font-normal text-amber-700">≠</span>}
-      </p>
-      {href ? (
-        <Link to={href} className={`${valueClass} text-blue-600 hover:underline`}>
-          {value || "-"}
-        </Link>
-      ) : (
-        <p className={valueClass}>{value || "-"}</p>
-      )}
-      {mismatchHint && (
-        <p className="mt-1 text-[10px] leading-snug text-amber-800" title={mismatchHint}>
-          {mismatchHint}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, sub, warn }: { label: string; value: number; sub?: string; warn?: boolean }) {
-  return (
-    <div className="rounded-lg glass px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold">{value}</p>
-      {sub && <p className={`text-xs ${warn ? "text-yellow-600" : "text-muted-foreground"}`}>{sub}</p>}
-    </div>
+    <span>
+      <span className={cn("font-medium", warn ? "text-yellow-600" : "text-foreground")}>{value}</span> {label}
+      {note && <span className={warn ? "text-yellow-600" : "text-muted-foreground/70"}> ({note})</span>}
+    </span>
   );
 }
 
@@ -757,75 +820,51 @@ function PodRow({
   onRestart: (podName: string) => void;
   isRestarting: boolean;
 }) {
-  const hasMultipleContainers = (pod.container_statuses?.length ?? 0) > 1;
+  // Group every container's status + spec into one card so each container is
+  // fully legible on its own, rather than smeared across parallel sections.
+  const statusByName = new Map((pod.container_statuses ?? []).map((c) => [c.name, c]));
+  const specByName = new Map((pod.containers ?? []).map((c) => [c.name, c]));
+  const containerNames = Array.from(
+    new Set([
+      ...(pod.container_statuses ?? []).map((c) => c.name),
+      ...(pod.containers ?? []).map((c) => c.name),
+    ]),
+  );
 
   return (
-    <div className="rounded-lg glass px-3 py-2">
-      <div className="flex items-center justify-between">
+    <div className="space-y-2 rounded-lg glass px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{pod.name}</p>
           <p className="text-xs text-muted-foreground">
             {pod.phase} &middot; {pod.node_name} &middot; {pod.pod_ip}
           </p>
         </div>
-        <div className="flex shrink-0 gap-1">
-          {!hasMultipleContainers && (
-            <>
-              <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ deploymentId, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
-                <FileText className="size-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ deploymentId, name: pod.name, mode: "env" })}>
-                <Settings className="size-3.5" />
-              </Button>
-            </>
-          )}
-          <Button variant="ghost" size="icon-xs" title="Restart pod" onClick={() => onRestart(pod.name)} disabled={isRestarting}>
-            <RotateCw className="size-3.5" />
-          </Button>
-        </div>
+        <Button variant="ghost" size="icon-xs" title="Restart pod" onClick={() => onRestart(pod.name)} disabled={isRestarting}>
+          <RotateCw className="size-3.5" />
+        </Button>
       </div>
-      {/* Container statuses with per-container actions */}
-      {pod.container_statuses?.length > 0 && (
-        <div className="mt-1.5 space-y-1">
-          {pod.container_statuses.map((cs) => (
-            <div key={cs.name} className="flex items-center gap-2 text-[11px]">
-              <span className={`size-1.5 rounded-full shrink-0 ${cs.ready ? "bg-green-500" : "bg-yellow-500"}`} />
-              <span className="font-medium">{cs.name}</span>
-              <span className={`${cs.state.startsWith("Running") ? "text-green-600" : cs.state.startsWith("Waiting") ? "text-yellow-600" : "text-red-600"}`}>
-                {cs.state}
-              </span>
-              {cs.restart_count > 0 && (
-                <span className="text-yellow-600">{cs.restart_count} restarts</span>
-              )}
-              <span className="truncate text-muted-foreground">{cs.image}</span>
-              {hasMultipleContainers && (
-                <span className="ml-auto flex shrink-0 gap-0.5">
-                  <Button variant="ghost" size="icon-xs" title={`Logs: ${cs.name}`} onClick={() => onSelect({ deploymentId, name: pod.name, container: cs.name, mode: "logs" })}>
-                    <FileText className="size-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon-xs" title={`Env: ${cs.name}`} onClick={() => onSelect({ deploymentId, name: pod.name, container: cs.name, mode: "env" })}>
-                    <Settings className="size-3" />
-                  </Button>
-                </span>
-              )}
-            </div>
+
+      {/* One card per container */}
+      {containerNames.length > 0 && (
+        <div className="space-y-1.5">
+          {containerNames.map((name) => (
+            <ContainerCard
+              key={name}
+              name={name}
+              status={statusByName.get(name)}
+              spec={specByName.get(name)}
+              deploymentId={deploymentId}
+              podName={pod.name}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}
-      {/* Container resources */}
-      {pod.containers?.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground">
-          {pod.containers.map((c) => (
-            <span key={c.name}>
-              {c.name}: {c.request_cpu || "-"}/{c.limit_cpu || "-"} CPU, {c.request_memory || "-"}/{c.limit_memory || "-"} mem
-              {c.image_pull_policy ? ` (${c.image_pull_policy})` : ""}
-            </span>
-          ))}
-        </div>
-      )}
-      {/* Pod security + service account */}
-      <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
-        {(pod.pod_security || pod.service_account != null) && (
+
+      {/* Pod-scoped context (applies to the whole pod, not a single container) */}
+      {(pod.pod_security || pod.service_account != null || (pod.volumes?.length ?? 0) > 0) && (
+        <div className="space-y-0.5 text-[10px] text-muted-foreground">
           <div className="flex flex-wrap gap-x-3">
             {pod.pod_security && (
               <span>
@@ -838,64 +877,110 @@ function PodRow({
               <span>automount={pod.automount_service_token ? "true" : "false"}</span>
             )}
           </div>
-        )}
-        {/* Per-container security */}
-        {pod.containers?.map((c) =>
-          c.security ? (
-            <div key={`sec-${c.name}`} className="flex flex-wrap gap-x-2">
-              <span className="font-medium">{c.name}:</span>
-              {c.security.run_as_non_root != null && <span>{c.security.run_as_non_root ? "nonRoot" : "root-ok"}</span>}
-              {c.security.run_as_user != null && <span>uid={c.security.run_as_user}</span>}
-              {c.security.read_only_root_filesystem != null && (
-                <span className={c.security.read_only_root_filesystem ? "" : "text-yellow-600"}>
-                  {c.security.read_only_root_filesystem ? "ro-fs" : "rw-fs"}
-                </span>
-              )}
-              {c.security.allow_privilege_escalation != null && <span>{c.security.allow_privilege_escalation ? "escalation" : "no-escalation"}</span>}
-              {c.security.privileged && <span className="text-red-600">PRIVILEGED</span>}
-              {(c.security.capabilities?.length ?? 0) > 0 && <span>drop=[{c.security.capabilities!.join(",")}]</span>}
-              {(c.security.add_capabilities?.length ?? 0) > 0 && <span className="text-yellow-600">add=[{c.security.add_capabilities!.join(",")}]</span>}
-              {c.security.seccomp_profile && <span>seccomp={c.security.seccomp_profile}</span>}
+          {(pod.volumes?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-x-3">
+              <span className="font-medium">volumes:</span>
+              {pod.volumes!.map((v) => (
+                <span key={v.name}>{v.name}={v.type}{v.source ? `:${v.source}` : ""}</span>
+              ))}
             </div>
-          ) : null
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContainerCard({
+  name,
+  status,
+  spec,
+  deploymentId,
+  podName,
+  onSelect,
+}: {
+  name: string;
+  status?: K8sContainerStatus;
+  spec?: K8sContainerResources;
+  deploymentId: string;
+  podName: string;
+  onSelect: (sel: { deploymentId: string; name: string; container?: string; mode: "logs" | "env" }) => void;
+}) {
+  const sec = spec?.security;
+  const stateClass = !status
+    ? "text-muted-foreground"
+    : status.state.startsWith("Running")
+      ? "text-green-600"
+      : status.state.startsWith("Waiting")
+        ? "text-yellow-600"
+        : "text-red-600";
+  // Native sidecars are restartPolicy:Always init containers; plain init otherwise.
+  const kindBadge = spec?.sidecar ? "sidecar" : (spec?.init || status?.init) ? "init" : null;
+
+  return (
+    <div className="rounded-md glass-subtle px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className={cn("size-1.5 shrink-0 rounded-full", status?.ready ? "bg-green-500" : "bg-yellow-500")} />
+        <span className="text-xs font-medium">{name}</span>
+        {kindBadge && (
+          <span className="rounded-full bg-honey/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-honey-dark">
+            {kindBadge}
+          </span>
         )}
-        {/* Volume mounts */}
-        {pod.containers?.some((c) => c.volume_mounts?.length) && (
-          <div className="mt-0.5">
-            {pod.containers.map((c) =>
-              c.volume_mounts?.length ? (
-                <div key={`mnt-${c.name}`} className="flex flex-wrap gap-x-3">
-                  <span className="font-medium">{c.name} mounts:</span>
-                  {c.volume_mounts.map((vm) => (
-                    <span key={vm.name}>
-                      {vm.mount_path}{vm.sub_path ? `(${vm.sub_path})` : ""}{vm.read_only ? " ro" : ""}
-                      <span className="text-muted-foreground/60"> [{vm.name}]</span>
-                    </span>
-                  ))}
-                </div>
-              ) : null
-            )}
-          </div>
+        {status && <span className={cn("text-[11px]", stateClass)}>{status.state}</span>}
+        {status && status.restart_count > 0 && (
+          <span className="text-[11px] text-yellow-600">{status.restart_count} restarts</span>
         )}
-        {/* Volumes */}
-        {(pod.volumes?.length ?? 0) > 0 && (
-          <div className="flex flex-wrap gap-x-3 mt-0.5">
-            <span className="font-medium">volumes:</span>
-            {pod.volumes!.map((v) => (
-              <span key={v.name}>{v.name}={v.type}{v.source ? `:${v.source}` : ""}</span>
-            ))}
-          </div>
-        )}
-        {/* EnvFrom sources */}
-        {pod.containers?.some((c) => c.env_from?.length) && (
-          <div className="flex flex-wrap gap-x-3 mt-0.5">
-            <span className="font-medium">envFrom:</span>
-            {pod.containers.flatMap((c) => c.env_from ?? []).filter((v, i, a) => a.indexOf(v) === i).map((src) => (
-              <span key={src}>{src}</span>
-            ))}
-          </div>
-        )}
+        <span className="ml-auto flex shrink-0 gap-0.5">
+          <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ deploymentId, name: podName, container: name, mode: "logs" })}>
+            <FileText className="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ deploymentId, name: podName, container: name, mode: "env" })}>
+            <Settings className="size-3.5" />
+          </Button>
+        </span>
       </div>
+      {status?.image && (
+        <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{status.image}</p>
+      )}
+      {spec && (
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+          <span>{spec.request_cpu || "-"}/{spec.limit_cpu || "-"} CPU</span>
+          <span>{spec.request_memory || "-"}/{spec.limit_memory || "-"} mem</span>
+          {spec.image_pull_policy && <span>{spec.image_pull_policy}</span>}
+          {sec?.run_as_non_root != null && <span>{sec.run_as_non_root ? "nonRoot" : "root-ok"}</span>}
+          {sec?.run_as_user != null && <span>uid={sec.run_as_user}</span>}
+          {sec?.read_only_root_filesystem != null && (
+            <span className={sec.read_only_root_filesystem ? "" : "text-yellow-600"}>
+              {sec.read_only_root_filesystem ? "ro-fs" : "rw-fs"}
+            </span>
+          )}
+          {sec?.allow_privilege_escalation != null && <span>{sec.allow_privilege_escalation ? "escalation" : "no-escalation"}</span>}
+          {sec?.privileged && <span className="text-red-600">PRIVILEGED</span>}
+          {(sec?.capabilities?.length ?? 0) > 0 && <span>drop=[{sec!.capabilities!.join(",")}]</span>}
+          {(sec?.add_capabilities?.length ?? 0) > 0 && <span className="text-yellow-600">add=[{sec!.add_capabilities!.join(",")}]</span>}
+          {sec?.seccomp_profile && <span>seccomp={sec.seccomp_profile}</span>}
+        </div>
+      )}
+      {(spec?.volume_mounts?.length ?? 0) > 0 && (
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-muted-foreground">
+          <span className="font-medium">mounts:</span>
+          {spec!.volume_mounts!.map((vm) => (
+            <span key={vm.name}>
+              {vm.mount_path}{vm.sub_path ? `(${vm.sub_path})` : ""}{vm.read_only ? " ro" : ""}
+              <span className="text-muted-foreground/60"> [{vm.name}]</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {(spec?.env_from?.length ?? 0) > 0 && (
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-muted-foreground">
+          <span className="font-medium">envFrom:</span>
+          {spec!.env_from!.map((src) => (
+            <span key={src}>{src}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -936,29 +1021,33 @@ function VariablesTable({ variables }: { variables: AdminVariable[] }) {
   );
 }
 
-function PodDetail({ deploymentId, pod, container, mode, onClose }: { deploymentId: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {
+function PodDetail({ deploymentId, pod, container, mode }: { deploymentId: string; pod: string; container?: string; mode: "logs" | "env" }) {
   const logsQuery = usePodLogs(mode === "logs" ? deploymentId : "", mode === "logs" ? pod : "", container);
   const envQuery = usePodEnv(mode === "env" ? deploymentId : "", mode === "env" ? pod : "");
 
   return (
-    <div className="mt-1 rounded-lg glass-heavy p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="font-medium">{container ? `${container}` : pod} - {mode === "logs" ? "Logs" : "Environment"}</h4>
-        <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
-      </div>
+    <DialogContent className="sm:max-w-3xl">
+      <DialogHeader>
+        <DialogTitle className="text-sm">
+          {mode === "logs" ? "Logs" : "Environment"}
+          <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+            {container ? `${container} · ${pod}` : pod}
+          </span>
+        </DialogTitle>
+      </DialogHeader>
       {mode === "logs" && (
-        logsQuery.isLoading ? <Skeleton className="h-40 w-full" /> :
+        logsQuery.isLoading ? <Skeleton className="h-96 w-full" /> :
         logsQuery.error ? <p className="text-destructive text-sm">{logsQuery.error.message}</p> :
-        <pre className="max-h-96 overflow-auto rounded glass-subtle p-3 text-xs text-foreground">{logsQuery.data?.logs || "No logs"}</pre>
+        <pre className="max-h-[70vh] overflow-auto rounded-lg glass-subtle p-3 text-xs leading-relaxed text-foreground">{logsQuery.data?.logs || "No logs"}</pre>
       )}
       {mode === "env" && (
-        envQuery.isLoading ? <Skeleton className="h-40 w-full" /> :
+        envQuery.isLoading ? <Skeleton className="h-96 w-full" /> :
         envQuery.error ? <p className="text-destructive text-sm">{envQuery.error.message}</p> :
-        <div className="space-y-3">
+        <div className="max-h-[70vh] space-y-3 overflow-auto">
           {envQuery.data?.containers?.map((c) => (
             <div key={c.container}>
               <p className="mb-1 text-xs font-medium text-muted-foreground">{c.container}</p>
-              <div className="overflow-x-auto rounded glass-subtle">
+              <div className="overflow-x-auto rounded-lg glass-subtle">
                 <table className="w-full text-xs">
                   <tbody>
                     {c.vars?.map((v) => (
@@ -974,6 +1063,6 @@ function PodDetail({ deploymentId, pod, container, mode, onClose }: { deployment
           ))}
         </div>
       )}
-    </div>
+    </DialogContent>
   );
 }

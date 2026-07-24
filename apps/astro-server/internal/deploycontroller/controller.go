@@ -393,6 +393,11 @@ func (c *Controller) sync(ctx context.Context, key queueKey) error {
 		ws := deriveStatefulSetHealth(s)
 		ws = enrichFromPods(w.pods, key.namespace, s.Spec.Selector, ws)
 		statuses = append(statuses, ws)
+		// A pod wedged on a stale revision deadlocks the rollout (K8s won't
+		// replace a not-Ready pod), so a template update never reaches it. Evict
+		// it here so the controller recreates it on the update revision — no new
+		// deploy required.
+		c.rollWedgedStatefulSetPods(ctx, w, key.namespace, s)
 	}
 
 	jobs, err := w.jobs.Jobs(key.namespace).List(sel)

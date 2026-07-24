@@ -95,6 +95,7 @@ type K8sContainerStatus struct {
 	RestartCount int32  `json:"restart_count,omitempty"`
 	State        string `json:"state,omitempty"` // e.g. "Running", "Waiting: CrashLoopBackOff", "Terminated: OOMKilled"
 	Image        string `json:"image,omitempty"`
+	Init         bool   `json:"init,omitempty"` // from initContainers (includes native sidecars)
 }
 
 type K8sContainerResources struct {
@@ -107,6 +108,8 @@ type K8sContainerResources struct {
 	VolumeMounts    []*K8sVolumeMount   `json:"volume_mounts,omitempty"`
 	EnvFrom         []string            `json:"env_from,omitempty"` // "configmap:name" or "secret:name"
 	ImagePullPolicy string              `json:"image_pull_policy,omitempty"`
+	Init            bool                `json:"init,omitempty"`    // from initContainers
+	Sidecar         bool                `json:"sidecar,omitempty"` // init container with restartPolicy: Always
 }
 
 type K8sSecurityContext struct {
@@ -841,16 +844,6 @@ type RepairNormalizedSpecResponse struct {
 	Workloads int32  `json:"workloads"`
 	Services  int32  `json:"services"`
 	Ingresses int32  `json:"ingresses"`
-}
-
-type SetAdaptersRequest struct {
-	DeploymentId string   `json:"deployment_id,omitempty"`
-	Adapters     []string `json:"adapters"`
-}
-
-type SetAdaptersResponse struct {
-	Status   string   `json:"status,omitempty"`
-	Adapters []string `json:"adapters"`
 }
 
 type StopDeploymentRequest struct {

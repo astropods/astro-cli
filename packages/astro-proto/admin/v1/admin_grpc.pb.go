@@ -46,7 +46,6 @@ type AdminServiceClient interface {
 	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
-	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
 	ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error)
 	StopDeployment(ctx context.Context, in *StopDeploymentRequest, opts ...grpc.CallOption) (*StopDeploymentResponse, error)
 	RegisterCluster(ctx context.Context, in *RegisterClusterRequest, opts ...grpc.CallOption) (*RegisterClusterResponse, error)
@@ -345,14 +344,6 @@ func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *Repai
 	return out, nil
 }
 
-func (c *adminServiceClient) SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error) {
-	out := new(SetAdaptersResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAdapters", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *adminServiceClient) ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error) {
 	out := new(ListFeedbackResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListFeedback", in, out, opts...); err != nil {
@@ -581,7 +572,6 @@ type AdminServiceServer interface {
 	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
-	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
 	ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error)
 	StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error)
 	RegisterCluster(context.Context, *RegisterClusterRequest) (*RegisterClusterResponse, error)
@@ -738,9 +728,6 @@ func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *Re
 	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
 }
 
-func (UnimplementedAdminServiceServer) SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetAdapters not implemented")
-}
 
 func (UnimplementedAdminServiceServer) ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFeedback not implemented")
@@ -1345,21 +1332,6 @@ func _AdminService_RepairNormalizedSpec_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_SetAdapters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetAdaptersRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).SetAdapters(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAdapters"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).SetAdapters(ctx, req.(*SetAdaptersRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AdminService_ListFeedback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListFeedbackRequest)
 	if err := dec(in); err != nil {
@@ -1758,7 +1730,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
-		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
 		{MethodName: "ListFeedback", Handler: _AdminService_ListFeedback_Handler},
 		{MethodName: "StopDeployment", Handler: _AdminService_StopDeployment_Handler},
 		{MethodName: "RegisterCluster", Handler: _AdminService_RegisterCluster_Handler},

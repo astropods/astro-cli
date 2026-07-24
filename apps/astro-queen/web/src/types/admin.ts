@@ -183,6 +183,7 @@ export interface K8sContainerStatus {
   restart_count: number;
   state: string;
   image: string;
+  init?: boolean; // from initContainers (includes native sidecars)
 }
 
 export interface K8sContainerResources {
@@ -195,6 +196,8 @@ export interface K8sContainerResources {
   volume_mounts?: K8sVolumeMount[];
   env_from?: string[];
   image_pull_policy?: string;
+  init?: boolean; // from initContainers
+  sidecar?: boolean; // init container with restartPolicy: Always
 }
 
 export interface K8sContainerSecurityContext {
