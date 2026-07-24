@@ -1316,3 +1316,73 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestParseSpec_GatewayModelAndBooleanConflict(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+  astro_ai_gateway: true
+models:
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6]
+`
+	tmp := filepath.Join(t.TempDir(), "astropods.yml")
+	if err := os.WriteFile(tmp, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ParseSpec(tmp)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestParseSpec_GatewayModelValid(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6, gpt-4o]
+`
+	tmp := filepath.Join(t.TempDir(), "astropods.yml")
+	if err := os.WriteFile(tmp, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ParseSpec(tmp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !IsGatewayModelProvider(s.Models["default"].Provider) {
+		t.Error("expected gateway provider on models.default")
+	}
+}
+
+func TestValidateInput_SelectDefaultMustBeOption(t *testing.T) {
+	err := validateInput("x", Input{Name: "M", Datatype: "string", DisplayAs: "select", Options: []string{"a", "b"}, Default: "c"})
+	if err == nil || !strings.Contains(err.Error(), "one of the declared options") {
+		t.Fatalf("expected default-not-in-options error, got %v", err)
+	}
+	if err := validateInput("x", Input{Name: "M", Datatype: "string", DisplayAs: "select", Options: []string{"a", "b"}, Default: "a"}); err != nil {
+		t.Fatalf("valid default should pass, got %v", err)
+	}
+}
+
+func TestDeprecationWarnings_AIGatewayBoolean(t *testing.T) {
+	if got := DeprecationWarnings(&AstroSpec{}); len(got) != 0 {
+		t.Errorf("no deprecations expected, got %v", got)
+	}
+	w := DeprecationWarnings(&AstroSpec{Agent: Container{AIGateway: true}})
+	if len(w) != 1 || !strings.Contains(w[0], "provider: gateway") {
+		t.Errorf("expected astro_ai_gateway deprecation warning, got %v", w)
+	}
+}

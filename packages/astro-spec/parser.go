@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -152,6 +153,7 @@ func ParseSpec(path string) (*AstroSpec, error) {
 	}
 
 	// Validate model entries
+	usesGatewayModel := false
 	for name, m := range spec.Models {
 		if m.Provider != "" && m.Container != nil {
 			return nil, fmt.Errorf("model %q: provider and container are mutually exclusive", name)
@@ -161,6 +163,11 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		}
 		if len(m.Models) > 0 && m.Model != "" {
 			return nil, fmt.Errorf("model %q: models and model are mutually exclusive", name)
+		}
+		if IsGatewayModelProvider(m.Provider) {
+			usesGatewayModel = true
+			// Gateway models declare selectable options via `models`; the deployer
+			// picks one at deploy time. A single `model` is treated as one option.
 		}
 		// Validate custom provider scope
 		if m.Provider != "" {
@@ -185,6 +192,12 @@ func ParseSpec(path string) (*AstroSpec, error) {
 				return nil, err
 			}
 		}
+	}
+
+	// The deprecated agent.astro_ai_gateway boolean and a provider: gateway model
+	// both enable the gateway; requiring exactly one keeps enablement unambiguous.
+	if spec.Agent.AIGateway && usesGatewayModel {
+		return nil, fmt.Errorf("agent.astro_ai_gateway and a model with provider: %q are mutually exclusive; use the gateway model entry", GatewayProviderName)
 	}
 
 	// Validate integration entries
@@ -254,6 +267,9 @@ func validateInput(path string, input Input) error {
 	if input.DisplayAs == "select" && len(input.Options) == 0 {
 		return fmt.Errorf("%s: options must be present and non-empty when display-as is select", path)
 	}
+	if input.DisplayAs == "select" && input.Default != "" && !slices.Contains(input.Options, input.Default) {
+		return fmt.Errorf("%s: default %q must be one of the declared options", path, input.Default)
+	}
 	return nil
 }
 
@@ -312,6 +328,16 @@ func SecretDefaultViolations(s *AstroSpec) []string {
 	}
 
 	return violations
+}
+
+// DeprecationWarnings returns human-readable notices for deprecated spec usage.
+// Callers (CLI validate/create) surface these without failing the parse.
+func DeprecationWarnings(s *AstroSpec) []string {
+	var warnings []string
+	if s.Agent.AIGateway {
+		warnings = append(warnings, "agent.astro_ai_gateway is deprecated; declare a model with `provider: gateway` (and list selectable models) instead")
+	}
+	return warnings
 }
 
 func scopeContains(scope []string, value string) bool {

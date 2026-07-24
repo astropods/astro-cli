@@ -34,13 +34,13 @@ type Container struct {
 	Interfaces  *Interfaces  `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Agent capabilities: frontend and/or messaging"`
 	Healthcheck *Healthcheck `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Inputs      []Input      `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the agent container"`
-	// AIGateway opts the agent into the Astro AI Gateway. When true, the
-	// platform mints a per-account virtual key at deploy time and injects
-	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY into the container. The
-	// agent picks any model the gateway routes (claude-opus / claude-sonnet
-	// / claude-haiku / titan-embed) at call time — model is not declared
-	// in the spec.
-	AIGateway bool `json:"astro_ai_gateway,omitempty" yaml:"astro_ai_gateway,omitempty" jsonschema:"description=Enable Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"`
+	// AIGateway opts the agent into the Astro AI Gateway. DEPRECATED at the spec
+	// level in favor of a model with `provider: gateway` — still honored (injects
+	// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY, agent picks the model at call
+	// time), but a gateway model entry also lets the deployer pick the model at
+	// deploy time. The boolean and a gateway model entry are mutually exclusive.
+	// (Not marked //Deprecated: so internal backward-compat reads don't trip SA1019.)
+	AIGateway bool `json:"astro_ai_gateway,omitempty" yaml:"astro_ai_gateway,omitempty" jsonschema:"description=Deprecated: use a model with provider: gateway. Enables Astro AI Gateway access (injects ASTRO_GATEWAY_URL and ASTRO_GATEWAY_API_KEY)"`
 }
 
 // Interfaces declares agent interface capabilities.
@@ -130,6 +130,25 @@ func (m Model) ResolvedModels() []string {
 // IsProviderMode returns true when the model entry uses a platform-managed provider.
 func (m Model) IsProviderMode() bool {
 	return m.Provider != ""
+}
+
+// IsGateway reports whether this model routes through the Astro AI Gateway.
+func (m Model) IsGateway() bool {
+	return IsGatewayModelProvider(m.Provider)
+}
+
+// UsesGateway reports whether the agent uses the Astro AI Gateway — either via
+// the deprecated agent.astro_ai_gateway boolean or a model with provider: gateway.
+func (s *AstroSpec) UsesGateway() bool {
+	if s.Agent.AIGateway {
+		return true
+	}
+	for _, m := range s.Models {
+		if m.IsGateway() {
+			return true
+		}
+	}
+	return false
 }
 
 // DeploysContainer reports whether this model entry deploys a sidecar container.

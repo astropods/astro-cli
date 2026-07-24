@@ -186,11 +186,13 @@ The `models` section declares AI models the agent consumes: LLMs (e.g. Claude, G
 
 | Field       | Type            | Required    | Description                                                                             |
 | ----------- | --------------- | ----------- | --------------------------------------------------------------------------------------- |
-| `provider`  | string          | Conditional | Cloud model provider name (e.g. `anthropic`, `openai`) or a custom provider.            |
-| `models`    | string[]        | OPTIONAL    | Model identifiers to make available.                                                    |
+| `provider`  | string          | Conditional | Cloud model provider (e.g. `anthropic`, `openai`), `gateway` (Astro AI Gateway), or a custom provider. |
+| `models`    | string[]        | OPTIONAL    | Model identifiers to make available. For `provider: gateway`, these are the selectable **options**. |
 | `model`     | string          | OPTIONAL    | **Deprecated.** Use `models` instead. Single model identifier.                          |
 | `container` | ContainerConfig | Conditional | Custom container configuration for a self-hosted inference server.                      |
 | `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the model's container.                               |
+
+**Astro AI Gateway (`provider: gateway`).** Routes calls through the managed gateway — no provider key required. The `models` list is a menu of options; at deploy time the deployer picks one and it is injected as `MODEL_<NAME>` (e.g. `MODEL_DEFAULT`), alongside the stable `ASTRO_GATEWAY_URL` + `ASTRO_GATEWAY_API_KEY`. See [AI Gateway](/ai-gateway). This replaces the deprecated `agent.astro_ai_gateway: true` boolean.
 
 ### 4.2 Knowledge
 

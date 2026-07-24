@@ -201,19 +201,21 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 	}
 
 	for name, model := range astroSpec.Models {
-		if model.IsProviderMode() && model.Container == nil {
+		// gateway is a reserved provider handled separately (not in the registry).
+		if model.IsProviderMode() && model.Container == nil && !model.IsGateway() {
 			validateEntry("models", "models", name, model.Provider)
 		}
 	}
 
-	// AI Gateway: agent.astro_ai_gateway: true is rejected at admission if the
-	// gateway isn't enabled in this env. Failing here surfaces a clear
-	// error vs. shipping an agent pod with empty ASTRO_GATEWAY_* env vars.
-	if astroSpec.Agent.AIGateway && !v.AIGatewayEnabled {
+	// AI Gateway: using the gateway (agent.astro_ai_gateway: true or a model with
+	// provider: gateway) is rejected at admission if the gateway isn't enabled in
+	// this env. Failing here surfaces a clear error vs. shipping an agent pod with
+	// empty ASTRO_GATEWAY_* env vars.
+	if astroSpec.UsesGateway() && !v.AIGatewayEnabled {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
-			Field:   "agent.astro_ai_gateway",
-			Message: "agent.astro_ai_gateway is true but the AI Gateway is not enabled in this environment",
+			Field:   "models",
+			Message: "a model uses provider: gateway (or agent.astro_ai_gateway is true) but the AI Gateway is not enabled in this environment",
 		})
 	}
 	for name, knowledge := range astroSpec.Knowledge {

@@ -186,6 +186,18 @@ func IsCloudModelProvider(name string) bool {
 	return ok && p.Cloud
 }
 
+// GatewayProviderName is the reserved model provider that routes calls through
+// the Astro AI Gateway. It is not a builtin container/cloud provider: it deploys
+// no container and needs no user credentials — the platform injects
+// ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY at deploy time.
+const GatewayProviderName = "gateway"
+
+// IsGatewayModelProvider reports whether a model provider name refers to the
+// Astro AI Gateway.
+func IsGatewayModelProvider(name string) bool {
+	return strings.EqualFold(name, GatewayProviderName)
+}
+
 func IsManagedProvider(section, name string) bool {
 	p, ok := LookupBuiltin(section, name)
 	return ok && p.Managed

@@ -14,20 +14,28 @@ Scaffold a new agent wired to the gateway in one step:
 ast create my-agent --model gateway
 ```
 
-This generates `astro_ai_gateway: true` in the spec and agent code that reads the injected env vars — no provider key to configure. To enable the gateway on an existing agent, add the flag to `astropods.yml` by hand:
+This generates a gateway model in the spec and agent code that reads the injected env vars — no provider key to configure. To enable the gateway on an existing agent, declare a model with `provider: gateway` in `astropods.yml` and list the models you want to choose between:
 
 ```yaml
-agent:
-  image: my-agent:latest
-  astro_ai_gateway: true
+models:
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6, gpt-4o]
 ```
 
-On `ast deploy` (and `ast dev`), your agent container receives two environment variables:
+The `models` list is a menu of **options**. At deploy time — in the web console and CLI — you pick one, and it is injected as `MODEL_<NAME>` (here `MODEL_DEFAULT`). Your agent code reads the model id from that env var.
+
+<Note>
+The `agent.astro_ai_gateway: true` boolean is **deprecated** in favor of a `provider: gateway` model. It still works (it enables the gateway with no deploy-time model selection), but declaring a gateway model is preferred and lets you pick the model at deploy.
+</Note>
+
+On `ast deploy` (and `ast dev`), your agent container receives:
 
 | Env var                 | Purpose                                  |
 | ----------------------- | ---------------------------------------- |
-| `ASTRO_GATEWAY_URL`     | Gateway host. Append `/v1` for the OpenAI-compatible API (see below). |
-| `ASTRO_GATEWAY_API_KEY` | Bearer credential. Treat as a secret.    |
+| `ASTRO_GATEWAY_URL`     | Gateway host (stable). Append `/v1` for the OpenAI-compatible API (see below). |
+| `ASTRO_GATEWAY_API_KEY` | Bearer credential (stable). Treat as a secret. |
+| `MODEL_<NAME>`          | The model chosen at deploy for the gateway entry `<name>` (e.g. `MODEL_DEFAULT`). |
 
 ## Calling the gateway
 

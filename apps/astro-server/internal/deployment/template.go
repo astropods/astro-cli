@@ -330,7 +330,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Environment:     agentEnv,
 		Healthcheck:     astroSpec.Agent.Healthcheck,
 		Update:          spec.DefaultUpdateStrategy(),
-		AIGateway:       astroSpec.Agent.AIGateway,
+		AIGateway:       astroSpec.UsesGateway(),
 		ResponseTimeout: spec.DefaultResponseTimeout,
 	}
 
@@ -1284,6 +1284,38 @@ func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploym
 		if !inp.Secret {
 			agentEnv[inp.Name] = fmt.Sprintf("${variables.%s}", inp.Name)
 		}
+	}
+
+	// Gateway model entries → a deploy-time model selector. The declared models
+	// are selectable options; the deployer picks one and it is injected as
+	// MODEL_<name>. Endpoint/auth come from the shared ASTRO_GATEWAY_* pair
+	// (injected by the applier when AIGateway is enabled). An empty options list
+	// is enable-only (no selector; agent hard-codes the model).
+	gatewayNames := make([]string, 0, len(astroSpec.Models))
+	for name := range astroSpec.Models {
+		gatewayNames = append(gatewayNames, name)
+	}
+	sort.Strings(gatewayNames)
+	for _, name := range gatewayNames {
+		model := astroSpec.Models[name]
+		if !model.IsGateway() {
+			continue
+		}
+		options := model.ResolvedModels()
+		if len(options) == 0 {
+			continue
+		}
+		envName := "MODEL_" + spec.SanitizeEnvName(name)
+		addVariable(spec.Input{
+			Name:        envName,
+			Datatype:    "string",
+			Description: fmt.Sprintf("Model for %q (Astro AI Gateway) — chosen at deploy, injected as %s", name, envName),
+			DisplayAs:   "select",
+			Options:     options,
+			Default:     options[0],
+			Optional:    true,
+		}, []string{"agent"})
+		agentEnv[envName] = fmt.Sprintf("${variables.%s}", envName)
 	}
 
 	// Model inputs — inject defaults into model environment directly (not in variables)

@@ -189,8 +189,8 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 	}
 }
 
-// TestAstroYml_AIGateway ensures the gateway opt-in emits astro_ai_gateway: true
-// under agent and declares no provider models block (no API key required).
+// TestAstroYml_AIGateway ensures the gateway opt-in emits a models entry with
+// provider: gateway (and selectable models), not the deprecated boolean.
 func TestAstroYml_AIGateway(t *testing.T) {
 	yaml := renderAstroYml(t, ScaffoldConfig{
 		Name:            "gw-agent",
@@ -207,11 +207,18 @@ func TestAstroYml_AIGateway(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
 	}
-	if !s.Agent.AIGateway {
-		t.Errorf("expected agent.astro_ai_gateway=true, got false\n%s", yaml)
+	if s.Agent.AIGateway {
+		t.Errorf("scaffold should not emit the deprecated boolean\n%s", yaml)
 	}
-	if len(s.Models) != 0 {
-		t.Errorf("expected no models block with gateway, got %v", s.Models)
+	m, ok := s.Models["default"]
+	if !ok || !m.IsGateway() {
+		t.Fatalf("expected models.default with provider: gateway\n%s", yaml)
+	}
+	if len(m.ResolvedModels()) == 0 {
+		t.Errorf("expected selectable models on the gateway entry\n%s", yaml)
+	}
+	if !s.UsesGateway() {
+		t.Errorf("UsesGateway() should be true\n%s", yaml)
 	}
 }
 

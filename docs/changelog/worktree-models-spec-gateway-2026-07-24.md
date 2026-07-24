@@ -1,33 +1,37 @@
-# Remove Ollama / self-hosted model providers
+# AI Gateway as a model provider (deploy-time model selection)
 
 ## Summary
 
-Ollama is no longer supported. It was the only built-in *model* provider that deployed a sidecar container (a "self-hosted model provider"); every other built-in model provider (`anthropic`, `openai`, `google`, `gemini`, `cohere`) is cloud and injects credentials only. Removing Ollama therefore retires the entire "provider-mode model container" path across the spec, server, and CLI. This is the first step in reworking the `models:` spec around the Astro AI Gateway.
-
-## Design
-
-The models surface now has exactly two shapes:
-
-- **Provider mode** — `provider: <cloud>` (or a custom provider). Cloud providers inject `{PROVIDER}_API_KEY` credentials; no container is deployed.
-- **Container mode** — `container: {image, port, gpu, ...}`. The user supplies a self-hosted inference server. The platform deploys it as a Deployment and wires `MODEL_<NAME>_HOST/PORT/URL` into the agent environment.
-
-Consequences of Ollama being the sole self-hosted model provider:
-
-- `Model.DeploysContainer()` is now true only for container mode. `Model.ResolvedContainer()` returns the user's container config, or a zero value for provider mode.
-- The provider registry's model-container machinery is gone: the `ollama` entry, the `BuiltinProvider` `GPU`/`NodeSelector`/`Tolerations` fields, the `Toleration` type, `GetModelProvider`, and `ConnectionAddress.BaseURL`. Model providers no longer inject `{ENV_PREFIX}_HOST/PORT/URL/BASE_URL/MODEL`.
-- Server: model deployment collapses to container mode. The persistent-model StatefulSet path (with hardcoded `ollama list`/`ollama pull` readiness and GPU auto-enable from the registry) is removed; all model sidecars are Deployments. Container-mode GPU (`container.gpu:`) is unchanged.
-- CLI: the native-Ollama dev subsystem (host detection, model pull, RAM checks), the compose `NativeOllama` build option, and the `ast add` Ollama model-picker screen are removed. Knowledge providers (qdrant/redis/postgres/mysql/neo4j) and their self-hosted container machinery are untouched — they still deploy StatefulSets and share the generic provider fields and k8s GPU infra.
-
-## Migration
-
-Specs using `provider: ollama` (or any self-hosted model provider) are no longer valid as a managed provider. To run a self-hosted model, declare it in **container mode**:
+The Astro AI Gateway becomes a first-class model provider in the `models:` block, with deploy-time model selection. This replaces the deprecated `agent.astro_ai_gateway: true` boolean.
 
 ```yaml
 models:
-  llm:
-    container:
-      image: my-inference-server:latest
-      port: 8000
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6, gpt-4o]   # selectable options
 ```
 
-The agent then reads `MODEL_LLM_HOST` / `MODEL_LLM_PORT` / `MODEL_LLM_URL`. Cloud model providers and the Astro AI Gateway (`agent.astro_ai_gateway: true`) are unaffected.
+## Design
+
+- **`gateway` is a reserved model provider** — not in the builtin registry, deploys no container, needs no user credentials.
+- **Deploy-time selection.** The `models` list is a menu of options (not an allow-list). The server generates a `display-as: select` deployment variable per gateway entry (options = the list, default = first); the deploy form renders the existing dropdown — no new UI. The choice persists per deployment and prefills on redeploy.
+- **Env injection.** Whenever any model uses `provider: gateway`, the stable shared `ASTRO_GATEWAY_URL` + `ASTRO_GATEWAY_API_KEY` are injected. The selected model id follows the existing model env convention: `MODEL_<NAME>` (e.g. `MODEL_DEFAULT`).
+- **Enablement + deprecation.** "Uses gateway" is derived (`AstroSpec.UsesGateway()`) from a `provider: gateway` model or the deprecated boolean, and drives the existing virtual-key mint / env injection / admission gate unchanged. The boolean still works (enable-only, no selector), is mutually exclusive with a gateway model, and `ast validate` warns on it. The Bifrost grant is unchanged in this pass — the options list drives selection, not gateway-side enforcement.
+
+## Migration
+
+Move gateway agents from the boolean to a gateway model, and read the chosen model from `MODEL_<NAME>`:
+
+```yaml
+# before
+agent:
+  astro_ai_gateway: true
+
+# after
+models:
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6]
+```
+
+Agent code reads the endpoint from `ASTRO_GATEWAY_URL` and the model id from `MODEL_DEFAULT`. The boolean continues to work during deprecation.

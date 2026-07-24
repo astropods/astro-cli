@@ -77,6 +77,13 @@ func validateSpecFile(specPath string) (*spec.AstroSpec, error) {
 		return nil, fmt.Errorf("validation failed")
 	}
 
+	// Non-fatal deprecation notices.
+	if parsed != nil {
+		for _, w := range spec.DeprecationWarnings(parsed) {
+			fmt.Printf("  %s⚠%s %s\n", colorYellow, colorReset, w)
+		}
+	}
+
 	return parsed, nil
 }
 

@@ -7,13 +7,17 @@ agent:
   build:
     context: .
     dockerfile: Dockerfile
-{{- if .AIGateway}}
-  # Managed model access — injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY.
-  astro_ai_gateway: true
-{{- end}}
-{{- if or (.HasIntegration "anthropic") (.HasIntegration "openai")}}
+{{- if or .AIGateway (.HasIntegration "anthropic") (.HasIntegration "openai")}}
 
 models:
+{{- if .AIGateway}}
+  # Astro AI Gateway — managed model access (injects ASTRO_GATEWAY_URL +
+  # ASTRO_GATEWAY_API_KEY at deploy). List selectable models below; the deployer
+  # picks one and it is injected as MODEL_DEFAULT.
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6]
+{{- end}}
 {{- range .Integrations}}
 {{- if eq . "anthropic"}}
   anthropic:

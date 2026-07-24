@@ -3583,3 +3583,64 @@ func TestShapeTemplate_FrontendOnlyWithCustomAuthDeploys(t *testing.T) {
 		t.Fatalf("frontend-only agent with custom auth should deploy, got: %v", err)
 	}
 }
+
+// ===== AI Gateway as a model provider =====
+
+func TestTemplate_GatewayModel_GeneratesSelector(t *testing.T) {
+	in := baseInput()
+	in.Spec.Models = map[string]spec.Model{
+		"default": {Provider: "gateway", Models: []string{"claude-sonnet-4-6", "gpt-4o"}},
+	}
+	ds := mustGenerate(t, in)
+
+	// Gateway enables the gateway, but deploys no model container.
+	if !ds.Agent.AIGateway {
+		t.Error("expected ds.Agent.AIGateway true for a provider: gateway model")
+	}
+	if _, ok := ds.Models["default"]; ok {
+		t.Error("gateway model must not become a deployment model container")
+	}
+
+	// A select Variable is generated from the options.
+	v, ok := ds.Variables["MODEL_DEFAULT"]
+	if !ok {
+		t.Fatalf("expected generated variable MODEL_DEFAULT, got %v", ds.Variables)
+	}
+	if v.DisplayAs != "select" {
+		t.Errorf("MODEL_DEFAULT.DisplayAs = %q, want select", v.DisplayAs)
+	}
+	if len(v.Options) != 2 || v.Options[0] != "claude-sonnet-4-6" {
+		t.Errorf("MODEL_DEFAULT.Options = %v", v.Options)
+	}
+	if v.Default != "claude-sonnet-4-6" || v.Value != "claude-sonnet-4-6" {
+		t.Errorf("MODEL_DEFAULT default/value = %q/%q, want claude-sonnet-4-6", v.Default, v.Value)
+	}
+	// The selected model is wired into the agent env as MODEL_DEFAULT.
+	assertEnvRef(t, ds.Agent.Environment, "MODEL_DEFAULT", "${variables.MODEL_DEFAULT}")
+}
+
+func TestTemplate_GatewayModel_EmptyOptionsNoSelector(t *testing.T) {
+	in := baseInput()
+	in.Spec.Models = map[string]spec.Model{
+		"default": {Provider: "gateway"}, // enable-only
+	}
+	ds := mustGenerate(t, in)
+	if !ds.Agent.AIGateway {
+		t.Error("expected AIGateway enabled")
+	}
+	if _, ok := ds.Variables["MODEL_DEFAULT"]; ok {
+		t.Error("no selector expected when options are empty")
+	}
+}
+
+func TestTemplate_DeprecatedBooleanStillEnables(t *testing.T) {
+	in := baseInput()
+	in.Spec.Agent.AIGateway = true
+	ds := mustGenerate(t, in)
+	if !ds.Agent.AIGateway {
+		t.Error("expected AIGateway enabled via deprecated boolean")
+	}
+	if len(ds.Variables) != 0 {
+		t.Errorf("no gateway selector expected for the boolean path, got %v", ds.Variables)
+	}
+}

@@ -26,7 +26,8 @@ from astropods_adapter_langchain import LangChainAdapter, serve
 llm = ChatOpenAI(
     api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
     base_url=f"{os.environ['ASTRO_GATEWAY_URL']}/v1",
-    model="claude-sonnet-4-6",
+    # Model chosen at deploy time from the gateway options; injected as MODEL_DEFAULT.
+    model=os.environ.get("MODEL_DEFAULT", "claude-sonnet-4-6"),
 )
 {{- else if .HasIntegration "anthropic"}}
 llm = ChatAnthropic(model="claude-sonnet-4-5")

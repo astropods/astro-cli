@@ -377,12 +377,27 @@ func TestValidateSpec_AIGatewayMarker(t *testing.T) {
 		}
 		var found bool
 		for _, e := range result.Errors {
-			if e.Field == "agent.astro_ai_gateway" {
+			if e.Field == "models" {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("expected error on agent.astro_ai_gateway, got errors: %v", result.Errors)
+			t.Errorf("expected gateway-disabled error, got errors: %v", result.Errors)
+		}
+	})
+
+	t.Run("rejected when a provider: gateway model is used but gateway disabled", func(t *testing.T) {
+		v := NewValidator() // AIGatewayEnabled: false
+		s := &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest"},
+			Models: map[string]spec.Model{
+				"default": {Provider: "gateway", Models: []string{"claude-sonnet-4-6"}},
+			},
+		}
+		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
+		if result.Valid {
+			t.Error("expected invalid (provider: gateway model but gateway disabled)")
 		}
 	})
 
