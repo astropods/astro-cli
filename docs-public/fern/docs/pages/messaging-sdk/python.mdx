@@ -8,9 +8,9 @@ The messaging SDK is how your agent container talks to the messaging sidecar tha
 
 This page covers the Python SDK, [`astropods-messaging`](https://pypi.org/project/astropods-messaging/). For TypeScript/Node, see [Messaging SDK (Node)](/messaging-sdk/node).
 
-<Callout intent="note">
+<Note>
 This is a low-level package — raw generated gRPC stubs. If you're building an agent on a supported framework, prefer a higher-level adapter (e.g. `astropods-adapter-langchain`). Reach for this SDK directly when implementing a custom adapter or when no framework adapter exists.
-</Callout>
+</Note>
 
 Field names below are snake_case — that's how Python protobuf bindings expose proto fields. Requires Python 3.10+.
 
@@ -218,7 +218,7 @@ send(AgentResponse(
 ))
 ```
 
-`trace_context` is additive: older SDKs and adapters keep working and simply do not emit or observe it until they upgrade. If you build on an adapter, prefer its `on_trace_context` hook and `create_traceparent` helper (see [Custom adapter (Python)](../adapters/custom-python)) rather than populating this by hand.
+`trace_context` is additive: older SDKs and adapters keep working and do not emit or observe it until they upgrade. If you build on an adapter, prefer its `on_trace_context` hook and `create_traceparent` helper (see [Custom adapter (Python)](/adapters/custom-python)) rather than populating this by hand.
 
 ### Streaming text content
 

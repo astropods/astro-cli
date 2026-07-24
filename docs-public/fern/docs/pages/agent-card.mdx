@@ -1,5 +1,5 @@
 ---
-title: Agent Card
+title: Agent card
 subtitle: Control how your agent appears in the registry with an AGENT.md file
 slug: agent-card
 ---
@@ -56,8 +56,6 @@ An agent card has two parts:
 2. **Body**: Free-form Markdown after the frontmatter. Rendered as the main content on your agent's detail page.
 
 Both parts are optional; even a file with just a description in the frontmatter improves discoverability. For the full format specification, see the [Agent Card Spec](/agent-card-spec).
-
----
 
 ## Frontmatter fields
 
@@ -164,8 +162,6 @@ Each integration string is matched against a list of known integrations (Slack, 
 
 For the full list, see [Known Integrations](/known-integrations).
 
----
-
 ## Body
 
 The Markdown body below the frontmatter is rendered as the main content on your agent's detail page. There's no required structure, but consider covering:
@@ -176,8 +172,6 @@ The Markdown body below the frontmatter is rendered as the main content on your 
 - **Examples**: Sample interactions or outputs.
 
 A well-written body helps users evaluate whether your agent fits their needs before they deploy it.
-
----
 
 ## Publishing your agent card
 
@@ -198,8 +192,6 @@ ast blueprint get <name> --card
 ```
 
 This prints the agent description, tags, authors, capabilities, and integrations as they appear on the catalog page.
-
----
 
 ## Migration from meta fields
 
@@ -235,4 +227,4 @@ meta:
   visibility: public
 ```
 
-Existing agents without an `AGENT.md` continue to work; the `meta.description` and `meta.tags` fields are still read as a fallback. This may change in the future. See the [Agent Card Spec](/agent-card-spec) for full details on field behavior and normalization.
+Existing agents without an `AGENT.md` continue to work; the `meta.description` and `meta.tags` fields are still read as a fallback. See the [Agent Card Spec](/agent-card-spec) for full details on field behavior and normalization.

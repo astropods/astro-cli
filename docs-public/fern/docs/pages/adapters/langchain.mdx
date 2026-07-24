@@ -68,7 +68,7 @@ serve(adapter, ServeOptions(server_address="astro-messaging:9090"))
 | `agent`    | `langgraph.prebuilt.create_react_agent` (LangGraph < 1.0) | Same as `model`. The adapter handles both node names transparently. |
 | `tools`    | Tool execution step                                     | `on_status_update({status: 'PROCESSING', custom_message: '...'})` and `on_status_update({status: 'ANALYZING', ...})` around the tool call. |
 
-LangChain streams **complete messages**, not token-by-token deltas — so the user sees the reply appear all at once, not as a typing animation. (This is a LangChain limitation, not the adapter's.) Choose Mastra if streaming-per-token UX matters.
+LangChain streams **complete messages**, not token-by-token deltas — so the user sees the reply appear all at once, not as a typing animation. (This is a LangChain limitation, not the adapter's.) Choose the [Mastra adapter](/adapters/mastra) if streaming-per-token UX matters.
 
 The adapter also handles two LangChain content shapes:
 
@@ -96,7 +96,7 @@ adapter = LangChainAdapter(
 serve(adapter)
 ```
 
-`OpenAIVoice` is bundled for convenience — it implements the `VoiceProvider` protocol against OpenAI's Whisper API. You can pass any object with an `async listen(data: bytes, config) -> str` method.
+`OpenAIVoice` is bundled — it implements the `VoiceProvider` protocol against OpenAI's Whisper API. You can pass any object with an `async listen(data: bytes, config) -> str` method.
 
 The voice flow:
 
@@ -124,7 +124,7 @@ LangChain has no native TTS path, so the adapter does STT only. If you need TTS,
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically instruments LangChain so every LLM call and tool invocation produces a trace span. No code changes needed — Astro AI sets the env var on deployed agents.
 
-The adapter also derives the turn's W3C trace context from its root span and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](../messaging-sdk/python#trace-context) for the wire shape.
+The adapter also derives the turn's W3C trace context from its root span and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](/messaging-sdk/python#trace-context) for the wire shape.
 
 ## Example: an agent with tools
 
@@ -159,7 +159,7 @@ The `tools=` argument on `LangChainAdapter` is for **playground display only** �
 ## Local development
 
 ```bash
-ast dev project start
+ast dev
 ```
 
 `ast dev` runs the messaging sidecar on `localhost:9090`, sets `GRPC_SERVER_ADDR`, and serves the chat interface at `http://localhost:3100`. The same `serve(adapter)` code works locally and in production.

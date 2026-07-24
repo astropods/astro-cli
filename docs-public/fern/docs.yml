@@ -41,8 +41,6 @@ redirects:
     destination: "/welcome"
   - source: "/customization"
     destination: "/welcome"
-  - source: "/support"
-    destination: "/welcome"
 
 navigation:
   - tab: home
@@ -96,13 +94,13 @@ navigation:
             contents:
               - page: AI SDK
                 path: docs/pages/monitor-ai-sdk.mdx
-                icon: fa-duotone fa-sparkles
+                icon: docs/assets/integrations/vercel.svg
               - page: Mastra
                 path: docs/pages/monitor-mastra.mdx
-                icon: fa-duotone fa-cube
+                icon: docs/assets/integrations/mastra.svg
               - page: Claude Agent SDK
                 path: docs/pages/monitor-claude-agent-sdk.mdx
-                icon: fa-duotone fa-robot
+                icon: docs/assets/integrations/anthropic.svg
       - section: Monitor external agents
         contents:
           - page: Overview
@@ -113,7 +111,7 @@ navigation:
             contents:
               - page: Claude Code
                 path: docs/pages/monitor-claude-code.mdx
-                icon: fa-duotone fa-terminal
+                icon: docs/assets/integrations/claude-code.svg
       - section: Guides
         contents:
           - page: Using knowledge stores
@@ -175,8 +173,8 @@ navigation:
           - page: Known integrations
             path: docs/pages/known-integrations.mdx
             icon: fa-duotone fa-plug
-          - page: Allowlist egress IPs
-            path: docs/pages/private-database.mdx
+          - page: Egress IP allowlisting
+            path: docs/pages/ip-allowlisting.mdx
             icon: fa-duotone fa-shield-halved
       - section: Changelog
         contents:

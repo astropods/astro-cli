@@ -4,12 +4,19 @@ subtitle: Send Vercel AI SDK telemetry to Astro AI and optionally serve the agen
 slug: monitor-ai-sdk
 ---
 
+Send traces from a Vercel AI SDK agent to Astro AI so its model calls, tool calls, and latency appear in the dashboard. You can optionally serve the agent over Astro AI messaging to use it in the Astropods playground.
+
 `@astropods/adapter-ai-sdk` exports two functions you can use independently:
 
 - `astroTelemetry()` returns AI SDK `experimental_telemetry` settings wired to Astro AI's OTLP exporter.
-- `serve()` connects a `ToolLoopAgent` (`Experimental_Agent`) to Astro AI's messaging service to make your agent compatible with the Astropods playground.
+- `serve()` connects an `Experimental_Agent` to Astro AI's messaging service so your agent works in the Astropods playground.
 
 Targets `ai >= 6.0.0`.
+
+## Before you start
+
+- A deployable Astro AI agent project.
+- Astro AI sets `OTEL_EXPORTER_OTLP_ENDPOINT` only on deployed containers, so traces appear once the agent runs on the platform — not during local development.
 
 ## Install
 
@@ -33,7 +40,7 @@ const agent = new Agent({
 });
 ```
 
-Use this on its own when you serve the agent from your own framework and want AI traces reported in the dashboard.
+Traces capture each turn's model calls, tool calls, and latency, attributed to the deployed agent. Use this on its own when you serve the agent from your own framework and want AI traces reported in the dashboard.
 
 ## Serve over Astro AI messaging
 
@@ -55,7 +62,9 @@ const agent = new Agent({
 serve(agent, { name: "My Agent", instructions });
 ```
 
-Passing `instructions` into the `serve()` function makes your agent's system prompt visible in the Astropods playground. This is optional. To hide your prompts exclude `instructions` from the `serve` call.
+<Note>
+Passing `instructions` into `serve()` makes your agent's system prompt visible in the Astropods playground. It's optional — omit `instructions` to keep the prompt hidden.
+</Note>
 
 ## Verify
 

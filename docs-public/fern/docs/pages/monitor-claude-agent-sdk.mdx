@@ -4,39 +4,48 @@ subtitle: Automatically instrument Claude Agent SDK for monitoring in Astro AI
 slug: monitor-claude-agent-sdk
 ---
 
-`@astropods/adapter-claude-agent-sdk` is a drop-in replacement for `@anthropic-ai/claude-agent-sdk`. It re-exports the entire SDK surface with `query()` instrumented for OpenTelemetry, so `query()` calls, sub-agent steps, tool calls, and model invocations flow into the dashboard automatically.
+Instrument a Claude Agent SDK agent so its `query()` calls, sub-agent steps, tool calls, and model invocations appear in the Astro AI dashboard. `@astropods/adapter-claude-agent-sdk` is a drop-in replacement for `@anthropic-ai/claude-agent-sdk` that re-exports the entire SDK surface with `query()` instrumented for OpenTelemetry.
 
-The adapter is versioned independently and floats against a compatible range of Claude Agent SDK releases. The current version line supports `@anthropic-ai/claude-agent-sdk` `^0.3.142` — patches and minors within that range are supported.
+The current version supports `@anthropic-ai/claude-agent-sdk` `^0.3.142`.
 
-## Install
+## Before you start
 
-Add `@astropods/adapter-claude-agent-sdk` and remove any direct dependency on `@anthropic-ai/claude-agent-sdk`.
+- A deployable Astro AI agent project built with the Claude Agent SDK.
+- Astro AI sets `OTEL_EXPORTER_OTLP_ENDPOINT` only on deployed containers, so traces appear once the agent runs on the platform — not during local development.
 
-```json
-{
-  "dependencies": {
-    "@astropods/adapter-claude-agent-sdk": "^0.5.0"
-  }
-}
-```
+## Set up
 
-```bash
-bun install
-```
+<Steps>
+  <Step title="Install the adapter">
+    Add `@astropods/adapter-claude-agent-sdk` and remove any direct dependency on `@anthropic-ai/claude-agent-sdk`.
 
-## Update imports
+    ```json
+    {
+      "dependencies": {
+        "@astropods/adapter-claude-agent-sdk": "^0.5.0"
+      }
+    }
+    ```
 
-Point existing imports at the adapter:
+    ```bash
+    bun install
+    ```
+  </Step>
+  <Step title="Update imports">
+    Point existing imports at the adapter:
 
-```typescript
-import { query, tool, AbortError, type SDKMessage } from "@astropods/adapter-claude-agent-sdk";
-```
+    ```typescript
+    import { query, tool, AbortError, type SDKMessage } from "@astropods/adapter-claude-agent-sdk";
+    ```
 
-The full Claude Agent SDK surface is available, with small patches applied to auto-instrument your agent for monitoring in Astro AI.
+    The full Claude Agent SDK surface is available, with small patches applied to auto-instrument your agent for monitoring in Astro AI.
+  </Step>
+  <Step title="Verify">
+    Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
+  </Step>
+</Steps>
 
-## Verify
-
-Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
+## Troubleshooting
 
 If nothing shows up:
 

@@ -4,17 +4,25 @@ subtitle: Send OpenTelemetry traces from your agent to see token usage, tool cal
 slug: monitor-agents
 ---
 
-Astro AI automatically monitors agents that interact with common AI model providers. After deploying an agent on Astro AI, you can monitor your agents using the [insights](https://astropods.com/insights) page. For enhanced observability, Astro AI provides adapters for common frameworks.
+Astro AI automatically monitors agents that interact with common AI model providers. After you deploy an agent, its token usage, tool calls, and latency appear on the [Insights](https://astropods.com/insights) page. For deeper observability, Astro AI provides adapters for common frameworks.
 
 ## Framework guides
 
-- [AI SDK](/monitor-ai-sdk)
-- [Mastra](/monitor-mastra)
-- [Claude Agent SDK](/monitor-claude-agent-sdk)
+<CardGroup cols={3}>
+  <Card title="AI SDK" icon="../assets/integrations/vercel.svg" href="/monitor-ai-sdk">
+    Send Vercel AI SDK telemetry to the dashboard.
+  </Card>
+  <Card title="Mastra" icon="../assets/integrations/mastra.svg" href="/monitor-mastra">
+    Instrument Mastra agents automatically.
+  </Card>
+  <Card title="Claude Agent SDK" icon="../assets/integrations/anthropic.svg" href="/monitor-claude-agent-sdk">
+    Instrument the Claude Agent SDK with a drop-in package.
+  </Card>
+</CardGroup>
 
 ## Manually attaching observability
 
-When an adapter isn't available for your framework of choice, you may manually instrument an agent using standard OpenTelemetry. Every deployed agent container receives these environment variables automatically:
+When an adapter isn't available for your framework, you can instrument an agent manually using standard OpenTelemetry. Every deployed agent container receives these environment variables automatically:
 
 | Variable | Purpose |
 |---|---|
@@ -26,42 +34,43 @@ When an adapter isn't available for your framework of choice, you may manually i
 
 ### Node.js
 
-Install the OpenTelemetry SDK and the OTLP HTTP trace exporter:
+<Steps>
+  <Step title="Install the OpenTelemetry SDK">
+    Install the SDK and the OTLP HTTP trace exporter:
 
-```bash
-bun add @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions
-```
+    ```bash
+    bun add @opentelemetry/sdk-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions
+    ```
+  </Step>
+  <Step title="Initialize the SDK">
+    Initialize the SDK at the entry point of your agent, before any other imports that you want traced:
 
-Initialize the SDK at the entry point of your agent, before any other imports that you want traced:
+    ```typescript
+    import { NodeSDK } from "@opentelemetry/sdk-node";
+    import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+    import { resourceFromAttributes } from "@opentelemetry/resources";
+    import {
+      ATTR_SERVICE_NAME,
+      ATTR_SERVICE_VERSION,
+    } from "@opentelemetry/semantic-conventions";
 
-```typescript
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  ATTR_SERVICE_NAME,
-  ATTR_SERVICE_VERSION,
-} from "@opentelemetry/semantic-conventions";
-
-if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-  new NodeSDK({
-    resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: process.env.ASTRO_AGENT_NAME ?? "agent",
-      [ATTR_SERVICE_VERSION]: process.env.ASTRO_AGENT_BUILD ?? "dev",
-    }),
-    traceExporter: new OTLPTraceExporter({
-      url: `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`,
-    }),
-  }).start();
-}
-```
-
-With the SDK running, emit spans wherever you want them — see the [OpenTelemetry tracing API](https://opentelemetry.io/docs/languages/js/instrumentation/#traces) for the span API and the [auto-instrumentation packages](https://opentelemetry.io/docs/languages/js/libraries/) for HTTP, fetch, and other off-the-shelf coverage.
-
-## Next steps
-
-Wire up monitoring for your framework:
-
-- [AI SDK](/monitor-ai-sdk)
-- [Mastra](/monitor-mastra)
-- [Claude Agent SDK](/monitor-claude-agent-sdk)
+    if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+      new NodeSDK({
+        resource: resourceFromAttributes({
+          [ATTR_SERVICE_NAME]: process.env.ASTRO_AGENT_NAME ?? "agent",
+          [ATTR_SERVICE_VERSION]: process.env.ASTRO_AGENT_BUILD ?? "dev",
+        }),
+        traceExporter: new OTLPTraceExporter({
+          url: `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`,
+        }),
+      }).start();
+    }
+    ```
+  </Step>
+  <Step title="Emit spans">
+    With the SDK running, emit spans wherever you want them — see the [OpenTelemetry tracing API](https://opentelemetry.io/docs/languages/js/instrumentation/#traces) for the span API and the [auto-instrumentation packages](https://opentelemetry.io/docs/languages/js/libraries/) for HTTP, fetch, and other off-the-shelf coverage.
+  </Step>
+  <Step title="Verify">
+    Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
+  </Step>
+</Steps>

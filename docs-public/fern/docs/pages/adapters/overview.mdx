@@ -4,54 +4,24 @@ subtitle: Bridges between your agent framework and the Astro AI runtime
 slug: adapters/overview
 ---
 
-Adapters are the bridge between your agent code and the Astro AI runtime. They handle the gRPC streaming loop with the messaging sidecar, translate framework-specific events into the messaging protocol (status updates, content chunks, audio, feedback), and you keep using whatever framework you already chose. You write `serve(myAgent)`; the adapter handles the rest.
+Adapters connect your agent code to the Astro AI runtime. They translate your framework's events into the messaging protocol — status updates, content chunks, audio, and feedback — so you keep using whatever framework you already chose. You write `serve(myAgent)`; the adapter handles the rest.
 
-## Available adapters
+## Choose an adapter
 
-| Package                                                                | Language   | Wraps                | Use when                                                    |
-| ---------------------------------------------------------------------- | ---------- | -------------------- | ----------------------------------------------------------- |
-| [`@astropods/adapter-mastra`](/adapters/mastra)                                | TypeScript | Mastra `Agent`       | You're building with Mastra.                                |
-| [`astropods-adapter-langchain`](/adapters/langchain)                           | Python     | LangChain / LangGraph| You're using `create_agent` / `create_react_agent`.         |
-| [`@astropods/adapter-core`](/adapters/custom-node)                             | TypeScript | Anything             | Custom Node adapter for a framework not yet supported.      |
-| [`astropods-adapter-core`](/adapters/custom-python)                            | Python     | Anything             | Custom Python adapter for a framework not yet supported.    |
+| Package | Language | Use when |
+| ------- | -------- | -------- |
+| [`@astropods/adapter-mastra`](/adapters/mastra) | TypeScript | Building with Mastra. |
+| [`astropods-adapter-langchain`](/adapters/langchain) | Python | Using LangChain or LangGraph (`create_agent` / `create_react_agent`). |
+| [`@astropods/adapter-core`](/adapters/custom-node) | TypeScript | A Node framework without a dedicated adapter, or calling LLM APIs directly. Implement `AgentAdapter`. |
+| [`astropods-adapter-core`](/adapters/custom-python) | Python | A Python framework without a dedicated adapter. Implement `AgentAdapter`. |
 
-The `*-core` packages contain the framework-agnostic `AgentAdapter` interface, the `MessagingBridge` that drives the gRPC streaming loop, and a `serve()` entry point. The framework adapters (`-mastra`, `-langchain`) are thin wrappers that translate framework-specific stream events (Mastra `fullStream` chunks, LangChain `astream` updates) into the shared `StreamHooks` lifecycle.
+When you call LLM APIs directly, treat the LLM stream as your `fullStream`. To reach Astro AI messaging from a non-agent process (admin or batch), skip the adapter and use the [Messaging SDK](/messaging-sdk/node) directly — the same SDK you work with when writing a custom adapter.
 
-## When to use what
-
-| Scenario                                                          | Pick                                       |
-| ----------------------------------------------------------------- | ------------------------------------------ |
-| Mastra agent (Node/TypeScript)                                    | [`@astropods/adapter-mastra`](/adapters/mastra)    |
-| LangChain or LangGraph agent (Python)                             | [`astropods-adapter-langchain`](/adapters/langchain) |
-| Different framework, but Node-based                               | [`@astropods/adapter-core`](/adapters/custom-node) — implement `AgentAdapter` |
-| Different framework, but Python-based                             | [`astropods-adapter-core`](/adapters/custom-python) — implement `AgentAdapter` |
-| No framework — calling LLM APIs directly                          | `*-core`. Treat the LLM stream as your `fullStream`. |
-| Talking to the messaging service from a non-agent (admin, batch)  | Skip the adapter and use the [Messaging SDK](/messaging-sdk/node) directly. |
-
-## How they fit together
-
-```mermaid
-flowchart TB
-    subgraph agentPod["Agent container"]
-        A["Your agent code<br/>(framework + LLM call)"]
-        B["Framework adapter<br/>(adapter-mastra / adapter-langchain)"]
-        C["adapter-core<br/>MessagingBridge"]
-        A -- "fullStream / astream events" --> B
-        B -- "StreamHooks calls" --> C
-    end
-    subgraph sidecar["Messaging sidecar (same pod)"]
-        D["Slack adapter"]
-        E["Web adapter"]
-        F["…"]
-    end
-    C <-- "gRPC bidi stream<br/>localhost:9090" --> sidecar
-```
-
-The boundary between adapter-core and the messaging sidecar is the [Messaging SDK](/messaging-sdk/node) gRPC stream. You only touch the SDK directly when you write a custom adapter or skip the adapter layer entirely.
+The `*-core` packages contain the framework-agnostic `AgentAdapter` interface and a `serve()` entry point. The framework adapters (`-mastra`, `-langchain`) are thin wrappers that translate framework-specific stream events (Mastra `fullStream` chunks, LangChain `astream` updates) into the shared `StreamHooks` lifecycle.
 
 ## What an adapter handles for you
 
-- Connecting to the messaging sidecar with automatic reconnect.
+- Connecting to Astro AI messaging with automatic reconnect.
 - Announcing your agent's name, system prompt, and tools so they appear in the playground.
 - Streaming each user message into your code and streaming each chunk of the reply back.
 - Receiving feedback (thumbs up/down, free-form text, button clicks) and routing it to your handler.
@@ -64,7 +34,7 @@ All adapters share the same environment contract:
 
 | Variable                          | Default            | Notes                                                            |
 | --------------------------------- | ------------------ | ---------------------------------------------------------------- |
-| `GRPC_SERVER_ADDR`                | `localhost:9090`   | Messaging sidecar address. `ast dev` injects this automatically. |
+| `GRPC_SERVER_ADDR`                | `localhost:9090`   | Messaging service address. `ast dev` injects this automatically. |
 | `AGENT_FILES_DIR`                 | `/data/files`      | Shared file store for web-chat uploads and agent-produced downloads. See [Files in chat](/messaging-sdk/files-in-chat). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`     | unset              | When set, the framework adapter wires OTEL tracing automatically.|
 | `DEBUG`                           | unset              | When set, adapter-core logs at debug level.                      |

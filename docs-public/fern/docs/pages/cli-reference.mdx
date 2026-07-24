@@ -99,7 +99,7 @@ By default this reads logs from all containers in the agent workload. Use `--wor
 - A component label: `agent`, `messaging`, `knowledge`, `collector`
 - A `workload/container` pair to pick a specific container: `agent/messaging`
 
-Ambiguous identifiers (e.g. `knowledge` when several knowledge entries exist) return an error listing the candidates. Use `ast agent get --name <display-or-blueprint-name>` to see each workload's K8s name.
+Ambiguous identifiers (e.g. `knowledge` when several knowledge entries exist) return an error listing the candidates. Use `ast agent get --name <display-or-blueprint-name>` to see each workload's name.
 
 `--tail` streams logs continuously after fetching the last 15 minutes.
 
@@ -121,7 +121,7 @@ ast agent history --id <deployment-id> [--json]
 
 ### agent trace
 
-List recent traces for a deployed agent (live Langfuse query; same data as the Monitor tab in the web UI; default `--limit` is 50):
+List recent traces for a deployed agent (live trace query; same data as the Monitor tab in the web UI; default `--limit` is 50):
 
 ```bash
 ast agent trace --name <display-or-blueprint-name> [--limit <n>] [--offset <n>] [--start <RFC3339>] [--end <RFC3339>] [--json]
@@ -136,7 +136,7 @@ ast agent trace --name <display-or-blueprint-name> -t <trace-id> [--json]
 ast agent trace --id <deployment-id> --trace-id <trace-id> [--json]
 ```
 
-Print the agents-page activity summary (30-day request/token sparkline, total traces, last active). Matches the `/agents` dashboard; updates about every 10 minutes — not live Langfuse. Does not use `--limit`, `--offset`, `--start`, or `--end`. Cannot be combined with `--trace-id`.
+Print the agents-page activity summary (30-day request/token sparkline, total traces, last active). Matches the `/agents` dashboard; updates about every 10 minutes — not a live trace query. Does not use `--limit`, `--offset`, `--start`, or `--end`. Cannot be combined with `--trace-id`.
 
 ```bash
 ast agent trace --name <display-or-blueprint-name> --summary [--json]

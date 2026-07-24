@@ -4,31 +4,37 @@ subtitle: Configure an agent that ships its own web UI instead of a chat sidecar
 slug: frontend-agents
 ---
 
-By default, Astro AI wraps your agent in a messaging sidecar that gives it a chat UI, Slack adapter, and OIDC-authenticated web view. If you'd rather serve your own web interface — a custom dashboard, a static SPA, a server-rendered app — set `agent.interfaces.frontend: true` and the platform will route incoming traffic straight to your container.
+By default, Astro AI gives your agent a built-in chat UI, Slack adapter, and OIDC-authenticated web view. If you'd rather serve your own web interface — a custom dashboard, a static SPA, a server-rendered app — set `agent.interfaces.frontend: true` and the platform routes incoming traffic straight to your container.
+
+## Before you start
+
+- An Astro AI account.
+- The `ast` CLI installed and authenticated.
+- An agent container you can build: a `Dockerfile` and an HTTP server that listens on port 80.
 
 ## What `frontend: true` does
 
-Declaring `frontend: true` changes the deployment topology in three ways:
+Declaring `frontend: true` changes how the agent is served in three ways:
 
-1. **No messaging sidecar.** The platform skips the chat adapter container that's normally attached to your agent.
-2. **Direct ingress to your container.** A dedicated HTTPS hostname is provisioned and routes straight to your agent on **port 80**.
+1. **No built-in chat UI.** The platform skips the chat interface that's normally attached to your agent.
+2. **Traffic routes straight to your container.** A dedicated HTTPS hostname is provisioned and routes to your agent on **port 80**.
 3. **`--adapter` is ignored at deploy time.** Adapters (`web`, `insecure-web`, `slack`) only apply to messaging agents. A frontend agent serves whatever your container serves.
 
 **Default (messaging agent):**
 
 ```mermaid
 flowchart LR
-    A[User] --> B[Messaging sidecar<br/>chat UI / Slack / OIDC] --> C[Agent container]
+    A[User] --> B[Built-in chat UI<br/>chat / Slack / OIDC] --> C[Agent container]
 ```
 
 **`frontend: true`:**
 
 ```mermaid
 flowchart LR
-    D[User] --> E[Ingress :443] --> F[Agent container :80]
+    D[User] --> E[OIDC sign-in<br/>HTTPS :443] --> F[Agent container :80]
 ```
 
-You give up the built-in chat UI and OIDC wrapper. You gain full control over the request/response lifecycle.
+You give up the built-in chat UI, but keep the OIDC sign-in at the front door. You gain full control over the request/response lifecycle.
 
 ---
 
@@ -49,9 +55,9 @@ agent:
 
 A few rules to know:
 
-- `interfaces` MUST be nested under `agent`. Putting it at the top level is silently ignored.
+- `interfaces` must be nested under `agent`. Putting it at the top level is silently ignored.
 - Omitting `interfaces` entirely defaults to `messaging: true`. As soon as you declare `interfaces`, `messaging` defaults to `false` — you have to opt back in if you want both.
-- When `frontend: true`, your container MUST listen on port 80 in production. This is enforced by validation rule 15 of the [Astropods Spec](/astropods-package-spec).
+- When `frontend: true`, your container must listen on port 80 in production. This is enforced by validation rule 15 of the [Astropods Spec](/astropods-package-spec).
 
 ---
 
@@ -141,14 +147,14 @@ dev:
 With this in place, `ast project start` runs your container on `3000` locally and routes incoming traffic to it. In production the container still serves `:80` directly — no proxy involved.
 
 <Warning>
-`dev.interfaces.frontend.port` only affects local dev. In production your container MUST listen on `:80` — otherwise the pod will crash-loop behind the ingress. If your framework defaults to a different port, set it explicitly (via `PORT`, a CLI flag, or your entrypoint) so the deployed container binds to `:80`.
+`dev.interfaces.frontend.port` only affects local dev. In production your container must listen on `:80` — otherwise the deployed container crash-loops. If your framework defaults to a different port, set it explicitly (via `PORT`, a CLI flag, or your entrypoint) so the deployed container binds to `:80`.
 </Warning>
 
 ---
 
 ## Combining frontend with messaging
 
-Setting both interfaces to `true` deploys your frontend container **and** a messaging sidecar. The frontend gets the dedicated hostname; the sidecar handles chat / Slack on its own routes.
+Setting both interfaces to `true` deploys your frontend container **and** the built-in chat interface. The frontend gets the dedicated hostname; the chat interface handles chat / Slack on its own routes.
 
 ```yaml astropods.yml
 agent:
@@ -163,11 +169,9 @@ Use this when you want a custom UI plus the platform's built-in Slack integratio
 
 ## Authentication
 
-The default messaging adapter wraps the agent in OIDC sign-in. A frontend agent does not — your container receives raw HTTP. If your frontend needs auth, handle it inside the container (a session middleware, a JWT verifier, a third-party identity provider, etc.). For internal-only tooling, the [`anyone` grant](/accounts) controls who can reach the hostname but does not gate the request itself with a sign-in.
+The platform protects a frontend agent with the same OIDC sign-in used for the built-in chat interface: by default, visitors sign in to Astro AI at the front door before any traffic reaches your container. The signed-in user's identity is forwarded to your agent, so you can authorize requests inside the container — see [Manually authorize requests](/manual-authz).
 
-<Callout intent="info">
-Want Astro AI's built-in login gate (the same OIDC sign-in the messaging adapter provides) in front of your frontend agent? It's not supported today — [open a feature request](https://github.com/astropods/.github/issues/new) and we'll prioritize based on demand.
-</Callout>
+The platform requires sign-in but does not enforce per-user access rules for a custom frontend; your own server decides what each authenticated user may do once the request arrives.
 
 ---
 
@@ -181,7 +185,7 @@ ast blueprint deploy my-dashboard
 
 After deploy, `ast agent list` shows the assigned hostname. Open it in a browser to confirm your container is serving traffic.
 
-If your container fails to bind to `:80` in production, the pod will crash-loop. Check `ast agent logs <name>` and verify the listen port matches the spec.
+If your container fails to bind to `:80` in production, the deployed container crash-loops. Check `ast agent logs <name>` and verify the listen port matches the spec.
 
 ## Next steps
 

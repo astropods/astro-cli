@@ -4,9 +4,15 @@ subtitle: Reproduce the access checks that the messaging sidecar runs for you
 slug: manual-authz
 ---
 
-When you deploy with the default `web` or `slack` adapter, the messaging sidecar handles authorization automatically: every incoming request is checked against the deployment's grants table before it reaches your agent. If you're running a [frontend agent](/frontend-agents) or a custom HTTP server inside the messaging container, there's no sidecar to do this for you, but the platform still issues the same credentials, and you can call the same endpoint yourself.
+When you deploy with the default `web` or `slack` adapter, the messaging sidecar handles authorization automatically: every incoming request is checked against the deployment's access grants before it reaches your agent. If you're running a [frontend agent](/frontend-agents) or a custom HTTP server inside the messaging container, there's no sidecar to do this for you, but the platform still issues the same credentials, and you can call the same endpoint yourself.
 
 This guide explains the contract and shows how to replicate it.
+
+## Before you start
+
+- A deployed [frontend agent](/frontend-agents) or a custom HTTP server that receives requests directly, rather than through the default `web`/`slack` adapter.
+- The `ASTRO_AUTHZ_TOKEN` environment variable, which the platform injects into every deployed agent.
+- For a web frontend, requests that reach your container through the platform's OIDC layer, so the `x-amzn-oidc-*` headers are present.
 
 ---
 
@@ -15,7 +21,7 @@ This guide explains the contract and shows how to replicate it.
 For every inbound request, the messaging sidecar:
 
 1. Extracts an identity from the request (the OIDC user_id for web, the Slack user/team for slack).
-2. Calls `GET /api/v1/deployments/authorize` on astro-server with that identity and the adapter name, authenticated by the deploy token.
+2. Calls `GET /api/v1/deployments/authorize` on the platform with that identity and the adapter name, authenticated by the deploy token.
 3. Allows the request if the server returns `allowed: true`; denies it otherwise.
 4. Caches the answer for ~60s so chatty sessions don't pay the round-trip on every event.
 5. Falls back to the deploy token's `anyone_adapters` claim if the server is unreachable, so an outage doesn't take down open-grant deployments.
@@ -40,17 +46,17 @@ Every deployed agent receives the following environment variable:
 
 | Variable | Description |
 |---|---|
-| `ASTRO_AUTHZ_TOKEN` | Short JWT signed by astro-server. Use as a bearer credential when calling the authorize endpoint. |
+| `ASTRO_AUTHZ_TOKEN` | Short JWT signed by Astro AI. Use as a bearer credential when calling the authorize endpoint. |
 
 The token is opaque to you, but two claims inside it are useful:
 
 | Claim | Meaning |
 |---|---|
-| `iss` | astro-server's base URL, which is the host you call. No separate `ASTRO_AUTHZ_URL` env var is needed. |
+| `iss` | The authorize endpoint's base URL, which is the host you call. No separate `ASTRO_AUTHZ_URL` env var is needed. |
 | `sub` | This deployment's ID. You don't pass it explicitly; the server reads it from the token. |
 | `anyone_adapters` | Adapters with an `anyone` grant at deploy time. Used only as a degraded-mode fallback. |
 
-Decode the token once at startup to read `iss`. You do not need to validate its signature, because astro-server validates the token again on every authorize call.
+Decode the token once at startup to read `iss`. You do not need to validate its signature, because the platform validates the token again on every authorize call.
 
 ---
 
@@ -94,7 +100,7 @@ The ALB also injects `x-amzn-oidc-accesstoken`, the raw access token from the id
 
 These headers carry tokens that expire quickly and that the ALB refreshes, so read them on every request rather than persisting or caching the decoded identity beyond the request.
 
-Keep the two JWTs distinct. `ASTRO_AUTHZ_TOKEN` is the deploy token that you present to astro-server, and its `sub` is the deployment id. `x-amzn-oidc-data` is the identity token that the ALB presents to you, and its `sub` is the user id. They are separate tokens with separate subjects, so do not assume that a `sub` means the same thing in both.
+Keep the two JWTs distinct. `ASTRO_AUTHZ_TOKEN` is the deploy token that you present to the platform, and its `sub` is the deployment id. `x-amzn-oidc-data` is the identity token that the ALB presents to you, and its `sub` is the user id. They are separate tokens with separate subjects, so do not assume that a `sub` means the same thing in both.
 
 You can read the claims in `x-amzn-oidc-data` without verifying its signature only because the ALB strips any copy of these headers sent by the client and sets its own. Nothing downstream can forge them as long as every request reaches your container through the ALB. If your container can be reached directly, so that a request can arrive without passing through the ALB, verify the signature before you trust any claim. Fetch the public key from `https://public-keys.auth.elb.<region>.amazonaws.com/<kid>`, where the region comes from the `signer` ARN in the JWT header and `kid` comes from that same header, then verify with the ES256 algorithm.
 
@@ -249,7 +255,7 @@ If you author a [custom adapter](/adapters/custom-node) instead of a web fronten
 
 ## Caveats worth knowing
 
-- **Cache for ~60s.** Without a cache, every page navigation pays a round-trip to astro-server. The sidecar caches per `(identity_type, identity_id, adapter, identity_scope)` for 60 seconds; do the same. Grant edits take up to a minute to propagate, which is acceptable.
+- **Cache for ~60s.** Without a cache, every page navigation pays a round-trip to the platform. The sidecar caches per `(identity_type, identity_id, adapter, identity_scope)` for 60 seconds; do the same. Grant edits take up to a minute to propagate, which is acceptable.
 - **Fail-closed on timeouts.** A 5s timeout is the platform default. Treat any error as a denial unless the adapter is in the token's `anyone_adapters` claim. In that case a server outage should not lock everyone out of an open deployment. Cap the degraded-mode TTL low (10s or so) so recovery is reflected promptly.
 - **Anonymous is only valid with an `anyone` grant.** Sending empty `identity_type` + empty `identity_id` is allowed by the server only when the adapter is publicly granted. If your UI has a public route, route it through the same authorize call with empty identity instead of branching around it.
 - **Use the resolved `user_id` downstream.** For Slack, the linked platform user id is what trace attribution and observability buckets are keyed on. For web, it's just the input echoed back. Either way, forward `result.user_id` to your downstream telemetry rather than the raw input.
@@ -263,4 +269,4 @@ If you're using the default `--adapter web` flow, the sidecar already handles al
 
 - You set `agent.interfaces.frontend: true` and serve your own UI.
 - You're authoring a [custom adapter](/adapters/custom-node) and want to wire authorize calls into the request path yourself.
-- You're building a server-to-server integration that talks to astro-server on the deployment's behalf.
+- You're building a server-to-server integration that talks to the platform on the deployment's behalf.

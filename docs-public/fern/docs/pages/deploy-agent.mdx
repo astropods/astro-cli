@@ -4,7 +4,7 @@ subtitle: Run a blueprint as a live hosted agent
 slug: deploy-agent
 ---
 
-**Deploying** takes a blueprint from the registry and runs it as a live agent on the Astropods platform. The agent gets a web endpoint and optional integrations (Slack, etc.) based on the adapter you choose.
+**Deploying** takes a blueprint from the registry and runs it as a live agent on Astro AI. The agent gets a web endpoint and optional integrations (Slack, etc.) based on the adapter you choose.
 
 Requires a blueprint in your account. See [Your first blueprint](/blueprints) to push one.
 
@@ -41,7 +41,7 @@ Requires a blueprint in your account. See [Your first blueprint](/blueprints) to
     ast blueprint deploy my-agent --vars-file .env.prod
     ```
 
-    Use `--dry-run` to validate inputs without actually deploying:
+    Use `--dry-run` to validate inputs without deploying:
 
     ```bash
     ast blueprint deploy my-agent --var ANTHROPIC_API_KEY=@ANTHROPIC_API_KEY --dry-run
@@ -52,7 +52,7 @@ Requires a blueprint in your account. See [Your first blueprint](/blueprints) to
     ast agent list
     ```
 
-    Shows all running agents in the active account with their status and deployment ID.
+    Shows all agents in the active account with their status and deployment ID. When the deployment finishes, your agent's status shows `running`. Open its web endpoint in a browser to confirm it responds.
   </Step>
 </Steps>
 
@@ -70,9 +70,13 @@ An **adapter** controls how your agent is exposed to the world. Each adapter add
 
 `web` and `insecure-web` are mutually exclusive. `slack` can be combined with either.
 
+<Warning>
+  `insecure-web` disables authentication, so anyone with the endpoint URL can access your agent. Use it only in trusted environments.
+</Warning>
+
 ## Frontend agents
 
-Agents that declare `agent.interfaces.frontend: true` in their spec serve their own web UI directly on port 80. The platform routes incoming traffic straight to the agent container — no messaging sidecar or adapter is deployed alongside it.
+Agents that declare `agent.interfaces.frontend: true` in their spec serve their own web UI. Deploy them the same way:
 
 ```bash
 ast blueprint deploy my-frontend-agent

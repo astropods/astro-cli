@@ -4,14 +4,24 @@ subtitle: Log in and manage credentials for the Astro AI CLI and API
 slug: authentication
 ---
 
-Authentication links the CLI and API to your Astro AI account. You need it to push agents to the registry, access private deployments, and call protected endpoints. Sign in with <code>ast login</code> (an account is required). If you don't have one, [sign up](https://astropods.com/signup).
+Authentication links the CLI and API to your Astro AI account. You need it to push agents to the registry, access private deployments, and call protected endpoints. Sign in with `ast login` (an account is required). If you don't have one, [sign up](https://astropods.com/signup).
 
-## How it works
+## Log in
 
-1. You run `ast login`.
-2. The CLI shows you a short code (e.g. `ABCD-EFGH`) and a verification URL.
-3. You open the URL, enter the code, and sign in.
-4. The CLI polls until authentication completes, then stores the tokens.
+<Steps>
+  <Step title="Start the device flow">
+    Run `ast login`. The CLI shows a short code (e.g. `ABCD-EFGH`) and a verification URL.
+  </Step>
+  <Step title="Enter the code">
+    Open the URL, enter the code, and sign in.
+  </Step>
+  <Step title="Let the CLI finish">
+    The CLI polls until authentication completes, then stores the tokens.
+  </Step>
+  <Step title="Verify">
+    Run `ast whoami`; you should see your user and active account.
+  </Step>
+</Steps>
 
 Tokens are stored in the system keyring when available (macOS Keychain, Linux Secret Service, Windows Credential Manager). Otherwise they are stored in `~/.ast/credentials.json` with restricted permissions.
 

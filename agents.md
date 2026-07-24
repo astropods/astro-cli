@@ -105,3 +105,7 @@ To create a new release:
 git tag release/YYYY-MM-DD.N
 ```
 The tag should match the filename exactly (e.g. `release/2026-04-10.2`).
+
+# Product Documentation
+
+Public product documentation lives in `docs-public/fern` (Fern). When writing or editing it, follow [docs-public/AGENTS.md](docs-public/AGENTS.md) — the source of truth for voice, structure, naming (always "Astro AI", never bare "Astro"), and what must not appear (internal rationale, component names, roadmap). See `docs-public/README.md` for local preview.

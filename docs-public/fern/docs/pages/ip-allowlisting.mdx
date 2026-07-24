@@ -1,5 +1,5 @@
 ---
-title: Allowlist Astro AI's egress IPs
+title: Egress IP allowlisting
 subtitle: Let agents reach a database behind your firewall over the public network
 slug: ip-allowlisting
 ---
@@ -24,7 +24,7 @@ flowchart LR
 
 <Steps>
   <Step title="Get Astro AI's egress IPs">
-    All agent workloads egress through the following static Elastic IPs. These are fixed and do not change unless we announce it:
+    All agent workloads egress through the following static Elastic IPs. These are fixed and do not change unless a change is announced in advance:
 
     | IP | CIDR |
     |---|---|

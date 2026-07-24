@@ -8,6 +8,13 @@ slug: adapters/custom-python
 
 Use this when there's no first-party adapter for your framework (or no framework at all — you're calling LLM APIs directly).
 
+## Before you start
+
+You need:
+
+- An Astro AI agent project with `agent.interfaces.messaging: true` in `astropods.yml`, so the messaging sidecar runs alongside your agent.
+- Python 3.10 or newer.
+
 ## Install
 
 ```bash
@@ -39,6 +46,10 @@ serve(MyAdapter())
 ```
 
 `serve(adapter)` connects to `localhost:9090` (or `GRPC_SERVER_ADDR`) and blocks until `SIGINT` / `SIGTERM`.
+
+### Verify it works
+
+Enable the web adapter in `astropods.yml` (`dev.interfaces.messaging.adapters: [web]`) and run your agent under `ast dev`. Open the chat at `http://localhost:3100` and send a message. You should see the reply `Hello, <your message>!`.
 
 ## Lifecycle
 
@@ -179,7 +190,7 @@ if traceparent:
         on_trace_context(TraceContext(traceparent=traceparent))
 ```
 
-The first-party framework adapters already emit trace context from their root span — you only wire this up in a custom adapter. See the [Messaging SDK](../messaging-sdk/python#trace-context) for the underlying `TraceContext` wire shape.
+The first-party framework adapters already emit trace context from their root span — you only wire this up in a custom adapter. See the [Messaging SDK](/messaging-sdk/python#trace-context) for the underlying `TraceContext` wire shape.
 
 ## `serve(adapter, options?)`
 
@@ -194,7 +205,7 @@ Thin wrapper that handles process lifecycle. Sets up JSON-formatted logging, run
 
 ## Worked example: a plain Anthropic agent
 
-No framework — just calling Anthropic's streaming messages API.
+No framework — calling Anthropic's streaming messages API.
 
 ```python
 import os

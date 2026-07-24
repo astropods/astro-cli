@@ -6,7 +6,7 @@ slug: agent-sqlite
 
 Every agent gets its own storage space at `/data` — a folder that keeps its contents even after your agent restarts. Anything you save there is still there next time.
 
-[SQLite](https://www.sqlite.org/) is the easiest way to use that space. It's a small database that lives in a single file, with no separate server to run. Save the file under `/data` and your agent can remember things: past conversations, user preferences, notes, counters — whatever you need.
+[SQLite](https://www.sqlite.org/) is a simple way to use that space. It's a small database that lives in a single file, with no separate server to run. Save the file under `/data` and your agent can remember things: past conversations, user preferences, notes, counters — whatever you need.
 
 <Note>
 You don't have to set anything up. The `/data` folder is always there, with **5&nbsp;GB** of space by default. Want more space or a different location? See [Change the size or location](#change-the-size-or-location).
@@ -165,6 +165,8 @@ Open a database file inside `/data` and use it like any other database. The fold
     ```bash
     ast deploy
     ```
+
+    To confirm your data persists, send your agent a message so it calls `remember()`, then run `ast deploy` again (or restart the agent). Send another message: the earlier exchange should still come back from `recent()`.
   </Step>
 </Steps>
 

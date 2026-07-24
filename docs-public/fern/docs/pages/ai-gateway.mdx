@@ -4,7 +4,7 @@ subtitle: Use Astro AI-provided LLM access without managing your own provider ke
 slug: ai-gateway
 ---
 
-Set one line in your spec and your agent gets a managed API key for calling supported models — no provider account, no API keys to store, no key rotation to manage. The gateway is OpenAI-API-compatible, so it works with the SDKs and frameworks you already use.
+Set one line in your spec and your agent gets a managed API key for calling supported models. The gateway is OpenAI-API-compatible, so it works with the SDKs and frameworks you already use.
 
 ## Quick start
 
@@ -41,9 +41,9 @@ On `ast deploy` (and `ast dev`), your agent container receives:
 
 The OpenAI-compatible API lives under the **`/v1`** path, so set your client's base URL to `${ASTRO_GATEWAY_URL}/v1`. Everything else is a standard OpenAI-style request — pass one of the [supported models](#supported-models) as `model` and authenticate with `ASTRO_GATEWAY_API_KEY` as a bearer token.
 
-<Callout intent="warning">
+<Warning>
 **Append `/v1` to `ASTRO_GATEWAY_URL`.** The env var is the host only (e.g. `https://aig.example`); the OpenAI-compatible endpoints are served under `/v1` (`/v1/chat/completions`, `/v1/embeddings`). Pointing a client at the bare host returns `404`.
-</Callout>
+</Warning>
 
 <CodeBlocks>
 
@@ -135,9 +135,9 @@ curl "$ASTRO_GATEWAY_URL/v1/chat/completions" \
 
 For Mastra: the AI-SDK provider returned by `createOpenAI` is what `Agent.model:` accepts, so the rest of your `Agent` / `Workflow` / `Tool` definitions stay the same.
 
-<Callout intent="warning">
+<Warning>
 **Mastra needs an AI SDK v5+ model.** Add `@ai-sdk/openai` at **v2 or later** to your own `package.json`. Version 1.x produces an AI SDK v4 model (`specificationVersion: "v1"`) that Mastra's `stream()` rejects with `AGENT_STREAM_V1_MODEL_NOT_SUPPORTED`. This can be newer than the `@ai-sdk/openai` version Mastra pins internally, so install it explicitly rather than relying on the transitive one.
-</Callout>
+</Warning>
 
 ## Supported models
 
@@ -237,9 +237,9 @@ print(response.choices[0].message.content)
 
 ## Structured output
 
-<Callout intent="tip">
+<Note>
 Prompting for a JSON object and parsing it (with a fallback for the occasional non-JSON reply) is a portable way to get structured output that works regardless of which structured-output features a given model exposes through the gateway.
-</Callout>
+</Note>
 
 ```python title="Python"
 import json
@@ -270,15 +270,15 @@ The platform injects only `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` — it
 | **Auth header** | `x-bf-vk: ${ASTRO_GATEWAY_API_KEY}` | The gateway reads the virtual key from `x-bf-vk` — not `Authorization` / `x-api-key`, which it ignores. |
 | **Model id** | `bedrock/claude-opus-4-8` (or `-sonnet-4-6`, `-haiku-4-5`) | Models are served under `bedrock/<name>` ids; bare `claude-*` returns 401. |
 
-<Callout intent="warning">
-**Set `x-bf-vk`, not a Bearer token and disable Claude Code's pre-release beta flags (`CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`)
-</Callout>
+<Warning>
+Authenticate with the `x-bf-vk` header, not a Bearer token — the gateway ignores `Authorization` and `x-api-key`. For Claude Code, also set `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` to disable its pre-release beta flags, which Bedrock rejects.
+</Warning>
 
 <CodeBlocks>
 
 ```bash title="Claude Code / Claude Agent SDK (env)"
 export ANTHROPIC_BASE_URL="$ASTRO_GATEWAY_URL/anthropic"
-# Bifrost reads the virtual key from x-bf-vk; ANTHROPIC_AUTH_TOKEN is set only so
+# The gateway reads the virtual key from x-bf-vk; ANTHROPIC_AUTH_TOKEN is set only so
 # the client has *a* credential (the gateway ignores it).
 export ANTHROPIC_CUSTOM_HEADERS="x-bf-vk: $ASTRO_GATEWAY_API_KEY"
 export ANTHROPIC_AUTH_TOKEN="$ASTRO_GATEWAY_API_KEY"
@@ -325,14 +325,14 @@ Streaming, client-defined tool use, and adaptive thinking all work over this pat
 
 ```bash
 ast login
-ast dev project start
+ast dev
 ```
 
 Your local agent container receives the same `ASTRO_GATEWAY_*` env vars it would have in production. Code written against those env vars works identically in dev and prod.
 
-<Callout intent="note">
+<Note>
 Run `ast login` first if you haven't — the gateway is account-scoped, so the CLI needs to know who you are.
-</Callout>
+</Note>
 
 ## Mixing with your own keys
 
@@ -347,7 +347,7 @@ models:
     provider: openai      # your own OpenAI key for a specific use case
 ```
 
-Your agent code reads `ASTRO_GATEWAY_API_KEY` for gateway calls and `OPENAI_API_KEY` for the BYOK provider.
+Your agent code reads `ASTRO_GATEWAY_API_KEY` for gateway calls and `OPENAI_API_KEY` for the bring-your-own-key (BYOK) provider.
 
 ## Errors and limits
 

@@ -1,6 +1,6 @@
 ---
 title: Mastra adapter
-subtitle: Connect a Mastra Agent to the Astro AI runtime with one line
+subtitle: Connect a Mastra Agent to the Astro AI runtime
 slug: adapters/mastra
 ---
 
@@ -98,7 +98,7 @@ To enable voice, configure a Mastra `voice` provider when constructing the agent
 
 When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `serve()` automatically wires Mastra observability so every LLM call and tool invocation produces a trace span. No code changes needed — Astro AI sets the env var on deployed agents.
 
-The adapter also derives the turn's W3C trace context from Mastra's stream (`traceId` / `spanId`) and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](../messaging-sdk/node#trace-context) for the wire shape.
+The adapter also derives the turn's W3C trace context from Mastra's stream (`traceId` / `spanId`) and attaches it to the responses it emits, so any response — and the feedback that references it — can be correlated back to its trace. This is automatic; see [Trace context](/messaging-sdk/node#trace-context) for the wire shape.
 
 ## Example: an agent with tools
 
@@ -132,7 +132,7 @@ Tool names and descriptions show up in the playground via `getConfig()`. When a 
 ## Local development
 
 ```bash
-ast dev project start
+ast dev
 ```
 
 `ast dev` runs the messaging sidecar on `localhost:9090`, sets `GRPC_SERVER_ADDR`, and serves the chat interface at `http://localhost:3100`. The same `serve(agent)` code works locally and in production with no changes.

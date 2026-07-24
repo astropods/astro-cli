@@ -480,7 +480,7 @@ Inputs are user-supplied values prompted at deploy time. Each input's `name` is 
 
 `providers[].variables` is a template only; it declares what variables a provider requires so the platform can prompt for them at deploy time.
 
-Example: `inputs: [{name: OPENAI_API_KEY, datatype: secret}]` → `OPENAI_API_KEY` in the target container.
+Example: `inputs: [{name: OPENAI_API_KEY, datatype: string, secret: true}]` → `OPENAI_API_KEY` in the target container.
 
 ### 8.5 Name Sanitization
 

@@ -8,9 +8,9 @@ The messaging SDK is how your agent container talks to the messaging sidecar tha
 
 This page covers the TypeScript SDK, [`@astropods/messaging`](https://www.npmjs.com/package/@astropods/messaging). For Python, see [Messaging SDK (Python)](/messaging-sdk/python).
 
-<Callout intent="note">
+<Note>
 If you're building on a supported framework, prefer a higher-level adapter (e.g. `@astropods/adapter-mastra`). Those wrap the SDK and handle the streaming loop for you. Reach for the SDK directly when you need full control or when there is no adapter for your framework yet.
-</Callout>
+</Note>
 
 Field names below are camelCase — that's how `@grpc/proto-loader` exposes proto fields to TypeScript. The corresponding proto names are snake_case.
 
@@ -228,7 +228,7 @@ conversation.sendContentChunk(cid, { type: 'END', content: reply }, {
 });
 ```
 
-`traceContext` is additive: older SDKs and adapters keep working and simply do not emit or observe it until they upgrade. If you build on an adapter, prefer its `onTraceContext` hook and `createTraceparent` helper (see [Custom adapter (Node)](../adapters/custom-node)) rather than populating this by hand.
+`traceContext` is additive: older SDKs and adapters keep working and do not emit or observe it until they upgrade. If you build on an adapter, prefer its `onTraceContext` hook and `createTraceparent` helper (see [Custom adapter (Node)](/adapters/custom-node)) rather than populating this by hand.
 
 ### Streaming text content
 

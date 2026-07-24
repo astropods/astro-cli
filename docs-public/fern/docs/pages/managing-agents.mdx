@@ -39,28 +39,28 @@ Stream logs continuously as they arrive:
 ast agent logs --name "My Production Agent" --tail
 ```
 
-To fetch logs from the messaging sidecar instead:
+To fetch logs from the messaging workload instead:
 
 ```bash
 ast agent logs --name "My Production Agent" --workload agent/messaging
 ```
 
-`--workload` also targets non-agent workloads — knowledge entries, ingestion sidecars, or the telemetry collector. Pass either a full workload name (`my-agent-knowledge-vectors`), an entry-name suffix (`vectors`), or a component label (`knowledge`, `collector`):
+`--workload` also targets non-agent workloads. Pass either a full workload name (`my-agent-knowledge-vectors`), an entry-name suffix (`vectors`), or a component label (`knowledge`, `collector`):
 
 ```bash
 ast agent logs --name "My Production Agent" --workload vectors
 ast agent logs --name "My Production Agent" --workload collector
 ```
 
-Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get --name "My Production Agent"` to see each workload's K8s name.
+Append `/<container>` to pick a specific container in the resolved workload. Run `ast agent get --name "My Production Agent"` to see each workload's name.
 
-List recent traces (live Langfuse; the same Monitor data as the web UI):
+List recent traces (the same trace data as the Monitor view in the web UI):
 
 ```bash
 ast agent trace --name "My Production Agent"
 ```
 
-Show the activity summary from the `/agents` dashboard (sparkline, last active, totals). Use this when you want to match what the card shows without querying Langfuse directly; data updates about every 10 minutes. `--summary` ignores list window flags (`--limit`, `--start`, etc.).
+Show the activity summary from the `/agents` dashboard (sparkline, last active, totals). Use this when you want to match what the card shows without querying the trace data directly; data updates about every 10 minutes. `--summary` ignores list window flags (`--limit`, `--start`, etc.).
 
 ```bash
 ast agent trace --name "My Production Agent" --summary
@@ -72,7 +72,7 @@ Show a single trace Overview — input, output, observations, and scores:
 ast agent trace --name "My Production Agent" --trace-id 2dc10d31ac3ebec7dd9d27263dd7531d
 ```
 
-Filter by time window or paginate (defaults match the server: `--limit 50`):
+Filter by time window or paginate (default `--limit 50`):
 
 ```bash
 ast agent trace --name "My Production Agent" --start 2026-05-28T00:00:00Z --end 2026-05-28T23:59:59Z --limit 10 --offset 0

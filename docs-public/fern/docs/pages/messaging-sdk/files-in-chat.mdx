@@ -410,10 +410,12 @@ Download bytes from `GET /api/v1/deployments/{deploymentId}/files/{key}/content`
 
 ## Ownership and storage rules
 
+<Warning>
+Setting `supportsFiles` changes what your agent ingests: it starts accepting user uploads. Treat attachment bytes, display names, and MIME types as untrusted input, and apply the same parser limits and content validation you would use for any user upload. The agent container shares the underlying volume, so use only the current turn's attachment paths for input — do not scan or expose unrelated files.
+</Warning>
+
 - Files are scoped to the authenticated user, even when several users share a deployment. List, read, download, delete, and message-attachment checks all enforce that scope.
 - Agent-produced files are assigned to the conversation owner when the reply is finalized. A file already assigned to another user is not transferred or attached.
-- The agent container shares the underlying volume, so agent code must use only the current turn's attachment paths for input. Do not scan or expose unrelated files.
-- Treat attachment bytes, display names, and MIME types as untrusted input. Apply the same parser limits and content validation you would use for any user upload.
 - Upload limits depend on the active deployment path and storage backend. Clients should treat `413 Payload Too Large` as authoritative and prompt the user to choose a smaller file. The store also reserves free space for chat data; clients should surface `507 Insufficient Storage` and let the user delete files before retrying.
 - Agent code writes outputs directly to the shared volume, so it must bound output size and handle disk-full write errors; direct agent writes do not pass through the upload limit or capacity reservation.
 - Symlinks are never adopted or served. Only regular files directly inside `AGENT_FILES_DIR` can become agent-produced downloads.

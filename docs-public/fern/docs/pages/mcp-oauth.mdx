@@ -1,20 +1,25 @@
 ---
 title: Connect to OAuth-protected MCP servers
-subtitle: Give a Mastra agent tools from hosted MCP servers and complete the OAuth flow on deploy using your agent's public URL
+subtitle: Connect a deployed agent to hosted MCP servers and complete the OAuth flow at deploy time using your agent's public URL
 slug: mcp-oauth
 ---
 
-Hosted [MCP](https://modelcontextprotocol.io) servers expose their tools over **OAuth 2.1**. A Mastra agent can use them directly: `MCPClient` pulls the tools, and `@mastra/mcp`'s `MCPOAuthClientProvider` handles dynamic client registration (RFC 7591) and PKCE for you.
+Hosted [MCP](https://modelcontextprotocol.io) servers expose their tools over **OAuth 2.1**. An agent deployed on Astro AI can connect to one and complete the OAuth flow at runtime: the platform injects the agent's public URL as [`ASTRO_EXTERNAL_AGENT_URL`](#the-astro_external_agent_url-variable), which is exactly what the OAuth redirect URI must point at.
 
-The one part that trips people up on a deployed agent is the **redirect URI**. After a user approves access, the OAuth provider sends their browser to that URL with an authorization code, so it has to resolve back to *your* agent. Locally that's `http://localhost`, but in production it needs to be your agent's public hostname. Astro AI injects exactly that as [`ASTRO_EXTERNAL_AGENT_URL`](#the-astro_external_agent_url-variable), so you can forge the redirect at runtime and complete the flow hands-free.
-
-This guide shows the full setup end to end.
+The redirect URI is the part to get right on a deployed agent. After a user approves access, the OAuth provider sends their browser to that URL with an authorization code, so it must resolve back to *your* agent. Locally that's `http://localhost`; in production it must be your agent's public hostname. Build the redirect from `ASTRO_EXTERNAL_AGENT_URL` at runtime and the flow completes without a manual step.
 
 <Note>
-Examples use [`@mastra/mcp`](https://mastra.ai/reference/tools/mcp-client). The same principles apply to any MCP client, only the provider API differs.
+This guide uses a Mastra agent as the worked example, with [`@mastra/mcp`](https://mastra.ai/reference/tools/mcp-client) for the OAuth client: `MCPClient` pulls the tools, and `MCPOAuthClientProvider` handles dynamic client registration (RFC 7591) and PKCE. The same approach applies to any MCP client; only the provider API differs.
 </Note>
 
-## 1. Connect the MCP client
+## Before you start
+
+- A Mastra agent you can run and deploy.
+- A deployable Astropods blueprint (`astropods.yml`) for the agent.
+- The `ast` CLI installed and authenticated.
+
+<Steps>
+<Step title="Connect the MCP client">
 
 Point `MCPClient` at the hosted server's URL and give it an OAuth provider:
 
@@ -53,7 +58,8 @@ serve(agent);
 
 `listTools()` skips servers that aren't authorized yet (it logs and moves on), so your agent still boots before any OAuth has happened.
 
-## 2. Forge the redirect from your agent's public URL
+</Step>
+<Step title="Build the redirect from your agent's public URL">
 
 The redirect URI must be a URL the browser can reach that lands back on your agent. Resolve it in priority order, explicit override, then the platform-injected public URL, then localhost for dev:
 
@@ -114,7 +120,8 @@ With this in place, the OAuth redirect lands on `https://<your-host>/oauth/callb
 On a messaging-only agent (no exposed endpoint), `ASTRO_EXTERNAL_AGENT_URL` is unset and the redirect falls back to localhost. The browser still shows the `?code=...` in its address bar, so you can complete the flow by pasting that code back to the agent — handy as a fallback, but the frontend setup above is what makes it automatic.
 </Note>
 
-## 3. Persist tokens in a writable store
+</Step>
+<Step title="Persist tokens in a writable store">
 
 The production container filesystem is **read-only**, so a file-based token store is wiped on every restart. Persist OAuth tokens (and the dynamic client registration) in a writable store — a `redis` [knowledge store](/knowledge-stores) entry is the simplest:
 
@@ -126,7 +133,8 @@ knowledge:
 
 Implement `@mastra/mcp`'s `OAuthStorage` interface (`get` / `set` / `delete`) against Redis when `REDIS_URL` is present, and fall back to a local file in dev. Tokens then survive restarts, and the MCP SDK refreshes expired access tokens from the stored refresh token automatically.
 
-## 4. Drive consent from the conversation
+</Step>
+<Step title="Drive consent from the conversation">
 
 Because a deployed agent is headless, let it hand the user the authorization URL in chat. Expose a Mastra tool that starts the flow and returns the URL:
 
@@ -146,6 +154,20 @@ const connectService = createTool({
 ```
 
 The user opens the URL and approves; with the frontend callback from step 2 the connection completes on its own, and the agent re-lists that server's tools so they're immediately usable.
+
+</Step>
+<Step title="Deploy and verify">
+
+Deploy the blueprint and open the URL it returns:
+
+```bash
+ast blueprint deploy <name>
+```
+
+Start the connect flow from chat, open the authorization URL, and approve. The callback lands on `https://<your-host>/oauth/callback`, and you should see **Connected**.
+
+</Step>
+</Steps>
 
 ## Gotchas with hosted MCP servers
 

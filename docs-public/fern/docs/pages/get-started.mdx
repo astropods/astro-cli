@@ -4,7 +4,12 @@ subtitle: Create and run your first agent locally
 slug: get-started
 ---
 
-Go from zero to a running agent in four steps. Have the [CLI installed](/install-cli) and Docker ready.
+Go from zero to a running agent in four steps.
+
+## Before you start
+
+- The [CLI installed](/install-cli).
+- Docker installed and running.
 
 <Steps>
   <Step title="Create an agent">
@@ -22,7 +27,7 @@ Go from zero to a running agent in four steps. Have the [CLI installed](/install
     - **`AGENTS.md`**: explains the project structure, the spec format, and the conventions for writing a proper Astropods agent. Any coding agent (Claude Code, Copilot, Cursor, etc.) can read this to understand how to implement and extend your agent correctly.
     - **`CLAUDE.md`**: Claude Code-specific instructions for working in this project.
 
-    You can write your agent logic manually, or open the project in a coding agent and let it do the heavy lifting:
+    You can write your agent logic manually, or open the project in a coding agent, which reads these files and implements the agent for you:
 
     ```bash
     cd my-agent
@@ -51,7 +56,7 @@ Go from zero to a running agent in four steps. Have the [CLI installed](/install
     ast project start
     ```
 
-    Containers start and logs stream automatically in the foreground. Press Ctrl+C to stop everything. To start in the background instead and manage containers manually, use `ast project start --background`, then `ast project logs` and `ast project stop`.
+    Containers start and logs stream automatically in the foreground. When startup finishes, you should see the containers come up and the agent's logs report that it's ready to accept requests. Press Ctrl+C to stop everything. To start in the background instead and manage containers manually, use `ast project start --background`, then `ast project logs` and `ast project stop`.
 
     To enable hot reload, add a `dev` block to `astropods.yml`:
 

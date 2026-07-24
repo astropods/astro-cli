@@ -4,36 +4,49 @@ subtitle: Automatically instrument Mastra agents for monitoring in Astro AI
 slug: monitor-mastra
 ---
 
-The `@astropods/adapter-mastra` package — the same one used to connect a Mastra agent to Astro AI messaging — auto-wires OpenTelemetry tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the deployed container. Model calls, tool calls, and agent steps flow into the dashboard automatically.
+Instrument a Mastra agent so its model calls, tool calls, and agent steps appear in the Astro AI dashboard. The `@astropods/adapter-mastra` package — the same one that connects a Mastra agent to Astro AI messaging — auto-wires OpenTelemetry tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is set on the deployed container.
 
-## Install
+## Before you start
 
-```bash
-bun add @astropods/adapter-mastra
-```
+- A deployable Astro AI agent project built with Mastra.
+- Astro AI sets `OTEL_EXPORTER_OTLP_ENDPOINT` only on deployed containers, so traces appear once the agent runs on the platform — not during local development.
 
-## Use
+## Set up
 
-```typescript
-import { Agent } from "@mastra/core/agent";
-import { serve } from "@astropods/adapter-mastra";
+<Steps>
+  <Step title="Install the adapter">
+    ```bash
+    bun add @astropods/adapter-mastra
+    ```
+  </Step>
+  <Step title="Serve the agent">
+    ```typescript
+    import { Agent } from "@mastra/core/agent";
+    import { serve } from "@astropods/adapter-mastra";
 
-const agent = new Agent({
-  name: "My Agent",
-  model: "anthropic/claude-sonnet-4-5",
-  instructions: "You are a helpful assistant.",
-});
+    const agent = new Agent({
+      name: "My Agent",
+      model: "anthropic/claude-sonnet-4-6",
+      instructions: "You are a helpful assistant.",
+    });
 
-serve(agent);
-```
+    serve(agent);
+    ```
 
-Calling `serve()` registers the agent with the messaging service and configures observability in the same step. The agent's `name` is sent as the OpenTelemetry `service.name`; the platform-injected `OTEL_EXPORTER_OTLP_ENDPOINT` is used for export. No additional configuration is required.
+    Calling `serve()` registers the agent with the messaging service and configures observability in the same step. The agent's `name` is sent as the OpenTelemetry `service.name`, and the platform-injected `OTEL_EXPORTER_OTLP_ENDPOINT` is used for export.
 
-If your project constructs its own `Mastra` instance (e.g. for multi-agent workflows), `serve()` registers Astro AI's OpenTelemetry observability alongside any existing observability instances on that Mastra.
+    If your project constructs its own `Mastra` instance (for example, for multi-agent workflows), `serve()` registers Astro AI's observability alongside any existing observability instances on that Mastra.
 
-## Verify
+    <Note>
+    Traces capture each turn's model calls, tool calls, and agent steps, attributed to the deployed agent.
+    </Note>
+  </Step>
+  <Step title="Verify">
+    Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
+  </Step>
+</Steps>
 
-Deploy the agent, send it a message, then open the agent's detail page in the Astro AI dashboard. Traces appear within ~30 seconds.
+## Troubleshooting
 
 If nothing shows up:
 
