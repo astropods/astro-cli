@@ -17,7 +17,7 @@ Astro-managed execution runs the judge at queue load rather than trace ingestion
 ## Goals
 
 - Predict a numeric verdict score from `-1` to `1`, then infer whether a queue trace is likely to be marked `good`, `bad`, or `unknown`.
-- Use trace input/output, sentiment inferred from the next user message, thumbs feedback stored as Langfuse trace scores, dataset criteria, and prior resolved verdicts.
+- Use trace input/output, the next user message as reaction context, thumbs feedback stored as Langfuse trace scores, dataset criteria, and prior resolved verdicts.
 - Give judge traffic a stable account-scoped gateway identity so future platform AI-token metering can distinguish it from ordinary AI Gateway traffic.
 - Avoid duplicate spend by reusing stored predictions when present.
 - Use prediction quality against later resolved verdicts to improve prompts, calibration, and future model behavior.
@@ -65,7 +65,7 @@ For each trace, the judge should receive a compact structured view of:
 
 - trace input
 - trace output
-- sentiment inferred from the next user message and short supporting text when available
+- the next user message as context for how the user reacted to the output, when available
 - thumbs feedback score from Langfuse trace scores
 - rubric dimensions: accuracy, completeness, instruction following, scope clarity, and tone
 - small set of prior labeled examples from the same eval dataset, when available
@@ -98,7 +98,7 @@ Return structured output with this shape:
 Define the V1 judge execution model and judge version as code-owned constants in `internal/evaljudge`:
 
 - `EvalDatasetJudgeModel = "claude-sonnet-4-6"`
-- `EvalDatasetJudgeVersion = "dataset-review-v1"`
+- `EvalDatasetJudgeVersion = "1"`
 
 `EvalDatasetJudgeVersion` identifies the prompt, parser, criteria handling, and model configuration used to produce a prediction. Users do not choose either value per dataset in V1.
 
@@ -261,8 +261,6 @@ Request schema-enforced output through Bifrost with `response_format.type=json_s
           "explanation": { "type": "string" },
           "criteria": {
             "type": "array",
-            "minItems": 5,
-            "maxItems": 5,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -355,7 +353,7 @@ Response shape change:
         "verdict_score": -0.72,
         "confidence": 84,
         "explanation": "The response misses the requested constraint.",
-        "judge_version": "dataset-review-v1",
+        "judge_version": "1",
         "criteria": [
           { "dimension_key": "accuracy", "dimension_value": -0.8 }
         ]
@@ -394,7 +392,7 @@ Response shape:
         "verdict_score": -0.72,
         "confidence": 84,
         "explanation": "The response misses the requested constraint.",
-        "judge_version": "dataset-review-v1",
+        "judge_version": "1",
         "criteria": [
           { "dimension_key": "accuracy", "dimension_value": -0.8 }
         ]
@@ -469,7 +467,7 @@ Add `account_llm_judge_keys`, the judge key provisioner (reusing `ensureCustomer
 
 ### PR 3 — Judge service
 
-Add `internal/evaljudge` with the judge constants, input assembly, prior-example selection, system instruction, structured-output parsing, validation, explanation cap, and criteria score handling. This PR should be testable with a fake model invocation client.
+Add `internal/evaljudge` with the judge constants, input assembly, validation of caller-selected prior examples, system instruction, structured-output parsing, explanation cap, and criteria score handling. This PR should be testable with a fake model invocation client.
 
 ### PR 4 — Queue prediction API
 
