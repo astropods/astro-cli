@@ -203,8 +203,7 @@ func (c *Client) CreateCustomer(ctx context.Context, accountID string) (string, 
 		}
 		return out.Customer.ID, nil
 	}
-	var he *httpError
-	if errors.As(err, &he) && he.Status == http.StatusConflict {
+	if isConflictErr(err) {
 		return c.findCustomerByName(ctx, accountID)
 	}
 	return "", fmt.Errorf("create customer: %w", err)
@@ -224,7 +223,7 @@ func (c *Client) findCustomerByName(ctx context.Context, name string) (string, e
 }
 
 // vkName builds a human-readable, attribution-bearing name. The account-id is
-// always present; a deployment/dev discriminator is appended when available.
+// always present; a key-kind discriminator is appended when available.
 //
 // Dev keys get a per-mint-unique name: they rotate (the local reuse window is
 // shorter than the upstream TTL), so a re-mint runs while the predecessor VK is
@@ -234,7 +233,11 @@ func (c *Client) findCustomerByName(ctx context.Context, name string) (string, e
 // Orphaned keys are reaped by their upstream TTL and the best-effort
 // delete-of-predecessor in EnsureDevKey.
 func vkName(req KeyRequest) string {
-	if kind, _ := req.Metadata["kind"].(string); kind == "dev" {
+	kind, _ := req.Metadata["kind"].(string)
+	if kind == "eval-judge" {
+		return "eval-judge/" + req.AccountID
+	}
+	if kind == "dev" {
 		name := "dev/" + req.AccountID
 		if actor, _ := req.Metadata["actor_user_id"].(string); actor != "" {
 			name += "/" + actor
@@ -313,4 +316,9 @@ func isNotFoundErr(err error) bool {
 		return false
 	}
 	return he.Status == http.StatusNotFound
+}
+
+func isConflictErr(err error) bool {
+	var he *httpError
+	return errors.As(err, &he) && he.Status == http.StatusConflict
 }

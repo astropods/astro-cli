@@ -97,7 +97,7 @@ Return structured output with this shape:
 
 Define the V1 judge execution model and judge version as code-owned constants in `internal/evaljudge`:
 
-- `EvalDatasetJudgeModel`
+- `EvalDatasetJudgeModel = "claude-sonnet-4-6"`
 - `EvalDatasetJudgeVersion = "dataset-review-v1"`
 
 `EvalDatasetJudgeVersion` identifies the prompt, parser, criteria handling, and model configuration used to produce a prediction. Users do not choose either value per dataset in V1.
@@ -220,16 +220,16 @@ Column notes:
 - `key_id` is the Bifrost virtual-key UUID, used for revoke/delete.
 - `encrypted_api_key`, `encrypted_data_key`, and `nonce` follow the KMS envelope pattern used by the existing gateway key tables.
 
-Add a store under `internal/aigateway` with `Get(accountID)`, `Save(row)`, `Delete(accountID)`, and `ListKeyIDsByAccount(accountID)`. Account purge must revoke the upstream Bifrost `key_id` before deleting the row, alongside the existing `RevokeAccount` / `RevokeAccountDevKeys` sweeps — Bifrost has no FK back to Astro, so the DB cascade alone leaves an orphaned upstream key.
+Add a store under `internal/aigateway` with `Get(accountID)`, `Save(row)`, `Delete(accountID)`, and `ListKeyIDsByAccount(accountID)`. Soft deletion should attempt to revoke the upstream Bifrost `key_id` immediately. Final account purge retries the same cleanup alongside the existing `RevokeAccount` / `RevokeAccountDevKeys` sweeps. Both attempts are best-effort: a revoke failure retains the local row until the account hard-delete cascade, but does not block account deletion or purge.
 
 #### Judge key provisioner
 
 Add a judge key method on `aigateway.Provisioner`, modeled on `EnsureDevKey`:
 
 - Resolve the account's Bifrost customer via the existing `ensureCustomer` (creates once, persists `accounts.bifrost_customer_id`). Attach the judge key to this customer — do not create a separate customer. The key therefore shares the account's current gateway budget (see [Budget and metering](#budget-and-metering)).
-- Reuse the stored judge key when present; otherwise call `GenerateKey`, KMS-encrypt, and persist. Extend `KeyRequest`/`GenerateKey` so this key is named `eval-judge/<account-id>` and its Bifrost provider config restricts `allowed_models` to `EvalDatasetJudgeModel` rather than `*`.
+- Reuse the stored judge key when present; otherwise call `GenerateKey`, KMS-encrypt, and persist. Identify it with `KeyRequest` metadata kind `eval-judge`, letting the shared key-name derivation produce `eval-judge/<account-id>`. Keep wildcard model access, matching deployment and development keys, so changing the invocation-level `EvalDatasetJudgeModel` does not require key rotation. Concurrent first-use requests must converge on the winning stored row after an upstream name conflict or local unique-key conflict; revoke any redundant minted key before returning the winner. If an upstream name conflict remains without a local row, return an actionable orphan error without deleting the potentially in-progress key.
 - Return plaintext key plus the public gateway base URL for immediate invocation.
-- Treat as long-lived like deployment keys: no TTL, no rotation. Revoke upstream on account purge.
+- Treat as long-lived like deployment keys: no TTL, no rotation. Attempt upstream revocation at account soft deletion and retry during final purge.
 
 The deterministic name distinguishes the key in the Bifrost admin view and preserves a stable identity for future platform metering. Do not put dataset- or trace-specific values on the long-lived key name or description.
 
@@ -465,7 +465,7 @@ Add `eval_dataset_judgment_predictions` and `eval_dataset_judgment_prediction_cr
 
 ### PR 2 — Bifrost platform invocation
 
-Add `account_llm_judge_keys`, the judge key provisioner (reusing `ensureCustomer`, deterministic `eval-judge/<account-id>` naming, judge-model allow-list), account-purge revoke behavior, and the `/v1/chat/completions` model invocation client. This expands Bifrost gateway use from deployed-agent and development runtime to platform-internal model calls from `astro-server`.
+Add `account_llm_judge_keys`, the judge key provisioner (reusing `ensureCustomer` and deterministic `eval-judge/<account-id>` naming), account-purge revoke behavior, and the `/v1/chat/completions` model invocation client. This expands Bifrost gateway use from deployed-agent and development runtime to platform-internal model calls from `astro-server`.
 
 ### PR 3 — Judge service
 

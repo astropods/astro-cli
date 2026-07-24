@@ -10,6 +10,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
 
+// ErrJudgeKeyOrphaned indicates that Bifrost has reserved the deterministic
+// judge-key name, but Astro has no stored key material it can safely reuse.
+var ErrJudgeKeyOrphaned = errors.New("upstream judge key exists without a local row")
+
 // Provisioner mints, stores, and revokes per-deployment virtual keys
 // against the AI Gateway (LiteLLM). KMS client + key ARN are passed in at
 // method-call time (same shape as langfuse.Provisioner) so the deployer can
@@ -243,6 +247,146 @@ func (p *Provisioner) RevokeAccountDevKeys(ctx context.Context, devStore *DevSto
 		errs = append(errs, fmt.Errorf("delete dev key rows: %w", err))
 	}
 	return errors.Join(errs...)
+}
+
+// EnsureJudgeKey returns the long-lived account-scoped key used by Astro's
+// eval-dataset judge. The key shares the account's Bifrost customer and budget,
+// while its deterministic name distinguishes it from deployment and developer
+// traffic. Model selection happens per invocation, so the key supports judge
+// model changes without rotation.
+func (p *Provisioner) EnsureJudgeKey(
+	ctx context.Context,
+	store *JudgeStore,
+	kmsKeyARN string,
+	kmsClient envelope.KMSClient,
+	accountID string,
+) (apiKey, baseURL string, err error) {
+	if accountID == "" {
+		return "", "", fmt.Errorf("EnsureJudgeKey: accountID is required")
+	}
+
+	existing, plaintext, err := loadExistingJudgeKey(ctx, store, kmsClient, accountID)
+	if err != nil {
+		return "", "", err
+	}
+	if existing != nil {
+		return plaintext, p.client.URL(), nil
+	}
+
+	customerID, err := p.ensureCustomer(ctx, accountID)
+	if err != nil {
+		return "", "", fmt.Errorf("ensure customer: %w", err)
+	}
+	keyRequest := KeyRequest{
+		AccountID:  accountID,
+		CustomerID: customerID,
+		Metadata:   map[string]any{"kind": "eval-judge"},
+	}
+	resp, err := p.client.GenerateKey(ctx, keyRequest)
+	if err != nil {
+		if isConflictErr(err) {
+			existing, plaintext, recoveryErr := loadExistingJudgeKey(ctx, store, kmsClient, accountID)
+			if recoveryErr != nil {
+				return "", "", errors.Join(
+					fmt.Errorf("generate judge key: %w", err),
+					fmt.Errorf("recover concurrent judge key: %w", recoveryErr),
+				)
+			}
+			if existing != nil {
+				return plaintext, p.client.URL(), nil
+			}
+			// Do not delete the conflicting key here: another request may have
+			// minted it and still be encrypting or saving it. If this becomes a
+			// common failure point, add shared orphan reconciliation for all
+			// deterministic gateway keys rather than judge-only deletion.
+			return "", "", fmt.Errorf(
+				"%w: account_id=%s customer_id=%s key_name=%s: %w",
+				ErrJudgeKeyOrphaned,
+				accountID,
+				customerID,
+				vkName(keyRequest),
+				err,
+			)
+		}
+		return "", "", fmt.Errorf("generate judge key: %w", err)
+	}
+
+	ciphertext, encryptedDataKey, nonce, err := encryptAPIKey(ctx, kmsClient, kmsKeyARN, resp.Key)
+	if err != nil {
+		if deleteErr := p.client.DeleteKey(ctx, resp.KeyID); deleteErr != nil {
+			return "", "", errors.Join(
+				fmt.Errorf("encrypt judge key (orphan upstream %s): %w", resp.KeyID, err),
+				fmt.Errorf("revoke also failed: %w", deleteErr),
+			)
+		}
+		return "", "", fmt.Errorf("encrypt judge key: %w", err)
+	}
+
+	// Bifrost enforces unique virtual-key names, so concurrent contenders are
+	// rejected during GenerateKey and cannot race here for the account row.
+	// Any save error is a persistence failure; revoke the key we just minted.
+	if err := store.Save(ctx, &JudgeKey{
+		AccountID:        accountID,
+		KeyID:            resp.KeyID,
+		EncryptedAPIKey:  ciphertext,
+		EncryptedDataKey: encryptedDataKey,
+		Nonce:            nonce,
+		IssuedAt:         time.Now().UTC(),
+	}); err != nil {
+		if deleteErr := p.client.DeleteKey(ctx, resp.KeyID); deleteErr != nil {
+			return "", "", errors.Join(
+				fmt.Errorf("save judge key (orphan upstream %s): %w", resp.KeyID, err),
+				fmt.Errorf("revoke also failed: %w", deleteErr),
+			)
+		}
+		return "", "", fmt.Errorf("save judge key: %w", err)
+	}
+
+	return resp.Key, p.client.URL(), nil
+}
+
+func loadExistingJudgeKey(
+	ctx context.Context,
+	store *JudgeStore,
+	kmsClient envelope.KMSClient,
+	accountID string,
+) (*JudgeKey, string, error) {
+	existing, err := store.Get(ctx, accountID)
+	if err != nil {
+		return nil, "", fmt.Errorf("get judge key row: %w", err)
+	}
+	if existing == nil {
+		return nil, "", nil
+	}
+	plaintext, err := decryptAPIKey(ctx, kmsClient, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
+	if err != nil {
+		return nil, "", fmt.Errorf("decrypt existing judge key: %w", err)
+	}
+	return existing, plaintext, nil
+}
+
+// RevokeAccountJudgeKeys revokes the account's judge key upstream before
+// deleting its local row. An upstream failure preserves the row so account
+// purge can retry without losing the non-expiring key's upstream identifier.
+func (p *Provisioner) RevokeAccountJudgeKeys(ctx context.Context, store *JudgeStore, accountID string) error {
+	keyIDs, err := store.ListKeyIDsByAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("list judge keys for account: %w", err)
+	}
+
+	var errs []error
+	for _, keyID := range keyIDs {
+		if err := p.client.DeleteKey(ctx, keyID); err != nil {
+			errs = append(errs, fmt.Errorf("delete judge key %s: %w", keyID, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	if err := store.Delete(ctx, accountID); err != nil {
+		return fmt.Errorf("delete judge key row: %w", err)
+	}
+	return nil
 }
 
 // Dev-key TTLs. The gateway virtual key is minted with the longer upstream TTL

@@ -772,6 +772,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	// handler returns 503 in that case.
 	var aiGatewayProvisioner *aigateway.Provisioner
 	var aiGatewayDevStore *aigateway.DevStore
+	var aiGatewayJudgeStore *aigateway.JudgeStore
 	if cfg.Deployment.AIGatewayURL != "" {
 		aiGatewayProvisioner = aigateway.NewProvisioner(
 			aigateway.NewClient(cfg.Deployment.AIGatewayURL, cfg.Deployment.AIGatewayAdminURL, cfg.Deployment.AIGatewayAdminAuth),
@@ -779,6 +780,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			billing.NewAliasSyncer(billingProvider, accountStore, cfg.BillingBackend(), log),
 		)
 		aiGatewayDevStore = aigateway.NewDevStore(db)
+		aiGatewayJudgeStore = aigateway.NewJudgeStore(db)
 	}
 	deps.Clients.AIGateway = aiGatewayProvisioner
 
@@ -1005,7 +1007,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
+				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, aiGatewayProvisioner, aiGatewayJudgeStore, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

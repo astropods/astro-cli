@@ -11,6 +11,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
@@ -368,9 +369,9 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 }
 
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
-// Soft-deletes the account, enqueues undeploy jobs for active deployments,
-// and cleans up WorkOS org best-effort.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
+// Soft-deletes the account, starts best-effort cleanup of account resources,
+// and enqueues undeploy jobs for active deployments.
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, aigwProvisioner *aigateway.Provisioner, aigwJudgeStore *aigateway.JudgeStore, orgClient *org.Client, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -408,6 +409,15 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 			log.Error("Failed to mark account deleted", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
+		}
+
+		// Revoke the account-scoped judge key immediately, matching deployment
+		// key cleanup during undeploy. The final account purge retries this
+		// best-effort cleanup before removing the account row.
+		if aigwProvisioner != nil && aigwJudgeStore != nil {
+			if err := aigwProvisioner.RevokeAccountJudgeKeys(ctx, aigwJudgeStore, acct.ID); err != nil {
+				log.Warn("Failed to revoke AI Gateway judge key for deleted account", "error", err, "account_id", acct.ID)
+			}
 		}
 
 		// Enqueue undeploy for all visible deployments (reuses existing undeploy pipeline)

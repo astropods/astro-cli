@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
@@ -88,6 +91,46 @@ func TestAccountPurge_PurgesAccountWithNoDeployments(t *testing.T) {
 	}
 	if err := deployMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("deploy unmet: %v", err)
+	}
+}
+
+func TestAccountPurge_JudgeRevokeFailureContinuesHardDelete(t *testing.T) {
+	w, dbMock, deployMock := newPurgeWorker(t)
+	judgeDB, judgeMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("judge sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = judgeDB.Close() })
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(upstream.Close)
+
+	w.aigwProvisioner = aigateway.NewProvisioner(aigateway.NewClient(upstream.URL, upstream.URL, ""), nil, nil)
+	w.aigwJudgeStore = aigateway.NewJudgeStore(judgeDB)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(purgeDeployColumns))
+	judgeMock.ExpectQuery("SELECT key_id FROM account_llm_judge_keys").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("vk-judge"))
+	dbMock.ExpectExec(`DELETE FROM accounts WHERE id`).
+		WithArgs("acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = w.purgeAccount(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatalf("purgeAccount error = %v, want nil", err)
+	}
+	if err := dbMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("account DB expectations: %v", err)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("deployment DB expectations: %v", err)
+	}
+	if err := judgeMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("judge DB expectations: %v", err)
 	}
 }
 

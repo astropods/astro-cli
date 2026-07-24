@@ -631,6 +631,22 @@ CREATE TABLE public.account_ai_gateway_dev_keys (
     CONSTRAINT account_ai_gateway_dev_keys_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
+-- Long-lived account-scoped virtual key used by Astro's internal eval-dataset
+-- judge. It shares the account's Bifrost customer and budget but remains
+-- lifecycle-isolated from deployment and developer keys.
+CREATE TABLE public.account_llm_judge_keys (
+    account_id uuid NOT NULL,
+    key_id text NOT NULL,
+    encrypted_api_key text NOT NULL,
+    encrypted_data_key bytea,
+    nonce bytea,
+    issued_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT account_llm_judge_keys_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_llm_judge_keys_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.audit_logs (
     id bigserial NOT NULL,
     account_id uuid NOT NULL,

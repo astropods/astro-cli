@@ -345,6 +345,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 	if cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.AIGatewayURL != "" {
 		pw.aigwDevStore = aigateway.NewDevStore(cfg.DB)
+		pw.aigwJudgeStore = aigateway.NewJudgeStore(cfg.DB)
 	}
 	// enqueueUndeploy is set after client creation in New() via SetPurgeQueue
 	addWorkerWithCatalogCheck(log, workers, pw)

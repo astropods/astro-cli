@@ -70,11 +70,47 @@ func TestGenerateKey_ScopesBedrockAndCarriesAccountID(t *testing.T) {
 	if len(captured.ProviderConfigs[0].KeyIDs) != 1 || captured.ProviderConfigs[0].KeyIDs[0] != "*" {
 		t.Errorf("grant must be key_ids [*], got %+v", captured.ProviderConfigs[0].KeyIDs)
 	}
+	if len(captured.ProviderConfigs[0].AllowedModels) != 1 || captured.ProviderConfigs[0].AllowedModels[0] != "*" {
+		t.Errorf("default grant must allow all models, got %+v", captured.ProviderConfigs[0].AllowedModels)
+	}
 	if !captured.IsActive {
 		t.Error("VK should be created active")
 	}
 	if resp.Key != "sk-bf-xxx" || resp.KeyID != "vk-123" {
 		t.Errorf("response parse: got %+v", resp)
+	}
+}
+
+func TestGenerateKey_EvalJudgeNameAndWildcardModels(t *testing.T) {
+	var captured bifrostVKRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"virtual_key": map[string]string{"id": "vk-judge", "value": "sk-bf-judge"},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("https://aig.example", srv.URL, "")
+	_, err := c.GenerateKey(context.Background(), KeyRequest{
+		AccountID:  "acct-42",
+		CustomerID: "cust-42",
+		Metadata:   map[string]any{"kind": "eval-judge"},
+	})
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if captured.Name != "eval-judge/acct-42" {
+		t.Errorf("name = %q, want deterministic judge name", captured.Name)
+	}
+	if got := captured.ProviderConfigs[0].AllowedModels; len(got) != 1 || got[0] != "*" {
+		t.Errorf("allowed_models = %+v, want wildcard model access", got)
+	}
+	if captured.ExpiresAt != "" {
+		t.Errorf("expires_at = %q, want no expiry", captured.ExpiresAt)
 	}
 }
 

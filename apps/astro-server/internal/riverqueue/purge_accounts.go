@@ -40,6 +40,7 @@ type AccountPurgeWorker struct {
 	aigwProvisioner *aigateway.Provisioner
 	aigwStore       *aigateway.Store
 	aigwDevStore    *aigateway.DevStore
+	aigwJudgeStore  *aigateway.JudgeStore
 	retentionDays   int
 	log             *logger.Logger
 	enqueueUndeploy func(ctx context.Context, deploymentID string) error
@@ -143,6 +144,16 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 	if w.aigwProvisioner != nil && w.aigwDevStore != nil {
 		if err := w.aigwProvisioner.RevokeAccountDevKeys(ctx, w.aigwDevStore, accountID); err != nil {
 			w.log.Warn("Failed to revoke AI Gateway dev keys, continuing purge", "error", err, "account_id", accountID)
+		}
+	}
+
+	// The internal eval judge key is long-lived, so unlike expiring dev keys it
+	// would remain usable indefinitely if the upstream revoke were skipped.
+	// Soft deletion already attempted this cleanup; final purge mirrors
+	// deployment-key handling by warning and continuing after one retry.
+	if w.aigwProvisioner != nil && w.aigwJudgeStore != nil {
+		if err := w.aigwProvisioner.RevokeAccountJudgeKeys(ctx, w.aigwJudgeStore, accountID); err != nil {
+			w.log.Warn("Failed to revoke AI Gateway judge key, continuing purge", "error", err, "account_id", accountID)
 		}
 	}
 

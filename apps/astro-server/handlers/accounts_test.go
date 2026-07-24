@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -448,6 +449,10 @@ func (q *deleteAccountMockQueue) InsertUndeployJob(_ context.Context, id string,
 func (q *deleteAccountMockQueue) InsertWakeUpJob(_ context.Context, _, _ string) error { return nil }
 
 func setupDeleteAccountTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, *deleteAccountMockQueue) {
+	return setupDeleteAccountTestWithJudgeKeys(t, nil, nil)
+}
+
+func setupDeleteAccountTestWithJudgeKeys(t *testing.T, provisioner *aigateway.Provisioner, judgeStore *aigateway.JudgeStore) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, *deleteAccountMockQueue) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -468,9 +473,103 @@ func setupDeleteAccountTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock
 		})
 		c.Next()
 	})
-	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, accountStore, deployStore, queue, nil, nil, "", nil))
+	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, accountStore, deployStore, queue, provisioner, judgeStore, nil, nil, "", nil))
 
 	return router, accountMock, deployMock, queue
+}
+
+func TestDeleteAccount_RevokesJudgeKey(t *testing.T) {
+	var deletes int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/governance/virtual-keys/vk-judge" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		deletes++
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	judgeDB, judgeMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("judge sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = judgeDB.Close() })
+
+	provisioner := aigateway.NewProvisioner(aigateway.NewClient(upstream.URL, upstream.URL, ""), nil, nil)
+	router, accountMock, deployMock, _ := setupDeleteAccountTestWithJudgeKeys(t, provisioner, aigateway.NewJudgeStore(judgeDB))
+
+	accountMock.ExpectExec(`UPDATE accounts SET deleted_at`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	judgeMock.ExpectQuery("SELECT key_id FROM account_llm_judge_keys").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("vk-judge"))
+	judgeMock.ExpectExec("DELETE FROM account_llm_judge_keys").
+		WithArgs("acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if deletes != 1 {
+		t.Fatalf("upstream deletes = %d, want 1", deletes)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("account mock: %v", err)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("deploy mock: %v", err)
+	}
+	if err := judgeMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("judge mock: %v", err)
+	}
+}
+
+func TestDeleteAccount_JudgeRevokeFailureContinues(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(upstream.Close)
+
+	judgeDB, judgeMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("judge sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = judgeDB.Close() })
+
+	provisioner := aigateway.NewProvisioner(aigateway.NewClient(upstream.URL, upstream.URL, ""), nil, nil)
+	router, accountMock, deployMock, _ := setupDeleteAccountTestWithJudgeKeys(t, provisioner, aigateway.NewJudgeStore(judgeDB))
+
+	accountMock.ExpectExec(`UPDATE accounts SET deleted_at`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	judgeMock.ExpectQuery("SELECT key_id FROM account_llm_judge_keys").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("vk-judge"))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/testaccount", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite judge revoke failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("account mock: %v", err)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("deploy mock: %v", err)
+	}
+	if err := judgeMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("judge mock: %v", err)
+	}
 }
 
 func TestDeleteAccount_Success(t *testing.T) {
