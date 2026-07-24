@@ -25,7 +25,7 @@ func sign(secret, date, body string) string {
 func metronomeWebhookRouter(secret string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/webhooks/metronome", MetronomeWebhook(logger.New("error", "json"), secret, nil, nil, nil))
+	r.POST("/webhooks/metronome", MetronomeWebhook(logger.New("error", "json"), secret, nil))
 	return r
 }
 

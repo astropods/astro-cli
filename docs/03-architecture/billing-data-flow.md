@@ -208,8 +208,10 @@ sequenceDiagram
 ```
 
 Notes:
-- **Card-only, no webhook.** `confirmSetup` returns synchronously for cards, so
-  the confirm endpoint is authoritative — no `STRIPE_WEBHOOK_SECRET`.
+- **Card save is synchronous.** `confirmSetup` returns synchronously for cards,
+  so the confirm endpoint is authoritative without a webhook. Payment-*collection*
+  lifecycle (failure, 3DS, uncollectible, void) is separate and arrives on
+  `POST /webhooks/stripe`, verified by `STRIPE_WEBHOOK_SECRET`.
 - **Linkage is optional.** Detected via an interface assertion
   (`LinkStripeCustomer`) so the core `BillingProvider` seam stays metering-only;
   a link failure doesn't fail the save (the card is already vaulted).

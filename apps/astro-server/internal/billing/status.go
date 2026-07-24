@@ -23,14 +23,16 @@ const (
 	ReasonDunning       = "dunning"        // payment failed, within grace
 	ReasonPaymentFailed = "payment_failed" // grace expired
 	ReasonBalanceAlert  = "balance_alert"  // Metronome hard threshold/spend alert
+	ReasonUncollectible = "uncollectible"  // Stripe marked an invoice uncollectible (write-off)
 )
 
 // StatusRecord is the gating-relevant state for one account.
 type StatusRecord struct {
-	Status       Status
-	Reason       string
-	DunningSince *time.Time
-	AlertActive  bool
+	Status         Status
+	Reason         string
+	DunningSince   *time.Time
+	AlertActive    bool
+	ForceSuspended bool
 }
 
 // StatusStore persists account_billing_status and owns the pure state machine.
@@ -51,11 +53,15 @@ func NewStatusStore(db *sql.DB, graceDays int) *StatusStore {
 }
 
 // computeStatus is the pure state machine. First match wins:
-//  1. an uncleared hard alert  → suspended (balance_alert)
-//  2. dunning past the grace   → suspended (payment_failed)
-//  3. dunning within grace     → past_due  (dunning)
-//  4. otherwise                → active
-func computeStatus(dunningSince *time.Time, alertActive bool, grace time.Duration, now time.Time) (Status, string) {
+//  1. a terminal write-off      → suspended (uncollectible)
+//  2. an uncleared hard alert   → suspended (balance_alert)
+//  3. dunning past the grace    → suspended (payment_failed)
+//  4. dunning within grace      → past_due  (dunning)
+//  5. otherwise                 → active
+func computeStatus(dunningSince *time.Time, alertActive, forceSuspended bool, grace time.Duration, now time.Time) (Status, string) {
+	if forceSuspended {
+		return StatusSuspended, ReasonUncollectible
+	}
 	if alertActive {
 		return StatusSuspended, ReasonBalanceAlert
 	}
@@ -88,18 +94,18 @@ func (s *StatusStore) Get(ctx context.Context, accountID string) (Status, string
 }
 
 // inputs reads the raw signal columns (missing row ⇒ zero values ⇒ active).
-func (s *StatusStore) inputs(ctx context.Context, accountID string) (dunningSince *time.Time, alertActive bool, curStatus Status, err error) {
+func (s *StatusStore) inputs(ctx context.Context, accountID string) (dunningSince *time.Time, alertActive, forceSuspended bool, curStatus Status, err error) {
 	var ds sql.NullTime
-	var alert sql.NullBool
+	var alert, force sql.NullBool
 	var status sql.NullString
 	scanErr := s.db.QueryRowContext(ctx,
-		`SELECT dunning_since, alert_active, status FROM account_billing_status WHERE account_id = $1`, accountID,
-	).Scan(&ds, &alert, &status)
+		`SELECT dunning_since, alert_active, force_suspended, status FROM account_billing_status WHERE account_id = $1`, accountID,
+	).Scan(&ds, &alert, &force, &status)
 	if scanErr == sql.ErrNoRows {
-		return nil, false, StatusActive, nil
+		return nil, false, false, StatusActive, nil
 	}
 	if scanErr != nil {
-		return nil, false, StatusActive, fmt.Errorf("read billing status inputs: %w", scanErr)
+		return nil, false, false, StatusActive, fmt.Errorf("read billing status inputs: %w", scanErr)
 	}
 	if ds.Valid {
 		dunningSince = &ds.Time
@@ -108,7 +114,7 @@ func (s *StatusStore) inputs(ctx context.Context, accountID string) (dunningSinc
 	if status.String != "" {
 		curStatus = Status(status.String)
 	}
-	return dunningSince, alert.Bool, curStatus, nil
+	return dunningSince, alert.Bool, force.Bool, curStatus, nil
 }
 
 // SetDunningSince marks the start of dunning (idempotent — keeps the earliest
@@ -158,6 +164,31 @@ func (s *StatusStore) ClearAlert(ctx context.Context, accountID string) error {
 	return nil
 }
 
+// SetForceSuspend records a terminal write-off (Stripe marked an invoice
+// uncollectible). It forces suspended immediately, bypassing the dunning grace.
+func (s *StatusStore) SetForceSuspend(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, force_suspended, updated_at)
+		VALUES ($1, true, now())
+		ON CONFLICT (account_id) DO UPDATE SET force_suspended = true, updated_at = now()`, accountID)
+	if err != nil {
+		return fmt.Errorf("set force_suspended: %w", err)
+	}
+	return nil
+}
+
+// ClearForceSuspend lifts the write-off flag. Reached when the underlying
+// invoice is voided (SignalVoided) or by admin action — not by an unrelated
+// payment, since the write-off is terminal until the debt itself is resolved.
+func (s *StatusStore) ClearForceSuspend(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE account_billing_status SET force_suspended = false, updated_at = now() WHERE account_id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("clear force_suspended: %w", err)
+	}
+	return nil
+}
+
 // ListInDunning returns account IDs currently in past_due (the timer's work set).
 func (s *StatusStore) ListInDunning(ctx context.Context, limit int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
@@ -181,16 +212,16 @@ func (s *StatusStore) ListInDunning(ctx context.Context, limit int) ([]string, e
 // Recompute reads the account's signals, applies the state machine, and persists
 // the status when it changes. Returns the new status and whether it transitioned.
 func (s *StatusStore) Recompute(ctx context.Context, accountID string, now time.Time) (Status, bool, error) {
-	dunningSince, alertActive, cur, err := s.inputs(ctx, accountID)
+	dunningSince, alertActive, forceSuspended, cur, err := s.inputs(ctx, accountID)
 	if err != nil {
 		return StatusActive, false, err
 	}
-	next, reason := computeStatus(dunningSince, alertActive, s.grace, now)
+	next, reason := computeStatus(dunningSince, alertActive, forceSuspended, s.grace, now)
 	if next == cur {
 		return next, false, nil
 	}
 	// active + no existing row ⇒ nothing to write (absence already means active).
-	if next == StatusActive && dunningSince == nil && !alertActive {
+	if next == StatusActive && dunningSince == nil && !alertActive && !forceSuspended {
 		if _, err := s.db.ExecContext(ctx,
 			`UPDATE account_billing_status SET status = $1, reason = NULL, updated_at = now() WHERE account_id = $2`,
 			string(StatusActive), accountID); err != nil {

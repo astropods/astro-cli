@@ -2205,14 +2205,19 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)
 		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, webhookStore, queue))
 
-		// Metronome billing webhook receiver (no auth — HMAC verified inside handler).
-		// billingStatus drives the cached gating status; nil for non-metronome
-		// backends so status writes are skipped.
-		var billingStatus *billing.StatusStore
+		// Billing webhook receivers (no auth — signatures verified inside the
+		// handlers). Each verifies then enqueues a River job; account mapping and
+		// cached-status recompute run in the worker. Metronome delivers
+		// usage/alert lifecycle; Stripe delivers payment-collection lifecycle
+		// (payment failure, 3DS, uncollectible, void) that Metronome does not relay.
+		//
+		// Registered only for the metronome backend: the webhook.* workers that
+		// drain these jobs exist only then (riverqueue.addWorkers), so on other
+		// backends we return 404 rather than enqueue jobs nothing will process.
 		if cfg.BillingBackend() == config.BillingBackendMetronome {
-			billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays)
+			router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, queue))
+			router.POST("/webhooks/stripe", handlers.StripeWebhook(log, cfg.StripeWebhookSecret, queue))
 		}
-		router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, accountStore, billingStatus, queue))
 	}
 
 }

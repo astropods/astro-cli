@@ -14,6 +14,11 @@ import (
 // already soft-deleted (or does not exist).
 var ErrAlreadyDeleted = errors.New("account not found or already deleted")
 
+// ErrAccountNotFound is returned by the provider-customer reverse lookups when
+// no account is linked to the given customer ID. Callers use errors.Is to tell
+// a genuine "unknown customer" (permanent) apart from a transient DB error.
+var ErrAccountNotFound = errors.New("account not found")
+
 // AccountStore manages account persistence in PostgreSQL
 type AccountStore struct {
 	db *sql.DB
@@ -897,7 +902,7 @@ func (s *AccountStore) GetByMetronomeCustomerID(customerID string) (*Account, er
 		FROM accounts WHERE metronome_customer_id = $1 AND deleted_at IS NULL
 	`, customerID).Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("account not found for metronome customer: %s", customerID)
+		return nil, fmt.Errorf("metronome customer %s: %w", customerID, ErrAccountNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account by metronome_customer_id: %w", err)
@@ -956,6 +961,48 @@ func (s *AccountStore) GetStripeCustomerID(accountID string) (string, error) {
 		return "", nil
 	}
 	return customerID.String, nil
+}
+
+// GetByStripeCustomerID resolves the account linked to a Stripe customer ID.
+// Used by the Stripe webhook to map an inbound payment-collection event back to
+// an account.
+func (s *AccountStore) GetByStripeCustomerID(customerID string) (*Account, error) {
+	var a Account
+	err := s.db.QueryRow(`
+		SELECT id, name, type, created_at, updated_at
+		FROM accounts WHERE stripe_customer_id = $1 AND deleted_at IS NULL
+	`, customerID).Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("stripe customer %s: %w", customerID, ErrAccountNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account by stripe_customer_id: %w", err)
+	}
+	return &a, nil
+}
+
+// GetOwnerEmail returns the account owner's WorkOS-mirrored email (from
+// account_member_emails), i.e. the verified identity email we persist — not the
+// editable account_profile email or a request's session user. The owner is the
+// earliest member; a verified address wins ties. Returns "" when no mirrored
+// email exists yet (e.g. reconcile pending), which callers treat as "unknown".
+func (s *AccountStore) GetOwnerEmail(accountID string) (string, error) {
+	var email string
+	err := s.db.QueryRow(`
+		SELECT me.email
+		FROM account_members am
+		JOIN account_member_emails me ON me.user_id = am.user_id
+		WHERE am.account_id = $1 AND me.source = 'workos' AND me.email <> ''
+		ORDER BY am.created_at ASC, me.verified DESC
+		LIMIT 1
+	`, accountID).Scan(&email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get account owner email: %w", err)
+	}
+	return email, nil
 }
 
 // SetStripeCustomerID stores the Stripe customer ID for an account.

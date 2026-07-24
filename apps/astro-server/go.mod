@@ -36,7 +36,7 @@ require (
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	github.com/stretchr/testify v1.11.1
-	github.com/stripe/stripe-go/v82 v82.5.1
+	github.com/stripe/stripe-go/v86 v86.1.1
 	github.com/workos/workos-go/v6 v6.5.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/image v0.37.0

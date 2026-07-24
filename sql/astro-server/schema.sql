@@ -127,16 +127,21 @@ CREATE TABLE public.account_limits (
 );
 
 -- Cached billing/gating status per account (hosted only). Written off the
--- request path by the Metronome webhook and the billing.dunning_sweep timer;
--- read by the consumption gate. Absence of a row means 'active'. astro-server
--- never stores or reads a balance — status is driven by Metronome signals.
+-- request path by the Metronome/Stripe webhook jobs and the billing.dunning_sweep
+-- timer; read by the consumption gate. Absence of a row means 'active'.
+-- astro-server never stores or reads a balance — status is driven by webhook
+-- signals from Metronome (usage/alerts) and Stripe (payment collection).
 CREATE TABLE public.account_billing_status (
-    account_id    uuid        NOT NULL,
-    status        text        NOT NULL DEFAULT 'active', -- active | past_due | suspended
-    reason        text,                                  -- dunning | payment_failed | balance_alert
-    dunning_since timestamptz,                           -- set on payment failure, cleared on recovery
-    alert_active  boolean     NOT NULL DEFAULT false,    -- last Metronome hard alert, uncleared
-    updated_at    timestamptz NOT NULL DEFAULT now(),
+    account_id     uuid        NOT NULL,
+    status         text        NOT NULL DEFAULT 'active', -- active | past_due | suspended
+    reason         text,                                  -- dunning | payment_failed | balance_alert | uncollectible
+    dunning_since  timestamptz,                           -- set on payment failure, cleared on recovery
+    alert_active   boolean     NOT NULL DEFAULT false,    -- last Metronome hard alert, uncleared
+    -- Terminal write-off flag: Stripe marked an invoice uncollectible after
+    -- exhausting retries. Forces 'suspended' immediately (bypasses the dunning
+    -- grace); cleared only on recovery or when the invoice is voided.
+    force_suspended boolean    NOT NULL DEFAULT false,
+    updated_at     timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT account_billing_status_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_billing_status_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

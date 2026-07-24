@@ -48,7 +48,14 @@ func resolveStripeCustomer(c *gin.Context, log *logger.Logger, accountStore *acc
 	if customerID != "" {
 		return customerID, true
 	}
-	customerID, err = paymentProvider.CreateCustomer(c.Request.Context(), acct.ID, acct.Name, acct.Email)
+	// Use the account owner's WorkOS-verified email (persisted in our DB), not the
+	// requesting user or the editable profile email. Best-effort — an empty email
+	// is acceptable if none is mirrored yet.
+	ownerEmail, emailErr := accountStore.GetOwnerEmail(acct.ID)
+	if emailErr != nil {
+		log.Warn("Failed to load account owner email for Stripe customer", "error", emailErr, "account_id", acct.ID)
+	}
+	customerID, err = paymentProvider.CreateCustomer(c.Request.Context(), acct.ID, acct.Name, ownerEmail)
 	if err != nil {
 		log.Error("Failed to create Stripe customer", "error", err, "account_id", acct.ID)
 		return "", false

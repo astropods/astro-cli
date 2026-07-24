@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v86"
 )
 
 // StripeConfig holds the settings the Stripe card-vault needs.
@@ -103,7 +103,7 @@ func (s *Stripe) DefaultCard(ctx context.Context, customerID string) (*Card, err
 	for pm, err := range s.sc.V1PaymentMethods.List(ctx, &stripe.PaymentMethodListParams{
 		Customer: stripe.String(customerID),
 		Type:     stripe.String("card"),
-	}) {
+	}).All(ctx) {
 		if err != nil {
 			return nil, fmt.Errorf("stripe list payment methods: %w", err)
 		}
@@ -124,7 +124,7 @@ func (s *Stripe) detachCardsExcept(ctx context.Context, customerID, keepID strin
 	for pm, err := range s.sc.V1PaymentMethods.List(ctx, &stripe.PaymentMethodListParams{
 		Customer: stripe.String(customerID),
 		Type:     stripe.String("card"),
-	}) {
+	}).All(ctx) {
 		if err != nil {
 			return fmt.Errorf("stripe list payment methods: %w", err)
 		}

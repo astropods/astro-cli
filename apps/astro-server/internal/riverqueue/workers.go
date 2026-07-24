@@ -115,10 +115,22 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 	river.AddWorker(workers, worker)
 }
 
-// addWorkers registers all River workers.
-// Returns the AccountPurgeWorker, InsightsRefreshWorker, and
-// MigrateDeploymentClusterWorker so the caller can set their queue references after client creation.
-func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *InsightsRefreshWorker, *MigrateDeploymentClusterWorker, *DunningSweepWorker, *BillingResumeWorker) {
+// wiredWorkers are the workers whose *Queue reference must be set after the
+// River client exists (the Queue wraps the client). New() sets .queue on each
+// non-nil field once the client is built.
+type wiredWorkers struct {
+	purge         *AccountPurgeWorker
+	insights      *InsightsRefreshWorker
+	migrate       *MigrateDeploymentClusterWorker
+	dunning       *DunningSweepWorker
+	billingResume *BillingResumeWorker
+	metronomeHook *MetronomeWebhookWorker
+	stripeHook    *StripeWebhookWorker
+}
+
+// addWorkers registers all River workers and returns the ones needing a
+// post-construction queue reference (see wiredWorkers).
+func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	log := cfg.Logger
 	logDuplicateJobKinds(log)
 
@@ -132,19 +144,23 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 	})
 	log.Info("river: registered worker", "worker", "MeteringWorker", "period", "5m")
 
-	// Billing consumption-gating workers (hosted/metronome only): the dunning
-	// sweep ages past_due→suspended (pure timer), and the suspend/resume workers
-	// scale an account's deployments to zero and restore them on transitions.
+	// Billing consumption-gating workers (hosted/metronome only): the webhook
+	// workers apply Metronome/Stripe collection signals to the cached status, the
+	// dunning sweep ages past_due→suspended (pure timer), and the suspend/resume
+	// workers scale an account's deployments to zero and restore them.
 	var dunningWorker *DunningSweepWorker
 	var billingResumeWorker *BillingResumeWorker
+	var metronomeHook *MetronomeWebhookWorker
+	var stripeHook *StripeWebhookWorker
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
 		if cfg.ServerConfig != nil {
 			graceDays = cfg.ServerConfig.BillingDunningGraceDays
 		}
+		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays)
 		billingDepStore := deploymentstore.NewStore(cfg.DB)
 		dunningWorker = &DunningSweepWorker{
-			status: billingpkg.NewStatusStore(cfg.DB, graceDays),
+			status: statusStore,
 			log:    log,
 		}
 		addWorkerWithCatalogCheck(log, workers, dunningWorker)
@@ -159,6 +175,12 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		billingResumeWorker = &BillingResumeWorker{store: billingDepStore, log: log}
 		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)
 		log.Info("river: registered worker", "worker", "BillingSuspend/ResumeWorker")
+
+		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, log: log}
+		addWorkerWithCatalogCheck(log, workers, metronomeHook)
+		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, log: log}
+		addWorkerWithCatalogCheck(log, workers, stripeHook)
+		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
 	}
 
 	memberEmailStore := memberemails.NewStore(cfg.DB)
@@ -352,5 +374,13 @@ func addWorkers(workers *river.Workers, cfg Config) (*AccountPurgeWorker, *Insig
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
-	return pw, insightsDiscovery, migrateWorker, dunningWorker, billingResumeWorker
+	return wiredWorkers{
+		purge:         pw,
+		insights:      insightsDiscovery,
+		migrate:       migrateWorker,
+		dunning:       dunningWorker,
+		billingResume: billingResumeWorker,
+		metronomeHook: metronomeHook,
+		stripeHook:    stripeHook,
+	}
 }

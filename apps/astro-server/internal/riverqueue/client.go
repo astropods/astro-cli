@@ -103,7 +103,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	purgeWorker, insightsDiscovery, migrateWorker, dunningWorker, billingResumeWorker := addWorkers(workers, cfg)
+	wired := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -133,10 +133,11 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 
 	// Set queue references on workers that need Insert capability.
 	// This is safe because workers don't run until Start() is called.
-	if insightsDiscovery != nil {
-		insightsDiscovery.queue = q
+	if wired.insights != nil {
+		wired.insights.queue = q
 	}
-	if purgeWorker != nil {
+	if wired.purge != nil {
+		purgeWorker := wired.purge
 		purgeWorker.enqueueUndeploy = func(ctx context.Context, deploymentID string) error {
 			store := purgeWorker.deployStore
 			if err := store.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: "undeploying"}); err != nil {
@@ -150,14 +151,20 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			return q.InsertUndeployJob(ctx, deploymentID, cid)
 		}
 	}
-	if migrateWorker != nil {
-		migrateWorker.queue = q
+	if wired.migrate != nil {
+		wired.migrate.queue = q
 	}
-	if dunningWorker != nil {
-		dunningWorker.queue = q
+	if wired.dunning != nil {
+		wired.dunning.queue = q
 	}
-	if billingResumeWorker != nil {
-		billingResumeWorker.queue = q
+	if wired.billingResume != nil {
+		wired.billingResume.queue = q
+	}
+	if wired.metronomeHook != nil {
+		wired.metronomeHook.queue = q
+	}
+	if wired.stripeHook != nil {
+		wired.stripeHook.queue = q
 	}
 
 	return q, nil
@@ -251,6 +258,20 @@ func (q *Queue) InsertBillingSuspend(ctx context.Context, accountID string) erro
 // deployments billing suspended).
 func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error {
 	_, err := q.Insert(ctx, BillingResumeArgs{AccountID: accountID}, nil)
+	return err
+}
+
+// InsertMetronomeWebhook enqueues a verified Metronome webhook for processing.
+// Queue routing + event-ID dedupe come from MetronomeWebhookArgs.InsertOpts.
+func (q *Queue) InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID string) error {
+	_, err := q.Insert(ctx, MetronomeWebhookArgs{EventID: eventID, EventType: eventType, CustomerID: customerID}, nil)
+	return err
+}
+
+// InsertStripeWebhook enqueues a verified Stripe webhook for processing.
+// Queue routing + event-ID dedupe come from StripeWebhookArgs.InsertOpts.
+func (q *Queue) InsertStripeWebhook(ctx context.Context, eventID, eventType, customerID, hostedInvoiceURL string) error {
+	_, err := q.Insert(ctx, StripeWebhookArgs{EventID: eventID, EventType: eventType, CustomerID: customerID, HostedInvoiceURL: hostedInvoiceURL}, nil)
 	return err
 }
 

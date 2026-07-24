@@ -1,6 +1,7 @@
 package account
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -582,5 +583,39 @@ func TestHasPersonalAccount_False(t *testing.T) {
 	}
 	if has {
 		t.Error("expected false, got true")
+	}
+}
+
+func TestGetOwnerEmail(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT me.email").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("owner@acme.test"))
+
+	email, err := store.GetOwnerEmail("acct-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if email != "owner@acme.test" {
+		t.Errorf("expected owner@acme.test, got %q", email)
+	}
+}
+
+func TestGetOwnerEmail_NoMirroredEmail(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT me.email").
+		WithArgs("acct-2").
+		WillReturnError(sql.ErrNoRows)
+
+	email, err := store.GetOwnerEmail("acct-2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if email != "" {
+		t.Errorf("expected empty email, got %q", email)
 	}
 }

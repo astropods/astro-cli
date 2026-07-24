@@ -33,10 +33,11 @@ type Config struct {
 	// Stripe card-vault (payment-method collection only; Metronome charges the
 	// saved card). Enabled when StripeSecretKey is set. astro-server never moves
 	// money — it only creates SetupIntents and saves cards. Card setup is
-	// confirmed synchronously (the server re-reads the SetupIntent from Stripe),
-	// so no webhook is used.
+	// confirmed synchronously (the server re-reads the SetupIntent from Stripe);
+	// the webhook (below) is separate and carries payment-collection lifecycle.
 	StripeSecretKey      string // STRIPE_SECRET_KEY — server-side SDK key
 	StripePublishableKey string // STRIPE_PUBLISHABLE_KEY — surfaced to the client for Elements
+	StripeWebhookSecret  string // STRIPE_WEBHOOK_SECRET — signature verification for payment-collection webhooks
 	// Consumption gating (hosted). Status is always computed/written; enforce
 	// controls whether a suspended account is blocked (402) or only logged.
 	BillingGateEnforce      bool // BILLING_GATE_ENFORCE — false = observe/log, true = enforce 402s
@@ -384,6 +385,7 @@ func Load() (*Config, error) {
 		MetronomeWebhookSecret:  getEnv("METRONOME_WEBHOOK_SECRET", ""),
 		StripeSecretKey:         getEnv("STRIPE_SECRET_KEY", ""),
 		StripePublishableKey:    getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeWebhookSecret:     getEnv("STRIPE_WEBHOOK_SECRET", ""),
 		BillingGateEnforce:      getEnv("BILLING_GATE_ENFORCE", "") == "true",
 		BillingDunningGraceDays: getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
 		QuotaEnforce:            getEnv("QUOTA_ENFORCE", "") == "true",
