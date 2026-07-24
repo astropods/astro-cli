@@ -114,7 +114,6 @@ export interface ReapplyDeploymentResponse {
 
 export interface GetDeploymentJobsResponse {
   jobs: DeploymentJob[];
-  last_reconcile_at?: string;
 }
 
 export interface ClusterStatusResponse {

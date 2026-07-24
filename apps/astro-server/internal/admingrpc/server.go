@@ -2618,7 +2618,7 @@ func (s *Server) SetAdapters(_ context.Context, req *adminv1.SetAdaptersRequest)
 	}, nil
 }
 
-// GetDeploymentJobs returns River job history and last reconcile time for a deployment.
+// GetDeploymentJobs returns River job history for a deployment.
 func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeploymentJobsRequest) (*adminv1.GetDeploymentJobsResponse, error) {
 	if req.DeploymentId == "" {
 		return nil, fmt.Errorf("deployment_id is required")
@@ -2675,14 +2675,5 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		s.log.Warn("Error iterating river jobs", "error", err)
 	}
 
-	// Get last reconcile run time from River job history.
-	resp := &adminv1.GetDeploymentJobsResponse{Jobs: jobs}
-	var finalizedAt sql.NullTime
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT finalized_at FROM river.river_job WHERE kind = 'reconcile' AND state = 'completed' ORDER BY finalized_at DESC LIMIT 1`,
-	).Scan(&finalizedAt); err == nil && finalizedAt.Valid {
-		resp.LastReconcileAt = finalizedAt.Time.Format(time.RFC3339)
-	}
-
-	return resp, nil
+	return &adminv1.GetDeploymentJobsResponse{Jobs: jobs}, nil
 }

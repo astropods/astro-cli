@@ -70,3 +70,49 @@ func TestClassifyPodFailure_SkipsTerminating(t *testing.T) {
 		t.Errorf("terminating pod should not be classified, got %q", got)
 	}
 }
+
+func unschedulablePod(age time.Duration, msg string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{CreationTimestamp: metav1.NewTime(time.Now().Add(-age))},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			Conditions: []corev1.PodCondition{{
+				Type:    corev1.PodScheduled,
+				Status:  corev1.ConditionFalse,
+				Reason:  corev1.PodReasonUnschedulable,
+				Message: msg,
+			}},
+		},
+	}
+}
+
+func TestClassifyPodFailure_Unschedulable(t *testing.T) {
+	tests := []struct {
+		name    string
+		pod     *corev1.Pod
+		want    string
+		wantMsg string
+	}{
+		{"unschedulable past grace → failed",
+			unschedulablePod(2*time.Minute, "0/3 nodes are available: insufficient cpu"),
+			"Unschedulable", "0/3 nodes are available: insufficient cpu"},
+		{"unschedulable within grace → transient (scheduler may still place it)",
+			unschedulablePod(10*time.Second, "0/3 nodes are available"), "", ""},
+		{"unbound PVC past grace → failed (surfaces as Unschedulable)",
+			unschedulablePod(2*time.Minute, "pod has unbound immediate PersistentVolumeClaims"),
+			"Unschedulable", "pod has unbound immediate PersistentVolumeClaims"},
+		{"unschedulable with no message → default message",
+			unschedulablePod(2*time.Minute, ""), "Unschedulable", "pod is unschedulable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, msg := classifyPodFailure(tt.pod)
+			if got != tt.want {
+				t.Errorf("reason = %q, want %q", got, tt.want)
+			}
+			if tt.want != "" && msg != tt.wantMsg {
+				t.Errorf("message = %q, want %q", msg, tt.wantMsg)
+			}
+		})
+	}
+}

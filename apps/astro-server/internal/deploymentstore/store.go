@@ -809,6 +809,70 @@ func (s *Store) UpdateStatusIfCurrent(id string, u StatusUpdate, allowedCurrent 
 	return true, nil
 }
 
+// FailStaleDeployments marks every deployment currently in `status` whose
+// status_changed_at is older than olderThan as failed, recording errMsg and a
+// deployment_events row for each. The age predicate lives in the WHERE clause so
+// the flip is atomic: a deployment that legitimately transitions out of `status`
+// between watchdog sweeps can never be clobbered. status_changed_at (reset on
+// every transition) measures time-in-current-phase, so a slow-but-advancing
+// rollout that walked pending→provisioning→deploying is not tripped early.
+// Returns the IDs that were failed (nil when none were stale).
+func (s *Store) FailStaleDeployments(status string, olderThan time.Duration, errMsg string) ([]string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Scope the result set in a closure so its deferred Close fires before the
+	// Exec loop below — one connection can't hold an open result set and issue
+	// new statements on the same tx simultaneously.
+	ids, err := func() ([]string, error) {
+		rows, err := tx.Query(`
+			UPDATE deployments
+			SET status = $1::text,
+			    error_message = $2,
+			    status_changed_at = NOW()
+			WHERE status = $3 AND status_changed_at < NOW() - make_interval(secs => $4)
+			RETURNING id
+		`, StatusFailed, errMsg, status, olderThan.Seconds())
+		if err != nil {
+			return nil, fmt.Errorf("failed to fail stale deployments: %w", err)
+		}
+		defer rows.Close() //nolint:errcheck
+
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return nil, fmt.Errorf("failed to scan stale deployment id: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating stale deployments: %w", err)
+		}
+		return ids, nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, id := range ids {
+		if _, err := tx.Exec(`
+			INSERT INTO deployment_events (deployment_id, status, message, details)
+			VALUES ($1, $2, $3, NULL)
+		`, id, StatusFailed, errMsg); err != nil {
+			return nil, fmt.Errorf("failed to insert stale deployment event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return ids, nil
+}
+
 // SaveDeploymentPending saves a new deployment with status='pending' and creates revision 1.
 // The txFn callback runs in the same transaction, allowing the caller to enqueue a River
 // job and save normalized spec data atomically.

@@ -817,3 +817,67 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 		t.Error("expected workloads for new deployment, got 0")
 	}
 }
+
+func TestFailStaleDeployments(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// stale: deploying, status_changed_at well past the deadline.
+	stale, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "stale-deploying",
+		DisplayName: "Stale", BuildID: "build-1", Namespace: "ns-stale",
+		SpecJSON: `{}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending stale failed: %v", err)
+	}
+	// fresh: deploying, but only just entered the status.
+	fresh, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "fresh-deploying",
+		DisplayName: "Fresh", BuildID: "build-1", Namespace: "ns-fresh",
+		SpecJSON: `{}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending fresh failed: %v", err)
+	}
+
+	_, _ = db.Exec("UPDATE deployments SET status = 'deploying', status_changed_at = NOW() - interval '40 minutes' WHERE id = $1", stale.ID)
+	_, _ = db.Exec("UPDATE deployments SET status = 'deploying', status_changed_at = NOW() - interval '2 minutes' WHERE id = $1", fresh.ID)
+
+	ids, err := store.FailStaleDeployments(StatusDeploying, 30*time.Minute, "stuck in deploying")
+	if err != nil {
+		t.Fatalf("FailStaleDeployments failed: %v", err)
+	}
+
+	if len(ids) != 1 || ids[0] != stale.ID {
+		t.Fatalf("failed IDs = %v, want [%s]", ids, stale.ID)
+	}
+
+	staleDep, _ := store.GetDeploymentByID(stale.ID)
+	if staleDep.Status != StatusFailed {
+		t.Errorf("stale deployment status = %q, want failed", staleDep.Status)
+	}
+	freshDep, _ := store.GetDeploymentByID(fresh.ID)
+	if freshDep.Status != StatusDeploying {
+		t.Errorf("fresh deployment status = %q, want deploying (not yet past deadline)", freshDep.Status)
+	}
+
+	// A failure event row was recorded for the stale deployment.
+	var events int
+	if err := db.QueryRow("SELECT COUNT(*) FROM deployment_events WHERE deployment_id = $1 AND status = 'failed'", stale.ID).Scan(&events); err != nil {
+		t.Fatalf("query events: %v", err)
+	}
+	if events != 1 {
+		t.Errorf("failed events for stale deployment = %d, want 1", events)
+	}
+
+	// Idempotent: the now-failed deployment is not swept again.
+	ids, err = store.FailStaleDeployments(StatusDeploying, 30*time.Minute, "stuck in deploying")
+	if err != nil {
+		t.Fatalf("second FailStaleDeployments failed: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("second sweep failed IDs = %v, want none", ids)
+	}
+}

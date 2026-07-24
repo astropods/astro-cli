@@ -269,6 +269,13 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	addWorkerWithCatalogCheck(log, workers, migrateWorker)
 	log.Info("river: registered worker", "worker", "MigrateDeploymentClusterWorker")
 
+	addWorkerWithCatalogCheck(log, workers, &DeploymentWatchdogWorker{
+		store: store,
+		cache: cfg.K8sCache,
+		log:   log,
+	})
+	log.Info("river: registered worker", "worker", "DeploymentWatchdogWorker", "period", "5m")
+
 	addWorkerWithCatalogCheck(log, workers, &MessageCountSyncWorker{
 		promClient:   cfg.PromClient,
 		accountStore: cfg.AccountStore,

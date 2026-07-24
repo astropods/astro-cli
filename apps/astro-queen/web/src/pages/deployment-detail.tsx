@@ -370,11 +370,6 @@ export function DeploymentDetailPage() {
             <div>
               <h3 className="text-sm font-medium text-muted-foreground mb-2">
                 Job History ({jobsQuery.data?.jobs?.length ?? 0})
-                {jobsQuery.data?.last_reconcile_at && (
-                  <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-                    last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
-                  </span>
-                )}
               </h3>
               {jobsQuery.isLoading && <Skeleton className="h-20 w-full" />}
               {jobsQuery.error && <p className="text-destructive text-sm">{jobsQuery.error.message}</p>}

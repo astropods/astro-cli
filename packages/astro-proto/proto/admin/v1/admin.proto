@@ -499,7 +499,8 @@ message DeploymentJob {
 
 message GetDeploymentJobsResponse {
   repeated DeploymentJob jobs = 1;
-  string last_reconcile_at = 2;
+  reserved 2;
+  reserved "last_reconcile_at"; // removed: no periodic reconcile job exists
 }
 
 message ListClusterMigrationsRequest {

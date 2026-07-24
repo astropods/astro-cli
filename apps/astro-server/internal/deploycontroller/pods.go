@@ -72,9 +72,9 @@ func classifyPods(pods []*corev1.Pod) (reason, message string) {
 	return "", ""
 }
 
-// classifyPodFailure inspects one pod's init + main container statuses and
-// returns a (reason, message) when it is permanently wedged. Pods mid-deletion
-// or already succeeded are ignored.
+// classifyPodFailure inspects one pod's scheduling condition and its init + main
+// container statuses and returns a (reason, message) when it is permanently
+// wedged. Pods mid-deletion or already succeeded are ignored.
 func classifyPodFailure(pod *corev1.Pod) (reason, message string) {
 	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodSucceeded {
 		return "", ""
@@ -100,6 +100,24 @@ func classifyPodFailure(pod *corev1.Pod) (reason, message string) {
 		case w.Reason == "CrashLoopBackOff":
 			if cs.RestartCount > crashLoopRestartLimit {
 				return w.Reason, fmt.Sprintf("%s restarted %d times", cs.Name, cs.RestartCount)
+			}
+		}
+	}
+
+	// A pod the scheduler can't place — no fit-able node, or an unbound PVC that
+	// leaves it unschedulable — never produces container statuses, so the loop
+	// above can't see it. Past the grace window a standing Unschedulable is a real
+	// failure. This is the only fast-fail path for StatefulSet/Job pods, which
+	// have no progressDeadlineSeconds equivalent and would otherwise sit in
+	// "deploying" until the staleness watchdog's much longer deadline.
+	if age >= podFailureGrace {
+		for _, c := range pod.Status.Conditions {
+			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && c.Reason == corev1.PodReasonUnschedulable {
+				msg := c.Message
+				if msg == "" {
+					msg = "pod is unschedulable"
+				}
+				return corev1.PodReasonUnschedulable, msg
 			}
 		}
 	}

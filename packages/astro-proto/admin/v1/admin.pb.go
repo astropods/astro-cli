@@ -791,8 +791,7 @@ type DeploymentJob struct {
 }
 
 type GetDeploymentJobsResponse struct {
-	Jobs            []*DeploymentJob `json:"jobs,omitempty"`
-	LastReconcileAt string           `json:"last_reconcile_at,omitempty"`
+	Jobs []*DeploymentJob `json:"jobs,omitempty"`
 }
 
 type ListClusterMigrationsRequest struct {

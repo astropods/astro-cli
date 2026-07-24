@@ -67,6 +67,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
+	// Stuck-deployment watchdog: fail deployments wedged in pending/
+	// provisioning/deploying past their per-status deadline (see
+	// deploy_watchdog.go). Backstops the K8s progressDeadline, which only
+	// bounds Deployment-kind rollouts and never covers pending/provisioning.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(5*time.Minute),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return DeploymentWatchdogArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: 5 * time.Minute,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	if cfg.AvatarStore != nil {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),
