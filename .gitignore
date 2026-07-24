@@ -154,8 +154,12 @@ test-results/
 # Cursor config
 .cursor/
 
-# Claude Code
-.claude
+# Claude Code — ignore local config/worktrees, but track our own shared skills.
+# fern-docs is a third-party skill installed via npx (see .claude/skills/README.md),
+# not vendored here.
+.claude/*
+!.claude/skills/
+.claude/skills/fern-docs/
 
 # Cursor IDE
 .cursor/
