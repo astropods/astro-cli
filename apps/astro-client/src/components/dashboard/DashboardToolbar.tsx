@@ -1,3 +1,4 @@
+import { AccountFilter } from "@/components/AccountFilter";
 import { FilterInput } from "@/components/FilterInput";
 import {
   Select,
@@ -23,6 +24,8 @@ interface DashboardToolbarProps {
   sortBy: SortOption;
   onSortChange: (v: SortOption) => void;
   disabled?: boolean;
+  accountFilters: string[];
+  onAccountFiltersChange: (accounts: string[]) => void;
 }
 
 export function DashboardToolbar({
@@ -31,6 +34,8 @@ export function DashboardToolbar({
   sortBy,
   onSortChange,
   disabled,
+  accountFilters,
+  onAccountFiltersChange,
 }: DashboardToolbarProps) {
   return (
     <div
@@ -46,7 +51,7 @@ export function DashboardToolbar({
         containerClassName="w-full @[480px]:w-auto @[480px]:flex-1 @[480px]:max-w-lg h-8 bg-card dark:bg-background"
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex w-full flex-col gap-2 @[480px]:w-auto @[480px]:flex-row @[480px]:items-center">
         <Select
           value={sortBy}
           onValueChange={(v) => onSortChange(v as SortOption)}
@@ -62,6 +67,11 @@ export function DashboardToolbar({
             ))}
           </SelectContent>
         </Select>
+        <AccountFilter
+          className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
+          value={accountFilters}
+          onChange={onAccountFiltersChange}
+        />
       </div>
     </div>
   );

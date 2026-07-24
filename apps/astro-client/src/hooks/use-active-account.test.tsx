@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Outlet } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // jsdom's localStorage is missing from this vitest environment (theme.test.tsx
 // hits the same issue). Stub a minimal in-memory Storage so the hook's
@@ -33,12 +32,14 @@ import {
 // Helper component that surfaces the hook's return into the DOM so tests
 // can assert against it.
 function Probe() {
-  const { activeAccount, setActiveAccount } = useActiveAccount();
+  const { activeAccount, setCreateDefault } = useActiveAccount();
   return (
     <>
       <span data-testid="active">{activeAccount || "<none>"}</span>
-      <button onClick={() => setActiveAccount("acme")}>switch-acme</button>
-      <button onClick={() => setActiveAccount(mockAuthContext.accounts[0]!.name)}>switch-personal</button>
+      <button onClick={() => setCreateDefault("acme")}>default-acme</button>
+      <button onClick={() => setCreateDefault(mockAuthContext.accounts[0]!.name)}>
+        default-personal
+      </button>
     </>
   );
 }
@@ -49,19 +50,16 @@ interface RenderOpts {
 }
 
 function renderWithProviders({ rootAccount = "", auth = mockAuthContext }: RenderOpts = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Stub = createRoutesStub([
     {
       id: "root",
       loader: () => ({ activeAccount: rootAccount }),
       Component: () => (
-        <QueryClientProvider client={queryClient}>
-          <AuthContext.Provider value={auth}>
-            <ActiveAccountProvider>
-              <Outlet />
-            </ActiveAccountProvider>
-          </AuthContext.Provider>
-        </QueryClientProvider>
+        <AuthContext.Provider value={auth}>
+          <ActiveAccountProvider>
+            <Outlet />
+          </ActiveAccountProvider>
+        </AuthContext.Provider>
       ),
       children: [{ index: true, Component: Probe }],
     },
@@ -101,43 +99,33 @@ describe("useActiveAccount — source-of-truth precedence", () => {
     expect(await screen.findByTestId("active")).toHaveTextContent("testuser");
   });
 
-  it("setActiveAccount override beats the loader value after switch", async () => {
-    renderWithProviders({ rootAccount: "testuser", auth: authWithAcme });
-    expect(await screen.findByTestId("active")).toHaveTextContent("testuser");
-
-    await userEvent.click(screen.getByText("switch-acme"));
-    await waitFor(() => {
-      expect(screen.getByTestId("active")).toHaveTextContent("acme");
-    });
-  });
-
-  it("ignores an override that names a non-member account (validOverride gate)", async () => {
-    // Render with auth that has NO acme, then trigger the switch-acme button.
-    // The override is set, but accounts.some(a => a.name === "acme") is false,
-    // so validOverride falls back to null → ssrAccount/personalAccount win.
+  it("ignores a create default that names a non-member account", async () => {
     renderWithProviders({ rootAccount: "testuser", auth: mockAuthContext });
     expect(await screen.findByTestId("active")).toHaveTextContent("testuser");
-    await userEvent.click(screen.getByText("switch-acme"));
+    await userEvent.click(screen.getByText("default-acme"));
     expect(screen.getByTestId("active")).toHaveTextContent("testuser");
   });
 });
 
 describe("useActiveAccount — cookie + localStorage side-effects", () => {
-  it("setActiveAccount(non-personal) writes the cookie", async () => {
+  it("setCreateDefault persists and applies the account", async () => {
     renderWithProviders({ rootAccount: "testuser", auth: authWithAcme });
     await screen.findByTestId("active");
-    await userEvent.click(screen.getByText("switch-acme"));
 
+    await userEvent.click(screen.getByText("default-acme"));
+
+    expect(screen.getByTestId("active")).toHaveTextContent("acme");
     expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBe("acme");
   });
 
-  it("setActiveAccount(personal) clears the cookie", async () => {
-    // Start with a cookie set, then switch back to personal.
+  it("setCreateDefault clears the cookie for the personal account", async () => {
     document.cookie = `${ACTIVE_ACCOUNT_COOKIE}=acme;path=/`;
     renderWithProviders({ rootAccount: "acme", auth: authWithAcme });
     await screen.findByTestId("active");
 
-    await userEvent.click(screen.getByText("switch-personal"));
+    await userEvent.click(screen.getByText("default-personal"));
+
+    expect(screen.getByTestId("active")).toHaveTextContent("testuser");
     expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBeNull();
   });
 });

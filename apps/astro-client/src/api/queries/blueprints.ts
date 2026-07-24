@@ -1,7 +1,16 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
 import { api, type BlueprintsListResponse, type Blueprint, type DeploymentSpec, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
-import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
+import { allAccountKeys, blueprintKeys, deploymentKeys, githubKeys } from './keys';
+
+function invalidateBlueprintLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  account: string,
+) {
+  queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
+  queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+  queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('blueprints') });
+}
 
 interface BlueprintQueryOptions {
   initialData?: Blueprint;
@@ -21,7 +30,7 @@ export function useBlueprints(opts?: {
   });
 }
 
-/** Profile, deployment history, etc. — unpaginated fetch (server max 100). Use useAccountBlueprintsList on /blueprints. */
+/** Account-scoped list for profile and deployment-history surfaces. */
 export function useAccountBlueprints(
   account: string,
   opts?: {
@@ -115,12 +124,13 @@ export function useDeployAgent(account: string, agentName: string) {
 
       // Always refresh after optimistic patch so server truth wins quickly.
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
       if (data.deployment_id) {
         queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(data.deployment_id) });
       }
 
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, agentName) });
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
+      invalidateBlueprintLists(queryClient, account);
       queryClient.invalidateQueries({ queryKey: deploymentKeys.history(account, agentName) });
     },
   });
@@ -138,8 +148,7 @@ export function useCreateBlueprint(account: string) {
   return useMutation({
     mutationFn: (body: { name: string; visibility?: string }) => api.createBlueprint(account, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+      invalidateBlueprintLists(queryClient, account);
     },
   });
 }
@@ -150,8 +159,7 @@ export function useArchiveBlueprint(account: string) {
   return useMutation({
     mutationFn: ({ name }: { name: string }) => api.archiveBlueprint(account, name),
     onSuccess: (_, { name }) => {
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+      invalidateBlueprintLists(queryClient, account);
       queryClient.invalidateQueries({ queryKey: githubKeys.accountConnections(account) });
       queryClient.invalidateQueries({ queryKey: githubKeys.status(account, name) });
     },
@@ -173,9 +181,9 @@ export function useUploadBlueprintAvatar() {
         return { ...old, avatar_url: data.avatar_url };
       });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.detail(account, name) });
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
-      queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+      invalidateBlueprintLists(queryClient, account);
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
     },
   });
 }

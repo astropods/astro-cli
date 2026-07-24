@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { AvatarColors, BlueprintAuthor } from "@/lib/api";
+import type { AvatarColors } from "@/lib/api";
 
 interface CardAccent {
   base: string;
@@ -114,8 +114,6 @@ export interface BlueprintCardProps {
   /** When provided, shows a heart toggle button. isHearted controls solid vs outline. */
   onHeartToggle?: () => void;
   isHearted?: boolean;
-  /** When provided, displays this author in the card footer instead of the owner account. */
-  author?: BlueprintAuthor;
   /** Seeds router state with `{ from }` so BlueprintDetailBreadcrumb can render
    *  a contextual root crumb (e.g. "Explore" when arriving from /explore). When
    *  omitted, the breadcrumb falls back to its default "Blueprints" root. */
@@ -137,7 +135,6 @@ export function BlueprintCard({
   onArchive,
   onHeartToggle,
   isHearted = false,
-  author,
   from,
 }: BlueprintCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -418,9 +415,12 @@ export function BlueprintCard({
           <span className={cn("text-mono-sm font-mono", hasAccent ? "text-[inherit]" : "text-faint-foreground")}>
             {formattedDeploys} {deployLabel}
           </span>
-          <span className={cn("flex items-center gap-1.5 text-mono-sm font-mono", hasAccent ? "text-[inherit]" : "text-faint-foreground")}>
-            <UserAvatar handle={author ? (author.account ?? author.name) : account} name={author ? author.name : account} className="!size-4" />
-            {author ? (author.account ?? author.name) : account}
+          <span
+            className={cn("flex min-w-0 max-w-[75%] items-center gap-1.5 text-mono-sm font-mono", hasAccent ? "text-[inherit]" : "text-faint-foreground")}
+            title={account}
+          >
+            <UserAvatar handle={account} name={account} className="!size-4" />
+            <span className="min-w-0 truncate">{account}</span>
           </span>
         </div>
       </Link>

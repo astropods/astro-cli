@@ -4,6 +4,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { ArrowUpRight, Bot, Check, ChevronDown, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
@@ -22,7 +23,7 @@ import { useAccountInsights } from "@/api/queries/observability";
 import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
-import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -36,6 +37,10 @@ import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
+import {
+  removeStaleInsightsAccountParam,
+  resolveInsightsScopeAccount,
+} from "./insights-account-param";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -165,9 +170,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // Range / view / search-query toggles change search params client-side, so
 // they skip the loader. The consolidated Insights response contains every
-// supported range; view + q are pure client-side display choices. The only
-// loader re-run is the programmatic revalidate signal used for org-switching
-// (currentUrl === nextUrl).
+// supported range; view + q are pure client-side display choices.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -192,6 +195,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   });
 
   const { activeAccount } = useActiveAccount();
+  const { accounts } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
@@ -215,10 +219,27 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     ],
     [devtoolSources, resolvedTheme],
   );
+  const paramAccount = searchParams.get("account");
+  const accountNames = useMemo(() => accounts.map((account) => account.name), [accounts]);
+  const scopeAccount = resolveInsightsScopeAccount(paramAccount, accountNames, activeAccount);
+  useEffect(() => {
+    const next = removeStaleInsightsAccountParam(
+      searchParams,
+      accountNames,
+    );
+    if (next) setSearchParams(next, { replace: true });
+  }, [accountNames, paramAccount, searchParams, setSearchParams]);
+  const setScopeAccount = useCallback((next: string) => {
+    setSearchParams((prev) => {
+      if (next === activeAccount) prev.delete("account");
+      else prev.set("account", next);
+      return prev;
+    }, { replace: true });
+  }, [activeAccount, setSearchParams]);
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
-  const accountForSlackResync = activeAccount || loaderData.account || "";
+  const accountForSlackResync = scopeAccount || loaderData.account || "";
   const [slackRefreshStatus, setSlackRefreshStatus] = useState<SlackRefreshStatus>("idle");
 
   useEffect(() => {
@@ -289,10 +310,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
   const dateLabel = buildDateLabel(range);
 
-  // Header right side packs three controls onto one row: date label (left),
-  // range chips (middle), scope switcher (right). The date label tracks the
-  // range chip so the user sees the resolved window without scanning back to
-  // a separate sub-bar.
   const headerAction = (
     <div className="flex items-center gap-3">
       {dateLabel && (
@@ -342,20 +359,26 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         value={range}
         onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}
       />
-      <PageScopeSwitcher />
     </div>
   );
 
   return (
     <PageContainer outerClassName="bg-background">
       <PageHeader
-        title="Insights"
-        description="Track usage, cost, and reliability across your organization."
+        title="Insights for"
+        adornment={
+          <AccountScopeFilter
+            value={scopeAccount}
+            onChange={setScopeAccount}
+            className="-ml-1"
+          />
+        }
+        description="Track usage, cost, and reliability for this account."
         action={headerAction}
       />
 
       <InsightsView
-        account={activeAccount}
+        account={scopeAccount}
         range={range}
         view={view}
         onViewChange={setView}

@@ -48,7 +48,7 @@ export function CreateKnowledgeStoreDialog({ account, open, onOpenChange }: Crea
         onSuccess: (store) => {
           onOpenChange(false);
           resetForm();
-          navigate(knowledgeDetailPath(store.name));
+          navigate(knowledgeDetailPath(store.name, account));
         },
       }
     );

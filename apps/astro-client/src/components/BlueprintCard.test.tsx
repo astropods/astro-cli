@@ -14,7 +14,8 @@ describe("BlueprintCard", () => {
       />,
     );
 
-    expect(screen.getByText("signal-watcher")).toBeInTheDocument();
+    expect(screen.getByText("signal-watcher", { selector: "h3 span" })).toBeInTheDocument();
+    expect(screen.getByText("acme")).toBeInTheDocument();
     expect(screen.getByText("Monitors API behavior and alert conditions.")).toBeInTheDocument();
   });
 

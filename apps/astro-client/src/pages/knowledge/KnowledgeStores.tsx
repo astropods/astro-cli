@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import type { Route } from "./+types/KnowledgeStores";
 import { PlusIcon, EllipsisVerticalIcon, CircleStackIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
+import { ActionPanel } from "@/components/ui/status-panel";
 import {
   Table,
   TableBody,
@@ -19,13 +20,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tag } from "@/components/Tag";
-import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { AccountFilter } from "@/components/AccountFilter";
+import { AccountLoadWarning } from "@/components/AccountLoadWarning";
+import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { useAuth } from "@/lib/auth";
-import { useActiveAccount } from "@/hooks/use-active-account";
-import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { useKnowledgeStores } from "@/api/queries/knowledge";
-import { knowledgeKeys } from "@/api/queries/keys";
+import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import {
+  useAllAccountsKnowledgeStores,
+  type KnowledgeStoreWithAccount,
+} from "@/api/queries/all-accounts";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import {
   statusToColor,
@@ -34,15 +38,9 @@ import {
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
-import { loadAccountScoped } from "@/lib/api.server";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
-import type { KnowledgeStore } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
-
-export async function loader({ request }: Route.LoaderArgs) {
-  return loadAccountScoped(request, (api, account) => api.listKnowledgeStores(account));
-}
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now();
@@ -57,17 +55,33 @@ function formatRelativeTime(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
-function KnowledgeStoresContent() {
-  const { isAuthenticated } = useAuth();
-  const { activeAccount: userAccount } = useActiveAccount();
+export default function KnowledgeStores() {
+  const { isAuthenticated, accounts } = useAuth();
 
   const navigate = useNavigate();
-  const { data, isLoading } = useKnowledgeStores(userAccount, isAuthenticated);
-  const stores = data ?? [];
+  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const {
+    stores,
+    isLoading,
+    isError,
+    failedAccounts,
+    retryFailed,
+  } = useAllAccountsKnowledgeStores(isAuthenticated, accountFilters);
 
-  const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
+  const accountLabels = useMemo(
+    () => new Map(accounts.map((a) => [a.name, a.display_name || a.name])),
+    [accounts],
+  );
 
-  const tableHeaders = ["Name", "Status", "Provider", "Mode", "Storage", "Created"];
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeStoreWithAccount | null>(null);
+
+  const tableHeaders = ["Name", "Account", "Status", "Provider", "Mode", "Storage", "Created"];
+  const showEmptyState =
+    !isLoading && accountFilters.length === 0 && stores.length === 0 && !isError;
+  const showFilteredEmpty =
+    !isLoading && accountFilters.length > 0 && stores.length === 0 && !isError;
+  const showTotalLoadError =
+    isError && failedAccounts.length === 0 && stores.length === 0;
 
   return (
     <PageContainer outerClassName="bg-background">
@@ -77,7 +91,6 @@ function KnowledgeStoresContent() {
         action={
           isAuthenticated && (
             <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
-              <PageScopeSwitcher />
               <Button variant="outline" size="sm" asChild>
                 <a href="https://docs.astropods.com/private-database" target="_blank" rel="noopener noreferrer">
                   Learn more
@@ -92,7 +105,30 @@ function KnowledgeStoresContent() {
         }
       />
 
-        {isLoading && stores.length === 0 ? null : stores.length === 0 ? (
+      {isAuthenticated && (stores.length > 0 || accountFilters.length > 0) && (
+        <div className="mb-4 flex justify-end">
+          <AccountFilter value={accountFilters} onChange={setAccountFilters} />
+        </div>
+      )}
+
+      {showTotalLoadError ? (
+        <div role="alert" className="mb-4">
+          <ActionPanel
+            tone="error"
+            title="Couldn't load knowledge stores"
+            primaryLabel="Retry"
+            onPrimary={retryFailed}
+          >
+            The knowledge store list is temporarily unavailable.
+          </ActionPanel>
+        </div>
+      ) : isError ? (
+        <div className="mb-4">
+          <AccountLoadWarning failedAccounts={failedAccounts} onRetry={retryFailed} />
+        </div>
+      ) : null}
+
+      {showTotalLoadError ? null : showEmptyState ? (
           <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
             <div className="flex justify-center mb-3 text-muted-foreground">
               <CircleStackIcon className="size-6" />
@@ -106,7 +142,12 @@ function KnowledgeStoresContent() {
               Add your first store
             </Button>
           </div>
-        ) : (
+      ) : showFilteredEmpty ? (
+          <FilteredEmptyState
+            message="No knowledge stores match your filters."
+            onClear={() => setAccountFilters([])}
+          />
+      ) : stores.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -119,16 +160,19 @@ function KnowledgeStoresContent() {
             <TableBody>
               {stores.map((store) => (
                 <TableRow
-                  key={store.id}
+                  key={`${store.account}/${store.id}`}
                   interactive
-                  onClick={() => navigate(knowledgeDetailPath(store.name))}
+                  onClick={() => navigate(knowledgeDetailPath(store.name, store.account))}
                 >
-                  <TableCell className="">
+                  <TableCell>
                     <span className="font-medium text-foreground">
                       {store.name}
                     </span>
                   </TableCell>
-                  <TableCell className="">
+                  <TableCell className="text-muted-foreground">
+                    {accountLabels.get(store.account) ?? store.account}
+                  </TableCell>
+                  <TableCell>
                     <StatusBadge
                       color={statusToColor(store.status)}
                       spinning={isTransitionalStatus(store.status)}
@@ -142,7 +186,7 @@ function KnowledgeStoresContent() {
                       {PROVIDER_LABELS[store.provider] ?? store.provider}
                     </span>
                   </TableCell>
-                  <TableCell className="">
+                  <TableCell>
                     <Tag color={store.mode === "managed" ? "blue" : "default"}>
                       {store.mode === "managed" ? "Managed" : "External"}
                     </Tag>
@@ -153,7 +197,7 @@ function KnowledgeStoresContent() {
                   <TableCell className="text-muted-foreground">
                     {formatRelativeTime(store.created_at)}
                   </TableCell>
-                  <TableCell className="" onClick={(e) => e.stopPropagation()}>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="size-7">
@@ -175,28 +219,18 @@ function KnowledgeStoresContent() {
               ))}
             </TableBody>
           </Table>
-        )}
+      ) : null}
 
       {deleteTarget && (
         <DeleteKnowledgeStoreDialog
           open={!!deleteTarget}
           onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}
           storeName={deleteTarget.name}
-          account={userAccount}
+          account={deleteTarget.account}
           boundAgents={deleteTarget.bound_agents}
           onDeleted={() => setDeleteTarget(null)}
         />
       )}
     </PageContainer>
   );
-}
-
-export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
-  usePrimeQueryCache(loaderData, (qc, ld) => {
-    if (ld?.account && ld?.data) {
-      qc.setQueryData(knowledgeKeys.all(ld.account), ld.data);
-    }
-  });
-
-  return <KnowledgeStoresContent />;
 }

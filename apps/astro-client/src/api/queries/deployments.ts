@@ -13,7 +13,15 @@ import {
   coercePausedDeploymentStatus,
   PAUSED_DEPLOYMENT_STATUS_SEED,
 } from '@/lib/deployment-utils';
-import { deploymentKeys } from './keys';
+import { allAccountKeys, deploymentKeys } from './keys';
+
+function invalidateDeploymentLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  account: string,
+) {
+  queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+  queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
+}
 
 // Powers the cross-account quick switcher on the agent detail page.
 // Refreshed by mutation invalidation, not polling — a mutation in another
@@ -284,7 +292,7 @@ export function useUndeployAgent(account: string) {
           return { ...old, deployments: updated };
         },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       // The summary key isn't a prefix of all(account), so it's not swept by
       // the line above. Stale it explicitly so the agent-detail quick
       // switcher refetches on its next mount.
@@ -313,7 +321,7 @@ export function useRestartDeployment(account: string) {
   return useMutation<{ status: string; pods: string[] }, Error, { deploymentId: string }>({
     mutationFn: api.restartDeployment.bind(api),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
@@ -363,7 +371,7 @@ export function useStopDeployment(account: string) {
         (old) =>
           old ? { ...old, ...PAUSED_DEPLOYMENT_STATUS_SEED } : { ...PAUSED_DEPLOYMENT_STATUS_SEED },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
@@ -400,6 +408,7 @@ export function useWakeUpDeployment(account: string) {
             : { value: 'deploying', reason: 'provisioning', details: 'Pods are being provisioned' },
       );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.runtime(variables.deploymentId) });
+      queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
     },
   });
 }
@@ -438,7 +447,7 @@ export function useTriggerIngestion(account: string) {
   return useMutation({
     mutationFn: api.triggerIngestion.bind(api),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }
@@ -452,7 +461,7 @@ export function useUploadDeploymentAvatar(account: string) {
     mutationFn: ({ id, file }: { id: string; file: Blob }) =>
       api.uploadDeploymentAvatar(id, file),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }
@@ -466,6 +475,7 @@ export function useUpdateDeploymentDisplayName(deploymentId: string) {
       api.updateDeploymentDisplayName(deploymentId, displayName),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deploymentId) });
+      void queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
     },
   });
 }
@@ -477,7 +487,7 @@ export function useDeleteDeploymentAvatar(account: string) {
   return useMutation({
     mutationFn: (id: string) => api.deleteDeploymentAvatar(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }

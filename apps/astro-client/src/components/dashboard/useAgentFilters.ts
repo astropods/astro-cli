@@ -3,8 +3,8 @@ import type { AgentDeploymentSummary } from "@/lib/api";
 
 export type SortOption = "recent" | "name" | "requests";
 
-export function useAgentFilters(
-  deployments: AgentDeploymentSummary[],
+export function useAgentFilters<T extends AgentDeploymentSummary>(
+  deployments: T[],
   requestCounts: Map<string, number> = new Map(),
 ) {
   const [filter, setFilter] = useState("");

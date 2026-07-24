@@ -803,6 +803,30 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json", ...corsHeaders(_currentOrigin) },
   });
 
+const memberAccountNames = [ACCOUNT, ORG_ACCOUNT];
+
+function crossAccountResponse<T>(url: URL, load: (account: string) => T) {
+  const requested = url.searchParams.getAll("account");
+  const accounts = requested.length > 0 ? requested : memberAccountNames;
+  const seen = new Set<string>();
+  const results: Array<{ account: string; data: T }> = [];
+  const failed_accounts: string[] = [];
+  const rejected_accounts: string[] = [];
+
+  for (const raw of accounts) {
+    const account = raw.trim();
+    if (!account || seen.has(account)) continue;
+    seen.add(account);
+    if (!memberAccountNames.includes(account)) {
+      rejected_accounts.push(account);
+      continue;
+    }
+    results.push({ account, data: load(account) });
+  }
+
+  return { results, failed_accounts, rejected_accounts };
+}
+
 Bun.serve({
   hostname: "127.0.0.1",
   port: 48787,
@@ -858,6 +882,53 @@ Bun.serve({
     if (pathname === "/auth/switch-org") return json(makeAuthResponse());
     if (pathname === "/auth/login") return new Response("ok");
     if (pathname.startsWith("/auth/logout")) return new Response("ok");
+
+    if (pathname === "/api/v1/me/blueprints" && request.method === "GET") {
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      return json(
+        crossAccountResponse(url, (account) => {
+          const catalog = account === ACCOUNT ? accountAgents : { agents: [], count: 0 };
+          const agents = catalog.agents.slice(offset, offset + limit);
+          return {
+            agents,
+            count: catalog.count,
+            limit,
+            offset,
+            has_more: offset + agents.length < catalog.count,
+          };
+        }),
+      );
+    }
+
+    if (pathname === "/api/v1/me/deployments" && request.method === "GET") {
+      return json(
+        crossAccountResponse(url, (account) => {
+          const accountDeployments =
+            account === ACCOUNT
+              ? deployments.map((deployment) => ({
+                  ...deployment,
+                  messaging_web_configured: true,
+                }))
+              : [];
+          return {
+            deployments: accountDeployments,
+            count: accountDeployments.length,
+          };
+        }),
+      );
+    }
+
+    if (pathname === "/api/v1/me/knowledge" && request.method === "GET") {
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      return json(
+        crossAccountResponse(url, (account) => {
+          const stores = account === ACCOUNT ? knowledgeStores : [];
+          return stores.slice(offset, offset + limit);
+        }),
+      );
+    }
 
     const templateMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment-template$/);
     if (templateMatch) {
