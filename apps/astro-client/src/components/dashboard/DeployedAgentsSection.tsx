@@ -7,6 +7,7 @@ import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
 import { useMultiAccountDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
 import type { DeploymentWithAccount } from "@/api/queries/all-accounts";
+import { ResultSetReveal } from "@/components/ui/content-reveal";
 
 // Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
 // into its slot, we show this placeholder card in its spot until the real
@@ -87,7 +88,15 @@ export function DeployedAgentsSection({
   }
 
   if (showEmptyState && deployments.length === 0) {
-    return emptyState;
+    return (
+      <ResultSetReveal
+        itemCount={0}
+        settled={!isLoading}
+        transitionKey={accountFilters.join(",")}
+      >
+        {emptyState}
+      </ResultSetReveal>
+    );
   }
 
   return (
@@ -108,25 +117,31 @@ export function DeployedAgentsSection({
         </div>
       )}
 
-      {showEmptyState && emptyState}
-      {filtered.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
-          {filtered.map((deployment) => {
-            if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
-              return <AgentCardSkeleton key={deployment.id} />;
-            }
-            return (
-              <DeploymentAgentCard
-                key={deployment.id}
-                deployment={deployment}
-                account={deployment.account}
-                requestSeries={requestSeries.get(deployment.id)}
-                tokenSeries={tokenSeries.get(deployment.id)}
-              />
-            );
-          })}
-        </div>
-      )}
+      <ResultSetReveal
+        itemCount={filtered.length}
+        settled={!isLoading}
+        transitionKey={accountFilters.join(",")}
+      >
+        {showEmptyState && emptyState}
+        {filtered.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
+            {filtered.map((deployment) => {
+              if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
+                return <AgentCardSkeleton key={deployment.id} />;
+              }
+              return (
+                <DeploymentAgentCard
+                  key={deployment.id}
+                  deployment={deployment}
+                  account={deployment.account}
+                  requestSeries={requestSeries.get(deployment.id)}
+                  tokenSeries={tokenSeries.get(deployment.id)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </ResultSetReveal>
     </>
   );
 }

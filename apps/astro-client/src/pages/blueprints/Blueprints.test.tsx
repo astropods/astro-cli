@@ -161,11 +161,18 @@ describe('Blueprints – account filter control', () => {
     const requestedAccounts: string[] = [];
     mockPerAccountBlueprints((account) => requestedAccounts.push(account));
 
-    const { queryClient } = renderBlueprintsPage({ auth: twoAccountAuth });
+    const { container, queryClient } = renderBlueprintsPage({ auth: twoAccountAuth });
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /org-only-agent/i })).toBeInTheDocument();
     });
+    const initialReveal = container.querySelector(
+      "[data-slot='result-set-reveal']",
+    );
+    const pagination = container.querySelector<HTMLElement>(
+      "nav[aria-label='Blueprint list pagination']",
+    );
+    expect(initialReveal).not.toContainElement(pagination);
     expect(requestedAccounts.sort()).toEqual(['orgaccount', 'testuser']);
 
     queryClient.setDefaultOptions({
@@ -187,6 +194,9 @@ describe('Blueprints – account filter control', () => {
       expect(screen.queryByRole('heading', { name: /code-reviewer/i })).not.toBeInTheDocument();
     });
     expect(screen.getByRole('heading', { name: /org-only-agent/i })).toBeInTheDocument();
+    expect(
+      container.querySelector("[data-slot='result-set-reveal']"),
+    ).toBe(initialReveal);
     expect(requestedAccounts).toEqual([]);
   });
 

@@ -39,6 +39,7 @@ import {
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
+import { ResultSetReveal } from "@/components/ui/content-reveal";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
 
@@ -128,7 +129,12 @@ export default function KnowledgeStores() {
         </div>
       ) : null}
 
-      {showTotalLoadError ? null : showEmptyState ? (
+      <ResultSetReveal
+        itemCount={stores.length}
+        settled={!isLoading}
+        transitionKey={accountFilters.join(",")}
+      >
+        {showTotalLoadError ? null : showEmptyState ? (
           <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
             <div className="flex justify-center mb-3 text-muted-foreground">
               <CircleStackIcon className="size-6" />
@@ -142,12 +148,12 @@ export default function KnowledgeStores() {
               Add your first store
             </Button>
           </div>
-      ) : showFilteredEmpty ? (
+        ) : showFilteredEmpty ? (
           <FilteredEmptyState
             message="No knowledge stores match your filters."
             onClear={() => setAccountFilters([])}
           />
-      ) : stores.length > 0 ? (
+        ) : stores.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -219,7 +225,8 @@ export default function KnowledgeStores() {
               ))}
             </TableBody>
           </Table>
-      ) : null}
+        ) : null}
+      </ResultSetReveal>
 
       {deleteTarget && (
         <DeleteKnowledgeStoreDialog

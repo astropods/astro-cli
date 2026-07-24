@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
-import { motion } from "motion/react";
 import { useResolvedTheme } from "@/lib/theme";
 import { useAgentDetailContext } from "../AgentDetail";
 import { useObservabilityMetrics } from "@/api/queries/observability";
 import { useNetworkSummary, useNetworkFlows } from "@/api/queries/network";
 import { StorageCapacityBanner } from "@/components/StorageCapacityBanner";
+import { ContentReveal } from "@/components/ui/content-reveal";
 import { TokenUsageChart } from "@/components/agent-detail/charts/TokenUsageChart";
 import {
   CHART_COLORS,
@@ -121,11 +121,8 @@ export default function AgentMonitor() {
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
       >
-        <motion.div
+        <ContentReveal
           className="@container/monitor mx-auto w-full max-w-4xl px-6 py-8 pb-16"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
         >
           <StorageCapacityBanner deploymentId={deploymentId} className="mb-6" />
           {/* Header */}
@@ -230,7 +227,7 @@ export default function AgentMonitor() {
               />
             </div>
           </div>
-        </motion.div>
+        </ContentReveal>
       </div>
     </div>
   );

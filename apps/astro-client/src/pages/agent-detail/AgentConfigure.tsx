@@ -13,10 +13,12 @@ import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIn
 import { isPausedState } from "@/lib/deployment-utils";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentKeys } from "@/api/queries/keys";
+import { useContentRevealMotion } from "@/components/ui/content-reveal-motion";
 
 const FORM_ID = "agent-configure-form";
 
 export default function AgentConfigure() {
+  const contentRevealMotion = useContentRevealMotion();
   const { deployment, runtime, account, deploymentId } = useAgentDetailContext();
   const manualIngestions = runtime?.manual_ingestions ?? [];
   const queryClient = useQueryClient();
@@ -148,12 +150,10 @@ export default function AgentConfigure() {
         style={{ maskImage: "linear-gradient(to bottom, transparent, black 2rem)", WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)" }}
       >
         <motion.form
+          {...contentRevealMotion}
           id={FORM_ID}
           onSubmit={handleSubmit}
           className="mx-auto w-full max-w-3xl px-6 py-8 pb-32 @max-[600px]/scroll:pb-44 @max-[400px]/scroll:pb-56"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
         >
           <BlueprintVersionPicker
             versions={blueprint?.versions ?? []}

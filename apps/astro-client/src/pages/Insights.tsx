@@ -1,7 +1,6 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { motion } from "motion/react";
 import { ArrowUpRight, Bot, Check, ChevronDown, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
@@ -24,6 +23,7 @@ import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/sla
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { AccountScopeFilter } from "@/components/AccountScopeFilter";
+import { SettledContentReveal } from "@/components/ui/content-reveal";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -429,16 +429,14 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
           </WarningPanel>
         </div>
       )}
-      <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
-        <StatCards data={displaySummary} showChange range={range} />
-      </motion.div>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+      <StatCards data={displaySummary} showChange range={range} />
+      <div>
         <div className="mb-6 grid grid-cols-1 gap-4 @xl:grid-cols-2">
           <div className="h-[300px]">{chartLeft}</div>
           <div className="h-[300px]">{chartRight}</div>
         </div>
         {table}
-      </motion.div>
+      </div>
       {/* Insights data is served from a 6-hourly refresh — the server's
           cache holds last-known-good metrics so a Langfuse outage
           doesn't blank the page. Keep the note muted; it's a
@@ -698,62 +696,71 @@ function InsightsView({
     insights?.metrics_unavailable === true;
 
   return (
-    <InsightsBody
-      range={range}
-      displaySummary={displaySummary}
-      metricsUnavailable={metricsUnavailable}
-      chartLeft={
-        <CostOverTimeChart
-          data={rangeData?.agent_spend_chart ?? []}
-          days={days}
-          colorMap={chartColorMap}
-          seriesLabels={rangeData?.series_labels}
-          variant={days > 60 ? "line" : "bar"}
-        />
+    <SettledContentReveal
+      transitionKey={account}
+      settled={
+        insights !== undefined &&
+        !insightsQ.isPlaceholderData &&
+        !insightsQ.isError
       }
-      chartRight={<ActiveUsersSpendChart data={rangeData?.people_spend_chart ?? []} days={days} />}
-      table={
-        isModelView ? (
-          <TopSpendersTable mode="models" account={account} days={days} panelHeader={panelHeader} />
-        ) : view === "agents" ? (
-          <TopSpendersTable
-            mode="agents"
-            rows={agentRows}
-            loading={insightsQ.isLoading && !insights}
-            groupLabel="Name"
-            panelHeader={panelHeader}
-            sortKey={agentSortKey}
-            sortDirection={agentSortDirection}
-            onSort={handleAgentSort}
-            pagination={{
-              totalRows: agentsTotalRows,
-              defaultVisibleRows: DEFAULT_TABLE_LIMIT,
-              pageSize: TABLE_PAGE_SIZE,
-              showLessLabel: SHOW_TOP_LABEL,
-              onShowMore: () => setAgentsLimit((limit) => limit + TABLE_PAGE_SIZE),
-              onShowLess: () => setAgentsLimit(DEFAULT_TABLE_LIMIT),
-            }}
+    >
+      <InsightsBody
+        range={range}
+        displaySummary={displaySummary}
+        metricsUnavailable={metricsUnavailable}
+        chartLeft={
+          <CostOverTimeChart
+            data={rangeData?.agent_spend_chart ?? []}
+            days={days}
+            colorMap={chartColorMap}
+            seriesLabels={rangeData?.series_labels}
+            variant={days > 60 ? "line" : "bar"}
           />
-        ) : (
-          <TopSpendersTable
-            mode="users"
-            rows={peopleRows}
-            loading={insightsQ.isLoading && !insights}
-            panelHeader={panelHeader}
-            sortKey={peopleSortKey}
-            sortDirection={peopleSortDirection}
-            onSort={handlePeopleSort}
-            pagination={{
-              totalRows: peopleTotalRows,
-              defaultVisibleRows: DEFAULT_TABLE_LIMIT,
-              pageSize: TABLE_PAGE_SIZE,
-              showLessLabel: SHOW_TOP_LABEL,
-              onShowMore: () => setPeopleLimit((limit) => limit + TABLE_PAGE_SIZE),
-              onShowLess: () => setPeopleLimit(DEFAULT_TABLE_LIMIT),
-            }}
-          />
-        )
-      }
-    />
+        }
+        chartRight={<ActiveUsersSpendChart data={rangeData?.people_spend_chart ?? []} days={days} />}
+        table={
+          isModelView ? (
+            <TopSpendersTable mode="models" account={account} days={days} panelHeader={panelHeader} />
+          ) : view === "agents" ? (
+            <TopSpendersTable
+              mode="agents"
+              rows={agentRows}
+              loading={insightsQ.isLoading && !insights}
+              groupLabel="Name"
+              panelHeader={panelHeader}
+              sortKey={agentSortKey}
+              sortDirection={agentSortDirection}
+              onSort={handleAgentSort}
+              pagination={{
+                totalRows: agentsTotalRows,
+                defaultVisibleRows: DEFAULT_TABLE_LIMIT,
+                pageSize: TABLE_PAGE_SIZE,
+                showLessLabel: SHOW_TOP_LABEL,
+                onShowMore: () => setAgentsLimit((limit) => limit + TABLE_PAGE_SIZE),
+                onShowLess: () => setAgentsLimit(DEFAULT_TABLE_LIMIT),
+              }}
+            />
+          ) : (
+            <TopSpendersTable
+              mode="users"
+              rows={peopleRows}
+              loading={insightsQ.isLoading && !insights}
+              panelHeader={panelHeader}
+              sortKey={peopleSortKey}
+              sortDirection={peopleSortDirection}
+              onSort={handlePeopleSort}
+              pagination={{
+                totalRows: peopleTotalRows,
+                defaultVisibleRows: DEFAULT_TABLE_LIMIT,
+                pageSize: TABLE_PAGE_SIZE,
+                showLessLabel: SHOW_TOP_LABEL,
+                onShowMore: () => setPeopleLimit((limit) => limit + TABLE_PAGE_SIZE),
+                onShowLess: () => setPeopleLimit(DEFAULT_TABLE_LIMIT),
+              }}
+            />
+          )
+        }
+      />
+    </SettledContentReveal>
   );
 }

@@ -19,6 +19,7 @@ import {
 } from "@/lib/blueprint-utils";
 import type { Blueprint } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ResultSetReveal } from "@/components/ui/content-reveal";
 import { blueprintGridSlotCount } from "@/lib/blueprint-page-numbers";
 import { useAllAccountsBlueprints } from "@/api/queries/all-accounts";
 import { useBlueprintSearch } from "./use-blueprint-search";
@@ -145,13 +146,17 @@ export default function Blueprints() {
         </div>
       )}
 
-      {showFilteredEmpty ? (
-        <FilteredEmptyState
-          message="No blueprints match your filters."
-          onClear={handleClearFilters}
-        />
-      ) : (
-        <>
+      <ResultSetReveal
+        itemCount={filtered.length}
+        settled={!listLoading}
+        transitionKey={accountFilters.join(",")}
+      >
+        {showFilteredEmpty ? (
+          <FilteredEmptyState
+            message="No blueprints match your filters."
+            onClear={handleClearFilters}
+          />
+        ) : (
           <BlueprintListView
             blueprints={pageBlueprints}
             isLoading={listLoading}
@@ -162,14 +167,17 @@ export default function Blueprints() {
             ownerAccounts={ownerAccounts}
             slotCount={gridSlotCount}
           />
-          <BlueprintsPagination
-            currentPage={effectivePage}
-            totalCount={totalCount}
-            pageSize={BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
-            onPageChange={handlePageChange}
-            disabled={isFetching}
-          />
-        </>
+        )}
+      </ResultSetReveal>
+
+      {!showFilteredEmpty && (
+        <BlueprintsPagination
+          currentPage={effectivePage}
+          totalCount={totalCount}
+          pageSize={BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
+          onPageChange={handlePageChange}
+          disabled={isFetching}
+        />
       )}
     </PageContainer>
   );

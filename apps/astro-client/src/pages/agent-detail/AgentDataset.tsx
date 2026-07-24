@@ -14,6 +14,7 @@ import { TabButton } from "@/pages/AccountProfile/TabToolbar";
 import { useContainerSize } from "@/hooks/use-container-size";
 import type { TraceEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ContentReveal } from "@/components/ui/content-reveal";
 
 type Tab = "queue" | "dataset";
 
@@ -82,14 +83,11 @@ export default function AgentDataset() {
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
       >
-        <motion.div
+        <ContentReveal
           className={cn(
             "@container/eval-page mx-auto flex w-full max-w-6xl flex-col px-6 pt-8",
             isReviewQueue ? "pb-6" : "pb-16",
           )}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
         >
           <div className="mb-5 min-w-0">
             <h1 className="text-heading-1 text-foreground">Eval</h1>
@@ -189,7 +187,7 @@ export default function AgentDataset() {
               </motion.div>
             )}
           </AnimatePresence>
-        </motion.div>
+        </ContentReveal>
       </div>
 
       <div

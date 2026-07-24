@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { useAgentDetailContext } from "../AgentDetail";
 import {
@@ -11,6 +10,7 @@ import {
 } from "@/api/queries/observability";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { TraceDetailPanel } from "@/components/agent-detail/traces/TraceDetailPanel";
+import { ContentReveal } from "@/components/ui/content-reveal";
 import {
   TracesTable,
   traceUserFilterParams,
@@ -196,11 +196,8 @@ export default function AgentTraces() {
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 2rem)",
         }}
       >
-        <motion.div
+        <ContentReveal
           className="@container/traces-page mx-auto flex w-full max-w-6xl flex-col px-6 pt-8 pb-16"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, ease: "easeOut" }}
         >
           <div className="mb-5 flex flex-col gap-3 border-b border-border pb-3 @[680px]/traces-page:flex-row @[680px]/traces-page:items-end @[680px]/traces-page:justify-between">
             <div className="min-w-0">
@@ -250,7 +247,7 @@ export default function AgentTraces() {
             resultsTruncated={!!truncatedPage}
             scannedCount={truncatedPage?.scanned_count}
           />
-        </motion.div>
+        </ContentReveal>
       </div>
 
       <div
