@@ -33,9 +33,9 @@ func TestAddEntry_preservesFormatting(t *testing.T) {
 	f.WriteString(testSpec)
 	f.Close()
 
-	if err := AddEntry(f.Name(), "models", "llama", map[string]any{
-		"provider": "ollama",
-		"model":    "llama3.2:1b",
+	if err := AddEntry(f.Name(), "models", "cmd", map[string]any{
+		"provider": "cohere",
+		"model":    "command-r",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestAddEntry_preservesFormatting(t *testing.T) {
 		"spec: package/v1",         // top-level keys preserved
 		"meta:\n  description:",    // nested structure preserved
 		"  claude:\n    provider:", // existing model entry preserved
-		"  llama:\n    model: llama3.2:1b\n    provider: ollama", // new entry added
+		"  cmd:\n    model: command-r\n    provider: cohere", // new entry added
 		"integrations:\n  gh:", // subsequent section preserved
 	}
 	for _, want := range checks {

@@ -56,14 +56,6 @@ func (m model) View() string {
 		}
 		b.WriteString(dimStyle.Render("  enter confirm"))
 
-	case screenOllamaModel:
-		b.WriteString(promptStyle.Render("  Ollama model"))
-		b.WriteString("\n")
-		b.WriteString(hintStyle.Render("  Choose the model to run locally."))
-		b.WriteString("\n\n")
-		b.WriteString(m.renderRadioList(ollamaModelOptions()))
-		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter confirm"))
-
 	case screenImage:
 		b.WriteString(promptStyle.Render("  Container image"))
 		b.WriteString("\n")
@@ -142,9 +134,6 @@ func (m model) View() string {
 func (m model) steps() []string {
 	switch m.domain {
 	case "model":
-		if m.provider == "ollama" {
-			return []string{"Name", "Model", "Confirm"}
-		}
 		return []string{"Name", "Confirm"}
 	case "knowledge":
 		return []string{"Name", "Confirm"}
@@ -163,7 +152,7 @@ func (m model) screenStep() int {
 	switch m.screen {
 	case screenName:
 		return 0
-	case screenOllamaModel, screenImage:
+	case screenImage:
 		return 1
 	case screenTrigger:
 		return 2
@@ -228,14 +217,6 @@ func (m model) renderSummary() string {
 	row("Name", m.name)
 
 	switch m.domain {
-	case "model":
-		if m.provider == "ollama" {
-			ollamaModel := m.ollamaModel
-			if ollamaModel == "" {
-				ollamaModel = ollamaModelOptions()[0].value
-			}
-			row("Model", ollamaModel)
-		}
 	case "ingestion":
 		row("Image", m.imageInput.Value())
 		trigger := m.triggerType

@@ -11,7 +11,6 @@ type screen int
 
 const (
 	screenName screen = iota
-	screenOllamaModel
 	screenImage
 	screenTrigger
 	screenScope
@@ -50,7 +49,6 @@ type model struct {
 	varNameInput textinput.Model
 
 	cursor      int
-	ollamaModel string
 	triggerType string
 
 	// provider domain fields
@@ -135,8 +133,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenName:
 		return m.updateName(msg)
-	case screenOllamaModel:
-		return m.updateRadio(msg, ollamaModelOptions())
 	case screenImage:
 		return m.updateImage(msg)
 	case screenTrigger:

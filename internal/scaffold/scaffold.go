@@ -33,8 +33,6 @@ type ScaffoldConfig struct {
 	Description     string            // Agent description
 	Lang            string            // "ts" | "py" (set by GenerateFiles)
 	Interfaces      []string          // ["web", "slack"]
-	ModelProvider   string            // "ollama" | "huggingface" | "" for none
-	Model           string            // Model name (e.g. "llama3", "mistral")
 	Knowledge       []string          // ["qdrant", "redis", "neo4j"]
 	Integrations    []string          // ["anthropic", "openai", "github"]
 	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
@@ -199,8 +197,6 @@ func DefaultConfig(name string) ScaffoldConfig {
 		Name:            name,
 		Description:     "Describe what your agent does in one sentence.",
 		Interfaces:      []string{"web"},
-		ModelProvider:   "",
-		Model:           "",
 		Knowledge:       []string{},
 		Integrations:    []string{"anthropic"},
 		IntegrationKeys: map[string]string{},

@@ -1,7 +1,7 @@
 package add
 
 // ValidModelProviders lists accepted providers for "ast add model".
-var ValidModelProviders = []string{"anthropic", "openai", "google", "cohere", "ollama"}
+var ValidModelProviders = []string{"anthropic", "openai", "google", "cohere"}
 
 // ValidKnowledgeProviders lists accepted providers for "ast add knowledge".
 var ValidKnowledgeProviders = []string{"qdrant", "redis", "postgres", "neo4j", "pinecone"}
@@ -12,17 +12,6 @@ var ValidIntegrationProviders = []string{"github", "gitlab"}
 type option struct {
 	label string
 	value string
-}
-
-func ollamaModelOptions() []option {
-	return []option{
-		{"llama3.2:1b", "llama3.2:1b"},
-		{"llama3.1:8b", "llama3.1:8b"},
-		{"mistral:7b", "mistral:7b"},
-		{"codellama:7b", "codellama:7b"},
-		{"phi3:3.8b", "phi3:3.8b"},
-		{"gemma2:2b", "gemma2:2b"},
-	}
 }
 
 func triggerOptions() []option {

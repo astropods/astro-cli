@@ -205,7 +205,7 @@ func printModelEntry(name string, model spec.Model, s *spec.AstroSpec, specDir, 
 	}
 
 	// Output: what this component injects into the agent env
-	printComponentOutput(s, "models", name, model.Provider, strings.Join(model.ResolvedModels(), ","), s)
+	printComponentOutput(s, "models", name, model.Provider, s)
 
 	// Component-specific inputs
 	printInputList(model.Inputs, "    ")
@@ -234,7 +234,7 @@ func printKnowledgeEntry(name string, k spec.Knowledge, s *spec.AstroSpec, specD
 		fmt.Printf("    port:   %d\n", kc.Port)
 	}
 
-	printComponentOutput(s, "knowledge", name, k.Provider, "", s)
+	printComponentOutput(s, "knowledge", name, k.Provider, s)
 	printInputList(k.Inputs, "    ")
 }
 
@@ -260,7 +260,7 @@ func printIntegrationEntry(name string, tool spec.Integration, s *spec.AstroSpec
 		}
 	}
 
-	printComponentOutput(s, "integrations", name, tool.Provider, "", s)
+	printComponentOutput(s, "integrations", name, tool.Provider, s)
 	printInputList(tool.Inputs, "    ")
 }
 
@@ -302,7 +302,7 @@ func printIngestionEntry(name string, ing spec.Ingestion, s *spec.AstroSpec, spe
 // printComponentOutput shows what a component produces into the agent's environment.
 // All component types use a single "produces:" label — the mechanism (connection
 // wiring, credential injection, provider variables) is irrelevant to the consumer.
-func printComponentOutput(_ *spec.AstroSpec, section, name, provider, modelName string, full *spec.AstroSpec) {
+func printComponentOutput(_ *spec.AstroSpec, section, name, provider string, full *spec.AstroSpec) {
 	var keys []string
 
 	if provider != "" {
@@ -320,25 +320,8 @@ func printComponentOutput(_ *spec.AstroSpec, section, name, provider, modelName 
 	}
 
 	if len(keys) == 0 {
-		// Self-hosted provider or container mode: connection env vars.
+		// Container mode: connection env vars.
 		keys = spec.AgentKeysForComponent(full, section, name)
-		// MODEL key carries a static value so the sentinel approach misses it — add explicitly.
-		if section == "models" && modelName != "" && provider != "" {
-			p := spec.GetModelProvider(provider)
-			if p.EnvPrefix != "" {
-				provCount := 0
-				for _, m := range full.Models {
-					if m.IsProviderMode() && strings.EqualFold(m.Provider, provider) {
-						provCount++
-					}
-				}
-				modelKey := p.EnvPrefix + "_MODEL"
-				if provCount > 1 {
-					modelKey = p.EnvPrefix + "_" + spec.SanitizeEnvName(name) + "_MODEL"
-				}
-				keys = appendIfMissing(keys, modelKey)
-			}
-		}
 	}
 
 	sort.Strings(keys)
@@ -713,15 +696,6 @@ func printKeyList(label, indent string, keys []string, maxWidth int) {
 		}
 	}
 	fmt.Println()
-}
-
-func appendIfMissing(slice []string, item string) []string {
-	for _, v := range slice {
-		if v == item {
-			return slice
-		}
-	}
-	return append(slice, item)
 }
 
 // getInterfaceEnvVars returns the env vars consumed by a given messaging interface sidecar.

@@ -276,18 +276,6 @@ func TestMastraTemplate_AgentIndex_OpenAIModel(t *testing.T) {
 	}
 }
 
-func TestMastraTemplate_AgentIndex_CustomModelProvider(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	config := defaultConfig
-	config.ModelProvider = "ollama"
-	config.Model = "llama3"
-	content := renderTemplate(t, paths.AgentIndex, config)
-
-	if !strings.Contains(content, "ollama/llama3") {
-		t.Errorf("mastra agent with custom model should use ollama/llama3, got:\n%s", content)
-	}
-}
-
 func TestMastraTemplate_PackageJson_SubstitutesName(t *testing.T) {
 	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)

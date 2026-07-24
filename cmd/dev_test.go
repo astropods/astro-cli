@@ -104,18 +104,16 @@ func TestRewriteDockerHostsToLocalhost(t *testing.T) {
 			name: "rewrites model host and embedded URLs",
 			spec: &spec.AstroSpec{
 				Models: map[string]spec.Model{
-					"llm": {Provider: "ollama"},
+					"llm": {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 				},
 			},
 			envMap: map[string]string{
-				"OLLAMA_HOST":     "model-llm",
-				"OLLAMA_URL":      "http://model-llm:11434",
-				"OLLAMA_BASE_URL": "http://model-llm:11434/api",
+				"MODEL_LLM_HOST": "model-llm",
+				"MODEL_LLM_URL":  "http://model-llm:8000",
 			},
 			wantEnv: map[string]string{
-				"OLLAMA_HOST":     "localhost",
-				"OLLAMA_URL":      "http://localhost:11434",
-				"OLLAMA_BASE_URL": "http://localhost:11434/api",
+				"MODEL_LLM_HOST": "localhost",
+				"MODEL_LLM_URL":  "http://localhost:8000",
 			},
 		},
 		{

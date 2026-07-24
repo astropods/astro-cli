@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -83,23 +82,10 @@ func convertArgs(args map[string]string) map[string]*string {
 	return result
 }
 
-// buildModelHealthCheckTest generates the health check command for model providers.
-func buildModelHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port int) types.HealthCheckTest {
+// buildModelHealthCheckTest generates the health check command for a container-mode model.
+func buildModelHealthCheckTest(healthcheck *spec.Healthcheck, port int) types.HealthCheckTest {
 	if len(healthcheck.Test) > 0 {
 		return types.HealthCheckTest(healthcheck.Test)
-	}
-
-	prov := spec.GetModelProvider(provider)
-
-	if len(prov.HealthCheck) > 0 {
-		return types.HealthCheckTest(append([]string{"CMD"}, prov.HealthCheck...))
-	}
-
-	if prov.HealthPath != "" {
-		if port == 0 {
-			port = prov.DefaultPort
-		}
-		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d%s || exit 1", port, prov.HealthPath)})
 	}
 
 	if healthcheck.Path != "" {
@@ -146,13 +132,6 @@ func buildHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port i
 	return nil
 }
 
-// BuildOptions controls optional behavior when generating the Compose project.
-type BuildOptions struct {
-	// NativeOllama skips the Ollama container and points env vars at the
-	// host's native Ollama instance (via host.docker.internal).
-	NativeOllama bool
-}
-
 // ProjectName returns the Docker Compose project name used for an agent spec.
 // Scoped spec names like "@org/my-agent" become "my-agent"; unscoped names pass through.
 // This is the single source of truth for the project-name string used by Up,
@@ -194,12 +173,7 @@ func ProjectNameFromSpecName(raw string) string {
 }
 
 // BuildProject converts an AstroSpec to a Docker Compose project.
-// An optional BuildOptions can be passed to customize generation.
-func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string, opts ...BuildOptions) (*types.Project, error) {
-	var opt BuildOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
 	agentName := ProjectName(s)
 	project := &types.Project{
 		Name:       agentName,
@@ -218,10 +192,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	// Add models that deploy a container (skip cloud and custom providers)
 	for name, model := range s.Models {
 		if !model.DeploysContainer(s.Providers) {
-			continue
-		}
-		// Skip Ollama containers when using native Ollama on the host
-		if opt.NativeOllama && model.Provider == "ollama" {
 			continue
 		}
 		resolved := model.ResolvedContainer()
@@ -264,97 +234,19 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				},
 			}
 
-			// Add healthcheck: model-aware when model name is set
-			if len(model.ResolvedModels()) > 0 {
-				interval := types.Duration(15000000000) // 15 seconds
-				timeout := types.Duration(5000000000)   // 5 seconds
-				retries := uint64(40)                   // ~10 min for large model pulls
-				var grepParts []string
-				for _, m := range model.ResolvedModels() {
-					grepParts = append(grepParts, fmt.Sprintf("ollama list | grep -q '%s'", m))
-				}
-				test := types.HealthCheckTest([]string{
-					"CMD-SHELL",
-					strings.Join(grepParts, " && "),
-				})
-				service.HealthCheck = &types.HealthCheckConfig{
-					Test:     test,
-					Interval: &interval,
-					Timeout:  &timeout,
-					Retries:  &retries,
-				}
-			} else {
-				healthcheck := resolved.Healthcheck
-				if healthcheck == nil && model.IsProviderMode() {
-					prov := spec.GetModelProvider(model.Provider)
-					if prov.HealthPath != "" {
-						healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
-					} else if len(prov.HealthCheck) > 0 {
-						healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
+			// Healthcheck from the container's own config.
+			if healthcheck := resolved.Healthcheck; healthcheck != nil {
+				interval := types.Duration(10000000000) // 10 seconds
+				timeout := types.Duration(5000000000)    // 5 seconds
+				retries := uint64(3)
+				test := buildModelHealthCheckTest(healthcheck, resolved.Port)
+				if test != nil {
+					service.HealthCheck = &types.HealthCheckConfig{
+						Test:     test,
+						Interval: &interval,
+						Timeout:  &timeout,
+						Retries:  &retries,
 					}
-				}
-				if healthcheck != nil {
-					interval := types.Duration(10000000000) // 10 seconds
-					timeout := types.Duration(5000000000)   // 5 seconds
-					retries := uint64(3)
-					test := buildModelHealthCheckTest(healthcheck, model.Provider, resolved.Port)
-					if test != nil {
-						service.HealthCheck = &types.HealthCheckConfig{
-							Test:     test,
-							Interval: &interval,
-							Timeout:  &timeout,
-							Retries:  &retries,
-						}
-					}
-				}
-			}
-		}
-
-		// Provider-specific dev enhancements
-		if model.IsProviderMode() {
-			prov := spec.GetModelProvider(model.Provider)
-
-			// Persistent volume for model storage
-			if prov.MountPath != "" {
-				volumeName := fmt.Sprintf("%s-data", serviceName)
-				project.Volumes[volumeName] = types.VolumeConfig{
-					Name: volumeName,
-				}
-				service.Volumes = []types.ServiceVolumeConfig{
-					{
-						Type:   types.VolumeTypeVolume,
-						Source: volumeName,
-						Target: prov.MountPath,
-					},
-				}
-			}
-
-			// GPU passthrough for providers that require it (skip on macOS — no nvidia support)
-			if prov.GPU && runtime.GOOS != "darwin" {
-				service.Deploy = &types.DeployConfig{
-					Resources: types.Resources{
-						Reservations: &types.Resource{
-							Devices: []types.DeviceRequest{
-								{
-									Driver:       "nvidia",
-									Count:        types.DeviceCount(1),
-									Capabilities: []string{"gpu"},
-								},
-							},
-						},
-					},
-				}
-			}
-
-			// Auto-pull model after server starts (ollama-specific)
-			if len(model.ResolvedModels()) > 0 && model.Provider == "ollama" {
-				var pullParts []string
-				for _, m := range model.ResolvedModels() {
-					pullParts = append(pullParts, fmt.Sprintf("ollama pull %s", m))
-				}
-				service.Entrypoint = types.ShellCommand{
-					"/bin/sh", "-c",
-					fmt.Sprintf("ollama serve & until ollama list >/dev/null 2>&1; do sleep 1; done; %s; wait", strings.Join(pullParts, " && ")),
 				}
 			}
 		}
@@ -674,7 +566,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Environment variables - inherit from agent
-		service.Environment = BuildEnvironment(s, envVars, opt)
+		service.Environment = BuildEnvironment(s, envVars)
 
 		// Inject ingestion-specific inputs (from ast configure / .env, with default fallback)
 		for _, inp := range ingestion.Inputs {
@@ -747,7 +639,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Environment variables
-	agentService.Environment = BuildEnvironment(s, envVars, opt)
+	agentService.Environment = BuildEnvironment(s, envVars)
 
 	// Mirror the K8s deployer: when the messaging web adapter (and thus the files
 	// API) is enabled, tell the agent where the shared files slice is mounted so
@@ -782,14 +674,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		})
 	}
 
-	// When using native Ollama, the agent container must resolve host.docker.internal
-	// to reach the host's Ollama server.
-	if opt.NativeOllama {
-		agentService.ExtraHosts = types.HostsList{
-			"host.docker.internal": {"host-gateway"},
-		}
-	}
-
 	// Add agent service last
 	project.Services["agent"] = agentService
 
@@ -812,11 +696,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 // BuildEnvironment creates environment variables for the agent container.
 // Exported so buildLocalAgentEnv can reuse it for --local mode.
-func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...BuildOptions) types.MappingWithEquals {
-	var opt BuildOptions
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
+func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
 	// Cloud-provider credentials (models / knowledge / integrations). The
@@ -846,26 +726,6 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 
 	// Auto-inject connection strings for container-deploying components.
 	for name, model := range s.Models {
-		// Native Ollama: inject env vars pointing at host, skip container logic.
-		if opt.NativeOllama && model.Provider == "ollama" {
-			prov := spec.GetModelProvider("ollama")
-			host := "host.docker.internal"
-			port := fmt.Sprintf("%d", prov.DefaultPort)
-			if prov.EnvPrefix != "" {
-				env[prov.EnvPrefix+"_HOST"] = &host
-				env[prov.EnvPrefix+"_PORT"] = &port
-				modelURL := fmt.Sprintf("http://%s:%s", host, port)
-				env[prov.EnvPrefix+"_URL"] = &modelURL
-				baseURL := fmt.Sprintf("http://%s:%s/api", host, port)
-				env[prov.EnvPrefix+"_BASE_URL"] = &baseURL
-			}
-			if len(model.ResolvedModels()) > 0 && prov.EnvPrefix != "" {
-				m := strings.Join(model.ResolvedModels(), ",")
-				env[prov.EnvPrefix+"_MODEL"] = &m
-			}
-			continue
-		}
-
 		if !model.DeploysContainer(s.Providers) {
 			// Cloud provider credentials are injected via CloudCredentialKeys above.
 			continue
@@ -878,29 +738,12 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 			port = "8080"
 		}
 
-		if model.IsProviderMode() {
-			// Provider-specific env vars (e.g., OLLAMA_HOST, OLLAMA_BASE_URL, OLLAMA_MODEL)
-			prov := spec.GetModelProvider(model.Provider)
-			if prov.EnvPrefix != "" {
-				env[prov.EnvPrefix+"_HOST"] = &serviceName
-				env[prov.EnvPrefix+"_PORT"] = &port
-				modelURL := fmt.Sprintf("http://%s:%s", serviceName, port)
-				env[prov.EnvPrefix+"_URL"] = &modelURL
-				baseURL := fmt.Sprintf("http://%s:%s/api", serviceName, port)
-				env[prov.EnvPrefix+"_BASE_URL"] = &baseURL
-			}
-			if len(model.ResolvedModels()) > 0 && prov.EnvPrefix != "" {
-				m := strings.Join(model.ResolvedModels(), ",")
-				env[prov.EnvPrefix+"_MODEL"] = &m
-			}
-		} else {
-			// Generic env vars for container-mode models
-			envPrefix := "MODEL_" + strings.ToUpper(name)
-			env[envPrefix+"_HOST"] = &serviceName
-			env[envPrefix+"_PORT"] = &port
-			modelURL := fmt.Sprintf("http://%s:%s", serviceName, port)
-			env[envPrefix+"_URL"] = &modelURL
-		}
+		// Container-mode model connection env vars.
+		envPrefix := "MODEL_" + strings.ToUpper(name)
+		env[envPrefix+"_HOST"] = &serviceName
+		env[envPrefix+"_PORT"] = &port
+		modelURL := fmt.Sprintf("http://%s:%s", serviceName, port)
+		env[envPrefix+"_URL"] = &modelURL
 	}
 
 	for name, knowledge := range s.Knowledge {

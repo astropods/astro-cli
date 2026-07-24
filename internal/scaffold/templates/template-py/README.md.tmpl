@@ -36,12 +36,6 @@ ast dev
 ## Configuration
 
 The agent is configured in `astropods.yml`. Key sections:
-{{- if ne .ModelProvider ""}}
-
-### Model
-
-Self-hosted **{{.ModelProvider}}** provider{{if ne .Model ""}} running `{{.Model}}`{{end}}.
-{{- end}}
 {{- if gt (len .Integrations) 0}}
 
 ### Integrations

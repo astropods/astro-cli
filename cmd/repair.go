@@ -365,18 +365,6 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 		config.Interfaces = []string{"web"}
 	}
 
-	// Self-hosted model provider and model name
-	for _, model := range s.Models {
-		p := strings.ToLower(model.Provider)
-		if p == "ollama" || p == "huggingface" {
-			config.ModelProvider = model.Provider
-			if models := model.ResolvedModels(); len(models) > 0 {
-				config.Model = models[0]
-			}
-			break
-		}
-	}
-
 	// Integrations: cloud model providers + custom providers
 	integrationSet := map[string]bool{}
 	for _, model := range s.Models {
