@@ -60,7 +60,7 @@ func fetchAIGatewayDevKey(ctx context.Context, at AccountToken, s *spec.AstroSpe
 // CLI's env) and composeBuilder (which reads envVars when populating the
 // compose service env) both see them.
 func applyAIGatewayDevKey(s *spec.AstroSpec, resp *aiGatewayDevKeyResponse, envVars map[string]string) error {
-	if resp == nil || s == nil || !s.Agent.AIGateway {
+	if resp == nil || s == nil || !s.UsesGateway() {
 		return nil
 	}
 	set := func(k, v string) error {
@@ -79,8 +79,8 @@ func applyAIGatewayDevKey(s *spec.AstroSpec, resp *aiGatewayDevKeyResponse, envV
 	return nil
 }
 
-// specUsesAIGateway reports whether the spec opts into the AI Gateway via
-// agent.astro_ai_gateway: true.
+// specUsesAIGateway reports whether the spec opts into the AI Gateway — via a
+// model with provider: gateway or the deprecated agent.astro_ai_gateway: true.
 func specUsesAIGateway(s *spec.AstroSpec) bool {
-	return s != nil && s.Agent.AIGateway
+	return s != nil && s.UsesGateway()
 }

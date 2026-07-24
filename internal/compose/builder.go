@@ -712,14 +712,31 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		}
 	}
 
-	// AI Gateway opt-in (agent.astro_ai_gateway: true) — the CLI fetches a dev key
-	// before BuildProject runs and stuffs ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY
-	// into envVars; copy them through so the compose-managed agent container
-	// sees the same names the deployer injects in prod.
-	if s.Agent.AIGateway {
+	// AI Gateway opt-in (a provider: gateway model, or the deprecated
+	// agent.astro_ai_gateway: true) — the CLI fetches a dev key before BuildProject
+	// runs and stuffs ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY into envVars; copy
+	// them through so the compose-managed agent container sees the same names the
+	// deployer injects in prod.
+	if s.UsesGateway() {
 		for _, k := range []string{"ASTRO_GATEWAY_URL", "ASTRO_GATEWAY_API_KEY"} {
 			if val, ok := envVars[k]; ok {
 				env[k] = &val
+			}
+		}
+		// Dev has no deploy-time selector, so default MODEL_<name> to each gateway
+		// model's first option — mirroring what the deployer injects in prod.
+		for name, model := range s.Models {
+			if !model.IsGateway() {
+				continue
+			}
+			opts := model.ResolvedModels()
+			if len(opts) == 0 {
+				continue
+			}
+			envName := "MODEL_" + spec.SanitizeEnvName(name)
+			if _, set := envVars[envName]; !set { // let an explicit .env override win
+				v := opts[0]
+				env[envName] = &v
 			}
 		}
 	}
