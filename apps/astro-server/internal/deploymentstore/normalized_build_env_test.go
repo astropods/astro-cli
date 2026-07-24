@@ -33,9 +33,9 @@ func fullSpecDeploymentSpec() *spec.AstroDeploymentSpec {
 		},
 		Models: map[string]spec.DeploymentModel{
 			"local": {
-				Image: "r.io/ollama:latest", Replicas: 1, Provider: "ollama",
+				Image: "r.io/my-model:latest", Replicas: 1,
 				Resources: spec.StandardResources,
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 11434, Protocol: "http"}},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000, Protocol: "http"}},
 				Update:    spec.DefaultUpdateStrategy(),
 			},
 		},

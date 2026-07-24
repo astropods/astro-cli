@@ -11,16 +11,9 @@ agent:
   # Managed model access — injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY.
   astro_ai_gateway: true
 {{- end}}
-{{- if or (ne .ModelProvider "") (.HasIntegration "anthropic") (.HasIntegration "openai")}}
+{{- if or (.HasIntegration "anthropic") (.HasIntegration "openai")}}
 
 models:
-{{- if ne .ModelProvider ""}}
-  {{.ModelProvider}}:
-    provider: {{.ModelProvider}}
-{{- if ne .Model ""}}
-    models: [{{.Model}}]
-{{- end}}
-{{- end}}
 {{- range .Integrations}}
 {{- if eq . "anthropic"}}
   anthropic:

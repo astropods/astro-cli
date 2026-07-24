@@ -98,7 +98,7 @@ export const AllStatuses: Story = {
       <PodTileContent name="agent" status="healthy" age="3d" icon={Bot} />
       <PodTileContent name="redis" status="healthy" age="3d" icon={Database} />
       <PodTileContent name="collector" status="healthy" age="3d" icon={Activity} />
-      <PodTileContent name="ollama" status="healthy" age="1d" icon={Brain} />
+      <PodTileContent name="llm" status="healthy" age="1d" icon={Brain} />
       <PodTileContent name="messaging" status="healthy" age="5d" icon={ChatBubbleLeftRightIcon} />
       <PodTileContent name="worker" status="pending" />
       <PodTileContent name="agent" status="warning" age="45m" icon={Bot} warningMessage="Restarting frequently (8 restarts)" />

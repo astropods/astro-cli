@@ -120,20 +120,6 @@ func TestBuildStatefulSet(t *testing.T) {
 		},
 	}
 
-	// ── ollama (models, self-hosted) ──
-	tests = append(tests, struct {
-		name string
-		cfg  StatefulSetConfig
-	}{
-		name: "ollama provider",
-		cfg: StatefulSetConfig{
-			Name: "agent-model-llm", Namespace: "default",
-			AgentName: "my-agent", BuildID: "1.0", Component: "model-llm",
-			Container:       spec.ContainerConfig{Image: "ollama/ollama:latest"},
-			Provider:        "ollama",
-			ProviderSection: "models",
-		},
-	})
 	// ── neo4j (knowledge, self-hosted) ──
 	tests = append(tests, struct {
 		name string
@@ -310,20 +296,8 @@ func TestBuildStatefulSet(t *testing.T) {
 		}
 	})
 
-	t.Run("ollama port and mount", func(t *testing.T) {
-		ss := mustBuildStatefulSet(t, tests[7].cfg)
-		container := ss.Spec.Template.Spec.Containers[0]
-
-		if container.Ports[0].ContainerPort != 11434 {
-			t.Errorf("expected port 11434, got %d", container.Ports[0].ContainerPort)
-		}
-		if container.VolumeMounts[0].MountPath != "/root/.ollama" {
-			t.Errorf("expected mount /root/.ollama, got %s", container.VolumeMounts[0].MountPath)
-		}
-	})
-
 	t.Run("neo4j port mount and extra ports", func(t *testing.T) {
-		ss := mustBuildStatefulSet(t, tests[8].cfg)
+		ss := mustBuildStatefulSet(t, tests[7].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		// Primary port 7474

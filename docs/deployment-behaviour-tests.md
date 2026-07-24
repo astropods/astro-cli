@@ -84,14 +84,14 @@ Slack variables are never in the raw generated template. They appear only once t
 
 | # | Test Case | Status |
 |---|-----------|--------|
-| D1 | `ollama` with a models list → container deployed, `OLLAMA_MODEL` contains all model names, `OLLAMA_HOST/BASE_URL` wired | ✓ `TestTemplate_ProviderModel_OllamaWithModelsList` |
+| D1 | Container-mode model (`models.<name>.container`) → sidecar Deployment created, `MODEL_<NAME>_HOST/PORT/URL` wired to agent env | ✓ container-mode model tests |
 | D2 | `anthropic` (cloud) → no container in spec, `ANTHROPIC_API_KEY` secret variable wired to agent env | ✓ `TestTemplate_VariablesFromCloudProviders` |
 | D3 | `openai` (cloud) → no container, `OPENAI_API_KEY` secret variable wired to agent env | ✓ `TestTemplate_ProviderModel_OpenAI` |
 | D4 | `google` (cloud) → no container, `GOOGLE_API_KEY` secret variable wired to agent env | ✓ `TestTemplate_ProviderModel_Google` |
 | D5 | `cohere` (cloud) → no container, `COHERE_API_KEY` secret variable wired to agent env | ✓ `TestTemplate_ProviderModel_Cohere` |
 | D6 | `anthropic-managed` → no container, no credential variable created at all | ✓ `TestTemplate_ManagedProviderNoVariable` |
 | D7 | Two cloud providers together → both credential variables present, both wired to agent env | ✓ `TestTemplate_ProviderModel_MultipleCloudProviders` |
-| D8 | Self-hosted and cloud together → ollama container deployed, anthropic produces credential only | ✓ `TestTemplate_ProviderModel_SelfHostedAndCloud` |
+| D8 | Container-mode model and cloud provider together → model container deployed, anthropic produces credential only | ✓ container-mode + cloud tests |
 
 ### E. Ingestion
 
@@ -141,7 +141,7 @@ Slack variables are never in the raw generated template. They appear only once t
 
 | # | Test Case | Status |
 |---|-----------|--------|
-| G1 | Full spec: all model providers (ollama, anthropic, openai, google, cohere, anthropic-managed), all knowledge providers (postgres, redis, qdrant, neo4j, pinecone), all ingestion trigger types (schedule, webhook, startup), a custom provider, inputs at agent and top-level, a custom container integration, messaging enabled, and a managed store binding — all components correct, cloud providers produce no containers, bound store is zeroed with ARN preserved, unbound stores untouched, all `${...}` env refs parse and resolve | ✓ `TestTemplate_FullSpec` |
+| G1 | Full spec: all cloud model providers (anthropic, openai, google, cohere), a container-mode model, all knowledge providers (postgres, redis, qdrant, neo4j, pinecone), all ingestion trigger types (schedule, webhook, startup), a custom provider, inputs at agent and top-level, a custom container integration, messaging enabled, and a managed store binding — all components correct, cloud providers produce no containers, bound store is zeroed with ARN preserved, unbound stores untouched, all `${...}` env refs parse and resolve | ✓ `TestTemplate_FullSpec` |
 
 ---
 

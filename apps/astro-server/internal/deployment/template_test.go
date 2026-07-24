@@ -176,35 +176,6 @@ func TestTemplate_PlatformEnvVars(t *testing.T) {
 
 // ===== Phase 3: Models =====
 
-func TestTemplate_ProviderModel(t *testing.T) {
-	input := baseInput()
-	input.Spec.Models = map[string]spec.Model{
-		"local_llm": {Provider: "ollama"},
-	}
-
-	ds := mustGenerate(t, input)
-
-	m, ok := ds.Models["local_llm"]
-	if !ok {
-		t.Fatal("models.local_llm: not found")
-	}
-	if m.Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
-		t.Errorf("models.local_llm.image: expected registry.example.com/dockerhub/ollama/ollama:latest, got %s", m.Image)
-	}
-	if spec.PrimaryPort(m.Endpoints) != 11434 {
-		t.Errorf("models.local_llm endpoints primary port: expected 11434, got %d", spec.PrimaryPort(m.Endpoints))
-	}
-	if m.Replicas != 1 {
-		t.Errorf("models.local_llm.replicas: expected 1, got %d", m.Replicas)
-	}
-
-	// Check agent environment references — provider-specific env vars
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_HOST", "${models.local_llm.host}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_PORT", "${models.local_llm.http.port}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_URL", "${models.local_llm.http.url}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.local_llm.http.url}/api")
-}
-
 func TestTemplate_ContainerModel(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
@@ -323,30 +294,6 @@ func TestTemplate_ModelDefaultPort(t *testing.T) {
 	}
 }
 
-// D1: ollama with an explicit models list wires OLLAMA_MODEL into the agent env.
-func TestTemplate_ProviderModel_OllamaWithModelsList(t *testing.T) {
-	input := baseInput()
-	input.Spec.Models = map[string]spec.Model{
-		"llm": {Provider: "ollama", Models: []string{"llama3.2", "mistral"}},
-	}
-
-	ds := mustGenerate(t, input)
-
-	if _, ok := ds.Models["llm"]; !ok {
-		t.Fatal("models.llm: expected container entry for ollama")
-	}
-
-	modelEnv, ok := ds.Agent.Environment["OLLAMA_MODEL"]
-	if !ok {
-		t.Fatal("agent.environment.OLLAMA_MODEL: not found")
-	}
-	if !strings.Contains(modelEnv, "llama3.2") || !strings.Contains(modelEnv, "mistral") {
-		t.Errorf("OLLAMA_MODEL: expected both models, got %q", modelEnv)
-	}
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_HOST", "${models.llm.host}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.llm.http.url}/api")
-}
-
 // D3: openai cloud model — no container, OPENAI_API_KEY variable wired to agent.
 func TestTemplate_ProviderModel_OpenAI(t *testing.T) {
 	input := baseInput()
@@ -428,24 +375,24 @@ func TestTemplate_ProviderModel_MultipleCloudProviders(t *testing.T) {
 	assertEnvExists(t, ds.Agent.Environment, "OPENAI_API_KEY")
 }
 
-// D8: self-hosted and cloud model together — ollama container deployed,
-// anthropic produces only a credential variable.
-func TestTemplate_ProviderModel_SelfHostedAndCloud(t *testing.T) {
+// D8: container and cloud model together — container-mode model deploys a
+// sidecar, anthropic produces only a credential variable.
+func TestTemplate_ProviderModel_ContainerAndCloud(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
-		"local":  {Provider: "ollama"},
+		"local":  {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 		"claude": {Provider: "anthropic"},
 	}
 
 	ds := mustGenerate(t, input)
 
 	if _, ok := ds.Models["local"]; !ok {
-		t.Error("models.local: expected container entry for ollama")
+		t.Error("models.local: expected container entry for container-mode model")
 	}
 	if _, ok := ds.Models["claude"]; ok {
 		t.Error("models.claude: cloud provider must not produce a container entry")
 	}
-	assertEnvExists(t, ds.Agent.Environment, "OLLAMA_HOST")
+	assertEnvExists(t, ds.Agent.Environment, "MODEL_LOCAL_HOST")
 	assertEnvExists(t, ds.Agent.Environment, "ANTHROPIC_API_KEY")
 }
 
@@ -1354,7 +1301,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 				},
 			},
 			Models: map[string]spec.Model{
-				"local":   {Provider: "ollama", Models: []string{"llama3.2"}},
+				"local":   {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 				"claude":  {Provider: "anthropic"},
 				"gpt":     {Provider: "openai"},
 				"gemini":  {Provider: "google"},
@@ -1406,12 +1353,12 @@ func TestTemplate_FullSpec(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	// --- Models ---
-	// Self-hosted: ollama only; all cloud providers produce no container.
+	// Container-mode model only; all cloud providers produce no container.
 	if len(ds.Models) != 1 {
-		t.Errorf("models: expected 1 container (ollama), got %d", len(ds.Models))
+		t.Errorf("models: expected 1 container (local), got %d", len(ds.Models))
 	}
 	if _, ok := ds.Models["local"]; !ok {
-		t.Error("models.local: ollama container missing")
+		t.Error("models.local: container-mode model missing")
 	}
 	for _, cloud := range []string{"claude", "gpt", "gemini", "command"} {
 		if _, ok := ds.Models[cloud]; ok {
@@ -1484,7 +1431,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 	// --- Agent environment ---
 	env := ds.Agent.Environment
 	for _, key := range []string{
-		"OLLAMA_HOST", "OLLAMA_BASE_URL",
+		"MODEL_LOCAL_HOST",
 		"POSTGRES_HOST", "REDIS_HOST", "QDRANT_HOST", "NEO4J_HOST",
 		"INTEGRATION_SEARCH_HOST",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY",
@@ -1579,7 +1526,7 @@ func TestTemplate_EmptySpec(t *testing.T) {
 func TestTemplate_MultipleModels(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
-		"ollama": {Provider: "ollama"},
+		"llm":    {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 		"custom": {Container: &spec.ContainerConfig{Image: "custom:latest", Port: 5000}},
 	}
 
@@ -1588,8 +1535,8 @@ func TestTemplate_MultipleModels(t *testing.T) {
 	if len(ds.Models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(ds.Models))
 	}
-	if ds.Models["ollama"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
-		t.Errorf("ollama image: got %s", ds.Models["ollama"].Image)
+	if ds.Models["llm"].Image != "registry.example.com/dockerhub/library/my-model:latest" {
+		t.Errorf("llm image: got %s", ds.Models["llm"].Image)
 	}
 	if ds.Models["custom"].Image != "registry.example.com/dockerhub/library/custom:latest" {
 		t.Errorf("custom image: got %s", ds.Models["custom"].Image)
@@ -1598,8 +1545,8 @@ func TestTemplate_MultipleModels(t *testing.T) {
 		t.Errorf("custom endpoints port: expected 5000, got %d", spec.PrimaryPort(ds.Models["custom"].Endpoints))
 	}
 
-	// Provider model gets provider-specific env, container model gets generic
-	assertEnvExists(t, ds.Agent.Environment, "OLLAMA_HOST")
+	// Each container-mode model gets generic MODEL_<NAME>_* env vars
+	assertEnvExists(t, ds.Agent.Environment, "MODEL_LLM_HOST")
 	assertEnvExists(t, ds.Agent.Environment, "MODEL_CUSTOM_HOST")
 }
 
@@ -1628,7 +1575,7 @@ func TestTemplate_MultipleKnowledgeProviders(t *testing.T) {
 func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
-		"llm":       {Provider: "ollama"},
+		"llm":       {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 		"anthropic": {Provider: "anthropic"},
 	}
 	input.Spec.Knowledge = map[string]spec.Knowledge{
@@ -1656,7 +1603,7 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	if parsed.Source.Name != "my-agent" {
 		t.Errorf("source.name: expected my-agent, got %s", parsed.Source.Name)
 	}
-	if parsed.Models["llm"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
+	if parsed.Models["llm"].Image != "registry.example.com/dockerhub/library/my-model:latest" {
 		t.Errorf("models.llm.image lost in round-trip: got %s", parsed.Models["llm"].Image)
 	}
 	if !parsed.Knowledge["docs"].Persistent {
@@ -1897,21 +1844,6 @@ func TestTemplate_ModelImageResolved(t *testing.T) {
 	}
 }
 
-func TestTemplate_ProviderModelPublicImageViaCache(t *testing.T) {
-	input := proxyInput()
-	input.Spec.Models = map[string]spec.Model{
-		"llm": {Provider: "ollama"},
-	}
-
-	ds := mustGenerate(t, input)
-
-	// Public provider images are served through the ECR pull-through cache
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
-	if ds.Models["llm"].Image != expected {
-		t.Errorf("expected %s, got %s", expected, ds.Models["llm"].Image)
-	}
-}
-
 func TestTemplate_KnowledgeImageResolved(t *testing.T) {
 	input := proxyInput()
 	input.Spec.Knowledge = map[string]spec.Knowledge{
@@ -2047,7 +1979,7 @@ func TestTemplate_MixedTenantAndPublicImages(t *testing.T) {
 	input := proxyInput()
 	input.Spec.Models = map[string]spec.Model{
 		"proxy":  {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/custom:v1", Port: 8000}},
-		"public": {Container: &spec.ContainerConfig{Image: "ollama/ollama:latest", Port: 11434}},
+		"public": {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 	}
 
 	ds := mustGenerate(t, input)
@@ -2057,7 +1989,7 @@ func TestTemplate_MixedTenantAndPublicImages(t *testing.T) {
 		t.Errorf("proxy image should be resolved, got %s", ds.Models["proxy"].Image)
 	}
 	// Public image is served through the ECR pull-through cache
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/my-model:latest"
 	if ds.Models["public"].Image != expected {
 		t.Errorf("expected %s, got %s", expected, ds.Models["public"].Image)
 	}
@@ -2073,7 +2005,7 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 			Name:  "ref-test",
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
-				"llm":       {Provider: "ollama"},
+				"llm":       {Container: &spec.ContainerConfig{Image: "my-model:latest", Port: 8000}},
 				"embedder":  {Container: &spec.ContainerConfig{Image: "embed:latest", Port: 8000}},
 				"anthropic": {Provider: "anthropic"},
 			},

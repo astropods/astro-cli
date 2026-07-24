@@ -318,13 +318,11 @@ func TestLocalModeIsolation_StatefulSet(t *testing.T) {
 		{"prod/neo4j", false, "neo4j", "knowledge", true},
 		{"prod/redis", false, "redis", "knowledge", true},
 		{"prod/postgres", false, "postgres", "knowledge", true},
-		{"prod/ollama", false, "ollama", "models", true},
 		{"default(false)/qdrant", false, "qdrant", "knowledge", true},
 		{"local/qdrant", true, "qdrant", "knowledge", false},
 		{"local/neo4j", true, "neo4j", "knowledge", false},
 		{"local/redis", true, "redis", "knowledge", false},
 		{"local/postgres", true, "postgres", "knowledge", false},
-		{"local/ollama", true, "ollama", "models", false},
 	}
 
 	for _, tc := range cases {
@@ -366,7 +364,6 @@ func TestLocalModeIsolation_Deployment(t *testing.T) {
 
 	cases := []testCase{
 		// Production: all providers hardened
-		{"prod/model-provider", false, "ollama", "models", true},
 		{"prod/knowledge-provider", false, "redis", "knowledge", true},
 		{"prod/agent-no-provider", false, "", "", true},
 		// Default zero-value: hardened (catches accidental true)
@@ -375,7 +372,6 @@ func TestLocalModeIsolation_Deployment(t *testing.T) {
 		// Local: only provider containers are unhardened
 		{"local/provider-redis", true, "redis", "knowledge", false},
 		{"local/provider-neo4j", true, "neo4j", "knowledge", false},
-		{"local/provider-ollama", true, "ollama", "models", false},
 		// Local: non-provider containers are STILL hardened
 		{"local/agent-no-provider", true, "", "", true},
 		{"local/tool-no-provider", true, "", "", true},

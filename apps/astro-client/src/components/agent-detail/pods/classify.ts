@@ -19,7 +19,6 @@ export type Role =
 // Bare provider names, for workloads labelled by provider rather than the
 // `<role>-<name>` convention.
 const KNOWLEDGE_PROVIDERS = new Set(["postgres", "mysql", "redis", "qdrant", "neo4j", "pinecone"]);
-const MODEL_PROVIDERS = new Set(["ollama"]);
 
 export function classify(component: string | undefined, kind?: string): Role {
   const c = (component ?? "").toLowerCase();
@@ -30,7 +29,6 @@ export function classify(component: string | undefined, kind?: string): Role {
   if (c.startsWith("tool-")) return "integration";
   if (c.startsWith("ingestion-")) return "ingestion";
   if (KNOWLEDGE_PROVIDERS.has(c)) return "knowledge";
-  if (MODEL_PROVIDERS.has(c)) return "model";
   // Runtime-only manual ingestion firings arrive as bare Jobs/CronJobs.
   if (kind === "Job" || kind === "CronJob") return "ingestion";
   return "other";

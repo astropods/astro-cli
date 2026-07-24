@@ -65,12 +65,12 @@ func TestBuildRuntimeSnapshot(t *testing.T) {
 	// live endpoint.
 	scaledDown := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "ollama-dep", Namespace: ns,
-			Labels: map[string]string{"app.kubernetes.io/component": "model-ollama"},
+			Name: "model-dep", Namespace: ns,
+			Labels: map[string]string{"app.kubernetes.io/component": "model-llm"},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: i32(0),
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "ollama"}},
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "model-llm"}},
 		},
 	}
 	msgSvc := &corev1.Service{
@@ -106,7 +106,7 @@ func TestBuildRuntimeSnapshot(t *testing.T) {
 	for _, wl := range snap.Workloads {
 		byName[wl.Name] = struct{}{}
 	}
-	if _, ok := byName["ollama-dep"]; ok {
+	if _, ok := byName["model-dep"]; ok {
 		t.Errorf("scaled-to-zero deployment should be skipped, got it in workloads")
 	}
 

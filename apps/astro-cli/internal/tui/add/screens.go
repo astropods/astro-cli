@@ -31,9 +31,6 @@ func (m model) updateName(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) nextScreenAfterName() screen {
 	switch m.domain {
 	case "model":
-		if m.provider == "ollama" {
-			return screenOllamaModel
-		}
 		return screenConfirm
 	case "knowledge":
 		return screenConfirm
@@ -61,10 +58,6 @@ func (m model) updateRadio(msg tea.Msg, opts []option) (tea.Model, tea.Cmd) {
 		case " ", "enter":
 			val := opts[m.cursor].value
 			switch m.screen {
-			case screenOllamaModel:
-				m.ollamaModel = val
-				m.screen = screenConfirm
-				m.cursor = 0
 			case screenTrigger:
 				m.triggerType = val
 				m.screen = screenConfirm
@@ -191,13 +184,6 @@ func (m model) focusForScreen() tea.Cmd {
 func (m model) buildEntry() map[string]any {
 	switch m.domain {
 	case "model":
-		if m.provider == "ollama" {
-			ollamaModel := m.ollamaModel
-			if ollamaModel == "" {
-				ollamaModel = ollamaModelOptions()[0].value
-			}
-			return map[string]any{"provider": "ollama", "models": []string{ollamaModel}}
-		}
 		return map[string]any{"provider": m.provider}
 	case "knowledge":
 		return map[string]any{"provider": m.provider}

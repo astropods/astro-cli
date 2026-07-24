@@ -40,11 +40,6 @@ The agent is configured in `astropods.yml`. Key sections:
 ### Model
 
 Uses the **Astro AI Gateway** (`astro_ai_gateway: true`) for managed model access — no provider API key required. The platform injects `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` at runtime. Run `ast login` to authenticate; the gateway is account-scoped.
-{{- else if ne .ModelProvider ""}}
-
-### Model
-
-Self-hosted **{{.ModelProvider}}** provider{{if ne .Model ""}} running `{{.Model}}`{{end}}.
 {{- end}}
 {{- if gt (len .Integrations) 0}}
 

@@ -27,7 +27,7 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 			},
 		},
 		Models: map[string]spec.DeploymentModel{
-			"llm": {Image: "ollama:latest", Endpoints: httpEndpoints(11434)},
+			"llm": {Image: "my-model:latest", Endpoints: httpEndpoints(8000)},
 		},
 	}
 
@@ -43,9 +43,9 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 		t.Errorf("LLM_HOST: expected .prod.svc.cluster.local suffix, got %s", llmHost)
 	}
 
-	// LLM_PORT should be 11434
-	if result.ConfigMapData["LLM_PORT"] != "11434" {
-		t.Errorf("LLM_PORT: expected 11434, got %s", result.ConfigMapData["LLM_PORT"])
+	// LLM_PORT should be 8000
+	if result.ConfigMapData["LLM_PORT"] != "8000" {
+		t.Errorf("LLM_PORT: expected 8000, got %s", result.ConfigMapData["LLM_PORT"])
 	}
 
 	// LLM_URL should be http://host:port
@@ -53,8 +53,8 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 	if !strings.HasPrefix(llmURL, "http://") {
 		t.Errorf("LLM_URL: expected http:// prefix, got %s", llmURL)
 	}
-	if !strings.Contains(llmURL, ":11434") {
-		t.Errorf("LLM_URL: expected :11434, got %s", llmURL)
+	if !strings.Contains(llmURL, ":8000") {
+		t.Errorf("LLM_URL: expected :8000, got %s", llmURL)
 	}
 }
 
@@ -189,7 +189,7 @@ func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
 			},
 		},
 		Models: map[string]spec.DeploymentModel{
-			"llm": {Image: "ollama:latest", Endpoints: httpEndpoints(11434)},
+			"llm": {Image: "my-model:latest", Endpoints: httpEndpoints(8000)},
 		},
 	}
 
@@ -200,8 +200,8 @@ func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
 	if !strings.HasPrefix(combined, "http://") {
 		t.Errorf("COMBINED: expected http:// prefix, got %s", combined)
 	}
-	if !strings.Contains(combined, ":11434/v1") {
-		t.Errorf("COMBINED: expected :11434/v1, got %s", combined)
+	if !strings.Contains(combined, ":8000/v1") {
+		t.Errorf("COMBINED: expected :8000/v1, got %s", combined)
 	}
 }
 

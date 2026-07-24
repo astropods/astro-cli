@@ -28,7 +28,7 @@ type DeploymentConfig struct {
 	SecretName      string
 	ConfigMapName   string
 	Healthcheck     *spec.Healthcheck
-	Provider        string            // Provider name (e.g., "redis", "postgres", "qdrant", "ollama")
+	Provider        string            // Provider name (e.g., "redis", "postgres", "qdrant")
 	ProviderSection string            // Provider section for registry lookup ("models", "knowledge")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)

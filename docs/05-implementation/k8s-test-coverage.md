@@ -10,7 +10,6 @@ Every provider in `packages/astro-spec/provider.go` is tested for correct manife
 
 | Provider | Section | Port | Extra Ports | Mount Path | Health Check | StatefulSet | Deployment HC |
 |----------|---------|------|-------------|------------|--------------|-------------|---------------|
-| ollama | models | 11434 | — | /root/.ollama | HTTP /api/tags | Tested | Tested |
 | qdrant | knowledge | 6333 | gRPC 6334 | /qdrant/storage | HTTP /healthz | Tested | Tested |
 | redis | knowledge | 6379 | — | /data | Exec redis-cli ping | Tested | Tested |
 | postgres | knowledge | 5432 | — | /var/lib/postgresql/data | Exec pg_isready -U postgres | Tested | Tested |
@@ -37,11 +36,10 @@ Test file: `statefulset_test.go`
 
 | Test | What it verifies |
 |------|-----------------|
-| Table-driven (9 configs) | Kind, name, replicas, serviceName for all providers |
+| Table-driven | Kind, name, replicas, serviceName for all providers |
 | qdrant ports and mount | Port 6333, gRPC 6334, mount /qdrant/storage, PVC 10Gi |
 | redis port and mount | Port 6379, mount /data |
 | postgres port and mount | Port 5432, mount /var/lib/postgresql/data |
-| ollama port and mount | Port 11434, mount /root/.ollama |
 | neo4j port mount and extra ports | Port 7474, bolt 7687, mount /data |
 | healthcheck qdrant | HTTPGet /healthz |
 | healthcheck redis | Exec redis-cli ping |
@@ -65,7 +63,6 @@ Test file: `deployment_test.go`
 | healthcheck qdrant | HTTPGet /healthz:6333 |
 | healthcheck postgres | Exec pg_isready |
 | healthcheck neo4j | HTTPGet /:7474 |
-| healthcheck ollama | HTTPGet /api/tags:11434 |
 | custom timing | PeriodSeconds, TimeoutSeconds, FailureThreshold |
 | custom port | ContainerPort override |
 

@@ -76,8 +76,6 @@ const agent = new Agent({
   instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
 {{- if .AIGateway}}
   model: gateway('claude-sonnet-4-6'),
-{{- else if and (ne .ModelProvider "") (ne .Model "")}}
-  model: '{{.ModelProvider}}/{{.Model}}',
 {{- else if .HasIntegration "anthropic"}}
   model: 'anthropic/claude-sonnet-4-5',
 {{- else if .HasIntegration "openai"}}

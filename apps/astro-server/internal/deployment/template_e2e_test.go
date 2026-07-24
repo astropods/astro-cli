@@ -38,10 +38,14 @@ agent:
       optional: true
 
 models:
-  # Self-hosted
-  ollama:
-    provider: ollama
-    model: qwen3.5:2b
+  # Container-mode self-hosted model with GPU
+  local:
+    container:
+      image: my-model:latest
+      port: 8000
+      gpu:
+        vram: 24Gi
+        runtime: cuda
   # Cloud
   anthropic:
     provider: anthropic
@@ -165,12 +169,12 @@ dev:
 	}
 
 	// === Models ===
-	// Only ollama deploys a container; anthropic/openai/google/gemini/cohere are cloud-only
+	// Only the container-mode model deploys a container; anthropic/openai/google/gemini/cohere are cloud-only
 	if len(ds.Models) != 1 {
-		t.Errorf("models: expected 1 (ollama only), got %d", len(ds.Models))
+		t.Errorf("models: expected 1 (local only), got %d", len(ds.Models))
 	}
-	if _, ok := ds.Models["ollama"]; !ok {
-		t.Error("models: expected ollama entry")
+	if _, ok := ds.Models["local"]; !ok {
+		t.Error("models: expected local entry")
 	}
 
 	// === Knowledge ===
@@ -251,7 +255,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 			]
 		},
 		"models": {
-			"ollama": {"provider": "ollama", "model": "qwen3.5:2b"},
+			"local": {"container": {"image": "my-model:latest", "port": 8000, "gpu": {"vram": "24Gi", "runtime": "cuda"}}},
 			"anthropic": {"provider": "anthropic"},
 			"openai": {"provider": "openai"},
 			"google": {"provider": "google"},
@@ -348,25 +352,25 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	}
 
 	// === Models ===
-	// Self-hosted: ollama only
+	// Container-mode model only
 	if len(ds.Models) != 1 {
-		t.Fatalf("models: expected 1 (ollama only), got %d", len(ds.Models))
+		t.Fatalf("models: expected 1 (local only), got %d", len(ds.Models))
 	}
-	ollama := ds.Models["ollama"]
-	if ollama.Provider != "ollama" {
-		t.Errorf("models.ollama.provider: expected ollama, got %s", ollama.Provider)
+	local := ds.Models["local"]
+	if !strings.Contains(local.Image, "my-model") {
+		t.Errorf("models.local.image: expected my-model image, got %s", local.Image)
 	}
-	if ollama.Model != "qwen3.5:2b" {
-		t.Errorf("models.ollama.model: expected qwen3.5:2b, got %s", ollama.Model)
+	if local.GPU == nil {
+		t.Fatal("models.local.gpu: expected GPU config")
 	}
-	if !strings.Contains(ollama.Image, "ollama/ollama") {
-		t.Errorf("models.ollama.image: expected ollama image, got %s", ollama.Image)
+	if local.GPU.VRAM != "24Gi" || local.GPU.Runtime != "cuda" {
+		t.Errorf("models.local.gpu: expected 24Gi/cuda, got %+v", local.GPU)
 	}
-	if ollama.GPU == nil {
-		t.Error("models.ollama.gpu: expected GPU config")
+	if local.Resources != spec.GPUResources {
+		t.Errorf("models.local.resources: expected GPUResources, got %+v", local.Resources)
 	}
-	if ollama.Healthcheck == nil || len(ollama.Healthcheck.Test) == 0 {
-		t.Error("models.ollama.healthcheck: expected model-aware healthcheck")
+	if local.Update.Strategy != "recreate" {
+		t.Errorf("models.local.update: expected recreate for GPU model, got %s", local.Update.Strategy)
 	}
 	// Cloud models must NOT appear in deployment
 	for _, cloudModel := range []string{"anthropic", "openai", "google", "gemini", "cohere"} {
@@ -616,12 +620,10 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	// === Agent environment wiring ===
 	env := ds.Agent.Environment
 
-	// Self-hosted model refs
-	assertEnvRef(t, env, "OLLAMA_HOST", "${models.ollama.host}")
-	assertEnvExists(t, env, "OLLAMA_PORT")
-	assertEnvExists(t, env, "OLLAMA_URL")
-	assertEnvExists(t, env, "OLLAMA_BASE_URL")
-	assertEnvRef(t, env, "OLLAMA_MODEL", "qwen3.5:2b")
+	// Container-mode model refs
+	assertEnvRef(t, env, "MODEL_LOCAL_HOST", "${models.local.host}")
+	assertEnvExists(t, env, "MODEL_LOCAL_PORT")
+	assertEnvExists(t, env, "MODEL_LOCAL_URL")
 
 	// Self-hosted knowledge refs
 	assertEnvRef(t, env, "REDIS_HOST", "${knowledge.cache.host}")

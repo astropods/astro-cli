@@ -110,47 +110,14 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Build agent environment with ${} references
 	agentEnv := make(map[string]string)
 
-	// Process models
+	// Process models. Only container-mode models deploy a sidecar; provider-mode
+	// models are cloud (credentials only) or custom, and inject no connection wiring.
 	if len(astroSpec.Models) > 0 {
-		// Count provider occurrences among self-hosted models
-		modelProviderCount := make(map[string]int)
-		for _, model := range astroSpec.Models {
-			if model.IsProviderMode() && model.DeploysContainer(astroSpec.Providers) {
-				if prov := spec.GetModelProvider(model.Provider); prov.EnvPrefix != "" {
-					modelProviderCount[prov.EnvPrefix]++
-				}
-			}
-		}
-
-		// Sort model names for deterministic iteration
 		modelNames := make([]string, 0, len(astroSpec.Models))
 		for name := range astroSpec.Models {
 			modelNames = append(modelNames, name)
 		}
 		sort.Strings(modelNames)
-
-		// For each provider prefix, identify the primary entry — the one
-		// whose name matches the provider, or the alphabetically-first when
-		// none matches. The primary gets the bare key; others get qualified.
-		modelPrimaryByPrefix := make(map[string]string)
-		modelGroupNames := make(map[string][]string)
-		for _, name := range modelNames {
-			model := astroSpec.Models[name]
-			if !model.IsProviderMode() || !model.DeploysContainer(astroSpec.Providers) {
-				continue
-			}
-			prov := spec.GetModelProvider(model.Provider)
-			if prov.EnvPrefix == "" {
-				continue
-			}
-			modelGroupNames[prov.EnvPrefix] = append(modelGroupNames[prov.EnvPrefix], name)
-		}
-		for prefix, names := range modelGroupNames {
-			// providerName is the same for every entry in this group; recover
-			// it from the first.
-			provName := astroSpec.Models[names[0]].Provider
-			modelPrimaryByPrefix[prefix] = PickPrimaryName(append([]string(nil), names...), provName)
-		}
 
 		for _, name := range modelNames {
 			model := astroSpec.Models[name]
@@ -164,43 +131,12 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			dm := buildDeploymentModel(model, name, input)
 			ds.Models[name] = dm
 
-			// Wire references into agent environment
-			// Determine primary endpoint name for port/url refs
+			// Wire container-mode connection env vars into the agent environment.
 			primaryEp := primaryEndpointName(dm.Endpoints)
-
-			if model.IsProviderMode() {
-				// Provider-specific env vars (e.g., OLLAMA_BASE_URL, OLLAMA_MODEL)
-				prov := spec.GetModelProvider(model.Provider)
-				if prov.EnvPrefix != "" {
-					isDup := modelProviderCount[prov.EnvPrefix] > 1
-					isPrimary := modelPrimaryByPrefix[prov.EnvPrefix] == name
-
-					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "HOST", isDup, isPrimary) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.host}", name)
-					}
-					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "PORT", isDup, isPrimary) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
-					}
-					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "URL", isDup, isPrimary) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
-					}
-					for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "BASE_URL", isDup, isPrimary) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp) + "/api"
-					}
-					if models := model.ResolvedModels(); len(models) > 0 {
-						joined := strings.Join(models, ",")
-						for _, key := range ProviderEnvKeys(prov.EnvPrefix, name, model.Provider, "MODEL", isDup, isPrimary) {
-							agentEnv[key] = joined
-						}
-					}
-				}
-			} else {
-				// Generic env vars for container-mode models
-				envPrefix := fmt.Sprintf("MODEL_%s", spec.SanitizeEnvName(name))
-				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
-				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
-				agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
-			}
+			envPrefix := fmt.Sprintf("MODEL_%s", spec.SanitizeEnvName(name))
+			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
+			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
+			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
 		}
 	}
 
@@ -1063,63 +999,6 @@ func buildDeploymentModel(model spec.Model, name string, input TemplateInput) sp
 		Resources:   spec.StandardResources,
 		Healthcheck: container.Healthcheck,
 		Update:      spec.DefaultUpdateStrategy(),
-	}
-
-	// Provider-mode auto-configuration
-	if model.IsProviderMode() {
-		prov := spec.GetModelProvider(model.Provider)
-		dm.Provider = model.Provider
-
-		// Provider port overrides container port
-		if prov.DefaultPort != 0 {
-			dm.Endpoints = spec.SingleEndpoint("http", prov.DefaultPort, "http")
-		}
-
-		// Multi-port providers (e.g. qdrant: http + grpc)
-		if len(prov.ExtraPorts) > 0 {
-			for _, ep := range prov.ExtraPorts {
-				dm.Endpoints[ep.Name] = spec.Endpoint{Port: ep.Port, Protocol: portNameToProtocol(ep.Name)}
-			}
-		}
-
-		// Auto-enable GPU for providers that require it
-		if prov.GPU {
-			dm.Resources = spec.GPUResources
-			dm.GPU = &spec.DeploymentGPU{
-				Runtime: "cuda",
-				Count:   1,
-			}
-			dm.Update = spec.UpdateStrategy{Strategy: "recreate"}
-		}
-
-		// Set model name(s) for pull
-		if models := model.ResolvedModels(); len(models) > 0 {
-			dm.Model = strings.Join(models, ",")
-			dm.Persistent = true
-		}
-
-		// Model-aware readiness: verify model is pulled, not just server up
-		if dm.Healthcheck == nil {
-			if models := model.ResolvedModels(); len(models) > 0 {
-				// Build compound grep check: each model must be present
-				var checks []string
-				for _, m := range models {
-					checks = append(checks, fmt.Sprintf("ollama list | grep -q '%s'", m))
-				}
-				dm.Healthcheck = &spec.Healthcheck{
-					Test: []string{"sh", "-c",
-						strings.Join(checks, " && "),
-					},
-					Interval: "15s",
-					Timeout:  "5s",
-					Retries:  40,
-				}
-			} else if prov.HealthPath != "" {
-				dm.Healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
-			} else if len(prov.HealthCheck) > 0 {
-				dm.Healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
-			}
-		}
 	}
 
 	// Container-mode GPU (explicit gpu block in the spec)

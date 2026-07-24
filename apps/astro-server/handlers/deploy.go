@@ -1329,7 +1329,7 @@ type WorkloadSpec struct {
 	Name      string                `json:"name"`               // K8s resource name
 	Kind      string                `json:"kind"`               // "Deployment", "StatefulSet", "Job", "CronJob"
 	Component string                `json:"component"`          // component_kind from deployment_workloads / deployment_sidecars
-	Provider  string                `json:"provider,omitempty"` // platform provider (e.g. postgres, ollama); empty for custom/agent
+	Provider  string                `json:"provider,omitempty"` // platform provider (e.g. postgres, qdrant); empty for custom/agent
 	Image     string                `json:"image"`
 	Replicas  int32                 `json:"replicas"`           // desired
 	Schedule  string                `json:"schedule,omitempty"` // cron expression for scheduled ingestion

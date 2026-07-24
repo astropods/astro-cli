@@ -4,7 +4,6 @@ package spec
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/invopop/jsonschema"
 )
@@ -109,8 +108,8 @@ type CustomProvider struct {
 }
 
 type Model struct {
-	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Platform-managed provider (e.g. ollama) or custom provider name"`
-	Models    []string         `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model identifiers to make available (e.g. [llama3.2, mistral]). Only meaningful for self-hosted providers."`
+	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Cloud model provider (e.g. anthropic/openai) or custom provider name"`
+	Models    []string         `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model identifiers to make available"`
 	Model     string           `json:"model,omitempty" yaml:"model,omitempty" jsonschema:"description=Deprecated: use models instead. Single model identifier."`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty" jsonschema:"description=Custom container config (alternative to provider)"`
 	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the model container"`
@@ -134,41 +133,20 @@ func (m Model) IsProviderMode() bool {
 }
 
 // DeploysContainer reports whether this model entry deploys a sidecar container.
-// Returns false for cloud providers (credentials only) and custom providers.
+// Only container-mode models deploy a sidecar; provider-mode models are cloud
+// (credentials only) or custom (no container).
 func (m Model) DeploysContainer(customProviders map[string]CustomProvider) bool {
-	if m.Container != nil {
-		return true
-	}
-	if _, isCustom := customProviders[m.Provider]; isCustom {
-		return false
-	}
-	return m.Provider != "" && !IsCloudModelProvider(m.Provider)
+	return m.Container != nil
 }
 
-// ResolvedContainer returns the effective ContainerConfig — either built from
-// the model provider registry (provider mode) or passed through from the user's
-// container block (container mode).
+// ResolvedContainer returns the effective ContainerConfig for a container-mode
+// model. Provider-mode models never deploy a container, so this returns a zero
+// value for them.
 func (m Model) ResolvedContainer() ContainerConfig {
 	if m.Container != nil {
 		return *m.Container
 	}
-	prov := GetModelProvider(m.Provider)
-	cc := ContainerConfig{
-		Image: prov.Image,
-		Port:  prov.DefaultPort,
-	}
-	// Inject model names and default env from provider
-	models := m.ResolvedModels()
-	if len(models) > 0 || len(prov.DefaultEnv) > 0 {
-		cc.Environment = make(map[string]string)
-		for k, v := range prov.DefaultEnv {
-			cc.Environment[k] = v
-		}
-		if len(models) > 0 && prov.EnvPrefix != "" {
-			cc.Environment[prov.EnvPrefix+"_MODEL"] = strings.Join(models, ",")
-		}
-	}
-	return cc
+	return ContainerConfig{}
 }
 
 type Knowledge struct {

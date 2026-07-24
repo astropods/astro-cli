@@ -77,9 +77,9 @@ func TestValidateSpec(t *testing.T) {
 			name: "model provider mode skipped",
 			spec: &spec.AstroSpec{
 				Agent:  spec.Container{Image: "agent:latest"},
-				Models: map[string]spec.Model{"llm": {Provider: "ollama"}},
+				Models: map[string]spec.Model{"llm": {Provider: "anthropic"}},
 			},
-			creds:     map[string]string{},
+			creds:     map[string]string{"ANTHROPIC_API_KEY": "sk-test"},
 			wantValid: true,
 		},
 		{

@@ -204,30 +204,30 @@ meta:
 agent:
   image: test:latest
 models:
-  local_llm:
-    provider: ollama
+  llm:
+    provider: anthropic
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
 				if len(s.Models) != 1 {
 					t.Fatalf("len(Models) = %d, want 1", len(s.Models))
 				}
-				llm, ok := s.Models["local_llm"]
+				llm, ok := s.Models["llm"]
 				if !ok {
-					t.Fatal("Models[local_llm] not found")
+					t.Fatal("Models[llm] not found")
 				}
-				if llm.Provider != "ollama" {
-					t.Errorf("Models[local_llm].Provider = %q, want %q", llm.Provider, "ollama")
+				if llm.Provider != "anthropic" {
+					t.Errorf("Models[llm].Provider = %q, want %q", llm.Provider, "anthropic")
 				}
 				if llm.Container != nil {
-					t.Error("Models[local_llm].Container should be nil in provider mode")
+					t.Error("Models[llm].Container should be nil in provider mode")
 				}
-				rc := llm.ResolvedContainer()
-				if rc.Image != "ollama/ollama:latest" {
-					t.Errorf("ResolvedContainer().Image = %q, want %q", rc.Image, "ollama/ollama:latest")
+				// Cloud providers deploy no container.
+				if llm.DeploysContainer(s.Providers) {
+					t.Error("cloud provider model should not deploy a container")
 				}
-				if rc.Port != 11434 {
-					t.Errorf("ResolvedContainer().Port = %d, want 11434", rc.Port)
+				if rc := llm.ResolvedContainer(); rc.Image != "" || rc.Port != 0 {
+					t.Errorf("ResolvedContainer() = %+v, want zero value for provider mode", rc)
 				}
 			},
 		},
@@ -632,9 +632,9 @@ agent:
   image: test:latest
 models:
   llm:
-    provider: ollama
+    provider: anthropic
     container:
-      image: ollama/ollama:latest
+      image: my-model:latest
 `,
 			wantErr: "provider and container are mutually exclusive",
 		},
@@ -663,7 +663,7 @@ agent:
   image: test:latest
 models:
   llm:
-    provider: ollama
+    provider: anthropic
 `,
 			wantErr: "",
 		},
@@ -897,11 +897,11 @@ agent:
   image: test:latest
 models:
   llm:
-    provider: ollama
-    model: llama3.2
+    provider: anthropic
+    model: claude-sonnet-4-6
     models:
-      - llama3.2
-      - mistral
+      - claude-sonnet-4-6
+      - claude-haiku-4-5
 `,
 			wantErr: "models and model are mutually exclusive",
 		},

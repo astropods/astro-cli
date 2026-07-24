@@ -42,9 +42,9 @@ An AstroAI Spec file (`astropods.yml`) is a YAML document that declares:
 
 A central concept is **provider binding**. Components that an agent depends on (models, knowledge stores, and integrations) are each declared as either a **provider** reference or a **container** definition:
 
-- A **provider** is a named, platform-known service (e.g. `ollama`, `anthropic`, `qdrant`). The platform resolves each provider to one of two kinds:
-  - **Self-hosted**: the platform deploys and manages a container on the agent's behalf.
-  - **Cloud**: the platform injects credentials for an external API.
+- A **provider** is a named, platform-known service (e.g. `anthropic`, `qdrant`). The platform resolves each provider to one of two kinds:
+  - **Self-hosted**: the platform deploys and manages a container on the agent's behalf (knowledge stores such as `qdrant` or `postgres`).
+  - **Cloud**: the platform injects credentials for an external API (model providers such as `anthropic` or `openai`).
 - A **container** gives the user full control over the image, port, and configuration.
 
 This design lets authors mix managed and custom components freely within a single spec.
@@ -182,14 +182,14 @@ These modes are **mutually exclusive**: an entry MUST specify exactly one of `pr
 
 ### 4.1 Models
 
-The `models` section declares AI models the agent consumes: LLMs (e.g. Claude, GPT, Llama), embedding models, or any model served behind an inference API. Each entry in the `models` map:
+The `models` section declares AI models the agent consumes: LLMs (e.g. Claude, GPT), embedding models, or any model served behind an inference API. Each entry in the `models` map:
 
 | Field       | Type            | Required    | Description                                                                             |
 | ----------- | --------------- | ----------- | --------------------------------------------------------------------------------------- |
-| `provider`  | string          | Conditional | Platform-managed provider name (e.g. `ollama`, `anthropic`).                            |
-| `models`    | string[]        | OPTIONAL    | Model identifiers to make available (e.g. `[llama3.2, mistral]`). Only meaningful for self-hosted providers that support multiple models. |
-| `model`     | string          | OPTIONAL    | **Deprecated.** Use `models` instead. Single model identifier. Only meaningful in provider mode. |
-| `container` | ContainerConfig | Conditional | Custom container configuration.                                                         |
+| `provider`  | string          | Conditional | Cloud model provider name (e.g. `anthropic`, `openai`) or a custom provider.            |
+| `models`    | string[]        | OPTIONAL    | Model identifiers to make available.                                                    |
+| `model`     | string          | OPTIONAL    | **Deprecated.** Use `models` instead. Single model identifier.                          |
+| `container` | ContainerConfig | Conditional | Custom container configuration for a self-hosted inference server.                      |
 | `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the model's container.                               |
 
 ### 4.2 Knowledge
@@ -515,13 +515,7 @@ The following tables document the platform's built-in provider registries as of 
 
 ### A.1 Model Providers
 
-#### Self-Hosted
-
-| Provider | Image                  | Port  | Health Check     | GPU | Default Env                                   |
-| -------- | ---------------------- | ----- | ---------------- | --- | --------------------------------------------- |
-| `ollama` | `ollama/ollama:latest` | 11434 | HTTP `/api/tags` | Yes | `OLLAMA_HOST=0.0.0.0`, `OLLAMA_KEEP_ALIVE=-1` |
-
-When `models` is specified for a self-hosted provider, the platform pulls all listed models and sets `{ENV_PREFIX}_MODEL` to the comma-separated list (e.g. `OLLAMA_MODEL=llama3.2,mistral`). The deprecated `model` field is treated as a single-element list.
+All built-in model providers are cloud (credentials-only). To self-host an inference server, use a `container` definition instead of a `provider`.
 
 #### Cloud
 
@@ -599,10 +593,6 @@ inputs:
     optional: true
 
 models:
-  local_llm:
-    provider: ollama
-    models: [llama3.2, mistral]
-
   primary:
     provider: anthropic
 

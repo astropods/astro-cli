@@ -203,8 +203,8 @@ func TestBuildDeployment_WithTolerations(t *testing.T) {
 	cfg := DeploymentConfig{
 		Name: "gpu-deploy", Namespace: "ns", AgentName: "agent",
 		BuildID: "b1", Component: "model-llm",
-		Container:   spec.ContainerConfig{Image: "ollama/ollama:latest"},
-		Port:        11434,
+		Container:   spec.ContainerConfig{Image: "my-model:latest"},
+		Port:        8000,
 		Tolerations: tolerations,
 	}
 	depl := BuildDeployment(cfg)
@@ -223,11 +223,11 @@ func TestBuildDeployment_WithTolerations(t *testing.T) {
 
 func TestBuildDeployment_WithPostStartCommand(t *testing.T) {
 	cfg := DeploymentConfig{
-		Name: "ollama-deploy", Namespace: "ns", AgentName: "agent",
+		Name: "model-deploy", Namespace: "ns", AgentName: "agent",
 		BuildID: "b1", Component: "model-llm",
-		Container:        spec.ContainerConfig{Image: "ollama/ollama:latest"},
-		Port:             11434,
-		PostStartCommand: []string{"sh", "-c", "ollama pull llama3.2"},
+		Container:        spec.ContainerConfig{Image: "my-model:latest"},
+		Port:             8000,
+		PostStartCommand: []string{"sh", "-c", "download-model"},
 	}
 	depl := BuildDeployment(cfg)
 	container := depl.Spec.Template.Spec.Containers[0]
@@ -235,8 +235,8 @@ func TestBuildDeployment_WithPostStartCommand(t *testing.T) {
 		t.Fatal("expected postStart lifecycle hook")
 	}
 	cmd := container.Lifecycle.PostStart.Exec.Command
-	if len(cmd) != 3 || cmd[2] != "ollama pull llama3.2" {
-		t.Errorf("expected postStart command 'ollama pull llama3.2', got %v", cmd)
+	if len(cmd) != 3 || cmd[2] != "download-model" {
+		t.Errorf("expected postStart command 'download-model', got %v", cmd)
 	}
 }
 

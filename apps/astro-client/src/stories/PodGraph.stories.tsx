@@ -122,7 +122,7 @@ export const FullStack: Story = makeStory([
   { component: "agent", kind: "StatefulSet", age: "14d" },
   { component: "knowledge-postgres", kind: "StatefulSet", name: "postgres", age: "14d" },
   { component: "knowledge-qdrant", kind: "StatefulSet", name: "qdrant", age: "6d" },
-  { component: "model-ollama", kind: "StatefulSet", name: "ollama", age: "6d" },
+  { component: "model-llm", kind: "Deployment", name: "llm", age: "6d" },
   { component: "tool-github", kind: "Deployment", name: "github", age: "6d" },
   { component: "ingestion-crawler", kind: "CronJob", name: "crawler" },
   { component: "collector", kind: "Deployment", age: "14d" },
@@ -141,7 +141,7 @@ export const WithUnhealthyStore: Story = makeStory([
     errorMessage:
       "ConnectionRefusedError: [Errno 111] Connection refused — could not connect to qdrant at qdrant.internal:6333 after 30 retries",
   },
-  { component: "model-ollama", kind: "StatefulSet", name: "ollama", age: "6d" },
+  { component: "model-llm", kind: "Deployment", name: "llm", age: "6d" },
   { component: "collector", kind: "Deployment", age: "14d" },
 ]);
 
@@ -161,7 +161,7 @@ export const ManyKnowledgeStores: Story = makeStory([
 const PLAYGROUND_DECK: TileSpec[] = [
   { component: "agent", kind: "StatefulSet", age: "14d" },
   { component: "knowledge-postgres", kind: "StatefulSet", name: "postgres", age: "14d" },
-  { component: "model-ollama", kind: "StatefulSet", name: "ollama", age: "6d" },
+  { component: "model-llm", kind: "Deployment", name: "llm", age: "6d" },
   { component: "ingestion-crawler", kind: "CronJob", name: "crawler" },
   { component: "knowledge-qdrant", kind: "StatefulSet", name: "qdrant", age: "6d" },
   { component: "collector", kind: "Deployment", age: "14d" },

@@ -204,9 +204,9 @@ All information in one struct. The translator reads image, port, replicas, resou
 ### 4.2 Reference resolution in translator
 
 Resolve `${}` references in `agent.environment` to actual values:
-- `${models.local_llm.host}` → k8s service DNS (e.g. `my-agent-local-llm-svc.ns.svc.cluster.local`)
-- `${models.local_llm.port}` → `"11434"`
-- `${models.local_llm.url}` → `http://my-agent-local-llm-svc:11434`
+- `${models.llm.host}` → k8s service DNS (e.g. `my-agent-llm-svc.ns.svc.cluster.local`)
+- `${models.llm.port}` → `"8000"`
+- `${models.llm.url}` → `http://my-agent-llm-svc:8000`
 - `${credentials.ANTHROPIC_API_KEY}` → Secret key ref
 - `${source.name}` → literal agent name
 

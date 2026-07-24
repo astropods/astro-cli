@@ -824,92 +824,6 @@ func TestResolveEnvVars_JiraIntegration(t *testing.T) {
 	assertEnv(t, result.Agent, "JIRA_EMAIL", "user@example.com")
 }
 
-// ─── §8.2 Self-hosted provider connection wiring ─────────────────────────────
-
-func TestAgentConnectionKeys_SelfHostedModel(t *testing.T) {
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"local": {Provider: "ollama", Models: []string{"llama3.2"}},
-		},
-	}
-	addrs := map[string]ConnectionAddress{
-		"models.local": {Host: "model-local", Port: "11434", URL: "http://model-local:11434", BaseURL: "http://model-local:11434/api"},
-	}
-	env := AgentConnectionKeys(s, addrs)
-
-	assertEnv(t, env, "OLLAMA_HOST", "model-local")
-	assertEnv(t, env, "OLLAMA_PORT", "11434")
-	assertEnv(t, env, "OLLAMA_URL", "http://model-local:11434")
-	assertEnv(t, env, "OLLAMA_BASE_URL", "http://model-local:11434/api")
-	assertEnv(t, env, "OLLAMA_MODEL", "llama3.2")
-}
-
-func TestAgentConnectionKeys_SelfHostedModel_MultiModel(t *testing.T) {
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"local": {Provider: "ollama", Models: []string{"llama3.2", "mistral"}},
-		},
-	}
-	addrs := map[string]ConnectionAddress{
-		"models.local": {Host: "model-local", Port: "11434", URL: "http://model-local:11434", BaseURL: "http://model-local:11434/api"},
-	}
-	env := AgentConnectionKeys(s, addrs)
-
-	assertEnv(t, env, "OLLAMA_HOST", "model-local")
-	assertEnv(t, env, "OLLAMA_PORT", "11434")
-	assertEnv(t, env, "OLLAMA_URL", "http://model-local:11434")
-	assertEnv(t, env, "OLLAMA_BASE_URL", "http://model-local:11434/api")
-	assertEnv(t, env, "OLLAMA_MODEL", "llama3.2,mistral")
-}
-
-func TestAgentConnectionKeys_SelfHostedModel_NoModel(t *testing.T) {
-	// When model name is not set, OLLAMA_MODEL must not be injected.
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"local": {Provider: "ollama"},
-		},
-	}
-	addrs := map[string]ConnectionAddress{
-		"models.local": {Host: "h", Port: "11434", URL: "http://h:11434", BaseURL: "http://h:11434/api"},
-	}
-	env := AgentConnectionKeys(s, addrs)
-	if _, ok := env["OLLAMA_MODEL"]; ok {
-		t.Error("OLLAMA_MODEL must not be set when model name is empty")
-	}
-}
-
-func TestAgentConnectionKeys_DuplicateSelfHostedModelProvider(t *testing.T) {
-	// Two entries both using ollama → qualified keys + bare keys for the first alphabetically.
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"large": {Provider: "ollama", Models: []string{"llama3.2:70b"}},
-			"small": {Provider: "ollama", Models: []string{"llama3.2"}},
-		},
-	}
-	addrs := map[string]ConnectionAddress{
-		"models.large": {Host: "model-large", Port: "11434", URL: "http://model-large:11434", BaseURL: "http://model-large:11434/api"},
-		"models.small": {Host: "model-small", Port: "11435", URL: "http://model-small:11435", BaseURL: "http://model-small:11435/api"},
-	}
-	env := AgentConnectionKeys(s, addrs)
-
-	// "large" < "small" alphabetically → "large" is first → gets bare + qualified.
-	assertEnv(t, env, "OLLAMA_HOST", "model-large")       // bare, first
-	assertEnv(t, env, "OLLAMA_LARGE_HOST", "model-large") // qualified
-	assertEnv(t, env, "OLLAMA_SMALL_HOST", "model-small") // qualified only
-	assertEnv(t, env, "OLLAMA_LARGE_MODEL", "llama3.2:70b")
-	assertEnv(t, env, "OLLAMA_SMALL_MODEL", "llama3.2")
-	// Bare MODEL key goes to the first (alphabetically) entry — "large".
-	assertEnv(t, env, "OLLAMA_MODEL", "llama3.2:70b")
-}
-
 // ─── §8.2 Self-hosted knowledge provider connection wiring ───────────────────
 
 func TestAgentConnectionKeys_SelfHostedKnowledge(t *testing.T) {
@@ -1114,7 +1028,7 @@ func TestResolveEnvVars_TopLevelInputs(t *testing.T) {
 			"LOG_LEVEL": {Name: "LOG_LEVEL", Datatype: "string", Default: "info"},
 		},
 		Models: map[string]Model{
-			"llm": {Provider: "ollama"},
+			"llm": {Provider: "anthropic"},
 		},
 		Knowledge: map[string]Knowledge{
 			"docs": {Provider: "qdrant"},
@@ -1169,7 +1083,7 @@ func TestResolveEnvVars_AgentInputs(t *testing.T) {
 			},
 		},
 		Models: map[string]Model{
-			"llm": {Provider: "ollama"},
+			"llm": {Provider: "anthropic"},
 		},
 	}
 	res := ResolveEnvVars(s, nil, nil, nil)
@@ -1185,7 +1099,7 @@ func TestResolveEnvVars_ModelInputs(t *testing.T) {
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
 			"llm": {
-				Provider: "ollama",
+				Provider: "anthropic",
 				Inputs: []Input{
 					{Name: "BATCH_SIZE", Datatype: "number", Default: "32"},
 				},
@@ -1267,7 +1181,7 @@ func TestResolveEnvVars_InputScopeIsolation(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"llm": {Provider: "ollama", Inputs: []Input{{Name: "MODEL_FLAG", Datatype: "string", Default: "x"}}},
+			"llm": {Provider: "anthropic", Inputs: []Input{{Name: "MODEL_FLAG", Datatype: "string", Default: "x"}}},
 		},
 		Knowledge: map[string]Knowledge{
 			"docs": {Provider: "qdrant", Inputs: []Input{{Name: "K_FLAG", Datatype: "string", Default: "y"}}},
@@ -1315,7 +1229,6 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"ALLOWED_ORIGINS": {Name: "ALLOWED_ORIGINS", Datatype: "string", Default: "http://localhost"},
 		},
 		Models: map[string]Model{
-			"llm":       {Provider: "ollama", Models: []string{"llama3.2"}},
 			"embedder":  {Container: &ContainerConfig{Image: "embed:latest", Port: 8000}},
 			"anthropic": {Provider: "anthropic"},
 		},
@@ -1335,7 +1248,6 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	}
 
 	addrs := map[string]ConnectionAddress{
-		"models.llm":          {Host: "model-llm", Port: "11434", URL: "http://model-llm:11434", BaseURL: "http://model-llm:11434/api"},
 		"models.embedder":     {Host: "model-embedder", Port: "8000", URL: "http://model-embedder:8000"},
 		"knowledge.docs":      {Host: "knowledge-docs", Port: "6333", URL: "http://knowledge-docs:6333"},
 		"knowledge.cache":     {Host: "knowledge-cache", Port: "6379"},
@@ -1347,11 +1259,6 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	}
 
 	res := ResolveEnvVars(s, addrs, creds, nil)
-
-	// Self-hosted model connections
-	assertEnv(t, res.Agent, "OLLAMA_HOST", "model-llm")
-	assertEnv(t, res.Agent, "OLLAMA_MODEL", "llama3.2")
-	assertEnv(t, res.Agent, "OLLAMA_BASE_URL", "http://model-llm:11434/api")
 
 	// Container-mode model connections
 	assertEnv(t, res.Agent, "MODEL_EMBEDDER_HOST", "model-embedder")
@@ -1375,12 +1282,12 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	assertEnv(t, res.Agent, "ALLOWED_ORIGINS", "http://localhost")
 
 	// Top-level input in all containers
-	assertEnv(t, res.Models["llm"], "ALLOWED_ORIGINS", "http://localhost")
+	assertEnv(t, res.Models["embedder"], "ALLOWED_ORIGINS", "http://localhost")
 	assertEnv(t, res.Knowledge["docs"], "ALLOWED_ORIGINS", "http://localhost")
 	assertEnv(t, res.Integrations["search"], "ALLOWED_ORIGINS", "http://localhost")
 
 	// Agent-specific input not in other containers
-	if _, ok := res.Models["llm"]["LOG_LEVEL"]; ok {
+	if _, ok := res.Models["embedder"]["LOG_LEVEL"]; ok {
 		t.Error("agent input LOG_LEVEL must not appear in model container")
 	}
 
@@ -1428,40 +1335,23 @@ func TestAgentConnectionKeys_DeferredPlaceholders(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"llm": {Provider: "ollama"},
+			"llm": {Container: &ContainerConfig{Image: "m:1", Port: 8000}},
 		},
 	}
 	addrs := map[string]ConnectionAddress{
 		"models.llm": {
-			Host:    "${models.llm.host}",
-			Port:    "${models.llm.port}",
-			URL:     "${models.llm.url}",
-			BaseURL: "${models.llm.url}/api",
+			Host: "${models.llm.host}",
+			Port: "${models.llm.port}",
+			URL:  "${models.llm.url}",
 		},
 	}
 	env := AgentConnectionKeys(s, addrs)
-	assertEnv(t, env, "OLLAMA_HOST", "${models.llm.host}")
-	assertEnv(t, env, "OLLAMA_PORT", "${models.llm.port}")
-	assertEnv(t, env, "OLLAMA_URL", "${models.llm.url}")
-	assertEnv(t, env, "OLLAMA_BASE_URL", "${models.llm.url}/api")
+	assertEnv(t, env, "MODEL_LLM_HOST", "${models.llm.host}")
+	assertEnv(t, env, "MODEL_LLM_PORT", "${models.llm.port}")
+	assertEnv(t, env, "MODEL_LLM_URL", "${models.llm.url}")
 }
 
 // ─── connectionKeySource / AllAgentAutoEnvKeys ───────────────────────────────
-
-func TestAllAgentAutoEnvKeys_SelfHostedModel(t *testing.T) {
-	s := &AstroSpec{
-		Name:  "agent",
-		Agent: Container{Image: "a:1"},
-		Models: map[string]Model{
-			"local": {Provider: "ollama", Models: []string{"llama3.2"}},
-		},
-	}
-	meta := AllAgentAutoEnvKeys(s)
-
-	for _, key := range []string{"OLLAMA_HOST", "OLLAMA_PORT", "OLLAMA_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL"} {
-		assertAutoEnvMeta(t, meta, key, "connection", "ollama", "model")
-	}
-}
 
 func TestAllAgentAutoEnvKeys_ContainerModeModel(t *testing.T) {
 	s := &AstroSpec{
@@ -1584,7 +1474,7 @@ func TestAllAgentAutoEnvKeys_NoEmptyProviderOrCategory(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"llm":      {Provider: "ollama", Models: []string{"llama3.2"}},
+			"llm":      {Provider: "anthropic", Models: []string{"claude-sonnet-4-6"}},
 			"embedder": {Container: &ContainerConfig{Image: "embed:1", Port: 8000}},
 		},
 		Knowledge: map[string]Knowledge{

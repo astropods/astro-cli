@@ -184,7 +184,7 @@ func TestValidateAndResolve_ValidReference(t *testing.T) {
 		"LLM_URL": "${models.llm.http.url}",
 	}
 	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "ollama:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}}},
+		"llm": {Image: "my-model:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -200,7 +200,7 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	ds.Agent.Replicas = 0
 	ds.Agent.Update = spec.UpdateStrategy{}
 	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "ollama:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}}},
+		"llm": {Image: "my-model:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}}},
 	}
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
 		"docs": {Image: "qdrant:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}, Persistent: true},
@@ -430,7 +430,7 @@ func TestValidateAndResolve_MissingIngestionImage(t *testing.T) {
 func TestValidateAndResolve_MissingModelEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "ollama:latest"},
+		"llm": {Image: "my-model:latest"},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {

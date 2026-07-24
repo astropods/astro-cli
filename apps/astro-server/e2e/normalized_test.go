@@ -18,7 +18,7 @@ import (
 )
 
 // sasbotSpecJSON is the real deployment spec from a running sasbot deployment.
-const sasbotSpecJSON = `{"spec":"deployment/v1","source":{"account":"saswatds","name":"sasbot","build":"14f4c4dd","registry":"969403051954.dkr.ecr.us-east-1.amazonaws.com"},"target":{"runtime":"kubernetes","account":"saswatds","display_name":"Sasbot"},"agent":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/preview-tenant-saswatds/sasbot:14f4c4dd","endpoints":{"http":{"port":8080,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"environment":{"ANTHROPIC_API_KEY":"${variables.ANTHROPIC_API_KEY}","ASTRO_AGENT_BUILD":"${source.build}","ASTRO_AGENT_NAME":"${source.name}","CLOUDFLARE_ACCOUNT_ID":"${variables.CLOUDFLARE_ACCOUNT_ID}","CLOUDFLARE_AI_API_KEY":"${variables.CLOUDFLARE_AI_API_KEY}","EMBEDDING_DIMENSION":"768","EMBEDDING_MODEL":"nomic-embed-text","GITHUB_TOKEN":"${variables.GITHUB_TOKEN}","NEO4J_HOST":"${knowledge.graph.host}","NEO4J_PORT":"${knowledge.graph.http.port}","NEO4J_URL":"${knowledge.graph.http.url}","OLLAMA_BASE_URL":"${models.ollama.http.url}/api","OLLAMA_HOST":"${models.ollama.host}","OLLAMA_MODEL":"qwen3.5:2b","OLLAMA_PORT":"${models.ollama.http.port}","OLLAMA_URL":"${models.ollama.http.url}","QDRANT_HOST":"${knowledge.docs.host}","QDRANT_PORT":"${knowledge.docs.http.port}","QDRANT_URL":"${knowledge.docs.http.url}","REDIS_HOST":"${knowledge.cache.host}","REDIS_PORT":"${knowledge.cache.http.port}","REDIS_URL":"${knowledge.cache.http.url}"},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"}},"models":{"ollama":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest","endpoints":{"http":{"port":11434,"protocol":"http"}},"replicas":1,"resources":{"cpu":"2","memory":"8Gi","cpu_limit":"4","memory_limit":"16Gi"},"gpu":{"runtime":"cuda","count":1},"environment":{"OLLAMA_HOST":"0.0.0.0","OLLAMA_KEEP_ALIVE":"-1","OLLAMA_MODEL":"qwen3.5:2b"},"healthcheck":{"test":["sh","-c","ollama list | grep -q 'qwen3.5:2b'"],"interval":"15s","timeout":"5s","retries":40},"update":{"strategy":"recreate"},"model":"qwen3.5:2b","persistent":true,"provider":"ollama"}},"knowledge":{"cache":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/redis:7-alpine","endpoints":{"http":{"port":6379,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":false,"healthcheck":{"test":["redis-cli","ping"]},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"},"provider":"redis"},"docs":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/qdrant/qdrant:latest","endpoints":{"grpc":{"port":6334,"protocol":"grpc"},"http":{"port":6333,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":true,"storage":{"size":"10Gi","access_mode":"ReadWriteOnce"},"healthcheck":{"path":"/healthz"},"update":{"strategy":"recreate"},"provider":"qdrant"},"graph":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/neo4j:5-community","endpoints":{"bolt":{"port":7687,"protocol":"tcp"},"http":{"port":7474,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":false,"environment":{"NEO4J_AUTH":"none"},"healthcheck":{"path":"/"},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"},"provider":"neo4j"}},"ingestion":{"webhook":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/preview-tenant-saswatds/sasbot-ingestion-webhook:14f4c4dd","endpoints":{"http":{"port":3001,"protocol":"http"}},"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"trigger":{"type":"webhook"}}},"interfaces":{"adapters":["web"],"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest","endpoints":{"grpc":{"port":9090,"protocol":"grpc"},"http":{"port":8080,"protocol":"http","expose":{"enabled":false}}},"resources":{"cpu":"100m","memory":"128Mi","cpu_limit":"500m","memory_limit":"512Mi"}},"variables":{"ANTHROPIC_API_KEY":{"targets":["agent"],"secret":true},"CLOUDFLARE_ACCOUNT_ID":{"targets":["agent"],"secret":true},"CLOUDFLARE_AI_API_KEY":{"targets":["agent"],"secret":true},"EMBEDDING_DIMENSION":{"value":"768","targets":["agent"],"optional":true},"EMBEDDING_MODEL":{"value":"nomic-embed-text","targets":["agent"],"optional":true},"GITHUB_TOKEN":{"targets":["agent"],"secret":true},"SLACK_APP_TOKEN":{"targets":["interface.slack"],"secret":true,"optional":true},"SLACK_BOT_TOKEN":{"targets":["interface.slack"],"secret":true,"optional":true}},"observability":{"enabled":true,"provider":"langfuse","image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/prod-astro-collector:latest","port":4318,"resources":{"cpu":"50m","memory":"128Mi","cpu_limit":"250m","memory_limit":"256Mi"}}}`
+const sasbotSpecJSON = `{"spec":"deployment/v1","source":{"account":"saswatds","name":"sasbot","build":"14f4c4dd","registry":"969403051954.dkr.ecr.us-east-1.amazonaws.com"},"target":{"runtime":"kubernetes","account":"saswatds","display_name":"Sasbot"},"agent":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/preview-tenant-saswatds/sasbot:14f4c4dd","endpoints":{"http":{"port":8080,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"environment":{"ANTHROPIC_API_KEY":"${variables.ANTHROPIC_API_KEY}","ASTRO_AGENT_BUILD":"${source.build}","ASTRO_AGENT_NAME":"${source.name}","CLOUDFLARE_ACCOUNT_ID":"${variables.CLOUDFLARE_ACCOUNT_ID}","CLOUDFLARE_AI_API_KEY":"${variables.CLOUDFLARE_AI_API_KEY}","EMBEDDING_DIMENSION":"768","EMBEDDING_MODEL":"nomic-embed-text","GITHUB_TOKEN":"${variables.GITHUB_TOKEN}","NEO4J_HOST":"${knowledge.graph.host}","NEO4J_PORT":"${knowledge.graph.http.port}","NEO4J_URL":"${knowledge.graph.http.url}","MODEL_LLM_HOST":"${models.llm.host}","MODEL_LLM_PORT":"${models.llm.http.port}","MODEL_LLM_URL":"${models.llm.http.url}","QDRANT_HOST":"${knowledge.docs.host}","QDRANT_PORT":"${knowledge.docs.http.port}","QDRANT_URL":"${knowledge.docs.http.url}","REDIS_HOST":"${knowledge.cache.host}","REDIS_PORT":"${knowledge.cache.http.port}","REDIS_URL":"${knowledge.cache.http.url}"},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"}},"models":{"llm":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/my-model:latest","endpoints":{"http":{"port":8000,"protocol":"http"}},"replicas":1,"resources":{"cpu":"2","memory":"8Gi","cpu_limit":"4","memory_limit":"16Gi"},"gpu":{"runtime":"cuda","count":1},"update":{"strategy":"recreate"}}},"knowledge":{"cache":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/redis:7-alpine","endpoints":{"http":{"port":6379,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":false,"healthcheck":{"test":["redis-cli","ping"]},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"},"provider":"redis"},"docs":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/qdrant/qdrant:latest","endpoints":{"grpc":{"port":6334,"protocol":"grpc"},"http":{"port":6333,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":true,"storage":{"size":"10Gi","access_mode":"ReadWriteOnce"},"healthcheck":{"path":"/healthz"},"update":{"strategy":"recreate"},"provider":"qdrant"},"graph":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/neo4j:5-community","endpoints":{"bolt":{"port":7687,"protocol":"tcp"},"http":{"port":7474,"protocol":"http"}},"replicas":1,"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"persistent":false,"environment":{"NEO4J_AUTH":"none"},"healthcheck":{"path":"/"},"update":{"strategy":"rolling","max_unavailable":"25%","max_surge":"25%"},"provider":"neo4j"}},"ingestion":{"webhook":{"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/preview-tenant-saswatds/sasbot-ingestion-webhook:14f4c4dd","endpoints":{"http":{"port":3001,"protocol":"http"}},"resources":{"cpu":"100m","memory":"256Mi","cpu_limit":"1","memory_limit":"1Gi"},"trigger":{"type":"webhook"}}},"interfaces":{"adapters":["web"],"image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest","endpoints":{"grpc":{"port":9090,"protocol":"grpc"},"http":{"port":8080,"protocol":"http","expose":{"enabled":false}}},"resources":{"cpu":"100m","memory":"128Mi","cpu_limit":"500m","memory_limit":"512Mi"}},"variables":{"ANTHROPIC_API_KEY":{"targets":["agent"],"secret":true},"CLOUDFLARE_ACCOUNT_ID":{"targets":["agent"],"secret":true},"CLOUDFLARE_AI_API_KEY":{"targets":["agent"],"secret":true},"EMBEDDING_DIMENSION":{"value":"768","targets":["agent"],"optional":true},"EMBEDDING_MODEL":{"value":"nomic-embed-text","targets":["agent"],"optional":true},"GITHUB_TOKEN":{"targets":["agent"],"secret":true},"SLACK_APP_TOKEN":{"targets":["interface.slack"],"secret":true,"optional":true},"SLACK_BOT_TOKEN":{"targets":["interface.slack"],"secret":true,"optional":true}},"observability":{"enabled":true,"provider":"langfuse","image":"969403051954.dkr.ecr.us-east-1.amazonaws.com/prod-astro-collector:latest","port":4318,"resources":{"cpu":"50m","memory":"128Mi","cpu_limit":"250m","memory_limit":"256Mi"}}}`
 
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -91,7 +91,7 @@ func TestSasbot_Workloads(t *testing.T) {
 		t.Fatalf("GetWorkloads: %v", err)
 	}
 
-	// agent + ollama + cache + docs + graph + webhook + collector = 7 (sidecars in separate table)
+	// agent + llm + cache + docs + graph + webhook + collector = 7 (sidecars in separate table)
 	if len(workloads) != 7 {
 		names := make([]string, len(workloads))
 		for i, w := range workloads {
@@ -107,7 +107,7 @@ func TestSasbot_Workloads(t *testing.T) {
 
 	expect := map[string]struct{ kind, wtype string }{
 		"sasbot-agent":             {"agent", "statefulset"},
-		"sasbot-model-ollama":      {"model", "statefulset"},
+		"sasbot-model-llm":         {"model", "deployment"},
 		"sasbot-knowledge-cache":   {"knowledge", "deployment"},
 		"sasbot-knowledge-docs":    {"knowledge", "statefulset"},
 		"sasbot-knowledge-graph":   {"knowledge", "deployment"},
@@ -128,16 +128,16 @@ func TestSasbot_Workloads(t *testing.T) {
 		}
 	}
 
-	// GPU on ollama
-	ollama := byName["sasbot-model-ollama"]
-	if ollama.GPURuntime == nil || *ollama.GPURuntime != "cuda" {
-		t.Errorf("ollama gpu_runtime: got %v, want 'cuda'", ollama.GPURuntime)
+	// GPU on the container-mode model
+	model := byName["sasbot-model-llm"]
+	if model.GPURuntime == nil || *model.GPURuntime != "cuda" {
+		t.Errorf("model gpu_runtime: got %v, want 'cuda'", model.GPURuntime)
 	}
-	if ollama.GPUCount == nil || *ollama.GPUCount != 1 {
-		t.Errorf("ollama gpu_count: got %v, want 1", ollama.GPUCount)
+	if model.GPUCount == nil || *model.GPUCount != 1 {
+		t.Errorf("model gpu_count: got %v, want 1", model.GPUCount)
 	}
-	if !ollama.Persistent {
-		t.Error("ollama should be persistent")
+	if model.Persistent {
+		t.Error("container-mode model should not be persistent")
 	}
 }
 
@@ -177,7 +177,7 @@ func TestSasbot_Services(t *testing.T) {
 		t.Fatalf("GetServices: %v", err)
 	}
 
-	// 12 total: agent(1) + ollama(1) + cache(1) + docs(2) + graph(2) + webhook(1) + messaging(2) + collector(2)
+	// 12 total: agent(1) + llm(1) + cache(1) + docs(2) + graph(2) + webhook(1) + messaging(2) + collector(2)
 	if len(services) != 12 {
 		for _, s := range services {
 			t.Logf("  %s/%s port=%d", s.WorkloadName, s.Name, s.Port)
@@ -198,7 +198,7 @@ func TestSasbot_Services(t *testing.T) {
 		counts[svc.WorkloadName]++
 	}
 	expectedCounts := map[string]int{
-		"sasbot-agent": 1, "sasbot-model-ollama": 1, "sasbot-knowledge-cache": 1,
+		"sasbot-agent": 1, "sasbot-model-llm": 1, "sasbot-knowledge-cache": 1,
 		"sasbot-knowledge-docs": 2, "sasbot-knowledge-graph": 2, "sasbot-ingestion-webhook": 1,
 		"sasbot-messaging": 2, "sasbot-collector": 2,
 	}
@@ -235,11 +235,11 @@ func TestSasbot_Volumes(t *testing.T) {
 		vols = append(vols, v)
 	}
 
-	// Persistent volumes: agent default disk (/data, 5Gi) + ollama
-	// (/root/.ollama, 50Gi) + qdrant (/qdrant/storage, 10Gi). Every agent now
-	// runs as a StatefulSet with a default shared disk.
-	if len(vols) != 3 {
-		t.Fatalf("expected 3 volumes, got %d", len(vols))
+	// Persistent volumes: agent default disk (/data, 5Gi) + qdrant
+	// (/qdrant/storage, 10Gi). The container-mode model is not persistent, so it
+	// has no volume. Every agent runs as a StatefulSet with a default shared disk.
+	if len(vols) != 2 {
+		t.Fatalf("expected 2 volumes, got %d", len(vols))
 	}
 	byWL := map[string]vol{}
 	for _, v := range vols {
@@ -247,9 +247,6 @@ func TestSasbot_Volumes(t *testing.T) {
 	}
 	if v := byWL["sasbot-agent"]; v.mountPath != "/data" || v.size != "5Gi" {
 		t.Errorf("agent volume: mount=%q size=%q", v.mountPath, v.size)
-	}
-	if v := byWL["sasbot-model-ollama"]; v.mountPath != "/root/.ollama" || v.size != "50Gi" {
-		t.Errorf("ollama volume: mount=%q size=%q", v.mountPath, v.size)
 	}
 	if v := byWL["sasbot-knowledge-docs"]; v.mountPath != "/qdrant/storage" || v.size != "10Gi" {
 		t.Errorf("docs volume: mount=%q size=%q", v.mountPath, v.size)

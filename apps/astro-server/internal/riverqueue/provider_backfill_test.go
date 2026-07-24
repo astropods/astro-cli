@@ -32,7 +32,7 @@ func TestProviderBackfill_SetsProviderFromSpecByKey(t *testing.T) {
 
 	// Two knowledge stores with different providers, one model, and a custom
 	// store with no provider — exercises correct per-key mapping and settling.
-	spec := `{"models":{"m":{"provider":"ollama"}},"knowledge":{"pg":{"provider":"postgres"},"vec":{"provider":"qdrant"},"custom":{}}}`
+	spec := `{"models":{"m":{"provider":"anthropic"}},"knowledge":{"pg":{"provider":"postgres"},"vec":{"provider":"qdrant"},"custom":{}}}`
 
 	mock.ExpectQuery(selectDeploymentsRe).WithArgs("", 200).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "deployment_spec_json"}).AddRow("dep-1", spec))
@@ -41,7 +41,7 @@ func TestProviderBackfill_SetsProviderFromSpecByKey(t *testing.T) {
 
 	// Each declared provider updates its own row, matched by component_key.
 	mock.ExpectExec(`UPDATE deployment_workloads\s+SET provider = \$1`).
-		WithArgs("ollama", "dep-1", "model", "m").WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs("anthropic", "dep-1", "model", "m").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE deployment_workloads\s+SET provider = \$1`).
 		WithArgs("postgres", "dep-1", "knowledge", "pg").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE deployment_workloads\s+SET provider = \$1`).

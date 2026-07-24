@@ -213,7 +213,7 @@ agent:
 	}
 }
 
-func TestE2E_SelfHostedModel_Ollama(t *testing.T) {
+func TestE2E_SelfHostedModel_Container(t *testing.T) {
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -221,35 +221,39 @@ agent:
   image: my-agent:latest
 models:
   llm:
-    provider: ollama
-    model: llama3.2
+    container:
+      image: my-model:latest
+      port: 8000
+      gpu:
+        vram: 24Gi
+        runtime: cuda
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
 
-	// Ollama with model name → persistent → StatefulSet
-	if !r.hasResource("StatefulSet", "my-agent-model-llm") {
-		t.Error("expected model StatefulSet for ollama with model pull")
+	// Container-mode model → Deployment (models no longer deploy StatefulSets)
+	if !r.hasResource("Deployment", "my-agent-model-llm") {
+		t.Error("expected model Deployment for container-mode model")
 	}
 	if !r.hasResource("Service", "my-agent-model-llm") {
 		t.Error("expected model Service")
 	}
 
-	// Agent env should have OLLAMA_HOST, OLLAMA_PORT wired
+	// Agent env should have MODEL_LLM_HOST/PORT/URL wired
 	env := r.DeploymentSpec.Agent.Environment
-	for _, key := range []string{"OLLAMA_HOST", "OLLAMA_PORT", "OLLAMA_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL"} {
+	for _, key := range []string{"MODEL_LLM_HOST", "MODEL_LLM_PORT", "MODEL_LLM_URL"} {
 		if _, ok := env[key]; !ok {
 			t.Errorf("expected agent env key %s", key)
 		}
 	}
 
-	// ConfigMap should have resolved OLLAMA_HOST to a service DNS
+	// ConfigMap should have resolved MODEL_LLM_HOST to a service DNS
 	ns := r.Namespace
 	cmName := deployment.GenerateConfigMapName("my-agent", "build-001")
 	cm := r.getConfigMap(t, ns, cmName)
-	ollamaHost := cm.Data["OLLAMA_HOST"]
-	if !strings.Contains(ollamaHost, "my-agent-model-llm") {
-		t.Errorf("expected OLLAMA_HOST to contain service DNS, got %q", ollamaHost)
+	modelHost := cm.Data["MODEL_LLM_HOST"]
+	if !strings.Contains(modelHost, "my-agent-model-llm") {
+		t.Errorf("expected MODEL_LLM_HOST to contain service DNS, got %q", modelHost)
 	}
 }
 
@@ -499,8 +503,12 @@ agent:
   image: my-agent:latest
 models:
   llm:
-    provider: ollama
-    model: llama3.2
+    container:
+      image: my-model:latest
+      port: 8000
+      gpu:
+        vram: 24Gi
+        runtime: cuda
   cloud:
     provider: anthropic
 knowledge:
@@ -553,12 +561,12 @@ ingestion:
 		t.Error("expected agent Service")
 	}
 
-	// Self-hosted model (ollama + model name → StatefulSet)
-	if !r.hasResource("StatefulSet", "my-agent-model-llm") {
-		t.Error("expected ollama model StatefulSet")
+	// Self-hosted container-mode model → Deployment (models deploy as Deployments)
+	if !r.hasResource("Deployment", "my-agent-model-llm") {
+		t.Error("expected container-mode model Deployment")
 	}
 	if !r.hasResource("Service", "my-agent-model-llm") {
-		t.Error("expected ollama model Service")
+		t.Error("expected container-mode model Service")
 	}
 
 	// Cloud model (anthropic) → no container resources
@@ -618,9 +626,9 @@ ingestion:
 	cmName := deployment.GenerateConfigMapName("my-agent", "build-001")
 	cm := r.getConfigMap(t, ns, cmName)
 
-	// OLLAMA env should be wired
-	if host, ok := cm.Data["OLLAMA_HOST"]; !ok || !strings.Contains(host, "my-agent-model-llm") {
-		t.Errorf("expected OLLAMA_HOST wired to model service DNS, got %q", cm.Data["OLLAMA_HOST"])
+	// Container-mode model env should be wired
+	if host, ok := cm.Data["MODEL_LLM_HOST"]; !ok || !strings.Contains(host, "my-agent-model-llm") {
+		t.Errorf("expected MODEL_LLM_HOST wired to model service DNS, got %q", cm.Data["MODEL_LLM_HOST"])
 	}
 	// QDRANT env should be wired
 	if host, ok := cm.Data["QDRANT_HOST"]; !ok || !strings.Contains(host, "my-agent-knowledge-docs") {
@@ -649,8 +657,8 @@ ingestion:
 	if got := r.resourceCount("Service"); got < 4 {
 		t.Errorf("expected at least 4 Services, got %d", got)
 	}
-	if got := r.resourceCount("StatefulSet"); got != 4 {
-		t.Errorf("expected 4 StatefulSets (agent + ollama + qdrant + redis), got %d", got)
+	if got := r.resourceCount("StatefulSet"); got != 3 {
+		t.Errorf("expected 3 StatefulSets (agent + qdrant + redis), got %d", got)
 	}
 }
 
@@ -804,56 +812,6 @@ func effectiveAgentEnv(t *testing.T, r *e2eResult) map[string]string {
 	return env
 }
 
-func TestE2E_ProviderEnv_OllamaModel(t *testing.T) {
-	r := runE2E(t, `
-spec: package/v1
-name: my-agent
-agent:
-  image: my-agent:latest
-models:
-  llm:
-    provider: ollama
-    model: llama3.2
-`, e2eOpts{})
-
-	requireNoErrors(t, r)
-
-	host := serviceDNS("my-agent-model-llm", "test-ns")
-	assertConfigMapValues(t, r, map[string]string{
-		"OLLAMA_HOST":     host,
-		"OLLAMA_PORT":     "11434",
-		"OLLAMA_URL":      "http://" + host + ":11434",
-		"OLLAMA_BASE_URL": "http://" + host + ":11434/api",
-		"OLLAMA_MODEL":    "llama3.2",
-	})
-}
-
-func TestE2E_ProviderEnv_OllamaNoModel(t *testing.T) {
-	// Ollama without a model name — still gets HOST/PORT/URL but no MODEL
-	r := runE2E(t, `
-spec: package/v1
-name: my-agent
-agent:
-  image: my-agent:latest
-models:
-  llm:
-    provider: ollama
-`, e2eOpts{})
-
-	requireNoErrors(t, r)
-
-	host := serviceDNS("my-agent-model-llm", "test-ns")
-	assertConfigMapValues(t, r, map[string]string{
-		"OLLAMA_HOST":     host,
-		"OLLAMA_PORT":     "11434",
-		"OLLAMA_URL":      "http://" + host + ":11434",
-		"OLLAMA_BASE_URL": "http://" + host + ":11434/api",
-	})
-
-	// OLLAMA_MODEL should NOT be in the ConfigMap when no model is specified
-	assertConfigMapAbsent(t, r, []string{"OLLAMA_MODEL"})
-}
-
 func TestE2E_ProviderEnv_ContainerModel(t *testing.T) {
 	// Container-mode model (no provider) → generic MODEL_{NAME}_ prefix
 	r := runE2E(t, `
@@ -877,8 +835,8 @@ models:
 		"MODEL_CUSTOM_LLM_URL":  "http://" + host + ":5000",
 	})
 
-	// Should NOT have provider-prefixed env vars
-	assertConfigMapAbsent(t, r, []string{"OLLAMA_HOST", "OLLAMA_PORT"})
+	// Should NOT have an unprefixed/bare MODEL_HOST — container models are always name-qualified
+	assertConfigMapAbsent(t, r, []string{"MODEL_HOST", "MODEL_PORT"})
 }
 
 func TestE2E_ProviderEnv_CloudModelOpenAI(t *testing.T) {
@@ -1239,7 +1197,7 @@ agent:
 }
 
 func TestE2E_ProviderEnv_MixedModelAndKnowledge(t *testing.T) {
-	// Ollama model + qdrant knowledge + redis cache — all env vars coexist
+	// Container-mode model + qdrant knowledge + redis cache — all env vars coexist
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1247,8 +1205,9 @@ agent:
   image: my-agent:latest
 models:
   llm:
-    provider: ollama
-    model: llama3.2
+    container:
+      image: my-model:latest
+      port: 8000
 knowledge:
   docs:
     provider: qdrant
@@ -1258,17 +1217,15 @@ knowledge:
 
 	requireNoErrors(t, r)
 
-	ollamaHost := serviceDNS("my-agent-model-llm", "test-ns")
+	llmHost := serviceDNS("my-agent-model-llm", "test-ns")
 	qdrantHost := serviceDNS("my-agent-knowledge-docs", "test-ns")
 	redisHost := serviceDNS("my-agent-knowledge-cache", "test-ns")
 
 	assertConfigMapValues(t, r, map[string]string{
-		// Ollama
-		"OLLAMA_HOST":     ollamaHost,
-		"OLLAMA_PORT":     "11434",
-		"OLLAMA_URL":      "http://" + ollamaHost + ":11434",
-		"OLLAMA_BASE_URL": "http://" + ollamaHost + ":11434/api",
-		"OLLAMA_MODEL":    "llama3.2",
+		// Container-mode model
+		"MODEL_LLM_HOST": llmHost,
+		"MODEL_LLM_PORT": "8000",
+		"MODEL_LLM_URL":  "http://" + llmHost + ":8000",
 		// Qdrant
 		"QDRANT_HOST": qdrantHost,
 		"QDRANT_PORT": "6333",
@@ -1377,9 +1334,9 @@ knowledge:
 	})
 }
 
-func TestE2E_ProviderEnv_TwoOllamaModels(t *testing.T) {
-	// Two models using the same provider (ollama). Both get containers.
-	// Bare OLLAMA_* points to first alphabetically ("big"), name-qualified vars for all.
+func TestE2E_ProviderEnv_TwoContainerModels(t *testing.T) {
+	// Two container-mode models. Each gets its own Service + Deployment and
+	// name-qualified MODEL_<NAME>_* env vars (container models have no shared/bare prefix).
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1387,21 +1344,23 @@ agent:
   image: my-agent:latest
 models:
   fast:
-    provider: ollama
-    model: llama3.2
+    container:
+      image: fast-model:latest
+      port: 8000
   big:
-    provider: ollama
-    model: deepseek-r1
+    container:
+      image: big-model:latest
+      port: 8000
 `, e2eOpts{})
 
 	requireNoErrors(t, r)
 
-	// Both get their own StatefulSet + Service (model with name → persistent)
-	if !r.hasResource("StatefulSet", "my-agent-model-fast") {
-		t.Error("expected StatefulSet for fast model")
+	// Both deploy as Deployments with their own Service (models deploy as Deployments)
+	if !r.hasResource("Deployment", "my-agent-model-fast") {
+		t.Error("expected Deployment for fast model")
 	}
-	if !r.hasResource("StatefulSet", "my-agent-model-big") {
-		t.Error("expected StatefulSet for big model")
+	if !r.hasResource("Deployment", "my-agent-model-big") {
+		t.Error("expected Deployment for big model")
 	}
 	if !r.hasResource("Service", "my-agent-model-fast") {
 		t.Error("expected Service for fast model")
@@ -1414,24 +1373,14 @@ models:
 	bigDNS := serviceDNS("my-agent-model-big", ns)
 	fastDNS := serviceDNS("my-agent-model-fast", ns)
 
-	// Bare prefix points to first alphabetically ("big")
-	// Name-qualified vars exist for all entries
+	// Each container model is name-qualified; no bare/shared prefix.
 	assertConfigMapValues(t, r, map[string]string{
-		"OLLAMA_HOST":          bigDNS,
-		"OLLAMA_PORT":          "11434",
-		"OLLAMA_URL":           "http://" + bigDNS + ":11434",
-		"OLLAMA_BASE_URL":      "http://" + bigDNS + ":11434/api",
-		"OLLAMA_MODEL":         "deepseek-r1",
-		"OLLAMA_BIG_HOST":      bigDNS,
-		"OLLAMA_BIG_PORT":      "11434",
-		"OLLAMA_BIG_URL":       "http://" + bigDNS + ":11434",
-		"OLLAMA_BIG_BASE_URL":  "http://" + bigDNS + ":11434/api",
-		"OLLAMA_BIG_MODEL":     "deepseek-r1",
-		"OLLAMA_FAST_HOST":     fastDNS,
-		"OLLAMA_FAST_PORT":     "11434",
-		"OLLAMA_FAST_URL":      "http://" + fastDNS + ":11434",
-		"OLLAMA_FAST_BASE_URL": "http://" + fastDNS + ":11434/api",
-		"OLLAMA_FAST_MODEL":    "llama3.2",
+		"MODEL_BIG_HOST":  bigDNS,
+		"MODEL_BIG_PORT":  "8000",
+		"MODEL_BIG_URL":   "http://" + bigDNS + ":8000",
+		"MODEL_FAST_HOST": fastDNS,
+		"MODEL_FAST_PORT": "8000",
+		"MODEL_FAST_URL":  "http://" + fastDNS + ":8000",
 	})
 }
 

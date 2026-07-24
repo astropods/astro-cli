@@ -9,7 +9,7 @@ describe("classify", () => {
 
   it("maps prefixed components by category", () => {
     expect(classify("knowledge-postgres")).toBe("knowledge");
-    expect(classify("model-ollama")).toBe("model");
+    expect(classify("model-llm")).toBe("model");
     expect(classify("tool-github")).toBe("integration");
     expect(classify("ingestion-acme")).toBe("ingestion");
   });
@@ -17,7 +17,6 @@ describe("classify", () => {
   it("maps bare provider names (legacy payloads)", () => {
     expect(classify("postgres")).toBe("knowledge");
     expect(classify("redis")).toBe("knowledge");
-    expect(classify("ollama")).toBe("model");
   });
 
   it("is case-insensitive", () => {
@@ -48,7 +47,7 @@ describe("brandIconId", () => {
   it("prefers the declared provider over the component name", () => {
     // Component keyed by an arbitrary name, but the provider is authoritative.
     expect(brandIconId("knowledge", "postgres", "knowledge-mydb")).toBe("postgres");
-    expect(brandIconId("model", "ollama", "model-primary")).toBe("ollama");
+    expect(brandIconId("model", "openai", "model-primary")).toBe("openai");
   });
 
   it("falls back to the component suffix when no provider is given", () => {

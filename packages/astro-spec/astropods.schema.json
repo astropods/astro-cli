@@ -188,14 +188,14 @@
         "properties": {
           "provider": {
             "type": "string",
-            "description": "Platform-managed provider (e.g. ollama) or custom provider name"
+            "description": "Cloud model provider (e.g. anthropic/openai) or custom provider name"
           },
           "models": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "description": "Model identifiers to make available (e.g. [llama3.2"
+            "description": "Model identifiers to make available"
           },
           "model": {
             "type": "string",

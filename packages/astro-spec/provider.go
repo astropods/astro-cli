@@ -22,19 +22,11 @@ type BindCredentialDef struct {
 	StorageKey string // exact key in credentials store (e.g. "POSTGRES_USER")
 }
 
-// Toleration mirrors corev1.Toleration for use outside k8s packages.
-type Toleration struct {
-	Key      string
-	Operator string // "Exists" or "Equal"
-	Value    string
-	Effect   string // "NoSchedule", "NoExecute", "PreferNoSchedule"
-}
-
 // BuiltinProvider is the single canonical type for every platform-known provider.
 // All providers — cloud and self-hosted, across all sections — are declared once
 // in the builtinProviders slice below. Everything else is derived from it.
 type BuiltinProvider struct {
-	Name    string // lowercase provider name (e.g. "ollama", "anthropic")
+	Name    string // lowercase provider name (e.g. "anthropic", "qdrant")
 	Section string // "models", "knowledge", or "integrations"
 	Cloud   bool   // true → credentials only, no container deployed
 	Managed bool   // true → server injects credentials from its own environment (user never provides them)
@@ -52,9 +44,6 @@ type BuiltinProvider struct {
 	HealthCheck    []string // exec health check; nil → use HealthPath
 	HealthPath     string   // HTTP health check path
 	DefaultEnv     map[string]string
-	GPU            bool
-	NodeSelector   map[string]string
-	Tolerations    []Toleration
 	WritableRootFS bool     // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
 	ExtraEmptyDirs []string // extra paths that need writable emptyDir mounts (e.g. "/qdrant/snapshots")
 	FsGroup        int64    // non-zero → pod runs as this uid/gid (overrides hardened default of 1000)
@@ -69,18 +58,6 @@ type BuiltinProvider struct {
 // builtinProviders is the single authoritative list of all platform-known providers.
 // To add a provider, add one entry here — no other file needs to change.
 var builtinProviders = []BuiltinProvider{
-	// ── Models: self-hosted ──────────────────────────────────────────────────
-	{
-		Name: "ollama", Section: "models",
-		Image: "ollama/ollama:latest", DefaultPort: 11434,
-		MountPath: "/root/.ollama", EnvPrefix: "OLLAMA",
-		HealthPath:   "/api/tags",
-		DefaultEnv:   map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
-		GPU:          true,
-		NodeSelector: map[string]string{"workload-type": "gpu"},
-		Tolerations:  []Toleration{{Key: "nvidia.com/gpu", Operator: "Exists", Effect: "NoSchedule"}},
-	},
-
 	// ── Models: cloud ────────────────────────────────────────────────────────
 	{
 		Name: "anthropic", Section: "models", Cloud: true,
@@ -201,7 +178,7 @@ func LookupBuiltin(section, name string) (BuiltinProvider, bool) {
 // ── Derived helpers (maintain backward-compatible API) ───────────────────────
 
 // Provider holds self-hosted container configuration. Returned by GetProvider
-// and GetModelProvider for backward compatibility with existing callers.
+// for backward compatibility with existing callers.
 type Provider = BuiltinProvider
 
 func IsCloudModelProvider(name string) bool {
@@ -302,14 +279,4 @@ func ProviderEndpoints(provider string) map[string]Endpoint {
 		eps[ep.Name] = Endpoint{Port: ep.Port, Protocol: ep.Name}
 	}
 	return eps
-}
-
-// GetModelProvider returns self-hosted configuration for a model provider.
-// Unknown or cloud-only providers return a zero BuiltinProvider.
-func GetModelProvider(name string) BuiltinProvider {
-	p, ok := LookupBuiltin("models", name)
-	if !ok || p.Cloud {
-		return BuiltinProvider{}
-	}
-	return p
 }

@@ -110,8 +110,6 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 		Name:            "test-agent",
 		Description:     "test",
 		Interfaces:      []string{"web", "slack"},
-		ModelProvider:   "ollama",
-		Model:           "mistral",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		IntegrationKeys: map[string]string{},
 		Knowledge:       []string{"qdrant", "redis"},
@@ -123,12 +121,9 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
 	}
 
-	// Models: ollama + anthropic + openai
-	if len(s.Models) != 3 {
-		t.Errorf("expected 3 models, got %d: %v", len(s.Models), s.Models)
-	}
-	if s.Models["ollama"].Provider != "ollama" {
-		t.Errorf("expected ollama model provider=ollama, got %q", s.Models["ollama"].Provider)
+	// Models: anthropic + openai
+	if len(s.Models) != 2 {
+		t.Errorf("expected 2 models, got %d: %v", len(s.Models), s.Models)
 	}
 	if s.Models["anthropic"].Provider != "anthropic" {
 		t.Errorf("expected anthropic model provider=anthropic, got %q", s.Models["anthropic"].Provider)
@@ -221,38 +216,17 @@ func TestAstroYml_AIGateway(t *testing.T) {
 }
 
 // TestAstroYml_ModelDeclarationPerModelChoice ensures the spec includes the correct
-// models block for each model selection (ollama+name, anthropic, openai, combined).
+// models block for each cloud model selection (anthropic, openai, combined).
 func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 	tests := []struct {
 		name       string
 		config     ScaffoldConfig
-		wantModels []string // expected keys under models: (e.g. "ollama", "anthropic")
-		wantModel  string   // if non-empty, expected model name on the ModelProvider key
+		wantModels []string // expected keys under models: (e.g. "anthropic")
 	}{
-		{
-			name: "ollama with model name",
-			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
-				ModelProvider: "ollama", Model: "llama3",
-				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
-			},
-			wantModels: []string{"ollama"},
-			wantModel:  "llama3",
-		},
-		{
-			name: "ollama without model name",
-			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
-				ModelProvider: "ollama", Model: "",
-				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
-			},
-			wantModels: []string{"ollama"},
-		},
 		{
 			name: "anthropic only",
 			config: ScaffoldConfig{
 				Name: "a", Description: "d", Interfaces: []string{"web"},
-				ModelProvider: "", Model: "",
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
 			wantModels: []string{"anthropic"},
@@ -261,20 +235,17 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 			name: "openai only",
 			config: ScaffoldConfig{
 				Name: "a", Description: "d", Interfaces: []string{"web"},
-				ModelProvider: "", Model: "",
 				Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
 			wantModels: []string{"openai"},
 		},
 		{
-			name: "ollama and anthropic",
+			name: "anthropic and openai",
 			config: ScaffoldConfig{
 				Name: "a", Description: "d", Interfaces: []string{"web"},
-				ModelProvider: "ollama", Model: "mistral",
-				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+				Integrations: []string{"anthropic", "openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels: []string{"ollama", "anthropic"},
-			wantModel:  "mistral",
+			wantModels: []string{"anthropic", "openai"},
 		},
 	}
 	for _, tt := range tests {
@@ -295,20 +266,6 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 			if len(s.Models) != len(tt.wantModels) {
 				t.Errorf("expected %d model(s), got %d: %v", len(tt.wantModels), len(s.Models), s.Models)
 			}
-			if tt.config.ModelProvider != "" {
-				m, ok := s.Models[tt.config.ModelProvider]
-				if !ok {
-					t.Errorf("expected model key %q, got %v", tt.config.ModelProvider, s.Models)
-				} else if m.Provider != tt.config.ModelProvider {
-					t.Errorf("model %q provider = %q, want %q", tt.config.ModelProvider, m.Provider, tt.config.ModelProvider)
-				}
-				if tt.wantModel != "" {
-					resolved := m.ResolvedModels()
-					if len(resolved) == 0 || resolved[0] != tt.wantModel {
-						t.Errorf("model %q models = %v, want %q", tt.config.ModelProvider, resolved, tt.wantModel)
-					}
-				}
-			}
 		})
 	}
 }
@@ -319,14 +276,7 @@ func TestAstroYml_ModelKeyMatchesProvider(t *testing.T) {
 	configs := []ScaffoldConfig{
 		{
 			Name: "a", Description: "d", Interfaces: []string{"web"},
-			ModelProvider: "ollama", Model: "llama3",
 			Integrations: []string{"anthropic", "openai"}, IntegrationKeys: map[string]string{},
-			Knowledge: nil, Ingestions: []string{},
-		},
-		{
-			Name: "a", Description: "d", Interfaces: []string{"web"},
-			ModelProvider: "ollama", Model: "",
-			Integrations: nil, IntegrationKeys: map[string]string{},
 			Knowledge: nil, Ingestions: []string{},
 		},
 		{
@@ -459,22 +409,13 @@ func TestAllTemplatesRender(t *testing.T) {
 	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})                 // 2^3 = 8
 	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"}) // 2^4 = 16
 
-	// Model states: none, provider-only, provider+model, gateway opt-in.
-	type modelState struct {
-		provider, model string
-		aiGateway       bool
-	}
-	modelStates := []modelState{
-		{"", "", false},
-		{"ollama", "", false},
-		{"ollama", "llama3.2:1b", false},
-		{"", "", true}, // AI Gateway
-	}
+	// Model states: no gateway, gateway opt-in.
+	aiGatewayStates := []bool{false, true}
 
 	for _, tmpl := range standardTemplates {
 		t.Run(tmpl.name, func(t *testing.T) {
 			for _, ifaces := range interfaceSubsets {
-				for _, ms := range modelStates {
+				for _, aiGateway := range aiGatewayStates {
 					for _, integs := range integrationSubsets {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
@@ -482,9 +423,7 @@ func TestAllTemplatesRender(t *testing.T) {
 									Name:            "a",
 									Description:     "d",
 									Interfaces:      ifaces,
-									ModelProvider:   ms.provider,
-									Model:           ms.model,
-									AIGateway:       ms.aiGateway,
+									AIGateway:       aiGateway,
 									Integrations:    integs,
 									IntegrationKeys: map[string]string{},
 									Knowledge:       know,
@@ -492,8 +431,8 @@ func TestAllTemplatesRender(t *testing.T) {
 								}
 								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
 									t.Errorf(
-										"interfaces=%v model=%q/%q gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
-										ifaces, ms.provider, ms.model, ms.aiGateway, integs, know, ings, err,
+										"interfaces=%v gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, aiGateway, integs, know, ings, err,
 									)
 								}
 							}
@@ -715,8 +654,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 			name: "full infrastructure",
 			config: ScaffoldConfig{
 				Name: "full-agent", Description: "full",
-				Interfaces:    []string{"web", "slack"},
-				ModelProvider: "ollama", Model: "mistral",
+				Interfaces:      []string{"web", "slack"},
 				Integrations:    []string{"anthropic", "openai", "github"},
 				IntegrationKeys: map[string]string{},
 				Knowledge:       []string{"qdrant", "redis", "neo4j"},
@@ -830,35 +768,10 @@ func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
 	}
 }
 
-// TestAgentEnvVars_OllamaModelProvider checks connection keys for self-hosted model providers.
-func TestAgentEnvVars_OllamaModelProvider(t *testing.T) {
-	cfg := ScaffoldConfig{
-		Name:            "a",
-		ModelProvider:   "ollama",
-		Model:           "llama3",
-		IntegrationKeys: map[string]string{},
-	}
-	wantKeys := []string{"OLLAMA_HOST", "OLLAMA_PORT", "OLLAMA_URL"}
-	for _, wantKey := range wantKeys {
-		found := false
-		for _, v := range cfg.AgentEnvVars() {
-			if v.Key == wantKey {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("AgentEnvVars with ollama model should include %s", wantKey)
-		}
-	}
-}
-
 // TestAgentEnvVars_AllHaveDescriptions verifies every returned var has a non-empty description.
 func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
 	cfg := ScaffoldConfig{
 		Name:            "a",
-		ModelProvider:   "ollama",
-		Model:           "llama3",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		Knowledge:       []string{"qdrant", "redis", "neo4j"},
 		IntegrationKeys: map[string]string{},
@@ -1107,21 +1020,12 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})
 	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"})
 
-	type modelState struct {
-		provider, model string
-		aiGateway       bool
-	}
-	modelStates := []modelState{
-		{"", "", false},
-		{"ollama", "", false},
-		{"ollama", "llama3.2:1b", false},
-		{"", "", true}, // AI Gateway
-	}
+	aiGatewayStates := []bool{false, true}
 
 	for _, tmpl := range standardTemplates {
 		t.Run(tmpl.name, func(t *testing.T) {
 			for _, ifaces := range interfaceSubsets {
-				for _, ms := range modelStates {
+				for _, aiGateway := range aiGatewayStates {
 					for _, integs := range integrationSubsets {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
@@ -1129,9 +1033,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 									Name:            "a",
 									Description:     "d",
 									Interfaces:      ifaces,
-									ModelProvider:   ms.provider,
-									Model:           ms.model,
-									AIGateway:       ms.aiGateway,
+									AIGateway:       aiGateway,
 									Integrations:    integs,
 									IntegrationKeys: map[string]string{},
 									Knowledge:       know,
@@ -1139,8 +1041,8 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 								}
 								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
 									t.Errorf(
-										"interfaces=%v model=%q/%q gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
-										ifaces, ms.provider, ms.model, ms.aiGateway, integs, know, ings, err,
+										"interfaces=%v gateway=%v integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, aiGateway, integs, know, ings, err,
 									)
 								}
 							}

@@ -144,12 +144,11 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		},
 		Models: map[string]spec.DeploymentModel{
 			"gpt4": {
-				Image: "ollama/ollama:latest", Replicas: 1,
-				Resources:  spec.DeploymentResources{CPU: "2", Memory: "8Gi", CPULimit: "4", MemoryLimit: "16Gi"},
-				Persistent: true, Provider: "ollama", Model: "gpt4",
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 11434, Protocol: "http"}},
+				Image: "my-model:latest", Replicas: 1,
+				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi", CPULimit: "4", MemoryLimit: "16Gi"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000, Protocol: "http"}},
 				GPU:       &spec.DeploymentGPU{VRAM: "8Gi", Runtime: "cuda", Count: 1},
-				Update:    spec.DefaultUpdateStrategy(),
+				Update:    spec.UpdateStrategy{Strategy: "recreate"},
 			},
 		},
 		Knowledge: map[string]spec.DeploymentKnowledge{
@@ -231,7 +230,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Errorf("agent image: got %q", agentWL.Image)
 	}
 
-	// Check model workload is a statefulset with GPU
+	// Check container-mode GPU model is a deployment with GPU
 	var modelWL *Workload
 	for _, w := range workloads {
 		if w.ComponentKind == "model" {
@@ -241,11 +240,11 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	if modelWL == nil {
 		t.Fatal("model workload not found")
 	}
-	if modelWL.WorkloadType != "statefulset" {
-		t.Errorf("model workload_type: got %q, want 'statefulset'", modelWL.WorkloadType)
+	if modelWL.WorkloadType != "deployment" {
+		t.Errorf("model workload_type: got %q, want 'deployment'", modelWL.WorkloadType)
 	}
-	if !modelWL.Persistent {
-		t.Error("model should be persistent")
+	if modelWL.Persistent {
+		t.Error("container-mode model should not be persistent")
 	}
 	if modelWL.GPURuntime == nil || *modelWL.GPURuntime != "cuda" {
 		t.Errorf("model gpu_runtime: got %v, want 'cuda'", modelWL.GPURuntime)
@@ -278,14 +277,14 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Errorf("expected 6 services, got %d", len(allServices))
 	}
 
-	// Verify volumes (model + knowledge)
+	// Verify volumes (knowledge only — container-mode model is not persistent)
 	var volCount int
 	err = db.QueryRow("SELECT COUNT(*) FROM deployment_volumes WHERE workload_id IN (SELECT id FROM deployment_workloads WHERE deployment_id = $1)", d.ID).Scan(&volCount)
 	if err != nil {
 		t.Fatalf("count volumes: %v", err)
 	}
-	if volCount != 2 {
-		t.Errorf("expected 2 volumes (model + knowledge), got %d", volCount)
+	if volCount != 1 {
+		t.Errorf("expected 1 volume (knowledge), got %d", volCount)
 	}
 
 	// Verify variables
@@ -602,9 +601,9 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		},
 		Models: map[string]spec.DeploymentModel{
 			"llm": {
-				Image: "ollama:latest", Replicas: 1,
+				Image: "my-model:latest", Replicas: 1,
 				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}},
 			},
 		},
 		Observability: spec.DeploymentObservability{Enabled: true, Image: "collector:latest"},

@@ -87,8 +87,8 @@ func TestApplyDeploymentSpec_WithModel(t *testing.T) {
 	ds := minimalDeploymentSpec()
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {
-			Image:     "test-registry.example.com/ollama:latest",
-			Endpoints: httpEp(11434),
+			Image:     "test-registry.example.com/my-model:latest",
+			Endpoints: httpEp(8000),
 			Replicas:  1,
 			Update:    spec.DefaultUpdateStrategy(),
 		},
@@ -499,7 +499,7 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	}
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {
-			Image: "test-registry.example.com/ollama:latest", Endpoints: httpEp(11434),
+			Image: "test-registry.example.com/my-model:latest", Endpoints: httpEp(8000),
 			Replicas: 2, Update: spec.DefaultUpdateStrategy(),
 			GPU:       &spec.DeploymentGPU{VRAM: "24Gi", Runtime: "cuda", Count: 1},
 			Resources: spec.GPUResources,
@@ -586,7 +586,7 @@ func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
 		},
 		Models: map[string]spec.DeploymentModel{
 			"llm": {
-				Image: "test-registry.example.com/ollama:latest", Endpoints: httpEp(11434),
+				Image: "test-registry.example.com/my-model:latest", Endpoints: httpEp(8000),
 				Replicas: 1, Update: spec.DefaultUpdateStrategy(),
 			},
 		},

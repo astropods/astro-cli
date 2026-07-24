@@ -167,21 +167,6 @@ func TestBuildDeployment(t *testing.T) {
 			},
 		},
 		{
-			name: "healthcheck provider ollama",
-			cfg: DeploymentConfig{
-				Name:            "hc-ollama",
-				Namespace:       "default",
-				AgentName:       "my-agent",
-				BuildID:         "1.0",
-				Component:       "model-llm",
-				Container:       spec.ContainerConfig{Image: "ollama/ollama:latest"},
-				Provider:        "ollama",
-				ProviderSection: "models",
-				Port:            11434,
-				Healthcheck:     &spec.Healthcheck{},
-			},
-		},
-		{
 			name: "healthcheck custom interval/timeout/retries",
 			cfg: DeploymentConfig{
 				Name:      "hc-custom-timing",
@@ -444,27 +429,8 @@ func TestBuildDeployment(t *testing.T) {
 		}
 	})
 
-	t.Run("healthcheck ollama provider check", func(t *testing.T) {
-		cfg := tests[10].cfg
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[0]
-
-		if container.LivenessProbe == nil {
-			t.Fatal("expected liveness probe")
-		}
-		if container.LivenessProbe.HTTPGet == nil {
-			t.Fatal("expected HTTPGet probe for ollama")
-		}
-		if container.LivenessProbe.HTTPGet.Path != "/api/tags" {
-			t.Errorf("expected path /api/tags, got %s", container.LivenessProbe.HTTPGet.Path)
-		}
-		if container.LivenessProbe.HTTPGet.Port.IntValue() != 11434 {
-			t.Errorf("expected port 11434, got %d", container.LivenessProbe.HTTPGet.Port.IntValue())
-		}
-	})
-
 	t.Run("custom timing probe check", func(t *testing.T) {
-		cfg := tests[11].cfg
+		cfg := tests[10].cfg
 		d := BuildDeployment(cfg)
 		container := d.Spec.Template.Spec.Containers[0]
 
@@ -483,7 +449,7 @@ func TestBuildDeployment(t *testing.T) {
 	})
 
 	t.Run("custom port check", func(t *testing.T) {
-		cfg := tests[12].cfg
+		cfg := tests[11].cfg
 		d := BuildDeployment(cfg)
 		container := d.Spec.Template.Spec.Containers[0]
 

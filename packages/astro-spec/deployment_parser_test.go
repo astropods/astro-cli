@@ -155,7 +155,7 @@ models:
   llm:
     endpoints:
       http:
-        port: 11434
+        port: 8000
 `
 	_, err := ParseDeploymentSpec([]byte(yaml))
 	if err == nil {
@@ -379,10 +379,10 @@ agent:
   distributed: true
 models:
   llm:
-    image: ollama/ollama:latest
+    image: my-model:latest
     endpoints:
       http:
-        port: 11434
+        port: 8000
     replicas: 1
     resources:
       cpu: "2"
@@ -512,9 +512,9 @@ func TestSerializeDeploymentSpec_RoundTrip(t *testing.T) {
 		},
 		Models: map[string]DeploymentModel{
 			"llm": {
-				Image: "ollama:latest",
+				Image: "my-model:latest",
 				Endpoints: map[string]Endpoint{
-					"http": {Port: 11434},
+					"http": {Port: 8000},
 				},
 				Replicas: 1,
 			},
@@ -541,8 +541,8 @@ func TestSerializeDeploymentSpec_RoundTrip(t *testing.T) {
 	if parsed.Agent.Environment["KEY"] != "${variables.API_KEY}" {
 		t.Error("environment lost in round-trip")
 	}
-	if PrimaryPort(parsed.Models["llm"].Endpoints) != 11434 {
-		t.Errorf("models.llm.endpoints http port: expected 11434, got %d", PrimaryPort(parsed.Models["llm"].Endpoints))
+	if PrimaryPort(parsed.Models["llm"].Endpoints) != 8000 {
+		t.Errorf("models.llm.endpoints http port: expected 8000, got %d", PrimaryPort(parsed.Models["llm"].Endpoints))
 	}
 }
 
@@ -1335,12 +1335,12 @@ agent:
       port: 8080
 models:
   llm:
-    image: ollama:latest
+    image: my-model:latest
     endpoints:
       http:
-        port: 11434
+        port: 8000
       extra:
-        port: 11434
+        port: 8000
 `
 	_, err := ParseDeploymentSpec([]byte(yaml))
 	if err == nil {

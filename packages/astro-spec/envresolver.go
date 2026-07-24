@@ -8,7 +8,6 @@ package spec
 //   8.1  Cloud providers   → {UPPER(provider)}_{suffix} injected into the agent.
 //        Duplicate entries → qualified with entry name; primary also gets bare key.
 //   8.2  Self-hosted providers → {EnvPrefix}_{HOST/PORT/URL} injected into the agent.
-//        Model providers additionally inject {EnvPrefix}_{BASE_URL} and {EnvPrefix}_{MODEL}.
 //   8.3  Container-mode entries → {SECTION}_{UPPER(name)}_{HOST/PORT/URL}.
 //   8.4  Inputs → name used directly as env var key in the target container.
 //        Top-level inputs → all containers. Component inputs → their container only.
@@ -71,10 +70,9 @@ func SanitizeDBName(name string) string {
 // Values may be concrete strings (docker DNS, k8s service DNS) or placeholder
 // references (e.g. "${models.llm.host}") for deferred resolution.
 type ConnectionAddress struct {
-	Host    string
-	Port    string
-	URL     string
-	BaseURL string // URL + "/api"; populated for model providers
+	Host string
+	Port string
+	URL  string
 }
 
 // ─── Result types ─────────────────────────────────────────────────────────────
@@ -413,15 +411,14 @@ func AgentConnectionKeys(s *AstroSpec, addrs map[string]ConnectionAddress) map[s
 // naming by evaluating within the full spec context.
 //
 // section must be "models", "knowledge", or "integrations". entryName is the map key.
-// Only connection keys are returned (not model-name keys like OLLAMA_MODEL).
+// Only connection keys are returned.
 func AgentKeysForComponent(s *AstroSpec, section, entryName string) []string {
 	const sentinel = "\x00SENTINEL\x00"
 	addrs := map[string]ConnectionAddress{
 		section + "." + entryName: {
-			Host:    sentinel,
-			Port:    sentinel,
-			URL:     sentinel,
-			BaseURL: sentinel,
+			Host: sentinel,
+			Port: sentinel,
+			URL:  sentinel,
 		},
 	}
 	env := AgentConnectionKeys(s, addrs)
@@ -478,13 +475,9 @@ func AllAgentAutoEnvKeys(s *AstroSpec) map[string]AgentEnvMeta {
 // connectionKeySource returns the provider name and section category for a
 // connection env var key by matching against the spec's self-hosted components.
 func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
-	for name, m := range s.Models {
-		if p, ok := LookupBuiltin("models", m.Provider); ok && p.EnvPrefix != "" {
-			if strings.HasPrefix(key, p.EnvPrefix+"_") {
-				return m.Provider, "model"
-			}
-		}
-		// §8.3 container-mode model (no builtin EnvPrefix).
+	for name := range s.Models {
+		// §8.3 container-mode model. Provider-mode models are cloud/custom and
+		// contribute no connection keys.
 		if strings.HasPrefix(key, "MODEL_"+SanitizeEnvName(name)+"_") {
 			return name, "model"
 		}
@@ -514,68 +507,26 @@ func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
 
 // ─── Internal connection resolution ──────────────────────────────────────────
 
-// resolveModelConnections applies §8.2 (self-hosted) and §8.3 (container) rules
-// for all model entries into dst.
+// resolveModelConnections applies §8.3 (container) rules for all model entries
+// into dst. Provider-mode models are cloud (credentials only) or custom, so they
+// deploy no container and contribute no connection wiring.
 func resolveModelConnections(s *AstroSpec, addrs map[string]ConnectionAddress, dst map[string]string) {
 	if len(s.Models) == 0 {
 		return
 	}
 
-	// Count how many entries share each EnvPrefix (for duplicate-key logic).
-	prefixCount := make(map[string]int)
-	for _, m := range s.Models {
-		if m.IsProviderMode() && m.DeploysContainer(s.Providers) {
-			if prov := GetModelProvider(m.Provider); prov.EnvPrefix != "" {
-				prefixCount[prov.EnvPrefix]++
-			}
-		}
-	}
-
-	names := sortedKeys(s.Models)
-	prefixFirst := make(map[string]bool)
-
-	for _, name := range names {
+	for _, name := range sortedKeys(s.Models) {
 		model := s.Models[name]
 		if !model.DeploysContainer(s.Providers) {
 			continue // cloud or custom provider — no connection wiring
 		}
 		addr := addrs["models."+name]
 
-		if model.IsProviderMode() {
-			// §8.2 — self-hosted model provider.
-			prov := GetModelProvider(model.Provider)
-			if prov.EnvPrefix == "" {
-				continue
-			}
-			isDup := prefixCount[prov.EnvPrefix] > 1
-			isFirst := !prefixFirst[prov.EnvPrefix]
-			prefixFirst[prov.EnvPrefix] = true
-
-			for _, key := range qualifiedKeys(prov.EnvPrefix, name, "HOST", isDup, isFirst) {
-				dst[key] = addr.Host
-			}
-			for _, key := range qualifiedKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
-				dst[key] = addr.Port
-			}
-			for _, key := range qualifiedKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
-				dst[key] = addr.URL
-			}
-			for _, key := range qualifiedKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
-				dst[key] = addr.BaseURL
-			}
-			if models := model.ResolvedModels(); len(models) > 0 {
-				joined := strings.Join(models, ",")
-				for _, key := range qualifiedKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
-					dst[key] = joined
-				}
-			}
-		} else {
-			// §8.3 — container-mode model.
-			prefix := "MODEL_" + SanitizeEnvName(name)
-			dst[prefix+"_HOST"] = addr.Host
-			dst[prefix+"_PORT"] = addr.Port
-			dst[prefix+"_URL"] = addr.URL
-		}
+		// §8.3 — container-mode model.
+		prefix := "MODEL_" + SanitizeEnvName(name)
+		dst[prefix+"_HOST"] = addr.Host
+		dst[prefix+"_PORT"] = addr.Port
+		dst[prefix+"_URL"] = addr.URL
 	}
 }
 
