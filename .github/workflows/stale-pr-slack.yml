@@ -3,7 +3,7 @@ name: Stale PR Slack reminder
 # Posts a digest of stale open PRs to Slack, grouped by author.
 # A PR is "stale" when it has had no activity (updated_at) for:
 #   - 7 days  for regular PRs
-#   - 14 days for drafts
+#   - 30 days for drafts
 #
 # Schedule note: GitHub cron is UTC-only and does not observe US DST.
 # 11:00 UTC ~= 07:00 ET (EDT) / 06:00 ET (EST), weekdays.
@@ -29,7 +29,7 @@ jobs:
           script: |
             const DAY_MS = 24 * 60 * 60 * 1000;
             const REGULAR_DAYS = 7;
-            const DRAFT_DAYS = 14;
+            const DRAFT_DAYS = 30;
 
             const now = Date.now();
 
