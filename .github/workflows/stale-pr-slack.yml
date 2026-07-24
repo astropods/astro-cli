@@ -1,0 +1,122 @@
+name: Stale PR Slack reminder
+
+# Posts a digest of stale open PRs to Slack, grouped by author.
+# A PR is "stale" when it has had no activity (updated_at) for:
+#   - 7 days  for regular PRs
+#   - 14 days for drafts
+#
+# Schedule note: GitHub cron is UTC-only and does not observe US DST.
+# 11:00 UTC ~= 07:00 ET (EDT) / 06:00 ET (EST), weekdays.
+on:
+  schedule:
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch: # allow manual runs for testing
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  stale-pr-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gather stale PRs and notify Slack
+        uses: actions/github-script@v7
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_ASTRO_OPS_CHANNEL_ID }}
+        with:
+          script: |
+            const DAY_MS = 24 * 60 * 60 * 1000;
+            const REGULAR_DAYS = 7;
+            const DRAFT_DAYS = 14;
+
+            const now = Date.now();
+
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+
+            const stale = prs.filter((pr) => {
+              const ageDays = (now - new Date(pr.updated_at).getTime()) / DAY_MS;
+              const limit = pr.draft ? DRAFT_DAYS : REGULAR_DAYS;
+              return ageDays >= limit;
+            });
+
+            core.info(`Scanned ${prs.length} open PRs; ${stale.length} are stale.`);
+
+            if (stale.length === 0) {
+              core.info("No stale PRs — skipping Slack post.");
+              return;
+            }
+
+            // Escape Slack mrkdwn-reserved characters in free text.
+            const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            const staleDays = (pr) =>
+              Math.floor((now - new Date(pr.updated_at).getTime()) / DAY_MS);
+
+            // Group by author login.
+            const byAuthor = new Map();
+            for (const pr of stale) {
+              const login = pr.user?.login ?? "unknown";
+              if (!byAuthor.has(login)) byAuthor.set(login, []);
+              byAuthor.get(login).push(pr);
+            }
+
+            const authors = [...byAuthor.keys()].sort((a, b) => a.localeCompare(b));
+
+            const lines = [
+              `:broom: *Stale PR reminder* — ${stale.length} open PR(s) need a nudge`,
+              `_No activity for ${REGULAR_DAYS}+ days (${DRAFT_DAYS}+ for drafts). Please update, or close if abandoned._`,
+              "",
+            ];
+
+            for (const login of authors) {
+              const items = byAuthor
+                .get(login)
+                .sort((a, b) => staleDays(b) - staleDays(a));
+              lines.push(`*${esc(login)}* (${items.length})`);
+              for (const pr of items) {
+                const flag = pr.draft ? " _(draft)_" : "";
+                lines.push(
+                  `• <${pr.html_url}|#${pr.number}> ${esc(pr.title)} — stale ${staleDays(pr)}d${flag}`,
+                );
+              }
+              lines.push("");
+            }
+
+            const text = lines.join("\n");
+
+            const token = process.env.SLACK_BOT_TOKEN;
+            const channel = process.env.SLACK_CHANNEL_ID;
+            if (!token || !channel) {
+              core.setFailed(
+                "Missing SLACK_BOT_TOKEN secret or SLACK_ASTRO_OPS_CHANNEL_ID variable.",
+              );
+              return;
+            }
+
+            const res = await fetch("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                channel,
+                text,
+                unfurl_links: false,
+                unfurl_media: false,
+              }),
+            });
+
+            const data = await res.json();
+            if (!data.ok) {
+              core.setFailed(`Slack chat.postMessage failed: ${data.error}`);
+            } else {
+              core.info(`Posted stale PR digest to Slack channel ${channel}.`);
+            }
