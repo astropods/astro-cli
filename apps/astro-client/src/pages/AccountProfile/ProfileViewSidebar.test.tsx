@@ -157,13 +157,6 @@ describe('ProfileViewSidebar optional meta fields', () => {
     expect(screen.getByText('San Francisco')).toBeInTheDocument();
   });
 
-  it('renders email as a mailto link', () => {
-    renderWithProviders(
-      <ProfileViewSidebar {...personalDefaults} data={{ ...baseAccount, email: 'hi@example.com' }} />,
-    );
-    const link = screen.getByRole('link', { name: 'hi@example.com' });
-    expect(link).toHaveAttribute('href', 'mailto:hi@example.com');
-  });
 });
 
 // ── Personal: early adopter badge ─────────────────────────────────────────────
@@ -271,14 +264,13 @@ describe('ProfileViewSidebar org optional meta fields', () => {
     expect(link).toHaveAttribute('href', 'https://astropods.ai');
   });
 
-  it('does not render email or pronouns fields', () => {
+  it('does not render pronouns field', () => {
     renderWithProviders(
       <ProfileViewSidebar
         {...orgDefaults}
-        data={{ ...baseOrg, email: 'hello@astropods.ai', pronouns: 'they/them' } as AccountPublic}
+        data={{ ...baseOrg, pronouns: 'they/them' } as AccountPublic}
       />,
     );
-    expect(screen.queryByText('hello@astropods.ai')).not.toBeInTheDocument();
     expect(screen.queryByText('they/them')).not.toBeInTheDocument();
   });
 });

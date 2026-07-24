@@ -135,7 +135,7 @@ export function useResetAvatar() {
 export function useUpdateAccountProfile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ account, ...data }: { account: string; bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] }) =>
+    mutationFn: ({ account, ...data }: { account: string; bio?: string; location?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] }) =>
       api.updateAccountProfile(account, data),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: accountKeys.detail(variables.account) });

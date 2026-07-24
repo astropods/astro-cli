@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { detectSocialLink, type SocialLinkDisplay } from "@/lib/social-links";
-import { Calendar, Globe, Mail, MapPin, User2 } from "lucide-react";
+import { Calendar, Globe, MapPin, User2 } from "lucide-react";
 
 export interface StatItem {
   label: string;
@@ -23,7 +23,6 @@ interface ProfileSidebarShellProps {
   stats: StatItem[];
   badge?: ReactNode;
   pronouns?: string;
-  email?: string;
   children?: ReactNode;
 }
 
@@ -87,7 +86,6 @@ export function ProfileSidebarShell({
   stats,
   badge,
   pronouns,
-  email,
   children,
 }: ProfileSidebarShellProps) {
   const displayName = data.display_name || data.name;
@@ -141,9 +139,6 @@ export function ProfileSidebarShell({
           <MetaRow icon={<Calendar className="size-3.5" />}>{dateLabel} {date}</MetaRow>
           {pronouns && <MetaRow icon={<User2 className="size-3.5" />}>{pronouns}</MetaRow>}
           {data.location && <MetaRow icon={<MapPin className="size-3.5" />}>{data.location}</MetaRow>}
-          {email && (
-            <MetaRow icon={<Mail className="size-3.5" />} href={`mailto:${email}`}>{email}</MetaRow>
-          )}
           {websiteHref && (
             <MetaRow icon={<Globe className="size-3.5" />} href={websiteHref}>{websiteLabel}</MetaRow>
           )}

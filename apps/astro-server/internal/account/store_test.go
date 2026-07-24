@@ -79,7 +79,7 @@ func TestGetByName_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
 
 	_, err := store.GetByName("unknown")
 	if err == nil {
@@ -134,7 +134,7 @@ func TestGetByID_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown-id").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
 
 	_, err := store.GetByID("unknown-id")
 	if err == nil {
@@ -170,7 +170,7 @@ func TestGetByWorkOSOrganizationID_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
 
 	_, err := store.GetByWorkOSOrganizationID("org_unknown")
 	if err == nil {

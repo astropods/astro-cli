@@ -146,7 +146,6 @@ export interface AccountPublic {
   account_number?: number;
   bio?: string;
   location?: string;
-  email?: string;
   local_timezone?: string;
   pronouns?: string;
   website?: string;
@@ -170,7 +169,6 @@ export interface Account {
   account_number?: number;
   bio?: string;
   location?: string;
-  email?: string;
   local_timezone?: string;
   pronouns?: string;
   website?: string;
@@ -2257,7 +2255,7 @@ class ApiClient {
 
   async updateAccountProfile(
     account: string,
-    data: { bio?: string; location?: string; email?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] },
+    data: { bio?: string; location?: string; local_timezone?: string; pronouns?: string; website?: string; social_links?: string[]; blueprint_order?: string[] },
   ): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       `/api/v1/accounts/${encodeURIComponent(account)}`,

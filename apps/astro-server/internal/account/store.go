@@ -122,12 +122,12 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var deletedAt sql.NullTime
 	var avatarUpdatedAt sql.NullTime
 	var accountNumber sql.NullInt32
-	var bio, location, email, localTimezone, pronouns, website sql.NullString
+	var bio, location, localTimezone, pronouns, website sql.NullString
 	var socialLinks, blueprintOrder pq.StringArray
 	err := row.Scan(
 		&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt,
 		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &avatarUpdatedAt, &clusterID,
-		&accountNumber, &bio, &location, &email, &localTimezone, &pronouns, &website, &socialLinks, &blueprintOrder,
+		&accountNumber, &bio, &location, &localTimezone, &pronouns, &website, &socialLinks, &blueprintOrder,
 	)
 	if err != nil {
 		return nil, err
@@ -151,7 +151,6 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	}
 	acct.Bio = bio.String
 	acct.Location = location.String
-	acct.Email = email.String
 	acct.LocalTimezone = localTimezone.String
 	acct.Pronouns = pronouns.String
 	acct.Website = website.String
@@ -172,7 +171,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
 		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
-		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
+		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		LEFT JOIN account_profile ap ON ap.account_id = a.id
@@ -191,7 +190,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
 		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
-		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
+		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		LEFT JOIN account_profile ap ON ap.account_id = a.id
@@ -210,7 +209,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
 		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
-		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
+		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
 		LEFT JOIN account_profile ap ON ap.account_id = a.id
@@ -403,7 +402,7 @@ func (s *AccountStore) UpdateDisplayName(accountID, displayName string) error {
 // string leaves the existing display_name unchanged.
 // UpdateProfile updates the account's display name and profile fields.
 // Pointer fields use PATCH semantics: nil = leave unchanged, non-nil = set (empty string clears the field).
-func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, location, email, localTimezone, pronouns, website *string, socialLinks *[]string, blueprintOrder *[]string) error {
+func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, location, localTimezone, pronouns, website *string, socialLinks *[]string, blueprintOrder *[]string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -438,7 +437,7 @@ func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, locatio
 	}
 
 	// Skip profile upsert entirely if no profile fields were provided.
-	if bio == nil && location == nil && email == nil && localTimezone == nil && pronouns == nil && website == nil && socialLinks == nil && blueprintOrder == nil {
+	if bio == nil && location == nil && localTimezone == nil && pronouns == nil && website == nil && socialLinks == nil && blueprintOrder == nil {
 		return tx.Commit()
 	}
 
@@ -453,21 +452,20 @@ func (s *AccountStore) UpdateProfile(accountID, displayName string, bio, locatio
 
 	// CASE WHEN flags ensure only explicitly provided fields overwrite existing values.
 	if _, err := tx.Exec(`
-		INSERT INTO account_profile (account_id, bio, location, email, local_timezone, pronouns, website, social_links, blueprint_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO account_profile (account_id, bio, location, local_timezone, pronouns, website, social_links, blueprint_order)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (account_id) DO UPDATE SET
-			bio             = CASE WHEN $10 THEN EXCLUDED.bio             ELSE account_profile.bio             END,
-			location        = CASE WHEN $11 THEN EXCLUDED.location        ELSE account_profile.location        END,
-			email           = CASE WHEN $12 THEN EXCLUDED.email           ELSE account_profile.email           END,
-			local_timezone  = CASE WHEN $13 THEN EXCLUDED.local_timezone  ELSE account_profile.local_timezone  END,
-			pronouns        = CASE WHEN $14 THEN EXCLUDED.pronouns        ELSE account_profile.pronouns        END,
-			website         = CASE WHEN $15 THEN EXCLUDED.website         ELSE account_profile.website         END,
-			social_links    = CASE WHEN $16 THEN EXCLUDED.social_links    ELSE account_profile.social_links    END,
-			blueprint_order = CASE WHEN $17 THEN EXCLUDED.blueprint_order ELSE account_profile.blueprint_order END
+			bio             = CASE WHEN $9  THEN EXCLUDED.bio             ELSE account_profile.bio             END,
+			location        = CASE WHEN $10 THEN EXCLUDED.location        ELSE account_profile.location        END,
+			local_timezone  = CASE WHEN $11 THEN EXCLUDED.local_timezone  ELSE account_profile.local_timezone  END,
+			pronouns        = CASE WHEN $12 THEN EXCLUDED.pronouns        ELSE account_profile.pronouns        END,
+			website         = CASE WHEN $13 THEN EXCLUDED.website         ELSE account_profile.website         END,
+			social_links    = CASE WHEN $14 THEN EXCLUDED.social_links    ELSE account_profile.social_links    END,
+			blueprint_order = CASE WHEN $15 THEN EXCLUDED.blueprint_order ELSE account_profile.blueprint_order END
 	`, accountID,
-		nullablePtrStr(bio), nullablePtrStr(location), nullablePtrStr(email), nullablePtrStr(localTimezone), nullablePtrStr(pronouns), nullablePtrStr(website),
+		nullablePtrStr(bio), nullablePtrStr(location), nullablePtrStr(localTimezone), nullablePtrStr(pronouns), nullablePtrStr(website),
 		pq.Array(sl), pq.Array(bo),
-		bio != nil, location != nil, email != nil, localTimezone != nil, pronouns != nil, website != nil, socialLinks != nil, blueprintOrder != nil,
+		bio != nil, location != nil, localTimezone != nil, pronouns != nil, website != nil, socialLinks != nil, blueprintOrder != nil,
 	); err != nil {
 		return fmt.Errorf("failed to upsert profile: %w", err)
 	}
@@ -493,7 +491,7 @@ func nullablePtrStr(s *string) sql.NullString {
 func (s *AccountStore) GetOrgAccountsForUser(userID string) ([]Account, error) {
 	rows, err := s.db.Query(`
 		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
-		       ap.account_number, ap.bio, ap.location, ap.email, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
+		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_members am ON am.account_id = a.id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -982,10 +980,10 @@ func (s *AccountStore) GetByStripeCustomerID(customerID string) (*Account, error
 }
 
 // GetOwnerEmail returns the account owner's WorkOS-mirrored email (from
-// account_member_emails), i.e. the verified identity email we persist — not the
-// editable account_profile email or a request's session user. The owner is the
-// earliest member; a verified address wins ties. Returns "" when no mirrored
-// email exists yet (e.g. reconcile pending), which callers treat as "unknown".
+// account_member_emails), i.e. the verified identity email we persist — not a
+// request's session user. The owner is the earliest member; a verified address
+// wins ties. Returns "" when no mirrored email exists yet (e.g. reconcile
+// pending), which callers treat as "unknown".
 func (s *AccountStore) GetOwnerEmail(accountID string) (string, error) {
 	var email string
 	err := s.db.QueryRow(`

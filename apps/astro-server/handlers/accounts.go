@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -69,7 +68,6 @@ type AccountResponse struct {
 	AccountNumber  *int               `json:"account_number,omitempty"`
 	Bio            string             `json:"bio,omitempty"`
 	Location       string             `json:"location,omitempty"`
-	Email          string             `json:"email,omitempty"`
 	LocalTimezone  string             `json:"local_timezone,omitempty"`
 	Pronouns       string             `json:"pronouns,omitempty"`
 	Website        string             `json:"website,omitempty"`
@@ -341,7 +339,6 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 			AccountNumber:  acct.AccountNumber,
 			Bio:            acct.Bio,
 			Location:       acct.Location,
-			Email:          acct.Email,
 			LocalTimezone:  acct.LocalTimezone,
 			Pronouns:       acct.Pronouns,
 			Website:        acct.Website,
@@ -452,7 +449,6 @@ type UpdateAccountRequest struct {
 	DisplayName    *string   `json:"display_name"`
 	Bio            *string   `json:"bio"`
 	Location       *string   `json:"location"`
-	Email          *string   `json:"email"`
 	LocalTimezone  *string   `json:"local_timezone"`
 	Pronouns       *string   `json:"pronouns"`
 	Website        *string   `json:"website"`
@@ -500,18 +496,6 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			c.JSON(http.StatusBadRequest, gin.H{"error": "location must be 100 characters or fewer"})
 			return
 		}
-		if req.Email != nil {
-			if len(*req.Email) > 255 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "email must be 255 characters or fewer"})
-				return
-			}
-			if *req.Email != "" {
-				if _, err := mail.ParseAddress(*req.Email); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid email address"})
-					return
-				}
-			}
-		}
 		if req.LocalTimezone != nil && len(*req.LocalTimezone) > 50 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "local_timezone must be 50 characters or fewer"})
 			return
@@ -552,7 +536,7 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			}
 		}
 
-		if err := accountStore.UpdateProfile(acct.ID, displayName, req.Bio, req.Location, req.Email, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
+		if err := accountStore.UpdateProfile(acct.ID, displayName, req.Bio, req.Location, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
 			log.Error("Failed to update account profile", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return

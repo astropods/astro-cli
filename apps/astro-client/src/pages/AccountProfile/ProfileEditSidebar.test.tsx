@@ -58,7 +58,6 @@ const baseAccount: AccountPublic = {
   display_name: 'Test User',
   bio: 'Hello world',
   location: 'Earth',
-  email: 'test@example.com',
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
 };
@@ -69,7 +68,6 @@ const baseOrgAccount: AccountPublic = {
   name: 'test-org',
   type: 'organization',
   display_name: 'Test Org',
-  email: undefined,
 };
 
 // ── Field pre-population ──────────────────────────────────────────────────────
@@ -96,17 +94,10 @@ describe('ProfileEditSidebar field pre-population', () => {
     expect(screen.getByDisplayValue('Earth')).toBeInTheDocument();
   });
 
-  it('pre-fills the email field', () => {
-    renderWithProviders(
-      <ProfileEditSidebar data={baseAccount} onClose={vi.fn()} />,
-    );
-    expect(screen.getByDisplayValue('test@example.com')).toBeInTheDocument();
-  });
-
   it('renders empty fields when optional props are absent', () => {
     renderWithProviders(
       <ProfileEditSidebar
-        data={{ ...baseAccount, bio: undefined, location: undefined, email: undefined }}
+        data={{ ...baseAccount, bio: undefined, location: undefined }}
         onClose={vi.fn()}
       />,
     );

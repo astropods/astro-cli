@@ -796,8 +796,8 @@ func TestListAccountAgents_QueryFilterPassedToIndex(t *testing.T) {
 	accountStore := account.NewAccountStore(accountDB)
 	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("testaccount").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
 
 	heartsDB, _, _ := sqlmock.New()
 	defer heartsDB.Close()
@@ -842,8 +842,8 @@ func TestListAccountAgents_Member_PrivateVisibilityFilter(t *testing.T) {
 	accountStore := account.NewAccountStore(accountDB)
 	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("testaccount").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("test-account-id", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -897,8 +897,8 @@ func TestListAccountAgents_Member_NoVisibilityFilter(t *testing.T) {
 	accountStore := account.NewAccountStore(accountDB)
 	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("testaccount").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("test-account-id", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -952,8 +952,8 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 	accountStore := account.NewAccountStore(accountDB)
 	accountMock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("testaccount").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("test-account-id", "testaccount", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, pq.StringArray(nil), pq.StringArray(nil)))
 	accountMock.ExpectQuery("SELECT.*WHERE am.user_id").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at"}).

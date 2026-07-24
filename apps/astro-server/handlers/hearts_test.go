@@ -119,7 +119,7 @@ func TestToggleHeart_AccountNotFound(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "email", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/my-agent/heart", nil)
 	rec := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestListHearted_OrgAccountReturns404(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("astro-inc").
 		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/hearts", nil)
 	rec := httptest.NewRecorder()

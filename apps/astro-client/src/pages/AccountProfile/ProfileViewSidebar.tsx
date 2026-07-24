@@ -68,7 +68,6 @@ export function ProfileViewSidebar({
         stats={stats}
         badge={badge}
         pronouns={isOrg ? undefined : data.pronouns}
-        email={isOrg ? undefined : data.email}
       >
         {isOrg && isInternalView && activeMembers.length > 0 && (
           <>

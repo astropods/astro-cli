@@ -40,7 +40,6 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
   const [displayName, setDisplayName] = useState(data.display_name ?? "");
   const [bio, setBio] = useState(data.bio ?? "");
   const [location, setLocation] = useState(data.location ?? "");
-  const [email, setEmail] = useState(data.email ?? "");
   const [pronouns, setPronouns] = useState(data.pronouns ?? "");
   const [website, setWebsite] = useState(withProtocol(data.website ?? ""));
   const [socialLinks, setSocialLinks] = useState<[string, string, string, string]>(() => {
@@ -85,7 +84,7 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
           location,
           website,
           social_links: socialLinks.filter((s) => s.trim() !== ""),
-          ...(!isOrg && { email, pronouns, local_timezone: "" }),
+          ...(!isOrg && { pronouns, local_timezone: "" }),
         }),
       ]);
       if (!isOrg) {
@@ -184,22 +183,10 @@ export function ProfileEditSidebar({ data, onClose, variant = "personal" }: Prof
         </div>
 
         {!isOrg && (
-          <>
-            <div>
-              <p className="text-body-sm text-muted-foreground mb-1">Email</p>
-              <Input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                type="email"
-                className="h-8 text-body-sm"
-              />
-            </div>
-            <div>
-              <p className="text-body-sm text-muted-foreground mb-1">Pronouns</p>
-              <PronounsSelect value={pronouns} onValueChange={setPronouns} className="h-8 text-body-sm" />
-            </div>
-          </>
+          <div>
+            <p className="text-body-sm text-muted-foreground mb-1">Pronouns</p>
+            <PronounsSelect value={pronouns} onValueChange={setPronouns} className="h-8 text-body-sm" />
+          </div>
         )}
 
         <div>

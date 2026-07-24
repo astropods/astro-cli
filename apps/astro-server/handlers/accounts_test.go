@@ -747,7 +747,7 @@ func TestGetAccountOrgs_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows(orgColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/taylor/orgs", nil)
 	rec := httptest.NewRecorder()
@@ -844,7 +844,7 @@ func TestGetAccountOrgs_OrgAccountReturns404(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id, a.name, a.type").
 		WithArgs("astro-inc").
 		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
-			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("org-1", "astro-inc", "organization", nil, nil, now, now, "Astro Inc", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/astro-inc/orgs", nil)
 	rec := httptest.NewRecorder()

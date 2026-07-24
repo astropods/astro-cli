@@ -85,7 +85,6 @@ CREATE TABLE public.account_profile (
     account_number serial,
     bio varchar(500),
     location varchar(100),
-    email varchar(255),
     local_timezone varchar(50),
     pronouns varchar(50),
     website varchar(255),

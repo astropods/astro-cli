@@ -56,7 +56,7 @@ func expectStandardAccountAndCreds(t *testing.T) (
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
 			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "",
-				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
