@@ -90,7 +90,7 @@ If the wrapped `Agent` has a `voice` provider configured, the adapter handles au
 | 4    | Run `agent.stream(transcript, ...)` to generate the reply.            |
 | 5    | If `voice.speak` exists, synthesize TTS and stream audio chunks back. |
 
-`filetype` is derived from the incoming `AudioStreamConfig.encoding` (see [Messaging SDK — Audio](../messaging-sdk/node#audio)).
+`filetype` is derived from the incoming `AudioStreamConfig.encoding` (see [Messaging SDK — Audio](/messaging-sdk/node#audio)).
 
 To enable voice, configure a Mastra `voice` provider when constructing the agent (see Mastra's voice docs). If `voice` is absent, audio messages are rejected with a friendly error.
 

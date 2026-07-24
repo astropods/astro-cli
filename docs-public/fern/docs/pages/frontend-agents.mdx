@@ -182,3 +182,8 @@ ast blueprint deploy my-dashboard
 After deploy, `ast agent list` shows the assigned hostname. Open it in a browser to confirm your container is serving traffic.
 
 If your container fails to bind to `:80` in production, the pod will crash-loop. Check `ast agent logs <name>` and verify the listen port matches the spec.
+
+## Next steps
+
+- [Managing your agents](/managing-agents): inspect and control the deployed agent
+- [Connect to OAuth-protected MCP servers](/mcp-oauth): add OAuth flows to a frontend agent

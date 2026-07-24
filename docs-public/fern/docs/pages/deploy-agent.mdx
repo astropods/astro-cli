@@ -14,7 +14,7 @@ Requires a blueprint in your account. See [Your first blueprint](/blueprints) to
     ast blueprint deploy <name>
     ```
 
-    `<name>` is the blueprint name (as shown in `ast blueprint list`). By default the agent is accessible via a web interface with authentication enabled.
+    `<name>` is the blueprint name (as shown in `ast blueprint list`). By default the agent is accessible through a web interface with authentication enabled.
 
     Give the deployment a custom display name:
 
@@ -78,8 +78,11 @@ Agents that declare `agent.interfaces.frontend: true` in their spec serve their 
 ast blueprint deploy my-frontend-agent
 ```
 
-The deployed agent receives a dedicated hostname and is immediately accessible via browser. The `--adapter` flag has no effect for frontend agents.
+The deployed agent receives a dedicated hostname and is immediately accessible in a browser. The `--adapter` flag has no effect for frontend agents.
 
 ---
 
-Once your agent is running, see [Managing your agents](/managing-agents) for how to inspect, update, and control it.
+## Next steps
+
+- [Managing your agents](/managing-agents): inspect, update, and control a running agent
+- [Monitor your agents](/monitor-agents): add tracing and metrics to a deployed agent

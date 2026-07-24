@@ -69,7 +69,7 @@ ast agent resume --id <deployment-id>
 
 ### agent redeploy
 
-Re-deploy an existing agent in-place. Accepts the same `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, and `--json` flags as `blueprint deploy`. If `--adapter` is omitted, the adapter defaults to `web`; pass `--adapter` explicitly to preserve or change a non-web setup.
+Re-deploy an existing agent in-place. Accepts the same `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, `--wait`, and `--json` flags as `blueprint deploy`. If `--adapter` is omitted, the adapter defaults to `web`; pass `--adapter` explicitly to preserve or change a non-web setup.
 
 ```bash
 ast agent redeploy --name <display-or-blueprint-name> [flags]
@@ -162,10 +162,10 @@ ast blueprint list [--json]
 ### blueprint get
 
 ```bash
-ast blueprint get <name> [--json] [--card]
+ast blueprint get <name> [--json] [--card] [--template]
 ```
 
-`--card` shows the agent description.
+`--card` shows the agent description. `--template` shows the deployment variables and secrets the blueprint expects.
 
 ### blueprint deploy
 
@@ -184,6 +184,7 @@ ast deploy <name> [flags]
 | `--vars-file <file>` | Load variables from a `.env` file |
 | `--build <id>` | Pin to a specific build ID |
 | `--dry-run` | Validate inputs without deploying |
+| `--wait` | Wait until the public Launch URL is ready before returning |
 | `--json` | Print JSON output on success |
 
 ### blueprint build
@@ -214,10 +215,11 @@ The `[name]` argument sets the blueprint name in the registry and overrides the 
 
 | Flag | Description |
 |------|-------------|
-| `--visibility public\|private` | Set blueprint visibility (default: private) |
+| `-V, --visibility public\|private` | Set blueprint visibility (default: private) |
 | `--no-build` | Skip building the container image before pushing |
 | `--allow-account-override` | Push under the active account even if the spec name has a different account prefix |
 | `-f, --file <path>` | Path to spec file (default: `astropods.yml`) |
+| `-y, --yes` | Skip confirmation prompts |
 
 ### blueprint archive
 
@@ -226,6 +228,18 @@ Archive a blueprint so it no longer appears in listings.
 ```bash
 ast blueprint archive <name>
 ```
+
+### blueprint set
+
+Update settings on an existing blueprint.
+
+```bash
+ast blueprint set <name> [-V|--visibility public|private]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-V, --visibility public\|private` | Set blueprint visibility |
 
 ---
 
@@ -276,7 +290,7 @@ Run without flags for an interactive form. Reads `astropods.yml` to determine re
 
 ### project start
 
-Start local dev containers and tail all logs in the foreground. Press Ctrl+C to stop everything.
+Start local dev containers and tail the agent log in the foreground; sidecar logs are suppressed. Press Ctrl+C to stop everything.
 
 ```bash
 ast project start [flags]
@@ -288,6 +302,7 @@ ast project start [flags]
 | `--env <file>` | Environment file for credentials (default: `.env`) |
 | `--rebuild` | Force rebuild all containers without cache |
 | `--no-pull` | Use only local images; skip pulling |
+| `--all-logs` | Tail logs from every service instead of just the agent |
 
 ### project logs
 
@@ -305,6 +320,14 @@ Stop and remove dev containers.
 
 ```bash
 ast project stop
+```
+
+### project trigger
+
+Manually run a named ingestion job. Starts the ingestion container and exits when the job completes.
+
+```bash
+ast project trigger <name>
 ```
 
 ---

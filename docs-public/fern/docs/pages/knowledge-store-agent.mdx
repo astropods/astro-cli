@@ -1,5 +1,5 @@
 ---
-title: Using Knowledge stores
+title: Using knowledge stores
 subtitle: Give your agent a database it can read from and write to
 slug: knowledge-store-agent
 ---
@@ -15,7 +15,7 @@ knowledge:
 ```
 
 <Note>
-With one store, the variables are simply `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — the entry name (`writer`) is not part of them. That only changes when you add a second store of the same type (see [Adding a second store](#adding-a-second-store)).
+With one store, the variables are `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — the entry name (`writer`) is not part of them. That only changes when you add a second store of the same type (see [Adding a second store](#adding-a-second-store)).
 </Note>
 
 ---
@@ -112,7 +112,7 @@ With one store, the variables are simply `POSTGRES_HOST`, `POSTGRES_PORT`, `POST
        - **Shared** — point the store at a database you've connected to the account. One database can back several agents, so they share the same data. Pick it from the dropdown.
     3. **Deploy** — submit the form.
 
-    To use **Shared**, connect the database first under **Knowledge → Add store** (host, port, database, credentials — stored encrypted). Only matching, **Ready** stores can be selected. See [Knowledge stores](/knowledge-stores) for connecting a database in a private network.
+    To use **Shared**, connect the database first under **Knowledge** > **Add store** (host, port, database, credentials — stored encrypted). Only matching, **Ready** stores can be selected. See [Knowledge stores](/knowledge-stores) for connecting a database in a private network.
 
     The agent then appears under **Agents** with its live status.
   </Step>

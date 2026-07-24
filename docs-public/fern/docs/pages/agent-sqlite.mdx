@@ -14,7 +14,7 @@ You don't have to set anything up. The `/data` folder is always there, with **5&
 
 ## Save data with SQLite
 
-Open a database file inside `/data` and use it like any other database. The folder is already there and ready to write to. The examples below use Python and Node, but the same idea works in any language with a SQLite library — just point the file at `/data`.
+Open a database file inside `/data` and use it like any other database. The folder is already there and ready to write to. The examples below use Python and Node, but the same idea works in any language with a SQLite library — point the file at `/data`.
 
 <Steps>
   <Step title="Add a SQLite library">
@@ -194,7 +194,7 @@ The storage is **5&nbsp;GB** at `/data` by default. To change it, open **Advance
 If you run more than one copy of your agent at the same time, each copy gets its **own separate storage** — they don't share data. SQLite is best when you run a single copy.
 </Warning>
 
-If you need several copies of your agent to share the same data, use a [knowledge store](/docs/pages/knowledge-stores) (like Postgres or Redis) instead of a SQLite file. Otherwise, keep your agent at one copy.
+If you need several copies of your agent to share the same data, use a [knowledge store](/knowledge-stores) (like Postgres or Redis) instead of a SQLite file. Otherwise, keep your agent at one copy.
 
 A couple of habits that help:
 
@@ -210,3 +210,8 @@ As your agent grows, these SQLite features are worth a look (all standard SQLite
 - **Search text** with SQLite's built-in full-text search ([FTS5](https://www.sqlite.org/fts5.html)) — handy for finding past messages or notes by keyword.
 - **Version your schema** with a small migration step at startup (for example, track a version number with [`PRAGMA user_version`](https://www.sqlite.org/pragma.html#pragma_user_version)) so you can safely change tables in a later release.
 - **Store large files as files.** For big attachments, save the file directly in `/data` and keep just its path in the database — databases are happiest with small rows.
+
+## Next steps
+
+- [Knowledge stores](/knowledge-stores): use a managed database when several copies of your agent need to share data
+- [Deploy your first agent](/deploy-agent): ship the agent that owns this storage

@@ -28,6 +28,22 @@ tabs:
     display-name: API Reference
     icon: puzzle
 
+redirects:
+  # publish-to-registry merged into the blueprints guide
+  - source: "/publish-to-registry"
+    destination: "/blueprints"
+  # removed Fern starter-template pages
+  - source: "/writing-content"
+    destination: "/welcome"
+  - source: "/editing-your-docs"
+    destination: "/welcome"
+  - source: "/navigation"
+    destination: "/welcome"
+  - source: "/customization"
+    destination: "/welcome"
+  - source: "/support"
+    destination: "/welcome"
+
 navigation:
   - tab: home
     layout:
@@ -100,7 +116,7 @@ navigation:
                 icon: fa-duotone fa-terminal
       - section: Guides
         contents:
-          - page: Using Knowledge stores
+          - page: Using knowledge stores
             path: docs/pages/knowledge-store-agent.mdx
             icon: fa-duotone fa-database
           - page: Store data with SQLite
@@ -156,7 +172,7 @@ navigation:
           - page: Agent Card Spec
             path: docs/pages/agent-card-spec.mdx
             icon: fa-duotone fa-file-lines
-          - page: Known Integrations
+          - page: Known integrations
             path: docs/pages/known-integrations.mdx
             icon: fa-duotone fa-plug
           - page: Allowlist egress IPs

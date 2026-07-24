@@ -8,7 +8,7 @@ A **knowledge store** is a database you connect to your account from the **Knowl
 
 ## Connect a store
 
-In the dashboard, go to **Knowledge → Add store** and enter your database's host, port, and credentials. Postgres, MySQL, Redis, Qdrant, Neo4j, and Pinecone are supported. Your credentials are encrypted and never shown in plain text again.
+In the dashboard, go to **Knowledge** > **Add store** and enter your database's host, port, and credentials. Postgres, MySQL, Redis, Qdrant, Neo4j, and Pinecone are supported. Your credentials are encrypted and never shown in plain text again.
 
 Once the store shows as **Ready**, it's available to use with your agents.
 
@@ -33,7 +33,7 @@ flowchart LR
 
 <Steps>
   <Step title="Expose your database through a VPC Endpoint Service">
-    In your AWS VPC, put an internal Network Load Balancer (NLB) in front of your database, then create a VPC Endpoint Service pointing to that NLB. In the AWS Console go to **VPC → Endpoint Services → Create endpoint service**, select your NLB, and note the generated service name:
+    In your AWS VPC, put an internal Network Load Balancer (NLB) in front of your database, then create a VPC Endpoint Service pointing to that NLB. In the AWS Console go to **VPC** > **Endpoint Services** > **Create endpoint service**, select your NLB, and note the generated service name:
 
     ```
     com.amazonaws.vpce.us-east-1.vpce-svc-xxxxxxxxxxxxxxxxx
@@ -42,7 +42,7 @@ flowchart LR
     If your database already sits behind an NLB or endpoint service, reuse it.
   </Step>
   <Step title="Connect it in the dashboard">
-    Go to **Knowledge → Add store**, then:
+    Go to **Knowledge** > **Add store**, then:
 
     - Give the store a name and select your database type.
     - Turn **PrivateLink** on.
@@ -53,7 +53,7 @@ flowchart LR
     The store moves to **Pending** while it waits for your approval.
   </Step>
   <Step title="Approve the connection in AWS">
-    The store's detail page links you to the right AWS console page. In **VPC → Endpoints**, approve the pending connection request from Astro AI.
+    The store's detail page links you to the right AWS console page. In **VPC** > **Endpoints**, approve the pending connection request from Astro AI.
   </Step>
   <Step title="Wait for Ready">
     Astro AI completes the connection and verifies reachability automatically. The store turns **Ready** when the path is live — no further action needed.

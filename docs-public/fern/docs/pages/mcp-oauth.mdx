@@ -116,7 +116,7 @@ On a messaging-only agent (no exposed endpoint), `ASTRO_EXTERNAL_AGENT_URL` is u
 
 ## 3. Persist tokens in a writable store
 
-The production container filesystem is **read-only**, so a file-based token store is wiped on every restart. Persist OAuth tokens (and the dynamic client registration) in a writable store — a `redis` [knowledge](/get-started) entry is the simplest:
+The production container filesystem is **read-only**, so a file-based token store is wiped on every restart. Persist OAuth tokens (and the dynamic client registration) in a writable store — a `redis` [knowledge store](/knowledge-stores) entry is the simplest:
 
 ```yaml astropods.yml
 knowledge:
@@ -161,4 +161,9 @@ The user opens the URL and approves; with the frontend callback from step 2 the 
 | `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host | Always (deployed). Reachable from other components in the deployment, not the public internet. |
 | `PORT`                     | `80` on a frontend agent               | When `frontend: true`. |
 
-Use `ASTRO_EXTERNAL_AGENT_URL` whenever you need an absolute URL that points back at your agent from the outsidel, OAuth redirects, webhook callbacks, share links. It's absent in local dev and on messaging-only agents, so always provide a localhost fallback.
+Use `ASTRO_EXTERNAL_AGENT_URL` whenever you need an absolute URL that points back at your agent from the outside: OAuth redirects, webhook callbacks, share links. It's absent in local dev and on messaging-only agents, so always provide a localhost fallback.
+
+## Next steps
+
+- [Knowledge stores](/knowledge-stores): connect the Redis store used for the token store
+- [Managing your agents](/managing-agents): inspect and control the deployed agent

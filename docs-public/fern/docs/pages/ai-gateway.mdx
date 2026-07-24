@@ -364,4 +364,9 @@ The gateway returns standard OpenAI-style error responses. Common cases:
 - **Provider-native SDKs and prefixes (except Anthropic).** Call models through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with a provider prefix such as `anthropic/`. The one exception is the native Anthropic Messages API, served on the `/anthropic` passthrough for Claude Code / Claude Agent SDK agents — see [Native Anthropic API](#native-anthropic-api-claude-code-claude-agent-sdk).
 - **Anthropic server-side tools.** `web_search`, `web_fetch`, code execution, and computer use aren't available — models run on Amazon Bedrock, which doesn't host them. Client-defined tools work normally.
 - **Image generation.** No image-generation models are offered. Image *input* (vision) is supported by `pixtral-large`.
-- **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; reach out to support.
+- **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; contact support.
+
+## Next steps
+
+- [Deploy your first agent](/deploy-agent): ship an agent that calls the gateway
+- [Monitor your agents](/monitor-agents): trace the model calls your agent makes

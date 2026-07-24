@@ -27,7 +27,7 @@ The CLI uses a noun-verb command tree that groups commands by resource, establis
 |---|---|
 | `account list` | List all accounts you belong to |
 | `account switch [name]` | Set working account; scopes all subsequent commands. With no name, opens an interactive picker (esc to quit without changing). Use `-` to switch back to the previous account. |
-| `account token` | Print an API token scoped to the active account |
+| `account token` | Print an API token scoped to the active account (dev build only) |
 
 The active account is persisted in the credential store alongside auth tokens.
 
@@ -114,8 +114,8 @@ Validate and explain `astropods.yml` spec files.
 | Command | Description |
 |---|---|
 | `spec validate` | Validate `astropods.yml` against the spec schema |
-| `spec explain` | Print a plain-language summary of the spec |
-| `spec repair` | Detect and update outdated generated files |
+| `spec explain` | Print a plain-language summary of the spec (hidden) |
+| `spec repair` | Detect and update outdated generated files (hidden) |
 
 ---
 
@@ -142,9 +142,8 @@ Manage CLI settings and shell completions.
 | `whoami` | Show the currently authenticated user |
 | `upgrade` | Upgrade the CLI to the latest version |
 | `docs [category]` | Display Astropods documentation in the terminal |
-| `add` | Add a model, tool, or knowledge store to the spec |
 | `knowledge` | Manage managed knowledge stores |
-| `connect` | Connect this device to Astropods |
+| `connect` | Connect this device to Astropods (hidden) |
 
 ---
 

@@ -106,8 +106,8 @@ The bridge passes this to every `stream()` / `stream_audio()` call.
 | ------------------ | ------------------- | --------------------------------------------------------------------------- |
 | `conversation_id`  | `str`               | Stable across the conversation. Use as the memory/session key.              |
 | `user_id`          | `str`               | Sender's user ID. Use for memory scoping and trace attribution.            |
-| `platform_context` | `Optional[PlatformContext]` | Channel/thread IDs, workspace, event_kind, raw platform user_id. `None` when the message did not originate from a platform adapter. See [Messaging SDK — PlatformContext](../messaging-sdk/python#inbound-message-anatomy). |
-| `attachments`      | `list[AttachmentInput]` | Files attached to this turn. Read the provided `path`; do not derive a path from the display name or scan the shared directory. See [Files in chat](../messaging-sdk/files-in-chat). |
+| `platform_context` | `Optional[PlatformContext]` | Channel/thread IDs, workspace, event_kind, raw platform user_id. `None` when the message did not originate from a platform adapter. See [Messaging SDK — PlatformContext](/messaging-sdk/python#inbound-message-anatomy). |
+| `attachments`      | `list[AttachmentInput]` | Files attached to this turn. Read the provided `path`; do not derive a path from the display name or scan the shared directory. See [Files in chat](/messaging-sdk/files-in-chat). |
 
 ### `AudioInput`
 
@@ -271,7 +271,7 @@ class MyAdapter:
 - Catch your own exceptions inside `stream()`. If you let the coroutine raise, the user sees nothing.
 - Don't block in `on_feedback()` — push to a queue or trigger async work and return.
 - Use `options.conversation_id` (not `platform_context.thread_id`) as your memory key.
-- Use only `options.attachments` as file input for the turn. Write output files to `AGENT_FILES_DIR` and call `on_file` before `on_finish`; see [Files in chat](../messaging-sdk/files-in-chat).
+- Use only `options.attachments` as file input for the turn. Write output files to `AGENT_FILES_DIR` and call `on_file` before `on_finish`; see [Files in chat](/messaging-sdk/files-in-chat).
 - Configure OTEL manually before calling `serve()` if you want traces. Framework adapters auto-configure this; the raw core does not.
 
 ## Exported symbols
@@ -298,4 +298,4 @@ from astropods_adapter_core import (
 )
 ```
 
-See [Messaging SDK (Python)](../messaging-sdk/python) for the underlying proto shapes referenced by `StreamHooks` and `PlatformContext`.
+See [Messaging SDK (Python)](/messaging-sdk/python) for the underlying proto shapes referenced by `StreamHooks` and `PlatformContext`.

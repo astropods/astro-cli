@@ -4,9 +4,9 @@ subtitle: Connect your Node agent to Slack, web chat, and other platforms over g
 slug: messaging-sdk/node
 ---
 
-The messaging SDK is how your agent container talks to the messaging sidecar that ships next to it. When you declare `agent.interfaces.messaging: true` in `astropods.yml`, the platform deploys a messaging container alongside your agent. That sidecar runs platform adapters (Slack, web chat, etc.), normalises every incoming event into a single protobuf shape, and routes it to your agent over a bidirectional gRPC stream.
+The messaging SDK is how your agent container talks to the messaging sidecar that ships next to it. When you declare `agent.interfaces.messaging: true` in `astropods.yml`, the platform deploys a messaging container alongside your agent. That sidecar runs platform adapters (Slack, web chat, etc.), normalizes every incoming event into a single protobuf shape, and routes it to your agent over a bidirectional gRPC stream.
 
-This page covers the TypeScript SDK, [`@astropods/messaging`](https://www.npmjs.com/package/@astropods/messaging). For Python, see [Messaging SDK (Python)](./python).
+This page covers the TypeScript SDK, [`@astropods/messaging`](https://www.npmjs.com/package/@astropods/messaging). For Python, see [Messaging SDK (Python)](/messaging-sdk/python).
 
 <Callout intent="note">
 If you're building on a supported framework, prefer a higher-level adapter (e.g. `@astropods/adapter-mastra`). Those wrap the SDK and handle the streaming loop for you. Reach for the SDK directly when you need full control or when there is no adapter for your framework yet.
@@ -151,7 +151,7 @@ An incoming message is a `Message`. The same shape applies whether it came from 
 
 `Attachment.type` values: `TYPE_UNSPECIFIED`, `IMAGE`, `FILE`, `VIDEO`, `AUDIO`, `LINK`.
 
-For web-chat file input and agent-produced downloads, see [Files in chat](./files-in-chat).
+For web-chat file input and agent-produced downloads, see [Files in chat](/messaging-sdk/files-in-chat).
 
 **`PlatformContext`**
 
@@ -579,15 +579,15 @@ dev:
       adapters: [web]  # or [slack, web]
 ```
 
-Open the chat interface at `http://localhost:3100` to drive your agent end-to-end without touching Slack. See the [package spec](./astropods-package-spec) for the full `dev.interfaces.messaging` schema.
+Open the chat interface at `http://localhost:3100` to drive your agent end-to-end without touching Slack. See the [package spec](/astropods-package-spec) for the full `dev.interfaces.messaging` schema.
 
-The chat also supports user uploads and agent-produced download files. See [Files in chat](./files-in-chat) for the filesystem and message contract.
+The chat also supports user uploads and agent-produced download files. See [Files in chat](/messaging-sdk/files-in-chat) for the filesystem and message contract.
 
 ## Worked examples
 
 ### Slack
 
-The Slack adapter forwards five flavours of event:
+The Slack adapter forwards five flavors of event:
 
 | `eventKind`                            | Source                                                  |
 | -------------------------------------- | ------------------------------------------------------- |

@@ -4,9 +4,9 @@ subtitle: Connect your Python agent to Slack, web chat, and other platforms over
 slug: messaging-sdk/python
 ---
 
-The messaging SDK is how your agent container talks to the messaging sidecar that ships next to it. When you declare `agent.interfaces.messaging: true` in `astropods.yml`, the platform deploys a messaging container alongside your agent. That sidecar runs platform adapters (Slack, web chat, etc.), normalises every incoming event into a single protobuf shape, and routes it to your agent over a bidirectional gRPC stream.
+The messaging SDK is how your agent container talks to the messaging sidecar that ships next to it. When you declare `agent.interfaces.messaging: true` in `astropods.yml`, the platform deploys a messaging container alongside your agent. That sidecar runs platform adapters (Slack, web chat, etc.), normalizes every incoming event into a single protobuf shape, and routes it to your agent over a bidirectional gRPC stream.
 
-This page covers the Python SDK, [`astropods-messaging`](https://pypi.org/project/astropods-messaging/). For TypeScript/Node, see [Messaging SDK (Node)](./node).
+This page covers the Python SDK, [`astropods-messaging`](https://pypi.org/project/astropods-messaging/). For TypeScript/Node, see [Messaging SDK (Node)](/messaging-sdk/node).
 
 <Callout intent="note">
 This is a low-level package — raw generated gRPC stubs. If you're building an agent on a supported framework, prefer a higher-level adapter (e.g. `astropods-adapter-langchain`). Reach for this SDK directly when implementing a custom adapter or when no framework adapter exists.
@@ -137,7 +137,7 @@ An incoming message is a `Message`. The same shape applies whether it came from 
 
 **`Attachment.Type`**: `TYPE_UNSPECIFIED` (0), `IMAGE` (1), `FILE` (2), `VIDEO` (3), `AUDIO` (4), `LINK` (5). Access via `Attachment.IMAGE` etc.
 
-For web-chat file input and agent-produced downloads, see [Files in chat](./files-in-chat).
+For web-chat file input and agent-produced downloads, see [Files in chat](/messaging-sdk/files-in-chat).
 
 **`PlatformContext`**
 
@@ -609,15 +609,15 @@ dev:
       adapters: [web]  # or [slack, web]
 ```
 
-Open the chat interface at `http://localhost:3100` to drive your agent end-to-end without touching Slack. See the [package spec](./astropods-package-spec) for the full `dev.interfaces.messaging` schema.
+Open the chat interface at `http://localhost:3100` to drive your agent end-to-end without touching Slack. See the [package spec](/astropods-package-spec) for the full `dev.interfaces.messaging` schema.
 
-The chat also supports user uploads and agent-produced download files. See [Files in chat](./files-in-chat) for the filesystem and message contract.
+The chat also supports user uploads and agent-produced download files. See [Files in chat](/messaging-sdk/files-in-chat) for the filesystem and message contract.
 
 ## Worked examples
 
 ### Slack
 
-The Slack adapter forwards five flavours of event:
+The Slack adapter forwards five flavors of event:
 
 | `event_kind`                            | Source                                                  |
 | --------------------------------------- | ------------------------------------------------------- |
