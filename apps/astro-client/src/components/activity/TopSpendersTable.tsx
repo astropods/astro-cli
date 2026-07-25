@@ -3,6 +3,9 @@ import { Link } from "react-router";
 import { Info, Server, TriangleAlert, User } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { UserAvatar } from "@/components/UserAvatar";
+import { InlineBadge } from "@/components/InlineBadge";
+import { SlackIcon } from "@/components/ui/svgs/slackIcon";
+import { nonHumanLabel } from "@/lib/identity-kind";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import { useResolvedTheme } from "@/lib/theme";
 import {
@@ -289,7 +292,11 @@ function IdentityAvatar({
         className={cn(baseClassName, "flex items-center justify-center bg-muted text-muted-foreground")}
         aria-hidden
       >
-        <User className="size-3.5" strokeWidth={1.75} />
+        {identity.user_details?.is_bot ? (
+          <SlackIcon className="size-3" />
+        ) : (
+          <User className="size-3.5" strokeWidth={1.75} />
+        )}
       </span>
     );
   }
@@ -358,10 +365,16 @@ function IdentityLabel({
 }
 
 function IdentityRow({ identity }: { identity: InsightsIdentityRef }) {
+  const badge = nonHumanLabel(identity);
   return (
     <div className="flex min-w-0 items-center gap-2">
       <IdentityAvatar identity={identity} className="size-5" size={20} />
       <IdentityLabel identity={identity} />
+      {badge && (
+        <InlineBadge variant="soft" className="shrink-0 bg-muted text-muted-foreground">
+          {badge}
+        </InlineBadge>
+      )}
     </div>
   );
 }

@@ -555,6 +555,33 @@ describe("TopSpendersTable users mode", () => {
     expect(within(rows[1]).getByText("Low Spender")).toBeInTheDocument();
     expect(within(rows[2]).getByText("System spend")).toBeInTheDocument();
   });
+
+  it("badges bot and agent identities but not human members", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        loading={false}
+        rows={[
+          personRow({ key: "member:alice", label: "Alice Chen" }),
+          personRow({
+            key: "slack:bot",
+            label: "Release Bot",
+            identity: { kind: "slack", id: "U_BOT", label: "Release Bot", user_details: { kind: "slack", is_bot: true } },
+          }),
+          personRow({
+            key: "agent:caller",
+            label: "Calling Agent",
+            identity: { kind: "agent", id: "dep-x", label: "Calling Agent" },
+          }),
+        ]}
+      />,
+    );
+
+    const [human, bot, agent] = bodyRows();
+    expect(within(human).queryByText(/^(Slack bot|Agent)$/)).not.toBeInTheDocument();
+    expect(within(bot).getByText("Slack bot")).toBeInTheDocument();
+    expect(within(agent).getByText("Agent")).toBeInTheDocument();
+  });
 });
 
 describe("TopSpendersTable models mode", () => {
