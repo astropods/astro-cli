@@ -11,10 +11,13 @@ test.describe("Homepage (/)", () => {
     await expect(page.getByRole("heading", { name: /where agents become teammates/i })).toBeVisible();
   });
 
-  test("Book a demo CTA is visible and links to the scheduler", async ({ page }) => {
-    const cta = page.getByRole("link", { name: /book a demo/i }).first();
+  test("Book a demo CTA opens the demo request form", async ({ page }) => {
+    // The CTA is now a button that opens a gated demo request modal, replacing
+    // the old external calendar-scheduler link.
+    const cta = page.getByRole("button", { name: /book a demo/i }).first();
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", /calendar\.app\.google/);
+    await cta.click();
+    await expect(page.getByRole("heading", { name: /schedule a personalized demo/i })).toBeVisible();
   });
 
   test("auth CTA invites new visitors to sign up", async ({ page }) => {
