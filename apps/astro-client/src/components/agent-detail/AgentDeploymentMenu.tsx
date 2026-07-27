@@ -258,7 +258,7 @@ export function AgentDeploymentMenu({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={handleSearchKeyDown}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint-foreground"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint-foreground [&::-webkit-search-cancel-button]:appearance-none"
           />
           {search && (
             <button
