@@ -13,16 +13,13 @@ import (
 	"testing"
 )
 
-// TestNoBlockCommentsInCLI walks apps/astro-cli and fails if any Go source
-// file contains a `/* ... */` comment. `//` is the house style for both
-// single-line and multi-line comments; this test is the enforcement because
-// no standard Go linter catches it.
-//
-// Rule is scoped to apps/astro-cli for now; extend the walk root once other
-// Go modules adopt it.
+// TestNoBlockCommentsInCLI walks the astro-cli module and fails if any Go
+// source file contains a `/* ... */` comment. `//` is the house style for
+// both single-line and multi-line comments; this test is the enforcement
+// because no standard Go linter catches it.
 func TestNoBlockCommentsInCLI(t *testing.T) {
-	repoRoot := findRepoRoot(t)
-	target := filepath.Join(repoRoot, "apps", "astro-cli")
+	root := findModuleRoot(t)
+	target := root
 
 	fset := token.NewFileSet()
 	var offenders []string
@@ -48,7 +45,7 @@ func TestNoBlockCommentsInCLI(t *testing.T) {
 			for _, c := range cg.List {
 				if strings.HasPrefix(c.Text, "/*") {
 					pos := fset.Position(c.Pos())
-					rel, relErr := filepath.Rel(repoRoot, pos.Filename)
+					rel, relErr := filepath.Rel(root, pos.Filename)
 					if relErr != nil {
 						rel = pos.Filename
 					}
@@ -63,7 +60,7 @@ func TestNoBlockCommentsInCLI(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Errorf(
-			"block comments (/* ... */) are banned in apps/astro-cli; use // instead.\n"+
+			"block comments (/* ... */) are banned in the astro-cli module; use // instead.\n"+
 				"Offenders:\n  %s",
 			strings.Join(offenders, "\n  "),
 		)
@@ -78,14 +75,14 @@ func skipDir(name string) bool {
 	return false
 }
 
-func findRepoRoot(t *testing.T) string {
+func findModuleRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
 	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "apps", "astro-cli", "moon.yml")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -94,6 +91,6 @@ func findRepoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
-	t.Fatalf("could not locate repo root from cwd")
+	t.Fatalf("could not locate module root from cwd")
 	return ""
 }
