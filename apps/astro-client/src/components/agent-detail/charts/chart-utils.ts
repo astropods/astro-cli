@@ -46,6 +46,29 @@ export interface ChartColors {
   outputFill: string;
 }
 
+export interface DateAxisTick {
+  label: string;
+  position: number;
+}
+
+export function getEvenlySpacedDateTicks(
+  points: Array<{ label: string }>,
+): DateAxisTick[] {
+  if (points.length === 0) return [];
+  if (points.length === 1) return [{ label: points[0].label, position: 0 }];
+
+  const tickCount = Math.min(7, points.length);
+  const lastPointIndex = points.length - 1;
+  const positions = Array.from({ length: tickCount }, (_, tickIndex) =>
+    Math.round((tickIndex * lastPointIndex) / (tickCount - 1)),
+  );
+
+  return [...new Set(positions)].map((position) => ({
+    label: points[position].label,
+    position,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Chart colors — static indigo palette from the theme
 // ---------------------------------------------------------------------------

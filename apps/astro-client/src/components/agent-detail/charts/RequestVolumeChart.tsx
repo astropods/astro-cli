@@ -8,7 +8,12 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Loader2 } from "lucide-react";
-import { formatCompactNumber, type ChartColors, type RequestVolumePoint } from "./chart-utils";
+import {
+  formatCompactNumber,
+  getEvenlySpacedDateTicks,
+  type ChartColors,
+  type RequestVolumePoint,
+} from "./chart-utils";
 
 export type { RequestVolumePoint };
 
@@ -19,19 +24,22 @@ export type { RequestVolumePoint };
 function CustomTooltip({
   active,
   payload,
-  label,
   colors,
 }: {
   active?: boolean;
-  payload?: { name: string; value: number }[];
-  label?: string;
+  payload?: {
+    name: string;
+    value: number;
+    payload?: RequestVolumePoint;
+  }[];
   colors: ChartColors;
 }) {
-  if (!active || !payload?.length || !label) return null;
+  const dateLabel = payload?.[0]?.payload?.label;
+  if (!active || !payload?.length || !dateLabel) return null;
   const requests = payload.find((p) => p.name === "requests");
   return (
     <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-      <p className="mb-1.5 text-mono-sm text-muted-foreground">{label}</p>
+      <p className="mb-1.5 text-mono-sm text-muted-foreground">{dateLabel}</p>
       <div className="flex items-center gap-2">
         <span
           className="size-2 shrink-0 rounded-full"
@@ -61,8 +69,17 @@ export function RequestVolumeChart({
   colors,
   loading,
 }: RequestVolumeChartProps) {
+  const xAxisTicks = getEvenlySpacedDateTicks(points);
+  const tickLabels = new Map(
+    xAxisTicks.map((tick) => [tick.position, tick.label]),
+  );
+  const chartPoints = points.map((point, dayIndex) => ({
+    ...point,
+    dayIndex,
+  }));
+
   return (
-    <div className="flex h-full flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+    <div className="flex h-full min-h-[300px] flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
       {loading ? (
         <div className="flex min-h-[200px] flex-1 items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -72,7 +89,7 @@ export function RequestVolumeChart({
           <div className="min-h-0 flex-1">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={points}
+                data={chartPoints}
                 margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
               >
                 <defs>
@@ -104,7 +121,9 @@ export function RequestVolumeChart({
                 />
 
                 <XAxis
-                  dataKey="label"
+                  dataKey="dayIndex"
+                  type="number"
+                  domain={[0, Math.max(points.length - 1, 0)]}
                   tick={{
                     fill: "var(--color-muted-foreground)",
                     fontSize: 11,
@@ -113,7 +132,10 @@ export function RequestVolumeChart({
                   axisLine={false}
                   tickLine={false}
                   tickMargin={8}
-                  minTickGap={40}
+                  ticks={xAxisTicks.map((tick) => tick.position)}
+                  tickFormatter={(position) => tickLabels.get(position) ?? ""}
+                  interval={0}
+                  padding={{ right: 20 }}
                 />
 
                 <YAxis

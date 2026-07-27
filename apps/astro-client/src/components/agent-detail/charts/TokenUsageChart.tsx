@@ -8,7 +8,12 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Loader2 } from "lucide-react";
-import { formatCompactNumber, type ChartColors, type TokenUsageBar } from "./chart-utils";
+import {
+  formatCompactNumber,
+  getEvenlySpacedDateTicks,
+  type ChartColors,
+  type TokenUsageBar,
+} from "./chart-utils";
 
 // ---------------------------------------------------------------------------
 // Tooltip
@@ -17,21 +22,24 @@ import { formatCompactNumber, type ChartColors, type TokenUsageBar } from "./cha
 function CustomTooltip({
   active,
   payload,
-  label,
   colors,
 }: {
   active?: boolean;
-  payload?: { name: string; value: number }[];
-  label?: string;
+  payload?: {
+    name: string;
+    value: number;
+    payload?: TokenUsageBar;
+  }[];
   colors: ChartColors;
 }) {
-  if (!active || !payload?.length || !label) return null;
+  const dateLabel = payload?.[0]?.payload?.label;
+  if (!active || !payload?.length || !dateLabel) return null;
   const input = payload.find((p) => p.name === "inputTokens");
   const output = payload.find((p) => p.name === "outputTokens");
   const total = (input?.value ?? 0) + (output?.value ?? 0);
   return (
     <div className="rounded-md border border-border bg-surface/95 px-3 py-2 text-body-sm shadow-lg backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-      <p className="mb-1.5 text-mono-sm text-muted-foreground">{label}</p>
+      <p className="mb-1.5 text-mono-sm text-muted-foreground">{dateLabel}</p>
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
           <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colors.inputFill }} />
@@ -73,6 +81,9 @@ export function TokenUsageChart({
   colors,
   loading,
 }: TokenUsageChartProps) {
+  const xAxisTicks = getEvenlySpacedDateTicks(bars);
+  const tickLabels = xAxisTicks.map((tick) => tick.label);
+
   return (
     <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
       {loading ? (
@@ -85,11 +96,15 @@ export function TokenUsageChart({
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
             <XAxis
               dataKey="label"
+              type="category"
               tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
               axisLine={false}
               tickLine={false}
               tickMargin={8}
-              minTickGap={40}
+              ticks={tickLabels}
+              tickFormatter={(label) => String(label)}
+              interval={0}
+              padding={{ left: 20, right: 20 }}
             />
             <YAxis
               tickFormatter={formatCompactNumber}

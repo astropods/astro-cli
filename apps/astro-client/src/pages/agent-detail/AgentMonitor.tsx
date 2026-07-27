@@ -163,7 +163,7 @@ export default function AgentMonitor() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 @[540px]/monitor:grid-cols-3">
-              <div className="min-h-[300px] @[540px]/monitor:col-span-2 @[540px]/monitor:min-h-0">
+              <div className="min-h-[300px] @[540px]/monitor:col-span-2">
                 <RequestVolumeChart
                   points={requestPoints}
                   colors={colors}
