@@ -12,7 +12,7 @@ tasks:
   # tracked .gitkeep) so content-hashed bundles from prior builds don't pile up
   # and get baked into the binary via `go:embed all:webdist`.
   embed-chat-ui:
-    command: "sh -c 'find internal/chatui/webdist -mindepth 1 ! -name .gitkeep -delete && cp -R ../astro-client/chat-embed-dist/. internal/chatui/webdist/'"
+    command: "sh -c 'find internal/chatui/webdist -mindepth 1 ! -name .gitkeep -delete && cp -R ../../apps/astro-client/chat-embed-dist/. internal/chatui/webdist/'"
     deps:
       - "astro-client:build-chat-embed"
     options:
