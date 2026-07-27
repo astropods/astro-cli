@@ -449,6 +449,23 @@ func TestAuditLog_LatestPerResource(t *testing.T) {
 	if _, ok := result["nonexistent"]; ok {
 		t.Error("nonexistent should not have an entry")
 	}
+
+	deployResult, err := store.LatestPerResourceByAction(
+		ctx,
+		acct.ID,
+		auditlog.DeploymentDeploy,
+		"deployment",
+		[]string{dep1, dep2},
+	)
+	if err != nil {
+		t.Fatalf("LatestPerResourceByAction: %v", err)
+	}
+	if got := deployResult[dep1].ActorID; got != "user-old" {
+		t.Errorf("dep1 deploy actor_id = %q, want %q", got, "user-old")
+	}
+	if _, ok := deployResult[dep2]; ok {
+		t.Error("dep2 should have no deployment.deploy entry")
+	}
 }
 
 // TestAuditLog_LatestPerResource_AccountIsolation verifies that LatestPerResource

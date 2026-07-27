@@ -1165,6 +1165,7 @@ type AgentDeployment struct {
 	CreatedAt          string                `json:"created_at"`
 	UpdatedAt          string                `json:"updated_at,omitempty"`
 	UpdatedBy          string                `json:"updated_by,omitempty"`
+	DeployedBy         string                `json:"deployed_by,omitempty"`
 	Components         []string              `json:"components"`
 	ManualIngestions   []string              `json:"manual_ingestions,omitempty"`
 	ExternalURLs       []ServiceEndpointInfo `json:"external_urls,omitempty"`
@@ -1196,6 +1197,7 @@ type DeploymentRecord struct {
 	CreatedAt           string                `json:"created_at"`
 	UpdatedAt           string                `json:"updated_at,omitempty"`
 	UpdatedBy           string                `json:"updated_by,omitempty"`
+	DeployedBy          string                `json:"deployed_by,omitempty"`
 	ExternalURLs        []ServiceEndpointInfo `json:"external_urls,omitempty"`
 	Replicas            int32                 `json:"replicas"`             // desired (sum of primary workload specs)
 	Components          []string              `json:"components"`           // distinct component_kind across workloads + sidecars
@@ -1376,6 +1378,7 @@ type AgentDeploymentSummary struct {
 	MessagingWebConfigured bool                  `json:"messaging_web_configured"`
 	CreatedAt              string                `json:"created_at"`
 	UpdatedAt              string                `json:"updated_at,omitempty"`
+	DeployedBy             string                `json:"deployed_by,omitempty"`
 }
 
 // CountDeployments returns a handler that returns the number of visible deployments for an account.
@@ -1603,6 +1606,23 @@ func enrichDeploymentRows(
 				}
 			}
 		}
+
+		deployMap, err := dependencies.audit.LatestPerResourceByAction(
+			ctx,
+			scope.id,
+			auditlog.DeploymentDeploy,
+			"deployment",
+			depIDs,
+		)
+		if err != nil {
+			dependencies.log.Warn("Failed to load deployment authors", "error", err)
+		} else {
+			for i, d := range allDeployments {
+				if latest, ok := deployMap[d.ID]; ok {
+					allDeployments[i].DeployedBy = latest.ActorID
+				}
+			}
+		}
 	}
 
 	dbColorsByID := make(map[string]json.RawMessage, len(dbDeps))
@@ -1650,6 +1670,7 @@ func enrichDeploymentRows(
 			MessagingWebConfigured: messagingWebConfigured[d.ID],
 			CreatedAt:              d.CreatedAt,
 			UpdatedAt:              d.UpdatedAt,
+			DeployedBy:             d.DeployedBy,
 		}
 	}
 	return summaries, nil
@@ -2096,6 +2117,19 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			} else if latest, ok := latestMap[dbDep.ID]; ok {
 				record.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
 				record.UpdatedBy = latest.ActorID
+			}
+
+			deployMap, deployAuditErr := auditStore.LatestPerResourceByAction(
+				c.Request.Context(),
+				dbDep.AccountID,
+				auditlog.DeploymentDeploy,
+				"deployment",
+				[]string{dbDep.ID},
+			)
+			if deployAuditErr != nil {
+				log.Warn("Failed to load deployment author", "error", deployAuditErr)
+			} else if latest, ok := deployMap[dbDep.ID]; ok {
+				record.DeployedBy = latest.ActorID
 			}
 		}
 
@@ -4309,6 +4343,7 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			Branch        string    `json:"branch,omitempty"`
 			CommitMessage string    `json:"commit_message,omitempty"`
 			RepoFullName  string    `json:"repo_full_name,omitempty"`
+			DeployedBy    string    `json:"deployed_by,omitempty"`
 		}
 
 		records := make([]revisionRecord, 0, len(history))
@@ -4329,6 +4364,7 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 				Branch:        r.Branch,
 				CommitMessage: r.CommitMessage,
 				RepoFullName:  r.RepoFullName,
+				DeployedBy:    r.DeployedBy,
 			})
 		}
 

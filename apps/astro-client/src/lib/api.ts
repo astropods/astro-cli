@@ -769,6 +769,7 @@ export interface AgentDeployment {
   created_at: string;
   updated_at?: string;
   updated_by?: string;
+  deployed_by?: string;
   components: string[];
   external_urls?: ServiceEndpointInfo[];
   // A messaging sidecar is part of the deployment spec. Distinct from
@@ -1028,6 +1029,7 @@ export interface DeploymentHistoryRecord {
   branch?: string;
   commit_message?: string;
   repo_full_name?: string;
+  deployed_by?: string;
 }
 
 export interface DeploymentHistoryResponse {

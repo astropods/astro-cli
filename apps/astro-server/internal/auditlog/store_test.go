@@ -111,6 +111,41 @@ func TestBulkDistinctActorsFor_WithResourceIDs(t *testing.T) {
 	}
 }
 
+func TestLatestPerResourceByAction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	deployedAt := time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("SELECT DISTINCT ON \\(resource_id\\) resource_id, created_at, actor_id").
+		WithArgs("acct-1", DeploymentDeploy, "deployment", "dep-1", "dep-2").
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "created_at", "actor_id"}).
+			AddRow("dep-1", deployedAt, "user-taylor"))
+
+	store := NewStore(db)
+	result, err := store.LatestPerResourceByAction(
+		context.Background(),
+		"acct-1",
+		DeploymentDeploy,
+		"deployment",
+		[]string{"dep-1", "dep-2"},
+	)
+	if err != nil {
+		t.Fatalf("LatestPerResourceByAction: %v", err)
+	}
+	if got := result["dep-1"].ActorID; got != "user-taylor" {
+		t.Errorf("dep-1 actor_id = %q, want %q", got, "user-taylor")
+	}
+	if _, ok := result["dep-2"]; ok {
+		t.Error("dep-2 should have no deployment.deploy entry")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
 func TestBulkDistinctActorsFor_NoResourceIDs_ReturnsAll(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

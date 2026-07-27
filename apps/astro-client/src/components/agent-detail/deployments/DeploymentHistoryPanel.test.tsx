@@ -12,7 +12,7 @@ const ACCOUNT = "testuser";
 const AGENT = "code-reviewer";
 const DEPLOYMENT_ID = "dep-1";
 
-function deployment(): AgentDeployment {
+function deployment(overrides: Partial<AgentDeployment> = {}): AgentDeployment {
   return {
     id: DEPLOYMENT_ID,
     name: AGENT,
@@ -22,10 +22,11 @@ function deployment(): AgentDeployment {
     replicas: 1,
     created_at: "2026-05-01T00:00:00Z",
     components: ["agent"],
+    ...overrides,
   };
 }
 
-function historyRecord(): DeploymentHistoryRecord {
+function historyRecord(overrides: Partial<DeploymentHistoryRecord> = {}): DeploymentHistoryRecord {
   return {
     id: DEPLOYMENT_ID,
     agent_name: AGENT,
@@ -39,6 +40,7 @@ function historyRecord(): DeploymentHistoryRecord {
     spec: {},
     source: "github",
     branch: "main",
+    ...overrides,
   };
 }
 
@@ -86,7 +88,141 @@ function renderPanel() {
   );
 }
 
-describe("DeploymentHistoryPanel build-in-progress card", () => {
+describe("DeploymentHistoryPanel", () => {
+  it("shows the account member who initiated the active deployment", async () => {
+    mockEndpoints([]);
+    server.use(
+      http.get(`/api/v1/accounts/${ACCOUNT}/members`, () =>
+        HttpResponse.json({
+          members: [
+            {
+              account_id: "acct-1",
+              user_id: "user-taylor",
+              role: "member",
+              status: "active",
+              username: "taylor",
+              display_name: "Taylor Kim",
+              avatar_url: "https://example.com/taylor.png",
+              created_at: "2026-01-01T00:00:00Z",
+              slack_workspaces: [],
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(
+      <DeploymentHistoryPanel
+        account={ACCOUNT}
+        agentName={AGENT}
+        deploymentId={DEPLOYMENT_ID}
+        deployment={deployment({ deployed_by: "user-taylor" })}
+      />,
+    );
+
+    expect(await screen.findByText("Taylor Kim")).toBeInTheDocument();
+    expect(screen.getByAltText("Taylor Kim")).toHaveAttribute(
+      "src",
+      "https://example.com/taylor.png",
+    );
+    expect(screen.getByText("Taylor Kim").closest("a")).toHaveAttribute(
+      "href",
+      "/taylor",
+    );
+  });
+
+  it.each(["admin:grpc", "user-removed"])(
+    "hides unresolved %s audit actors instead of rendering internal IDs",
+    async (actorId) => {
+      mockEndpoints([]);
+      renderWithProviders(
+        <DeploymentHistoryPanel
+          account={ACCOUNT}
+          agentName={AGENT}
+          deploymentId={DEPLOYMENT_ID}
+          deployment={deployment({ deployed_by: actorId })}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Code Reviewer")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(actorId)).not.toBeInTheDocument();
+      expect(screen.queryByAltText(actorId)).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows deployment author avatars for active and previous revisions", async () => {
+    mockEndpoints([]);
+    server.use(
+      http.get(`/api/v1/agents/${ACCOUNT}/${AGENT}/deployment/history`, () =>
+        HttpResponse.json({
+          deployments: [
+            historyRecord({ revision: 2, deployed_by: "user-taylor" }),
+            historyRecord({
+              revision: 1,
+              is_current: false,
+              deployed_at: "2026-04-01T00:00:00Z",
+              deployed_by: "user-jordan",
+            }),
+          ],
+          count: 2,
+        }),
+      ),
+      http.get(`/api/v1/accounts/${ACCOUNT}/members`, () =>
+        HttpResponse.json({
+          members: [
+            {
+              account_id: "acct-1",
+              user_id: "user-taylor",
+              role: "member",
+              status: "active",
+              username: "taylor",
+              display_name: "Taylor Kim",
+              avatar_url: "https://example.com/taylor.png",
+              created_at: "2026-01-01T00:00:00Z",
+              slack_workspaces: [],
+            },
+            {
+              account_id: "acct-1",
+              user_id: "user-jordan",
+              role: "member",
+              status: "active",
+              username: "jordan",
+              display_name: "Jordan Lee",
+              avatar_url: "https://example.com/jordan.png",
+              created_at: "2026-01-01T00:00:00Z",
+              slack_workspaces: [],
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(
+      <DeploymentHistoryPanel
+        account={ACCOUNT}
+        agentName={AGENT}
+        deploymentId={DEPLOYMENT_ID}
+        deployment={deployment()}
+        expanded
+      />,
+    );
+
+    expect(await screen.findByAltText("Taylor Kim")).toHaveAttribute(
+      "src",
+      "https://example.com/taylor.png",
+    );
+    expect(screen.getByAltText("Jordan Lee")).toHaveAttribute(
+      "src",
+      "https://example.com/jordan.png",
+    );
+    expect(screen.getByText("Jordan Lee").closest("a")).toHaveAttribute(
+      "href",
+      "/jordan",
+    );
+  });
+
   it("shows a Building card with the commit message while the latest build is running", async () => {
     mockEndpoints([build({ status: "building" })]);
     const { container } = renderPanel();

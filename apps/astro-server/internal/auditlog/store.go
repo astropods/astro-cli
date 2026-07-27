@@ -256,6 +256,50 @@ func (s *Store) LatestPerResource(ctx context.Context, accountID, resourceType s
 	return result, rows.Err()
 }
 
+// LatestPerResourceByAction returns the most recent audit log entry for each
+// resource_id in the given set, restricted to a single action.
+func (s *Store) LatestPerResourceByAction(
+	ctx context.Context,
+	accountID, action, resourceType string,
+	resourceIDs []string,
+) (map[string]ResourceLatest, error) {
+	if len(resourceIDs) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(resourceIDs))
+	args := make([]any, 0, len(resourceIDs)+3)
+	args = append(args, accountID, action, resourceType)
+	for i, id := range resourceIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+4)
+		args = append(args, id)
+	}
+
+	var qb strings.Builder
+	qb.WriteString(`SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
+		FROM audit_logs
+		WHERE account_id = $1 AND action = $2 AND resource_type = $3 AND resource_id IN (`)
+	qb.WriteString(strings.Join(placeholders, ", "))
+	qb.WriteString(`) ORDER BY resource_id, created_at DESC, id DESC`)
+
+	rows, err := s.db.QueryContext(ctx, qb.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest audit timestamps by action: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string]ResourceLatest, len(resourceIDs))
+	for rows.Next() {
+		var resourceID, actorID string
+		var ts time.Time
+		if err := rows.Scan(&resourceID, &ts, &actorID); err != nil {
+			return nil, fmt.Errorf("failed to scan latest audit entry by action: %w", err)
+		}
+		result[resourceID] = ResourceLatest{UpdatedAt: ts, ActorID: actorID}
+	}
+	return result, rows.Err()
+}
+
 // BulkDistinctActorsFor returns distinct actor IDs per resource. When resourceIDs is nil, all resources for the account are included.
 func (s *Store) BulkDistinctActorsFor(ctx context.Context, accountID, action, resourceType string, resourceIDs []string) (map[string][]string, error) {
 	args := []any{accountID, action, resourceType}

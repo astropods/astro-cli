@@ -5,7 +5,16 @@ import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
 import { commitUrl } from "@/lib/github-utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
+import { UserAvatar } from "@/components/UserAvatar";
+import { IdentityBadge } from "@/components/IdentityBadge";
+import { accountProfilePath } from "@/lib/routes";
 import { DeploymentStatusBadge, getDeploymentStatusColors } from "./DeploymentStatusBadge";
+
+export interface DeploymentActor {
+  name: string;
+  handle: string;
+  avatarUrl?: string;
+}
 
 export interface DeploymentTileProps {
   /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
@@ -27,6 +36,8 @@ export interface DeploymentTileProps {
   commitSha?: string;
   /** GitHub repo full name, e.g. "owner/repo" (used to build commit link). */
   repoFullName?: string;
+  /** Account member who initiated this deployment. */
+  deployedBy?: DeploymentActor;
   /** Optional menu (kebab dropdown) rendered in the top-right corner. */
   menu?: ReactNode;
 }
@@ -41,6 +52,7 @@ export function DeploymentTile({
   deployedAt,
   commitSha,
   repoFullName,
+  deployedBy,
   menu,
 }: DeploymentTileProps) {
   // Only the currently-active tile fetches status — historical tiles render
@@ -88,7 +100,6 @@ export function DeploymentTile({
           </span>
         )}
         <span className="shrink-0 font-mono">{shortBuild}</span>
-        <span className="shrink-0">{formatRelativeTime(deployedAt)}</span>
       </div>
       {errorMessage && (
         <p
@@ -98,6 +109,27 @@ export function DeploymentTile({
           {errorMessage}
         </p>
       )}
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="shrink-0 text-mono-sm text-muted-foreground">
+          {formatRelativeTime(deployedAt)}
+        </span>
+        {deployedBy && (
+          <IdentityBadge
+            avatar={
+              <UserAvatar
+                handle={deployedBy.handle}
+                name={deployedBy.name}
+                avatarUrl={deployedBy.avatarUrl}
+                className="size-4"
+              />
+            }
+            label={deployedBy.name}
+            link={{ type: "internal", to: accountProfilePath(deployedBy.handle) }}
+            display="flex"
+            className="justify-end gap-1.5 text-body-sm"
+          />
+        )}
+      </div>
     </div>
   );
 }

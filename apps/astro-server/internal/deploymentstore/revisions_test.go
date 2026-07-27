@@ -131,6 +131,65 @@ func TestGetRevisions_Empty(t *testing.T) {
 	}
 }
 
+func TestGetDeploymentHistoryByRevisions_DeploymentActors(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+	agentName := "history-actors-" + newID()
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: agentName,
+		DisplayName: "History Actors", BuildID: "build-1", Namespace: "ns-history-actors",
+		SpecJSON: `{"v":1}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM audit_logs WHERE resource_id = $1", d.ID)
+	})
+
+	insertDeployAudit := func(actorID, buildID string) {
+		t.Helper()
+		_, err := db.Exec(`
+			INSERT INTO audit_logs (
+				account_id, actor_id, actor_type, action, resource_type, resource_id, metadata
+			)
+			VALUES ($1, $2, 'user', 'deployment.deploy', 'deployment', $3, jsonb_build_object('build_id', $4::text))
+		`, accountID, actorID, d.ID, buildID)
+		if err != nil {
+			t.Fatalf("failed to insert deploy audit event: %v", err)
+		}
+	}
+
+	insertDeployAudit("user-first", "build-1")
+
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d.ID)
+	_, err = store.UpdateDeploymentPending(SaveDeploymentParams{
+		ID: d.ID, AccountID: accountID, AgentName: agentName,
+		DisplayName: "History Actors", BuildID: "build-2", Namespace: "ns-history-actors",
+		SpecJSON: `{"v":2}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("UpdateDeploymentPending failed: %v", err)
+	}
+	insertDeployAudit("user-second", "build-2")
+
+	history, err := store.GetDeploymentHistoryByRevisions(accountID, agentName)
+	if err != nil {
+		t.Fatalf("GetDeploymentHistoryByRevisions failed: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history records, got %d", len(history))
+	}
+	if history[0].Revision != 2 || history[0].DeployedBy != "user-second" {
+		t.Errorf("revision 2 actor = %q, want user-second", history[0].DeployedBy)
+	}
+	if history[1].Revision != 1 || history[1].DeployedBy != "user-first" {
+		t.Errorf("revision 1 actor = %q, want user-first", history[1].DeployedBy)
+	}
+}
+
 func TestSetCurrentRevision(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)

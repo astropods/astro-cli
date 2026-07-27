@@ -197,6 +197,7 @@ type DeploymentHistoryRecord struct {
 	DeployedAt   time.Time       `json:"deployed_at"`
 	UndeployedAt *time.Time      `json:"undeployed_at,omitempty"`
 	Spec         json.RawMessage `json:"spec"`
+	DeployedBy   string          `json:"deployed_by,omitempty"`
 }
 
 // DeploymentHistoryResponse wraps deployment history records.

@@ -9,6 +9,7 @@ import {
   useStopDeployment,
   useWakeUpDeployment,
 } from "@/api/queries/deployments";
+import { useAccountMembers } from "@/api/queries/accounts";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useGitHubStatus } from "@/api/queries/github";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
@@ -358,6 +359,23 @@ export function DeploymentHistoryPanel({
 
   const { data } = useDeploymentHistory(account, agentName, deploymentId);
   const allRecords = data?.deployments ?? [];
+  const { data: membersData } = useAccountMembers(account, {
+    enabled:
+      !!deployment.deployed_by ||
+      allRecords.some((record) => !!record.deployed_by),
+  });
+  const deployersByUserID = useMemo(() => {
+    const deployers = new Map<string, { name: string; handle: string; avatarUrl?: string }>();
+    for (const member of membersData?.members ?? []) {
+      if (!member.username) continue;
+      deployers.set(member.user_id, {
+        name: member.display_name || member.username,
+        handle: member.username,
+        avatarUrl: member.avatar_url,
+      });
+    }
+    return deployers;
+  }, [membersData]);
 
   // Collapsed: only show the active deployment
   const records = expanded ? allRecords : allRecords.filter((r) => r.is_current);
@@ -437,6 +455,10 @@ export function DeploymentHistoryPanel({
             deployedAt={record.deployed_at}
             commitSha={record.commit_sha}
             repoFullName={record.repo_full_name}
+            deployedBy={deployersByUserID.get(
+              record.deployed_by ||
+                (record.is_current ? deployment.deployed_by || "" : ""),
+            )}
             menu={
               record.is_current
                 ? <ActiveTileMenu account={account} deployment={deployment} />

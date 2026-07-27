@@ -89,6 +89,7 @@ type RevisionHistoryRecord struct {
 	Branch        string // populated when Source == "github"
 	CommitMessage string // populated when Source == "github"
 	RepoFullName  string // populated when Source == "github", e.g. "owner/repo"
+	DeployedBy    string // audit actor who created this revision
 }
 
 // GetDeploymentHistoryByRevisions returns one record per revision across all deployment
@@ -111,7 +112,19 @@ func (s *Store) GetDeploymentHistoryByRevisions(accountID, agentName string) ([]
 			COALESCE(gb.commit_sha, ''),
 			COALESCE(gb.branch, ''),
 			COALESCE(gb.commit_message, ''),
-			COALESCE(gc.repo_full_name, '')
+			COALESCE(gc.repo_full_name, ''),
+			COALESCE((
+				SELECT al.actor_id
+				FROM audit_logs al
+				WHERE al.account_id = d.account_id
+					AND al.action = 'deployment.deploy'
+					AND al.resource_type = 'deployment'
+					AND al.resource_id = d.id
+					AND al.metadata->>'build_id' = dr.build_id
+					AND al.created_at >= dr.created_at
+				ORDER BY al.created_at ASC, al.id ASC
+				LIMIT 1
+			), '')
 		FROM deployment_revisions dr
 		JOIN deployments d ON dr.deployment_id = d.id
 		LEFT JOIN github_builds gb
@@ -135,6 +148,7 @@ func (s *Store) GetDeploymentHistoryByRevisions(accountID, agentName string) ([]
 			&r.DeploymentID, &r.AgentName, &r.Revision, &r.BuildID,
 			&r.Namespace, &r.DisplayName, &r.IsCurrent, &r.Status, &r.DeployedAt,
 			&r.Source, &r.CommitSHA, &r.Branch, &r.CommitMessage, &r.RepoFullName,
+			&r.DeployedBy,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan revision history row: %w", err)
 		}
