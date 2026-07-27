@@ -10,14 +10,14 @@ The product needs a stronger queue signal that predicts the dataset review verdi
 
 This spec uses an Astro-managed judge. `astro-server` owns prompt construction, model execution, prediction storage, and queue ordering. Langfuse remains the source of traces, trace scores, and accepted dataset items, but Langfuse does not run the judge.
 
-Astro-managed execution runs the judge at queue load rather than trace ingestion, avoids scoring traces users may never review, keeps queue ordering tied to the loaded candidate window, and lets the judge use Astro-local context without copying it into Langfuse metadata.
+Astro-managed execution enqueues judge work when the queue client requests it rather than at trace ingestion, avoids scoring traces users may never review, and lets the judge use Astro-local context without copying it into Langfuse metadata.
 
 ---
 
 ## Goals
 
 - Predict a numeric verdict score from `-1` to `1`, then infer whether a queue trace is likely to be marked `good`, `bad`, or `unknown`.
-- Use trace input/output, the next user message as reaction context, thumbs feedback stored as Langfuse trace scores, dataset criteria, and prior resolved verdicts.
+- Use trace input/output, the next user message as reaction context, thumbs feedback stored as Langfuse trace scores, and dataset criteria.
 - Give judge traffic a stable account-scoped gateway identity so future platform AI-token metering can distinguish it from ordinary AI Gateway traffic.
 - Avoid duplicate spend by reusing stored predictions when present.
 - Use prediction quality against later resolved verdicts to improve prompts, calibration, and future model behavior.
@@ -68,9 +68,6 @@ For each trace, the judge should receive a compact structured view of:
 - the next user message as context for how the user reacted to the output, when available
 - thumbs feedback score from Langfuse trace scores
 - rubric dimensions: accuracy, completeness, instruction following, scope clarity, and tone
-- small set of prior labeled examples from the same eval dataset, when available
-
-Prior examples should be selected only from the same eval dataset, exclude the trace being judged, include both `good` and `bad` examples where possible, and be capped to keep token cost predictable.
 
 System instruction:
 
@@ -106,7 +103,7 @@ Define the V1 judge execution model and judge version as code-owned constants in
 
 ## Prediction storage
 
-Add `eval_dataset_judgment_predictions` in Astro DB as the source of product prediction state. Insert rows when predictions are generated, before any reviewer verdict exists, so later queue loads can reuse the model output without spending more tokens.
+Add `eval_dataset_judgment_predictions` in Astro DB as the source of product prediction state. Insert rows when predictions are generated, before any reviewer verdict exists, so later queue loads can reuse the model output without spending more tokens. Use `eval_dataset_prediction_requests` to store asynchronous lifecycle and a short, server-controlled failure message. Requeueing a failed request clears its error message.
 
 ```sql
 CREATE TABLE eval_dataset_judgment_predictions (
@@ -145,6 +142,23 @@ CREATE TABLE eval_dataset_judgment_prediction_criteria (
   CONSTRAINT eval_dataset_judgment_prediction_criteria_value_check
     CHECK (dimension_value BETWEEN -1 AND 1)
 );
+
+CREATE TABLE eval_dataset_prediction_requests (
+  eval_dataset_id uuid NOT NULL,
+  trace_id text NOT NULL,
+  status text NOT NULL DEFAULT 'queued',
+  error_message text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT eval_dataset_prediction_requests_pkey
+    PRIMARY KEY (eval_dataset_id, trace_id),
+  CONSTRAINT eval_dataset_prediction_requests_dataset_fkey
+    FOREIGN KEY (eval_dataset_id) REFERENCES eval_datasets(id) ON DELETE CASCADE,
+  CONSTRAINT eval_dataset_prediction_requests_status_check
+    CHECK (status IN ('queued', 'in_progress', 'completed', 'failed')),
+  CONSTRAINT eval_dataset_prediction_requests_error_message_check
+    CHECK (error_message IS NULL OR char_length(error_message) BETWEEN 1 AND 500)
+);
 ```
 
 Column notes:
@@ -170,7 +184,7 @@ Astro calls the judge model through the Bifrost AI Gateway. Today `astro-server`
 
 Astro's billing integration is moving from OpenMeter to Metronome behind the provider-neutral `billing.BillingProvider` seam. AI Gateway tokens are not tracked by either integration today, so token metering will be new platform-wide work rather than judge-specific work. See `docs/01-spec/metronome-billing-spec.md`.
 
-Only a confirmed customer-budget exhaustion response maps to `quota_exhausted` and stops a prediction batch. Judge tokens are not tracked in Metronome today, matching other AI Gateway traffic. Eventually, AI-token usage will be tracked in Metronome through separately specified platform-wide gateway metering; the plugin, event, metric, product, pricing, and invoice design are out of scope here.
+Only a confirmed customer-budget exhaustion response maps to `quota_exhausted`; a generic HTTP 429 remains retryable. Judge tokens are not tracked in Metronome today, matching other AI Gateway traffic. Eventually, AI-token usage will be tracked in Metronome through separately specified platform-wide gateway metering; the plugin, event, metric, product, pricing, and invoice design are out of scope here.
 
 Notes:
 
@@ -310,13 +324,12 @@ The default queue should stay stable while predictions are generated.
 Default queue load:
 
 1. `GET /dataset/review-queue` returns queue items sorted by trace recency only.
-2. Include stored predictions when available.
-3. Return `prediction: null` when no stored prediction exists.
-4. The client automatically calls `POST /dataset/review-queue/predictions` for rows with no prediction in the loaded window, chunked into at most 10 trace IDs per request.
-5. The client shows those rows as `pending` while the POST is in flight.
-6. When the prediction response returns, update row signals in place without changing the default order.
+2. Include stored prediction results and request lifecycle when available.
+3. The client calls `POST /dataset/predictions` with up to 50 trace IDs that have no completed prediction.
+4. The POST persists queued state and enqueues one River job per eligible trace, then returns without waiting for generation.
+5. The client refetches the queue to observe queued, in-progress, completed, and failed state without changing default ordering.
 
-Only successful predictions are stored in `eval_dataset_judgment_predictions` and `eval_dataset_judgment_prediction_criteria`. Runtime UI states such as `pending` and POST errors such as `quota_exhausted` and `prediction_failed` are derived from the client request state and prediction POST response; they are not stored in the prediction tables.
+Completed output is stored in `eval_dataset_judgment_predictions` and `eval_dataset_judgment_prediction_criteria`. Asynchronous state and a sanitized failure message are stored separately in `eval_dataset_prediction_requests`.
 
 V1 should prefer sort controls over filters, because prediction coverage can be partial. Filters can make the visible list look complete when some rows have no prediction yet.
 
@@ -368,50 +381,20 @@ Response shape change:
 }
 ```
 
-### `POST /dataset/review-queue/predictions`
+### `POST /dataset/predictions`
 
-Add a prediction endpoint that accepts at most 10 trace IDs from the loaded queue window, generates missing predictions, and stores the results.
+Add an enqueue-only prediction endpoint that accepts at most 50 trace IDs.
 
 Flow:
 
-1. Resolve account, deployment, dataset, and requested trace IDs. Validate ownership, candidate review scope, judgment state, uniqueness, and the 10-ID batch limit.
-2. Load stored predictions for the requested trace IDs. Return cached predictions with `error: null`; cached predictions make no gateway call and produce no duplicate usage.
-3. Process cache misses serially in request order. If the request context is canceled, stop before the next model call and do not persist or return a synthetic result for work that did not complete.
-4. For each miss, ensure the account has its judge gateway key, POST to `${AI_GATEWAY_URL}/v1/chat/completions` with `stream=false`, validate the structured output, and atomically store the prediction and criteria.
-5. Treat gateway or provider throttling as transient. If it cannot be recovered, return `prediction_failed` for that trace and continue the batch. While the shared gateway budget is configured, return `quota_exhausted` for the current and remaining misses only for a distinct structured Bifrost customer-budget exhaustion error; do not infer budget exhaustion from a generic HTTP 429 or message text.
-6. Return one result per completed requested trace with a nullable `prediction` and nullable `error`. The capability flag controls whether generation is available during rollout; it is not a billing gate.
+1. Resolve account, deployment, and dataset. Validate ownership and require one to 50 unique, non-empty trace IDs.
+2. Skip traces that are already judged or have a completed prediction.
+3. Create or reset a durable queued request for each remaining trace and enqueue one unique River job per dataset and trace. Re-enqueue attempts also heal a request saved before a process crashed while inserting its job.
+4. Return an empty `201 Created`. Trace loading and model invocation never happen in the request.
 
-Response shape:
+Each worker handles one prediction. It marks the request in progress and loads and verifies the target trace and its direct feedback context from Langfuse.
 
-```json
-{
-  "results": [
-    {
-      "trace_id": "trace_123",
-      "prediction": {
-        "verdict_score": -0.72,
-        "confidence": 84,
-        "explanation": "The response misses the requested constraint.",
-        "judge_version": "1",
-        "criteria": [
-          { "dimension_key": "accuracy", "dimension_value": -0.8 }
-        ]
-      },
-      "error": null
-    },
-    {
-      "trace_id": "trace_456",
-      "prediction": null,
-      "error": "quota_exhausted"
-    },
-    {
-      "trace_id": "trace_789",
-      "prediction": null,
-      "error": "prediction_failed"
-    }
-  ]
-}
-```
+The worker retries transient failures up to three attempts and stores a short, sanitized error message after the final attempt. A confirmed structured customer-budget error fails immediately and stores a quota-related message; generic throttling remains retryable. On success it stores the completed prediction and marks the request completed. If a retry finds an existing prediction after a crash between those writes, it only repairs the request status and does not invoke the model again.
 
 ---
 
@@ -433,10 +416,9 @@ Relevant API support exists:
 
 It was not chosen for V1 because:
 
-- Execution is async and tied to trace ingestion, not queue load.
+- Execution is tied to trace ingestion rather than an explicit on-demand queue request.
 - Broad evaluation rules can spend tokens on traces users never review.
 - Quota and metering control are indirect. Astro can disable a rule, but queued or in-flight evaluations may still spend tokens, and product-specific usage would require gateway/Langfuse usage classification after the fact.
-- Astro-local judge inputs, such as prior resolved examples and dataset review context, would need to be copied into Langfuse observation metadata before evaluation.
 - Public evaluator and evaluation-rule APIs are unstable.
 - Evaluation rules target observations/experiments, while the review queue is trace-level and would need a reliable root/final observation target.
 - Confidence and a capped explanation are not first-class fields on one judge result without extra parsing or additional scores.
@@ -467,16 +449,16 @@ Add `account_llm_judge_keys`, the judge key provisioner (reusing `ensureCustomer
 
 ### PR 3 — Judge service
 
-Add `internal/evaljudge` with the judge constants, input assembly, validation of caller-selected prior examples, system instruction, structured-output parsing, explanation cap, and criteria score handling. This PR should be testable with a fake model invocation client.
+Add `internal/evaljudge` with the judge constants, target input assembly, system instruction, structured-output parsing, explanation cap, and criteria score handling. This PR should be testable with a fake model invocation client.
 
 ### PR 4 — Queue prediction API
 
-Add `POST /dataset/review-queue/predictions`, enforce the 10-ID limit, reuse stored predictions, process cache misses serially with cancellation and typed gateway errors, store successful predictions, and return per-trace `prediction` / `error` results. Judge calls go through Bifrost with the account's current shared temporary budget; keep generation behind a disabled server capability until the judge service and key provisioning land.
+Add durable prediction-request lifecycle, the dedicated eval-judge River queue and worker, and enqueue-only `POST /dataset/predictions` with a 50-ID limit. Each job resolves the target trace context, invokes the judge through Bifrost, stores successful output, and records terminal failure state.
 
 ### PR 5 — Queue read API
 
-Update `GET /dataset/review-queue` to sort by trace recency and include nullable `prediction` with stored predictions and predicted criteria for returned trace IDs. Retain `sentiment` temporarily so the existing client continues to render without requiring the new prediction payload.
+Update `GET /dataset/review-queue` to sort by trace recency and include `prediction_status`, nullable `prediction_error` containing the sanitized failure message, and nullable completed `prediction` with predicted criteria. Retain `sentiment` temporarily so the existing client continues to render without requiring the new prediction payload.
 
 ### PR 6+ — Client queue experience
 
-After final UI design, update the review queue to request predictions for visible rows without stored predictions in chunks of at most 10, show pending state from client request state, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence. Remove `sentiment` from the queue response after the client migration is deployed.
+After final UI design, update the review queue to request predictions for up to 50 visible rows without stored predictions, refetch lifecycle and results from GET, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence. Remove `sentiment` from the queue response after the client migration is deployed.
