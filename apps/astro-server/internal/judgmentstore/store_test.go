@@ -1,6 +1,7 @@
 package judgmentstore
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -10,6 +11,50 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 )
+
+func TestIsJudged(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		judged bool
+	}{
+		{name: "not judged", judged: false},
+		{name: "judged", judged: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			mock.ExpectQuery("SELECT EXISTS").
+				WithArgs("dataset-1", "trace-1").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tt.judged))
+
+			got, err := NewStore(db).IsJudged(context.Background(), "dataset-1", "trace-1")
+			if err != nil {
+				t.Fatalf("IsJudged: %v", err)
+			}
+			if got != tt.judged {
+				t.Fatalf("IsJudged = %v, want %v", got, tt.judged)
+			}
+		})
+	}
+}
+
+func TestIsJudgedReturnsError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectQuery("SELECT EXISTS").
+		WillReturnError(errors.New("query failed"))
+
+	_, err = NewStore(db).IsJudged(context.Background(), "dataset-1", "trace-1")
+	if err == nil || !strings.Contains(err.Error(), "query failed") {
+		t.Fatalf("IsJudged error = %v", err)
+	}
+}
 
 func TestGetPredictions(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -32,7 +77,7 @@ func TestGetPredictions(t *testing.T) {
 			AddRow("trace-2", 0.4, 62, "Useful response.", "dataset-review-v1", createdAt, createdAt, nil, nil))
 
 	store := NewStore(db)
-	got, err := store.GetPredictions("dataset-1", []string{"trace-2", "trace-1"})
+	got, err := store.GetPredictions(context.Background(), "dataset-1", []string{"trace-2", "trace-1"})
 	if err != nil {
 		t.Fatalf("GetPredictions: %v", err)
 	}
@@ -77,7 +122,7 @@ func TestGetPredictionsEmptyTraceIDsDoesNotQuery(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	store := NewStore(db)
-	got, err := store.GetPredictions("dataset-1", nil)
+	got, err := store.GetPredictions(context.Background(), "dataset-1", nil)
 	if err != nil {
 		t.Fatalf("GetPredictions: %v", err)
 	}
@@ -114,7 +159,7 @@ func TestUpsertPredictionReplacesCriteria(t *testing.T) {
 	mock.ExpectCommit()
 
 	store := NewStore(db)
-	err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+	err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
 		VerdictScore: -0.6,
 		Confidence:   88,
 		Explanation:  "Incorrect result.",
@@ -149,7 +194,7 @@ func TestUpsertPredictionClearsCriteria(t *testing.T) {
 	mock.ExpectCommit()
 
 	store := NewStore(db)
-	if err := store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+	if err := store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
 		VerdictScore: 0.1,
 		Confidence:   50,
 		Explanation:  "Unclear.",
@@ -203,7 +248,7 @@ func TestUpsertPredictionRollsBackOnWriteFailures(t *testing.T) {
 			mock.ExpectRollback()
 
 			store := NewStore(db)
-			err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{
+			err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
 				JudgeVersion: "dataset-review-v1",
 				Criteria: []PredictionCriterion{
 					{Dimension: DimensionAccuracy, Value: -0.5},
@@ -232,7 +277,7 @@ func TestUpsertPredictionReturnsCommitError(t *testing.T) {
 	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
 
 	store := NewStore(db)
-	err = store.UpsertPrediction("dataset-1", "trace-1", Prediction{JudgeVersion: "dataset-review-v1"})
+	err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{JudgeVersion: "dataset-review-v1"})
 	if err == nil || !strings.Contains(err.Error(), "commit failed") {
 		t.Fatalf("UpsertPrediction error = %v, want commit error", err)
 	}

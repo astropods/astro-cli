@@ -928,6 +928,18 @@ CREATE TABLE public.eval_dataset_judgment_prediction_criteria (
     CONSTRAINT eval_dataset_judgment_prediction_criteria_value_check CHECK (dimension_value BETWEEN -1 AND 1)
 );
 
+CREATE TABLE public.eval_dataset_prediction_requests (
+    eval_dataset_id uuid        NOT NULL,
+    trace_id        text        NOT NULL,
+    status          text        NOT NULL DEFAULT 'queued',
+    error_message   text,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_prediction_requests_pkey PRIMARY KEY (eval_dataset_id, trace_id),
+    CONSTRAINT eval_dataset_prediction_requests_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_prediction_requests_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed'))
+);
+
 -- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
 -- can emit the final period after deletion without losing data.
 CREATE TABLE public.knowledge_billing_state (

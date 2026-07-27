@@ -1,6 +1,7 @@
 package judgmentstore
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -89,13 +90,13 @@ func NewStore(db *sql.DB) *Store {
 
 // GetPredictions returns stored predictions for the requested trace IDs, keyed
 // by trace ID. Criteria are ordered by dimension key.
-func (s *Store) GetPredictions(evalDatasetID string, traceIDs []string) (map[string]Prediction, error) {
+func (s *Store) GetPredictions(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]Prediction, error) {
 	out := make(map[string]Prediction, len(traceIDs))
 	if len(traceIDs) == 0 {
 		return out, nil
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT p.trace_id, p.verdict_score, p.confidence, p.explanation,
 		       p.judge_version, p.created_at, p.updated_at,
 		       c.dimension_key, c.dimension_value
@@ -151,14 +152,14 @@ func (s *Store) GetPredictions(evalDatasetID string, traceIDs []string) (map[str
 
 // UpsertPrediction stores a prediction and completely replaces its criteria in
 // one transaction. An update preserves created_at and refreshes updated_at.
-func (s *Store) UpsertPrediction(evalDatasetID, traceID string, prediction Prediction) error {
-	tx, err := s.db.Begin()
+func (s *Store) UpsertPrediction(ctx context.Context, evalDatasetID, traceID string, prediction Prediction) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("judgmentstore upsert prediction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO eval_dataset_judgment_predictions (
 			eval_dataset_id, trace_id, verdict_score, confidence, explanation, judge_version
 		)
@@ -174,7 +175,7 @@ func (s *Store) UpsertPrediction(evalDatasetID, traceID string, prediction Predi
 		return fmt.Errorf("judgmentstore upsert prediction row: %w", err)
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM eval_dataset_judgment_prediction_criteria
 		WHERE eval_dataset_id = $1 AND trace_id = $2
 	`, evalDatasetID, traceID); err != nil {
@@ -188,7 +189,7 @@ func (s *Store) UpsertPrediction(evalDatasetID, traceID string, prediction Predi
 			keys[i] = string(criterion.Dimension)
 			values[i] = criterion.Value
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO eval_dataset_judgment_prediction_criteria (
 				eval_dataset_id, trace_id, dimension_key, dimension_value
 			)
@@ -436,6 +437,21 @@ func (s *Store) JudgedTraceIDs(evalDatasetID string, traceIDs []string) (map[str
 		return nil, fmt.Errorf("judgmentstore judged iter: %w", err)
 	}
 	return out, nil
+}
+
+// IsJudged reports whether a reviewer judgment already exists for the target.
+func (s *Store) IsJudged(ctx context.Context, evalDatasetID, traceID string) (bool, error) {
+	var judged bool
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM eval_dataset_judgments
+			WHERE eval_dataset_id = $1 AND trace_id = $2
+		)
+	`, evalDatasetID, traceID).Scan(&judged); err != nil {
+		return false, fmt.Errorf("judgmentstore is judged: %w", err)
+	}
+	return judged, nil
 }
 
 // CriterionCounts returns selected criterion counts for a dataset, grouped by
