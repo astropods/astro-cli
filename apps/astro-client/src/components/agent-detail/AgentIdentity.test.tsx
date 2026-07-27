@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -116,7 +116,7 @@ describe("AgentIdentity actions menu", () => {
     expect(screen.getByRole("menuitem", { name: /delete agent/i })).toBeInTheDocument();
   });
 
-  it("keeps the actions out of the agent selector menu on desktop", async () => {
+  it("keeps the actions out of the agent selector on desktop", async () => {
     setViewport(false);
     renderIdentity();
 
@@ -124,9 +124,9 @@ describe("AgentIdentity actions menu", () => {
       screen.getByRole("button", { name: /agent menu/i }),
     );
 
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Agents" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("menuitem", { name: /restart deployment/i }),
+      screen.queryByRole("button", { name: /restart deployment/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -138,17 +138,16 @@ describe("AgentIdentity actions menu", () => {
       screen.getByRole("button", { name: /agent menu/i }),
     );
 
-    const menu = screen.getByRole("menu");
-    expect(within(menu).getByText("Test Agent").closest("[aria-current]")).not.toBeNull();
+    const listbox = screen.getByRole("listbox", { name: "Agents" });
     expect(
-      within(menu).queryByRole("menuitem", { name: /test agent/i }),
-    ).not.toBeInTheDocument();
+      within(listbox).getByRole("option", { name: "Test Agent" }),
+    ).toHaveAttribute("aria-selected", "true");
     expect(
-      within(menu).queryByRole("link", { name: /test agent/i }),
+      within(listbox).queryByRole("link", { name: /test agent/i }),
     ).not.toBeInTheDocument();
   });
 
-  it("folds the actions into the selector menu on mobile (no kebab)", async () => {
+  it("reaches folded selector actions with Tab and ArrowDown on mobile", async () => {
     setViewport(true);
     renderIdentity();
 
@@ -156,12 +155,19 @@ describe("AgentIdentity actions menu", () => {
       screen.queryByRole("button", { name: /agent actions/i }),
     ).not.toBeInTheDocument();
 
-    await userEvent.setup().click(
+    const user = userEvent.setup();
+    await user.click(
       screen.getByRole("button", { name: /agent menu/i }),
     );
 
-    expect(
-      screen.getByRole("menuitem", { name: /restart deployment/i }),
-    ).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "Search agents" });
+    const viewBlueprint = screen.getByRole("link", { name: /view blueprint/i });
+    const restart = screen.getByRole("button", { name: /restart deployment/i });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    await user.tab();
+    expect(viewBlueprint).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(restart).toHaveFocus();
   });
 });

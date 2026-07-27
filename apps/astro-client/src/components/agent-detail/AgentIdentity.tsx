@@ -35,7 +35,7 @@ interface AgentIdentityProps {
 }
 
 // Below this width the header crowds, so the actions fold into the selector
-// menu instead of a standalone kebab.
+// instead of a standalone kebab.
 const KEBAB_BREAKPOINT = 1024;
 
 export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
@@ -68,8 +68,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
     };
   }, [account, avatarUrl, deployment.id, deployment.name, deployment.display_name, deployment.created_at]);
 
-  // One source of truth for the kebab (desktop) and the folded-in menu (compact).
-  const actionItems = (
+  const desktopActionItems = (
     <>
       <DropdownMenuItem asChild>
         <Link to={`/${account}/${deployment.name}`}>
@@ -92,6 +91,49 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
       </DropdownMenuItem>
     </>
   );
+  const compactActionItems = (
+    <>
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start font-normal"
+      >
+        <Link to={`/${account}/${deployment.name}`}>
+          <BookOpen className="size-4" />
+          View blueprint
+        </Link>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start font-normal"
+        onClick={() => setShareOpen(true)}
+      >
+        <Share2 className="size-4" />
+        Share agent badge
+      </Button>
+      <div role="separator" className="my-1 h-px bg-border" />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start font-normal text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-red-400 dark:hover:bg-destructive/20 dark:hover:text-red-400"
+        onClick={() => setRestartOpen(true)}
+      >
+        <RotateCw className="size-4" />
+        Restart deployment
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start font-normal text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-red-400 dark:hover:bg-destructive/20 dark:hover:text-red-400"
+        onClick={() => setDeleteOpen(true)}
+      >
+        <Trash2 className="size-4" />
+        Delete agent
+      </Button>
+    </>
+  );
 
   return (
     <>
@@ -103,7 +145,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
           getDeploymentPath={(acct, dep) =>
             `/${acct}/agents/${dep.id}/${activeTab}`
           }
-          menuPrefix={compact ? actionItems : undefined}
+          menuPrefix={compact ? compactActionItems : undefined}
         />
         {!compact && (
           <DropdownMenu>
@@ -119,7 +161,7 @@ export function AgentIdentity({ account, deployment }: AgentIdentityProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-52">
-              {actionItems}
+              {desktopActionItems}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
