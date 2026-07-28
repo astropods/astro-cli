@@ -114,7 +114,7 @@ func PostDeploymentFeedbackScore(
 		// tagged for a different deployment; a genuine lookup failure is still an
 		// error.
 		if trace, err := client.GetTraceCore(c.Request.Context(), traceID); err == nil {
-			if !traceHasDeploymentTag(trace.Tags, deploymentID) {
+			if !langfuse.HasDeploymentTag(trace.Tags, deploymentID) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 				return
 			}

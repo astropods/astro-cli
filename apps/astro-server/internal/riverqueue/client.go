@@ -19,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -48,6 +49,7 @@ type Config struct {
 	Logger               *logger.Logger
 	WorkOSClient         *auth.WorkOSClient
 	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
+	KMSClient            envelope.KMSClient
 	// LangfuseStore is used by the DeployWorker to provision per-deployment
 	// Langfuse datasets at deploy time. Optional — when nil, dataset
 	// provisioning is skipped.
@@ -115,6 +117,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			queueMetering:      {MaxWorkers: 3},
 			queueInsights:      {MaxWorkers: 3},
 			queueMaintenance:   {MaxWorkers: 5},
+			queueEvalJudge:     {MaxWorkers: evalJudgeMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
@@ -180,7 +183,16 @@ func (q *Queue) Start(ctx context.Context) error {
 	if err := q.client.Start(ctx); err != nil {
 		return fmt.Errorf("riverqueue: start: %w", err)
 	}
-	q.log.Info("river: queue started", "queues", []string{river.QueueDefault, queueDeploy})
+	q.log.Info("river: queue started", "queues", []string{
+		river.QueueDefault,
+		queueDeploy,
+		queueBuild,
+		queueBilling,
+		queueMetering,
+		queueInsights,
+		queueMaintenance,
+		queueEvalJudge,
+	})
 	return nil
 }
 
@@ -244,6 +256,15 @@ func (q *Queue) InsertMigrateDeploymentClusterJob(ctx context.Context, deploymen
 // InsertWakeUpJob enqueues a wakeup job.
 func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error {
 	_, err := q.Insert(ctx, WakeUpArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
+	return err
+}
+
+// InsertEvalJudgePredictionJob enqueues one eval-dataset prediction target.
+func (q *Queue) InsertEvalJudgePredictionJob(ctx context.Context, evalDatasetID, traceID string) error {
+	_, err := q.Insert(ctx, EvalJudgePredictionArgs{
+		EvalDatasetID: evalDatasetID,
+		TraceID:       traceID,
+	}, nil)
 	return err
 }
 

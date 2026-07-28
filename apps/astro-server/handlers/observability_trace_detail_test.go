@@ -24,27 +24,6 @@ import (
 // Pure projection helpers
 // ---------------------------------------------------------------------------
 
-func TestTraceHasDeploymentTag(t *testing.T) {
-	cases := []struct {
-		name string
-		tags []string
-		dep  string
-		want bool
-	}{
-		{"matches", []string{"env:prod", "deployment:dep-1"}, "dep-1", true},
-		{"no match", []string{"deployment:other"}, "dep-1", false},
-		{"empty tags", nil, "dep-1", false},
-		{"prefix only", []string{"deployment:"}, "dep-1", false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := traceHasDeploymentTag(c.tags, c.dep); got != c.want {
-				t.Errorf("traceHasDeploymentTag(%v,%q) = %v, want %v", c.tags, c.dep, got, c.want)
-			}
-		})
-	}
-}
-
 func TestProjectTrace_LatencyConvertedSecondsToMs(t *testing.T) {
 	d := &langfuse.TraceDetail{
 		Trace: langfuse.Trace{

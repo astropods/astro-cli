@@ -14,7 +14,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
+	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -254,6 +256,53 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		reconcile:       cfg.ReconcileDeployment,
 	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
+
+	evalJudgeWorker := &EvalJudgePredictionWorker{
+		datasets:    evaldatasetstore.NewStore(cfg.DB),
+		predictions: judgmentstore.NewStore(cfg.DB),
+		log:         log,
+	}
+	if cfg.ServerConfig != nil {
+		langfuseStore := langfuse.NewStore(cfg.DB)
+		langfuseBaseURL := cfg.ServerConfig.Deployment.LangfuseBaseURL
+		evalJudgeWorker.loadLangfuse = func(ctx context.Context, accountID string) (*langfuse.AccountLangfuse, error) {
+			return langfuseStore.GetDecrypted(ctx, cfg.KMSClient, accountID)
+		}
+		if langfuseBaseURL != "" {
+			evalJudgeWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evalJudgeTraceClient {
+				return langfuse.NewClient(langfuseBaseURL, credentials.PublicKey, credentials.SecretKey)
+			}
+		}
+
+		gatewayConfig := cfg.ServerConfig.Deployment
+		if gatewayConfig.AIGatewayURL != "" && cfg.AccountStore != nil {
+			provisioner := aigateway.NewProvisioner(
+				aigateway.NewClient(
+					gatewayConfig.AIGatewayURL,
+					gatewayConfig.AIGatewayAdminURL,
+					gatewayConfig.AIGatewayAdminAuth,
+				),
+				cfg.AccountStore,
+				billingpkg.NewAliasSyncer(cfg.Billing, cfg.AccountStore, cfg.BillingBackend, cfg.Logger),
+			)
+			judgeStore := aigateway.NewJudgeStore(cfg.DB)
+			evalJudgeWorker.ensureJudgeKey = func(ctx context.Context, accountID string) (string, string, error) {
+				return provisioner.EnsureJudgeKey(
+					ctx,
+					judgeStore,
+					gatewayConfig.KMSKeyARN,
+					cfg.KMSClient,
+					accountID,
+				)
+			}
+			evalJudgeWorker.newPredictor = func(baseURL string) evalJudgePredictor {
+				return evaljudge.New(aigateway.NewInvocationClient(baseURL))
+			}
+		}
+	}
+	addWorkerWithCatalogCheck(log, workers, evalJudgeWorker)
+	log.Info("river: registered worker", "worker", "EvalJudgePredictionWorker")
+
 	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{
 		deployer: dep,
 		store:    store,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -139,6 +140,46 @@ func TestGetSessionTraces_QueryParams(t *testing.T) {
 	assertParam(t, gotQuery, "limit", "50")
 	assertParam(t, gotQuery, "fields", "core,io")
 	assertParam(t, gotQuery, "orderBy", "timestamp.desc")
+}
+
+func TestGetNextSessionTrace(t *testing.T) {
+	var query url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(TracesResponse{Data: []Trace{
+			{ID: "target", Timestamp: "2026-07-27T12:00:00Z"},
+			{ID: "same-time", Timestamp: "2026-07-27T12:00:00Z", Input: "follow-up"},
+			{ID: "next", Timestamp: "2026-07-27T12:00:01Z", Input: "follow-up"},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "pk", "sk").GetNextSessionTrace(
+		context.Background(), "dep-1", "user-1", "session-1", "target", "2026-07-27T12:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("GetNextSessionTrace: %v", err)
+	}
+	if got == nil || got.ID != "same-time" {
+		t.Fatalf("GetNextSessionTrace = %+v", got)
+	}
+	if query.Get("tags") != "deployment:dep-1" ||
+		query.Get("userId") != "user-1" ||
+		query.Get("sessionId") != "session-1" ||
+		query.Get("fromTimestamp") != "2026-07-27T12:00:00Z" ||
+		query.Get("orderBy") != "timestamp.asc" ||
+		query.Get("fields") != "core,io" ||
+		query.Get("limit") != "10" {
+		t.Fatalf("query = %v", query)
+	}
+}
+
+func TestGetNextSessionTraceOmitsIncompleteContext(t *testing.T) {
+	client := NewClient("http://unused", "pk", "sk")
+	got, err := client.GetNextSessionTrace(context.Background(), "dep-1", "", "session-1", "target", "2026-07-27T12:00:00Z")
+	if err != nil || got != nil {
+		t.Fatalf("GetNextSessionTrace = %+v, %v", got, err)
+	}
 }
 
 func TestGetUserTracesOrdered_QueryParams(t *testing.T) {

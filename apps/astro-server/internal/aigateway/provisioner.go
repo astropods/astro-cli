@@ -14,6 +14,10 @@ import (
 // judge-key name, but Astro has no stored key material it can safely reuse.
 var ErrJudgeKeyOrphaned = errors.New("upstream judge key exists without a local row")
 
+// ErrJudgeKeyDecrypt marks stored judge key material that cannot be decrypted
+// with the worker's current KMS configuration.
+var ErrJudgeKeyDecrypt = errors.New("decrypt stored judge key")
+
 // Provisioner mints, stores, and revokes per-deployment virtual keys
 // against the AI Gateway (LiteLLM). KMS client + key ARN are passed in at
 // method-call time (same shape as langfuse.Provisioner) so the deployer can
@@ -360,7 +364,7 @@ func loadExistingJudgeKey(
 	}
 	plaintext, err := decryptAPIKey(ctx, kmsClient, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
 	if err != nil {
-		return nil, "", fmt.Errorf("decrypt existing judge key: %w", err)
+		return nil, "", errors.Join(ErrJudgeKeyDecrypt, fmt.Errorf("decrypt existing judge key: %w", err))
 	}
 	return existing, plaintext, nil
 }

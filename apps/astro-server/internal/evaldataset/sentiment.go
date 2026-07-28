@@ -61,10 +61,13 @@ func Infer(input string) Sentiment {
 // classifies it with Infer. Strings pass through; maps are searched for
 // content-like fields; slices are searched from last to first.
 func InferFromAny(input any) Sentiment {
-	return Infer(stringifyInput(input))
+	return Infer(TextFromAny(input))
 }
 
-func stringifyInput(v any) string {
+// TextFromAny extracts representative user text from common structured trace
+// input shapes. Strings pass through, maps prefer content-like fields, and
+// arrays are searched newest-first.
+func TextFromAny(v any) string {
 	switch x := v.(type) {
 	case nil:
 		return ""
@@ -73,7 +76,7 @@ func stringifyInput(v any) string {
 	case map[string]any:
 		for _, key := range []string{"content", "text", "message", "input"} {
 			if val, ok := x[key]; ok {
-				if s := stringifyInput(val); s != "" {
+				if s := TextFromAny(val); s != "" {
 					return s
 				}
 			}
@@ -82,7 +85,7 @@ func stringifyInput(v any) string {
 	case []any:
 		// Common shape: messages array with the last entry being the newest.
 		for i := len(x) - 1; i >= 0; i-- {
-			if s := stringifyInput(x[i]); s != "" {
+			if s := TextFromAny(x[i]); s != "" {
 				return s
 			}
 		}

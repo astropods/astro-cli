@@ -3272,7 +3272,7 @@ func GetLangfuseTraceDetail(
 		}
 		// Verify the trace belongs to this deployment (defense in depth: the URL
 		// is account-scoped but a caller could pass a traceId from another project).
-		if !traceHasDeploymentTag(detail.Tags, lctx.DeploymentID) {
+		if !langfuse.HasDeploymentTag(detail.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 			return
 		}
@@ -3288,11 +3288,6 @@ func GetLangfuseTraceDetail(
 			"scores":       projectScores(detail.Scores),
 		})
 	}
-}
-
-// traceHasDeploymentTag checks whether the trace was tagged with this deployment.
-func traceHasDeploymentTag(tags []string, deploymentID string) bool {
-	return slices.Contains(tags, "deployment:"+deploymentID)
 }
 
 // projectTrace flattens a Langfuse trace into our stable response shape.
@@ -3399,7 +3394,7 @@ func GetLangfuseObservationDetail(
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse observation"})
 			return
 		}
-		if !traceHasDeploymentTag(parent.Tags, lctx.DeploymentID) {
+		if !langfuse.HasDeploymentTag(parent.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
 			return
 		}

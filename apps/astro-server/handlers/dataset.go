@@ -847,7 +847,7 @@ func PostDatasetJudgment(
 			return
 		}
 
-		if !traceHasDeploymentTag(trace.Tags, lctx.DeploymentID) {
+		if !langfuse.HasDeploymentTag(trace.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "trace does not belong to this deployment"})
 			return
 		}
@@ -971,7 +971,7 @@ func PatchDatasetJudgment(
 			return
 		}
 
-		if !traceHasDeploymentTag(trace.Tags, lctx.DeploymentID) {
+		if !langfuse.HasDeploymentTag(trace.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "trace does not belong to this deployment"})
 			return
 		}
@@ -1150,7 +1150,7 @@ func PutDatasetJudgmentCriteria(
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
 			return
 		}
-		if !traceHasDeploymentTag(trace.Tags, lctx.DeploymentID) {
+		if !langfuse.HasDeploymentTag(trace.Tags, lctx.DeploymentID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "trace does not belong to this deployment"})
 			return
 		}

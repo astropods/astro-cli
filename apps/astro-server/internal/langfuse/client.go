@@ -52,6 +52,7 @@ func NewClient(baseURL, publicKey, secretKey string) *Client {
 type Trace struct {
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
+	Timestamp string         `json:"timestamp"`
 	Input     any            `json:"input"`
 	Output    any            `json:"output"`
 	SessionID string         `json:"sessionId"`
@@ -301,6 +302,37 @@ func (c *Client) GetSessionTraces(
 		fields:       "core,io",
 		orderBy:      orderBy,
 	})
+}
+
+// GetNextSessionTrace returns the trace immediately after the target in the
+// same deployment, user, and session. Langfuse's fromTimestamp filters the
+// trace event timestamp (not createdAt), so a small ascending window is scanned
+// for the target and its successor.
+func (c *Client) GetNextSessionTrace(
+	ctx context.Context,
+	deploymentID, userID, sessionID, targetTraceID, targetTimestamp string,
+) (*Trace, error) {
+	if userID == "" || sessionID == "" || targetTimestamp == "" {
+		return nil, nil
+	}
+	response, err := c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		userID:       userID,
+		sessionID:    sessionID,
+		startTime:    targetTimestamp,
+		limit:        10,
+		fields:       "core,io",
+		orderBy:      "timestamp.asc",
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := 0; i+1 < len(response.Data); i++ {
+		if response.Data[i].ID == targetTraceID {
+			return &response.Data[i+1], nil
+		}
+	}
+	return nil, nil
 }
 
 func (c *Client) getTraces(ctx context.Context, f traceFilter) (*TracesResponse, error) {

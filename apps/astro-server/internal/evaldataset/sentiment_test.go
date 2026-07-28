@@ -52,3 +52,13 @@ func TestInferFromAny(t *testing.T) {
 		})
 	}
 }
+
+func TestTextFromAny(t *testing.T) {
+	got := TextFromAny([]any{
+		map[string]any{"content": "older"},
+		map[string]any{"message": map[string]any{"text": "newer"}},
+	})
+	if got != "newer" {
+		t.Fatalf("TextFromAny = %q, want newer", got)
+	}
+}

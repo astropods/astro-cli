@@ -1,5 +1,7 @@
 package riverqueue
 
+const evalJudgeMaxWorkers = 3
+
 // Queue names. A job is routed to a queue by its Args' InsertOpts().Queue;
 // per-queue worker-pool sizes are configured in New (client.go). Queues group
 // jobs by domain so a backlog in one class of work can't starve another — e.g.
@@ -13,4 +15,5 @@ const (
 	queueMetering    = "metering"    // usage heartbeat, message-count sync
 	queueInsights    = "insights"    // insights + observability summary refresh
 	queueMaintenance = "maintenance" // periodic backfills, reconciles, purges, privatelink
+	queueEvalJudge   = "eval-judge"  // eval-dataset judgment prediction generation
 )

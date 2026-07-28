@@ -703,6 +703,14 @@ func runWorker(
 	}
 
 	// Start River queue (handles all periodic workers)
+	var workerKMSClient envelope.KMSClient
+	if cfg.Deployment.KMSKeyARN != "" {
+		if awsCfg, err := awsconfig.LoadDefaultConfig(workerCtx); err != nil {
+			log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
+		} else {
+			workerKMSClient = kms.NewFromConfig(awsCfg)
+		}
+	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
 		Billing:                 billingProvider,
@@ -725,6 +733,7 @@ func runWorker(
 		ImagePreflighter:        imagePreflighter,
 		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore, workerSlackStore),
 		ReconcileDeployment:     reconcileDeployment,
+		KMSClient:               workerKMSClient,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)

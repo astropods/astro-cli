@@ -1,6 +1,7 @@
 package evaldatasetstore
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -31,6 +32,28 @@ type Store struct {
 // NewStore creates a new dataset store.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// GetByID returns the dataset record with the supplied ID, or nil if it no
+// longer exists.
+func (s *Store) GetByID(ctx context.Context, id string) (*EvalDataset, error) {
+	var d EvalDataset
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, deployment_id, account_id, langfuse_dataset_name,
+		       good_count, bad_count, created_at, updated_at
+		FROM eval_datasets
+		WHERE id = $1
+	`, id).Scan(
+		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName,
+		&d.GoodCount, &d.BadCount, &d.CreatedAt, &d.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("dataset store get by id: %w", err)
+	}
+	return &d, nil
 }
 
 // GetByDeploymentID returns the dataset record for a deployment, or nil if none exists.
