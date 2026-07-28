@@ -35,7 +35,7 @@ tasks:
       - "bin/ast-dev"
 
   build-preview:
-    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.FleetServerURL=fleet.astropod.ai:9092 -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
+    command: sh -c 'go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
     deps:
       - "embed-chat-ui"
     inputs:

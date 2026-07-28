@@ -14,7 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 func exactValidProjectName(_ *cobra.Command, args []string) error {

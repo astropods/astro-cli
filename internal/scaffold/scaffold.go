@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // Fs is the filesystem abstraction used by GenerateFiles.

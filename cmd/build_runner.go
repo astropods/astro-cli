@@ -19,7 +19,7 @@ import (
 	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/tonistiigi/fsutil"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // runBuild assumes the spec at specPath is valid; callers must validate before invoking.

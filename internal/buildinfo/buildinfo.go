@@ -68,9 +68,6 @@ var (
 	// When empty the registry URL is derived via auth.RegistryURLFromServerURL.
 	DefaultRegistryURL = ""
 
-	// FleetServerURL is the connect/fleet gRPC server address (host:port).
-	FleetServerURL = "localhost:9092"
-
 	// AmplitudeAPIKey enables telemetry when non-empty.
 	AmplitudeAPIKey = ""
 )

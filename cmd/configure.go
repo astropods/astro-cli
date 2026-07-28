@@ -20,7 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 var configureCmd = &cobra.Command{

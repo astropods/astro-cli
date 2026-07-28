@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // runExplain expects an already-resolved spec path and working directory; the caller is responsible for resolution.

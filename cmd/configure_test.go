@@ -14,7 +14,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // collectConfigureVars reproduces the credential + non-secret provider var logic from runConfigure.

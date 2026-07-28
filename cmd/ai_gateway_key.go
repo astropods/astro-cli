@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // aiGatewayServerURLOverride is set in tests to redirect API calls to a test server.

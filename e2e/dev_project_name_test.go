@@ -10,7 +10,7 @@ import (
 	"time"
 
 	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 
 	"github.com/docker/cli/cli/command"
 	cliflags "github.com/docker/cli/cli/flags"

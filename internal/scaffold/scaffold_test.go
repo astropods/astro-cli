@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // MemFs is an in-memory Fs implementation for tests.

@@ -19,7 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui"
 	repairui "github.com/astropods/astro/apps/astro-cli/internal/tui/repair"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 type repairFileCheck struct {

@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // collectPlainProviderVars reproduces the explain.go plainProviderVars logic.

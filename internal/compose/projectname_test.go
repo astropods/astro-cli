@@ -3,7 +3,7 @@ package compose
 import (
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // TestProjectName_Table locks the single-source-of-truth contract that

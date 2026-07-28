@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 func TestDevStatePath(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 func (m model) View() string {

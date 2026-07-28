@@ -25,7 +25,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/chatui"
 	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"

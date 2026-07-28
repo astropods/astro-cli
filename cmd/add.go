@@ -15,7 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-cli/internal/specwriter"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui/add"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui/credentials"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 var addCmd = &cobra.Command{
