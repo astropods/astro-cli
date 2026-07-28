@@ -64,6 +64,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
+	"github.com/astropods/astro/apps/astro-server/internal/novu"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/payment"
@@ -702,6 +704,14 @@ func runWorker(
 		})
 	}
 
+	// Notification provider: Novu on the hosted path, no-op when unconfigured.
+	var notifyProvider notify.Provider
+	if cfg.Notify.NovuAPIURL != "" && cfg.Notify.NovuSecretKey != "" {
+		notifyProvider = notify.NewNovuProvider(novu.NewClient(cfg.Notify.NovuAPIURL, cfg.Notify.NovuSecretKey))
+	} else {
+		notifyProvider = notify.NewNoopProvider(log)
+	}
+
 	// Start River queue (handles all periodic workers)
 	var workerKMSClient envelope.KMSClient
 	if cfg.Deployment.KMSKeyARN != "" {
@@ -713,6 +723,7 @@ func runWorker(
 	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
+		NotifyProvider:          notifyProvider,
 		Billing:                 billingProvider,
 		BillingBackend:          cfg.BillingBackend(),
 		AccountStore:            accountStore,
@@ -780,6 +791,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	k8sCache := deps.Clients.K8sCache
 	imagePreflighter := deps.Clients.Preflight
 	queue := deps.Clients.Queue
+
+	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
+	// per-user notification-preference proxy. Novu owns the catalog and
+	// preferences. Nil when unconfigured; the handlers then report
+	// disabled/empty rather than erroring.
+	var notifyNovuClient *novu.Client
+	if cfg.Notify.NovuAPIURL != "" && cfg.Notify.NovuSecretKey != "" {
+		notifyNovuClient = novu.NewClient(cfg.Notify.NovuAPIURL, cfg.Notify.NovuSecretKey)
+	}
 
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
@@ -1000,6 +1020,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.UpdateProfileResponse{}),
 			)
 
+			// Browser Inbox connection config for the current user (in-app feed).
+			api.GET(protected, "/notifications/inbox-config", "Get the in-app notification Inbox config",
+				handlers.GetNotificationInboxConfig(log, notifyNovuClient, cfg.Notify.AppIdentifier, cfg.Notify.NovuAPIURL, cfg.Notify.SocketURL),
+				oapispec.Tags("Notifications"),
+				oapispec.BearerAuth(),
+				oapispec.Response(200, &handlers.NotificationInboxConfig{}),
+			)
+
 			// Account management
 			api.GET(protected, "/accounts/search", "Search accounts", handlers.SearchAccounts(log, accountStore, avatarStore),
 				oapispec.Tags("Accounts"),
@@ -1149,7 +1177,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
 				)
-				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg),
+				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg, queue),
 					oapispec.Tags("Observability"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1157,7 +1185,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(201, &handlers.CreateOtelIngestTokenResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountManage, "/otel-keys/:tokenID", "Revoke an OTel ingest key", handlers.RevokeOtelIngestToken(log, ingestTokenStore),
+				api.DELETE(accountManage, "/otel-keys/:tokenID", "Revoke an OTel ingest key", handlers.RevokeOtelIngestToken(log, ingestTokenStore, queue),
 					oapispec.Tags("Observability"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1229,6 +1257,35 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
+				// Notification preferences are per-user, owned by Novu (subscriber =
+				// current user). Any member manages their own; the account scope here
+				// is just the auth/membership boundary + test-send context.
+				api.GET(accountManage, "/notification-preferences", "Get the current user's notification preferences",
+					handlers.GetNotificationPreferences(log, notifyNovuClient),
+					oapispec.Tags("Notifications"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.NotificationPreferencesResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
+				)
+				api.PATCH(accountManage, "/notification-preferences", "Update a notification preference",
+					handlers.UpdateNotificationPreference(log, notifyNovuClient),
+					oapispec.Tags("Notifications"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.UpdateNotificationPreferenceRequest{}),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+				api.POST(accountManage, "/notification-preferences/test", "Send a test notification to the current user",
+					handlers.SendTestNotification(log, queue, cfg.Notify.TestWorkflowID),
+					oapispec.Tags("Notifications"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(202, &handlers.MessageResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
 				)
 			}
 
@@ -1419,7 +1476,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 				// Remove member — handler allows self-removal for any member,
 				// but requires org:manage to remove others.
-				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, accountStore, db, auditStore),
+				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, accountStore, db, auditStore, queue),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1431,14 +1488,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			memberManageRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
 				api.POST(memberManageRoutes, "", "Add a member",
-					quotaChecker.Wrap(handlers.AddMember(log, orgSync, accountStore, db, auditStore), "members"),
+					quotaChecker.Wrap(handlers.AddMember(log, orgSync, accountStore, db, auditStore, queue), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Body(&handlers.AddMemberRequest{}),
 					oapispec.Response(201, &handlers.AddMemberResponse{}),
 				)
-				api.PUT(memberManageRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore, auditStore),
+				api.PUT(memberManageRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore, auditStore, queue),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1574,7 +1631,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache),
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache, queue),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Source account name"),

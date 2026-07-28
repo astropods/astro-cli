@@ -13,6 +13,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/gin-gonic/gin"
 )
 
@@ -93,6 +94,7 @@ func CreateOtelIngestToken(
 	lfStore *langfuse.Store,
 	kmsClient envelope.KMSClient,
 	cfg *config.Config,
+	queue notifyQueue,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
@@ -145,6 +147,7 @@ func CreateOtelIngestToken(
 		}
 
 		log.Info("OTel ingest token created", "account_id", acct.ID, "token_id", tok.ID)
+		emitNotify(c, log, queue, notify.SecurityKeyCreated(acct.ID, "OTel ingest", req.Name))
 		c.JSON(http.StatusCreated, CreateOtelIngestTokenResponse{
 			OtelIngestTokenMeta: toMeta(tok),
 			Token:               plaintext,
@@ -155,7 +158,7 @@ func CreateOtelIngestToken(
 
 // RevokeOtelIngestToken revokes an ingest key.
 // DELETE /api/v1/accounts/:account/otel-keys/:tokenID
-func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store) gin.HandlerFunc {
+func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue notifyQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -175,6 +178,7 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store) gin.Han
 		}
 
 		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
+		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", ""))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
 	}
 }

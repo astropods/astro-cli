@@ -25,6 +25,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
@@ -71,6 +72,10 @@ type Config struct {
 	// DeployWorker marks a deployment "deploying", so the controller reconciles
 	// it immediately instead of waiting for the next resync. Optional.
 	ReconcileDeployment func(namespace string)
+	// NotifyProvider delivers user alerts (Novu on the hosted path). When nil,
+	// the NotifyWorker uses a no-op provider that logs and drops. Per-channel
+	// preferences are owned and enforced by Novu, not gated here.
+	NotifyProvider notify.Provider
 }
 
 // InsightsSummaryComputer is the contract for refreshing one account's
@@ -118,6 +123,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			queueInsights:      {MaxWorkers: 3},
 			queueMaintenance:   {MaxWorkers: 5},
 			queueEvalJudge:     {MaxWorkers: evalJudgeMaxWorkers},
+			queueNotifications: {MaxWorkers: 3},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
@@ -168,6 +174,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 	if wired.stripeHook != nil {
 		wired.stripeHook.queue = q
+	}
+	if wired.ghBuild != nil {
+		wired.ghBuild.queue = q
 	}
 
 	return q, nil
@@ -228,6 +237,20 @@ func (q *Queue) Insert(ctx context.Context, args river.JobArgs, opts *river.Inse
 		return nil, fmt.Errorf("riverqueue: commit: %w", err)
 	}
 	return result, nil
+}
+
+// EmitNotify enqueues one alert for off-request delivery. This is the emit seam
+// sources call; recipient resolution and the Novu trigger happen in NotifyWorker.
+func (q *Queue) EmitNotify(ctx context.Context, ev notify.Event) error {
+	_, err := q.Insert(ctx, NotifyArgs{Event: ev}, nil)
+	return err
+}
+
+// EmitNotifyTx enqueues an alert inside an existing transaction, so the alert
+// and the state change that warrants it commit atomically.
+func (q *Queue) EmitNotifyTx(ctx context.Context, tx pgx.Tx, ev notify.Event) error {
+	_, err := q.InsertTx(ctx, tx, NotifyArgs{Event: ev}, nil)
+	return err
 }
 
 // InsertDeployJob enqueues a deploy job. clusterID is empty when the deployment

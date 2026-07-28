@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 )
 
 // MetronomeWebhookArgs carries a verified Metronome webhook for off-request-path
@@ -82,6 +83,23 @@ func metronomeSignal(eventType string) (billing.Signal, bool) {
 	}
 }
 
+// billingAlert maps a billing signal to the owner-facing notification event, if
+// one exists for it. Uncollectible/voided/card-updated have no user alert.
+func billingAlert(sig billing.Signal, accountID, accountName, hostedInvoiceURL string) (notify.Event, bool) {
+	switch sig {
+	case billing.SignalPaymentFailed:
+		return notify.BillingPaymentFailed(accountID, accountName), true
+	case billing.SignalActionRequired:
+		return notify.BillingActionRequired(accountID, accountName, hostedInvoiceURL), true
+	case billing.SignalAlert:
+		return notify.BillingSpendThreshold(accountID, accountName), true
+	case billing.SignalRecovery:
+		return notify.BillingRecovered(accountID, accountName), true
+	default:
+		return notify.Event{}, false
+	}
+}
+
 // stripeSignal maps a Stripe event type to a billing signal. Only
 // payment-collection events map; invoice-lifecycle and PM-CRUD events (owned by
 // Metronome / the synchronous card vault) return false.
@@ -125,7 +143,7 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 		w.log.Info("metronome webhook: unhandled event", "type", job.Args.EventType)
 		return nil
 	}
-	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig)
+	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, "")
 }
 
 // StripeWebhookWorker applies a Stripe payment-collection webhook's billing
@@ -153,7 +171,7 @@ func (w *StripeWebhookWorker) Work(ctx context.Context, job *river.Job[StripeWeb
 		// reads pay-link state from the invoices endpoint).
 		w.log.Info("stripe webhook: payment action required", "customer_id", job.Args.CustomerID, "hosted_invoice_url", job.Args.HostedInvoiceURL)
 	}
-	return applyWebhookSignal(ctx, w.log, w.accounts.GetByStripeCustomerID, w.status, w.queue, "stripe", job.Args.CustomerID, sig)
+	return applyWebhookSignal(ctx, w.log, w.accounts.GetByStripeCustomerID, w.status, w.queue, "stripe", job.Args.CustomerID, sig, job.Args.EventID, job.Args.HostedInvoiceURL)
 }
 
 // applyWebhookSignal is the shared body of both webhook workers: map the
@@ -168,6 +186,7 @@ func applyWebhookSignal(
 	queue *Queue,
 	source, customerID string,
 	sig billing.Signal,
+	eventID, hostedInvoiceURL string,
 ) error {
 	if status == nil || customerID == "" {
 		return nil
@@ -189,6 +208,15 @@ func applyWebhookSignal(
 	}
 	if changed {
 		log.Info("billing status changed", "source", source, "account_id", acct.ID, "status", string(newStatus), "signal", string(sig))
+	}
+	// Notify the owner of the payment event (deduped per provider event id so a
+	// webhook retry doesn't re-send). Best-effort — a notification failure must
+	// not fail the webhook and bypass gating.
+	if ev, ok := billingAlert(sig, acct.ID, acct.Name, hostedInvoiceURL); ok && queue != nil {
+		ev.DedupeKey = "billing:" + source + ":" + eventID
+		if emitErr := queue.EmitNotify(ctx, ev); emitErr != nil {
+			log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", string(sig))
+		}
 	}
 	// Reconcile workloads to the current status on every handled event, not only
 	// on a transition: if a prior enqueue was dropped, a later event re-attempts

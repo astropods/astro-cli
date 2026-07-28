@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 )
 
 // dunningSweepLimit caps accounts processed per tick.
@@ -57,6 +58,10 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 			if w.queue != nil {
 				if err := w.queue.InsertBillingSuspend(ctx, id); err != nil {
 					w.log.Error("dunning sweep: enqueue suspend failed", "account_id", id, "error", err)
+				}
+				// Notify the owner their account was suspended (best-effort).
+				if err := w.queue.EmitNotify(ctx, notify.BillingSuspended(id, "")); err != nil {
+					w.log.Warn("dunning sweep: emit suspended notification failed", "account_id", id, "error", err)
 				}
 			}
 		}

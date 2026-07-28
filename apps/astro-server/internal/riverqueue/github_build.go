@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 )
@@ -73,6 +74,9 @@ type GitHubBuildWorker struct {
 	// downstream consumers once a new agent build is registered.
 	deployStore *deploymentstore.Store
 	cache       k8scache.Cache
+	// queue emits the build.failed notification on a definitive failure. Wired
+	// post-construction (see wiredWorkers); nil-safe.
+	queue *Queue
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
@@ -234,7 +238,11 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		}
 		var pe githubbuild.PermanentError
 		if errors.As(err, &pe) {
+			w.emitBuildFailed(dbCtx, conn.AccountID, agentName, args.BuildID, err)
 			return w.fail(dbCtx, args.BuildRecordID, river.JobCancel(err))
+		}
+		if isLastAttempt {
+			w.emitBuildFailed(dbCtx, conn.AccountID, agentName, args.BuildID, err)
 		}
 		return w.failOrRetry(dbCtx, args.BuildRecordID, isLastAttempt, err)
 	}
@@ -262,6 +270,22 @@ func (w *GitHubBuildWorker) cancel(_ context.Context, buildRecordID string) erro
 	defer done()
 	_ = w.ghStore.CancelBuild(updateCtx, buildRecordID)
 	return river.JobCancel(fmt.Errorf("superseded by newer push"))
+}
+
+// emitBuildFailed notifies the account's members that a build failed. Emitted
+// only on a definitive failure (permanent error or last retry). Best-effort and
+// nil-safe: a missing queue or emit error never affects the build outcome.
+func (w *GitHubBuildWorker) emitBuildFailed(ctx context.Context, accountID, agentName, buildID string, cause error) {
+	if w.queue == nil || accountID == "" {
+		return
+	}
+	var reason string
+	if cause != nil {
+		reason = cause.Error()
+	}
+	if err := w.queue.EmitNotify(ctx, notify.BuildFailed(accountID, agentName, buildID, reason)); err != nil {
+		w.log.Warn("build: emit build.failed notification failed", "error", err, "account_id", accountID, "agent", agentName)
+	}
 }
 
 // fail marks the build record as failed and returns err (which may be river.JobCancel).

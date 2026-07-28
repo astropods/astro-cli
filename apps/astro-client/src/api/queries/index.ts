@@ -9,5 +9,6 @@ export { useBillingUsage, useBillingInvoices, useBillingBalances, useInvoicePdf,
 export { useSubmitFeedback } from './feedback';
 export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';
 export { useOtelIngestKeys, useCreateOtelIngestKey, useRevokeOtelIngestKey } from './otel-ingest-keys';
+export { useNotificationPreferences, useUpdateNotificationPreference, useSendTestNotification, useNotificationInboxConfig } from './notifications';
 export { useAuditLog, useAuditLogFilters } from './auditlog';
 export { useKnowledgeStores, useKnowledgeStore, useKnowledgeLogs, useKnowledgeMetrics, useKnowledgeCredentials, useCreateKnowledgeStore, useConnectKnowledgeStore, useDeleteKnowledgeStore } from './knowledge';

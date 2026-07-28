@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -128,6 +129,7 @@ type wiredWorkers struct {
 	billingResume *BillingResumeWorker
 	metronomeHook *MetronomeWebhookWorker
 	stripeHook    *StripeWebhookWorker
+	ghBuild       *GitHubBuildWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -193,6 +195,34 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log:          log,
 	})
 	log.Info("river: registered worker", "worker", "MemberEmailReconcileWorker", "period", "24h")
+
+	// Notification delivery. Falls back to the no-op provider when Novu is
+	// unconfigured so the seam and worker still run (OSS/local).
+	notifyProvider := cfg.NotifyProvider
+	if notifyProvider == nil {
+		notifyProvider = notify.NewNoopProvider(log)
+	}
+	// Preferences are owned and enforced by Novu; the Deliverer only resolves
+	// recipients and triggers. appBaseURL absolutizes relative CTA links for email.
+	var appBaseURL string
+	if cfg.ServerConfig != nil {
+		appBaseURL = cfg.ServerConfig.Auth.FrontendURL
+	}
+	// Manager audiences (billing/security/transfer) resolve owner+admin via WorkOS.
+	// Pass a literal nil interface when unavailable so the Deliverer falls back to
+	// the owner rather than dereferencing a typed-nil resolver.
+	var notifyDeliverer *notify.Deliverer
+	if cfg.OrgClient != nil && cfg.AccountStore != nil {
+		mgr := &managerResolver{accounts: cfg.AccountStore, org: cfg.OrgClient}
+		notifyDeliverer = notify.NewDeliverer(notifyProvider, memberEmailStore, cfg.AccountStore, mgr, appBaseURL, log)
+	} else {
+		notifyDeliverer = notify.NewDeliverer(notifyProvider, memberEmailStore, cfg.AccountStore, nil, appBaseURL, log)
+	}
+	addWorkerWithCatalogCheck(log, workers, &NotifyWorker{
+		deliverer: notifyDeliverer,
+		log:       log,
+	})
+	log.Info("river: registered worker", "worker", "NotifyWorker")
 
 	store := deploymentstore.NewStore(cfg.DB)
 
@@ -422,8 +452,9 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "PrivateLinkDeleteWorker")
 
+	var ghBuildWorker *GitHubBuildWorker
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker := NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache)
+		ghBuildWorker = NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}
@@ -439,5 +470,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		billingResume: billingResumeWorker,
 		metronomeHook: metronomeHook,
 		stripeHook:    stripeHook,
+		ghBuild:       ghBuildWorker,
 	}
 }

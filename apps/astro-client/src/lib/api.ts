@@ -1947,6 +1947,36 @@ export interface CreateOtelIngestKeyResponse extends OtelIngestKey {
   endpoint?: string;
 }
 
+export interface NotificationPreference {
+  type: string;
+  name: string;
+  description?: string;
+  category: string;
+  critical: boolean; // locked on; the user cannot disable it
+  email: boolean;
+  in_app: boolean;
+}
+
+export interface NotificationPreferencesResponse {
+  delivery_enabled: boolean; // whether Novu is wired
+  preferences: NotificationPreference[];
+}
+
+export interface UpdateNotificationPreferenceInput {
+  type: string;
+  email: boolean;
+  in_app: boolean;
+}
+
+export interface NotificationInboxConfig {
+  enabled: boolean; // false when the Inbox isn't configured
+  application_identifier?: string;
+  subscriber_id?: string;
+  subscriber_hash?: string;
+  backend_url?: string;
+  socket_url?: string;
+}
+
 export interface UpdateAccountVariableInput {
   value?: string;
   secret?: boolean;
@@ -3428,6 +3458,37 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys/${encodeURIComponent(keyId)}`,
       { method: 'DELETE' }
     );
+  }
+
+  // --------------------------------------------------------------------------
+  // Notification preferences
+  // --------------------------------------------------------------------------
+
+  async getNotificationPreferences(account: string): Promise<NotificationPreferencesResponse> {
+    return this.request<NotificationPreferencesResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/notification-preferences`
+    );
+  }
+
+  async updateNotificationPreference(
+    account: string,
+    data: UpdateNotificationPreferenceInput,
+  ): Promise<{ message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/notification-preferences`,
+      { method: 'PATCH', body: JSON.stringify(data) }
+    );
+  }
+
+  async sendTestNotification(account: string): Promise<{ message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/notification-preferences/test`,
+      { method: 'POST' }
+    );
+  }
+
+  async getNotificationInboxConfig(): Promise<NotificationInboxConfig> {
+    return this.request<NotificationInboxConfig>('/api/v1/notifications/inbox-config');
   }
 
   // --------------------------------------------------------------------------

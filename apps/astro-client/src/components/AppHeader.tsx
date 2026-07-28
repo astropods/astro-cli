@@ -17,6 +17,7 @@ import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
+import { NotificationInbox } from "@/components/NotificationInbox";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { useTheme, type Theme } from "@/lib/theme";
 import {
@@ -214,6 +215,8 @@ export function AppHeader() {
             )}
           </div>
 
+          {showAuthenticatedChrome && <NotificationInbox />}
+
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
               <Button
@@ -387,6 +390,7 @@ export function AppHeader() {
             <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
           </>
         )}
+        {showAuthenticatedChrome && <NotificationInbox />}
         <div className="flex items-center gap-2">
           {showAuthenticatedChrome && user ? (
             <DropdownMenu>

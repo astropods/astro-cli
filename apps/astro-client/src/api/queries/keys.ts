@@ -113,6 +113,11 @@ export const otelIngestKeyKeys = {
   byAccount: (account: string) => ['otel-ingest-keys', account] as const,
 }
 
+export const notificationKeys = {
+  preferences: (account: string) => ['notification-preferences', account] as const,
+  inboxConfig: () => ['notification-inbox-config'] as const,
+}
+
 export const githubKeys = {
   status: (account: string, name: string) => ['github', account, name] as const,
   repos: (account: string, name: string) => ['github', account, name, 'repos'] as const,

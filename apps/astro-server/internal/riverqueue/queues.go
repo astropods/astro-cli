@@ -9,11 +9,12 @@ const evalJudgeMaxWorkers = 3
 //
 // The default queue (river.QueueDefault) is the fallback for anything unrouted.
 const (
-	queueDeploy      = "deploy"      // deployment lifecycle: deploy/undeploy/wakeup/migrate_cluster
-	queueBuild       = "build"       // container image builds
-	queueBilling     = "billing"     // dunning sweep, suspend/resume
-	queueMetering    = "metering"    // usage heartbeat, message-count sync
-	queueInsights    = "insights"    // insights + observability summary refresh
-	queueMaintenance = "maintenance" // periodic backfills, reconciles, purges, privatelink
-	queueEvalJudge   = "eval-judge"  // eval-dataset judgment prediction generation
+	queueDeploy        = "deploy"        // deployment lifecycle: deploy/undeploy/wakeup/migrate_cluster
+	queueBuild         = "build"         // container image builds
+	queueBilling       = "billing"       // dunning sweep, suspend/resume
+	queueMetering      = "metering"      // usage heartbeat, message-count sync
+	queueInsights      = "insights"      // insights + observability summary refresh
+	queueMaintenance   = "maintenance"   // periodic backfills, reconciles, purges, privatelink
+	queueEvalJudge     = "eval-judge"    // eval-dataset judgment prediction generation
+	queueNotifications = "notifications" // user alert delivery (Novu triggers)
 )

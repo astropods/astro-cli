@@ -11,6 +11,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -24,7 +25,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, queue notifyQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -150,6 +151,8 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 			"target_account": req.TargetAccount,
 		}
 		auditStore.LogAsync(log, evt)
+
+		emitNotify(c, log, queue, notify.AgentTransferred(targetAcct.ID, req.TargetAccount, agentName))
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":        "agent transferred successfully",

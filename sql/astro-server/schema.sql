@@ -174,6 +174,9 @@ CREATE TABLE public.account_member_emails (
 
 CREATE INDEX idx_account_member_emails_user ON public.account_member_emails(user_id);
 
+-- Notification preferences are owned by Novu (per-workflow defaults + per-
+-- subscriber overrides), not in this schema. See docs/01-spec/notifications-spec.md.
+
 -- At most one WorkOS-synced email per user. Other sources (future direct-add)
 -- are intentionally not covered, so a user may still hold several such emails.
 CREATE UNIQUE INDEX account_member_emails_user_workos_key ON public.account_member_emails(user_id) WHERE source = 'workos';

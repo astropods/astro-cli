@@ -51,6 +51,7 @@ type Config struct {
 	S3                   S3Config
 	GitHub               GitHubConfig
 	Slack                SlackConfig
+	Notify               NotifyConfig
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
 	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
 	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
@@ -206,6 +207,29 @@ type SlackConfig struct {
 	// built from this value. The slack app must list the same URL under
 	// OAuth & Permissions → Redirect URLs. Falls back to FRONTEND_URL.
 	CallbackURL string
+}
+
+// NotifyConfig holds Novu notification settings. Empty NovuAPIURL selects the
+// no-op provider (OSS/unconfigured): emits are logged and dropped.
+type NotifyConfig struct {
+	// NOVU_API_URL — Novu REST API base (e.g. https://api.novu.astroids.ai).
+	// In-cluster/cross-cluster address in prod; the public host works from
+	// WAF-allowlisted developer machines for local dev.
+	NovuAPIURL string
+	// NOVU_SECRET_KEY — Novu environment API key for ApiKey auth. Treat as a
+	// secret. This is the dashboard environment key, not the self-hosted
+	// store-encryption key of the same name in the novu-app K8s Secret.
+	NovuSecretKey string
+	// NOVU_TEST_WORKFLOW_ID — overrides the workflow the "Send test" button
+	// triggers. Defaults to the system.test workflow id; set this in local dev
+	// to an existing workflow (e.g. test-02) when system.test is not authored.
+	TestWorkflowID string
+	// NOVU_APP_IDENTIFIER — the Novu environment's application identifier, used
+	// by the browser Inbox component. Per-environment; empty disables the Inbox.
+	AppIdentifier string
+	// NOVU_SOCKET_URL — the self-hosted Novu websocket base the Inbox connects
+	// to for the live feed (e.g. https://ws.novu.astroids.ai).
+	SocketURL string
 }
 
 // DeploymentConfig holds deployment-related configuration
@@ -379,6 +403,13 @@ func Load() (*Config, error) {
 			ClientID:     getEnv("SLACK_CLIENT_ID", ""),
 			ClientSecret: getEnv("SLACK_CLIENT_SECRET", ""),
 			CallbackURL:  getEnv("SLACK_CALLBACK_URL", ""),
+		},
+		Notify: NotifyConfig{
+			NovuAPIURL:     getEnv("NOVU_API_URL", ""),
+			NovuSecretKey:  getEnv("NOVU_SECRET_KEY", ""),
+			TestWorkflowID: getEnv("NOVU_TEST_WORKFLOW_ID", ""),
+			AppIdentifier:  getEnv("NOVU_APP_IDENTIFIER", ""),
+			SocketURL:      getEnv("NOVU_SOCKET_URL", ""),
 		},
 		BillingProvider:         getEnv("BILLING_PROVIDER", ""),
 		MetronomeAPIKey:         getEnv("METRONOME_API_KEY", ""),

@@ -39,6 +39,7 @@
     "@fontsource-variable/geist-mono": "^5.2.7",
     "@heroicons/react": "^2.2.0",
     "@logtape/logtape": "^2.0.5",
+    "@novu/react": "^3.18.1",
     "@react-router/node": "^7.12.0",
     "@resvg/resvg-js": "^2.6.2",
     "@streamdown/math": "1.0.2",
