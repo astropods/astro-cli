@@ -32,7 +32,8 @@ export default function Blueprints() {
   const { accounts, isAuthenticated } = useAuth();
   const { search, setSearch, params, hasActiveFilters } = useBlueprintSearch();
   const [page, setPage] = useState(1);
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [accountFilters, setAccountFilters] =
+    useAccountFilterParam("blueprints");
 
   useEffect(() => {
     setPage(1);

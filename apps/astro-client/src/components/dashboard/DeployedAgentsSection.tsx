@@ -87,7 +87,7 @@ export function DeployedAgentsSection({
     );
   }
 
-  if (showEmptyState && deployments.length === 0) {
+  if (showEmptyState && deployments.length === 0 && !hasActiveFilters) {
     return (
       <ResultSetReveal
         itemCount={0}
@@ -107,7 +107,7 @@ export function DeployedAgentsSection({
         </div>
       )}
 
-      {deployments.length > 0 && (
+      {(deployments.length > 0 || hasActiveFilters) && (
         <div className="mb-4">
           <DashboardToolbar
             {...toolbarProps}

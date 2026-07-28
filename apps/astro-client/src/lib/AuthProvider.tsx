@@ -7,10 +7,38 @@ import {
 } from 'react';
 import { api, type AuthResponse, ApiRequestError } from './api';
 import { AuthContext, initialAuthState, type AuthState } from './auth-context';
+import { clearPageFilterStorage } from './persistent-storage';
 
 interface AuthProviderProps {
   children: ReactNode;
   serverAuth?: AuthResponse | null;
+}
+
+const PAGE_FILTER_IDENTITY_KEY = 'astro:page-filter-owner';
+
+function establishPageFilterIdentity(
+  response: AuthResponse,
+  pageFiltersCleared = false,
+) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const identity = JSON.stringify([
+      response.user.id,
+      response.organization_id ?? null,
+    ]);
+    const previousIdentity = localStorage.getItem(PAGE_FILTER_IDENTITY_KEY);
+    if (
+      !pageFiltersCleared &&
+      previousIdentity !== null &&
+      previousIdentity !== identity
+    ) {
+      clearPageFilterStorage();
+    }
+    localStorage.setItem(PAGE_FILTER_IDENTITY_KEY, identity);
+  } catch {
+    // Keep authentication usable when browser storage is unavailable.
+  }
 }
 
 function deriveAuthState(response: AuthResponse): AuthState {
@@ -42,8 +70,12 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   // scoped to the same domain but non-HttpOnly so the marketing nav can read it.
 
   const updateFromResponse = useCallback(
-    (response: AuthResponse, { isRefresh = false } = {}) => {
+    (
+      response: AuthResponse,
+      { isRefresh = false, pageFiltersCleared = false } = {},
+    ) => {
       const accounts = response.accounts || [];
+      establishPageFilterIdentity(response, pageFiltersCleared);
 
       setState((prev) => ({
         user: response.user,
@@ -157,9 +189,14 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   const switchOrg = useCallback(async (organizationId: string) => {
     try {
       const response = await api.switchOrg(organizationId);
-      updateFromResponse(response, { isRefresh: true });
+      clearPageFilterStorage();
+      updateFromResponse(response, {
+        isRefresh: true,
+        pageFiltersCleared: true,
+      });
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 401 && err.code === 'session_expired') {
+        clearPageFilterStorage();
         window.location.replace(api.getLoginUrl(window.location.pathname + window.location.search));
         return;
       }
@@ -173,6 +210,7 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
   }, []);
 
   const logout = useCallback(() => {
+    clearPageFilterStorage();
     // Redirect to the server's logout endpoint
     window.location.href = api.getLogoutUrl();
   }, []);
@@ -182,6 +220,10 @@ export function AuthProvider({ children, serverAuth }: AuthProviderProps) {
     hydratedRef.current = true;
     updateFromResponse(response);
   }, [updateFromResponse]);
+
+  useEffect(() => {
+    if (serverAuth) establishPageFilterIdentity(serverAuth);
+  }, [serverAuth]);
 
   // Check authentication on mount — skip if already hydrated from server.
   useEffect(() => {

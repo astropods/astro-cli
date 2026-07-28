@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { useSearchParams } from "react-router";
 import { useAuth } from "@/lib/auth";
+import { usePersistentSearchParams } from "./use-persistent-search-params";
 
-export function useAccountFilterParam(): [
+const ACCOUNT_PARAM_NAMES = ["account"] as const;
+
+export function useAccountFilterParam(storageScope: string): [
   string[],
   (accounts: string[]) => void,
 ] {
   const { accounts } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] =
+    usePersistentSearchParams(storageScope, ACCOUNT_PARAM_NAMES);
   const requested = useMemo(() => searchParams.getAll("account"), [searchParams]);
   const key = JSON.stringify(requested);
 

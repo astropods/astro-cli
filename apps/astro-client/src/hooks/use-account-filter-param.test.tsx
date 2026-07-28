@@ -14,7 +14,7 @@ const auth: AuthContextType = {
 };
 
 function Probe() {
-  const [value] = useAccountFilterParam();
+  const [value] = useAccountFilterParam("agents");
   const { search } = useLocation();
   return (
     <>

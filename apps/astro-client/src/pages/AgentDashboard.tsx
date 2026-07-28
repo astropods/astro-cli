@@ -32,7 +32,7 @@ export default function AgentDashboard() {
     } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [accountFilters, setAccountFilters] = useAccountFilterParam("agents");
 
   const {
     deployments: allDeployments,

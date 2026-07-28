@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
 export type SortOption = "recent" | "name" | "requests";

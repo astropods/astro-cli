@@ -1,5 +1,4 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Bot, Check, ChevronDown, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
@@ -35,6 +34,7 @@ import { useResolvedTheme } from "@/lib/theme";
 import { getActiveAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
 import {
@@ -52,6 +52,12 @@ const TABLE_PAGE_SIZE = 10;
 const SHOW_TOP_LABEL = `Show top ${DEFAULT_TABLE_LIMIT}`;
 const DEFAULT_AGENT_SORT: AgentSortKey = "cost_usd";
 const DEFAULT_USER_SORT: UserSortKey = "cost_usd";
+const INSIGHTS_FILTER_PARAMS = [
+  "account",
+  "range",
+  "view",
+  "hide_sources",
+] as const;
 
 // Dev-tool usage folds into the agent surfaces as distinct series/rows keyed by
 // source; "agents" is the base deployed-agent source in the Sources filter.
@@ -196,7 +202,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
   const { activeAccount } = useActiveAccount();
   const { accounts } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] =
+    usePersistentSearchParams("insights", INSIGHTS_FILTER_PARAMS);
   const range = parseRange(searchParams.get("range"));
   const view = parseActivityView(searchParams.get("view"));
   const q = searchParams.get("q") ?? "";

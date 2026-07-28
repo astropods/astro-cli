@@ -60,7 +60,8 @@ export default function KnowledgeStores() {
   const { isAuthenticated, accounts } = useAuth();
 
   const navigate = useNavigate();
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [accountFilters, setAccountFilters] =
+    useAccountFilterParam("knowledge");
   const {
     stores,
     isLoading,

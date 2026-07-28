@@ -28,6 +28,28 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
   await expect(page.getByText("Slack Overlap Bot")).not.toBeVisible();
 });
 
+test("dashboard account filter persists while search resets after navigation", async ({ page }) => {
+  test.setTimeout(30_000);
+  await page.goto("/agents", { waitUntil: "domcontentloaded" });
+
+  const search = page.getByPlaceholder("Search agents...");
+  await expect(search).toBeVisible({ timeout: 10_000 });
+  await search.fill("full");
+  await page.getByRole("button", { name: "Filter by account" }).click();
+  await page.getByRole("button", { name: /Test Org/ }).click();
+  await expect(page).toHaveURL(/account=test-org/);
+
+  await page.getByRole("link", { name: "Blueprints", exact: true }).click();
+  await expect(page).toHaveURL(/\/blueprints/);
+  await page.getByRole("link", { name: "Agents", exact: true }).click();
+  await expect(page).toHaveURL(/\/agents/);
+
+  await expect(page.getByPlaceholder("Search agents...")).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Filter by account" }),
+  ).toContainText("Test Org");
+});
+
 test("active agent card links to deployment detail", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });

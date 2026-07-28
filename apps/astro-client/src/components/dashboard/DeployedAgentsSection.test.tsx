@@ -187,6 +187,8 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
     );
 
     expect(await screen.findByText('No agents match your filters.')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filter by account' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(onAccountFiltersChange).toHaveBeenCalledWith([]);
   });

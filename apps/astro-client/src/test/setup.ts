@@ -1,7 +1,16 @@
 import '@testing-library/jest-dom/vitest';
 import { beforeAll, afterEach, afterAll } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { clearPageFilterStorage } from '@/lib/persistent-storage';
 import { server } from './msw/server';
+import { createMemoryStorage } from './memory-storage';
+
+if (typeof globalThis.localStorage?.getItem !== 'function') {
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: createMemoryStorage(),
+    configurable: true,
+  });
+}
 
 // jsdom does not implement pointer capture or scrollIntoView — required by Radix UI components (Select, DropdownMenu, etc.)
 if (typeof window !== 'undefined') {
@@ -41,5 +50,9 @@ if (typeof window !== 'undefined') {
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => { server.resetHandlers(); cleanup(); });
+afterEach(() => {
+  server.resetHandlers();
+  cleanup();
+  clearPageFilterStorage();
+});
 afterAll(() => server.close());
