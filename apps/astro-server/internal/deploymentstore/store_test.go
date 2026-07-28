@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	_ "github.com/lib/pq"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // ProcessMarkdown vacuums the local images referenced by readme: each is fetched

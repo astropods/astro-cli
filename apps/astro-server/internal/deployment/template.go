@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	"github.com/robfig/cron/v3"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 

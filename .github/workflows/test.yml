@@ -145,6 +145,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Fetch astro-spec submodule
+        if: matrix.app.name == 'astro-spec' || matrix.app.name == 'astro-server'
+        run: git submodule update --init packages/astro-spec
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -205,6 +209,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Fetch astro-spec submodule
+        run: git submodule update --init packages/astro-spec
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -271,6 +278,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Fetch astro-spec submodule
+        run: git submodule update --init packages/astro-spec
 
       - name: Setup Go
         uses: actions/setup-go@v5

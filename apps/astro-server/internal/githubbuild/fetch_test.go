@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // withTestHTTPClient temporarily replaces the package-level httpClient with

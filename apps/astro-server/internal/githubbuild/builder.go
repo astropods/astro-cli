@@ -21,7 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // Pinned init container images — update these explicitly to get new versions.

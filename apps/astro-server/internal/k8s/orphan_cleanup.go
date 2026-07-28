@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

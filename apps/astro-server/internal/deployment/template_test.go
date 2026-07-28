@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // --- helpers ---

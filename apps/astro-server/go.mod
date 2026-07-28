@@ -8,8 +8,8 @@ require (
 	github.com/Metronome-Industries/metronome-go/v3 v3.9.0
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/allisson/go-pglock/v3 v3.2.0
+	github.com/astropods/astro-spec v0.1.0
 	github.com/astropods/astro/packages/astro-proto v0.0.0
-	github.com/astropods/astro/packages/astro-spec v0.0.0
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.0
@@ -52,8 +52,8 @@ require (
 )
 
 replace (
+	github.com/astropods/astro-spec => ../../packages/astro-spec
 	github.com/astropods/astro/packages/astro-proto => ../../packages/astro-proto
-	github.com/astropods/astro/packages/astro-spec => ../../packages/astro-spec
 )
 
 require (

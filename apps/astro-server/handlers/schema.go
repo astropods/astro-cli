@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 )
 

@@ -147,6 +147,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # astro-spec is a public submodule; the astro-server image build COPYs it
+      # from the checkout, so it must be populated (keyless HTTPS fetch).
+      - name: Fetch astro-spec submodule
+        if: matrix.service == 'astro-server'
+        run: git submodule update --init packages/astro-spec
+
       - name: Prepare platform pair
         run: |
           platform=${{ matrix.platform }}

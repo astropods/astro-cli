@@ -16,7 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // NewKey generates a random 32-byte HMAC key.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // TestValidateSpec verifies that ValidateSpec rejects specs with missing

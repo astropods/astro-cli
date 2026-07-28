@@ -12,7 +12,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	"gopkg.in/yaml.v3"
 )
 

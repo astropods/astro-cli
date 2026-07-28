@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // findResolution returns the first Resolution matching the role+env name,

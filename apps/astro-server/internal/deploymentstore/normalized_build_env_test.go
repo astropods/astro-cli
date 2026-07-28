@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────

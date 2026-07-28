@@ -3,7 +3,7 @@ package deployment
 import (
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // fillAndDeploy simulates the deploy flow now that EnforceEditable is gone:

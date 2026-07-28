@@ -18,7 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )

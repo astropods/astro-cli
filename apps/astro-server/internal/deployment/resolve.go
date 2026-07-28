@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // Role identifies a logical container slot in a deployment. One row per

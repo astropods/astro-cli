@@ -3,7 +3,7 @@ package specsign
 import (
 	"testing"
 
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 func testSpec() *spec.AstroDeploymentSpec {

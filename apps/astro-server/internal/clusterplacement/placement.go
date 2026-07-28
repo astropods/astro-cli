@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro/packages/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // NormalizedClusterID maps empty and the primary sentinel to "" so placement
