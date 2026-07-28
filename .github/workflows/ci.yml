@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    name: Build and test
+    steps:
+      - uses: actions/checkout@v4
+
+      # astro-spec is a public module resolved from the Go proxy, so the default
+      # token is enough; no submodule or credential needed.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./cmd/... ./internal/...
