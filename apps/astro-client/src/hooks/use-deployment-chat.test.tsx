@@ -356,6 +356,89 @@ describe("useDeploymentChat", () => {
     });
   });
 
+  it("clears a reload-sourced interaction immediately on response, before the turn finishes", async () => {
+    // Regression guard: on reload the form comes from the persisted queue, and the
+    // cache-served query can't refetch it away mid-turn — resolving must clear it.
+    const convId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const interaction = {
+      id: "int-reload-1",
+      kind: "form",
+      message: "Approve?",
+      dataSchema: { type: "object", properties: {} },
+      actions: ["submit"],
+    };
+    server.use(
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${convId}`,
+        () =>
+          HttpResponse.json({
+            conversation_id: convId,
+            messages: [{ id: "u1", role: "user", content: "hi" }],
+            assistant_streaming: true,
+            pending_interactions: [interaction],
+          }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: convId }),
+      { wrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.pendingInteraction?.id).toBe("int-reload-1"),
+    );
+
+    act(() => {
+      result.current.clearPendingInteraction();
+    });
+    expect(result.current.pendingInteraction).toBeNull();
+  });
+
+  it("clears each entry of a multi-interaction reload queue without resurfacing an earlier one", async () => {
+    // FIFO queue with the cache frozen mid-turn: answering the second must not
+    // resurface the first. Guards the resolved-id set vs the single-scalar bug.
+    const convId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const mk = (id: string) => ({
+      id,
+      kind: "form",
+      message: `Approve ${id}?`,
+      dataSchema: { type: "object", properties: {} },
+      actions: ["submit"],
+    });
+    server.use(
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${convId}`,
+        () =>
+          HttpResponse.json({
+            conversation_id: convId,
+            messages: [{ id: "u1", role: "user", content: "hi" }],
+            assistant_streaming: true,
+            pending_interactions: [mk("int-a"), mk("int-b")],
+          }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: convId }),
+      { wrapper },
+    );
+
+    await waitFor(() =>
+      expect(result.current.pendingInteraction?.id).toBe("int-a"),
+    );
+
+    // Answer A → B advances into view.
+    act(() => result.current.clearPendingInteraction());
+    expect(result.current.pendingInteraction?.id).toBe("int-b");
+
+    // Answer B → queue is empty; A must not resurface from the frozen cache.
+    act(() => result.current.clearPendingInteraction());
+    expect(result.current.pendingInteraction).toBeNull();
+  });
+
   it("sets streamError when send fails", async () => {
     messagingHandlers();
     server.use(

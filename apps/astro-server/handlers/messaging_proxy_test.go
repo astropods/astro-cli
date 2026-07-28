@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,6 +129,48 @@ func TestMessagingProxy_SendMessage_Success(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The interaction response endpoint has no dedicated astro-server route: it rides
+// the catch-all messaging proxy. This pins that contract — the deep subpath, POST
+// method, request body, and injected identity all reach the sidecar unchanged.
+func TestMessagingProxy_InteractionResponse_ForwardsToSidecar(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(oidcIdentityHeader) != "user-workos-1" {
+			http.Error(w, "missing identity", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/api/chat/conversations/conv-1/interactions/int-1" || r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"action":"submit"`) {
+			http.Error(w, "body not forwarded", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"status":"resolved","action":"submit"}`)
+	}))
+	defer upstream.Close()
+
+	router, accountMock, deployMock := setupMessagingProxyRouter(upstream.URL, true)
+	expectMessagingProxyAuth(accountMock, deployMock)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/deployments/dep-1/messaging/chat/conversations/conv-1/interactions/int-1",
+		strings.NewReader(`{"action":"submit","content":{"approve":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "resolved") {
+		t.Errorf("expected sidecar ack forwarded, got: %s", rec.Body.String())
 	}
 }
 

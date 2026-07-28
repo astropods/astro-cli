@@ -1,4 +1,5 @@
 import type { ApiClient, ChatAttachment } from "@/lib/api";
+import { parseInteraction, type Interaction } from "@/lib/chat/interaction";
 
 /** Poll cadence while a turn is in flight without an active SSE session (e.g. after reload). */
 export const CHAT_POLL_MS = 500;
@@ -11,6 +12,7 @@ export type MessagingStreamHandlers = {
   ) => void;
   onFinish: () => void;
   onProtocolError: () => void;
+  onInteraction?: (interaction: Interaction) => void;
 };
 
 type SsePayload = {
@@ -45,6 +47,11 @@ export function openMessagingStream(
       handlers.onChunk(payload.content, payload.chunk_type, payload.attachments);
       return;
     }
+    if (typ === "interaction") {
+      const interaction = parseInteraction(payload);
+      if (interaction) handlers.onInteraction?.(interaction);
+      return;
+    }
     if (typ === "finish" || typ === "error") {
       handlers.onFinish();
     }
@@ -52,6 +59,9 @@ export function openMessagingStream(
 
   es.addEventListener("chunk", (e) => {
     if (e instanceof MessageEvent) handleData("chunk", String(e.data));
+  });
+  es.addEventListener("interaction", (e) => {
+    if (e instanceof MessageEvent) handleData("interaction", String(e.data));
   });
   es.addEventListener("finish", (e) => {
     if (e instanceof MessageEvent) handleData("finish", String(e.data));

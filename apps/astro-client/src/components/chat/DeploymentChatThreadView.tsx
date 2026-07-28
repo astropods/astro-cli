@@ -82,6 +82,10 @@ import {
   type DragEvent,
   type FC,
 } from "react";
+import { InteractionForm } from "@/components/chat/interaction/InteractionForm";
+import { useRespondToInteraction } from "@/api/queries/chat";
+import { ApiRequestError } from "@/lib/api";
+import type { Interaction, InteractionResponseBody } from "@/lib/chat/interaction";
 
 export function DeploymentChatThreadView({
   account,
@@ -165,7 +169,7 @@ export function DeploymentChatThreadView({
                 {streamError}
               </p>
             ) : null}
-            <ComposerArea
+            <ComposerSlot
               state={composerState}
               agentLabel={agentLabel}
               account={account}
@@ -289,6 +293,68 @@ const STATE_BANNER: Record<
     titleSuffix: "is in an error state",
     body: "Check the agent page for details.",
   },
+};
+
+// While an interaction is pending, its form replaces the composer.
+const ComposerSlot: FC<{
+  state: ChatComposerState;
+  agentLabel: string;
+  account: string;
+  deploymentId: string;
+  expanded?: boolean;
+}> = (props) => {
+  const { pendingInteraction, conversationId, clearPendingInteraction } =
+    useDeploymentChatViewport();
+  if (pendingInteraction && conversationId) {
+    return (
+      // Key on id: advancing the queue remounts the form, resetting its state.
+      <InteractionComposer
+        key={pendingInteraction.id}
+        deploymentId={props.deploymentId}
+        conversationId={conversationId}
+        interaction={pendingInteraction}
+        onResolved={clearPendingInteraction}
+      />
+    );
+  }
+  return <ComposerArea {...props} />;
+};
+
+// Delivers the user's response to the sidecar; disabled while it's in flight.
+const InteractionComposer: FC<{
+  deploymentId: string;
+  conversationId: string;
+  interaction: Interaction;
+  onResolved: () => void;
+}> = ({ deploymentId, conversationId, interaction, onResolved }) => {
+  const respond = useRespondToInteraction(deploymentId);
+  const [error, setError] = useState<string | null>(null);
+
+  const submitResponse = (body: InteractionResponseBody) => {
+    setError(null);
+    respond.mutate(
+      { conversationId, interactionId: interaction.id, body },
+      {
+        onSuccess: () => onResolved(),
+        onError: (e) =>
+          setError(
+            e instanceof ApiRequestError ? e.message : "Couldn't submit your response.",
+          ),
+      },
+    );
+  };
+
+  return (
+    <InteractionForm
+      interaction={interaction}
+      pending={respond.isPending}
+      error={error ?? undefined}
+      onSubmit={(content) => submitResponse({ action: "submit", content })}
+      onDecline={() => submitResponse({ action: "decline" })}
+      onCancel={() => submitResponse({ action: "cancel" })}
+      onRespond={(text) => submitResponse({ action: "respond", text })}
+    />
+  );
 };
 
 const ComposerArea: FC<{

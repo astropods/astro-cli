@@ -45,6 +45,8 @@ export function DeploymentChatRuntimeProvider({
     cancelStream,
     hasMoreHistory,
     loadOlderMessages,
+    pendingInteraction,
+    clearPendingInteraction,
   } = useDeploymentChat(deploymentId, { conversationId, onConversationCreated });
 
   const threadMessages = useMemo(
@@ -128,6 +130,8 @@ export function DeploymentChatRuntimeProvider({
       hasMoreHistory,
       loadOlderMessages,
       filesEnabled,
+      pendingInteraction,
+      clearPendingInteraction,
     }),
     [
       activeConversationId,
@@ -138,6 +142,8 @@ export function DeploymentChatRuntimeProvider({
       streamingMessageId,
       threadIsRunning,
       filesEnabled,
+      pendingInteraction,
+      clearPendingInteraction,
     ],
   );
 

@@ -11,6 +11,7 @@ import {
   type ApiClient,
   type GetDeploymentChatConversationResponse,
 } from "@/lib/api";
+import type { InteractionResponseBody } from "@/lib/chat/interaction";
 import { useApiClient } from "@/lib/api-context";
 import {
   CHAT_INITIAL_PAGE_LIMIT,
@@ -265,6 +266,27 @@ export function useSetDeploymentChatConversationTitle(deploymentId: string) {
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversations(deploymentId),
       });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.conversation(deploymentId, conversationId),
+      });
+    },
+  });
+}
+
+export function useRespondToInteraction(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      conversationId,
+      interactionId,
+      body,
+    }: {
+      conversationId: string;
+      interactionId: string;
+      body: InteractionResponseBody;
+    }) => api.respondToInteraction(deploymentId, conversationId, interactionId, body),
+    onSuccess: (_ack, { conversationId }) => {
       void queryClient.invalidateQueries({
         queryKey: chatKeys.conversation(deploymentId, conversationId),
       });

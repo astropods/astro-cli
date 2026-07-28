@@ -14,6 +14,9 @@ import {
   type DeploymentChatViewportState,
 } from "./deployment-chat-streaming-context";
 import type { ChatComposerState } from "@/lib/deployment-utils";
+import { ApiClientProvider } from "@/lib/api-context";
+import type { ApiClient } from "@/lib/api";
+import type { Interaction } from "@/lib/chat/interaction";
 
 // jsdom lacks Element.scrollTo, which assistant-ui calls during auto-scroll.
 beforeAll(() => {
@@ -118,6 +121,8 @@ function DraftHarness({ initialConversationId = "conv-a" as string | null }) {
     hasMoreHistory: false,
     loadOlderMessages: async () => {},
     filesEnabled: false,
+    pendingInteraction: null,
+    clearPendingInteraction: () => {},
   };
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -226,5 +231,128 @@ describe("DeploymentChatThreadView composer controls", () => {
     );
     fireEvent.keyDown(screen.getByLabelText("Message input"), { key: "Escape" });
     await waitFor(() => expect(onCancel).toHaveBeenCalled());
+  });
+});
+
+// Zero-field tool_permission, so "Approve" submits an empty content object.
+const toolPermission: Interaction = {
+  id: "int-1",
+  kind: "form",
+  message: "",
+  intent: "tool_permission",
+  dataSchema: { type: "object", title: "delete_files", properties: {} },
+  actions: ["submit", "decline"],
+};
+
+function InteractionHarness({
+  pendingInteraction,
+  clearPendingInteraction = () => {},
+  respondToInteraction = vi.fn().mockResolvedValue({ status: "ok", action: "submit" }),
+}: {
+  pendingInteraction: Interaction | null;
+  clearPendingInteraction?: () => void;
+  respondToInteraction?: ReturnType<typeof vi.fn>;
+}) {
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
+  const runtime = useExternalStoreRuntime({
+    messages: NO_MESSAGES,
+    isRunning: false,
+    onNew: async () => {},
+    convertMessage: (m) => m,
+  });
+  const viewport: DeploymentChatViewportState = {
+    streamingMessageId: null,
+    conversationId: "conv-1",
+    historyLoading: false,
+    isStreaming: false,
+    streamError: null,
+    hasMoreHistory: false,
+    loadOlderMessages: async () => {},
+    filesEnabled: false,
+    pendingInteraction,
+    clearPendingInteraction,
+  };
+  const api = { respondToInteraction } as unknown as ApiClient;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ApiClientProvider value={api}>
+        <AssistantRuntimeProvider runtime={runtime}>
+          <DeploymentChatStreamingContext.Provider value={viewport}>
+            <DeploymentChatThreadView
+              account="acme"
+              deploymentId="dep-1"
+              agentLabel="Test Agent"
+              composerState="ready"
+            />
+          </DeploymentChatStreamingContext.Provider>
+        </AssistantRuntimeProvider>
+      </ApiClientProvider>
+    </QueryClientProvider>
+  );
+}
+
+describe("DeploymentChatThreadView interaction composer", () => {
+  it("shows the normal composer when nothing is pending", () => {
+    render(<InteractionHarness pendingInteraction={null} />);
+    expect(screen.getByLabelText("Message input")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
+  it("replaces the composer with the interaction form while one is pending", () => {
+    render(<InteractionHarness pendingInteraction={toolPermission} />);
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Message input")).not.toBeInTheDocument();
+  });
+
+  it("resets form state when the pending interaction advances", () => {
+    const a: Interaction = {
+      id: "a",
+      kind: "form",
+      message: "",
+      dataSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      actions: ["submit"],
+    };
+    const b: Interaction = {
+      id: "b",
+      kind: "form",
+      message: "",
+      dataSchema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] },
+      actions: ["submit"],
+    };
+    const { rerender } = render(<InteractionHarness pendingInteraction={a} />);
+
+    // Force A into a validation-error state.
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(screen.getByText("Required.")).toBeInTheDocument();
+
+    // Advancing the FIFO queue to B must not carry A's error state over.
+    rerender(<InteractionHarness pendingInteraction={b} />);
+    expect(screen.queryByText("Required.")).not.toBeInTheDocument();
+  });
+
+  it("submits the response and clears the pending interaction on success", async () => {
+    const clearPendingInteraction = vi.fn();
+    const respondToInteraction = vi
+      .fn()
+      .mockResolvedValue({ status: "ok", action: "submit" });
+    render(
+      <InteractionHarness
+        pendingInteraction={toolPermission}
+        clearPendingInteraction={clearPendingInteraction}
+        respondToInteraction={respondToInteraction}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() =>
+      expect(respondToInteraction).toHaveBeenCalledWith("dep-1", "conv-1", "int-1", {
+        action: "submit",
+        content: {},
+      }),
+    );
+    await waitFor(() => expect(clearPendingInteraction).toHaveBeenCalledTimes(1));
   });
 });

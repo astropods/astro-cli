@@ -24,6 +24,7 @@ import {
   removeConversationMessage,
 } from "@/lib/chat/conversation-sync";
 import { openMessagingStream } from "@/lib/messaging/transport";
+import { parseInteraction, type Interaction } from "@/lib/chat/interaction";
 
 const IN_FLIGHT_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -58,6 +59,16 @@ export function useDeploymentChat(
   // snapshot that still reports the turn in flight is ignored so the cancelled
   // turn can't be reopened. Cleared on the next send or a conversation switch.
   const [suppressedConvId, setSuppressedConvId] = useState<string | null>(null);
+  // Live SSE interaction; the persisted queue (serverPending) is the reload source.
+  const [liveInteraction, setLiveInteraction] = useState<{
+    convId: string;
+    interaction: Interaction;
+  } | null>(null);
+  // Answered-this-turn ids, suppressed until the refetch drops them (the query is
+  // cache-served while the stream is open). A set so a multi-entry queue clears.
+  const [resolvedInteractionIds, setResolvedInteractionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const assistantIdRef = useRef<string | null>(null);
   const sendLockRef = useRef(false);
   const sseActiveRef = useRef(false);
@@ -168,6 +179,48 @@ export function useDeploymentChat(
       mapServerMessages(serverData?.messages ?? [], activeStreamingMessageId),
     [activeStreamingMessageId, serverData?.messages],
   );
+
+  // Persisted pending queue, normalized through the same parse guard as the SSE path.
+  const serverPending = useMemo<Interaction[]>(() => {
+    const raw = serverData?.pending_interactions;
+    if (!raw) return [];
+    return raw
+      .map((i) => parseInteraction(i))
+      .filter((i): i is Interaction => i !== null);
+  }, [serverData?.pending_interactions]);
+  // Prefer the live interaction (the persisted queue lags mid-turn); skip answered ids.
+  const pendingInteraction = useMemo<Interaction | null>(() => {
+    if (
+      liveInteraction &&
+      liveInteraction.convId === activeConversationId &&
+      !resolvedInteractionIds.has(liveInteraction.interaction.id)
+    ) {
+      return liveInteraction.interaction;
+    }
+    return serverPending.find((i) => !resolvedInteractionIds.has(i.id)) ?? null;
+  }, [serverPending, liveInteraction, activeConversationId, resolvedInteractionIds]);
+
+  const pendingInteractionRef = useRef<Interaction | null>(null);
+  pendingInteractionRef.current = pendingInteraction;
+
+  // Resolve via both sources: drop the live one, suppress the persisted id.
+  const clearPendingInteraction = useCallback(() => {
+    const resolved = pendingInteractionRef.current;
+    if (resolved) {
+      setResolvedInteractionIds((prev) => new Set(prev).add(resolved.id));
+    }
+    setLiveInteraction(null);
+  }, []);
+
+  // Drop suppressions the queue no longer lists (bounds the set; allows id reuse).
+  useEffect(() => {
+    setResolvedInteractionIds((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(serverPending.map((i) => i.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [serverPending]);
 
   const historyLoading =
     !!activeConversationId &&
@@ -334,6 +387,8 @@ export function useDeploymentChat(
 
   useEffect(() => {
     setCreatedConversationId(null);
+    setLiveInteraction(null);
+    setResolvedInteractionIds(new Set());
   }, [conversationIdFromOptions, deploymentId]);
 
   useEffect(() => {
@@ -354,6 +409,7 @@ export function useDeploymentChat(
         patchAssistantChunk(convId, content, chunkType, attachments),
       onFinish: () => finalizeConversation(convId),
       onProtocolError: () => finalizeConversation(convId),
+      onInteraction: (interaction) => setLiveInteraction({ convId, interaction }),
     });
     streamsRef.current.set(convId, es);
     // Watchdog: bound the turn's lifetime so a stall (no finish event ever
@@ -563,6 +619,8 @@ export function useDeploymentChat(
     streamError,
     historyLoading: historyLoading && !!activeConversationId,
     hasMoreHistory: !!serverData?.has_more,
+    pendingInteraction,
+    clearPendingInteraction,
     loadOlderMessages,
     sendMessage,
     cancelStream,

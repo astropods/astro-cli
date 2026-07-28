@@ -10,6 +10,11 @@ import {
   BLUEPRINT_LIST_MAX_LIMIT,
   type BlueprintListParams,
 } from "./blueprint-list-params";
+import type {
+  Interaction,
+  InteractionResponseAck,
+  InteractionResponseBody,
+} from "./chat/interaction";
 
 function buildQS(params?: Record<string, string | undefined>): string {
   if (!params) return '';
@@ -929,6 +934,8 @@ export interface GetDeploymentChatConversationResponse {
   assistant_streaming?: boolean;
   has_more?: boolean;
   oldest_seq?: number;
+  /** Still-open blocking interactions (the FIFO queue), for reload re-render. */
+  pending_interactions?: Interaction[];
 }
 
 export type DeploymentChatConversationQuery = {
@@ -2613,6 +2620,21 @@ class ApiClient {
         `conversations/${encodeURIComponent(conversationId)}/cancel`,
       ),
       { method: "POST" },
+    );
+  }
+
+  async respondToInteraction(
+    deploymentId: string,
+    conversationId: string,
+    interactionId: string,
+    body: InteractionResponseBody,
+  ): Promise<InteractionResponseAck> {
+    return this.request<InteractionResponseAck>(
+      this.messagingProxyPath(
+        deploymentId,
+        `chat/conversations/${encodeURIComponent(conversationId)}/interactions/${encodeURIComponent(interactionId)}`,
+      ),
+      { method: "POST", body: JSON.stringify(body) },
     );
   }
 

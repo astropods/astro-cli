@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
 
+import type { Interaction } from "@/lib/chat/interaction";
+
 export type DeploymentChatViewportState = {
   streamingMessageId: string | null;
   conversationId: string | null;
@@ -12,6 +14,9 @@ export type DeploymentChatViewportState = {
   // (sidecar has storage AND the agent declared it consumes attachments).
   // Defaults false so the button stays hidden until config confirms otherwise.
   filesEnabled: boolean;
+  // Head-of-queue blocking interaction; replaces the composer when set.
+  pendingInteraction: Interaction | null;
+  clearPendingInteraction: () => void;
 };
 
 const defaultViewportState: DeploymentChatViewportState = {
@@ -23,6 +28,8 @@ const defaultViewportState: DeploymentChatViewportState = {
   hasMoreHistory: false,
   loadOlderMessages: async () => {},
   filesEnabled: false,
+  pendingInteraction: null,
+  clearPendingInteraction: () => {},
 };
 
 export const DeploymentChatStreamingContext =
