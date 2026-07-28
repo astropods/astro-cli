@@ -20,7 +20,7 @@ bash scripts/local-dev.sh
 - `http://localhost` — astro-client
 - `http://localhost/api` — astro-server
 - `http://localhost:8090` — Traefik dashboard
-- `apps/astro-cli/bin/ast-dev` — local CLI (built pointed at `http://localhost`)
+- `modules/astro-cli/bin/ast-dev` — local CLI (built pointed at `http://localhost`)
 
 Requires Docker and Moon to be running.
 

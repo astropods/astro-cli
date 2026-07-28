@@ -1,25 +1,11 @@
 name: Release CLI (Preview)
 
+# TODO(cli-oss): the CLI now lives in the private astropods/astro-cli submodule
+# and its release embeds astro-client's chat SPA (built here in the monorepo),
+# so this job must fetch the private CLI submodule (needs a key) until the CLI
+# repo is public or the chat SPA is published as a downloadable artifact. The
+# auto-push trigger is disabled until then; dispatch manually to cut a preview.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/astro-cli/**'
-      - 'packages/astro-spec/**'
-      # The CLI embeds astro-client's chat UI, so chat source changes must
-      # produce a fresh preview build too.
-      - 'apps/astro-client/src/pages/chat/**'
-      - 'apps/astro-client/src/components/chat/**'
-      - 'apps/astro-client/src/components/assistant-ui/**'
-      - 'apps/astro-client/src/hooks/use-deployment-chat.ts'
-      - 'apps/astro-client/src/hooks/use-chat-sessions.ts'
-      - 'apps/astro-client/src/api/queries/chat.ts'
-      - 'apps/astro-client/src/lib/chat/**'
-      - 'apps/astro-client/src/lib/messaging/**'
-      - 'apps/astro-client/src/chat-embed/**'
-      - 'apps/astro-client/chat-embed.html'
-      - 'apps/astro-client/vite.chat-embed.config.ts'
   workflow_dispatch:
 
 concurrency:
@@ -61,11 +47,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fetch CLI submodule
+        env:
+          CLI_DEPLOY_KEY: ${{ secrets.CLI_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$CLI_DEPLOY_KEY" > ~/.ssh/cli_deploy && chmod 600 ~/.ssh/cli_deploy
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/cli_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git submodule update --init modules/astro-cli
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: apps/astro-cli/go.mod
-          cache-dependency-path: apps/astro-cli/go.sum
+          go-version-file: modules/astro-cli/go.mod
+          cache-dependency-path: modules/astro-cli/go.sum
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -74,14 +69,14 @@ jobs:
         run: bun install
 
       # Build astro-client's chat SPA and copy it into the CLI embed dir so the
-      # binaries below ship the latest chat UI (see apps/astro-cli/internal/chatui).
+      # binaries below ship the latest chat UI (see modules/astro-cli/internal/chatui).
       - name: Build and embed chat UI
         run: bun x moon run astro-cli:embed-chat-ui
 
       - name: Set build variables
         id: vars
         run: |
-          echo "version=$(cat apps/astro-cli/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "version=$(cat modules/astro-cli/VERSION)" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "binary_name=ast-preview" >> "$GITHUB_OUTPUT"
           echo "server_url=https://astropod.ai" >> "$GITHUB_OUTPUT"
@@ -91,7 +86,7 @@ jobs:
           echo "s3_bucket=preview-astro-downloads" >> "$GITHUB_OUTPUT"
 
       - name: Build CLI binaries
-        working-directory: apps/astro-cli
+        working-directory: modules/astro-cli
         env:
           BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
           VERSION: ${{ steps.vars.outputs.version }}
@@ -134,7 +129,7 @@ jobs:
           echo "::notice::Built ${BINARY_NAME} ${VERSION} (${COMMIT}) for all platforms"
 
       - name: Verify build flags
-        working-directory: apps/astro-cli
+        working-directory: modules/astro-cli
         env:
           BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
           VERSION: ${{ steps.vars.outputs.version }}
@@ -182,7 +177,7 @@ jobs:
           S3_BUCKET: ${{ steps.vars.outputs.s3_bucket }}
           BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
           VERSION: ${{ steps.vars.outputs.version }}
-        working-directory: apps/astro-cli/bin
+        working-directory: modules/astro-cli/bin
         run: |
           for OS in darwin linux; do
             for ARCH in amd64 arm64; do

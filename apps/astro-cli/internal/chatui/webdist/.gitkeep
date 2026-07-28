@@ -1,9 +1,0 @@
-# Placeholder so `//go:embed all:webdist` always compiles on a fresh checkout.
-#
-# The real chat UI assets are produced by `moon run astro-client:build-chat-embed`
-# (apps/astro-client) and copied here before `go build` during the CLI release
-# (and by `moon run astro-cli:embed-chat-ui` locally). Built assets are
-# gitignored; only this placeholder is tracked.
-#
-# The dir is named "webdist" (not "dist") on purpose: the repo-root .gitignore
-# ignores every directory named "dist", which would otherwise drop this file.

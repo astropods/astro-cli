@@ -4,8 +4,7 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "!apps/astro-cli"
+    "apps/*"
   ],
   "scripts": {
     "build": "moon run :build --query \"language=typescript AND projectType=library\"",

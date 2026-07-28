@@ -56,7 +56,7 @@ bun install
 
 log "Building ast-dev CLI..."
 ASTRO_SERVER_URL=http://localhost moon run astro-cli:build
-log "Built ast-dev → apps/astro-cli/bin/ast-dev"
+log "Built ast-dev → modules/astro-cli/bin/ast-dev"
 
 log "Building workspace packages (astro-theme, astro-trading-card)..."
 moon run astro-theme:build astro-trading-card:build
@@ -78,7 +78,7 @@ echo "├───────────────────────�
 echo "│  http://localhost            astro-client      │"
 echo "│  http://localhost/api        astro-server      │"
 echo "│  http://localhost:8090       Traefik dashboard │"
-echo "│  apps/astro-cli/bin/ast-dev  local CLI         │"
+echo "│  modules/astro-cli/bin/ast-dev  local CLI      │"
 echo "└────────────────────────────────────────────────┘"
 echo ""
 log "Press Ctrl+C to stop all services."
