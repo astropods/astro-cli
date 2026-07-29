@@ -25,15 +25,20 @@ import {
 } from "@/components/agent-detail/charts/aggregate-token-buckets";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { deploymentPath, DeploymentTab } from "@/lib/routes";
+import { classify } from "@/components/agent-detail/pods/classify";
+import { cn } from "@/lib/utils";
 
-const NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
+const CORE_NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
   { key: "inbound", label: "Inbound" },
   { key: "outbound", label: "Outbound" },
-  { key: "database", label: "Database" },
 ];
+const DATABASE_NETWORK_DIRECTION: { key: NetworkDirection; label: string } = {
+  key: "database",
+  label: "Database",
+};
 
 export default function AgentMonitor() {
-  const { deploymentId, account } = useAgentDetailContext();
+  const { deployment, deploymentId, account } = useAgentDetailContext();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -105,6 +110,27 @@ export default function AgentMonitor() {
     deploymentId,
     networkWindow,
   );
+  const hasKnowledgeConfigured = (deployment.workloads ?? []).some(
+    (workload) =>
+      classify(workload.component, workload.kind) === "knowledge" ||
+      Object.values(workload.env ?? {}).some((variables) =>
+        variables.some((variable) => variable.source === "knowledge_cred"),
+      ),
+  );
+  const networkDirections = useMemo(
+    () =>
+      hasKnowledgeConfigured
+        ? [...CORE_NETWORK_DIRECTIONS, DATABASE_NETWORK_DIRECTION]
+        : CORE_NETWORK_DIRECTIONS,
+    [hasKnowledgeConfigured],
+  );
+
+  useEffect(() => {
+    if (networkDirection === "database" && !hasKnowledgeConfigured) {
+      setNetworkDirection("inbound");
+    }
+  }, [hasKnowledgeConfigured, networkDirection]);
+
   const { data: networkFlows, isLoading: networkFlowsLoading } = useNetworkFlows(
     deploymentId,
     networkDirection,
@@ -189,7 +215,14 @@ export default function AgentMonitor() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 @[540px]/monitor:grid-cols-3">
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-4",
+                hasKnowledgeConfigured
+                  ? "@[540px]/monitor:grid-cols-3"
+                  : "@[540px]/monitor:grid-cols-2",
+              )}
+            >
               <NetworkSummaryCard
                 title="Inbound"
                 summary={networkSummary?.inbound}
@@ -202,18 +235,20 @@ export default function AgentMonitor() {
                 colors={colors}
                 loading={networkSummaryLoading}
               />
-              <NetworkSummaryCard
-                title="Database"
-                summary={networkSummary?.database}
-                colors={colors}
-                loading={networkSummaryLoading}
-              />
+              {hasKnowledgeConfigured && (
+                <NetworkSummaryCard
+                  title="Database"
+                  summary={networkSummary?.database}
+                  colors={colors}
+                  loading={networkSummaryLoading}
+                />
+              )}
             </div>
 
             <div className="mt-6 flex items-center justify-between">
               <TimeRangeSelector
                 value={networkDirection}
-                ranges={NETWORK_DIRECTIONS}
+                ranges={networkDirections}
                 onChange={(d) => setNetworkDirection(d as NetworkDirection)}
                 layoutId="network-direction-pill"
               />

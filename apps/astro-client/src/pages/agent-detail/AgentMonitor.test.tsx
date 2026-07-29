@@ -14,6 +14,7 @@ import type {
   ObservabilityTracesResponse,
   TraceDetailResponse,
   TraceUserFacetsResponse,
+  NetworkSummaryResponse,
 } from "@/lib/api";
 import AgentMonitor from "./AgentMonitor";
 import AgentTraces from "./AgentTraces";
@@ -113,6 +114,41 @@ const emptyTraces: ObservabilityTracesResponse = {
   limit: 100,
   offset: 0,
 };
+
+const emptyNetworkDirection = {
+  request_count: 0,
+  error_count: 0,
+  error_rate: 0,
+  latency_p50_ms: null,
+  latency_p95_ms: null,
+  latency_p99_ms: null,
+  unique_peer_count: 0,
+  bytes_total: 0,
+};
+
+function setupNetworkSummary(databaseRequestCount: number) {
+  server.use(
+    http.get("/api/v1/deployments/:id/network/summary", () =>
+      HttpResponse.json<NetworkSummaryResponse>({
+        inbound: { ...emptyNetworkDirection, request_count: 12 },
+        outbound: { ...emptyNetworkDirection, request_count: 8 },
+        database: {
+          ...emptyNetworkDirection,
+          request_count: databaseRequestCount,
+        },
+        window_from: "2025-04-21T00:00:00Z",
+        window_to: "2025-04-28T00:00:00Z",
+      }),
+    ),
+    http.get("/api/v1/deployments/:id/network/flows", ({ request }) =>
+      HttpResponse.json({
+        direction:
+          new URL(request.url).searchParams.get("direction") ?? "inbound",
+        flows: [],
+      }),
+    ),
+  );
+}
 
 function traceUserFacetsHandler(traces: TraceEntry[]) {
   const users = new Map<string, TraceUserFacetsResponse["users"][number]>();
@@ -366,6 +402,80 @@ describe("user switches time range", () => {
 
     expect(screen.getByRole("button", { name: "14D" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("network database visibility", () => {
+  it("hides the Database summary and filter when the deployment has no knowledge configured", async () => {
+    setupHandlers();
+    setupNetworkSummary(3);
+    renderMonitor();
+
+    expect(await screen.findByText("Network Traffic")).toBeInTheDocument();
+    expect(await screen.findByText("12")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Database" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Database")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Inbound" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Outbound" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows Database for a knowledge workload even when it has no traffic", async () => {
+    setupHandlers();
+    setupNetworkSummary(0);
+    renderMonitor(
+      makeDeployment({
+        components: ["agent", "knowledge"],
+        workloads: [
+          {
+            name: "my-agent-knowledge-docs",
+            kind: "StatefulSet",
+            component: "knowledge-docs",
+            provider: "postgres",
+          },
+        ],
+      }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Database" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Database")).toHaveLength(2);
+  });
+
+  it("shows Database for a bound knowledge store without its own workload", async () => {
+    setupHandlers();
+    setupNetworkSummary(0);
+    renderMonitor(
+      makeDeployment({
+        workloads: [
+          {
+            name: "my-agent",
+            kind: "Deployment",
+            component: "agent",
+            env: {
+              agent: [
+                {
+                  name: "POSTGRES_URL",
+                  value: "••••••••",
+                  source: "knowledge_cred",
+                  is_secret: true,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Database" }),
+    ).toBeInTheDocument();
   });
 });
 
