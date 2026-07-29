@@ -88,7 +88,7 @@ func TestEvaluateFiresOnceAndDedups(t *testing.T) {
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
 	st := newMemState()
 	cond := Condition{Name: "crash_loop", Title: "Crash loop", Severity: SeverityCritical, Engine: EnginePromQL, Query: "q", For: 0}
-	e := NewEvaluator(nil, fakeDeploys{}, st, emit, nil)
+	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
 	fireQ := fakeEngine{vec: breaching("ns1")}
 	clearQ := fakeEngine{vec: nil}
 	t0 := time.Unix(1000, 0)
@@ -121,7 +121,7 @@ func TestEvaluateHonorsForWindow(t *testing.T) {
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
 	st := newMemState()
 	cond := Condition{Name: "memory_over_budget", Title: "Memory over budget", Severity: SeverityWarning, Engine: EnginePromQL, Query: "q", For: 5 * time.Minute}
-	e := NewEvaluator(nil, fakeDeploys{}, st, emit, nil)
+	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
 	q := fakeEngine{vec: breaching("ns1")}
 	t0 := time.Unix(1000, 0)
 
@@ -146,7 +146,7 @@ func TestEvaluatePerWorkloadStateSingleNotification(t *testing.T) {
 	st := newMemState()
 	cond := Condition{Name: "crash_loop", Title: "Crash loop", Severity: SeverityCritical, Engine: EnginePromQL, Query: "q", For: 0}
 	q := fakeEngine{vec: breachingPods("ns1", "agent-abc", "model-x-def")}
-	e := NewEvaluator(nil, fakeDeploys{}, st, emit, nil)
+	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
 
 	_ = e.evaluate(context.Background(), cond, q, time.Unix(1000, 0))
 
@@ -169,7 +169,7 @@ func TestSweepSkipsConditionsWithUnwiredEngine(t *testing.T) {
 	var emitted []notify.Event
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
 	engines := map[Engine]Querier{EngineLangfuse: fakeEngine{vec: breaching("ns1")}}
-	e := NewEvaluator(engines, fakeDeploys{}, newMemState(), emit, nil)
+	e := NewEvaluator(engines, fakeDeploys{}, newMemState(), nil, emit, nil)
 
 	if err := e.Sweep(context.Background()); err != nil {
 		t.Fatalf("sweep: %v", err)

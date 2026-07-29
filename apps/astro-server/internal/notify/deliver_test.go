@@ -189,7 +189,7 @@ func TestDeliverLeavesAbsoluteCTA(t *testing.T) {
 }
 
 func TestBuildFailedPayload(t *testing.T) {
-	ev := BuildFailed("acct_1", "my-agent", "build_9", "exit code 1")
+	ev := BuildFailed("acct_1", "acme", "my-agent", "build_9", "exit code 1")
 	if ev.Type != TypeBuildFailed || ev.Audience != AudienceMembers || ev.EntityID != "build_9" {
 		t.Fatalf("unexpected event envelope: %+v", ev)
 	}
@@ -197,8 +197,38 @@ func TestBuildFailedPayload(t *testing.T) {
 	if ev.Payload[PayloadAgent] != "my-agent" || ev.Payload[PayloadReason] != "exit code 1" {
 		t.Fatalf("payload data = %+v, want agent/reason", ev.Payload)
 	}
+	if ev.Payload[PayloadCTAURL] != "/acme/my-agent" {
+		t.Fatalf("ctaUrl = %v, want /acme/my-agent", ev.Payload[PayloadCTAURL])
+	}
 	if _, hasSubject := ev.Payload["subject"]; hasSubject {
 		t.Fatalf("payload must not carry prose (subject), got %+v", ev.Payload)
+	}
+}
+
+func TestAccountWelcomePayload(t *testing.T) {
+	ev := AccountWelcome("acct_1", "acme", "u_creator")
+	if ev.Type != TypeAccountWelcome || ev.Audience != AudienceActor {
+		t.Fatalf("unexpected envelope: %+v", ev)
+	}
+	if ev.ActorUserID != "u_creator" || ev.EntityID != "acct_1" {
+		t.Fatalf("want actor=u_creator, entity=acct_1 (dedupe per account), got %+v", ev)
+	}
+	if ev.Payload[PayloadAccount] != "acme" {
+		t.Fatalf("payload account = %v, want acme", ev.Payload[PayloadAccount])
+	}
+}
+
+func TestObservationPayloadDeepLink(t *testing.T) {
+	ev := Observation(TypeObservationCritical, "acct_1", "acme", "my-agent", "dep_9", "Out of memory")
+	if got := ev.Payload[PayloadCTAURL]; got != "/acme/agents/dep_9/deployments" {
+		t.Fatalf("ctaUrl = %v, want /acme/agents/dep_9/deployments", got)
+	}
+}
+
+func TestObservationPayloadFallsBackWithoutHandle(t *testing.T) {
+	ev := Observation(TypeObservationCritical, "acct_1", "", "my-agent", "dep_9", "Out of memory")
+	if got := ev.Payload[PayloadCTAURL]; got != "/agents" {
+		t.Fatalf("ctaUrl = %v, want /agents fallback when handle unknown", got)
 	}
 }
 

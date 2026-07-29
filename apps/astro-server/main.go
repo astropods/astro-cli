@@ -1070,7 +1070,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("offset", "Per-account page offset (max 10000)", false),
 				oapispec.Response(200, &handlers.CrossAccountDeploymentsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.BillingBackend(), auditStore),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.BillingBackend(), auditStore, queue),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),

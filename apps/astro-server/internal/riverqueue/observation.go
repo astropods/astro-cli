@@ -5,6 +5,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
@@ -27,11 +28,12 @@ func init() { registerJobKind[ObservationSweepArgs]() }
 // post-construction (see wiredWorkers); the worker is a no-op without it.
 type ObservationSweepWorker struct {
 	river.WorkerDefaults[ObservationSweepArgs]
-	prom    *promquery.Client
-	deploys *deploymentstore.Store
-	state   *observation.Store
-	queue   *Queue
-	log     *logger.Logger
+	prom     *promquery.Client
+	deploys  *deploymentstore.Store
+	state    *observation.Store
+	accounts *account.AccountStore
+	queue    *Queue
+	log      *logger.Logger
 }
 
 func (w *ObservationSweepWorker) Work(ctx context.Context, _ *river.Job[ObservationSweepArgs]) error {
@@ -41,6 +43,6 @@ func (w *ObservationSweepWorker) Work(ctx context.Context, _ *river.Job[Observat
 	engines := map[observation.Engine]observation.Querier{
 		observation.EnginePromQL: observation.NewPromQLEngine(w.prom),
 	}
-	eval := observation.NewEvaluator(engines, w.deploys, w.state, w.queue.EmitNotify, w.log)
+	eval := observation.NewEvaluator(engines, w.deploys, w.state, w.accounts, w.queue.EmitNotify, w.log)
 	return eval.Sweep(ctx)
 }

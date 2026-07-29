@@ -14,6 +14,10 @@ const (
 	// It is not in the catalog (not user-configurable) and always delivers.
 	TypeSystemTest Type = "system.test"
 
+	// TypeAccountWelcome greets the creator of a newly created account (personal
+	// or organization). Addressed to the actor, deduped per account.
+	TypeAccountWelcome Type = "account.welcome"
+
 	TypeBuildFailed Type = "build.failed"
 
 	TypeBillingPaymentFailed  Type = "billing.payment_failed"

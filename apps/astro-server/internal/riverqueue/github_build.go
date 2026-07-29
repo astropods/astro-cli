@@ -10,6 +10,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
@@ -74,13 +75,15 @@ type GitHubBuildWorker struct {
 	// downstream consumers once a new agent build is registered.
 	deployStore *deploymentstore.Store
 	cache       k8scache.Cache
+	// accountStore resolves the account's URL handle for the build.failed CTA.
+	accountStore *account.AccountStore
 	// queue emits the build.failed notification on a definitive failure. Wired
 	// post-construction (see wiredWorkers); nil-safe.
 	queue *Queue
 }
 
 // NewGitHubBuildWorker creates a GitHubBuildWorker with all dependencies wired.
-func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, readmeAssets *readmeassets.Store, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, db *sql.DB, deployStore *deploymentstore.Store, cache k8scache.Cache) *GitHubBuildWorker {
+func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.Store, agentIndex *agentindex.Index, readmeAssets *readmeassets.Store, registry *k8s.Registry, cfg *config.Config, log *logger.Logger, db *sql.DB, deployStore *deploymentstore.Store, cache k8scache.Cache, accountStore *account.AccountStore) *GitHubBuildWorker {
 	var builder *githubbuild.Builder
 	if registry != nil {
 		builder = githubbuild.New(registry.Default(), cfg, log)
@@ -97,6 +100,7 @@ func NewGitHubBuildWorker(pipesClient *pipes.Client, ghStore *githubconnection.S
 		db:           db,
 		deployStore:  deployStore,
 		cache:        cache,
+		accountStore: accountStore,
 	}
 }
 
@@ -283,7 +287,15 @@ func (w *GitHubBuildWorker) emitBuildFailed(ctx context.Context, accountID, agen
 	if cause != nil {
 		reason = cause.Error()
 	}
-	if err := w.queue.EmitNotify(ctx, notify.BuildFailed(accountID, agentName, buildID, reason)); err != nil {
+	accountName := ""
+	if w.accountStore != nil {
+		if acct, err := w.accountStore.GetByID(accountID); err == nil && acct != nil {
+			accountName = acct.Name
+		} else if err != nil {
+			w.log.Warn("build: account name lookup failed, build.failed CTA will fall back", "error", err, "account_id", accountID)
+		}
+	}
+	if err := w.queue.EmitNotify(ctx, notify.BuildFailed(accountID, accountName, agentName, buildID, reason)); err != nil {
 		w.log.Warn("build: emit build.failed notification failed", "error", err, "account_id", accountID, "agent", agentName)
 	}
 }

@@ -22,6 +22,8 @@ const (
 var payloadProps = map[Type][]string{
 	TypeSystemTest: {PayloadAccount},
 
+	TypeAccountWelcome: {PayloadAccount, PayloadCTAURL},
+
 	TypeBuildFailed: {PayloadAgent, PayloadReason, PayloadCTAURL},
 
 	TypeBillingPaymentFailed:  {PayloadAccount, PayloadCTAURL},
@@ -43,10 +45,37 @@ var payloadProps = map[Type][]string{
 // pushes, for building the Novu workflow's payload schema.
 func PayloadProperties(t Type) []string { return payloadProps[t] }
 
+// accountPath builds an account-scoped app path ("/{accountName}{suffix}"),
+// falling back to the dashboard when the handle is unknown — a caller that can't
+// resolve the account name would otherwise emit a broken "//…" link.
+func accountPath(accountName, suffix string) string {
+	if accountName == "" {
+		return "/agents"
+	}
+	return "/" + accountName + suffix
+}
+
+// --- Account lifecycle ---
+
+// AccountWelcome builds the account.welcome event greeting the creator of a new
+// account. Addressed to the actor (the creator); EntityID is the account so a
+// duplicate emit for the same account dedupes at Novu. The CTA opens the app.
+func AccountWelcome(accountID, accountName, actorUserID string) Event {
+	return Event{
+		Type:        TypeAccountWelcome,
+		AccountID:   accountID,
+		Audience:    AudienceActor,
+		ActorUserID: actorUserID,
+		EntityID:    accountID,
+		Payload:     map[string]any{PayloadAccount: accountName, PayloadCTAURL: "/agents"},
+	}
+}
+
 // --- Deployments ---
 
-// BuildFailed builds the build.failed event for an account's members.
-func BuildFailed(accountID, agentName, buildID, reason string) Event {
+// BuildFailed builds the build.failed event for an account's members. accountName
+// is the account's URL handle; the CTA deep-links to the agent's blueprint page.
+func BuildFailed(accountID, accountName, agentName, buildID, reason string) Event {
 	return Event{
 		Type:      TypeBuildFailed,
 		AccountID: accountID,
@@ -55,7 +84,7 @@ func BuildFailed(accountID, agentName, buildID, reason string) Event {
 		Payload: map[string]any{
 			PayloadAgent:  agentName,
 			PayloadReason: reason,
-			PayloadCTAURL: "/agents",
+			PayloadCTAURL: accountPath(accountName, "/"+agentName),
 		},
 	}
 }
@@ -119,14 +148,14 @@ func teamEvent(accountID, subjectUserID string, payload map[string]any) Event {
 // TeamMemberAdded builds the team.member_changed event for an added member.
 func TeamMemberAdded(accountID, accountName, subjectUserID, role string) Event {
 	return teamEvent(accountID, subjectUserID, map[string]any{
-		PayloadAccount: accountName, PayloadRole: role, PayloadAction: "added", PayloadCTAURL: "/",
+		PayloadAccount: accountName, PayloadRole: role, PayloadAction: "added", PayloadCTAURL: accountPath(accountName, ""),
 	})
 }
 
 // TeamRoleChanged builds the team.member_changed event for a role change.
 func TeamRoleChanged(accountID, accountName, subjectUserID, role string) Event {
 	return teamEvent(accountID, subjectUserID, map[string]any{
-		PayloadAccount: accountName, PayloadRole: role, PayloadAction: "role_changed", PayloadCTAURL: "/",
+		PayloadAccount: accountName, PayloadRole: role, PayloadAction: "role_changed", PayloadCTAURL: accountPath(accountName, ""),
 	})
 }
 
@@ -146,7 +175,7 @@ func AgentTransferred(targetAccountID, targetAccountName, agentName string) Even
 		Audience:  AudienceManagers,
 		EntityID:  agentName,
 		Payload: map[string]any{
-			PayloadAccount: targetAccountName, PayloadAgent: agentName, PayloadCTAURL: "/agents",
+			PayloadAccount: targetAccountName, PayloadAgent: agentName, PayloadCTAURL: accountPath(targetAccountName, "/"+agentName),
 		},
 	}
 }
@@ -180,12 +209,12 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 // since both severities cover many conditions. The observation evaluator sets a
 // per-episode DedupeKey so a re-fire after a resolve isn't collapsed with the
 // prior episode at Novu.
-func Observation(t Type, accountID, agentName, deploymentID, reason string) Event {
+func Observation(t Type, accountID, accountName, agentName, deploymentID, reason string) Event {
 	return Event{
 		Type:      t,
 		AccountID: accountID,
 		Audience:  AudienceMembers,
 		EntityID:  deploymentID,
-		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadCTAURL: "/agents"},
+		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
 	}
 }

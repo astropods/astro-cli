@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
@@ -34,6 +35,13 @@ type deployments interface {
 	GetRuntimeSnapshot(deploymentID string) (*deploymentstore.RuntimeSnapshot, time.Time, error)
 }
 
+// accountNamer resolves an account id to its URL handle (Name), used to
+// deep-link an alert to the affected deployment. *account.AccountStore satisfies
+// it. Optional: a nil namer just yields an alert without an account-scoped CTA.
+type accountNamer interface {
+	GetByID(id string) (*account.Account, error)
+}
+
 // stateStore is the firing-state persistence the evaluator needs, keyed per
 // (deployment, workload, condition). *Store satisfies it.
 type stateStore interface {
@@ -46,15 +54,16 @@ type stateStore interface {
 // Evaluator runs the condition set against per-engine queriers and emits alerts
 // on firing edges, tracking state in the Store so it never double-alerts.
 type Evaluator struct {
-	engines map[Engine]Querier
-	deploys deployments
-	state   stateStore
-	emit    func(ctx context.Context, ev notify.Event) error
-	log     *logger.Logger
+	engines  map[Engine]Querier
+	deploys  deployments
+	state    stateStore
+	accounts accountNamer
+	emit     func(ctx context.Context, ev notify.Event) error
+	log      *logger.Logger
 }
 
-func NewEvaluator(engines map[Engine]Querier, deploys deployments, state stateStore, emit func(context.Context, notify.Event) error, log *logger.Logger) *Evaluator {
-	return &Evaluator{engines: engines, deploys: deploys, state: state, emit: emit, log: log}
+func NewEvaluator(engines map[Engine]Querier, deploys deployments, state stateStore, accounts accountNamer, emit func(context.Context, notify.Event) error, log *logger.Logger) *Evaluator {
+	return &Evaluator{engines: engines, deploys: deploys, state: state, accounts: accounts, emit: emit, log: log}
 }
 
 // entKey is the per-(deployment, workload) tracking key.
@@ -188,7 +197,16 @@ func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.
 	if workload != "" {
 		reason = fmt.Sprintf("%s — %s", c.Title, workload)
 	}
-	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, dep.AgentName, dep.ID, reason)
+	accountName := ""
+	if e.accounts != nil {
+		if acct, err := e.accounts.GetByID(dep.AccountID); err == nil && acct != nil {
+			accountName = acct.Name
+		} else if err != nil && e.log != nil {
+			e.log.Warn("observation: account name lookup failed, alert CTA will be dropped",
+				"error", err, "account_id", dep.AccountID, "deployment", dep.ID)
+		}
+	}
+	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, accountName, dep.AgentName, dep.ID, reason)
 	// Per-episode dedupe keyed by condition + deployment + workload + window start.
 	ev.DedupeKey = fmt.Sprintf("%s:%s:%s:%d", c.Name, dep.ID, workload, since.Unix())
 	if err := e.emit(ctx, ev); err != nil && e.log != nil {

@@ -456,7 +456,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	var ghBuildWorker *GitHubBuildWorker
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
-		ghBuildWorker = NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache)
+		ghBuildWorker = NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache, cfg.AccountStore)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
 			log.Warn("github build: failed to ensure build infrastructure", "error", err)
 		}
@@ -469,10 +469,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var observationSweep *ObservationSweepWorker
 	if cfg.PromClient != nil {
 		observationSweep = &ObservationSweepWorker{
-			prom:    cfg.PromClient,
-			deploys: store,
-			state:   observation.NewStore(cfg.DB),
-			log:     log,
+			prom:     cfg.PromClient,
+			deploys:  store,
+			state:    observation.NewStore(cfg.DB),
+			accounts: cfg.AccountStore,
+			log:      log,
 		}
 		addWorkerWithCatalogCheck(log, workers, observationSweep)
 		log.Info("river: registered worker", "worker", "ObservationSweepWorker")

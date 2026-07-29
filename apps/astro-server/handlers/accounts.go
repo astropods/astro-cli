@@ -19,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
@@ -118,7 +119,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -276,6 +277,10 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		evt.Description = "Created account " + acct.Name
 		evt.Metadata = map[string]any{"type": acct.Type}
 		auditStore.LogAsync(log, evt)
+
+		// Welcome the creator. Best-effort — the creator's email was just mirrored
+		// above, so AudienceActor resolves; a nil queue (Novu unconfigured) no-ops.
+		emitNotify(c, log, queue, notify.AccountWelcome(acct.ID, acct.Name, user.ID))
 
 		resp := AccountResponse{
 			ID:          acct.ID,
