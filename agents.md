@@ -10,7 +10,7 @@ IMPORTANT: When planning and creating spec, please ensure it's concise and compl
 
 | App | Path | Purpose |
 |-----|------|---------|
-| astro-cli | `apps/astro-cli` | CLI for building, pushing, and deploying agents; handles local dev mode, container builds, registry push, and spec registration |
+| astro-cli | `modules/astro-cli` | CLI for building, pushing, and deploying agents; handles local dev mode, container builds, registry push, and spec registration. Private git submodule (`astropods/astro-cli`); run `git submodule update --init modules/astro-cli` to work on it |
 | astro-client | `apps/astro-client` | React web frontend for managing agents, deployments, observability, and team settings |
 | astro-queen | `apps/astro-queen` | Admin console: a Cobra CLI that serves an embedded React SPA (`//go:embed web/dist`) backed by the AdminService gRPC API; provides access to cluster status, deployments, jobs, and observability |
 | astro-registry | `apps/astro-registry` | Docker Registry V2 API proxy with auth; routes push/pull operations to backend registry (ECR) with membership checking |
@@ -23,7 +23,7 @@ IMPORTANT: When planning and creating spec, please ensure it's concise and compl
 |---------|------|---------|
 | astro-collector | `packages/astro-collector` | OpenTelemetry Collector distribution for collecting traces and metrics from deployed agents |
 | astro-proto | `packages/astro-proto` | Protobuf definitions and generated code for gRPC services (AdminService API) |
-| astro-spec | `packages/astro-spec` | YAML spec parser and types for `astropods.yml`; shared by CLI and server to parse/validate agent configuration |
+| astro-spec | `packages/astro-spec` | YAML spec parser and types for `astropods.yml`; shared by CLI and server to parse/validate agent configuration. Public git submodule (`astropods/astro-spec`), consumed as Go module `github.com/astropods/astro-spec`; run `git submodule update --init packages/astro-spec` (keyless) to work on it |
 
 # Tooling
 
