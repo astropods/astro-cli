@@ -27,7 +27,7 @@ export function NetworkSummaryCard({
   const hasTraffic = !!summary && summary.request_count > 0;
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+    <div className="flex h-full flex-col rounded-lg border border-border/60 bg-card p-5">
       <p className="text-mono-sm text-muted-foreground">{title}</p>
 
       {loading ? (

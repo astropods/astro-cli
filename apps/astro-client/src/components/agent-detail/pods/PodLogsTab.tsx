@@ -185,14 +185,14 @@ function PodLogsTabContent({ workload, deploymentId }: PodLogsTabProps) {
           />
 
           {/* Search — inline at wide, moves to own row at narrow */}
-          <div className="flex flex-1 items-center gap-1.5 rounded border border-border-strong bg-black/2 px-2 py-1 @max-[575px]/toolbar:order-last @max-[575px]/toolbar:basis-full dark:border-white/6 dark:bg-white/3">
-            <Search className="size-3 shrink-0 text-muted-foreground/40 dark:text-white/20" />
+          <div className="flex flex-1 items-center gap-1.5 rounded border border-input bg-[color-mix(in_oklch,var(--input-background)_45%,transparent)] px-2 py-1 @max-[575px]/toolbar:order-last @max-[575px]/toolbar:basis-full">
+            <Search className="size-3 shrink-0 text-faint-foreground dark:text-faint-foreground/70" />
             <input
               type="text"
               placeholder="Search"
               value={logSearch}
               onChange={(e) => setLogSearch(e.target.value)}
-              className="w-full min-w-0 border-none bg-transparent text-mono-sm text-foreground/70 outline-none placeholder:text-muted-foreground/40 dark:text-white/60 dark:placeholder:text-white/20"
+              className="w-full min-w-0 border-none bg-transparent text-mono-sm text-foreground/70 outline-none placeholder:text-faint-foreground dark:text-faint-foreground dark:placeholder:text-faint-foreground/70"
             />
           </div>
 
@@ -289,13 +289,17 @@ function FilterButton({
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 rounded border border-border-strong px-2 py-1 text-mono-sm transition-colors dark:border-white/6",
+        "group flex items-center gap-1 rounded border border-border px-2 py-1 text-mono-sm transition-colors dark:border-white/6",
         colorClass,
-        active ? "bg-black/4 dark:bg-white/6" : "opacity-60 hover:opacity-80",
+        active ? "bg-black/4 dark:bg-white/6" : "hover:bg-muted/40",
       )}
     >
-      {icon}
-      <span>{count}</span>
+      <span className={cn(!active && "opacity-60 transition-opacity group-hover:opacity-80")}>
+        {icon}
+      </span>
+      <span className={cn(!active && "opacity-60 transition-opacity group-hover:opacity-80")}>
+        {count}
+      </span>
     </button>
   );
 }

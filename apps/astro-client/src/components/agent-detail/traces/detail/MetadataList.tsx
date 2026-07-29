@@ -7,7 +7,7 @@ export function MetadataList({ entries }: MetadataListProps) {
   if (visible.length === 0) return null;
 
   return (
-    <dl className="flex flex-col gap-2 rounded-md border border-border/40 px-4 py-3">
+    <dl className="flex flex-col gap-2 rounded-md border border-border/70 px-4 py-3">
       {visible.map((e) => (
         <div
           key={e.label}

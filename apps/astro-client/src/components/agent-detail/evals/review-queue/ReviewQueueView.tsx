@@ -367,7 +367,7 @@ export function ReviewQueueView({
           {baselineStatus && <BaselineStatusBadge status={baselineStatus} />}
         </EvalTabCardHeader>
         <EvalTabCardBody className="flex-col @[760px]/review-card:flex-row">
-          <aside className="dp-scroll flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card dark:bg-surface @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
+          <aside className="dp-scroll flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
             <ReviewQueueList
               items={items}
               selectedId={selectedItem?.trace_id ?? null}

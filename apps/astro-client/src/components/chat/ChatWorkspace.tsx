@@ -161,7 +161,7 @@ export function ChatWorkspace({
         >
           <div
             className={cn(
-              "m-3.5 flex w-[340px] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none dark:bg-card/80",
+              "m-3.5 flex w-[340px] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none",
               inspectorEntered ? "translate-x-0 opacity-100" : "translate-x-3 opacity-0",
             )}
           >
@@ -182,7 +182,7 @@ export function ChatWorkspace({
           <SheetContent
             side="bottom"
             showCloseButton={false}
-            className="h-[min(86dvh,760px)] max-h-[calc(100dvh-0.75rem)] gap-0 overflow-hidden rounded-t-2xl border-border bg-card p-0 shadow-2xl dark:bg-card/80"
+            className="h-[min(86dvh,760px)] max-h-[calc(100dvh-0.75rem)] gap-0 overflow-hidden rounded-t-2xl border-border bg-surface p-0 shadow-2xl"
           >
             <SheetTitle className="sr-only">Agent details</SheetTitle>
             <ChatInspectorPanel

@@ -76,7 +76,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
   }, [logErrorMessage, activeTab, setActiveTab]);
 
   return (
-    <div className="flex h-full w-full flex-col rounded-md border border-border bg-card dark:bg-surface">
+    <div className="flex h-full w-full flex-col rounded-md border border-border bg-card">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3">

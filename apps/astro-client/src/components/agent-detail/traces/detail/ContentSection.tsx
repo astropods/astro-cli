@@ -104,8 +104,8 @@ export function ContentSection({
     <section className="overflow-hidden rounded-md border border-border/70">
       <div
         className={cn(
-          "flex items-center gap-2 transition-colors hover:bg-muted/40",
-          open && "bg-muted/30",
+          "flex items-center gap-2 transition-colors hover:bg-muted/45 dark:hover:bg-foreground/5",
+          open && "bg-muted/40 dark:bg-foreground/5",
         )}
       >
         <button

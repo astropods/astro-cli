@@ -32,7 +32,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "data-[placeholder]:text-muted-foreground text-foreground flex h-11 w-full items-center justify-between [&>span]:line-clamp-1",
+        "data-[placeholder]:text-muted-foreground text-foreground flex h-11 w-full items-center justify-between hover:border-border-strong [&>span]:line-clamp-1",
         inputBase,
         inputFocusVisible,
         inputInvalid,

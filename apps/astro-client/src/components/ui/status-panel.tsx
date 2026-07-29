@@ -22,6 +22,7 @@ interface PanelToneConfig {
   textColor: string;
   backgroundColor: string;
   borderColor: string;
+  buttonColor: string;
 }
 
 const PANEL_TONES: Record<"neutral" | "error" | "success" | "warning", PanelToneConfig> = {
@@ -29,21 +30,25 @@ const PANEL_TONES: Record<"neutral" | "error" | "success" | "warning", PanelTone
     textColor: "var(--color-blue-700)",
     backgroundColor: "color-mix(in oklch, var(--color-blue-700) 12%, transparent)",
     borderColor: "color-mix(in oklch, var(--color-blue-700) 28%, transparent)",
+    buttonColor: "var(--color-blue-700)",
   },
   error: {
     textColor: "var(--error)",
     backgroundColor: "color-mix(in oklch, var(--error) 12%, transparent)",
     borderColor: "color-mix(in oklch, var(--error) 28%, transparent)",
+    buttonColor: "var(--color-coral-700)",
   },
   success: {
     textColor: "var(--color-green-700)",
     backgroundColor: "color-mix(in oklch, var(--color-green-700) 12%, transparent)",
     borderColor: "color-mix(in oklch, var(--color-green-700) 28%, transparent)",
+    buttonColor: "var(--color-green-700)",
   },
   warning: {
-    textColor: "var(--color-yellow-700)",
-    backgroundColor: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
+    textColor: "var(--warning)",
+    backgroundColor: "color-mix(in oklch, var(--warning) 16%, transparent)",
+    borderColor: "color-mix(in oklch, var(--warning) 32%, transparent)",
+    buttonColor: "var(--color-yellow-700)",
   },
 };
 
@@ -229,7 +234,7 @@ export function ActionPanel({
     : tone === "error" ? AlertCircle
     : Info;
 
-  const buttonStyle: CSSProperties = { backgroundColor: toneConfig.textColor, color: "white", border: "none" };
+  const buttonStyle: CSSProperties = { backgroundColor: toneConfig.buttonColor, color: "white", border: "none" };
 
   if (dismissed) return null;
 

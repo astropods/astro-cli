@@ -62,11 +62,11 @@ export const proseClasses = [
   "[&_.contains-task-list]:list-none [&_.contains-task-list]:pl-0",
   "[&_input[type=checkbox]]:accent-primary [&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:align-middle [&_input[type=checkbox]]:relative [&_input[type=checkbox]]:-top-px",
   // tables
-  "[&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-muted [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-[12px]",
+  "[&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[12px] [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-muted dark:[&_th]:bg-foreground/5 [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-[12px]",
   // code blocks
-  "prose-pre:my-3.5 prose-pre:rounded-[4px] prose-pre:bg-muted prose-pre:text-foreground prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px]",
+  "prose-pre:my-3.5 prose-pre:rounded-[4px] prose-pre:bg-muted dark:prose-pre:bg-foreground/5 prose-pre:text-foreground prose-pre:leading-[1.8] [&_pre_code]:text-[12.5px]",
   // inline code
-  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:border [&_:not(pre)>code]:border-border",
+  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted dark:[&_:not(pre)>code]:bg-foreground/5 [&_:not(pre)>code]:border [&_:not(pre)>code]:border-border",
   "[&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:text-foreground",
   "[&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']",
   // images: block images get max-width; inline images align with text (playground#28)

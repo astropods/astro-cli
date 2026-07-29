@@ -207,7 +207,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
         </div>
 
         <div className={cn("flex items-center gap-2 flex-1 min-w-0", !isCompact && "justify-end")}>
-          <div className={cn("flex items-center gap-[5px] h-8 px-2.5 rounded-[calc(var(--radius-sm)+2px)] border border-border bg-popover", isCompact ? "flex-1 min-w-0" : "shrink-0")}>
+          <div className={cn("flex items-center gap-[5px] h-8 px-2.5 rounded-[calc(var(--radius-sm)+2px)] border border-input bg-popover", isCompact ? "flex-1 min-w-0" : "shrink-0")}>
             <MagnifyingGlassIcon className="size-3 text-faint-foreground shrink-0" />
             <input
               type="text"

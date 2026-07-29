@@ -59,7 +59,7 @@ export function PillToggleChrome({
     <div
       className={cn(
         inline ? "inline-flex" : "flex",
-        "items-center border border-border bg-muted dark:bg-surface/60",
+        "items-center border border-border bg-muted/50 dark:bg-surface/60",
         s.container,
         className,
       )}
@@ -103,7 +103,7 @@ export function PillToggle<K extends string>({
             {isActive && (
               <motion.div
                 layoutId={layoutId}
-                className={cn("absolute inset-0 bg-card shadow-sm dark:bg-white/10 dark:shadow-none", s.indicator)}
+                className={cn("absolute inset-0 bg-card shadow-none dark:bg-accent", s.indicator)}
                 transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
               />
             )}

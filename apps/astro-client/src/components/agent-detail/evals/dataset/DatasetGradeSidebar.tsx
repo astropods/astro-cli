@@ -244,7 +244,7 @@ export function DatasetGradeSidebar({
   const { grade, next_grade, next_grade_progress } = summary;
 
   return (
-    <aside className="flex w-full flex-none flex-col gap-5 border-b border-border bg-card p-4 dark:bg-surface @[780px]/dataset-card:w-[268px] @[780px]/dataset-card:border-b-0 @[780px]/dataset-card:border-r @[780px]/dataset-card:p-5 @[780px]/dataset-card:pt-5.5">
+    <aside className="flex w-full flex-none flex-col gap-5 border-b border-border bg-card p-4 @[780px]/dataset-card:w-[268px] @[780px]/dataset-card:border-b-0 @[780px]/dataset-card:border-r @[780px]/dataset-card:p-5 @[780px]/dataset-card:pt-5.5">
       <GradeHeader />
 
       <DatasetGrade

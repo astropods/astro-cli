@@ -14,7 +14,7 @@ export function PanelSection({ title, description, emptyState, isEmpty, children
       <div className="flex flex-col gap-1">
         <h3 className="text-[0.9375rem] font-medium leading-tight tracking-wide text-foreground/80 dark:text-white/80">{title}</h3>
         {description && (
-          <p className="text-body-sm tracking-wide text-muted-foreground dark:text-white/30">{description}</p>
+          <p className="text-body-sm tracking-wide text-foreground dark:text-white/30">{description}</p>
         )}
       </div>
       {isEmpty ? (

@@ -36,7 +36,7 @@ export function EvalTabCardHeader({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card px-5 py-3 dark:bg-surface",
+        "flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-border bg-card px-5 py-3",
         className,
       )}
     >

@@ -38,7 +38,7 @@ export function QuickUndoToast({
   return createPortal(
     <div
       aria-live="polite"
-      className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 dark:bg-surface sm:w-auto sm:min-w-[300px]"
+      className="fixed bottom-6 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 animate-in items-center justify-between gap-3 rounded-md border border-border bg-card py-2.5 pl-4 pr-3 text-body-sm text-foreground shadow-xl fade-in slide-in-from-bottom-2 duration-200 sm:w-auto sm:min-w-[300px]"
     >
       <span className="min-w-0 truncate">{label}</span>
       <Button

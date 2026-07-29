@@ -14,6 +14,7 @@
  *   surface     - page body / panels (set on <html>/<body>)
  *   card        - lifted tiles (MetricCard, list cards, etc.)
  *   popover     - menus, dropdowns
+ * Muted is recessed in light mode and aliases card in dark mode.
  */
 
 export const lightTheme = {
@@ -65,7 +66,7 @@ export const darkTheme: Record<SemanticToken, string> = {
   muted: "var(--card)",
   "muted-foreground": "var(--color-slate-300)",
   surface:
-    "color-mix(in oklch, var(--color-slate-950) 80%, var(--color-slate-900) 20%)",
+    "color-mix(in oklch, var(--color-slate-950) 70%, var(--color-slate-900) 30%)",
   card:
     "color-mix(in oklch, var(--color-slate-950) 60%, var(--color-slate-900) 40%)",
   "card-foreground": "var(--foreground)",

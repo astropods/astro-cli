@@ -500,7 +500,7 @@ function SettingsTab({ deploymentId }: { deploymentId: string }) {
   return (
     <div className="flex flex-col gap-5">
       <Section label="System prompt" icon={NotepadText} className="gap-1.5">
-        <div className="max-w-full overflow-hidden rounded-md bg-muted/55 px-3.5 py-3 dark:bg-muted">
+        <div className="max-w-full overflow-hidden rounded-md bg-muted/55 px-3.5 py-3 dark:bg-foreground/5">
           {prompt ? (
             <>
               <p

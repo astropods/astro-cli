@@ -79,7 +79,7 @@ export function RequestVolumeChart({
   }));
 
   return (
-    <div className="flex h-full min-h-[300px] flex-col rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+    <div className="flex h-full min-h-[300px] flex-col rounded-lg border border-border/60 bg-card p-5">
       {loading ? (
         <div className="flex min-h-[200px] flex-1 items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />

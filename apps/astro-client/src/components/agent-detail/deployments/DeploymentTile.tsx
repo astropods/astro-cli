@@ -3,6 +3,7 @@ import { SquareTerminal } from "lucide-react";
 import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { formatRelativeTime, shortBuildId } from "@/lib/deployment-utils";
 import { commitUrl } from "@/lib/github-utils";
+import { cn } from "@/lib/utils";
 import { useDeploymentStatus } from "@/api/queries/deployments";
 import type { AgentDeployment, DeploymentStatusValue } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -66,8 +67,11 @@ export function DeploymentTile({
 
   return (
     <div
-      className="flex flex-col gap-1.5 rounded border px-3.5 py-3"
-      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
+      className={cn(
+        "flex flex-col gap-1.5 rounded border px-3.5 py-3",
+        !status && "border-border bg-muted dark:bg-foreground/5",
+      )}
+      style={status ? { backgroundColor: colors.bg, borderColor: colors.border } : undefined}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-body font-medium text-foreground">

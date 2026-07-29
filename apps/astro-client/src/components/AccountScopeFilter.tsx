@@ -33,7 +33,7 @@ export function AccountScopeFilter({
       <SelectTrigger
         aria-label="Scope by account"
         className={cn(
-          "group h-auto w-auto max-w-full justify-start gap-2 rounded border-transparent bg-transparent px-2 py-1 text-heading-1 text-foreground hover:border-border hover:bg-surface data-[state=open]:border-border data-[state=open]:bg-surface [&>svg]:ml-0 [&>svg]:shrink-0 [&>svg]:transition-transform data-[state=open]:[&>svg]:rotate-180",
+          "group h-auto w-auto max-w-full justify-start gap-2 rounded border-transparent bg-transparent px-2 py-1 text-heading-1 text-foreground hover:border-border-strong data-[state=open]:border-border-strong [&>svg]:ml-0 [&>svg]:shrink-0 [&>svg]:transition-transform data-[state=open]:[&>svg]:rotate-180",
           className,
         )}
       >

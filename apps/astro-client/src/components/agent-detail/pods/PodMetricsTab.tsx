@@ -233,7 +233,7 @@ interface ChartCardProps {
 
 function ChartCard({ title, unit, headline, hint, loading, empty, children }: ChartCardProps) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+    <div className="rounded-lg border border-border/60 bg-card p-5">
       <div className="mb-4 flex items-baseline justify-between gap-3">
         <div>
           <div className="flex items-center gap-1.5">

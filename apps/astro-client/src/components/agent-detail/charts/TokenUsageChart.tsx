@@ -85,7 +85,7 @@ export function TokenUsageChart({
   const tickLabels = xAxisTicks.map((tick) => tick.label);
 
   return (
-    <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+    <div className="rounded-lg border border-border/60 bg-card p-5">
       {loading ? (
         <div className="flex h-[300px] items-center justify-center">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />

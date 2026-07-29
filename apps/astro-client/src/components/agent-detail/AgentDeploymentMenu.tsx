@@ -350,7 +350,7 @@ export function AgentDeploymentMenu({
                           aria-selected
                           aria-disabled
                           aria-current="true"
-                          className="flex items-center gap-2 rounded-sm bg-accent/60 px-2 py-1.5 text-sm"
+                          className="flex items-center gap-2 rounded-sm bg-accent px-2 py-1.5 text-sm dark:bg-accent/60"
                         >
                           {row}
                         </div>

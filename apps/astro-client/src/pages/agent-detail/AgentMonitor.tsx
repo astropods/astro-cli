@@ -130,7 +130,7 @@ export default function AgentMonitor() {
             <div>
               <h2 className="text-heading-4 text-foreground">Token Usage</h2>
               {!isLoading && (
-                <p className="mt-1 text-body-sm text-muted-foreground">
+                <p className="mt-1 text-body-sm text-foreground dark:text-muted-foreground">
                   {formatCompactNumber(totalInput)} input · {formatCompactNumber(totalOutput)} output
                 </p>
               )}
@@ -156,7 +156,7 @@ export default function AgentMonitor() {
             <div className="mb-6">
               <h2 className="text-heading-4 text-foreground">Requests &amp; Latency</h2>
               {!isLoading && (
-                <p className="mt-1 text-body-sm text-muted-foreground">
+                <p className="mt-1 text-body-sm text-foreground dark:text-muted-foreground">
                   {formatCompactNumber(totalRequests)} total requests
                 </p>
               )}
@@ -184,7 +184,7 @@ export default function AgentMonitor() {
           <div className="mt-10">
             <div className="mb-6">
               <h2 className="text-heading-4 text-foreground">Network Traffic</h2>
-              <p className="mt-1 text-body-sm text-muted-foreground">
+              <p className="mt-1 text-body-sm text-foreground dark:text-muted-foreground">
                 HTTP traffic to and from your agent
               </p>
             </div>

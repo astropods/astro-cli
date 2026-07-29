@@ -50,7 +50,7 @@ function StepNumber({ n, isLast = false }: { n: number; isLast?: boolean }) {
 function YmlBlock({ content }: { content: string }) {
   return (
     <div className="overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-      <div className="flex items-center justify-between border-b border-border-strong bg-muted px-4 py-2">
+      <div className="flex items-center justify-between border-b border-border-strong bg-muted px-4 py-2 dark:bg-foreground/5">
         <span className="text-[11px] leading-4 font-mono text-muted-foreground">astropods.yml</span>
         <CopyButton copyText={content} className="border-border/60 bg-transparent text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground" />
       </div>
@@ -110,7 +110,7 @@ export function BlueprintDetailContent({
       {/* Draft: FINISH SETTING UP — hidden when a build exists or readme is available */}
       {isDraft && !readme && !hasBuild && (
         <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-          <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-muted px-4 py-2.5">
+          <div className="flex items-center justify-between gap-4 border-b border-border-strong bg-muted px-4 py-2.5 dark:bg-foreground/5">
             <div className="flex items-center gap-2">
               {githubRepoName
                 ? <GitHubIcon className="h-3.5 w-3.5 text-muted-foreground" />
@@ -243,7 +243,7 @@ export function BlueprintDetailContent({
       {/* README — shown even while draft when AGENT.md content is available */}
       {readme && (
         <section className="mb-8 overflow-hidden rounded-[4px] border border-border-strong bg-surface">
-          <div className="flex items-center gap-2 border-b border-border-strong bg-muted px-4 py-2.5">
+          <div className="flex items-center gap-2 border-b border-border-strong bg-muted px-4 py-2.5 dark:bg-foreground/5">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
               AGENT.md

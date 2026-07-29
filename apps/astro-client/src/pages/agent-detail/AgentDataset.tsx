@@ -91,7 +91,7 @@ export default function AgentDataset() {
         >
           <div className="mb-5 min-w-0">
             <h1 className="text-heading-1 text-foreground">Eval</h1>
-            <p className="mt-1.5 max-w-[66ch] text-body-sm text-muted-foreground">
+            <p className="mt-1.5 max-w-[66ch] text-body-sm text-foreground dark:text-muted-foreground">
               Measure how well your agent performs by testing it against a set of examples.
             </p>
           </div>

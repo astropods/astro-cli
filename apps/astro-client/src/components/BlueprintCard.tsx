@@ -88,7 +88,7 @@ const gridOverlay = "before:pointer-events-none before:absolute before:inset-0 b
 const innerBorderBase = "after:pointer-events-none after:absolute after:inset-[3px] after:border-2 after:border-slate-100 dark:after:border-white/10";
 const innerBorderDashed = "after:pointer-events-none after:absolute after:inset-0 after:border after:border-dashed after:border-slate-300 dark:after:border-white/10";
 const draftBorder = "";
-const draftVars = "[--card-neutral:#fff] dark:[--card-neutral:oklch(22%_0.015_258)]";
+const draftVars = "[--card-neutral:color-mix(in_srgb,var(--color-slate-200)_30%,transparent)] dark:[--card-neutral:color-mix(in_srgb,var(--color-slate-800)_30%,transparent)]";
 const fadeOverlayStyle = { background: "linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--card-neutral) 75%, transparent) 100%)" } as const;
 const contentShadowStyle = { textShadow: "0 0 5px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 10px color-mix(in srgb, var(--card-neutral) 80%, transparent), 0 0 16px color-mix(in srgb, var(--card-neutral) 80%, transparent)" } as const;
 

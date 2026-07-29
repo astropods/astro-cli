@@ -202,15 +202,15 @@ export function PodTileContent({ name, status = "pending", statusLabel, icon: Ic
     <div
       onClick={onClick}
       className={cn(
-        "group max-w-[300px] drop-shadow-[0_2px_8px_rgba(0,0,0,0.12)] transition-[filter] duration-200 dark:drop-shadow-[0_2px_10px_rgba(0,0,0,0.4)]",
+        "group max-w-[300px] drop-shadow-[0_2px_8px_rgba(0,0,0,0.12)] dark:drop-shadow-[0_2px_10px_rgba(0,0,0,0.4)]",
         onClick && "cursor-pointer",
-        dimmed && "dark:brightness-[0.7]",
         className,
       )}
     >
       <Card
         className={cn(
           "relative overflow-hidden rounded-lg transition-colors duration-200",
+          dimmed && "border-border/60",
           selected && "border-primary/60",
           !selected && onClick && "group-hover:border-primary/40",
         )}
@@ -221,7 +221,7 @@ export function PodTileContent({ name, status = "pending", statusLabel, icon: Ic
             selected ? "opacity-100" : onClick ? "opacity-0 group-hover:opacity-100" : "opacity-0",
           )}
         />
-        <div className="relative">
+        <div className={cn("relative transition-opacity duration-200", dimmed && "opacity-70")}>
           <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
             {leading ?? <Icon className="size-5 shrink-0 text-muted-foreground" />}
             <span className="text-base font-medium text-foreground">{name}</span>

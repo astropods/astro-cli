@@ -53,7 +53,7 @@ export function DeploymentHistoryPanelContent({
   children,
 }: DeploymentHistoryPanelContentProps) {
   return (
-    <div className="flex h-full w-full flex-col rounded-md border border-border bg-card dark:bg-surface">
+    <div className="flex h-full w-full flex-col rounded-md border border-border bg-card">
       <div className="flex items-center justify-between px-5 py-4">
         <h2 className="text-lg font-normal text-foreground">Deployment History</h2>
         {onToggleExpanded && (

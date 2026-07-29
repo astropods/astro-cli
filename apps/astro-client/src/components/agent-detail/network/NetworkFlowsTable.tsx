@@ -38,10 +38,10 @@ export function NetworkFlowsTable({ flows, direction, loading }: NetworkFlowsTab
   return (
     <TooltipProvider delayDuration={150}>
       <Table
-        className="min-w-[600px] bg-card dark:bg-surface"
+        className="min-w-[600px] bg-card"
         containerClassName="rounded-lg"
       >
-        <TableHeader className="bg-card dark:bg-surface">
+        <TableHeader className="bg-card">
           <TableRow>
             <TableHead>
               <span className="inline-flex items-baseline gap-2">

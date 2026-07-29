@@ -199,10 +199,10 @@ export default function AgentTraces() {
         <ContentReveal
           className="@container/traces-page mx-auto flex w-full max-w-6xl flex-col px-6 pt-8 pb-16"
         >
-          <div className="mb-5 flex flex-col gap-3 border-b border-border pb-3 @[680px]/traces-page:flex-row @[680px]/traces-page:items-end @[680px]/traces-page:justify-between">
+          <div className="mb-5 flex flex-col gap-3 pb-3 @[680px]/traces-page:flex-row @[680px]/traces-page:items-end @[680px]/traces-page:justify-between">
             <div className="min-w-0">
               <h1 className="text-heading-1 text-foreground">Traces</h1>
-              <p className="mt-1.5 max-w-[66ch] text-body-sm text-muted-foreground">
+              <p className="mt-1.5 max-w-[66ch] text-body-sm text-foreground dark:text-muted-foreground">
                 Review requests, users, latency, cost, and execution details.
               </p>
             </div>

@@ -100,7 +100,7 @@ export function TraceDetailPanel({
     <div
       role="dialog"
       aria-label="Trace details"
-      className="flex h-full w-full flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex h-full w-full flex-col overflow-hidden rounded-md border border-border bg-card"
     >
       <TracePanelHeader
         timestamp={traceForDisplay.timestamp}

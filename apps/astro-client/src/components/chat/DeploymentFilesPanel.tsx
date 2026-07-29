@@ -121,7 +121,7 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
           {fileApiErrorMessage(error, "list", "Failed to load files.")}
         </p>
       ) : files.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface/60 px-4 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card px-4 py-8 text-center">
           <FileIcon className="size-5 text-muted-foreground" />
           <p className="text-body-sm text-muted-foreground">No files yet.</p>
         </div>
@@ -131,7 +131,7 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
             {files.map((file) => (
               <div
                 key={file.key}
-                className="flex items-center gap-2 rounded-lg border border-border bg-surface/60 px-2.5 py-2"
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2"
               >
                 <FileIcon className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">

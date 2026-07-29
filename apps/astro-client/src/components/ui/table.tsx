@@ -139,7 +139,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("bg-muted/40 dark:bg-muted border-b border-border", className)}
+      className={cn("border-b border-border bg-muted/40 dark:bg-foreground/5", className)}
       {...props}
     />
   )
@@ -179,7 +179,7 @@ function TableRow({
       data-interactive={interactive ? "true" : undefined}
       className={cn(
         "border-b border-border last:border-b-0",
-        interactive && "cursor-pointer hover:bg-muted/40 transition-colors",
+        interactive && "cursor-pointer transition-colors hover:bg-muted/20 dark:hover:bg-accent/30",
         className,
       )}
       {...props}

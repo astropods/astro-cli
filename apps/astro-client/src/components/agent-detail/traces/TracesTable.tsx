@@ -398,7 +398,7 @@ export function TracesTable({
 
   return (
     <div
-      className="overflow-hidden rounded-lg border border-border/60 bg-card dark:bg-surface"
+      className="overflow-hidden rounded-lg border border-border/60 bg-card"
     >
       {/* Filter bar: search on the left and the server-filtered trace count on the right. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
