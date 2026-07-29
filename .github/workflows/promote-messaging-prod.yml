@@ -1,0 +1,116 @@
+name: Promote messaging to prod
+
+# Pins prod's messaging sidecar to an immutable digest of the current
+# astropods/messaging image. Resolves the digest for the chosen source tag
+# (default :latest), rewrites MESSAGING_IMAGE in config/astro-server/prod.env,
+# and opens a PR. Merge it, then run **Deploy (Prod)** with astro-server
+# selected so astro-server rolls and reads the new value; newly generated /
+# redeployed agents then pull the pinned digest.
+#
+# A PR is opened rather than pushed to main directly, per repo git policy.
+# Preview is unaffected: preview.env has no MESSAGING_IMAGE, so it tracks :latest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: "astropods/messaging tag to resolve and pin (digest is what gets written)"
+        type: string
+        default: "latest"
+
+concurrency:
+  group: promote-messaging-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Authenticated to avoid Docker Hub's anonymous rate limits on shared CI
+      # IPs. Best-effort: inspect still works anonymously for the public image.
+      - name: Log in to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve digest and open pin PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          set -euo pipefail
+
+          FILE="config/astro-server/prod.env"
+          SRC="astropods/messaging:${SOURCE_TAG}"
+
+          # Manifest (index) digest of the source tag — immutable across arches.
+          digest="$(docker buildx imagetools inspect "$SRC" --format '{{.Manifest.Digest}}')"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "::error::Unexpected digest for $SRC: '$digest'"; exit 1 ;;
+          esac
+          pinned="astropods/messaging@${digest}"
+          echo "::notice::Resolved $SRC -> $pinned"
+
+          # Replace the managed MESSAGING_IMAGE line in place (append if absent).
+          if grep -q '^MESSAGING_IMAGE=' "$FILE"; then
+            awk -v v="$pinned" '/^MESSAGING_IMAGE=/{print "MESSAGING_IMAGE=" v; next} {print}' "$FILE" > "$FILE.tmp"
+            mv "$FILE.tmp" "$FILE"
+          else
+            printf 'MESSAGING_IMAGE=%s\n' "$pinned" >> "$FILE"
+          fi
+
+          if git diff --quiet -- "$FILE"; then
+            echo "::notice::prod is already pinned to ${pinned}; nothing to do."
+            exit 0
+          fi
+
+          short="${digest#sha256:}"; short="${short:0:12}"
+          branch="chore/pin-messaging-prod-${short}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::notice::Branch $branch already exists; skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "$FILE"
+          git commit -m "chore(prod): pin messaging sidecar to ${pinned}"
+          git push origin "$branch"
+
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(prod): pin messaging sidecar to ${SRC} (${short})" \
+            --body "$(cat <<EOF
+          Pins prod's messaging sidecar to an immutable digest of \`${SRC}\`:
+
+          \`\`\`
+          MESSAGING_IMAGE=${pinned}
+          \`\`\`
+
+          Resolved by the **Promote messaging to prod** workflow. Preview is
+          unaffected (it has no \`MESSAGING_IMAGE\` and keeps tracking \`:latest\`).
+
+          **After merge:** run **Deploy (Prod)** with astro-server selected so it
+          rolls and reads the new value. Newly generated / redeployed agents then
+          pull the pinned digest; existing agents keep their current sidecar until
+          they redeploy.
+          EOF
+          )"

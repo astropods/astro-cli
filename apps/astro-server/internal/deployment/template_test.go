@@ -1637,6 +1637,38 @@ func proxyInput() TemplateInput {
 	}
 }
 
+func TestGenerateTemplate_MessagingImageOverride(t *testing.T) {
+	t.Run("override is honored and rewritten to the pull-through path", func(t *testing.T) {
+		input := baseInput()
+		input.Environment = "prod"
+		input.MessagingImage = "astropods/messaging@sha256:abc123"
+
+		ds := mustGenerate(t, input)
+		if ds.Interfaces == nil {
+			t.Fatal("interfaces: expected non-nil")
+		}
+		want := "registry.example.com/dockerhub/astropods/messaging@sha256:abc123"
+		if ds.Interfaces.Image != want {
+			t.Errorf("interfaces.image: got %q, want %q", ds.Interfaces.Image, want)
+		}
+	})
+
+	t.Run("empty override falls back to the default image", func(t *testing.T) {
+		input := baseInput()
+		input.Environment = "prod"
+		// MessagingImage intentionally left empty → defaultMessagingImage.
+
+		ds := mustGenerate(t, input)
+		if ds.Interfaces == nil {
+			t.Fatal("interfaces: expected non-nil")
+		}
+		want := "registry.example.com/dockerhub/astropods/messaging:latest"
+		if ds.Interfaces.Image != want {
+			t.Errorf("interfaces.image: got %q, want %q", ds.Interfaces.Image, want)
+		}
+	})
+}
+
 func TestResolveImage_TenantImage(t *testing.T) {
 	input := proxyInput()
 	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)

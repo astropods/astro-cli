@@ -3593,6 +3593,7 @@ func generateTemplate(
 		RegistryURL:       cfg.Deployment.RegistryURL,
 		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
 		Environment:       cfg.Deployment.Environment,
+		MessagingImage:    cfg.Deployment.MessagingImage,
 	})
 	if err != nil {
 		log.Error("Failed to generate deployment template", "error", err)

@@ -76,7 +76,14 @@ type TemplateInput struct {
 	RegistryURL       string
 	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropods.ai")
 	Environment       string // Environment prefix for ECR tenant repos (e.g. "prod", "preview")
+	MessagingImage    string // Override for the messaging sidecar image; empty uses defaultMessagingImage
 }
+
+// defaultMessagingImage is the messaging sidecar image reference used when no
+// override is supplied via TemplateInput.MessagingImage (MESSAGING_IMAGE). It is
+// a bare Docker Hub reference; resolveImage rewrites it to the ECR pull-through
+// path at generation time.
+const defaultMessagingImage = "astropods/messaging:latest"
 
 // GenerateDeploymentTemplate creates a deployment spec template from a registered astro-spec.
 // The template has placeholder values for user-fillable fields and ${} references
@@ -336,9 +343,13 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 	// Interfaces block — only emitted when the agent supports messaging
 	if astroSpec.Agent.HasMessaging() {
+		messagingImage := input.MessagingImage
+		if messagingImage == "" {
+			messagingImage = defaultMessagingImage
+		}
 		ds.Interfaces = &spec.DeploymentInterfaces{
 			Adapters:  []string{},
-			Image:     resolveImage("astropods/messaging:latest", input),
+			Image:     resolveImage(messagingImage, input),
 			Resources: spec.MessagingResources,
 			Endpoints: map[string]spec.Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},

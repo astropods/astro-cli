@@ -237,9 +237,15 @@ type DeploymentConfig struct {
 	RegistryURL       string // ECR registry URL (required for eks mode, defaults to "docker.io/library" for local)
 	ProxyRegistryHost string // Proxy registry host (e.g., registry.example.com)
 	Environment       string // Environment prefix for ECR tenant repos (e.g. "prod", "preview")
-	EKSClusterName    string // EKS cluster name (required for eks mode)
-	K8sMasterURL      string // K8s API server endpoint (required for eks mode)
-	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
+	// MessagingImage overrides the messaging sidecar image reference (bare
+	// Docker Hub ref, e.g. a pinned "astropods/messaging@sha256:..."). Empty
+	// uses the built-in default. Set per-environment to pin prod independently
+	// of preview; the value is rewritten to the ECR pull-through path by
+	// deployment.resolveImage.
+	MessagingImage string // MESSAGING_IMAGE
+	EKSClusterName string // EKS cluster name (required for eks mode)
+	K8sMasterURL   string // K8s API server endpoint (required for eks mode)
+	AWSRegion      string // AWS region (optional, auto-detected from IRSA)
 	// K8s client mode: "eks" (default) or "local" (Docker Desktop / kind / minikube)
 	K8sClientMode  string // K8S_CLIENT_MODE
 	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
@@ -326,6 +332,7 @@ func Load() (*Config, error) {
 			RegistryURL:                 getEnv("REGISTRY_URL", ""),
 			ProxyRegistryHost:           getEnv("PROXY_REGISTRY_HOST", ""),
 			Environment:                 getEnv("ENVIRONMENT", ""),
+			MessagingImage:              getEnv("MESSAGING_IMAGE", ""),
 			EKSClusterName:              getEnv("EKS_CLUSTER_NAME", ""),
 			K8sMasterURL:                getEnv("K8S_MASTER_URL", ""),
 			AWSRegion:                   getEnv("AWS_REGION", ""),
