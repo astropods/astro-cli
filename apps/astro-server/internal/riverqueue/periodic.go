@@ -37,6 +37,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
+
+		// Observation alert sweep: evaluate resource/health conditions against
+		// metrics and emit alerts on firing edges (state in deployment_alert_state).
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(5*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ObservationSweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 5 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	// Billing dunning-grace sweep (hosted/metronome only) — ages past_due

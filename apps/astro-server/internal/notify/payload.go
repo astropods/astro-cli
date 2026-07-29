@@ -16,9 +16,9 @@ const (
 )
 
 // payloadProps is the per-type payload contract: the property keys each
-// notification pushes. It is the single source of truth shared by the builders
-// below and the Novu payload-schema upload (see cmd/provision-novu-workflows),
-// so the workflow templates know exactly which variables are available.
+// notification pushes. It is the single source of truth for the builders below
+// and the contract each Novu workflow's payload schema must match, so the
+// workflow templates know exactly which variables are available.
 var payloadProps = map[Type][]string{
 	TypeSystemTest: {PayloadAccount},
 
@@ -35,10 +35,8 @@ var payloadProps = map[Type][]string{
 
 	TypeSecurityKeyChanged: {PayloadKeyKind, PayloadKeyName, PayloadAction, PayloadCTAURL},
 
-	TypeObservationMemoryOverBudget:  {PayloadAgent, PayloadCTAURL},
-	TypeObservationComputeOverBudget: {PayloadAgent, PayloadCTAURL},
-	TypeObservationCrashLoop:         {PayloadAgent, PayloadCTAURL},
-	TypeObservationErrorSpike:        {PayloadAgent, PayloadCTAURL},
+	TypeObservationWarning:  {PayloadAgent, PayloadReason, PayloadCTAURL},
+	TypeObservationCritical: {PayloadAgent, PayloadReason, PayloadCTAURL},
 }
 
 // PayloadProperties returns the payload property keys a notification type
@@ -172,4 +170,22 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 	return securityKeyEvent(accountID, map[string]any{
 		PayloadKeyKind: keyKind, PayloadKeyName: keyName, PayloadAction: "revoked", PayloadCTAURL: "/settings/api-keys",
 	})
+}
+
+// --- Observation (member-addressed) ---
+
+// Observation builds an observation alert for an account's members. t is the
+// severity workflow (TypeObservationWarning or TypeObservationCritical); reason is
+// the human condition title (e.g. "Out of memory") the shared template renders,
+// since both severities cover many conditions. The observation evaluator sets a
+// per-episode DedupeKey so a re-fire after a resolve isn't collapsed with the
+// prior episode at Novu.
+func Observation(t Type, accountID, agentName, deploymentID, reason string) Event {
+	return Event{
+		Type:      t,
+		AccountID: accountID,
+		Audience:  AudienceMembers,
+		EntityID:  deploymentID,
+		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadCTAURL: "/agents"},
+	}
 }

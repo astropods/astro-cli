@@ -157,7 +157,9 @@ Deploy lifecycle emits nothing. Deploy-time failures (failed schedule, image pul
 
 Resource-budget and health conditions are continuous, not discrete events. Emitting one alert per K8s signal (a restart, a scrape sample) would be exactly the mail spam we are avoiding. They need thresholds, a sustained window, and firing/resolve state so a flapping deployment yields one alert, not a stream. This is a separate subsystem that feeds the same emit seam only on a state edge.
 
-**Evaluator.** A periodic River job, `ObservationSweep`, on its own `observation` queue, runs every N minutes over active deployments. Per deployment it pulls current signals, evaluates each condition against a budget, and updates firing state.
+**Evaluator (implemented — `internal/observation`).** A periodic River job, `ObservationSweep` (5-min interval), runs each condition's query on the engine named by its `Engine` field — `promql` (VictoriaMetrics via the existing `promquery` client) today; `langfuse` (error rate / latency) is a registered-later engine behind the same `Querier` interface. Each condition query returns the currently-breaching `namespace`s; a namespace resolves to a deployment (`GetLatestDeploymentByNamespace`) → account + agent. The evaluator diffs breaching-vs-tracked state and emits only on the firing edge.
+
+It is a **lightweight in-process evaluator**, not an embed of `prometheus/prometheus/rules`: that package pulls ~320 modules (the full Azure/AWS/GCP/DO service-discovery tree) into a server that has zero Prometheus deps today — disproportionate for a handful of threshold rules. The `for` window, edge-only firing, dedup, and resolve are ~150 lines over `promquery` + a Postgres state table.
 
 **Inputs.**
 
@@ -172,25 +174,29 @@ Resource-budget and health conditions are continuous, not discrete events. Emitt
 
 **Evaluation.** Each condition = threshold + sustained window (e.g. memory > 90% of limit for 10 min). Transient spikes are ignored. Recovery uses a lower clear threshold (hysteresis) so a value hovering at the line does not flap.
 
-**Firing state.** `deployment_alert_state` (deployment_id, condition, state `firing`|`resolved`, since, last_notified). The sweep emits on the firing edge (real problem → email) and a resolve on recovery (in-app only); it never re-emits while a condition stays firing. This is the choke point that keeps observation alerts rare.
+**Firing state.** `deployment_alert_state` (deployment_id, workload, condition, active_since, notified) — one row per breaching (deployment, workload, condition); the evaluator resolves each breaching pod to a deployment + workload (the pod's `app.kubernetes.io/component`) before tracking, so the UI can attribute an alert and a redeploy is a distinct episode. `active_since` drives the `for` sustained window; `notified` marks the workload's firing edge as handled. Rows are deleted on resolve (v1 does a **silent resolve**). Per-workload state does **not** multiply mail: the evaluator emits only when a workload fires and no other workload of the same deployment has already notified this condition — one notification per (deployment, condition) episode, its `reason` naming the workload. A per-episode `DedupeKey` (`name:deployment:workload:active_since`) means a re-breach after a resolve is a distinct alert at Novu, not a suppressed duplicate. This is the choke point that keeps observation alerts rare.
 
-**Emit.** On an edge, the sweep calls the same `notify.Emit` with an `observation.*` `Type`, reusing delivery, preferences, and dedupe. `DedupeKey` = condition + deployment id + firing-since, so a ret/re-run of the sweep cannot double-send.
+**Two workflows by severity.** Conditions do **not** map 1:1 to Novu workflows. Every condition carries a `Severity` (`critical` or `warning`) and collapses to one of two workflows: `observation.critical` ("Agent failing" — crash loop, OOM, unschedulable) or `observation.warning` ("Agent degraded" — restarts, memory/compute pressure, error spikes). The specific condition rides in the payload `reason` (e.g. "Out of memory"), so two shared templates render every condition. This gives the user **two preference toggles**, not one per condition, and adding a condition needs no new workflow. Firing state stays keyed on the granular condition name so two same-severity conditions on one deployment don't collide.
 
-**Conditions.**
+**Emit.** On an edge, the sweep calls `notify.Observation(severity→type, account, agent, deploymentID, title)`, reusing delivery, preferences, and dedupe. `DedupeKey` = condition name + deployment id + firing-since, so a retry/re-run of the sweep cannot double-send.
 
-| Type | Fires when | Source | Channels |
-| --- | --- | --- | --- |
-| `observation.memory_over_budget` | memory util over threshold, sustained (OOM precursor) | VM/Prom | email + in-app |
-| `observation.oom_killed` | container OOMKilled | informer | email + in-app |
-| `observation.compute_over_budget` | CPU at limit / throttled, sustained | VM/Prom | email + in-app |
-| `observation.crash_loop` | CrashLoopBackOff past restart limit | informer | email + in-app |
-| `observation.restart_storm` | restarts over N in window | runtime snapshot | email + in-app |
-| `observation.unschedulable` | Unschedulable past grace | informer | email + in-app |
-| `observation.error_spike` | error rate over threshold, sustained | Langfuse | email + in-app |
-| `observation.latency_high` | p95 over threshold, sustained | Langfuse | email + in-app |
-| `observation.storage_near_full` | disk > 85% / 95% | sidecar | email + in-app |
+**Conditions.** All shipped conditions are VM/Prom (`promql` engine); each maps to a severity workflow.
 
-Audience `members`; per-user opt-out applies. Resolve notifications are in-app only. All observation conditions are net-new detection — none is emitted today.
+| Condition | Fires when | Severity → workflow |
+| --- | --- | --- |
+| `crash_loop` | CrashLoopBackOff sustained 5m | critical → `observation.critical` |
+| `oom_killed` | container's last termination was OOMKilled | critical → `observation.critical` |
+| `unschedulable` | pods unschedulable past 10m grace | critical → `observation.critical` |
+| `restart_storm` | restarts over N in a 5m window | warning → `observation.warning` |
+| `memory_over_budget` | memory util over threshold, sustained (OOM precursor) | warning → `observation.warning` |
+| `compute_over_budget` | CPU at limit / throttled, sustained | warning → `observation.warning` |
+| `cpu_over_provisioned` | CPU usage far below its request, sustained (waste) | warning → `observation.warning` |
+| `memory_over_provisioned` | memory usage far below its request, sustained (waste) | warning → `observation.warning` |
+| `error_spike` *(Langfuse, unshipped)* | error rate over threshold, sustained | warning → `observation.warning` |
+| `latency_high` *(Langfuse, unshipped)* | p95 over threshold, sustained | warning → `observation.warning` |
+| `storage_near_full` *(sidecar, unshipped)* | disk > 85% / 95% | warning → `observation.warning` |
+
+Audience `members`; per-user opt-out applies. Both observation workflows deliver **in-app by default with email off** (opt-in per user), since these can be higher-volume than discrete events. Resolve notifications are in-app only. The eight VM/Prom conditions are implemented; the Langfuse and sidecar rows await their engine/source.
 
 ---
 
@@ -213,7 +219,7 @@ Preferences and channel gating are Novu's job — the backend no longer sends `s
 
 ### Payload contract (data only)
 
-The backend pushes **structured data only** — never prose. All message wording (in-app subject/body, email subject/body) is authored in the Novu workflow templates, which compose the message from the payload properties via `{{payload.<key>}}`. The provisioning command (`cmd/provision-novu-workflows`) uploads a **payload JSON schema** per workflow (properties typed as strings) so the dashboard editor knows the available variables. `notify/payload.go` is the single source of truth for the property set and the emit-side values.
+The backend pushes **structured data only** — never prose. All message wording (in-app subject/body, email subject/body) is authored in the Novu workflow templates, which compose the message from the payload properties via `{{payload.<key>}}`. Each workflow declares a **payload JSON schema** (properties typed as strings) so the dashboard editor knows the available variables. Workflows are authored and maintained directly in Novu (v2 API / dashboard); `notify/payload.go` is the single source of truth for the property set and the emit-side values, and `notify.PayloadProperties(type)` is the contract each workflow's schema must match.
 
 `ctaUrl` is the one derived property: the backend sends a relative app path that the Deliverer absolutizes against the app base URL (`FrontendURL`), or an absolute URL for external links (e.g. Stripe's 3DS page). Everything else is raw data. Channel gating and preferences are Novu's — no `send_*` conditions in templates.
 
@@ -258,10 +264,8 @@ The member-change template branches on `action` (a Novu conditional block) for t
 
 | Identifier | Critical | Default channels | Payload properties |
 | --- | --- | --- | --- |
-| `observation.memory_over_budget` | no | email + in-app | `agent`, `ctaUrl` |
-| `observation.compute_over_budget` | no | in-app | `agent`, `ctaUrl` |
-| `observation.crash_loop` | no | email + in-app | `agent`, `ctaUrl` |
-| `observation.error_spike` | no | in-app | `agent`, `ctaUrl` |
+| `observation.critical` | no | in-app (email opt-in) | `agent`, `reason`, `ctaUrl` |
+| `observation.warning` | no | in-app (email opt-in) | `agent`, `reason`, `ctaUrl` |
 
 **System**
 
@@ -327,9 +331,9 @@ New `astro-server` env, all optional — unset ⇒ no-op provider:
 
 **PR 3 — Billing alerts.** Emit from `webhook_jobs.go` and `billing_dunning.go`: `payment_failed`, `action_required`, `spend_threshold`, `dunning_suspended`, `recovered`. Non-disableable billing defaults.
 
-**PR 4 — Observation evaluator.** `ObservationSweep` periodic job + `observation` queue + `deployment_alert_state` firing-state table. Start with the informer-fed conditions (`oom_killed`, `crash_loop`, `unschedulable`, `restart_storm`) — no new metric queries. Emit on firing/resolve edges.
+**PR 4 — Observation evaluator (done).** `internal/observation` + `ObservationSweep` periodic job + `deployment_alert_state` table. Engine-routed evaluator (`Engine`→`Querier`) with a `for` window + edge-only firing + per-episode dedup; `promql` engine over `promquery` shipped. Wired conditions (all VM/Prom): `crash_loop` (CrashLoopBackOff), `oom_killed`, `restart_storm`, `unschedulable`, `memory_over_budget`, `compute_over_budget` (CFS throttling), `cpu_over_provisioned`, `memory_over_provisioned` (usage far below request). PromQL exprs are best-effort and need validation against the deployed exporter label set.
 
-**PR 5 — Observation budgets.** Metric-threshold conditions over VM/Prom and Langfuse: `memory_over_budget`, `compute_over_budget`, `error_spike`, `latency_high`, `storage_near_full`. Per-deployment threshold overrides + hysteresis.
+**PR 5 — Observation follow-ups.** A `langfuse` engine (implements `Querier`) for `error_spike` / `latency_high`, plus `storage_near_full`, resolve notifications (in-app), and per-deployment threshold overrides.
 
 **PR 6 — Team / account / quota.** Emit alongside audit writes in `org.go`, `transfer.go`, account deletion, `quota_increase` decisions. Add `quota.reached` hook in `quota.Check`.
 

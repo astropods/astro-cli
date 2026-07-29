@@ -247,6 +247,17 @@ export function useDeploymentEvents(deploymentId: string, enabled = true) {
   });
 }
 
+export function useDeploymentAlerts(deploymentId: string, workload: string, enabled = true) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.alerts(deploymentId, workload),
+    queryFn: () => api.getDeploymentAlerts(deploymentId, workload),
+    enabled: !!deploymentId && enabled,
+    refetchInterval: 10_000,
+    staleTime: 0,
+  });
+}
+
 /**
  * CPU and memory time series for one pod. The server queries Prometheus, so
  * results lag scrape interval (~30s). Refresh cadence scales with the window

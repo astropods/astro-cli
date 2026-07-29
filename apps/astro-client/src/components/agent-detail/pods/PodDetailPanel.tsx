@@ -6,14 +6,14 @@ import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent, ContainerStatus } from "@/lib/api";
-import { useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
+import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent, ContainerStatus, DeploymentAlert } from "@/lib/api";
+import { useDeploymentAlerts, useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
 import { POD_STATUS_STYLES, resolvePodStatus } from "./PodTile";
 import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
 import { PodMetricsTab } from "./PodMetricsTab";
 
-const TABS = ["General", "Logs", "Metrics", "Events"] as const;
+const TABS = ["General", "Logs", "Metrics", "Events", "Alerts"] as const;
 type Tab = (typeof TABS)[number];
 
 interface PodDetailPanelProps {
@@ -162,6 +162,11 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
       {activeTab === "Events" && (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
           <EventsTab deploymentId={deploymentId} />
+        </div>
+      )}
+      {activeTab === "Alerts" && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+          <AlertsTab deploymentId={deploymentId} workload={workload.component || workload.name} />
         </div>
       )}
     </div>
@@ -407,6 +412,82 @@ function EventsTab({ deploymentId }: { deploymentId: string }) {
       {events.map((evt, i) => (
         <EventRow key={i} event={evt} expanded={expanded.has(i)} onToggle={() => toggle(i)} />
       ))}
+    </div>
+  );
+}
+
+// AlertsTab lists every configured observation alert for this workload and its
+// current state (ok / pending / firing), Grafana-rules style: a bold filled
+// state pill with a "for <age>" duration, the alert name + description, and a
+// severity chip. The full catalog always renders, so an all-clear workload
+// shows every alert as OK rather than an empty list.
+function AlertsTab({ deploymentId, workload }: { deploymentId: string; workload: string }) {
+  const { data, isLoading, isError } = useDeploymentAlerts(deploymentId, workload);
+  const alerts = data?.alerts ?? [];
+
+  if (isLoading) {
+    return <p className="text-body-sm text-muted-foreground">Loading alerts…</p>;
+  }
+  if (isError) {
+    return <p className="text-body-sm text-destructive">Couldn’t load alerts</p>;
+  }
+  if (alerts.length === 0) {
+    return <p className="text-body-sm text-faint-foreground">No alerts configured</p>;
+  }
+
+  return (
+    <div className="flex flex-col">
+      {alerts.map((alert) => (
+        <AlertRow key={alert.name} alert={alert} />
+      ))}
+    </div>
+  );
+}
+
+// State pill styling. Calm states (ok, pending) are soft tinted chips so an
+// all-clear list doesn't read as a wall of solid color; actively-firing alerts
+// get a loud solid pill so problems pop. Palette hues are the theme's curated
+// set (green/amber/red exist; emerald/rose do not) and every raw color is paired
+// with a dark: variant per the repo lint rule (no semantic danger token).
+function alertStatePillColor(state: DeploymentAlert["state"], severity: DeploymentAlert["severity"]): string {
+  if (state === "ok") return "bg-green-500/12 text-green-600 dark:bg-green-500/15 dark:text-green-400";
+  if (state === "pending") return "bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400";
+  return severity === "critical"
+    ? "bg-red-500 text-white dark:bg-red-500 dark:text-white"
+    : "bg-amber-500 text-white dark:bg-amber-500 dark:text-white";
+}
+
+function AlertRow({ alert }: { alert: DeploymentAlert }) {
+  const active = alert.state === "firing" || alert.state === "pending";
+  const stateLabel = alert.state === "firing" ? "Firing" : alert.state === "pending" ? "Pending" : "OK";
+  const since = alert.activeSince ? compactAge(alert.activeSince) : "";
+
+  return (
+    <div className="flex items-start gap-3 border-b border-border/60 px-1 py-3">
+      <span
+        className={cn(
+          "mt-0.5 inline-flex w-16 shrink-0 items-center justify-center rounded-md px-2 py-0.5 text-body-sm font-semibold",
+          alertStatePillColor(alert.state, alert.severity),
+        )}
+      >
+        {stateLabel}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="truncate text-body font-medium text-foreground" title={alert.title}>
+            {alert.title}
+          </span>
+          {active && since && (
+            <span className="shrink-0 text-mono-sm text-muted-foreground">for {since}</span>
+          )}
+        </div>
+        <p className="mt-0.5 truncate text-body-sm text-muted-foreground" title={alert.description}>
+          {alert.description}
+        </p>
+      </div>
+      <span className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-0.5 text-mono-sm capitalize text-muted-foreground">
+        {alert.severity}
+      </span>
     </div>
   );
 }

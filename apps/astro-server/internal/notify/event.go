@@ -27,10 +27,13 @@ const (
 
 	TypeSecurityKeyChanged Type = "security.key_changed"
 
-	TypeObservationMemoryOverBudget  Type = "observation.memory_over_budget"
-	TypeObservationComputeOverBudget Type = "observation.compute_over_budget"
-	TypeObservationCrashLoop         Type = "observation.crash_loop"
-	TypeObservationErrorSpike        Type = "observation.error_spike"
+	// All observation conditions collapse to two workflows by severity: a
+	// degraded-but-running agent triggers Warning, a failing agent triggers
+	// Critical. The specific condition (crash loop, OOM, …) rides in the payload
+	// `reason`, so the two templates render any condition. Keeping two workflows
+	// means two preference toggles, not one per condition.
+	TypeObservationWarning  Type = "observation.warning"
+	TypeObservationCritical Type = "observation.critical"
 )
 
 // Audience is a recipient policy resolved at delivery, not at emit.

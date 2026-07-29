@@ -1073,6 +1073,23 @@ export interface DeploymentEventsResponse {
   events: K8sEvent[];
 }
 
+// One configured observation alert and its current state for a deployment.
+// state: "ok" (not breaching), "pending" (breaching but within the sustained
+// window, no alert sent), "firing" (alert emitted). activeSince is set while
+// pending/firing.
+export interface DeploymentAlert {
+  name: string;
+  title: string;
+  description: string;
+  severity: "warning" | "critical";
+  state: "ok" | "pending" | "firing";
+  activeSince: string | null;
+}
+
+export interface DeploymentAlertsResponse {
+  alerts: DeploymentAlert[];
+}
+
 // --- Dataset ---
 
 export interface EvalDatasetCriteriaCount {
@@ -2935,6 +2952,12 @@ class ApiClient {
   async getDeploymentEvents(deploymentId: string): Promise<DeploymentEventsResponse> {
     return this.request<DeploymentEventsResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/events`
+    );
+  }
+
+  async getDeploymentAlerts(deploymentId: string, workload: string): Promise<DeploymentAlertsResponse> {
+    return this.request<DeploymentAlertsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/alerts?workload=${encodeURIComponent(workload)}`
     );
   }
 

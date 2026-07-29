@@ -178,6 +178,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.ghBuild != nil {
 		wired.ghBuild.queue = q
 	}
+	if wired.observation != nil {
+		wired.observation.queue = q
+	}
 
 	return q, nil
 }

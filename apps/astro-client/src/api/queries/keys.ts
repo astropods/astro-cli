@@ -162,6 +162,8 @@ export const deploymentKeys = {
     ['deployments', account, name, 'history', deploymentId ?? 'all'] as const,
   events: (deploymentId: string) =>
     ['deployments', deploymentId, 'events'] as const,
+  alerts: (deploymentId: string, workload: string) =>
+    ['deployments', deploymentId, 'alerts', workload] as const,
   lastError: (deploymentId: string, workloadName: string, container: string) =>
     ['deployments', deploymentId, 'lastError', workloadName, container] as const,
   podMetrics: (deploymentId: string, pod: string, range: string) =>

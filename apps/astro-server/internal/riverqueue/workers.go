@@ -22,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
+	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -130,6 +131,7 @@ type wiredWorkers struct {
 	metronomeHook *MetronomeWebhookWorker
 	stripeHook    *StripeWebhookWorker
 	ghBuild       *GitHubBuildWorker
+	observation   *ObservationSweepWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -462,6 +464,20 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")
 	}
 
+	// Observation alert evaluator (metric-driven). Needs the metrics store; the
+	// queue reference for emitting is wired post-construction (wiredWorkers).
+	var observationSweep *ObservationSweepWorker
+	if cfg.PromClient != nil {
+		observationSweep = &ObservationSweepWorker{
+			prom:    cfg.PromClient,
+			deploys: store,
+			state:   observation.NewStore(cfg.DB),
+			log:     log,
+		}
+		addWorkerWithCatalogCheck(log, workers, observationSweep)
+		log.Info("river: registered worker", "worker", "ObservationSweepWorker")
+	}
+
 	return wiredWorkers{
 		purge:         pw,
 		insights:      insightsDiscovery,
@@ -471,5 +487,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		metronomeHook: metronomeHook,
 		stripeHook:    stripeHook,
 		ghBuild:       ghBuildWorker,
+		observation:   observationSweep,
 	}
 }

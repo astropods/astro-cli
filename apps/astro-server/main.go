@@ -66,6 +66,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/novu"
+	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/payment"
@@ -803,6 +804,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
+	alertStore := observation.NewStore(db)
 	accountVarsStore := deps.Stores.AccountVars
 	heartStore := deps.Stores.Heart
 	agentMetricsStore := deps.Stores.AgentMetrics
@@ -1942,6 +1944,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DeploymentEventsResponse{}),
+			)
+			api.GET(protected, "/deployments/:id/alerts", "Get deployment observation alerts and state", handlers.GetDeploymentAlerts(log, accountStore, deploymentStore, alertStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.DeploymentAlertsResponse{}),
 			)
 			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
