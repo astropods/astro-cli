@@ -34,14 +34,14 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("novu: %s %s: status %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
-// descTTL is how long a workflow description is cached. Descriptions are static,
-// environment-wide data (not per-user), so a modest TTL makes the settings
-// page's per-workflow fetches effectively one-time across all viewers while
-// still picking up dashboard edits within the window.
-const descTTL = 15 * time.Minute
+// metaTTL is how long workflow metadata (description, tags, critical flag) is
+// cached. This is static, environment-wide data (not per-user), so a modest TTL
+// makes the settings page's per-workflow fetches effectively one-time across all
+// viewers while still picking up dashboard edits within the window.
+const metaTTL = 15 * time.Minute
 
-type descEntry struct {
-	value  string
+type metaEntry struct {
+	value  WorkflowMeta
 	expiry time.Time
 }
 
@@ -53,8 +53,8 @@ type Client struct {
 	secretKey string
 	http      *http.Client
 
-	descMu    sync.Mutex
-	descCache map[string]descEntry // templateID -> cached description
+	metaMu    sync.Mutex
+	metaCache map[string]metaEntry // workflowId -> cached metadata
 }
 
 // NewClient builds a Novu client. apiURL is the REST base without a trailing
@@ -64,7 +64,7 @@ func NewClient(apiURL, secretKey string) *Client {
 		apiURL:    strings.TrimRight(apiURL, "/"),
 		secretKey: secretKey,
 		http:      &http.Client{Timeout: 15 * time.Second},
-		descCache: map[string]descEntry{},
+		metaCache: map[string]metaEntry{},
 	}
 }
 
@@ -123,72 +123,63 @@ func (c *Client) Trigger(ctx context.Context, req TriggerRequest) error {
 }
 
 // WorkflowPreference is one workflow's channel preferences for a subscriber, as
-// Novu reports them: the workflow identity plus effective per-channel state.
-// WorkflowID is the trigger identifier (equal to our notify.Type); TemplateID is
-// Novu's internal workflow `_id`, needed to address the update endpoint.
+// the v2 preferences API reports them: the workflow identity plus effective
+// per-channel state. WorkflowID is the workflow identifier (equal to our
+// notify.Type); it addresses both the update endpoint and the metadata lookup.
+// Description, tags, and the critical flag are not in this response — they come
+// from GetWorkflowMeta.
 type WorkflowPreference struct {
 	WorkflowID string
-	TemplateID string
 	Name       string
-	Critical   bool
-	Tags       []string
 	Channels   map[string]bool // e.g. {"email": true, "in_app": false}
 }
 
-// subscriberPreferenceDTO is one element of the GET preferences response.
+// subscriberPreferenceDTO is one workflow entry of the v2 GET preferences
+// response (data.workflows[]).
 type subscriberPreferenceDTO struct {
-	Preference struct {
-		Channels map[string]bool `json:"channels"`
-	} `json:"preference"`
-	Template struct {
-		ID       string   `json:"_id"`
-		Name     string   `json:"name"`
-		Critical bool     `json:"critical"`
-		Tags     []string `json:"tags"`
-		Triggers []struct {
-			Identifier string `json:"identifier"`
-		} `json:"triggers"`
-	} `json:"template"`
+	Channels map[string]bool `json:"channels"`
+	Workflow struct {
+		Identifier string `json:"identifier"`
+		Name       string `json:"name"`
+	} `json:"workflow"`
 }
 
 // GetSubscriberPreferences returns the subscriber's per-workflow channel
-// preferences. The response is workflow-driven — every active workflow appears
-// with the subscriber's effective preference — so the list is complete even for
-// a subscriber that has never customized anything (Novu falls back to the
-// workflow default). This is why the settings page can render the full catalog
-// from Novu alone.
+// preferences via GET /v2/subscribers/{id}/preferences. The response is
+// workflow-driven — every active workflow appears with the subscriber's
+// effective preference — so the list is complete even for a subscriber that has
+// never customized anything (Novu falls back to the workflow default). This is
+// why the settings page can render the full catalog from Novu alone. The v2
+// response omits description/tags/critical; GetWorkflowMeta supplies those.
 func (c *Client) GetSubscriberPreferences(ctx context.Context, subscriberID string) ([]WorkflowPreference, error) {
 	var env struct {
-		Data []subscriberPreferenceDTO `json:"data"`
+		Data struct {
+			Workflows []subscriberPreferenceDTO `json:"workflows"`
+		} `json:"data"`
 	}
-	path := "/v1/subscribers/" + url.PathEscape(subscriberID) + "/preferences"
+	path := "/v2/subscribers/" + url.PathEscape(subscriberID) + "/preferences"
 	if err := c.do(ctx, http.MethodGet, path, nil, &env); err != nil {
 		return nil, err
 	}
-	out := make([]WorkflowPreference, 0, len(env.Data))
-	for _, d := range env.Data {
-		var id string
-		if len(d.Template.Triggers) > 0 {
-			id = d.Template.Triggers[0].Identifier
-		}
+	out := make([]WorkflowPreference, 0, len(env.Data.Workflows))
+	for _, d := range env.Data.Workflows {
 		out = append(out, WorkflowPreference{
-			WorkflowID: id,
-			TemplateID: d.Template.ID,
-			Name:       d.Template.Name,
-			Critical:   d.Template.Critical,
-			Tags:       d.Template.Tags,
-			Channels:   d.Preference.Channels,
+			WorkflowID: d.Workflow.Identifier,
+			Name:       d.Workflow.Name,
+			Channels:   d.Channels,
 		})
 	}
 	return out, nil
 }
 
-// SetSubscriberPreferenceChannel enables/disables one channel (e.g. "email",
-// "in_app") for one workflow, addressed by its Novu template id, for a
-// subscriber. Novu updates a single channel per call.
-func (c *Client) SetSubscriberPreferenceChannel(ctx context.Context, subscriberID, templateID, channel string, enabled bool) error {
-	path := "/v1/subscribers/" + url.PathEscape(subscriberID) + "/preferences/" + url.PathEscape(templateID)
-	body := map[string]any{"channel": map[string]any{"type": channel, "enabled": enabled}}
+// SetSubscriberPreference sets a workflow's channel preferences for a subscriber
+// via PATCH /v2/subscribers/{id}/preferences, addressed by workflow identifier.
+// Unlike the legacy per-channel endpoint, one call carries all changed channels;
+// channels maps channel name (e.g. "email", "in_app") to the desired enabled
+// state.
+func (c *Client) SetSubscriberPreference(ctx context.Context, subscriberID, workflowID string, channels map[string]bool) error {
+	path := "/v2/subscribers/" + url.PathEscape(subscriberID) + "/preferences"
+	body := map[string]any{"workflowId": workflowID, "channels": channels}
 	return c.do(ctx, http.MethodPatch, path, body, nil)
 }
 
@@ -293,34 +284,55 @@ func (c *Client) SetWorkflowPayloadSchema(ctx context.Context, workflowID string
 	return c.do(ctx, http.MethodPatch, "/v2/workflows/"+url.PathEscape(workflowID), body, nil)
 }
 
-// GetWorkflowDescription returns a workflow's authored description by its Novu
-// template id, or the empty string if none. The subscriber-preferences list
-// omits descriptions, and Novu has no bulk endpoint that includes them for
-// dashboard (novu-cloud origin) workflows, so this is a per-workflow detail
-// fetch. Results are cached for descTTL (descriptions are static, env-wide) so
-// the settings page pays the N fetches only on a cold cache.
-func (c *Client) GetWorkflowDescription(ctx context.Context, templateID string) (string, error) {
-	c.descMu.Lock()
-	if e, ok := c.descCache[templateID]; ok && time.Now().Before(e.expiry) {
-		c.descMu.Unlock()
+// WorkflowMeta is a workflow's static, environment-wide metadata: the authored
+// description, its tags (category), and whether it is critical (locked on). The
+// v2 subscriber-preferences list omits all of these, so this is a per-workflow
+// detail fetch.
+type WorkflowMeta struct {
+	Description string
+	Tags        []string
+	Critical    bool
+}
+
+// GetWorkflowMeta returns a workflow's metadata by its identifier via
+// GET /v2/workflows/{id}. The critical flag is Novu's preferences.default.all.
+// readOnly. Results are cached for metaTTL (metadata is static, env-wide) so the
+// settings page pays the N fetches only on a cold cache.
+func (c *Client) GetWorkflowMeta(ctx context.Context, workflowID string) (WorkflowMeta, error) {
+	c.metaMu.Lock()
+	if e, ok := c.metaCache[workflowID]; ok && time.Now().Before(e.expiry) {
+		c.metaMu.Unlock()
 		return e.value, nil
 	}
-	c.descMu.Unlock()
+	c.metaMu.Unlock()
 
 	var env struct {
 		Data struct {
-			Description string `json:"description"`
+			Description string   `json:"description"`
+			Tags        []string `json:"tags"`
+			Preferences struct {
+				Default struct {
+					All struct {
+						ReadOnly bool `json:"readOnly"`
+					} `json:"all"`
+				} `json:"default"`
+			} `json:"preferences"`
 		} `json:"data"`
 	}
-	path := "/v1/notification-templates/" + url.PathEscape(templateID)
+	path := "/v2/workflows/" + url.PathEscape(workflowID)
 	if err := c.do(ctx, http.MethodGet, path, nil, &env); err != nil {
-		return "", err
+		return WorkflowMeta{}, err
+	}
+	meta := WorkflowMeta{
+		Description: env.Data.Description,
+		Tags:        env.Data.Tags,
+		Critical:    env.Data.Preferences.Default.All.ReadOnly,
 	}
 
-	c.descMu.Lock()
-	c.descCache[templateID] = descEntry{value: env.Data.Description, expiry: time.Now().Add(descTTL)}
-	c.descMu.Unlock()
-	return env.Data.Description, nil
+	c.metaMu.Lock()
+	c.metaCache[workflowID] = metaEntry{value: meta, expiry: time.Now().Add(metaTTL)}
+	c.metaMu.Unlock()
+	return meta, nil
 }
 
 // do performs a request against the Novu API. When out is non-nil the response

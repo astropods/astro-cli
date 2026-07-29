@@ -71,7 +71,10 @@ function PreferenceRow({ pref, account }: { pref: NotificationPreference; accoun
 }
 
 export function NotificationsPanel({ account }: { account: string }) {
-  const { data, isLoading, isError, refetch } = useNotificationPreferences(account)
+  // isPending (not isLoading) so the spinner also covers the window where the
+  // account name is still resolving and the query is disabled — a disabled v5
+  // query is pending with fetchStatus idle, so isLoading would be false there.
+  const { data, isPending, isError, refetch } = useNotificationPreferences(account)
   const sendTest = useSendTestNotification(account)
 
   // Group the catalog by category, preserving first-seen order.
@@ -117,7 +120,7 @@ export function NotificationsPanel({ account }: { account: string }) {
         )}
 
         <div className="mt-4">
-          {isLoading ? (
+          {isPending ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
               <Loader2 className="size-4 animate-spin" />
               Loading preferences…

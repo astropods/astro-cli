@@ -154,24 +154,25 @@ func GetNotificationPreferences(log *logger.Logger, novuClient *novu.Client) gin
 			return
 		}
 
-		// The preferences list omits the workflow description, so fetch each from
-		// Novu concurrently. Best-effort: a failed fetch just leaves the row
-		// without a description rather than failing the page.
-		descriptions := make([]string, len(prefs))
+		// The v2 preferences list omits description, category (tags), and the
+		// critical flag, so fetch each workflow's metadata from Novu concurrently.
+		// Best-effort: a failed fetch just leaves the row with defaults rather than
+		// failing the page.
+		metas := make([]novu.WorkflowMeta, len(prefs))
 		var wg sync.WaitGroup
 		for i := range prefs {
-			if prefs[i].TemplateID == "" {
+			if prefs[i].WorkflowID == "" {
 				continue
 			}
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				d, derr := novuClient.GetWorkflowDescription(c.Request.Context(), prefs[i].TemplateID)
-				if derr != nil {
-					log.Warn("notify: fetch workflow description failed", "error", derr, "workflow", prefs[i].WorkflowID)
+				m, merr := novuClient.GetWorkflowMeta(c.Request.Context(), prefs[i].WorkflowID)
+				if merr != nil {
+					log.Warn("notify: fetch workflow metadata failed", "error", merr, "workflow", prefs[i].WorkflowID)
 					return
 				}
-				descriptions[i] = d
+				metas[i] = m
 			}(i)
 		}
 		wg.Wait()
@@ -179,14 +180,14 @@ func GetNotificationPreferences(log *logger.Logger, novuClient *novu.Client) gin
 		out := make([]NotificationPreference, 0, len(prefs))
 		for i, p := range prefs {
 			if p.WorkflowID == "" {
-				continue // a workflow without a trigger identifier can't be addressed
+				continue // a workflow without an identifier can't be addressed
 			}
 			out = append(out, NotificationPreference{
 				Type:        p.WorkflowID,
 				Name:        p.Name,
-				Description: descriptions[i],
-				Category:    categoryFromTags(p.Tags),
-				Critical:    p.Critical,
+				Description: metas[i].Description,
+				Category:    categoryFromTags(metas[i].Tags),
+				Critical:    metas[i].Critical,
 				Email:       p.Channels["email"],
 				InApp:       p.Channels["in_app"],
 			})
@@ -232,18 +233,33 @@ func UpdateNotificationPreference(log *logger.Logger, novuClient *novu.Client) g
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown notification type"})
 			return
 		}
-		if target.Critical {
+
+		// The v2 preferences list omits the critical flag, so fetch the workflow's
+		// metadata to reject updates to a locked-on workflow. Novu also enforces
+		// readOnly server-side, but this gives a clear error instead of a silent
+		// no-op.
+		meta, err := novuClient.GetWorkflowMeta(c.Request.Context(), target.WorkflowID)
+		if err != nil {
+			log.Error("notify: load workflow metadata for update failed", "error", err, "user_id", user.ID, "type", req.Type)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update notification preference"})
+			return
+		}
+		if meta.Critical {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "this notification is required and cannot be disabled"})
 			return
 		}
 
+		// Send only the channels whose value changed, in a single PATCH.
 		desired := map[string]bool{"email": req.Email, "in_app": req.InApp}
+		changed := map[string]bool{}
 		for channel, want := range desired {
-			if target.Channels[channel] == want {
-				continue // no change
+			if target.Channels[channel] != want {
+				changed[channel] = want
 			}
-			if err := novuClient.SetSubscriberPreferenceChannel(c.Request.Context(), user.ID, target.TemplateID, channel, want); err != nil {
-				log.Error("notify: set preference failed", "error", err, "user_id", user.ID, "type", req.Type, "channel", channel)
+		}
+		if len(changed) > 0 {
+			if err := novuClient.SetSubscriberPreference(c.Request.Context(), user.ID, target.WorkflowID, changed); err != nil {
+				log.Error("notify: set preference failed", "error", err, "user_id", user.ID, "type", req.Type)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update notification preference"})
 				return
 			}
