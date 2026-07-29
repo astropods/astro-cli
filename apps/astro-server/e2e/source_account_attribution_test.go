@@ -254,7 +254,7 @@ func newSourceAccountRouter(t *testing.T, userID string, accountStore *account.A
 		log, accountStore, cfg, deployStore, index, nil, nil,
 	))
 	r.GET("/api/v1/deployments/:id/runtime", handlers.GetDeploymentRuntime(
-		log, accountStore, cfg, deployStore,
+		log, accountStore, cfg, deployStore, nil, nil,
 	))
 	return r
 }

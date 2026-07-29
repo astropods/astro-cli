@@ -39,6 +39,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	spec "github.com/astropods/astro-spec"
@@ -1357,6 +1358,11 @@ type WorkloadRuntime struct {
 	StartTime   string            `json:"start_time,omitempty"`  // Job pod start / CronJob last fire
 	Completions string            `json:"completions,omitempty"` // Job "succeeded/desired"
 	Runs        []JobDetail       `json:"runs,omitempty"`        // CronJob children
+
+	// Representative pod's data-volume usage; nil when there's no PVC or metrics
+	// are unavailable. From Prometheus (see enrichRuntimeStorage), not the snapshot.
+	StorageUsedBytes     *int64 `json:"storage_used_bytes,omitempty"`
+	StorageCapacityBytes *int64 `json:"storage_capacity_bytes,omitempty"`
 }
 
 // AgentDeploymentSummary is the trimmed shape returned by ListDeployments.
@@ -2204,7 +2210,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 // the UI renders as "loading"), never a 503. The controller keeps the snapshot
 // current from its informer caches.
 // GET /api/v1/deployments/:id/runtime
-func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, promClient *promquery.Client, k8sReg *k8s.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2228,7 +2234,16 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"runtime": runtimeFromSnapshot(snap, dbDep, cfg)})
+		rt := runtimeFromSnapshot(snap, dbDep, cfg)
+
+		// Overlay live volume usage (Prometheus) onto StatefulSet workloads.
+		clusterFilter := ""
+		if promClient != nil && k8sReg != nil {
+			clusterFilter = k8sReg.PrometheusClusterFilter(c.Request.Context(), dbDep.EffectiveClusterID())
+		}
+		enrichRuntimeStorage(c.Request.Context(), runtimeStorageCache, promClient, clusterFilter, dbDep.ID, dbDep.Namespace, statefulSetWorkloadNames(snap), &rt)
+
+		c.JSON(http.StatusOK, gin.H{"runtime": rt})
 	}
 }
 

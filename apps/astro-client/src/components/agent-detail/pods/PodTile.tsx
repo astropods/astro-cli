@@ -143,6 +143,27 @@ const ROLE_ICONS: Record<Role, IconComponent> = {
   other: Box,
 };
 
+const STORAGE_WARN_PCT = 80;
+
+const STORAGE_GRADIENT =
+  "linear-gradient(90deg, var(--color-muted-foreground) 0%, var(--color-muted-foreground) 64%, var(--color-yellow-400) 82%, var(--color-red-400) 98%)";
+const STORAGE_FULL_FILL = "linear-gradient(90deg, var(--color-red-400), var(--color-red-400))";
+
+/** Compact "used/capacity" readout sharing one unit (e.g. "8.6/10 GB"). */
+function formatStoragePair(usedBytes: number, capacityBytes: number): string {
+  const units: [string, number][] = [
+    ["GB", 1024 ** 3],
+    ["MB", 1024 ** 2],
+    ["KB", 1024],
+  ];
+  const [unit, div] = units.find(([, d]) => capacityBytes >= d) ?? ["B", 1];
+  const fmt = (n: number) => {
+    const v = n / div;
+    return Number.isInteger(v) ? `${v}` : v.toFixed(1);
+  };
+  return `${fmt(usedBytes)}/${fmt(capacityBytes)} ${unit}`;
+}
+
 function TileNotice({ color, children }: { color: string; children: React.ReactNode }) {
   return (
     <div className="px-4 pb-3">
@@ -166,6 +187,8 @@ export interface PodTileContentProps {
   /** Show a small alert icon when the container's logs contain errors or
    *  warnings, even if its runtime status looks healthy. */
   logIssue?: "error" | "warning" | null;
+  /** Persistent-volume usage; when set (capacity > 0) the tile shows a fill bar. */
+  storage?: { usedBytes: number; capacityBytes: number };
   className?: string;
   onClick?: () => void;
   selected?: boolean;
@@ -193,10 +216,34 @@ function LogIssueIndicator({ severity }: { severity: "error" | "warning" }) {
   );
 }
 
-export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, leading, age, warningMessage, errorMessage, logIssue, className, onClick, selected, dimmed }: PodTileContentProps) {
+function StorageWarning({ pct }: { pct: number }) {
+  const full = pct >= 100;
+  const free = Math.max(1, Math.round(100 - pct));
+  const label = full ? "Storage full" : `Low storage — ${free}% free`;
+  const Icon = full ? AlertCircle : TriangleAlert;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span role="img" aria-label={label} className="flex items-center">
+            <Icon className={cn("size-3.5", full ? "text-red-400 dark:text-red-400" : "text-yellow-400 dark:text-yellow-400")} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export function PodTileContent({ name, status = "pending", statusLabel, icon: Icon = Box, leading, age, warningMessage, errorMessage, logIssue, storage, className, onClick, selected, dimmed }: PodTileContentProps) {
   const styles = POD_STATUS_STYLES[status] ?? POD_STATUS_STYLES.pending;
   const { dot, glow } = styles;
   const label = statusLabel ?? styles.label;
+
+  const showStorage = !!storage && storage.capacityBytes > 0;
+  const storagePct = showStorage
+    ? Math.min(100, Math.max(0, (storage.usedBytes / storage.capacityBytes) * 100))
+    : 0;
 
   return (
     <div
@@ -236,6 +283,39 @@ export function PodTileContent({ name, status = "pending", statusLabel, icon: Ic
             <span className={cn("size-1.5 shrink-0 rounded-full", dot, glow)} />
             <span className="text-xs text-muted-foreground">{label}</span>
           </div>
+          {showStorage && (
+            <div className="px-4 pb-3">
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>Storage</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-foreground/80">
+                    {formatStoragePair(storage.usedBytes, storage.capacityBytes)}
+                  </span>
+                  {storagePct >= STORAGE_WARN_PCT && <StorageWarning pct={storagePct} />}
+                </span>
+              </div>
+              {/* -mx offsets the 1px border + 2px padding so the track aligns flush with the text above. */}
+              <div className="-mx-[3px] rounded-[4px] border border-foreground/15 p-0.5">
+                <div
+                  className="relative h-1 w-full overflow-hidden rounded-[2px] bg-foreground/10"
+                  role="progressbar"
+                  aria-label="Storage used"
+                  aria-valuenow={Math.round(storagePct)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  {/* Full-width gradient revealed by clip-path, so color maps to absolute usage (solid red when full). */}
+                  <div
+                    className="absolute inset-0 rounded-[2px] transition-[clip-path] duration-300"
+                    style={{
+                      backgroundImage: storagePct >= 100 ? STORAGE_FULL_FILL : STORAGE_GRADIENT,
+                      clipPath: `inset(0 ${100 - storagePct}% 0 0)`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
           {warningMessage && <TileNotice color="text-amber-400">{warningMessage}</TileNotice>}
           {errorMessage && <TileNotice color="text-red-400">{errorMessage}</TileNotice>}
         </div>
@@ -316,6 +396,16 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
   // when shipped; otherwise the role icon (via PodTileContent's `icon`).
   const role = classify(workload.component, workload.kind);
   const brandId = brandIconId(role, workload.provider, workload.component);
+
+  // Storage bar: knowledge tiles with live metrics only, hidden while idle.
+  const storage =
+    role === "knowledge" &&
+    !idle &&
+    typeof workload.storage_used_bytes === "number" &&
+    typeof workload.storage_capacity_bytes === "number" &&
+    workload.storage_capacity_bytes > 0
+      ? { usedBytes: workload.storage_used_bytes, capacityBytes: workload.storage_capacity_bytes }
+      : undefined;
   const leading =
     role === "agent" && deployment ? (
       <DeploymentAvatar deployment={deployment} size={20} className="size-5 shrink-0 rounded-sm" />
@@ -352,6 +442,7 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
         warningMessage={idle ? null : warningMessage}
         errorMessage={idle ? null : lastError}
         logIssue={hasLogErrors ? "error" : null}
+        storage={storage}
         className={className}
         onClick={onClick}
         selected={selected}

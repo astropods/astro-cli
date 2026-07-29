@@ -18,7 +18,10 @@ interface TileSpec {
   age?: string;
   warningMessage?: string;
   errorMessage?: string;
+  storage?: { usedBytes: number; capacityBytes: number };
 }
+
+const GiB = 1024 ** 3;
 
 type IconComponent = React.ComponentType<{ className?: string }>;
 
@@ -57,6 +60,7 @@ function renderTile(tiles: TileSpec[]) {
         age={t.age}
         warningMessage={t.warningMessage}
         errorMessage={t.errorMessage}
+        storage={t.storage}
         icon={ROLE_ICONS[role]}
         leading={leadingFor(t.component, role)}
       />
@@ -120,12 +124,21 @@ export const KnowledgeAndIngestion: Story = makeStory([
 // The full flow: ingestion | knowledge | agent | others (model, tool, collector).
 export const FullStack: Story = makeStory([
   { component: "agent", kind: "StatefulSet", age: "14d" },
-  { component: "knowledge-postgres", kind: "StatefulSet", name: "postgres", age: "14d" },
-  { component: "knowledge-qdrant", kind: "StatefulSet", name: "qdrant", age: "6d" },
+  { component: "knowledge-postgres", kind: "StatefulSet", name: "postgres", age: "14d", storage: { usedBytes: 3.2 * GiB, capacityBytes: 10 * GiB } },
+  { component: "knowledge-qdrant", kind: "StatefulSet", name: "qdrant", age: "6d", storage: { usedBytes: 9.4 * GiB, capacityBytes: 10 * GiB } },
   { component: "model-llm", kind: "Deployment", name: "llm", age: "6d" },
   { component: "tool-github", kind: "Deployment", name: "github", age: "6d" },
   { component: "ingestion-crawler", kind: "CronJob", name: "crawler" },
   { component: "collector", kind: "Deployment", age: "14d" },
+]);
+
+// Storage across the fill scale (neutral → yellow → red), warning past ~80%, solid red when full.
+export const KnowledgeStorageLevels: Story = makeStory([
+  { component: "agent", kind: "StatefulSet", age: "14d" },
+  { component: "knowledge-postgres", kind: "StatefulSet", name: "postgres", age: "14d", storage: { usedBytes: 2 * GiB, capacityBytes: 10 * GiB } },   // 20% — neutral
+  { component: "knowledge-qdrant", kind: "StatefulSet", name: "qdrant", age: "9d", storage: { usedBytes: 8.6 * GiB, capacityBytes: 10 * GiB } },       // 86% — amber + warning
+  { component: "knowledge-redis", kind: "StatefulSet", name: "redis", age: "6d", storage: { usedBytes: 4.85 * GiB, capacityBytes: 5 * GiB } },         // 97% — red tail + warning
+  { component: "knowledge-neo4j", kind: "StatefulSet", name: "neo4j", age: "3d", storage: { usedBytes: 8 * GiB, capacityBytes: 8 * GiB } },            // 100% — solid red, "Storage full"
 ]);
 
 // One unhealthy store with a long error — layout must absorb the taller tile.

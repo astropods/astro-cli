@@ -687,6 +687,9 @@ export interface WorkloadDetail {
   start_time?: string;
   completions?: string;
   runs?: JobDetail[];
+  /** Persistent-volume usage in bytes; absent when there's no volume or metrics are unavailable. */
+  storage_used_bytes?: number;
+  storage_capacity_bytes?: number;
 }
 
 // WorkloadSpec is the DB-sourced intent for a single workload — what the
@@ -729,6 +732,9 @@ export interface WorkloadRuntime {
   start_time?: string;
   completions?: string;
   runs?: JobDetail[];
+  /** Persistent-volume usage in bytes; absent when there's no volume or metrics are unavailable. */
+  storage_used_bytes?: number;
+  storage_capacity_bytes?: number;
 }
 
 export interface JobDetail {

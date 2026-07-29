@@ -4273,8 +4273,9 @@ func TestGetDeploymentRuntime_ClusterIndependent(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	// nil registry / agent index: the handler is DB-only and must not use them.
-	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, &config.Config{}, deployStore))
+	// nil prom client / registry: storage enrichment is skipped, so the handler
+	// stays DB-only for this test and must not touch the cluster.
+	router.GET("/api/v1/deployments/:id/runtime", GetDeploymentRuntime(log, accountStore, &config.Config{}, deployStore, nil, nil))
 
 	// resolveDeployment: the deployment row + membership check.
 	deployMock.ExpectQuery(`SELECT`).

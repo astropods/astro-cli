@@ -138,3 +138,122 @@ describe("PodTileContent log-issue indicator", () => {
     expect(screen.queryByLabelText("Warnings found in logs")).toBeNull();
   });
 });
+
+const GiB = 1024 ** 3;
+
+describe("PodTileContent storage bar", () => {
+  it("renders a used/capacity bar when storage is provided", () => {
+    renderWithProviders(
+      <PodTileContent name="qdrant" status="healthy" storage={{ usedBytes: 3 * GiB, capacityBytes: 10 * GiB }} />,
+    );
+    const bar = screen.getByRole("progressbar");
+    expect(bar).toHaveAttribute("aria-valuenow", "30");
+    expect(screen.getByText("3/10 GB")).toBeInTheDocument();
+  });
+
+  it("flags low storage with a yellow warning at ≥80% used", () => {
+    renderWithProviders(
+      <PodTileContent name="qdrant" status="healthy" storage={{ usedBytes: 8.6 * GiB, capacityBytes: 10 * GiB }} />,
+    );
+    const warn = screen.getByLabelText(/low storage/i);
+    expect(warn).toBeInTheDocument();
+    expect(warn.querySelector("svg")?.getAttribute("class")).toContain("text-yellow-400");
+  });
+
+  it("keeps the yellow low warning below 100% — red is reserved for full", () => {
+    renderWithProviders(
+      <PodTileContent name="redis" status="healthy" storage={{ usedBytes: 4.85 * GiB, capacityBytes: 5 * GiB }} />,
+    );
+    const warn = screen.getByLabelText(/low storage/i);
+    expect(warn.querySelector("svg")?.getAttribute("class")).toContain("text-yellow-400");
+  });
+
+  it("shows no warning with plenty of headroom", () => {
+    renderWithProviders(
+      <PodTileContent name="postgres" status="healthy" storage={{ usedBytes: 2 * GiB, capacityBytes: 10 * GiB }} />,
+    );
+    // The warning aria-labels are the only ones mentioning free space.
+    expect(screen.queryByLabelText(/free/i)).toBeNull();
+  });
+
+  it("turns the whole bar solid red and reads 'full' at 100%", () => {
+    renderWithProviders(
+      <PodTileContent name="neo4j" status="healthy" storage={{ usedBytes: 8 * GiB, capacityBytes: 8 * GiB }} />,
+    );
+    const fill = screen.getByRole("progressbar").querySelector("div") as HTMLElement;
+    // Fully revealed and recolored to solid red — the neutral/amber ramp is gone.
+    expect(fill.style.clipPath).toBe("inset(0 0% 0 0)");
+    expect(fill.style.backgroundImage).toContain("red-400");
+    expect(fill.style.backgroundImage).not.toContain("muted-foreground");
+    expect(fill.style.backgroundImage).not.toContain("yellow-400");
+    const warn = screen.getByLabelText(/storage full/i);
+    expect(warn).toBeInTheDocument();
+    expect(warn.querySelector("svg")?.getAttribute("class")).toContain("text-red-400");
+  });
+
+  it("hides the bar when storage is absent", () => {
+    renderWithProviders(<PodTileContent name="qdrant" status="healthy" />);
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("hides the bar when capacity is zero (avoids divide-by-zero)", () => {
+    renderWithProviders(
+      <PodTileContent name="qdrant" status="healthy" storage={{ usedBytes: 0, capacityBytes: 0 }} />,
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("anchors color to the scale: a fixed gradient revealed by clip-path", () => {
+    const read = (usedBytes: number) => {
+      const { unmount } = renderWithProviders(
+        <PodTileContent name="qdrant" status="healthy" storage={{ usedBytes, capacityBytes: 10 * GiB }} />,
+      );
+      const fill = screen.getByRole("progressbar").querySelector("div") as HTMLElement;
+      const rightInset = parseFloat(fill.style.clipPath.match(/inset\(0 ([\d.]+)% 0 0\)/)![1]);
+      const gradient = fill.style.backgroundImage;
+      unmount();
+      return { rightInset, gradient };
+    };
+    const low = read(2 * GiB); // 20% used → 80% clipped away
+    const high = read(9.7 * GiB); // 97% used → 3% clipped away
+    expect(low.rightInset).toBeCloseTo(80, 5);
+    expect(high.rightInset).toBeCloseTo(3, 5);
+    // More usage reveals more of the same gradient — color isn't swapped per fill.
+    expect(high.rightInset).toBeLessThan(low.rightInset);
+    expect(low.gradient).toContain("yellow-400");
+    expect(low.gradient).toContain("red-400");
+  });
+});
+
+describe("PodTile storage gating", () => {
+  const knowledge = (overrides?: Partial<WorkloadDetail>): WorkloadDetail =>
+    makeWorkload({
+      name: "knowledge-qdrant",
+      kind: "StatefulSet",
+      component: "knowledge-qdrant",
+      containers: [],
+      storage_used_bytes: 3 * GiB,
+      storage_capacity_bytes: 10 * GiB,
+      ...overrides,
+    });
+
+  it("shows the bar on a knowledge tile with storage", () => {
+    renderWithProviders(<PodTile workload={knowledge()} deploymentId="dep-1" />);
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
+
+  it("does not show the bar on a non-knowledge tile even when storage is present", () => {
+    renderWithProviders(
+      <PodTile
+        workload={knowledge({ name: "agent", component: "agent" })}
+        deploymentId="dep-1"
+      />,
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("hides the bar while the deployment is paused", () => {
+    renderWithProviders(<PodTile workload={knowledge()} deploymentId="dep-1" paused />);
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
