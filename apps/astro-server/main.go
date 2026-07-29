@@ -205,7 +205,8 @@ func main() {
 			log.Error("Failed to parse REDIS_URL, Redis features disabled", "error", redisErr)
 		} else {
 			redisClient = goredis.NewClient(opts)
-			log.Info("Redis client initialized", "url", cfg.RedisURL)
+			// Log host/db only — the parsed URL carries the password in userinfo.
+			log.Info("Redis client initialized", "addr", opts.Addr, "db", opts.DB)
 		}
 	}
 	k8sCache := k8scache.New(redisClient)
@@ -709,8 +710,10 @@ func runWorker(
 	var notifyProvider notify.Provider
 	if cfg.Notify.NovuAPIURL != "" && cfg.Notify.NovuSecretKey != "" {
 		notifyProvider = notify.NewNovuProvider(novu.NewClient(cfg.Notify.NovuAPIURL, cfg.Notify.NovuSecretKey))
+		log.Info("Notification provider: novu", "api_url", cfg.Notify.NovuAPIURL)
 	} else {
 		notifyProvider = notify.NewNoopProvider(log)
+		log.Warn("Notification provider: no-op (NOVU_API_URL/NOVU_SECRET_KEY unset); notifications will be dropped")
 	}
 
 	// Start River queue (handles all periodic workers)
