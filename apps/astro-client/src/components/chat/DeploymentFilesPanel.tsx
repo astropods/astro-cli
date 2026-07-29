@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/tooltip";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { formatBytes, formatDateShort } from "@/lib/format-utils";
-import { fileUploadErrorMessage } from "@/lib/chat/file-upload";
+import {
+  fileApiErrorMessage,
+  fileUploadErrorMessage,
+} from "@/lib/chat/file-upload";
 import { cn } from "@/lib/utils";
 
 export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string }) {
@@ -30,15 +33,26 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
   const [pendingDelete, setPendingDelete] = useState<DeploymentFileMeta | null>(
     null,
   );
+  const [uploadErrors, setUploadErrors] = useState<
+    { name: string; message: string }[]
+  >([]);
 
   const onFilesSelected = useCallback(
     async (fileList: FileList | null) => {
       if (!fileList || fileList.length === 0) return;
+      setUploadErrors([]);
+      uploadFile.reset();
       for (const file of Array.from(fileList)) {
         try {
           await uploadFile.mutateAsync(file);
-        } catch {
-          // Surfaced via the mutation error banner; continue with the rest.
+        } catch (error) {
+          setUploadErrors((current) => [
+            ...current,
+            {
+              name: file.name,
+              message: fileUploadErrorMessage(error, "Upload failed."),
+            },
+          ]);
         }
       }
       if (inputRef.current) inputRef.current.value = "";
@@ -84,10 +98,17 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
             />
           </label>
         </Button>
-        {uploadFile.isError && (
-          <p className="text-body-sm text-destructive">
-            {fileUploadErrorMessage(uploadFile.error, "Upload failed.")}
-          </p>
+        {uploadErrors.length > 0 && (
+          <div className="space-y-1" role="alert">
+            {uploadErrors.map(({ name, message }) => (
+              <p
+                key={`${name}:${message}`}
+                className="text-body-sm text-destructive"
+              >
+                <span className="font-medium">{name}:</span> {message}
+              </p>
+            ))}
+          </div>
         )}
       </div>
 
@@ -97,7 +118,7 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
         </div>
       ) : isError ? (
         <p className="text-body-sm text-muted-foreground">
-          {fileUploadErrorMessage(error, "Failed to load files.")}
+          {fileApiErrorMessage(error, "list", "Failed to load files.")}
         </p>
       ) : files.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface/60 px-4 py-8 text-center">
@@ -156,6 +177,16 @@ export function DeploymentFilesPanel({ deploymentId }: { deploymentId: string })
             ))}
           </div>
         </TooltipProvider>
+      )}
+
+      {downloadFile.isError && (
+        <p className="text-body-sm text-destructive" role="alert">
+          {fileApiErrorMessage(
+            downloadFile.error,
+            "download",
+            "Download failed.",
+          )}
+        </p>
       )}
 
       <ConfirmationDialog

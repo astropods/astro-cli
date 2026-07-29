@@ -14,10 +14,12 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -28,22 +30,17 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
-
-// filesEndpointAbsent reports whether a messaging-proxy resolve error means the
-// deployment simply has no files endpoint — a non-web agent has no messaging
-// Service (NotFound), or one without an http port. Both are permanent, expected
-// conditions the files routes answer with 404 rather than a 503 fault.
-func filesEndpointAbsent(err error) bool {
-	return errors.Is(err, errMessagingNoHTTPPort) || apierrors.IsNotFound(err)
-}
 
 // filesProxyMaxUploadBytes bounds a single uploaded file at the proxy. It
 // matches the sidecar's own cap so an oversized upload is rejected early (before
 // streaming) when the client sends a Content-Length; unknown-length bodies are
 // still bounded by the sidecar.
 const filesProxyMaxUploadBytes = 100 << 20 // 100 MiB
+
+// filesProxyMaxErrorBody bounds upstream error bodies read for normalization
+// and logging. Successful file content is always streamed and never buffered.
+const filesProxyMaxErrorBody = 16 << 10
 
 // filesKeyMaxRunes bounds a file key (UUID or adopted filename), matching the
 // sidecar's filename cap.
@@ -87,6 +84,103 @@ type CreateDeploymentFileResponse struct {
 	Key    string                               `json:"key"`
 	File   DeploymentFileMetaResponse           `json:"file"`
 	Upload CreateDeploymentFileUploadDescriptor `json:"upload"`
+}
+
+func writeFilesError(c *gin.Context, status int, code, details string) {
+	c.JSON(status, ErrorResponse{Error: code, Details: details})
+}
+
+func canonicalFilesError(code string) (ErrorResponse, bool) {
+	detailsByCode := map[string]string{
+		"authentication_required":  "Authentication is required.",
+		"file_access_forbidden":    "You don't have permission to access this file.",
+		"file_create_failed":       "The file couldn't be created. Try again.",
+		"file_delete_failed":       "The file couldn't be deleted. Try again.",
+		"file_download_failed":     "The file couldn't be downloaded. Try again.",
+		"file_list_failed":         "Files couldn't be loaded. Try again.",
+		"file_not_found":           "This file is no longer available.",
+		"file_read_failed":         "The file couldn't be loaded. Try again.",
+		"file_storage_unavailable": "File storage isn't available for this deployment yet.",
+		"file_too_large":           "This file is too large. Choose a smaller file and try again.",
+		"file_upload_failed":       "The file couldn't be uploaded. Try again.",
+		"files_unavailable":        "File storage is temporarily unavailable. Try again.",
+		"insufficient_storage":     "The deployment's storage is full. Delete files to free space, then try again.",
+		"invalid_file_name":        "This file name isn't supported.",
+		"invalid_file_request":     "The file request is invalid.",
+	}
+	details, ok := detailsByCode[code]
+	return ErrorResponse{Error: code, Details: details}, ok
+}
+
+// normalizedFilesError converts the sidecar's legacy text/plain errors and
+// Kubernetes proxy failures into Astro's standard JSON error envelope. Only
+// known, user-safe sidecar messages are exposed; infrastructure responses are
+// logged by the caller and replaced with an actionable generic message.
+func normalizedFilesError(status int, body []byte) (int, ErrorResponse) {
+	trimmed := strings.TrimSpace(string(body))
+
+	var k8sStatus struct {
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(body, &k8sStatus) == nil &&
+		k8sStatus.Kind == "Status" && k8sStatus.Status == "Failure" {
+		// Backend pod unreachable (e.g. mid-rollout); 4xx so the route doesn't 5xx.
+		return http.StatusNotFound, ErrorResponse{
+			Error:   "file_storage_unavailable",
+			Details: "File storage isn't available for this deployment yet.",
+		}
+	}
+
+	var upstream ErrorResponse
+	if json.Unmarshal(body, &upstream) == nil {
+		if canonical, ok := canonicalFilesError(strings.TrimSpace(upstream.Error)); ok {
+			return status, canonical
+		}
+		if upstream.Details != "" {
+			trimmed = strings.TrimSpace(upstream.Details)
+		} else if upstream.Error != "" {
+			trimmed = strings.TrimSpace(upstream.Error)
+		}
+	}
+
+	switch trimmed {
+	case "invalid file name":
+		return status, ErrorResponse{Error: "invalid_file_name", Details: "This file name isn't supported."}
+	case "invalid file key", "invalid file size":
+		return status, ErrorResponse{Error: "invalid_file_request", Details: "The file request is invalid."}
+	case "file too large", "request body too large":
+		return status, ErrorResponse{Error: "file_too_large", Details: "This file is too large. Choose a smaller file and try again."}
+	case "not enough storage available on the deployment volume", "storage full":
+		return status, ErrorResponse{Error: "insufficient_storage", Details: "The deployment's storage is full. Delete files to free space, then try again."}
+	case "file storage is not enabled":
+		return status, ErrorResponse{Error: "file_storage_unavailable", Details: "File storage isn't available for this deployment yet."}
+	case "file not found", "file content not found":
+		return status, ErrorResponse{Error: "file_not_found", Details: "This file is no longer available."}
+	case "Unauthorized":
+		return status, ErrorResponse{Error: "authentication_required", Details: "Authentication is required."}
+	case "Forbidden":
+		return status, ErrorResponse{Error: "file_access_forbidden", Details: "You don't have permission to access this file."}
+	case "Authentication error", "Authorization unavailable":
+		return http.StatusServiceUnavailable, ErrorResponse{Error: "files_unavailable", Details: "File storage is temporarily unavailable. Try again."}
+	}
+
+	switch status {
+	case http.StatusBadRequest:
+		return status, ErrorResponse{Error: "invalid_file_request", Details: "The file request is invalid."}
+	case http.StatusUnauthorized:
+		return status, ErrorResponse{Error: "authentication_required", Details: "Authentication is required."}
+	case http.StatusForbidden:
+		return status, ErrorResponse{Error: "file_access_forbidden", Details: "You don't have permission to access this file."}
+	case http.StatusNotFound:
+		return status, ErrorResponse{Error: "file_not_found", Details: "This file is no longer available."}
+	case http.StatusRequestEntityTooLarge:
+		return status, ErrorResponse{Error: "file_too_large", Details: "This file is too large. Choose a smaller file and try again."}
+	case http.StatusInsufficientStorage:
+		return status, ErrorResponse{Error: "insufficient_storage", Details: "The deployment's storage is full. Delete files to free space, then try again."}
+	default:
+		return status, ErrorResponse{Error: "files_unavailable", Details: "File storage is temporarily unavailable. Try again."}
+	}
 }
 
 // parseFileKey validates a route file key before it is spliced into the upstream
@@ -134,19 +228,19 @@ func forwardFiles(
 ) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		writeFilesError(c, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
 		return
 	}
 
 	dep, err := resolveDeployment(c, deployStore, accountStore)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		writeFilesError(c, http.StatusForbidden, "file_access_forbidden", "You don't have permission to access files for this deployment.")
 		return
 	}
 
 	// Not running → nothing to reach; 404 instead of forwarding the backend's 5xx.
 	if dep.Status != deploymentstore.StatusActive {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file storage is not available for this deployment"})
+		writeFilesError(c, http.StatusNotFound, "file_storage_unavailable", "File storage isn't available for this deployment yet.")
 		return
 	}
 
@@ -154,22 +248,22 @@ func forwardFiles(
 	// when the client declared a length; chunked/unknown-length bodies are
 	// bounded by the sidecar's own MaxBytesReader.
 	if content && method == http.MethodPut && c.Request.ContentLength > filesProxyMaxUploadBytes {
-		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
+		writeFilesError(c, http.StatusRequestEntityTooLarge, "file_too_large", "This file is too large. Choose a smaller file and try again.")
 		return
 	}
 
 	target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		// A non-web agent has no messaging Service (or one without an http port),
-		// so it has no files endpoint. That's expected, not a fault: answer 404,
-		// not the 503 that would trip the per-route 5xx alert.
-		if filesEndpointAbsent(resolveErr) {
+		// A non-web agent has no messaging Service, or one without an http port, or
+		// its sidecar has no ready pod (stopped / mid-rollout). All are expected, not
+		// faults: answer 404, not the 503 that would trip the per-route 5xx alert.
+		if messagingEndpointAbsent(resolveErr) {
 			log.Debug("files not available", "deployment", dep.ID, "reason", resolveErr)
-			c.JSON(http.StatusNotFound, gin.H{"error": "file storage is not enabled for this deployment"})
+			writeFilesError(c, http.StatusNotFound, "file_storage_unavailable", "File storage isn't available for this deployment yet.")
 			return
 		}
 		log.Warn("files proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "files endpoint unavailable"})
+		writeFilesError(c, http.StatusServiceUnavailable, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return
 	}
 
@@ -198,11 +292,11 @@ func forwardFiles(
 		// oversized body is a clean 413 rather than a mid-stream upstream error.
 		raw, readErr := io.ReadAll(io.LimitReader(c.Request.Body, messagingProxySendBodyLimit+1))
 		if readErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			writeFilesError(c, http.StatusBadRequest, "invalid_file_request", "The file request could not be read.")
 			return
 		}
 		if int64(len(raw)) > messagingProxySendBodyLimit {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			writeFilesError(c, http.StatusRequestEntityTooLarge, "file_too_large", "This file request is too large.")
 			return
 		}
 		body = bytes.NewReader(raw)
@@ -210,7 +304,7 @@ func forwardFiles(
 
 	req, err := http.NewRequestWithContext(reqCtx, method, upstreamURL, body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build files request"})
+		writeFilesError(c, http.StatusInternalServerError, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return
 	}
 	// Preserve the declared length on streamed uploads so the upstream (and the
@@ -241,10 +335,22 @@ func forwardFiles(
 			status = http.StatusGatewayTimeout
 		}
 		log.Warn("files proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
-		c.JSON(status, gin.H{"error": "files request failed"})
+		writeFilesError(c, status, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, filesProxyMaxErrorBody))
+		log.Warn("files proxy upstream error",
+			"deployment", dep.ID,
+			"upstream_status", resp.StatusCode,
+			"upstream_body", strings.TrimSpace(string(body)),
+		)
+		status, apiErr := normalizedFilesError(resp.StatusCode, body)
+		writeFilesError(c, status, apiErr.Error, apiErr.Details)
+		return
+	}
 
 	// Forward all response headers (Content-Type, Content-Disposition,
 	// Content-Length, and Location on a redirect) minus hop-by-hop.
@@ -311,7 +417,7 @@ func GetDeploymentFile(
 	return func(c *gin.Context) {
 		key, ok := parseFileKey(c.Param("fileKey"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file key"})
+			writeFilesError(c, http.StatusBadRequest, "invalid_file_request", "The file key is invalid.")
 			return
 		}
 		forwardFiles(c, log, cfg, k8sReg, deployStore, accountStore,
@@ -330,7 +436,7 @@ func DeleteDeploymentFile(
 	return func(c *gin.Context) {
 		key, ok := parseFileKey(c.Param("fileKey"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file key"})
+			writeFilesError(c, http.StatusBadRequest, "invalid_file_request", "The file key is invalid.")
 			return
 		}
 		forwardFiles(c, log, cfg, k8sReg, deployStore, accountStore,
@@ -349,7 +455,7 @@ func UploadDeploymentFileContent(
 	return func(c *gin.Context) {
 		key, ok := parseFileKey(c.Param("fileKey"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file key"})
+			writeFilesError(c, http.StatusBadRequest, "invalid_file_request", "The file key is invalid.")
 			return
 		}
 		forwardFiles(c, log, cfg, k8sReg, deployStore, accountStore,
@@ -368,7 +474,7 @@ func DownloadDeploymentFileContent(
 	return func(c *gin.Context) {
 		key, ok := parseFileKey(c.Param("fileKey"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file key"})
+			writeFilesError(c, http.StatusBadRequest, "invalid_file_request", "The file key is invalid.")
 			return
 		}
 		forwardFiles(c, log, cfg, k8sReg, deployStore, accountStore,

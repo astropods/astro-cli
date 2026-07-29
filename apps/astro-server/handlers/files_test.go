@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,8 +15,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // parseFileKey is the trust-boundary guard: whatever it accepts is url.PathEscape'd
@@ -123,31 +121,6 @@ func TestFilesProxy_NotRunningDeploymentReturns404(t *testing.T) {
 	}
 	if upstreamHit.Load() {
 		t.Error("upstream was dialed for a stopped deployment; expected 404 before proxying")
-	}
-}
-
-// filesEndpointAbsent is the 404-vs-503 gate: a non-web agent's missing messaging
-// Service (NotFound) or a Service without an http port means "no files endpoint"
-// (404, expected); anything else is a genuine fault (503). This is the exact
-// classification that keeps AstroServerHigh5xxRateByRoute quiet on /files/usage.
-func TestFilesEndpointAbsent(t *testing.T) {
-	svcNotFound := apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, "agent-messaging")
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"no http port", errMessagingNoHTTPPort, true},
-		{"messaging service not found", fmt.Errorf("get messaging service %q: %w", "agent-messaging", svcNotFound), true},
-		{"transient cluster error", errors.New("dial tcp: connection refused"), false},
-		{"nil", nil, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := filesEndpointAbsent(tc.err); got != tc.want {
-				t.Fatalf("filesEndpointAbsent(%v) = %v, want %v", tc.err, got, tc.want)
-			}
-		})
 	}
 }
 
@@ -291,8 +264,40 @@ func TestFilesProxy_InsufficientStoragePassedThrough(t *testing.T) {
 	if rec.Code != http.StatusInsufficientStorage {
 		t.Fatalf("expected 507 passed through, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "storage full") {
-		t.Errorf("expected upstream error body forwarded, got %q", rec.Body.String())
+	var apiErr ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &apiErr); err != nil {
+		t.Fatalf("expected JSON error response, got %q: %v", rec.Body.String(), err)
+	}
+	if apiErr.Error != "insufficient_storage" || !strings.Contains(apiErr.Details, "storage is full") {
+		t.Errorf("expected normalized storage-full error, got %+v", apiErr)
+	}
+}
+
+func TestNormalizedFilesError_PreservesKnownSidecarCode(t *testing.T) {
+	status, apiErr := normalizedFilesError(http.StatusBadRequest, []byte(
+		`{"error":"invalid_file_name","details":"untrusted replacement"}`,
+	))
+
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", status)
+	}
+	if apiErr.Error != "invalid_file_name" || apiErr.Details != "This file name isn't supported." {
+		t.Fatalf("expected canonical invalid-name error, got %+v", apiErr)
+	}
+}
+
+func TestNormalizedFilesError_SanitizesKubernetesStatus(t *testing.T) {
+	status, apiErr := normalizedFilesError(http.StatusForbidden, []byte(
+		`{"kind":"Status","status":"Failure","message":"pods internal-name is forbidden"}`,
+	))
+
+	// A K8s proxy failure means the backend pod is unreachable — a 4xx, not a
+	// route 5xx, and never leaks internal names.
+	if status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", status)
+	}
+	if apiErr.Error != "file_storage_unavailable" || strings.Contains(apiErr.Details, "internal-name") {
+		t.Fatalf("expected sanitized availability error, got %+v", apiErr)
 	}
 }
 

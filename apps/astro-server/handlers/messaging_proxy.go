@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 )
@@ -76,6 +77,15 @@ func ProxyDeploymentMessaging(
 			return
 		}
 
+		// Not running → nothing to reach; 404 instead of forwarding a dead-backend
+		// 5xx. A stopped deployment still serves its /status and /runtime records
+		// (read from the DB), so the chat page can load and fire messaging calls at
+		// it; without this guard each one 503s and trips the per-route 5xx alert.
+		if dep.Status != deploymentstore.StatusActive {
+			c.JSON(http.StatusNotFound, gin.H{"error": "messaging endpoint unavailable"})
+			return
+		}
+
 		proxyPath := c.Param("proxyPath")
 		upstreamPath := messagingUpstreamPath(proxyPath)
 		if upstreamPath == "" {
@@ -88,6 +98,13 @@ func ProxyDeploymentMessaging(
 
 		target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 		if resolveErr != nil {
+			// No messaging Service / no ready pod (mid-rollout) / non-web agent →
+			// expected, not a fault: 404 so it doesn't trip the per-route 5xx alert.
+			if messagingEndpointAbsent(resolveErr) {
+				log.Debug("messaging endpoint absent", "deployment", dep.ID, "reason", resolveErr)
+				c.JSON(http.StatusNotFound, gin.H{"error": "messaging endpoint unavailable"})
+				return
+			}
 			log.Warn("messaging proxy target resolution failed",
 				"deployment", dep.ID, "error", resolveErr)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "messaging endpoint unavailable"})
@@ -233,9 +250,20 @@ func resolveMessagingProxyTarget(
 	return baseURL, &http.Client{Transport: transport}, nil
 }
 
-// errMessagingNoHTTPPort means the deployment has no web adapter, so there is no
-// files endpoint. Callers should map it to a 4xx, not a 5xx.
+// errMessagingNoHTTPPort means the deployment has no web adapter, so it exposes
+// no messaging/files endpoint. Callers should map it to a 4xx, not a 5xx.
 var errMessagingNoHTTPPort = errors.New("messaging service has no http port")
+
+// messagingEndpointAbsent reports whether a resolveMessagingProxyTarget error
+// means the deployment simply has no reachable messaging sidecar rather than a
+// genuine fault: a non-web agent with no messaging Service or one without an http
+// port (errMessagingNoHTTPPort), or a Service that no longer exists because the
+// deployment is stopped or mid-rollout (NotFound). All are expected conditions
+// the proxy handlers answer with a 4xx, not the 503 that would trip
+// AstroServerHigh5xxRateByRoute for a deployment nobody is actually running.
+func messagingEndpointAbsent(err error) bool {
+	return errors.Is(err, errMessagingNoHTTPPort) || apierrors.IsNotFound(err)
+}
 
 func messagingHTTPPort(svc *corev1.Service) (int32, error) {
 	for _, p := range svc.Spec.Ports {

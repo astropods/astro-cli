@@ -10,6 +10,10 @@ import {
   BLUEPRINT_LIST_MAX_LIMIT,
   type BlueprintListParams,
 } from "./blueprint-list-params";
+import {
+  parseFilesApiError,
+  type FilesApiOperation,
+} from "./files-api-errors";
 import type {
   Interaction,
   InteractionResponseAck,
@@ -2187,7 +2191,10 @@ class ApiClient {
   private async _fetch<T>(
     url: string,
     init: RequestInit = {},
-    opts: { isFormData?: boolean } = {},
+    opts: {
+      isFormData?: boolean;
+      parseError?: (response: Response) => Promise<ApiError>;
+    } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
@@ -2207,10 +2214,12 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        error_description: `Request failed with status ${response.status}`,
-      }));
+      const body: ApiError = opts.parseError
+        ? await opts.parseError(response)
+        : await response.json().catch(() => ({
+            error: 'request_failed',
+            error_description: `Request failed with status ${response.status}`,
+          }));
       throw new ApiRequestError(body, response.status);
     }
 
@@ -2728,19 +2737,31 @@ class ApiClient {
     return subpath ? `${base}/${subpath.replace(/^\//, "")}` : base;
   }
 
+  private fileRequest<T>(
+    endpoint: string,
+    operation: FilesApiOperation,
+    init: RequestInit = {},
+  ): Promise<T> {
+    return this._fetch<T>(`${this.baseUrl}${endpoint}`, init, {
+      parseError: (response) => parseFilesApiError(response, operation),
+    });
+  }
+
   async listDeploymentFiles(
     deploymentId: string,
   ): Promise<ListDeploymentFilesResponse> {
-    return this.request<ListDeploymentFilesResponse>(
+    return this.fileRequest<ListDeploymentFilesResponse>(
       this.deploymentFilesPath(deploymentId),
+      "list",
     );
   }
 
   async getDeploymentStorageUsage(
     deploymentId: string,
   ): Promise<DeploymentStorageUsage> {
-    return this.request<DeploymentStorageUsage>(
+    return this.fileRequest<DeploymentStorageUsage>(
       this.deploymentFilesPath(deploymentId, "usage"),
+      "usage",
     );
   }
 
@@ -2748,8 +2769,9 @@ class ApiClient {
     deploymentId: string,
     input: { name: string; size: number; content_type: string },
   ): Promise<CreateDeploymentFileResponse> {
-    return this.request<CreateDeploymentFileResponse>(
+    return this.fileRequest<CreateDeploymentFileResponse>(
       this.deploymentFilesPath(deploymentId),
+      "upload",
       { method: "POST", body: JSON.stringify(input) },
     );
   }
@@ -2785,10 +2807,7 @@ class ApiClient {
       credentials: sameOrigin ? "include" : "omit",
     });
     if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: "upload_failed",
-        error_description: `Upload failed with status ${response.status}`,
-      }));
+      const body = await parseFilesApiError(response, "upload");
       throw new ApiRequestError(body, response.status);
     }
     // The server-received PUT returns the reconciled metadata; a presigned PUT
@@ -2816,10 +2835,7 @@ class ApiClient {
     )}`;
     const response = await fetch(url, { credentials: "include" });
     if (!response.ok) {
-      const body: ApiError = await response.json().catch(() => ({
-        error: "download_failed",
-        error_description: `Download failed with status ${response.status}`,
-      }));
+      const body = await parseFilesApiError(response, "download");
       throw new ApiRequestError(body, response.status);
     }
     return response.blob();
@@ -2829,8 +2845,9 @@ class ApiClient {
     deploymentId: string,
     key: string,
   ): Promise<void> {
-    await this.request(
+    await this.fileRequest(
       this.deploymentFilesPath(deploymentId, encodeURIComponent(key)),
+      "delete",
       { method: "DELETE" },
     );
   }

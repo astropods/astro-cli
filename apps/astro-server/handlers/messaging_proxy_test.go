@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -16,7 +17,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func setupMessagingProxyRouter(upstreamURL string, withAuth bool) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
@@ -71,6 +74,63 @@ func TestMessagingProxy_DeploymentNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A stopped deployment still serves its DB-backed records, so the chat page loads
+// and fires messaging calls (e.g. agent/config) at it. Those must 404 before any
+// upstream dial rather than 503 against the dead backend, which would trip
+// AstroServerHigh5xxRateByRoute for a deployment nobody is running.
+func TestMessagingProxy_NotRunningDeploymentReturns404(t *testing.T) {
+	var upstreamHit atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	router, accountMock, deployMock := setupMessagingProxyRouter(upstream.URL, true)
+	expectDeploymentLookupWithStatus(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns", "stopped")
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-workos-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest(http.MethodGet, "/deployments/dep-1/messaging/agent/config", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for stopped deployment, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if upstreamHit.Load() {
+		t.Error("upstream was dialed for a stopped deployment; expected 404 before proxying")
+	}
+}
+
+// messagingEndpointAbsent is the 404-vs-503 gate shared by the chat, messaging,
+// and files proxy handlers: a missing messaging Service (NotFound: stopped or
+// mid-rollout) or a Service without an http port (non-web agent) means "no
+// endpoint" (404, expected); anything else is a genuine fault (503). This is the
+// classification that keeps AstroServerHigh5xxRateByRoute quiet on the proxy
+// routes of deployments nobody is running.
+func TestMessagingEndpointAbsent(t *testing.T) {
+	svcNotFound := apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, "agent-messaging")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"no http port", errMessagingNoHTTPPort, true},
+		{"messaging service not found", fmt.Errorf("get messaging service %q: %w", "agent-messaging", svcNotFound), true},
+		{"transient cluster error", errors.New("dial tcp: connection refused"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := messagingEndpointAbsent(tc.err); got != tc.want {
+				t.Fatalf("messagingEndpointAbsent(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 

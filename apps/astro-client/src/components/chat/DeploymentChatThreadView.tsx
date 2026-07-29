@@ -35,6 +35,7 @@ import {
 import { loadDraft, saveDraft } from "@/lib/chat/chat-draft";
 import { DictationWaveform } from "@/components/chat/DictationWaveform";
 import { useDownloadDeploymentFile } from "@/api/queries/files";
+import { fileApiErrorMessage } from "@/lib/chat/file-upload";
 import {
   readAttachmentRef,
   ASTRO_FILE_PART,
@@ -879,30 +880,32 @@ const FileDownloadChip: FC<{
 }> = ({ file, deploymentId, className }) => {
   const download = useDownloadDeploymentFile(deploymentId);
   return (
-    <div
-      className={cn(
-        "flex w-fit items-center gap-2 rounded-lg border border-border bg-surface/70 px-2.5 py-1.5",
-        className,
-      )}
-    >
-      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <p className="max-w-48 truncate text-label text-foreground">{file.name}</p>
-        {file.size > 0 ? (
-          <p className="text-label text-faint-foreground">
-            {formatBytes(file.size)}
-          </p>
-        ) : null}
+    <div className={cn("w-fit", className)}>
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/70 px-2.5 py-1.5">
+        <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="max-w-48 truncate text-label text-foreground">{file.name}</p>
+          {file.size > 0 ? (
+            <p className="text-label text-faint-foreground">
+              {formatBytes(file.size)}
+            </p>
+          ) : null}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Download ${file.name}`}
+          disabled={download.isPending}
+          onClick={() => download.mutate({ key: file.key, name: file.name })}
+        >
+          <Download className="size-4" />
+        </Button>
       </div>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Download ${file.name}`}
-        disabled={download.isPending}
-        onClick={() => download.mutate({ key: file.key, name: file.name })}
-      >
-        <Download className="size-4" />
-      </Button>
+      {download.isError && (
+        <p className="mt-1 max-w-64 text-label text-destructive" role="alert">
+          {fileApiErrorMessage(download.error, "download", "Download failed.")}
+        </p>
+      )}
     </div>
   );
 };

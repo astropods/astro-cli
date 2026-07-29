@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ApiRequestError } from "@/lib/api";
-import { fileUploadErrorMessage, isMissingFilesApi } from "./file-upload";
+import {
+  fileApiErrorMessage,
+  fileUploadErrorMessage,
+  isMissingFilesApi,
+} from "./file-upload";
 
 describe("fileUploadErrorMessage", () => {
   it("maps 507 Insufficient Storage to an actionable storage-full message", () => {
@@ -28,8 +32,18 @@ describe("fileUploadErrorMessage", () => {
     expect(fileUploadErrorMessage(null, "Upload failed.")).toBe("Upload failed.");
   });
 
-  it("does not special-case non-507 API errors", () => {
+  it("preserves a specific Files API message", () => {
     const err = new ApiRequestError({ error_description: "nope" }, 400);
     expect(fileUploadErrorMessage(err, "Upload failed.")).toBe("nope");
+  });
+
+  it("uses operation-specific fallbacks for a generic 404", () => {
+    const err = new ApiRequestError({}, 404);
+    expect(fileApiErrorMessage(err, "upload", "Upload failed.")).toMatch(
+      /storage isn't available/,
+    );
+    expect(fileApiErrorMessage(err, "download", "Download failed.")).toBe(
+      "This file is no longer available.",
+    );
   });
 });

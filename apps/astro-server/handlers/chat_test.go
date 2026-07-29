@@ -143,6 +143,36 @@ func TestChatProxy_DeploymentNotFound(t *testing.T) {
 	}
 }
 
+// A stopped deployment still serves its DB-backed records, so the chat page loads
+// and lists conversations against it. That must 404 before any upstream dial
+// rather than 503 against the dead backend, which would trip
+// AstroServerHigh5xxRateByRoute for a deployment nobody is running.
+func TestChatProxy_NotRunningDeploymentReturns404(t *testing.T) {
+	var upstreamHit atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	router, accountMock, deployMock := setupChatRouter(upstream.URL, true)
+	expectDeploymentLookupWithStatus(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns", "stopped")
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-workos-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest(http.MethodGet, "/deployments/dep-1/chat/conversations", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for stopped deployment, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if upstreamHit.Load() {
+		t.Error("upstream was dialed for a stopped deployment; expected 404 before proxying")
+	}
+}
+
 func TestChatProxy_UpstreamError_502(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	upstream.Close() // closed server -> connection refused -> 502
