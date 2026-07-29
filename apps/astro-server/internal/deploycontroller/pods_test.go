@@ -30,6 +30,8 @@ func TestClassifyPodFailure(t *testing.T) {
 		{"ImagePullBackOff past grace → failed", waitingPod(2*time.Minute, "ImagePullBackOff", 0), "ImagePullBackOff"},
 		{"ImagePullBackOff within grace → transient", waitingPod(10*time.Second, "ImagePullBackOff", 0), ""},
 		{"InvalidImageName past grace → failed", waitingPod(2*time.Minute, "InvalidImageName", 0), "InvalidImageName"},
+		{"CreateContainerConfigError past grace → failed", waitingPod(2*time.Minute, "CreateContainerConfigError", 0), "CreateContainerConfigError"},
+		{"CreateContainerConfigError within grace → transient", waitingPod(10*time.Second, "CreateContainerConfigError", 0), ""},
 		{"CrashLoopBackOff few restarts → transient", waitingPod(10*time.Minute, "CrashLoopBackOff", 2), ""},
 		{"CrashLoopBackOff many restarts → failed", waitingPod(10*time.Minute, "CrashLoopBackOff", 6), "CrashLoopBackOff"},
 		{"PodInitializing → transient", waitingPod(10*time.Minute, "PodInitializing", 0), ""},

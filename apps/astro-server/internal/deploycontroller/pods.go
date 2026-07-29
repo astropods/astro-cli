@@ -24,11 +24,18 @@ const crashLoopRestartLimit = 3
 
 // permanentWaitReasons are container waiting reasons that do not self-resolve
 // without operator action (a fixed image reference, a fresh build).
+//
+// CreateContainerConfigError is the kubelet reason when a container references a
+// ConfigMap/Secret (via envFrom or env) that does not exist — e.g. an env source
+// that failed to apply. It never self-resolves; without it here the pod sits on
+// "configmap ... not found" and the deployment hangs in "deploying" until the
+// stale watchdog fires ~30m later, blocking redeploys the whole time.
 var permanentWaitReasons = map[string]bool{
-	"ImagePullBackOff":     true,
-	"ErrImagePull":         true,
-	"InvalidImageName":     true,
-	"CreateContainerError": true,
+	"ImagePullBackOff":           true,
+	"ErrImagePull":               true,
+	"InvalidImageName":           true,
+	"CreateContainerError":       true,
+	"CreateContainerConfigError": true,
 }
 
 // enrichFromPods overrides a still-settling workload status to failed when one

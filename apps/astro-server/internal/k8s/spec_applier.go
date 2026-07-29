@@ -133,11 +133,13 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Phase 1: Create Secret (credentials)
+	envSourceFailed := false
 	if hasNonEmpty(agentSecData) {
 		secret := BuildSecret(a.namespace, accountName, agentName, buildID, agentSecData)
 		status, err := a.applySecret(ctx, secret)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
+			envSourceFailed = true
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: secret.Name, Kind: "Secret", Error: err.Error(),
 			})
@@ -150,10 +152,21 @@ func (a *Applier) ApplyDeploymentSpec(
 		status, err := a.applyConfigMap(ctx, configMap)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
+			envSourceFailed = true
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: configMap.Name, Kind: "ConfigMap", Error: err.Error(),
 			})
 		}
+	}
+
+	// Abort before creating any workload if the agent's shared env sources
+	// failed to apply. Every workload references these by name via envFrom;
+	// proceeding would leave pods wedged at startup on "secret/configmap not
+	// found", which never resolves to a terminal state — the deployment sticks
+	// in "deploying" and blocks redeploys until the stale reaper fires. Failing
+	// the apply here lets the deployer mark the deployment failed immediately.
+	if envSourceFailed {
+		return result, fmt.Errorf("aborting apply: agent env sources (Secret/ConfigMap) failed to apply for %s/%s", a.namespace, agentName)
 	}
 
 	// Compute a content hash of ConfigMap + Secret data. When injected as a pod
