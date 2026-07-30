@@ -767,9 +767,9 @@ function UsersTopSpenders({
         <>
           <TableHead className="pl-3">Name</TableHead>
           <TableHead>Agents Used</TableHead>
+          <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("cost_usd")} onSort={() => handleSort("cost_usd")} className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
-          <TableHead sortable sortDirection={dir("requests")} onSort={() => handleSort("requests")} className="text-right">Requests</TableHead>
           <TableHead sortable sortDirection={dir("tokens")} onSort={() => handleSort("tokens")} className="text-right">Tokens</TableHead>
           <TableHead sortable sortDirection={dir("last_seen")} onSort={() => handleSort("last_seen")} className="text-right">Last Used</TableHead>
         </>
@@ -792,9 +792,9 @@ function UsersTopSpenders({
             <TableCell>
               <AgentChips agents={row.agents_used} />
             </TableCell>
+            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
             <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_usd)}</TableCell>
             <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
-            <TableCell className="text-right text-foreground">{formatCompact(row.metrics.requests)}</TableCell>
             <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tokens)}</TableCell>
             <TableCell className="text-right text-foreground">{formatLastSeen(row.metrics.last_seen)}</TableCell>
           </TableRow>

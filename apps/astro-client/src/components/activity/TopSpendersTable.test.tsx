@@ -477,6 +477,21 @@ describe("TopSpendersTable users mode", () => {
     expect(firstCellText(bodyRows()[1])).toMatch(/^2Bob Smith/);
   });
 
+  it("orders people columns to match the agents/models tables (Requests before Spend)", () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="users"
+        loading={false}
+        rows={[personRow({ key: "member:alice", label: "Alice Chen", metrics: { requests: 1, cost_usd: 10, cost_pct: 10, tokens: 100 } })]}
+      />,
+    );
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent ?? "");
+    const reqIdx = headers.findIndex((t) => t.includes("Requests"));
+    const spendIdx = headers.findIndex((t) => t.includes("Spend"));
+    expect(reqIdx).toBeGreaterThan(-1);
+    expect(spendIdx).toBeGreaterThan(reqIdx);
+  });
+
   it("renders unidentified users as mono text without a link", () => {
     renderWithProviders(
       <TopSpendersTable
