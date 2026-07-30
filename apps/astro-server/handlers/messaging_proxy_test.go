@@ -351,6 +351,31 @@ func TestMessagingUpstreamPath(t *testing.T) {
 	}
 }
 
+func TestIsValidMessagingProxyPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"plain path", "/conversations/conv-1/stream", true},
+		{"api-prefixed", "api/agent/config", true},
+		{"uuid conversation id", "/conversations/123e4567-e89b-12d3-a456-426614174000/audio", true},
+		{"health", "health", true},
+		{"raw traversal", "../../secrets", false},
+		{"single-encoded traversal", "%2e%2e%2f%2e%2e%2fsecrets", false},
+		{"double-encoded traversal (edge-WAF bypass)", "%252e%252e%252f%252e%252e%252fapi%252fv1", false},
+		{"backslash traversal", "..\\..\\secrets", false},
+		{"embedded traversal segment", "api/foo/../../../namespaces", false},
+		{"dot rejected (no '.' in surface)", "api/config.json", false},
+		{"empty rejected", "", false},
+	}
+	for _, tc := range tests {
+		if got := isValidMessagingProxyPath(tc.in); got != tc.want {
+			t.Errorf("isValidMessagingProxyPath(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestMessagingHTTPPort(t *testing.T) {
 	port, err := messagingHTTPPort(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-messaging"},

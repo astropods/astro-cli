@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -87,6 +88,10 @@ func ProxyDeploymentMessaging(
 		}
 
 		proxyPath := c.Param("proxyPath")
+		if !isValidMessagingProxyPath(proxyPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid messaging path"})
+			return
+		}
 		upstreamPath := messagingUpstreamPath(proxyPath)
 		if upstreamPath == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "messaging path is required"})
@@ -182,6 +187,29 @@ func ProxyDeploymentMessaging(
 			log.Debug("messaging proxy response copy failed", "deployment", dep.ID, "error", copyErr)
 		}
 	}
+}
+
+// messagingProxyPathPattern is the allowlist of characters permitted in the
+// wildcard messaging proxy path. The messaging web adapter's route surface is
+// fixed: POST /api/conversations, /api/conversations/{id}/{messages,stream,
+// history,audio}, GET /api/agent/config and /health, where {id} is a UUID. So
+// only alphanumerics, '/', '-' and '_' are ever legitimate.
+//
+// The non-dev proxy target is the Kubernetes API-server service-proxy
+// subresource, reached with a client that carries astro-server's own cluster
+// credentials, so a traversal that survives into the upstream path could climb
+// out of the intended /namespaces/<ns>/services/<svc>/proxy/api/ prefix and hit
+// arbitrary kube-API endpoints (other tenants' namespaces, secrets) as
+// astro-server's service account. Excluding '.' makes a ".." segment
+// impossible; excluding '%' means there is no percent-encoding to smuggle a
+// double-encoded "%252e%252e%252f" past the edge WAF, so no normalization is
+// needed. Query params (which legitimately use '%', '=', '&') travel in
+// RawQuery, not this path, and are unaffected. Fails closed: a future endpoint
+// using other characters in its path must extend this pattern.
+var messagingProxyPathPattern = regexp.MustCompile(`^[A-Za-z0-9/_-]+$`)
+
+func isValidMessagingProxyPath(proxyPath string) bool {
+	return messagingProxyPathPattern.MatchString(proxyPath)
 }
 
 func messagingUpstreamPath(proxyPath string) string {
