@@ -1,10 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { renderWithProviders } from "@/test/test-utils";
 import type { WorkloadDetail, DeploymentEventsResponse } from "@/lib/api";
 import { PodDetailPanel } from "./PodDetailPanel";
+
+vi.mock("@/lib/log-stream", () => ({
+  LogStreamProvider: ({ children }: { children: React.ReactNode }) => children,
+  useLogStream: () => ({
+    lines: [],
+    status: "idle" as const,
+    error: undefined,
+    startStream: vi.fn(),
+    stopStream: vi.fn(),
+  }),
+}));
 
 // These cover the Events tab's rendering of server-humanized events. The
 // server annotates "stuck — needs action" events (e.g. FailedScheduling) with
@@ -110,5 +121,82 @@ describe("PodDetailPanel — Events tab", () => {
     expect(screen.getByText(/Readiness probe failed/)).toBeInTheDocument();
     expect(screen.queryByText("Action required. Deployment stuck")).not.toBeInTheDocument();
     expect(screen.queryByText(/Advanced sizing/)).not.toBeInTheDocument();
+  });
+});
+
+describe("PodDetailPanel — tab precedence", () => {
+  it("stays on General when an error log is detected", async () => {
+    let releaseErrorLog!: () => void;
+    const errorLogGate = new Promise<void>((resolve) => {
+      releaseErrorLog = resolve;
+    });
+    server.use(
+      http.get("/api/v1/deployments/:id/logs", async () => {
+        await errorLogGate;
+        return HttpResponse.json([
+          {
+            timestamp: "2026-06-29T00:00:00Z",
+            level: "error",
+            message: "Connection refused",
+          },
+        ]);
+      }),
+    );
+    const workloadWithContainer: WorkloadDetail = {
+      ...workload,
+      containers: [
+        {
+          name: "app",
+          state: "Running",
+          ready: true,
+          restart_count: 0,
+        },
+      ],
+    };
+
+    renderWithProviders(
+      <PodDetailPanel
+        workload={workloadWithContainer}
+        deploymentId="dep-1"
+        onClose={() => {}}
+      />,
+    );
+
+    releaseErrorLog();
+    expect(await screen.findByText("Errors in logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass(
+      "text-foreground",
+    );
+  });
+
+  it("uses General when a manual pod change mounts a new workload", () => {
+    const nextWorkload: WorkloadDetail = {
+      ...workload,
+      name: "shipmate-worker",
+      component: "worker",
+    };
+    const { rerender } = renderWithProviders(
+      <PodDetailPanel
+        workload={workload}
+        deploymentId="dep-1"
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Logs" }));
+    expect(screen.getByRole("button", { name: "Logs" })).toHaveClass(
+      "text-foreground",
+    );
+
+    rerender(
+      <PodDetailPanel
+        workload={nextWorkload}
+        deploymentId="dep-1"
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass(
+      "text-foreground",
+    );
   });
 });

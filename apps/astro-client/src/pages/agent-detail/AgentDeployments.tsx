@@ -1,18 +1,18 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useAgentDetailContext } from "../AgentDetail";
 import { PodGraph } from "@/components/agent-detail/pods/PodGraph";
-import { PodTile } from "@/components/agent-detail/pods/PodTile";
+import { PodTile, resolvePodStatus } from "@/components/agent-detail/pods/PodTile";
 import { DeploymentHistoryPanel } from "@/components/agent-detail/deployments/DeploymentHistoryPanel";
 import { PodDetailPanel } from "@/components/agent-detail/pods/PodDetailPanel";
 import { useContainerSize } from "@/hooks/use-container-size";
 import { useDeploymentHistory, useDeploymentStatus, useStopDeployment } from "@/api/queries/deployments";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { isPausedState } from "@/lib/deployment-utils";
-import type { WorkloadDetail } from "@/lib/api";
+import type { WorkloadDetail, WorkloadIssue } from "@/lib/api";
 
 const PANEL_SPRING = { type: "spring" as const, bounce: 0.12, duration: 0.5 };
 const PANEL_WIDTH_REM = 43; // 42rem pod detail panel + 1rem gap
@@ -31,11 +31,41 @@ function remToPx(rem: number) {
   return rem * parseFloat(getComputedStyle(document.documentElement).fontSize);
 }
 
+function findErroredWorkloadIndex(
+  workloads: WorkloadDetail[],
+  failedOn: WorkloadIssue[] | undefined,
+  statusOverrides: { paused: boolean; probing: boolean },
+): number {
+  const unhealthy = workloads.map(
+    (workload) =>
+      resolvePodStatus(workload, statusOverrides).status === "unhealthy",
+  );
+
+  for (const issue of failedOn ?? []) {
+    const workloadMatch = workloads.findIndex(
+      (workload, index) =>
+        unhealthy[index] && workload.name === issue.workload,
+    );
+    if (workloadMatch !== -1) return workloadMatch;
+
+    if (issue.component) {
+      const componentMatch = workloads.findIndex(
+        (workload, index) =>
+          unhealthy[index] && workload.component === issue.component,
+      );
+      if (componentMatch !== -1) return componentMatch;
+    }
+  }
+
+  return unhealthy.findIndex(Boolean);
+}
+
 export default function AgentDeployments() {
   const {
     deployment, runtime, account,
   } = useAgentDetailContext();
   const paused = isPausedState(deployment);
+  const probing = runtime === undefined;
 
   // Failure banner: shown only once the deploy has failed, named from the
   // server-humanized failed_on reason (never from raw K8s events).
@@ -95,6 +125,49 @@ export default function AgentDeployments() {
   }, [deployment.workloads, runtime]);
   const [selectedPodIndex, setSelectedPodIndex] = useState<number | null>(null);
   const [podPanelExpanded, setPodPanelExpanded] = useState(false);
+  const autoOpenedFailure = useRef<string | null>(null);
+
+  useEffect(() => {
+    // A successful transition clears the guard so a later failed startup can
+    // open diagnostics again. An undefined status is only a loading state and
+    // must not reset the guard or reopen a panel the user already dismissed.
+    if (!statusData) return;
+    if (!hasFailed) {
+      autoOpenedFailure.current = null;
+      return;
+    }
+
+    const failedIndex = findErroredWorkloadIndex(
+      workloads,
+      statusData.failed_on,
+      {
+        paused,
+        probing,
+      },
+    );
+    if (failedIndex === -1) return;
+
+    const failureKey = `${deployment.id}:${deployment.build_id}:${workloads[failedIndex].name}`;
+    if (autoOpenedFailure.current === failureKey) return;
+
+    if (selectedPodIndex !== null) {
+      autoOpenedFailure.current = failureKey;
+      return;
+    }
+
+    autoOpenedFailure.current = failureKey;
+    setSelectedPodIndex(failedIndex);
+    setPodPanelExpanded(false);
+  }, [
+    deployment.build_id,
+    deployment.id,
+    hasFailed,
+    paused,
+    probing,
+    selectedPodIndex,
+    statusData,
+    workloads,
+  ]);
 
   const selectedWorkload =
     selectedPodIndex !== null && selectedPodIndex < workloads.length
@@ -231,7 +304,7 @@ export default function AgentDeployments() {
                   // in the grey blinking "Probing" state so the user can tell
                   // the difference between "we don't know yet" and "K8s says
                   // pending/starting".
-                  probing={runtime === undefined}
+                  probing={probing}
                   // When the whole deployment is paused, every tile renders as
                   // "Paused" regardless of its individual K8s status — see
                   // PodTile's status precedence rules.
@@ -261,7 +334,7 @@ export default function AgentDeployments() {
               deploymentId={deployment.id}
               externalUrls={deployment.external_urls}
               paused={paused}
-              probing={runtime === undefined}
+              probing={probing}
               onClose={handleClosePodPanel}
               expanded={podPanelExpanded}
               onToggleExpanded={shouldOverlay ? undefined : togglePodPanelExpanded}

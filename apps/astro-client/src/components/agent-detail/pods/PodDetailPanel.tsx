@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { X, ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
@@ -31,8 +31,6 @@ interface PodDetailPanelProps {
 }
 
 export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("General");
-
   return (
     <PodDetailPanelInner
       key={workload.name}
@@ -44,13 +42,12 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, p
       onClose={onClose}
       expanded={expanded}
       onToggleExpanded={onToggleExpanded}
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
     />
   );
 }
 
-function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded, activeTab, setActiveTab }: PodDetailPanelProps & { activeTab: Tab; setActiveTab: (tab: Tab) => void }) {
+function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
+  const [activeTab, setActiveTab] = useState<Tab>("General");
   const logsVisited = useRef(false);
   if (activeTab === "Logs") logsVisited.current = true;
 
@@ -58,22 +55,12 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
   const name = workload.component || workload.name;
 
   // Detect error-level logs for this pod (reuses the same cached queries the
-  // tile indicator uses). When present, open straight to the Logs tab and show
-  // the error as a banner, so the user lands on something useful instead of an
-  // empty General tab.
+  // tile indicator uses) and surface them without navigating away from the
+  // container diagnostics on General.
   const { byContainer, report } = useContainerErrors();
   const isLongRunning = workload.kind === "Deployment" || workload.kind === "StatefulSet";
   const probeContainers = isLongRunning && !paused && !probing ? workload.containers ?? [] : [];
   const logErrorMessage = firstContainerError(byContainer, probeContainers.map((c) => c.name));
-
-  useEffect(() => {
-    // Auto-open the Logs tab once when the pod has errors and the user has not
-    // navigated tabs yet. The query is already warm from the tile, so this
-    // resolves immediately rather than flashing the General tab.
-    if (logErrorMessage && !logsVisited.current && activeTab === "General") {
-      setActiveTab("Logs");
-    }
-  }, [logErrorMessage, activeTab, setActiveTab]);
 
   return (
     <div className="flex h-full w-full flex-col rounded-md border border-border bg-card">

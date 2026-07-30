@@ -207,12 +207,16 @@ function makeHistoryRecord(overrides?: Partial<import("@/lib/api").DeploymentHis
  * Renders the AgentDeployments page inside a minimal layout that provides
  * the outlet context AgentDetail normally supplies.
  */
-function renderDeployments(deployment?: AgentDeployment, runtime?: DeploymentRuntime) {
+function renderDeployments(
+  deployment?: AgentDeployment,
+  runtime?: DeploymentRuntime,
+  options?: { probing?: boolean },
+) {
   const dep = deployment ?? makeDeployment();
   // Default runtime: assume the deployment is fully observed (ready === replicas)
   // unless the test overrides. Keeps "Active" the default for tests that don't
   // care about the runtime split.
-  const rt = runtime ?? defaultRuntimeFor(dep);
+  const rt = options?.probing ? undefined : runtime ?? defaultRuntimeFor(dep);
   const user = userEvent.setup();
 
   const result = renderRoute(
@@ -440,6 +444,336 @@ describe("user inspects pod details", () => {
     await user.click(await screen.findByText("agent"));
     await screen.findByText("Domains");
     expect(screen.queryByText("Danger Zone")).not.toBeInTheDocument();
+  });
+});
+
+describe("startup failure diagnostics", () => {
+  it("opens the first errored workload on General when no error logs are available", async () => {
+    const logsRequested = vi.fn();
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Workloads failed to start",
+        }),
+      ),
+      http.get("/api/v1/deployments/:id/logs", () => {
+        logsRequested();
+        return HttpResponse.json<LogEntry[]>([]);
+      }),
+    );
+
+    renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload(),
+          makeWorkload({
+            name: "redis-abc",
+            component: "redis",
+            pod_name: "redis-abc-pod",
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+          makeWorkload({
+            name: "worker-abc",
+            component: "worker",
+            pod_name: "worker-abc-pod",
+            containers: [
+              makeContainer({ state: "terminated", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "redis" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(logsRequested).toHaveBeenCalled());
+    expect(screen.getByText("Domains")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass(
+      "text-foreground",
+    );
+    expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
+  });
+
+  it("keeps the failed workload on General when an error log is available", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Agent failed to start",
+          failed_on: [
+            {
+              workload: "my-agent-7f8d9c-xk2lp",
+              component: "agent",
+              phase: "failed",
+            },
+          ],
+        }),
+      ),
+      http.get("/api/v1/deployments/:id/logs", () =>
+        HttpResponse.json<LogEntry[]>([
+          {
+            timestamp: "2025-04-01T00:00:00Z",
+            level: "error",
+            message: "Connection refused",
+          },
+        ]),
+      ),
+    );
+
+    renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload({
+            kind: "Deployment",
+            containers: [
+              makeContainer({ state: "terminated", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(await screen.findByText("Errors in logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass(
+      "text-foreground",
+    );
+    expect(screen.getByText("Domains")).toBeInTheDocument();
+  });
+
+  it("prefers the failed_on workload when multiple workloads are errored", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Worker failed to start",
+          failed_on: [
+            {
+              workload: "worker-abc",
+              component: "worker",
+              phase: "failed",
+              title: "Worker failed to start",
+              guidance: "Inspect the worker logs.",
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload({
+            name: "redis-abc",
+            component: "redis",
+            pod_name: "redis-abc-pod",
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+          makeWorkload({
+            name: "worker-abc",
+            component: "worker",
+            pod_name: "worker-abc-pod",
+            containers: [
+              makeContainer({ state: "terminated", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "worker" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Domains")).toBeInTheDocument();
+    expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
+  });
+
+  it("does not open a pod panel when no workloads are errored", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+        }),
+      ),
+    );
+
+    renderDeployments();
+
+    expect(
+      await screen.findByText("Deployment failed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /close pod details/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
+  });
+
+  it("does not open a pod panel while runtime is probing", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+        }),
+      ),
+    );
+
+    renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload({
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+        ],
+      }),
+      undefined,
+      { probing: true },
+    );
+
+    expect(await screen.findByText("Deployment failed")).toBeInTheDocument();
+    expect(screen.getByText("Probing")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /close pod details/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not open a pod panel for a paused deployment", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+        }),
+      ),
+    );
+
+    renderDeployments(
+      makeDeployment({
+        status: "stopped",
+        workloads: [
+          makeWorkload({
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(await screen.findByText("Deployment failed")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /close pod details/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preserves a manual pod selection when a failure surfaces", async () => {
+    let releaseStatus!: () => void;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    server.use(
+      http.get("/api/v1/deployments/:id/status", async () => {
+        await statusGate;
+        return HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+        });
+      }),
+    );
+
+    const { user } = renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload(),
+          makeWorkload({
+            name: "redis-abc",
+            component: "redis",
+            pod_name: "redis-abc-pod",
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await user.click(await screen.findByText("agent"));
+    expect(await screen.findByText("Domains")).toBeInTheDocument();
+
+    releaseStatus();
+    expect(await screen.findByText("Deployment failed")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "agent" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Domains")).toBeInTheDocument();
+    expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /close pod details/i }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /close pod details/i }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
+  });
+
+  it("does not reopen failed pod details after the user closes the panel", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+          failed_on: [
+            {
+              workload: "my-agent-7f8d9c-xk2lp",
+              phase: "failed",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const { user } = renderDeployments(
+      makeDeployment({
+        workloads: [
+          makeWorkload({
+            containers: [
+              makeContainer({ state: "waiting", ready: false }),
+            ],
+          }),
+        ],
+      }),
+    );
+    await screen.findByText("Domains");
+    await user.click(
+      screen.getByRole("button", { name: /close pod details/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { level: 2, name: "agent" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Domains")).not.toBeInTheDocument();
   });
 });
 
