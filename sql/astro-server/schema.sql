@@ -195,6 +195,20 @@ CREATE TABLE public.deployment_alert_state (
     CONSTRAINT deployment_alert_state_pkey PRIMARY KEY (deployment_id, workload, condition)
 );
 
+-- Daily-cap ledger for observation alerts. One row per (deployment_id,
+-- condition) recording when that condition last notified. Unlike
+-- deployment_alert_state (deleted on resolve), this row survives resolves so a
+-- flapping deployment that resolves and re-breaches many times a day is capped
+-- to one alert per (deployment, condition) per rolling 24h. The evaluator only
+-- sends when the last_notified_at is older than the window. See
+-- internal/observation.
+CREATE TABLE public.deployment_alert_notifications (
+    deployment_id    text        NOT NULL,
+    condition        text        NOT NULL,
+    last_notified_at timestamptz NOT NULL,
+    CONSTRAINT deployment_alert_notifications_pkey PRIMARY KEY (deployment_id, condition)
+);
+
 -- At most one WorkOS-synced email per user. Other sources (future direct-add)
 -- are intentionally not covered, so a user may still hold several such emails.
 CREATE UNIQUE INDEX account_member_emails_user_workos_key ON public.account_member_emails(user_id) WHERE source = 'workos';

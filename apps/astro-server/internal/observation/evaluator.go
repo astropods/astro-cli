@@ -48,8 +48,14 @@ type stateStore interface {
 	ForCondition(ctx context.Context, condition string) ([]Tracked, error)
 	StartTracking(ctx context.Context, deploymentID, workload, condition string, since time.Time, notified bool) error
 	MarkNotified(ctx context.Context, deploymentID, workload, condition string) error
+	ClaimDailyNotify(ctx context.Context, deploymentID, condition string, at, cutoff time.Time) (bool, error)
 	Clear(ctx context.Context, deploymentID, workload, condition string) error
 }
+
+// dailyNotifyWindow caps observation alerts to one send per (deployment,
+// condition) per rolling window, so a flapping deployment can't spam. The
+// per-episode dedup still applies within the window; this bounds the tail.
+const dailyNotifyWindow = 24 * time.Hour
 
 // Evaluator runs the condition set against per-engine queriers and emits alerts
 // on firing edges, tracking state in the Store so it never double-alerts.
@@ -173,8 +179,21 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 				return err
 			}
 			if !notifiedDep[b.dep.ID] {
-				e.fire(ctx, c, b.dep, b.workload, activeSince)
 				notifiedDep[b.dep.ID] = true
+				// Daily cap: only send if this (deployment, condition) hasn't
+				// alerted within the window. Marking firing state above still
+				// happens so we don't re-evaluate the episode; the ledger just
+				// suppresses the send.
+				sent, err := e.state.ClaimDailyNotify(ctx, b.dep.ID, c.Name, now, now.Add(-dailyNotifyWindow))
+				if err != nil {
+					return err
+				}
+				if sent {
+					e.fire(ctx, c, b.dep, b.workload, activeSince)
+				} else if e.log != nil {
+					e.log.Info("observation: daily cap reached, suppressing alert",
+						"condition", c.Name, "deployment", b.dep.ID)
+				}
 			}
 		}
 	}

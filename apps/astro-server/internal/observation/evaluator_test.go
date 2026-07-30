@@ -32,9 +32,15 @@ func (fakeDeploys) GetRuntimeSnapshot(string) (*deploymentstore.RuntimeSnapshot,
 }
 
 // memState is an in-memory stateStore keyed by "deploymentID|workload|condition".
-type memState struct{ m map[string]Tracked }
+// notif holds the daily-cap ledger keyed by "deploymentID|condition".
+type memState struct {
+	m     map[string]Tracked
+	notif map[string]time.Time
+}
 
-func newMemState() *memState { return &memState{m: map[string]Tracked{}} }
+func newMemState() *memState {
+	return &memState{m: map[string]Tracked{}, notif: map[string]time.Time{}}
+}
 
 func mkey(dep, wl, cond string) string { return dep + "|" + wl + "|" + cond }
 
@@ -64,6 +70,15 @@ func (s *memState) MarkNotified(_ context.Context, dep, wl, cond string) error {
 	return nil
 }
 
+func (s *memState) ClaimDailyNotify(_ context.Context, dep, cond string, at, cutoff time.Time) (bool, error) {
+	k := dep + "|" + cond
+	if last, ok := s.notif[k]; ok && !last.Before(cutoff) {
+		return false, nil // last send is at/after the cutoff → throttled
+	}
+	s.notif[k] = at
+	return true, nil
+}
+
 func (s *memState) Clear(_ context.Context, dep, wl, cond string) error {
 	delete(s.m, mkey(dep, wl, cond))
 	return nil
@@ -81,8 +96,9 @@ func breachingPods(ns string, pods ...string) []Series {
 	return out
 }
 
-// For==0: fires on first detection, never re-fires while firing, and a re-breach
-// after a resolve fires again with a fresh (per-episode) dedupe key.
+// For==0: fires on first detection, never re-fires while firing, a same-day
+// re-breach is suppressed by the daily cap, and a re-breach past the window
+// fires again with a fresh (per-episode) dedupe key.
 func TestEvaluateFiresOnceAndDedups(t *testing.T) {
 	var emitted []notify.Event
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
@@ -106,9 +122,15 @@ func TestEvaluateFiresOnceAndDedups(t *testing.T) {
 	}
 
 	_ = e.evaluate(context.Background(), cond, clearQ, t0.Add(2*time.Minute)) // resolves → state cleared
-	_ = e.evaluate(context.Background(), cond, fireQ, t0.Add(3*time.Minute))  // re-breach → fires again
+	_ = e.evaluate(context.Background(), cond, fireQ, t0.Add(3*time.Minute))  // same-day re-breach → daily cap suppresses
+	if len(emitted) != 1 {
+		t.Fatalf("same-day re-breach must be suppressed by the daily cap, got %d emits", len(emitted))
+	}
+
+	_ = e.evaluate(context.Background(), cond, clearQ, t0.Add(4*time.Minute)) // resolves again
+	_ = e.evaluate(context.Background(), cond, fireQ, t0.Add(25*time.Hour))   // re-breach past the window → fires again
 	if len(emitted) != 2 {
-		t.Fatalf("want 2 emits after re-breach, got %d", len(emitted))
+		t.Fatalf("want 2 emits after re-breach past the daily window, got %d", len(emitted))
 	}
 	if emitted[0].DedupeKey == emitted[1].DedupeKey {
 		t.Fatalf("re-fire must use a fresh dedupe key, both = %q", emitted[0].DedupeKey)
