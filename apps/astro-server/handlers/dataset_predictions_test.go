@@ -375,6 +375,7 @@ func TestPostDatasetPredictionsStoreReadFailures(t *testing.T) {
 		store *judgmentstoretest.FakePredictionStore
 	}{
 		{name: "judgment read", store: &judgmentstoretest.FakePredictionStore{JudgedErr: errors.New("read failed")}},
+		{name: "request read", store: &judgmentstoretest.FakePredictionStore{RequestsErr: errors.New("read failed")}},
 		{name: "prediction read", store: &judgmentstoretest.FakePredictionStore{PredictionsErr: errors.New("read failed")}},
 	}
 	for _, tt := range tests {

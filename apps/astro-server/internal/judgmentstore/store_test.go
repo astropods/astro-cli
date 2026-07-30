@@ -134,6 +134,108 @@ func TestGetPredictionsEmptyTraceIDsDoesNotQuery(t *testing.T) {
 	}
 }
 
+func TestPredictionTracesByVerdict(t *testing.T) {
+	for _, verdict := range []Verdict{VerdictGood, VerdictBad, VerdictUnknown} {
+		t.Run(string(verdict), func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+
+			asOf := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+			firstTimestamp := asOf.Add(-time.Hour)
+			secondTimestamp := asOf.Add(-2 * time.Hour)
+			mock.ExpectQuery("(?s)SELECT trace_id, trace_timestamp.*AND created_at <= \\$3").
+				WithArgs("dataset-1", string(verdict), asOf, nil, nil, 3).
+				WillReturnRows(sqlmock.NewRows([]string{"trace_id", "ordering_timestamp"}).
+					AddRow("trace-1", firstTimestamp).
+					AddRow("trace-2", secondTimestamp))
+
+			got, err := NewStore(db).PredictionTracesByVerdict(
+				context.Background(),
+				"dataset-1",
+				verdict,
+				asOf,
+				nil,
+				3,
+			)
+			if err != nil {
+				t.Fatalf("PredictionTracesByVerdict: %v", err)
+			}
+			if len(got) != 2 ||
+				got[0] != (PredictionTrace{TraceID: "trace-1", TraceTimestamp: firstTimestamp}) ||
+				got[1] != (PredictionTrace{TraceID: "trace-2", TraceTimestamp: secondTimestamp}) {
+				t.Fatalf("traces = %v", got)
+			}
+		})
+	}
+}
+
+func TestPredictionTracesByVerdictRejectsInvalidVerdict(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = NewStore(db).PredictionTracesByVerdict(
+		context.Background(),
+		"dataset-1",
+		Verdict("invalid"),
+		time.Now(),
+		nil,
+		1,
+	)
+	if err == nil {
+		t.Fatal("PredictionTracesByVerdict error = nil, want invalid verdict")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected query: %v", err)
+	}
+}
+
+func TestPredictionTracesByVerdictUsesKeysetCursor(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	asOf := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	before := &PredictionTrace{
+		TraceID:        "trace-2",
+		TraceTimestamp: asOf.Add(-time.Hour),
+	}
+	nextTimestamp := asOf.Add(-2 * time.Hour)
+	mock.ExpectQuery("ORDER BY trace_timestamp DESC, trace_id DESC").
+		WithArgs(
+			"dataset-1",
+			string(VerdictGood),
+			asOf,
+			before.TraceTimestamp,
+			before.TraceID,
+			2,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"trace_id", "ordering_timestamp"}).
+			AddRow("trace-1", nextTimestamp))
+
+	got, err := NewStore(db).PredictionTracesByVerdict(
+		context.Background(),
+		"dataset-1",
+		VerdictGood,
+		asOf,
+		before,
+		2,
+	)
+	if err != nil {
+		t.Fatalf("PredictionTracesByVerdict: %v", err)
+	}
+	if len(got) != 1 || got[0] != (PredictionTrace{TraceID: "trace-1", TraceTimestamp: nextTimestamp}) {
+		t.Fatalf("traces = %v", got)
+	}
+}
+
 func TestUpsertPredictionReplacesCriteria(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -142,8 +244,9 @@ func TestUpsertPredictionReplacesCriteria(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	mock.ExpectBegin()
+	traceTimestamp := time.Date(2026, time.July, 20, 9, 0, 0, 0, time.UTC)
 	mock.ExpectExec(`(?s)INSERT INTO eval_dataset_judgment_predictions.*ON CONFLICT.*updated_at = now\(\)`).
-		WithArgs("dataset-1", "trace-1", -0.6, 88, "Incorrect result.", "dataset-review-v1").
+		WithArgs("dataset-1", "trace-1", traceTimestamp, -0.6, 88, "Incorrect result.", "dataset-review-v1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").
 		WithArgs("dataset-1", "trace-1").
@@ -160,10 +263,11 @@ func TestUpsertPredictionReplacesCriteria(t *testing.T) {
 
 	store := NewStore(db)
 	err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
-		VerdictScore: -0.6,
-		Confidence:   88,
-		Explanation:  "Incorrect result.",
-		JudgeVersion: "dataset-review-v1",
+		TraceTimestamp: traceTimestamp,
+		VerdictScore:   -0.6,
+		Confidence:     88,
+		Explanation:    "Incorrect result.",
+		JudgeVersion:   "dataset-review-v1",
 		Criteria: []PredictionCriterion{
 			{Dimension: DimensionAccuracy, Value: -0.8},
 			{Dimension: DimensionCompleteness, Value: -0.4},
@@ -185,8 +289,9 @@ func TestUpsertPredictionClearsCriteria(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	mock.ExpectBegin()
+	traceTimestamp := time.Date(2026, time.July, 20, 9, 0, 0, 0, time.UTC)
 	mock.ExpectExec("INSERT INTO eval_dataset_judgment_predictions").
-		WithArgs("dataset-1", "trace-1", 0.1, 50, "Unclear.", "dataset-review-v2").
+		WithArgs("dataset-1", "trace-1", traceTimestamp, 0.1, 50, "Unclear.", "dataset-review-v2").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM eval_dataset_judgment_prediction_criteria").
 		WithArgs("dataset-1", "trace-1").
@@ -195,15 +300,37 @@ func TestUpsertPredictionClearsCriteria(t *testing.T) {
 
 	store := NewStore(db)
 	if err := store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
-		VerdictScore: 0.1,
-		Confidence:   50,
-		Explanation:  "Unclear.",
-		JudgeVersion: "dataset-review-v2",
+		TraceTimestamp: traceTimestamp,
+		VerdictScore:   0.1,
+		Confidence:     50,
+		Explanation:    "Unclear.",
+		JudgeVersion:   "dataset-review-v2",
 	}); err != nil {
 		t.Fatalf("UpsertPrediction: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestUpsertPredictionRequiresTraceTimestamp(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	err = NewStore(db).UpsertPrediction(
+		context.Background(),
+		"dataset-1",
+		"trace-1",
+		Prediction{JudgeVersion: "dataset-review-v1"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "trace timestamp is required") {
+		t.Fatalf("UpsertPrediction error = %v, want required timestamp", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected query: %v", err)
 	}
 }
 
@@ -249,7 +376,8 @@ func TestUpsertPredictionRollsBackOnWriteFailures(t *testing.T) {
 
 			store := NewStore(db)
 			err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
-				JudgeVersion: "dataset-review-v1",
+				TraceTimestamp: time.Date(2026, time.July, 20, 9, 0, 0, 0, time.UTC),
+				JudgeVersion:   "dataset-review-v1",
 				Criteria: []PredictionCriterion{
 					{Dimension: DimensionAccuracy, Value: -0.5},
 				},
@@ -277,7 +405,10 @@ func TestUpsertPredictionReturnsCommitError(t *testing.T) {
 	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
 
 	store := NewStore(db)
-	err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{JudgeVersion: "dataset-review-v1"})
+	err = store.UpsertPrediction(context.Background(), "dataset-1", "trace-1", Prediction{
+		TraceTimestamp: time.Date(2026, time.July, 20, 9, 0, 0, 0, time.UTC),
+		JudgeVersion:   "dataset-review-v1",
+	})
 	if err == nil || !strings.Contains(err.Error(), "commit failed") {
 		t.Fatalf("UpsertPrediction error = %v, want commit error", err)
 	}

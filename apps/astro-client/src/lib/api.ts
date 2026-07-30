@@ -1159,6 +1159,30 @@ export interface EvalDatasetItemsParams {
 }
 
 export type ReviewQueueSentiment = "positive" | "negative" | "";
+export type ReviewQueuePredictionStatus =
+  | "not_requested"
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed";
+export type ReviewQueuePredictionFilter =
+  | "good"
+  | "bad"
+  | "unknown"
+  | "none";
+
+export interface ReviewQueuePredictionCriterion {
+  dimension_key: string;
+  dimension_value: number;
+}
+
+export interface ReviewQueuePrediction {
+  verdict_score: number;
+  confidence: number;
+  explanation: string;
+  judge_version: string;
+  criteria: ReviewQueuePredictionCriterion[];
+}
 
 export interface ReviewQueueItem {
   trace_id: string;
@@ -1166,23 +1190,23 @@ export interface ReviewQueueItem {
   input: unknown;
   output: unknown;
   sentiment: ReviewQueueSentiment;
+  prediction_status: ReviewQueuePredictionStatus;
+  prediction_error: string | null;
+  prediction: ReviewQueuePrediction | null;
 }
 
 export interface ReviewQueueResponse {
   items: ReviewQueueItem[];
-  /** Offset for the next review queue snapshot page; omitted when no more pages remain. */
-  next_offset?: number;
-  /** Snapshot token to reuse with next_offset so pagination stays in one trace window. */
-  end_time: string;
+  /** Opaque continuation cursor; omitted when the trace snapshot is exhausted. */
+  next_cursor?: string;
 }
 
 export interface ReviewQueueParams {
   /** Page size requested from the review queue endpoint. */
   limit?: number;
-  /** Offset returned by the previous page's next_offset. */
-  offset?: number;
-  /** Required with non-zero offset. */
-  endTime?: string;
+  /** Opaque cursor returned by the previous page. */
+  cursor?: string;
+  prediction?: ReviewQueuePredictionFilter;
 }
 
 export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
@@ -3012,13 +3036,13 @@ class ApiClient {
 
   async getDatasetReviewQueue(
     deploymentId: string,
-    { limit, offset, endTime }: ReviewQueueParams = {},
+    { limit, cursor, prediction }: ReviewQueueParams = {},
   ): Promise<ReviewQueueResponse> {
     return this.request<ReviewQueueResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue${buildQS({
         limit: limit != null ? String(limit) : undefined,
-        offset: offset != null ? String(offset) : undefined,
-        end_time: endTime,
+        cursor,
+        prediction,
       })}`
     );
   }

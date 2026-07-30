@@ -83,6 +83,104 @@ func ExpectReplaceReasonsMissing(mock sqlmock.Sqlmock, datasetID, traceID string
 	mock.ExpectRollback()
 }
 
+func ExpectJudgedTraceIDs(mock sqlmock.Sqlmock, datasetID string, traceIDs ...string) {
+	rows := sqlmock.NewRows([]string{"trace_id"})
+	for _, traceID := range traceIDs {
+		rows.AddRow(traceID)
+	}
+	mock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
+		WithArgs(datasetID, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+}
+
+func ExpectPredictionRequests(
+	mock sqlmock.Sqlmock,
+	datasetID string,
+	requests ...judgmentstore.PredictionRequest,
+) {
+	rows := sqlmock.NewRows([]string{
+		"trace_id", "status", "error_message", "created_at", "updated_at",
+	})
+	for _, request := range requests {
+		rows.AddRow(
+			request.TraceID,
+			string(request.Status),
+			request.ErrorMessage,
+			request.CreatedAt,
+			request.UpdatedAt,
+		)
+	}
+	mock.ExpectQuery("SELECT trace_id, status, error_message, created_at, updated_at").
+		WithArgs(datasetID, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+}
+
+func ExpectPredictions(
+	mock sqlmock.Sqlmock,
+	datasetID string,
+	predictions map[string]judgmentstore.Prediction,
+) {
+	rows := sqlmock.NewRows([]string{
+		"trace_id", "verdict_score", "confidence", "explanation",
+		"judge_version", "created_at", "updated_at", "dimension_key", "dimension_value",
+	})
+	for traceID, prediction := range predictions {
+		if len(prediction.Criteria) == 0 {
+			rows.AddRow(
+				traceID,
+				prediction.VerdictScore,
+				prediction.Confidence,
+				prediction.Explanation,
+				prediction.JudgeVersion,
+				prediction.CreatedAt,
+				prediction.UpdatedAt,
+				nil,
+				nil,
+			)
+			continue
+		}
+		for _, criterion := range prediction.Criteria {
+			rows.AddRow(
+				traceID,
+				prediction.VerdictScore,
+				prediction.Confidence,
+				prediction.Explanation,
+				prediction.JudgeVersion,
+				prediction.CreatedAt,
+				prediction.UpdatedAt,
+				string(criterion.Dimension),
+				criterion.Value,
+			)
+		}
+	}
+	mock.ExpectQuery("SELECT p.trace_id, p.verdict_score, p.confidence, p.explanation").
+		WithArgs(datasetID, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+}
+
+func ExpectPredictionTracesByVerdict(
+	mock sqlmock.Sqlmock,
+	datasetID string,
+	verdict judgmentstore.Verdict,
+	before *judgmentstore.PredictionTrace,
+	limit int,
+	traces ...judgmentstore.PredictionTrace,
+) {
+	rows := sqlmock.NewRows([]string{"trace_id", "trace_timestamp"})
+	for _, trace := range traces {
+		rows.AddRow(trace.TraceID, trace.TraceTimestamp)
+	}
+	var beforeTimestamp any
+	var beforeTraceID any
+	if before != nil {
+		beforeTimestamp = before.TraceTimestamp
+		beforeTraceID = before.TraceID
+	}
+	mock.ExpectQuery("(?s)SELECT trace_id, trace_timestamp.*AND created_at <= \\$3").
+		WithArgs(datasetID, string(verdict), sqlmock.AnyArg(), beforeTimestamp, beforeTraceID, limit).
+		WillReturnRows(rows)
+}
+
 // PredictionRequestUpdate records one batch lifecycle update made through a
 // FakePredictionStore.
 type PredictionRequestUpdate struct {
@@ -96,8 +194,10 @@ type PredictionRequestUpdate struct {
 // queue operation leaves unchanged.
 type FakePredictionStore struct {
 	Judged         map[string]bool
+	Requests       map[string]judgmentstore.PredictionRequest
 	Predictions    map[string]judgmentstore.Prediction
 	JudgedErr      error
+	RequestsErr    error
 	PredictionsErr error
 	QueueErr       error
 	UpdateErr      error
@@ -115,6 +215,14 @@ func (f *FakePredictionStore) JudgedTraceIDs(
 ) (map[string]bool, error) {
 	f.BatchTraceIDs = append([]string(nil), traceIDs...)
 	return f.Judged, f.JudgedErr
+}
+
+func (f *FakePredictionStore) GetPredictionRequests(
+	_ context.Context,
+	_ string,
+	_ []string,
+) (map[string]judgmentstore.PredictionRequest, error) {
+	return f.Requests, f.RequestsErr
 }
 
 func (f *FakePredictionStore) GetPredictions(

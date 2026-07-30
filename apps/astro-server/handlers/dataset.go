@@ -215,31 +215,83 @@ func DownloadEvalDataset(
 	}
 }
 
-// datasetReviewQueueItem is the shape returned to the client for one trace awaiting dataset review.
-type datasetReviewQueueItem struct {
-	TraceID   string `json:"trace_id"`
-	Timestamp string `json:"timestamp"`
-	Input     any    `json:"input"`
-	Output    any    `json:"output"`
-	Sentiment string `json:"sentiment"`
+type DatasetReviewQueuePredictionCriterion struct {
+	DimensionKey   string  `json:"dimension_key"`
+	DimensionValue float64 `json:"dimension_value"`
 }
 
-type datasetReviewQueueResponse struct {
-	Items      []datasetReviewQueueItem `json:"items"`
-	NextOffset int                      `json:"next_offset,omitempty"`
-	EndTime    string                   `json:"end_time"`
+type DatasetReviewQueuePrediction struct {
+	VerdictScore float64                                 `json:"verdict_score"`
+	Confidence   int                                     `json:"confidence"`
+	Explanation  string                                  `json:"explanation"`
+	JudgeVersion string                                  `json:"judge_version"`
+	Criteria     []DatasetReviewQueuePredictionCriterion `json:"criteria"`
+}
+
+// DatasetReviewQueueItem is one trace awaiting dataset review.
+type DatasetReviewQueueItem struct {
+	TraceID          string                        `json:"trace_id"`
+	Timestamp        string                        `json:"timestamp"`
+	Input            any                           `json:"input"`
+	Output           any                           `json:"output"`
+	Sentiment        string                        `json:"sentiment"`
+	PredictionStatus string                        `json:"prediction_status"`
+	PredictionError  *string                       `json:"prediction_error"`
+	Prediction       *DatasetReviewQueuePrediction `json:"prediction"`
+}
+
+// DatasetReviewQueueResponse is one cursor-paginated review queue page.
+type DatasetReviewQueueResponse struct {
+	Items      []DatasetReviewQueueItem `json:"items"`
+	NextCursor string                   `json:"next_cursor,omitempty"`
+}
+
+type reviewQueuePredictionFilter string
+
+type reviewQueueScanStore interface {
+	JudgedTraceIDs(context.Context, string, []string) (map[string]bool, error)
+	GetPredictionRequests(context.Context, string, []string) (map[string]judgmentstore.PredictionRequest, error)
+	GetPredictions(context.Context, string, []string) (map[string]judgmentstore.Prediction, error)
+}
+
+func (f reviewQueuePredictionFilter) isVerdict() bool {
+	return f == reviewQueuePredictionGood ||
+		f == reviewQueuePredictionBad ||
+		f == reviewQueuePredictionUnknown
 }
 
 const (
-	reviewQueueDefaultLimit = 50
-	reviewQueueMaxLimit     = 100
+	reviewQueueDefaultLimit       = 50
+	reviewQueueMaxLimit           = 100
+	reviewQueueMaxScanPages       = 3
+	reviewQueueCursorVersion      = 1
+	reviewQueuePredictionGood     = reviewQueuePredictionFilter("good")
+	reviewQueuePredictionBad      = reviewQueuePredictionFilter("bad")
+	reviewQueuePredictionUnknown  = reviewQueuePredictionFilter("unknown")
+	reviewQueuePredictionNone     = reviewQueuePredictionFilter("none")
+	reviewQueueStatusNotRequested = "not_requested"
 )
 
-// GetDatasetReviewQueue returns one paginated batch of traces awaiting dataset
-// judgment, sentiment-tagged then sorted (sentiment first, then recency desc).
-// end_time is a validated RFC3339 snapshot token. Clients must echo it unchanged
-// when requesting later offsets so pagination stays within one trace window.
-// GET /api/v1/deployments/:id/dataset/review-queue?offset=&limit=&end_time=
+var (
+	errInvalidReviewQueueCursor = errors.New("invalid review queue cursor")
+	errReviewQueueLocalRead     = errors.New("review queue local read")
+)
+
+type reviewQueueCursor struct {
+	Version          int    `json:"v"`
+	EvalDatasetID    string `json:"dataset"`
+	PredictionFilter string `json:"prediction"`
+	Limit            int    `json:"limit"`
+	EndTime          string `json:"end_time"`
+	RawPage          int    `json:"raw_page"`
+	RawIndex         int    `json:"raw_index"`
+	PredictionTime   string `json:"prediction_time,omitempty"`
+	PredictionTrace  string `json:"prediction_trace,omitempty"`
+}
+
+// GetDatasetReviewQueue returns one cursor-paginated batch of traces awaiting
+// dataset judgment, preserving Langfuse's newest-first ordering.
+// GET /api/v1/deployments/:id/dataset/review-queue?limit=&prediction=&cursor=
 func GetDatasetReviewQueue(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -255,109 +307,478 @@ func GetDatasetReviewQueue(
 			return
 		}
 
+		predictionFilter, ok := parseReviewQueuePredictionFilter(c.Query("prediction"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "prediction must be good, bad, unknown, or none"})
+			return
+		}
 		limit := reviewQueueDefaultLimit
 		if raw := c.Query("limit"); raw != "" {
 			if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= reviewQueueMaxLimit {
 				limit = n
 			}
 		}
-		offset := 0
-		if raw := strings.TrimSpace(c.Query("offset")); raw != "" {
-			n, err := strconv.Atoi(raw)
-			if err != nil || n < 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid offset"})
-				return
-			}
-			offset = n
-		}
-		if offset%limit != 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "offset must be a multiple of limit"})
-			return
-		}
 
 		ds, ok := loadDataset(c, log, datasetStore, lctx.DeploymentID)
 		if !ok {
 			return
 		}
-		endTime, ok := reviewQueueEndTime(c, offset)
-		if !ok {
-			return
-		}
 
-		traces, err := lctx.Client.GetQueueTraces(c.Request.Context(), lctx.DeploymentID, endTime, limit, offset)
+		resp, err := getDatasetReviewQueuePage(
+			c.Request.Context(),
+			lctx.Client,
+			judgmentStore,
+			ds.ID,
+			lctx.DeploymentID,
+			limit,
+			predictionFilter,
+			strings.TrimSpace(c.Query("cursor")),
+		)
 		if err != nil {
+			if errors.Is(err, errInvalidReviewQueueCursor) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
+				return
+			}
+			if errors.Is(err, errReviewQueueLocalRead) {
+				log.Error("Failed to load review queue state", "error", err, "deployment_id", lctx.DeploymentID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load review queue state"})
+				return
+			}
 			log.Error("Failed to fetch traces for queue", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch traces"})
 			return
 		}
-
-		traceIDs := make([]string, 0, len(traces.Data))
-		for _, t := range traces.Data {
-			traceIDs = append(traceIDs, t.ID)
-		}
-
-		judged, err := judgmentStore.JudgedTraceIDs(c.Request.Context(), ds.ID, traceIDs)
-		if err != nil {
-			log.Error("Failed to load judged ids", "error", err, "deployment_id", lctx.DeploymentID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to filter queue"})
-			return
-		}
-
-		annotated := annotateQueue(traces.Data, judged)
-
-		resp := datasetReviewQueueResponse{Items: annotated, EndTime: endTime}
-		resp.NextOffset = nextReviewQueueOffset(
-			limit,
-			len(traces.Data),
-			traces.Meta.TotalItems,
-			traces.Meta.TotalPages,
-			traces.Meta.Page,
-			offset,
-		)
 		c.JSON(http.StatusOK, resp)
 	}
 }
 
-func reviewQueueEndTime(c *gin.Context, offset int) (string, bool) {
-	raw := strings.TrimSpace(c.Query("end_time"))
-	if raw == "" {
-		if offset > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "end_time is required when offset is non-zero"})
-			return "", false
-		}
-		return time.Now().UTC().Format(time.RFC3339Nano), true
-	}
-	if _, err := time.Parse(time.RFC3339Nano, raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_time"})
+func parseReviewQueuePredictionFilter(raw string) (reviewQueuePredictionFilter, bool) {
+	switch filter := reviewQueuePredictionFilter(strings.ToLower(strings.TrimSpace(raw))); filter {
+	case "":
+		return "", true
+	case reviewQueuePredictionGood, reviewQueuePredictionBad, reviewQueuePredictionUnknown, reviewQueuePredictionNone:
+		return filter, true
+	default:
 		return "", false
 	}
-	return raw, true
 }
 
-func nextReviewQueueOffset(limit, pageSize, totalItems, totalPages, currentPage, offset int) int {
-	if limit <= 0 || pageSize == 0 {
-		return 0
-	}
-	nextOffset := offset + limit
-	if totalPages > 0 {
-		if currentPage <= 0 {
-			currentPage = offset/limit + 1
+func getDatasetReviewQueuePage(
+	ctx context.Context,
+	client *langfuse.Client,
+	judgmentStore *judgmentstore.Store,
+	evalDatasetID, deploymentID string,
+	limit int,
+	predictionFilter reviewQueuePredictionFilter,
+	cursor string,
+) (DatasetReviewQueueResponse, error) {
+	scanCursor := newReviewQueueCursor(evalDatasetID, predictionFilter, limit)
+	if cursor != "" {
+		decoded, err := decodeReviewQueueCursor(cursor, evalDatasetID, predictionFilter, limit)
+		if err != nil {
+			return DatasetReviewQueueResponse{}, err
 		}
-		if currentPage >= totalPages {
-			return 0
-		}
-		return nextOffset
+		scanCursor = decoded
 	}
-	if totalItems <= nextOffset {
-		return 0
+
+	if predictionFilter.isVerdict() {
+		return getFilteredReviewQueuePage(
+			ctx,
+			client,
+			judgmentStore,
+			evalDatasetID,
+			deploymentID,
+			limit,
+			predictionFilter,
+			scanCursor,
+		)
 	}
-	return nextOffset
+	return scanLangfuseReviewQueuePages(
+		ctx,
+		client,
+		judgmentStore,
+		evalDatasetID,
+		deploymentID,
+		limit,
+		predictionFilter,
+		scanCursor,
+	)
 }
 
-// annotateQueue groups the page by session, sorts each session ascending,
-// infers sentiment from the next trace's input, filters out already-judged
-// traces, then returns the survivors sorted sentiment-first then recency desc.
-func annotateQueue(traces []langfuse.Trace, judged map[string]bool) []datasetReviewQueueItem {
+func newReviewQueueCursor(
+	evalDatasetID string,
+	predictionFilter reviewQueuePredictionFilter,
+	limit int,
+) reviewQueueCursor {
+	return reviewQueueCursor{
+		Version:          reviewQueueCursorVersion,
+		EvalDatasetID:    evalDatasetID,
+		PredictionFilter: string(predictionFilter),
+		Limit:            limit,
+		EndTime:          time.Now().UTC().Format(time.RFC3339Nano),
+		RawPage:          1,
+	}
+}
+
+// getFilteredReviewQueuePage pages good, bad, or unknown predictions from the
+// local database first, then fetches only that bounded trace set from Langfuse.
+// PredictionTime and PredictionTrace identify the last database row selected.
+func getFilteredReviewQueuePage(
+	ctx context.Context,
+	client *langfuse.Client,
+	judgmentStore *judgmentstore.Store,
+	evalDatasetID, deploymentID string,
+	limit int,
+	predictionFilter reviewQueuePredictionFilter,
+	cursor reviewQueueCursor,
+) (DatasetReviewQueueResponse, error) {
+	asOf, err := time.Parse(time.RFC3339Nano, cursor.EndTime)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, errInvalidReviewQueueCursor
+	}
+	var before *judgmentstore.PredictionTrace
+	if cursor.PredictionTrace != "" {
+		timestamp, err := time.Parse(time.RFC3339Nano, cursor.PredictionTime)
+		if err != nil {
+			return DatasetReviewQueueResponse{}, errInvalidReviewQueueCursor
+		}
+		before = &judgmentstore.PredictionTrace{
+			TraceID:        cursor.PredictionTrace,
+			TraceTimestamp: timestamp,
+		}
+	}
+	matchingTraces, err := judgmentStore.PredictionTracesByVerdict(
+		ctx,
+		evalDatasetID,
+		judgmentstore.Verdict(predictionFilter),
+		asOf,
+		before,
+		limit+1,
+	)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, fmt.Errorf("%w: prediction traces: %w", errReviewQueueLocalRead, err)
+	}
+	if len(matchingTraces) == 0 {
+		return DatasetReviewQueueResponse{Items: []DatasetReviewQueueItem{}}, nil
+	}
+	hasMore := len(matchingTraces) > limit
+	if hasMore {
+		matchingTraces = matchingTraces[:limit]
+	}
+	matchingTraceIDs := make([]string, 0, len(matchingTraces))
+	for _, trace := range matchingTraces {
+		matchingTraceIDs = append(matchingTraceIDs, trace.TraceID)
+	}
+
+	traces, err := client.GetTracesFilteredOrdered(
+		ctx,
+		deploymentID,
+		"",
+		cursor.EndTime,
+		[]langfuse.TraceFilter{{
+			Type:     "stringOptions",
+			Column:   "id",
+			Operator: "any of",
+			Value:    matchingTraceIDs,
+		}},
+		"core,io",
+		len(matchingTraceIDs),
+		0,
+		"timestamp.desc",
+	)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, err
+	}
+	items := []DatasetReviewQueueItem{}
+	if len(traces.Data) > 0 {
+		items, _, _, err = loadReviewQueueItems(
+			ctx,
+			judgmentStore,
+			evalDatasetID,
+			traces.Data,
+			0,
+			limit,
+			predictionFilter,
+		)
+		if err != nil {
+			return DatasetReviewQueueResponse{}, err
+		}
+	}
+	if !hasMore {
+		return DatasetReviewQueueResponse{Items: items}, nil
+	}
+	last := matchingTraces[len(matchingTraces)-1]
+	cursor.PredictionTime = last.TraceTimestamp.UTC().Format(time.RFC3339Nano)
+	cursor.PredictionTrace = last.TraceID
+	nextCursor, err := encodeReviewQueueCursor(cursor)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, fmt.Errorf("%w: encode cursor: %w", errReviewQueueLocalRead, err)
+	}
+	return DatasetReviewQueueResponse{Items: items, NextCursor: nextCursor}, nil
+}
+
+// scanLangfuseReviewQueuePages fills an unfiltered or no-prediction page by
+// scanning recent Langfuse traces and applying local eligibility checks. Since
+// skipped traces do not count toward the response limit, RawPage and RawIndex
+// preserve the exact Langfuse position at which the next request should resume.
+func scanLangfuseReviewQueuePages(
+	ctx context.Context,
+	client *langfuse.Client,
+	judgmentStore reviewQueueScanStore,
+	evalDatasetID, deploymentID string,
+	limit int,
+	predictionFilter reviewQueuePredictionFilter,
+	cursor reviewQueueCursor,
+) (DatasetReviewQueueResponse, error) {
+	out := make([]DatasetReviewQueueItem, 0, limit)
+	for rawPage, scannedPages := cursor.RawPage, 0; scannedPages < reviewQueueMaxScanPages; rawPage, scannedPages = rawPage+1, scannedPages+1 {
+		traces, err := client.GetQueueTraces(
+			ctx,
+			deploymentID,
+			cursor.EndTime,
+			reviewQueueMaxLimit,
+			(rawPage-1)*reviewQueueMaxLimit,
+		)
+		if err != nil {
+			return DatasetReviewQueueResponse{}, err
+		}
+		if len(traces.Data) == 0 {
+			return DatasetReviewQueueResponse{Items: out}, nil
+		}
+
+		startIndex := 0
+		if rawPage == cursor.RawPage {
+			startIndex = cursor.RawIndex
+		}
+		items, nextIndex, full, err := loadReviewQueueItems(
+			ctx,
+			judgmentStore,
+			evalDatasetID,
+			traces.Data,
+			startIndex,
+			limit-len(out),
+			predictionFilter,
+		)
+		if err != nil {
+			return DatasetReviewQueueResponse{}, err
+		}
+		out = append(out, items...)
+		if full {
+			return reviewQueuePageResponse(cursor, rawPage, traces, out, nextIndex)
+		}
+		if !reviewQueueHasNextRawPage(traces, rawPage) {
+			return DatasetReviewQueueResponse{Items: out}, nil
+		}
+	}
+
+	cursor.RawPage += reviewQueueMaxScanPages
+	cursor.RawIndex = 0
+	nextCursor, err := encodeReviewQueueCursor(cursor)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, fmt.Errorf("%w: encode cursor: %w", errReviewQueueLocalRead, err)
+	}
+	return DatasetReviewQueueResponse{Items: out, NextCursor: nextCursor}, nil
+}
+
+func reviewQueuePageResponse(
+	cursor reviewQueueCursor,
+	rawPage int,
+	traces *langfuse.TracesResponse,
+	items []DatasetReviewQueueItem,
+	nextIndex int,
+) (DatasetReviewQueueResponse, error) {
+	if nextIndex < len(traces.Data) {
+		cursor.RawPage = rawPage
+		cursor.RawIndex = nextIndex
+	} else if reviewQueueHasNextRawPage(traces, rawPage) {
+		cursor.RawPage = rawPage + 1
+		cursor.RawIndex = 0
+	} else {
+		return DatasetReviewQueueResponse{Items: items}, nil
+	}
+	nextCursor, err := encodeReviewQueueCursor(cursor)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, fmt.Errorf("%w: encode cursor: %w", errReviewQueueLocalRead, err)
+	}
+	return DatasetReviewQueueResponse{Items: items, NextCursor: nextCursor}, nil
+}
+
+// loadReviewQueueItems batch-loads local judgment and prediction state for one
+// trace set, removes ineligible traces, and builds up to limit queue items. The
+// returned index is the next trace to examine, and full reports whether the
+// response limit was reached before the trace set was exhausted.
+func loadReviewQueueItems(
+	ctx context.Context,
+	judgmentStore reviewQueueScanStore,
+	evalDatasetID string,
+	traces []langfuse.Trace,
+	startIndex, limit int,
+	predictionFilter reviewQueuePredictionFilter,
+) ([]DatasetReviewQueueItem, int, bool, error) {
+	traceIDs := make([]string, 0, len(traces))
+	for _, trace := range traces {
+		traceIDs = append(traceIDs, trace.ID)
+	}
+	judged, err := judgmentStore.JudgedTraceIDs(ctx, evalDatasetID, traceIDs)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("%w: judgments: %w", errReviewQueueLocalRead, err)
+	}
+	// Verdict-filtered traces are pre-selected in SQL and always have a completed
+	// prediction, so their request status is never surfaced; skip that read.
+	var requests map[string]judgmentstore.PredictionRequest
+	if !predictionFilter.isVerdict() {
+		requests, err = judgmentStore.GetPredictionRequests(ctx, evalDatasetID, traceIDs)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("%w: requests: %w", errReviewQueueLocalRead, err)
+		}
+	}
+	predictions, err := judgmentStore.GetPredictions(ctx, evalDatasetID, traceIDs)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("%w: predictions: %w", errReviewQueueLocalRead, err)
+	}
+
+	items := make([]DatasetReviewQueueItem, 0, limit)
+	sentiments := queueSentiments(traces)
+	for i := startIndex; i < len(traces); i++ {
+		trace := traces[i]
+		if judged[trace.ID] || trace.Input == nil {
+			continue
+		}
+		prediction, hasPrediction := predictions[trace.ID]
+		if !reviewQueuePredictionMatches(predictionFilter, hasPrediction) {
+			continue
+		}
+		items = append(items, newDatasetReviewQueueItem(trace, sentiments[trace.ID], requests[trace.ID], prediction, hasPrediction))
+		if len(items) == limit {
+			return items, i + 1, true, nil
+		}
+	}
+	return items, len(traces), false, nil
+}
+
+func reviewQueueHasNextRawPage(traces *langfuse.TracesResponse, rawPage int) bool {
+	if len(traces.Data) == 0 {
+		return false
+	}
+	if traces.Meta.TotalPages > 0 {
+		page := traces.Meta.Page
+		if page <= 0 {
+			page = rawPage
+		}
+		return page < traces.Meta.TotalPages
+	}
+	if traces.Meta.TotalItems > 0 {
+		return rawPage*reviewQueueMaxLimit < traces.Meta.TotalItems
+	}
+	return len(traces.Data) == reviewQueueMaxLimit
+}
+
+func encodeReviewQueueCursor(cursor reviewQueueCursor) (string, error) {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return "", fmt.Errorf("encode review queue cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func decodeReviewQueueCursor(
+	raw, evalDatasetID string,
+	predictionFilter reviewQueuePredictionFilter,
+	limit int,
+) (reviewQueueCursor, error) {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return reviewQueueCursor{}, fmt.Errorf("%w: decode", errInvalidReviewQueueCursor)
+	}
+	var cursor reviewQueueCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return reviewQueueCursor{}, fmt.Errorf("%w: unmarshal", errInvalidReviewQueueCursor)
+	}
+	if cursor.Version != reviewQueueCursorVersion ||
+		cursor.EvalDatasetID != evalDatasetID ||
+		cursor.PredictionFilter != string(predictionFilter) ||
+		cursor.Limit != limit {
+		return reviewQueueCursor{}, errInvalidReviewQueueCursor
+	}
+	if _, err := time.Parse(time.RFC3339Nano, cursor.EndTime); err != nil {
+		return reviewQueueCursor{}, errInvalidReviewQueueCursor
+	}
+	if predictionFilter.isVerdict() {
+		if cursor.PredictionTrace == "" {
+			return reviewQueueCursor{}, errInvalidReviewQueueCursor
+		}
+		if _, err := time.Parse(time.RFC3339Nano, cursor.PredictionTime); err != nil {
+			return reviewQueueCursor{}, errInvalidReviewQueueCursor
+		}
+		return cursor, nil
+	}
+	if cursor.RawPage < 1 ||
+		cursor.RawIndex < 0 ||
+		cursor.RawIndex >= reviewQueueMaxLimit {
+		return reviewQueueCursor{}, errInvalidReviewQueueCursor
+	}
+	return cursor, nil
+}
+
+// reviewQueuePredictionMatches applies the scan-path prediction filters. Verdict
+// filters (good/bad/unknown) are already resolved in SQL by
+// PredictionTracesByVerdict, so only the no-prediction filter needs a local check.
+func reviewQueuePredictionMatches(filter reviewQueuePredictionFilter, hasPrediction bool) bool {
+	if filter == reviewQueuePredictionNone {
+		return !hasPrediction
+	}
+	return true
+}
+
+func newDatasetReviewQueueItem(
+	trace langfuse.Trace,
+	sentiment evaldataset.Sentiment,
+	request judgmentstore.PredictionRequest,
+	prediction judgmentstore.Prediction,
+	hasPrediction bool,
+) DatasetReviewQueueItem {
+	item := DatasetReviewQueueItem{
+		TraceID:          trace.ID,
+		Timestamp:        trace.CreatedAt,
+		Input:            trace.Input,
+		Output:           trace.Output,
+		Sentiment:        string(sentiment),
+		PredictionStatus: reviewQueueStatusNotRequested,
+	}
+	if hasPrediction {
+		criteriaByDimension := make(map[judgmentstore.CriterionDimension]float64, len(prediction.Criteria))
+		for _, criterion := range prediction.Criteria {
+			criteriaByDimension[criterion.Dimension] = criterion.Value
+		}
+		criteria := make([]DatasetReviewQueuePredictionCriterion, 0, len(prediction.Criteria))
+		for _, dimension := range judgmentstore.CriterionDimensions {
+			value, ok := criteriaByDimension[dimension]
+			if !ok {
+				continue
+			}
+			criteria = append(criteria, DatasetReviewQueuePredictionCriterion{
+				DimensionKey:   string(dimension),
+				DimensionValue: value,
+			})
+		}
+		item.PredictionStatus = string(judgmentstore.PredictionRequestCompleted)
+		item.Prediction = &DatasetReviewQueuePrediction{
+			VerdictScore: prediction.VerdictScore,
+			Confidence:   prediction.Confidence,
+			Explanation:  prediction.Explanation,
+			JudgeVersion: prediction.JudgeVersion,
+			Criteria:     criteria,
+		}
+		return item
+	}
+	if request.Status != "" && request.Status != judgmentstore.PredictionRequestCompleted {
+		item.PredictionStatus = string(request.Status)
+		item.PredictionError = request.ErrorMessage
+	}
+	return item
+}
+
+func queueSentiments(traces []langfuse.Trace) map[string]evaldataset.Sentiment {
 	bySession := map[string][]langfuse.Trace{}
 	for _, t := range traces {
 		key := t.SessionID
@@ -376,31 +797,7 @@ func annotateQueue(traces []langfuse.Trace, judged map[string]bool) []datasetRev
 			}
 		}
 	}
-
-	items := make([]datasetReviewQueueItem, 0, len(traces))
-	for _, t := range traces {
-		if judged[t.ID] || t.Input == nil {
-			continue
-		}
-		items = append(items, datasetReviewQueueItem{
-			TraceID:   t.ID,
-			Timestamp: t.CreatedAt,
-			Input:     t.Input,
-			Output:    t.Output,
-			Sentiment: string(sentiment[t.ID]),
-		})
-	}
-
-	sort.SliceStable(items, func(i, j int) bool {
-		ai := items[i].Sentiment != ""
-		aj := items[j].Sentiment != ""
-		if ai != aj {
-			return ai
-		}
-		return items[i].Timestamp > items[j].Timestamp
-	})
-
-	return items
+	return sentiment
 }
 
 // evalDatasetItemsResponse mirrors the Langfuse list response 1:1, narrowed to

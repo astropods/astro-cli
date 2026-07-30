@@ -212,6 +212,12 @@ func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int
 	}
 }
 
+func expectEmptyReviewQueueState(mock sqlmock.Sqlmock, datasetID string, judgedTraceIDs ...string) {
+	judgmentstoretest.ExpectJudgedTraceIDs(mock, datasetID, judgedTraceIDs...)
+	judgmentstoretest.ExpectPredictionRequests(mock, datasetID)
+	judgmentstoretest.ExpectPredictions(mock, datasetID, nil)
+}
+
 func langfuseJudgeHandler(t *testing.T) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1172,12 +1178,10 @@ func TestGetDatasetReviewQueue_FiltersJudgedAndAnnotatesSentiment(t *testing.T) 
 			Output:    "run astro deploy",
 		},
 	}
-	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "3", "", "*"))
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
-		WithArgs("dataset-dep-1", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}).AddRow("trace-3"))
+	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1", "trace-3")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?limit=3", nil)
 	rec := httptest.NewRecorder()
@@ -1186,140 +1190,281 @@ func TestGetDatasetReviewQueue_FiltersJudgedAndAnnotatesSentiment(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp datasetReviewQueueResponse
+	var resp DatasetReviewQueueResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(resp.Items) != 2 {
 		t.Fatalf("items len = %d, want 2", len(resp.Items))
 	}
-	if resp.Items[0].TraceID != "trace-1" || resp.Items[0].Sentiment != "positive" {
-		t.Fatalf("first item = %+v, want trace-1 with positive sentiment", resp.Items[0])
+	if resp.Items[0].TraceID != "trace-2" {
+		t.Fatalf("first item = %+v, want trace-2", resp.Items[0])
 	}
-	if resp.Items[1].TraceID != "trace-2" {
-		t.Fatalf("second item = %+v, want trace-2", resp.Items[1])
+	if resp.Items[1].TraceID != "trace-1" || resp.Items[1].Sentiment != "positive" {
+		t.Fatalf("second item = %+v, want trace-1 with positive sentiment", resp.Items[1])
 	}
-	if _, err := time.Parse(time.RFC3339Nano, resp.EndTime); err != nil {
-		t.Fatalf("end_time = %q, want RFC3339 timestamp: %v", resp.EndTime, err)
+	if resp.Items[0].PredictionStatus != reviewQueueStatusNotRequested ||
+		resp.Items[1].PredictionStatus != reviewQueueStatusNotRequested {
+		t.Fatalf("prediction statuses = %q/%q, want not_requested", resp.Items[0].PredictionStatus, resp.Items[1].PredictionStatus)
 	}
 	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet judgment expectations: %v", err)
 	}
 }
 
-func TestGetDatasetReviewQueue_UsesOffset(t *testing.T) {
-	traces := []langfuse.Trace{
-		{
-			ID:        "trace-5",
-			SessionID: "session-5",
-			CreatedAt: "2026-06-01T15:00:00Z",
-			Input:     "question 5",
-			Output:    "answer 5",
-		},
-		{
-			ID:        "trace-4",
-			SessionID: "session-4",
-			CreatedAt: "2026-06-01T14:00:00Z",
-			Input:     "question 4",
-			Output:    "answer 4",
-		},
-	}
-	const endTime = "2026-06-18T20:07:29.702000Z"
-	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 5, "2", "2", endTime))
+func TestGetDatasetReviewQueue_IncludesMatchingPrediction(t *testing.T) {
+	traces := []langfuse.Trace{{
+		ID:        "trace-1",
+		CreatedAt: "2026-06-01T12:00:00Z",
+		Input:     "question",
+		Output:    "answer",
+	}}
+	traceHandler := langfuseTracesHandler(t, traces, 1, "1", "", "*")
+	f := setupDatasetRouter(t, true, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("filter"); got != `[{"type":"stringOptions","column":"id","operator":"any of","value":["trace-1"]}]` {
+			t.Errorf("filter = %q, want prediction trace ID filter", got)
+		}
+		traceHandler(w, r)
+	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
-		WithArgs("dataset-dep-1", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}))
+	traceTimestamp := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	judgmentstoretest.ExpectPredictionTracesByVerdict(
+		f.judgmentMock,
+		"dataset-dep-1",
+		judgmentstore.VerdictGood,
+		nil,
+		reviewQueueDefaultLimit+1,
+		judgmentstore.PredictionTrace{TraceID: "trace-1", TraceTimestamp: traceTimestamp},
+	)
+	judgmentstoretest.ExpectJudgedTraceIDs(f.judgmentMock, "dataset-dep-1")
+	now := time.Now().UTC()
+	judgmentstoretest.ExpectPredictions(
+		f.judgmentMock,
+		"dataset-dep-1",
+		map[string]judgmentstore.Prediction{
+			"trace-1": {
+				TraceTimestamp: traceTimestamp,
+				VerdictScore:   0.25,
+				Confidence:     80,
+				Explanation:    "Useful trace.",
+				JudgeVersion:   "1",
+				CreatedAt:      now,
+				UpdatedAt:      now,
+				Criteria: []judgmentstore.PredictionCriterion{
+					{Dimension: judgmentstore.DimensionAccuracy, Value: 0.5},
+					{Dimension: judgmentstore.DimensionTone, Value: 0.75},
+				},
+			},
+		},
+	)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?offset=2&limit=2&end_time="+endTime, nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=good",
+		nil,
+	)
 	rec := httptest.NewRecorder()
 	f.router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp datasetReviewQueueResponse
+	var resp DatasetReviewQueueResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.NextOffset != 4 {
-		t.Fatalf("next_offset = %d, want 4", resp.NextOffset)
-	}
-	if resp.EndTime != endTime {
-		t.Fatalf("end_time = %q, want %q", resp.EndTime, endTime)
+	if len(resp.Items) != 1 ||
+		resp.Items[0].PredictionStatus != "completed" ||
+		resp.Items[0].Prediction == nil ||
+		resp.Items[0].Prediction.VerdictScore != 0.25 ||
+		len(resp.Items[0].Prediction.Criteria) != 2 {
+		t.Fatalf("response = %+v", resp)
 	}
 }
 
-func TestNextReviewQueueOffsetUsesPageBoundaries(t *testing.T) {
-	tests := []struct {
-		name        string
-		limit       int
-		pageSize    int
-		totalItems  int
-		totalPages  int
-		currentPage int
-		offset      int
-		want        int
-	}{
+func TestGetDatasetReviewQueue_FiltersTracesWithoutPredictions(t *testing.T) {
+	traces := []langfuse.Trace{
 		{
-			name:        "partial page with more pages advances by limit",
-			limit:       50,
-			pageSize:    7,
-			totalItems:  108,
-			totalPages:  3,
-			currentPage: 2,
-			offset:      50,
-			want:        100,
+			ID:        "trace-unpredicted",
+			CreatedAt: "2026-07-27T13:00:00Z",
+			Input:     "question without prediction",
 		},
 		{
-			name:        "last reported page has no next offset",
-			limit:       50,
-			pageSize:    7,
-			totalItems:  108,
-			totalPages:  2,
-			currentPage: 2,
-			offset:      50,
-			want:        0,
-		},
-		{
-			name:        "missing total pages falls back to limit boundary",
-			limit:       50,
-			pageSize:    7,
-			totalItems:  108,
-			currentPage: 0,
-			offset:      50,
-			want:        100,
-		},
-		{
-			name:        "empty page has no next offset",
-			limit:       50,
-			pageSize:    0,
-			totalItems:  108,
-			totalPages:  3,
-			currentPage: 2,
-			offset:      50,
-			want:        0,
+			ID:        "trace-predicted",
+			CreatedAt: "2026-07-27T12:00:00Z",
+			Input:     "question with prediction",
 		},
 	}
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 2, "100", "", "*"))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	judgmentstoretest.ExpectJudgedTraceIDs(f.judgmentMock, "dataset-dep-1")
+	judgmentstoretest.ExpectPredictionRequests(f.judgmentMock, "dataset-dep-1")
+	judgmentstoretest.ExpectPredictions(
+		f.judgmentMock,
+		"dataset-dep-1",
+		map[string]judgmentstore.Prediction{
+			"trace-predicted": {
+				VerdictScore: 0.8,
+				Confidence:   90,
+				Explanation:  "Useful trace.",
+				JudgeVersion: "1",
+			},
+		},
+	)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := nextReviewQueueOffset(
-				tt.limit,
-				tt.pageSize,
-				tt.totalItems,
-				tt.totalPages,
-				tt.currentPage,
-				tt.offset,
-			)
-			if got != tt.want {
-				t.Fatalf("next offset = %d, want %d", got, tt.want)
-			}
-			if got != 0 && got%tt.limit != 0 {
-				t.Fatalf("next offset = %d, want multiple of limit %d", got, tt.limit)
-			}
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=none",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetReviewQueueResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Items) != 1 ||
+		resp.Items[0].TraceID != "trace-unpredicted" ||
+		resp.Items[0].PredictionStatus != reviewQueueStatusNotRequested ||
+		resp.Items[0].Prediction != nil {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestReviewQueueCursorRoundTrip(t *testing.T) {
+	const endTime = "2026-06-18T20:07:29.702000Z"
+	want := reviewQueueCursor{
+		Version:          reviewQueueCursorVersion,
+		EvalDatasetID:    "dataset-1",
+		PredictionFilter: "bad",
+		Limit:            25,
+		EndTime:          endTime,
+		RawPage:          1,
+		RawIndex:         0,
+		PredictionTime:   "2026-06-17T20:07:29.702Z",
+		PredictionTrace:  "trace-17",
+	}
+	raw, err := encodeReviewQueueCursor(want)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeReviewQueueCursor(raw, "dataset-1", reviewQueuePredictionBad, 25)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got != want {
+		t.Fatalf("cursor = %+v, want %+v", got, want)
+	}
+}
+
+func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
+	traces := []langfuse.Trace{
+		{ID: "trace-1", Input: "question 1", Output: "answer 1"},
+		{ID: "trace-2", Input: "question 2", Output: "answer 2"},
+	}
+	var snapshotTimes []string
+	upstream := func(w http.ResponseWriter, r *http.Request) {
+		snapshotTimes = append(snapshotTimes, r.URL.Query().Get("toTimestamp"))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": traces,
+			"meta": map[string]any{
+				"page":       1,
+				"limit":      100,
+				"totalItems": 2,
+				"totalPages": 1,
+			},
 		})
+	}
+	f := setupDatasetRouter(t, true, upstream)
+
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
+	firstReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?limit=1",
+		nil,
+	)
+	firstRec := httptest.NewRecorder()
+	f.router.ServeHTTP(firstRec, firstReq)
+
+	var first DatasetReviewQueueResponse
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first response = %d %s", firstRec.Code, firstRec.Body.String())
+	}
+	if err := json.Unmarshal(firstRec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("unmarshal first response: %v", err)
+	}
+	if len(first.Items) != 1 || first.Items[0].TraceID != "trace-1" || first.NextCursor == "" {
+		t.Fatalf("first response = %+v", first)
+	}
+
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
+	secondReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?limit=1&cursor="+url.QueryEscape(first.NextCursor),
+		nil,
+	)
+	secondRec := httptest.NewRecorder()
+	f.router.ServeHTTP(secondRec, secondReq)
+
+	var second DatasetReviewQueueResponse
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second response = %d %s", secondRec.Code, secondRec.Body.String())
+	}
+	if err := json.Unmarshal(secondRec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("unmarshal second response: %v", err)
+	}
+	if len(second.Items) != 1 || second.Items[0].TraceID != "trace-2" || second.NextCursor != "" {
+		t.Fatalf("second response = %+v", second)
+	}
+	if len(snapshotTimes) != 2 || snapshotTimes[0] == "" || snapshotTimes[0] != snapshotTimes[1] {
+		t.Fatalf("snapshot times = %v, want one stable timestamp", snapshotTimes)
+	}
+}
+
+func TestGetDatasetReviewQueue_FilterWithoutMatchesSkipsLangfuse(t *testing.T) {
+	upstreamCalls := 0
+	upstream := func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	f := setupDatasetRouter(t, true, upstream)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	judgmentstoretest.ExpectPredictionTracesByVerdict(
+		f.judgmentMock,
+		"dataset-dep-1",
+		judgmentstore.VerdictGood,
+		nil,
+		reviewQueueDefaultLimit+1,
+	)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=good",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	var resp DatasetReviewQueueResponse
+	if rec.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if upstreamCalls != 0 || len(resp.Items) != 0 || resp.NextCursor != "" {
+		t.Fatalf("calls=%d response=%+v", upstreamCalls, resp)
 	}
 }
 
@@ -1333,12 +1478,10 @@ func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
 			Output:    "run astro deploy",
 		},
 	}
-	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "50", "", "*"))
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	f.judgmentMock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
-		WithArgs("dataset-dep-1", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}))
+	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue", nil)
 	rec := httptest.NewRecorder()
@@ -1349,14 +1492,14 @@ func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
 	}
 }
 
-func TestGetDatasetReviewQueue_InvalidEndTime(t *testing.T) {
+func TestGetDatasetReviewQueue_InvalidCursor(t *testing.T) {
 	f := setupDatasetRouter(t, true, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?end_time=bad", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?cursor=bad", nil)
 	rec := httptest.NewRecorder()
 	f.router.ServeHTTP(rec, req)
 
@@ -1365,7 +1508,7 @@ func TestGetDatasetReviewQueue_InvalidEndTime(t *testing.T) {
 	}
 }
 
-func TestGetDatasetReviewQueue_RejectsMisalignedOffset(t *testing.T) {
+func TestGetDatasetReviewQueue_InvalidPredictionFilter(t *testing.T) {
 	upstreamCalled := false
 	f := setupDatasetRouter(t, true, func(w http.ResponseWriter, _ *http.Request) {
 		upstreamCalled = true
@@ -1373,7 +1516,7 @@ func TestGetDatasetReviewQueue_RejectsMisalignedOffset(t *testing.T) {
 	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?offset=51&limit=50&end_time=2026-06-18T20:07:29.702Z", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?prediction=maybe", nil)
 	rec := httptest.NewRecorder()
 	f.router.ServeHTTP(rec, req)
 
@@ -1381,28 +1524,7 @@ func TestGetDatasetReviewQueue_RejectsMisalignedOffset(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if upstreamCalled {
-		t.Fatal("Langfuse upstream was called for invalid offset")
-	}
-}
-
-func TestGetDatasetReviewQueue_RequiresEndTimeForNonZeroOffset(t *testing.T) {
-	upstreamCalled := false
-	f := setupDatasetRouter(t, true, func(w http.ResponseWriter, _ *http.Request) {
-		upstreamCalled = true
-		w.WriteHeader(http.StatusInternalServerError)
-	})
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?offset=50&limit=50", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if upstreamCalled {
-		t.Fatal("Langfuse upstream was called without end_time for non-zero offset")
+		t.Fatal("Langfuse upstream was called for invalid prediction filter")
 	}
 }
 
@@ -1428,50 +1550,96 @@ func TestGetDatasetReviewQueue_DatasetNotFoundDoesNotFetchTraces(t *testing.T) {
 	}
 }
 
-func TestAnnotateQueueFiltersNilInput(t *testing.T) {
-	items := annotateQueue([]langfuse.Trace{
-		{
-			ID:        "trace-nil",
-			CreatedAt: "2026-06-01T12:00:00Z",
-			Input:     nil,
-			Output:    "nil input",
-		},
-		{
-			ID:        "trace-valid",
-			CreatedAt: "2026-06-01T12:04:00Z",
-			Input:     map[string]any{"prompt": "hello"},
-			Output:    "valid input",
-		},
-	}, map[string]bool{})
-
-	if len(items) != 1 {
-		t.Fatalf("items len = %d, want 1", len(items))
-	}
-	if items[0].TraceID != "trace-valid" {
-		t.Fatalf("trace id = %q, want trace-valid", items[0].TraceID)
-	}
-}
-
-func TestAnnotateQueueIncludesFullInputOutput(t *testing.T) {
+func TestNewDatasetReviewQueueItemIncludesFullInputOutput(t *testing.T) {
 	output := strings.Repeat("x", 300)
-	items := annotateQueue([]langfuse.Trace{
-		{
+	item := newDatasetReviewQueueItem(
+		langfuse.Trace{
 			ID:        "trace-1",
 			CreatedAt: "2026-06-01T12:00:00Z",
 			Input:     map[string]any{"prompt": "hello"},
 			Output:    output,
 		},
-	}, map[string]bool{})
+		"",
+		judgmentstore.PredictionRequest{},
+		judgmentstore.Prediction{},
+		false,
+	)
 
-	if len(items) != 1 {
-		t.Fatalf("items len = %d, want 1", len(items))
-	}
-	input, ok := items[0].Input.(map[string]any)
+	input, ok := item.Input.(map[string]any)
 	if !ok || input["prompt"] != "hello" {
-		t.Fatalf("input = %#v, want full input map", items[0].Input)
+		t.Fatalf("input = %#v, want full input map", item.Input)
 	}
-	if items[0].Output != output {
+	if item.Output != output {
 		t.Fatalf("output was not preserved in full")
+	}
+}
+
+func TestReviewQueuePredictionMatches(t *testing.T) {
+	tests := []struct {
+		name       string
+		filter     reviewQueuePredictionFilter
+		prediction bool
+		want       bool
+	}{
+		{name: "unfiltered without prediction", want: true},
+		{name: "verdict filter passes through", filter: reviewQueuePredictionGood, prediction: true, want: true},
+		{name: "none", filter: reviewQueuePredictionNone, want: true},
+		{name: "none excludes prediction", filter: reviewQueuePredictionNone, prediction: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reviewQueuePredictionMatches(tt.filter, tt.prediction)
+			if got != tt.want {
+				t.Fatalf("match = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewDatasetReviewQueueItemPredictionState(t *testing.T) {
+	failure := "Prediction failed. Try again."
+	trace := langfuse.Trace{ID: "trace-1", Input: "input", Output: "output"}
+
+	failed := newDatasetReviewQueueItem(
+		trace,
+		"",
+		judgmentstore.PredictionRequest{
+			Status:       judgmentstore.PredictionRequestFailed,
+			ErrorMessage: &failure,
+		},
+		judgmentstore.Prediction{},
+		false,
+	)
+	if failed.PredictionStatus != "failed" ||
+		failed.PredictionError == nil ||
+		*failed.PredictionError != failure ||
+		failed.Prediction != nil {
+		t.Fatalf("failed item = %+v", failed)
+	}
+
+	completed := newDatasetReviewQueueItem(
+		trace,
+		"",
+		judgmentstore.PredictionRequest{Status: judgmentstore.PredictionRequestInProgress},
+		judgmentstore.Prediction{
+			VerdictScore: 0.8,
+			Confidence:   90,
+			Explanation:  "Useful trace.",
+			JudgeVersion: "1",
+			Criteria: []judgmentstore.PredictionCriterion{{
+				Dimension: judgmentstore.DimensionAccuracy,
+				Value:     0.75,
+			}},
+		},
+		true,
+	)
+	if completed.PredictionStatus != "completed" ||
+		completed.PredictionError != nil ||
+		completed.Prediction == nil ||
+		completed.Prediction.VerdictScore != 0.8 ||
+		len(completed.Prediction.Criteria) != 1 ||
+		completed.Prediction.Criteria[0].DimensionKey != "accuracy" {
+		t.Fatalf("completed item = %+v", completed)
 	}
 }
 

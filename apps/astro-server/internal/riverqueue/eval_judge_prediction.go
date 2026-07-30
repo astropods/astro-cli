@@ -204,28 +204,30 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 	if !langfuse.HasDeploymentTag(trace.Tags, dataset.DeploymentID) {
 		return w.failPermanent(job, fmt.Errorf("target trace does not belong to deployment %s", dataset.DeploymentID), predictionFailureMessage)
 	}
+	traceTimestamp, err := time.Parse(time.RFC3339Nano, trace.Timestamp)
+	if err != nil {
+		return w.failPermanent(job, fmt.Errorf("target trace has invalid timestamp %q", trace.Timestamp), predictionFailureMessage)
+	}
 
 	// A later message is optional reaction context, not a requirement for a
 	// prediction.
 	nextUserText := ""
-	if trace.Timestamp != "" {
-		nextTrace, err := traceClient.GetNextSessionTrace(
-			ctx,
-			dataset.DeploymentID,
-			trace.UserID,
-			trace.SessionID,
-			trace.ID,
-			trace.Timestamp,
-		)
-		if err != nil {
-			if isPermanentLangfuseError(err) {
-				return w.failPermanent(job, fmt.Errorf("load next session trace: %w", err), predictionFailureMessage)
-			}
-			return w.retryOrRecordFailure(job, fmt.Errorf("load next session trace: %w", err))
+	nextTrace, err := traceClient.GetNextSessionTrace(
+		ctx,
+		dataset.DeploymentID,
+		trace.UserID,
+		trace.SessionID,
+		trace.ID,
+		trace.Timestamp,
+	)
+	if err != nil {
+		if isPermanentLangfuseError(err) {
+			return w.failPermanent(job, fmt.Errorf("load next session trace: %w", err), predictionFailureMessage)
 		}
-		if nextTrace != nil {
-			nextUserText = evaldataset.TextFromAny(nextTrace.Input)
-		}
+		return w.retryOrRecordFailure(job, fmt.Errorf("load next session trace: %w", err))
+	}
+	if nextTrace != nil {
+		nextUserText = evaldataset.TextFromAny(nextTrace.Input)
 	}
 
 	apiKey, gatewayURL, err := w.ensureJudgeKey(ctx, dataset.AccountID)
@@ -258,6 +260,7 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 
 	// Store the result before completing the request so retries can recover a
 	// crash between these two writes without invoking the model again.
+	result.Prediction.TraceTimestamp = traceTimestamp
 	if err := w.predictions.UpsertPrediction(ctx, args.EvalDatasetID, args.TraceID, result.Prediction); err != nil {
 		return w.retryOrRecordFailure(job, fmt.Errorf("store prediction: %w", err))
 	}

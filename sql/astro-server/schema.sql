@@ -930,6 +930,7 @@ CREATE TABLE public.eval_dataset_judgment_reasons (
 CREATE TABLE public.eval_dataset_judgment_predictions (
     eval_dataset_id uuid        NOT NULL,
     trace_id        text        NOT NULL,
+    trace_timestamp timestamptz NOT NULL,
     verdict_score   numeric     NOT NULL,
     confidence      integer     NOT NULL,
     explanation     text        NOT NULL DEFAULT '',
@@ -942,6 +943,10 @@ CREATE TABLE public.eval_dataset_judgment_predictions (
     CONSTRAINT eval_dataset_judgment_predictions_confidence_check CHECK (confidence BETWEEN 0 AND 100),
     CONSTRAINT eval_dataset_judgment_predictions_explanation_check CHECK (char_length(explanation) <= 240)
 );
+
+CREATE INDEX eval_dataset_judgment_predictions_trace_timestamp_idx
+    ON public.eval_dataset_judgment_predictions
+    (eval_dataset_id, trace_timestamp DESC, trace_id DESC);
 
 CREATE TABLE public.eval_dataset_judgment_prediction_criteria (
     eval_dataset_id uuid        NOT NULL,

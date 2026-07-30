@@ -16,6 +16,7 @@ import type {
   EvalDatasetResponse,
   JudgmentCriterion,
   ReviewQueueItem,
+  ReviewQueuePredictionFilter,
   ReviewQueueResponse,
 } from "@/lib/api";
 import { evalKeys } from "./keys";
@@ -45,12 +46,7 @@ type DatasetJudgmentCriteriaVariables = {
   criteria: JudgmentCriterion[];
 };
 
-type ReviewQueuePageParam =
-  | {
-      offset: number;
-      endTime: string;
-    }
-  | undefined;
+type ReviewQueuePageParam = string | undefined;
 
 type ReviewQueueInfiniteData = InfiniteData<
   ReviewQueueResponse,
@@ -108,10 +104,14 @@ export function useEvalDatasetItems(
   });
 }
 
-export function useDatasetReviewQueue(deploymentId: string, enabled = true) {
+export function useDatasetReviewQueue(
+  deploymentId: string,
+  enabled = true,
+  prediction?: ReviewQueuePredictionFilter,
+) {
   const api = useApiClient();
   return useInfiniteQuery({
-    queryKey: evalKeys.reviewQueue(deploymentId),
+    queryKey: evalKeys.reviewQueue(deploymentId, prediction),
     queryFn: ({
       pageParam,
     }: {
@@ -119,20 +119,12 @@ export function useDatasetReviewQueue(deploymentId: string, enabled = true) {
     }): Promise<ReviewQueueResponse> =>
       api.getDatasetReviewQueue(deploymentId, {
         limit: REVIEW_QUEUE_PAGE_SIZE,
-        offset: pageParam?.offset,
-        endTime: pageParam?.endTime,
+        cursor: pageParam,
+        prediction,
       }),
     initialPageParam: undefined as ReviewQueuePageParam,
-    getNextPageParam: (last, allPages): ReviewQueuePageParam => {
-      if (last.next_offset == null || last.next_offset <= 0) {
-        return undefined;
-      }
-
-      const snapshotEndTime = allPages[0]?.end_time;
-      return snapshotEndTime
-        ? { offset: last.next_offset, endTime: snapshotEndTime }
-        : undefined;
-    },
+    getNextPageParam: (last): ReviewQueuePageParam =>
+      last.next_cursor || undefined,
     enabled: !!deploymentId && enabled,
     staleTime: 30_000,
   });
@@ -170,16 +162,19 @@ export function usePostDatasetJudgment(
 
 /** Removes a trace from the review-queue cache. Callers own the timing so a
  *  judged trace can stay visible until the reviewer dismisses its panel. */
-export function useRemoveReviewQueueItem(deploymentId: string) {
+export function useRemoveReviewQueueItem(
+  deploymentId: string,
+  prediction?: ReviewQueuePredictionFilter,
+) {
   const queryClient = useQueryClient();
   return useCallback(
     (traceId: string) => {
       queryClient.setQueryData<ReviewQueueInfiniteData>(
-        evalKeys.reviewQueue(deploymentId),
+        evalKeys.reviewQueue(deploymentId, prediction),
         (old) => removeReviewQueueItem(old, traceId),
       );
     },
-    [queryClient, deploymentId],
+    [queryClient, deploymentId, prediction],
   );
 }
 
@@ -245,7 +240,10 @@ function insertReviewQueueItemPage(
   };
 }
 
-export function useUndoDatasetJudgment(deploymentId: string) {
+export function useUndoDatasetJudgment(
+  deploymentId: string,
+  prediction?: ReviewQueuePredictionFilter,
+) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
@@ -260,7 +258,7 @@ export function useUndoDatasetJudgment(deploymentId: string) {
       const restoredItem = variables.reviewQueueItem;
       if (restoredItem) {
         queryClient.setQueryData<ReviewQueueInfiniteData>(
-          evalKeys.reviewQueue(deploymentId),
+          evalKeys.reviewQueue(deploymentId, prediction),
           (old) =>
             insertReviewQueueItemPage(
               old,

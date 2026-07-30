@@ -127,40 +127,6 @@ func TestGetPredictionRequestsReturnsSQLErrors(t *testing.T) {
 	})
 }
 
-func TestQueuePredictionRequestUsesCurrentStateUpsert(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	mock.ExpectQuery(`(?s)INSERT INTO eval_dataset_prediction_requests.*unnest.*ON CONFLICT.*status = 'queued'.*error_message = NULL.*updated_at = now\(\).*WHERE eval_dataset_prediction_requests.status IN \('completed', 'failed'\).*RETURNING trace_id`).
-		WithArgs("dataset-1", pq.Array([]string{"trace-1"})).
-		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}).AddRow("trace-1"))
-
-	if err := NewStore(db).QueuePredictionRequest(context.Background(), "dataset-1", "trace-1"); err != nil {
-		t.Fatalf("QueuePredictionRequest: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unmet expectations: %v", err)
-	}
-}
-
-func TestQueuePredictionRequestReturnsError(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	mock.ExpectQuery("INSERT INTO eval_dataset_prediction_requests").
-		WillReturnError(errors.New("write failed"))
-
-	err = NewStore(db).QueuePredictionRequest(context.Background(), "dataset-1", "trace-1")
-	if err == nil || !strings.Contains(err.Error(), "write failed") {
-		t.Fatalf("QueuePredictionRequest error = %v", err)
-	}
-}
-
 func TestQueuePredictionRequests(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

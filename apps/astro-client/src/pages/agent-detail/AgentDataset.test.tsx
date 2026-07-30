@@ -61,7 +61,6 @@ function reviewQueueResponse(
 ): ReviewQueueResponse {
   return {
     items,
-    end_time: "2026-06-01T12:00:00Z",
     ...overrides,
   };
 }
@@ -77,6 +76,9 @@ function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
     input: "How do I deploy?",
     output: "Run ast deploy.",
     sentiment: "positive",
+    prediction_status: "not_requested",
+    prediction_error: null,
+    prediction: null,
     ...overrides,
   };
   reviewQueueFixtures.set(item.trace_id, item);
@@ -407,7 +409,7 @@ describe("review queue view", () => {
     expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
   });
 
-  it("loads additional queue pages with the snapshot offset", async () => {
+  it("loads additional queue pages with cursors", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First paged prompt",
@@ -425,8 +427,7 @@ describe("review queue view", () => {
       output: "Third paged response",
     });
     const requests: Array<{
-      offset: string | null;
-      endTime: string | null;
+      cursor: string | null;
       limit: string | null;
     }> = [];
 
@@ -434,34 +435,27 @@ describe("review queue view", () => {
     server.use(
       http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
         const url = new URL(request.url);
-        const offset = url.searchParams.get("offset");
+        const cursor = url.searchParams.get("cursor");
         requests.push({
-          offset,
-          endTime: url.searchParams.get("end_time"),
+          cursor,
           limit: url.searchParams.get("limit"),
         });
 
-        if (offset === "100") {
-          return HttpResponse.json(
-            reviewQueueResponse([third], {
-              end_time: "2026-06-03T12:00:00Z",
-            }),
-          );
+        if (cursor === "cursor-2") {
+          return HttpResponse.json(reviewQueueResponse([third]));
         }
 
-        if (offset === "50") {
+        if (cursor === "cursor-1") {
           return HttpResponse.json(
             reviewQueueResponse([second], {
-              end_time: "2026-06-02T12:00:00Z",
-              next_offset: 100,
+              next_cursor: "cursor-2",
             }),
           );
         }
 
         return HttpResponse.json(
           reviewQueueResponse([first], {
-            end_time: "2026-06-01T12:00:00Z",
-            next_offset: 50,
+            next_cursor: "cursor-1",
           }),
         );
       }),
@@ -489,18 +483,15 @@ describe("review queue view", () => {
 
     expect(screen.getByText("Third paged response")).toBeInTheDocument();
     expect(requests).toContainEqual({
-      offset: null,
-      endTime: null,
+      cursor: null,
       limit: REVIEW_QUEUE_PAGE_SIZE,
     });
     expect(requests).toContainEqual({
-      offset: "50",
-      endTime: "2026-06-01T12:00:00Z",
+      cursor: "cursor-1",
       limit: REVIEW_QUEUE_PAGE_SIZE,
     });
     expect(requests).toContainEqual({
-      offset: "100",
-      endTime: "2026-06-01T12:00:00Z",
+      cursor: "cursor-2",
       limit: REVIEW_QUEUE_PAGE_SIZE,
     });
   });
@@ -512,8 +503,7 @@ describe("review queue view", () => {
       output: "Auto loaded response",
     });
     const requests: Array<{
-      offset: string | null;
-      endTime: string | null;
+      cursor: string | null;
       limit: string | null;
     }> = [];
 
@@ -521,21 +511,17 @@ describe("review queue view", () => {
     server.use(
       http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
         const url = new URL(request.url);
-        const offset = url.searchParams.get("offset");
+        const cursor = url.searchParams.get("cursor");
         requests.push({
-          offset,
-          endTime: url.searchParams.get("end_time"),
+          cursor,
           limit: url.searchParams.get("limit"),
         });
 
         return HttpResponse.json(
-          offset === "50"
-            ? reviewQueueResponse([visible], {
-                end_time: "2026-06-02T12:00:00Z",
-              })
+          cursor === "cursor-1"
+            ? reviewQueueResponse([visible])
             : reviewQueueResponse([], {
-                end_time: "2026-06-01T12:00:00Z",
-                next_offset: 50,
+                next_cursor: "cursor-1",
               }),
         );
       }),
@@ -545,13 +531,11 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("Auto loaded response")).toBeInTheDocument();
     expect(requests).toContainEqual({
-      offset: null,
-      endTime: null,
+      cursor: null,
       limit: REVIEW_QUEUE_PAGE_SIZE,
     });
     expect(requests).toContainEqual({
-      offset: "50",
-      endTime: "2026-06-01T12:00:00Z",
+      cursor: "cursor-1",
       limit: REVIEW_QUEUE_PAGE_SIZE,
     });
   });
@@ -565,7 +549,9 @@ describe("review queue view", () => {
     server.use(
       http.get("/api/v1/deployments/:id/dataset/review-queue", () => {
         requestCount += 1;
-        return HttpResponse.json(reviewQueueResponse([], { next_offset: 50 }));
+        return HttpResponse.json(
+          reviewQueueResponse([], { next_cursor: `cursor-${requestCount}` }),
+        );
       }),
     );
 
@@ -1265,9 +1251,9 @@ describe("review queue view", () => {
       http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
         const url = new URL(request.url);
         return HttpResponse.json(
-          url.searchParams.get("offset") === REVIEW_QUEUE_PAGE_SIZE
+          url.searchParams.get("cursor") === "cursor-1"
             ? reviewQueueResponse([second])
-            : reviewQueueResponse([first], { next_offset: 50 }),
+            : reviewQueueResponse([first], { next_cursor: "cursor-1" }),
         );
       }),
       http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
@@ -1319,9 +1305,11 @@ describe("review queue view", () => {
         queueFetchCount += 1;
         const url = new URL(request.url);
         return HttpResponse.json(
-          url.searchParams.get("offset") === REVIEW_QUEUE_PAGE_SIZE
+          url.searchParams.get("cursor") === "cursor-1"
             ? reviewQueueResponse([secondPageTrace])
-            : reviewQueueResponse([firstPageTrace], { next_offset: 50 }),
+            : reviewQueueResponse([firstPageTrace], {
+                next_cursor: "cursor-1",
+              }),
         );
       }),
       http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {

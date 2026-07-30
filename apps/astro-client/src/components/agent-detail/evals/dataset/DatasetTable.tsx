@@ -260,5 +260,8 @@ function datasetItemToReviewQueueItem(item: EvalDatasetItem): ReviewQueueItem {
     input: item.input,
     output: item.expected_output,
     sentiment: "",
+    prediction_status: "not_requested",
+    prediction_error: null,
+    prediction: null,
   };
 }

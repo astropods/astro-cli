@@ -272,25 +272,14 @@ func TestEvalJudgePredictionWorkerSuccess(t *testing.T) {
 	if store.stored == nil || store.stored.VerdictScore != 0.8 {
 		t.Fatalf("stored prediction = %+v", store.stored)
 	}
+	wantTraceTimestamp := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	if !store.stored.TraceTimestamp.Equal(wantTraceTimestamp) {
+		t.Fatalf("stored trace timestamp = %v, want %v", store.stored.TraceTimestamp, wantTraceTimestamp)
+	}
 	if len(store.updates) != 2 ||
 		store.updates[0].status != judgmentstore.PredictionRequestInProgress ||
 		store.updates[1].status != judgmentstore.PredictionRequestCompleted {
 		t.Fatalf("updates = %+v", store.updates)
-	}
-}
-
-func TestEvalJudgePredictionWorkerOmitsNextTraceWithoutTimestamp(t *testing.T) {
-	worker, _, traceClient, predictor := newEvalJudgeWorkerFixture()
-	traceClient.trace.Timestamp = ""
-
-	if err := worker.Work(context.Background(), predictionJob(1)); err != nil {
-		t.Fatalf("Work: %v", err)
-	}
-	if traceClient.nextCalls != 0 {
-		t.Fatalf("next trace calls = %d", traceClient.nextCalls)
-	}
-	if predictor.input.NextUserText != "" {
-		t.Fatalf("next user text = %q", predictor.input.NextUserText)
 	}
 }
 
@@ -352,6 +341,12 @@ func TestEvalJudgePredictionWorkerPermanentTraceFailures(t *testing.T) {
 			name: "foreign deployment",
 			mutate: func(_ *EvalJudgePredictionWorker, trace *fakeEvalJudgeTraceClient) {
 				trace.trace.Tags = []string{"deployment:other"}
+			},
+		},
+		{
+			name: "invalid timestamp",
+			mutate: func(_ *EvalJudgePredictionWorker, trace *fakeEvalJudgeTraceClient) {
+				trace.trace.Timestamp = "not-a-timestamp"
 			},
 		},
 		{

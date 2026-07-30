@@ -79,13 +79,6 @@ func (s *Store) GetPredictionRequests(ctx context.Context, evalDatasetID string,
 	return out, nil
 }
 
-// QueuePredictionRequest inserts queued state or resets terminal state for a
-// new explicit attempt. Active queued and in-progress state is preserved.
-func (s *Store) QueuePredictionRequest(ctx context.Context, evalDatasetID, traceID string) error {
-	_, err := s.QueuePredictionRequests(ctx, evalDatasetID, []string{traceID})
-	return err
-}
-
 // QueuePredictionRequests inserts or requeues current state for a batch and
 // returns the trace IDs whose rows were inserted or reset. Active queued and
 // in-progress rows are preserved and omitted from the result.

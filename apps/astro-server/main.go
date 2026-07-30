@@ -2052,10 +2052,10 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.QueryParam("offset", "Trace offset within the end_time snapshot; must be a multiple of limit", false),
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
-				oapispec.QueryParam("end_time", "RFC3339 snapshot time returned by the first page; required when offset is non-zero", false),
-				oapispec.Response(200, nil),
+				oapispec.QueryParam("prediction", "Prediction filter: good, bad, unknown, or none", false),
+				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
+				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)
 			api.POST(protected, "/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
 				oapispec.Tags("Dataset"),
