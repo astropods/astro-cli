@@ -16,7 +16,7 @@ test("deleted deployment detail shows a not-found state, not a crash", async ({ 
 
   await page.goto(`/${ACCOUNT}/agents/dep-does-not-exist/monitor`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("heading", { name: /deployment not found/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: /agent not found/i })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("link", { name: /back to agents/i })).toBeVisible();
   expect(pageErrors.join("\n")).not.toMatch(/destructure|Cannot read/i);
 });
