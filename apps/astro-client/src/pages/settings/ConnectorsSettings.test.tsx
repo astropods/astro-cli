@@ -28,6 +28,7 @@ function mockSlack(workspaces: Array<{
   team?: string;
   team_domain?: string;
   slack_username?: string;
+  icon?: string;
 }> = []) {
   server.use(
     http.get(`/api/v1/accounts/${ACCOUNT}/slack`, () => HttpResponse.json({ workspaces })),
@@ -42,7 +43,7 @@ describe('ConnectorsSettings', () => {
 
     expect(screen.getByRole('heading', { name: 'Connectors' })).toBeInTheDocument();
     expect(
-      screen.getByText('Connect your Astro account to external services'),
+      screen.getByText('Connect external services to use them across Astro'),
     ).toBeInTheDocument();
   });
 
@@ -64,46 +65,64 @@ describe('ConnectorsSettings', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the GitHub login + org count and kebab menu when connected', async () => {
+  it('shows the GitHub login and kebab menu when connected', async () => {
     mockGitHub({
       status: { connected: true, github_login: 'octocat' },
       orgs: [
-        { login: 'acme', avatar_url: '' },
+        { login: 'acme', avatar_url: 'https://example.com/acme.png' },
         { login: 'globex', avatar_url: '' },
       ],
     });
     mockSlack();
     renderWithProviders(<ConnectorsSettings />);
 
-    expect(await screen.findByText('@octocat')).toBeInTheDocument();
+    await screen.findByText('@octocat');
+    expect(screen.getByText('Connected as').parentElement).toHaveTextContent(
+      'Connected as @octocat',
+    );
+    expect(screen.queryByText('Account')).not.toBeInTheDocument();
     expect(await screen.findByText('acme')).toBeInTheDocument();
 
-    expect(
-      screen.getByText(
-        (_, node) => node?.textContent === 'Connected as @octocat · 2 organizations',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'GitHub options' })).toBeInTheDocument();
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 organizations/)).not.toBeInTheDocument();
+    const optionsButton = screen.getByRole('button', { name: 'GitHub options' });
+    expect(optionsButton).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Connect GitHub' })).not.toBeInTheDocument();
 
     const list = screen.getAllByRole('list')[0];
     const orgItems = within(list).getAllByRole('listitem');
+    expect(orgItems).toHaveLength(2);
     expect(orgItems[0]).toHaveTextContent('acme');
+    expect(orgItems[0].querySelector('img')).toHaveAttribute(
+      'src',
+      'https://example.com/acme.png',
+    );
     expect(orgItems[1]).toHaveTextContent('globex');
+    expect(orgItems[1].querySelector('img')).toBeNull();
+    expect(orgItems[1].querySelector('svg')).toBeInTheDocument();
+    const missingPrompt = screen.getByText('Missing an organization?');
+    expect(missingPrompt).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Request access on GitHub' }),
+    ).toHaveAttribute(
+      'href',
+      'https://github.com/settings/connections/applications',
+    );
   });
 
-  it('shows the "Request access" empty-state row when GitHub is connected with no orgs', async () => {
+  it('shows GitHub access guidance when connected with no orgs', async () => {
     mockGitHub({ status: { connected: true, github_login: 'octocat' }, orgs: [] });
     mockSlack();
     renderWithProviders(<ConnectorsSettings />);
 
-    const links = await screen.findAllByRole('link', { name: 'Request access' });
-    expect(links[0]).toHaveAttribute(
+    const prompt = await screen.findByText(
+      'No organizations have approved Astro yet.',
+    );
+    expect(prompt).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Request access on GitHub' });
+    expect(link).toHaveAttribute(
       'href',
       'https://github.com/settings/connections/applications',
-    );
-    expect(links[0].closest('li')).toHaveTextContent(
-      'No organizations have approved Astro yet. Request access on GitHub.',
     );
   });
 
@@ -121,7 +140,7 @@ describe('ConnectorsSettings', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders Slack workspaces with a per-row icon disconnect button and no copy-user-id button', async () => {
+  it('renders Slack workspace identity and controls', async () => {
     mockGitHub();
     mockSlack([
       {
@@ -129,6 +148,7 @@ describe('ConnectorsSettings', () => {
         slack_user_id: 'U1',
         team: 'Acme Slack',
         slack_username: 'octocat',
+        icon: 'https://example.com/acme-slack.png',
       },
     ]);
     renderWithProviders(<ConnectorsSettings />);
@@ -137,12 +157,18 @@ describe('ConnectorsSettings', () => {
       expect(screen.getByText('Acme Slack')).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: 'Disconnect Acme Slack' })).toBeInTheDocument();
+    expect(screen.getByText('Acme Slack').closest('li')?.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://example.com/acme-slack.png',
+    );
+    const disconnectButton = screen.getByRole('button', { name: 'Disconnect Acme Slack' });
+    expect(disconnectButton).toHaveTextContent('Disconnect');
     expect(screen.queryByRole('button', { name: /copy.*user id/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
     expect(screen.getByText('@octocat')).toBeInTheDocument();
-    expect(screen.getByText(/1 workspace$/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add workspace' })).toBeInTheDocument();
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    expect(screen.getByText('Connected to 1 workspace')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add workspace' })).toBeEnabled();
   });
 
   it('opens the per-workspace remove dialog when the icon disconnect button is clicked', async () => {
@@ -162,16 +188,40 @@ describe('ConnectorsSettings', () => {
     ).toBeInTheDocument();
   });
 
-  it('pluralizes the workspace count for multiple Slack workspaces', async () => {
+  it('shows the Slack workspace count beneath the connector name', async () => {
     mockGitHub();
     mockSlack([
-      { team_id: 'T1', slack_user_id: 'U1', team: 'Acme Slack' },
-      { team_id: 'T2', slack_user_id: 'U1', team: 'Globex Slack' },
+      {
+        team_id: 'T1',
+        slack_user_id: 'U1',
+        team: 'Acme Slack',
+        slack_username: 'octocat',
+      },
+      {
+        team_id: 'T2',
+        slack_user_id: 'U1',
+        team: 'Globex Slack',
+        slack_username: 'globex-admin',
+      },
     ]);
     renderWithProviders(<ConnectorsSettings />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/2 workspaces$/)).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Connected to 2 workspaces')).toBeInTheDocument();
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    expect(screen.getByText('@octocat')).toBeInTheDocument();
+    expect(screen.getByText('@globex-admin')).toBeInTheDocument();
+  });
+
+  it('omits the Slack identity tag when a workspace has no username', async () => {
+    mockGitHub();
+    mockSlack([
+      { team_id: 'T1', slack_user_id: 'U1', team: 'Acme Slack' },
+    ]);
+    renderWithProviders(<ConnectorsSettings />);
+
+    expect(await screen.findByText('Acme Slack')).toBeInTheDocument();
+    expect(screen.getByText('Acme Slack').closest('li')?.querySelector('img')).toBeNull();
+    expect(screen.getByText('Acme Slack').closest('li')?.querySelector('svg')).toBeInTheDocument();
+    expect(screen.queryByText(/^@/)).not.toBeInTheDocument();
   });
 });

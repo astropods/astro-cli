@@ -1958,8 +1958,8 @@ export interface GitHubLinkInput {
 /** One Slack workspace linked to the current user. The pair (team_id,
  *  slack_user_id) is the unique key; the rest are display fields captured
  *  from oauth.v2.access + team.info at link time. `icon` is the
- *  workspace's avatar URL (empty when the workspace uses slack's default
- *  icon — the UI falls back to a generic Slack svg in that case). */
+ *  workspace's avatar URL (empty when the workspace uses Slack's default
+ *  icon — the UI falls back to a generic Lucide building icon in that case). */
 export interface SlackWorkspace {
   team_id: string;
   slack_user_id: string;

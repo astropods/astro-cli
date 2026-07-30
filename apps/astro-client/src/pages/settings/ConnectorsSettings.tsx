@@ -18,9 +18,8 @@ import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 import { Slack } from "@/components/ui/svgs/slack";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { useCleanupOAuthParams } from "@/hooks/use-cleanup-oauth-params";
-import { Link2Off, MoreHorizontal } from "lucide-react";
+import { ArrowUpRight, Building2, Check, MoreHorizontal } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -45,16 +44,30 @@ const GITHUB_DESCRIPTION = "Build and deploy agents directly from your repositor
 const SLACK_DESCRIPTION = "Message agents directly from any connected Slack workspace.";
 const SUPABASE_DESCRIPTION = "Import your Supabase Postgres projects when creating a knowledge store.";
 
+function ConnectedSummary({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="inline-flex size-3 shrink-0 items-center justify-center rounded-full bg-success"
+        aria-hidden
+      >
+        <Check className="size-2.5 stroke-white stroke-[3] dark:stroke-green-950" />
+      </span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
 function RequestAccessLink() {
   return (
     <a
       href={GITHUB_APP_SETTINGS_URL}
       target="_blank"
       rel="noreferrer"
-      // Lighter shade of indigo (400) than `--primary` (600) in dark mode for link contrast.
-      className="text-indigo-700 dark:text-indigo-400 underline-offset-2 hover:underline"
+      className="inline-flex items-center gap-1 text-foreground-accent underline-offset-2 hover:underline"
     >
-      Request access
+      Request access on GitHub
+      <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
     </a>
   );
 }
@@ -110,13 +123,6 @@ function GitHubSection() {
     });
   };
 
-  const description: ReactNode = connected ? (
-    <>
-      Connected as <span className="font-mono">@{login}</span>
-      {!orgsLoading && ` · ${orgs.length} organization${orgs.length !== 1 ? "s" : ""}`}
-    </>
-  ) : GITHUB_DESCRIPTION;
-
   const action = connected ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -151,46 +157,57 @@ function GitHubSection() {
       <ConnectorRow
         icon={<GitHubIcon className="size-6 text-foreground" aria-hidden />}
         name="GitHub"
-        description={description}
+        description={connected ? (
+          <ConnectedSummary>
+            Connected as{" "}
+            <span className="font-semibold text-foreground">@{login}</span>
+          </ConnectedSummary>
+        ) : GITHUB_DESCRIPTION}
         action={action}
         isLoading={isLoading}
+        stackActionOnMobile={!connected}
       >
         {connected && (
-          <ConnectorRowList>
-            {orgsLoading && (
-              <ConnectorRowItem>
-                <div className="h-3.5 w-32 rounded animate-pulse bg-muted" />
-              </ConnectorRowItem>
-            )}
-            {!orgsLoading && orgs.length === 0 && (
-              <ConnectorRowItem>
+          <>
+            {!orgsLoading && orgs.length === 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5 px-4 pb-4 text-body-sm sm:px-5">
                 <span className="text-muted-foreground">
-                  No organizations have approved Astro yet. <RequestAccessLink /> on GitHub.
+                  No organizations have approved Astro yet.
                 </span>
-              </ConnectorRowItem>
-            )}
-            {!orgsLoading && orgs.map((o) => (
-              <ConnectorRowItem key={o.login}>
-                {o.avatar_url ? (
-                  <img
-                    src={o.avatar_url}
-                    alt=""
-                    className="size-3.5 shrink-0 rounded-sm object-cover"
-                  />
-                ) : (
-                  <GitHubIcon className="size-3.5 shrink-0" aria-hidden />
+                <RequestAccessLink />
+              </div>
+            ) : (
+              <>
+                <ConnectorRowList className={!orgsLoading ? "mb-2" : undefined}>
+                  {orgsLoading && (
+                    <ConnectorRowItem>
+                      <div className="h-3.5 w-32 rounded animate-pulse bg-muted" />
+                    </ConnectorRowItem>
+                  )}
+                  {!orgsLoading && orgs.map((o) => (
+                    <ConnectorRowItem key={o.login}>
+                      {o.avatar_url ? (
+                        <img
+                          src={o.avatar_url}
+                          alt=""
+                          className="size-5 shrink-0 rounded object-cover"
+                        />
+                      ) : (
+                        <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      )}
+                      <span className="font-medium text-foreground truncate">{o.login}</span>
+                    </ConnectorRowItem>
+                  ))}
+                </ConnectorRowList>
+                {!orgsLoading && orgs.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 px-4 pb-4 text-body-sm sm:px-5">
+                    <span className="text-muted-foreground">Missing an organization?</span>
+                    <RequestAccessLink />
+                  </div>
                 )}
-                <span className="font-medium text-foreground truncate">{o.login}</span>
-              </ConnectorRowItem>
-            ))}
-            {!orgsLoading && orgs.length > 0 && (
-              <ConnectorRowItem>
-                <span className="text-muted-foreground">
-                  Missing an organization? <RequestAccessLink /> on GitHub.
-                </span>
-              </ConnectorRowItem>
+              </>
             )}
-          </ConnectorRowList>
+          </>
         )}
       </ConnectorRow>
 
@@ -286,32 +303,23 @@ function SlackSection() {
     });
   };
 
-  const description: ReactNode = connected
-    ? `Connected · ${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""}`
-    : SLACK_DESCRIPTION;
-
   const action = connected ? (
-    <div className="flex items-center gap-1">
-      <Button variant="outline" size="sm" disabled={connect.isPending} onClick={handleConnect}>
-        {connect.isPending ? "Opening Slack…" : "Add workspace"}
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Slack options">
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={disconnect.isPending}
-            onClick={() => setPendingDisconnectAll(true)}
-          >
-            {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label="Slack options">
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={disconnect.isPending}
+          onClick={() => setPendingDisconnectAll(true)}
+        >
+          {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   ) : (
     <Button variant="outline" size="sm" aria-label="Connect Slack" disabled={connect.isPending} onClick={handleConnect}>
       {connect.isPending ? "Opening Slack…" : "Connect"}
@@ -329,51 +337,77 @@ function SlackSection() {
       <ConnectorRow
         icon={<Slack className="size-6" aria-hidden />}
         name="Slack"
-        description={description}
+        description={
+          connected
+            ? (
+              <ConnectedSummary>
+                Connected to {workspaces.length} workspace{workspaces.length === 1 ? "" : "s"}
+              </ConnectedSummary>
+            )
+            : SLACK_DESCRIPTION
+        }
         action={action}
         isLoading={isLoading}
+        stackActionOnMobile={!connected}
       >
         {connected && (
-          <ConnectorRowList>
-            {workspaces.map((w) => (
-              <ConnectorRowItem key={w.team_id}>
-                {w.icon ? (
-                  <img
-                    src={w.icon}
-                    alt=""
-                    className="size-3.5 shrink-0 rounded-sm object-cover"
-                  />
-                ) : (
-                  <Slack className="size-3.5 shrink-0" aria-hidden />
-                )}
-                <span className="font-medium text-foreground truncate">
-                  {w.team || w.team_domain || w.team_id}
-                </span>
-                <div className="ml-auto flex items-center gap-2 min-w-0">
-                  {w.slack_username && (
-                    <span className="font-mono text-muted-foreground truncate">@{w.slack_username}</span>
-                  )}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Disconnect ${w.team || w.team_domain || w.team_id}`}
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={disconnect.isPending}
-                          onClick={() => setPendingRemove({ teamId: w.team_id, team: w.team || w.team_domain || w.team_id })}
-                        >
-                          <Link2Off className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Disconnect workspace</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </ConnectorRowItem>
-            ))}
-          </ConnectorRowList>
+          <>
+            <ConnectorRowList className="mb-2">
+              {workspaces.map((w) => (
+                <ConnectorRowItem
+                  key={w.team_id}
+                  className="flex-col items-stretch sm:flex-row sm:items-center"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    {w.icon ? (
+                      <img
+                        src={w.icon}
+                        alt=""
+                        className="size-5 shrink-0 rounded-sm object-cover"
+                      />
+                    ) : (
+                      <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    )}
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                      <div className="max-w-full truncate font-medium text-foreground">
+                        {w.team || w.team_domain || w.team_id}
+                      </div>
+                      {w.slack_username && (
+                        <div className="inline-flex shrink-0 items-baseline gap-1 text-muted-foreground">
+                          <span aria-hidden>·</span>
+                          <span className="text-muted-foreground">@{w.slack_username}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 items-center justify-between gap-2 sm:ml-auto sm:justify-end">
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      aria-label={`Disconnect ${w.team || w.team_domain || w.team_id}`}
+                      className="!border-destructive/40 text-destructive hover:bg-destructive/[0.08] hover:text-destructive active:bg-destructive/15 active:text-destructive"
+                      disabled={disconnect.isPending}
+                      onClick={() => setPendingRemove({ teamId: w.team_id, team: w.team || w.team_domain || w.team_id })}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                </ConnectorRowItem>
+              ))}
+            </ConnectorRowList>
+            <div className="px-4 pb-4 text-body-sm sm:px-5">
+              <Button
+                variant="link"
+                size="xs"
+                className="-ml-2 text-foreground-accent no-underline underline-offset-2 hover:text-foreground-accent hover:underline"
+                disabled={connect.isPending}
+                onClick={handleConnect}
+              >
+                {connect.isPending ? "Opening Slack…" : "Add workspace"}
+                <ArrowUpRight className="size-3.5" aria-hidden />
+              </Button>
+            </div>
+          </>
         )}
       </ConnectorRow>
 
@@ -486,7 +520,7 @@ function SupabaseSection() {
       <ConnectorRow
         icon={<ProviderIcon provider="supabase" className="size-6" />}
         name="Supabase"
-        description={connected ? "Connected" : SUPABASE_DESCRIPTION}
+        description={connected ? <ConnectedSummary>Connected</ConnectedSummary> : SUPABASE_DESCRIPTION}
         action={action}
         isLoading={isLoading}
       />
@@ -513,8 +547,8 @@ function SupabaseSection() {
 export default function ConnectorsSettings() {
   return (
     <>
-      <SectionHeader title="Connectors" subtitle="Connect your Astro account to external services" />
-      <div>
+      <SectionHeader title="Connectors" subtitle="Connect external services to use them across Astro" />
+      <div className="overflow-hidden rounded-lg border border-border bg-surface">
         <GitHubSection />
         <SlackSection />
         <SupabaseSection />
@@ -522,4 +556,3 @@ export default function ConnectorsSettings() {
     </>
   );
 }
-

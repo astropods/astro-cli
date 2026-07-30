@@ -60,12 +60,14 @@ describe('ConnectorRow', () => {
     expect(items[1]).toHaveTextContent('org-two');
   });
 
-  it('does not render an action slot wrapper when no action is provided', () => {
-    const { container } = render(
+  it('renders without an action when none is provided', () => {
+    render(
       <ConnectorRow icon={<svg />} name="GitHub" description="desc" />,
     );
 
-    expect(container.querySelectorAll('.shrink-0')).toHaveLength(1);
+    expect(screen.getByText('GitHub')).toBeInTheDocument();
+    expect(screen.getByText('desc')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
 

@@ -4,32 +4,68 @@ import { cn } from "@/lib/utils";
 interface ConnectorRowProps {
   icon: ReactNode;
   name: string;
-  description: ReactNode;
+  description?: ReactNode;
   action?: ReactNode;
   isLoading?: boolean;
   children?: ReactNode;
+  stackActionOnMobile?: boolean;
 }
 
-export function ConnectorRow({ icon, name, description, action, isLoading, children }: ConnectorRowProps) {
+export function ConnectorRow({
+  icon,
+  name,
+  description,
+  action,
+  isLoading,
+  children,
+  stackActionOnMobile = false,
+}: ConnectorRowProps) {
   return (
     <div className="border-t border-border first:border-t-0">
-      <div className="flex items-center justify-between gap-4 py-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="size-10 shrink-0 flex items-center justify-center rounded-md bg-muted/40">
-            {icon}
-          </div>
-          <div className="min-w-0">
-            {isLoading ? (
-              <div className="h-4 w-32 rounded animate-pulse bg-muted" />
-            ) : (
-              <>
-                <div className="text-body font-medium text-foreground">{name}</div>
-                <div className="text-body-sm text-muted-foreground mt-0.5 truncate">{description}</div>
-              </>
-            )}
-          </div>
+      <div
+        className={cn(
+          "grid min-h-20 items-center gap-x-3.5 gap-y-0.5 px-4 py-4 sm:flex sm:gap-3.5 sm:px-5",
+          stackActionOnMobile
+            ? "grid-cols-[auto_minmax(0,1fr)]"
+            : "grid-cols-[auto_minmax(0,1fr)_auto]",
+        )}
+      >
+        <div className="row-span-2 flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+          {icon}
         </div>
-        {!isLoading && action ? <div className="shrink-0">{action}</div> : null}
+        <div className="contents sm:mr-auto sm:block sm:min-w-0">
+          {isLoading ? (
+            <div className="col-start-2 row-span-2 h-4 w-32 rounded animate-pulse bg-muted" />
+          ) : (
+            <>
+              <div className="col-start-2 row-start-1 text-body font-medium text-foreground">
+                {name}
+              </div>
+              {description ? (
+                <div
+                  className={cn(
+                    "col-start-2 row-start-2 text-body-sm leading-5 text-muted-foreground",
+                    !stackActionOnMobile && "col-end-4",
+                  )}
+                >
+                  {description}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+        {!isLoading && action ? (
+          <div
+            className={cn(
+              "shrink-0",
+              stackActionOnMobile
+                ? "col-span-2 row-start-3 mt-3 w-full sm:mt-0 sm:w-auto [&>*]:w-full sm:[&>*]:w-auto"
+                : "col-start-3 row-start-1 self-start sm:self-center",
+            )}
+          >
+            {action}
+          </div>
+        ) : null}
       </div>
       {children}
     </div>
@@ -38,7 +74,12 @@ export function ConnectorRow({ icon, name, description, action, isLoading, child
 
 export function ConnectorRowList({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <ul className={cn("border-t border-border divide-y divide-border", className)}>
+    <ul
+      className={cn(
+        "mx-4 mb-4 overflow-hidden rounded-sm border border-border bg-popover divide-y divide-border sm:mx-5",
+        className,
+      )}
+    >
       {children}
     </ul>
   );
@@ -46,7 +87,7 @@ export function ConnectorRowList({ children, className }: { children: ReactNode;
 
 export function ConnectorRowItem({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <li className={cn("flex items-center gap-2.5 px-4 py-2.5 text-body-sm", className)}>
+    <li className={cn("flex min-h-10 items-center gap-2.5 px-3 py-2.5 text-body-sm", className)}>
       {children}
     </li>
   );
