@@ -237,6 +237,7 @@ func TestGetTracesFilteredOrdered_QueryParams(t *testing.T) {
 			{Type: "arrayOptions", Column: "tags", Operator: "all of", Value: []string{"deployment:dep-1"}},
 			{Type: "null", Column: "userId", Operator: "is null"},
 		},
+		"core,metrics",
 		100,
 		100,
 		"timestamp.desc",
@@ -249,6 +250,42 @@ func TestGetTracesFilteredOrdered_QueryParams(t *testing.T) {
 	assertParam(t, gotQuery, "fields", "core,metrics")
 	assertParam(t, gotQuery, "orderBy", "timestamp.desc")
 	assertParam(t, gotQuery, "filter", `[{"type":"arrayOptions","column":"tags","operator":"all of","value":["deployment:dep-1"]},{"type":"null","column":"userId","operator":"is null"}]`)
+}
+
+func TestGetTracesFilteredOrdered_CustomFields(t *testing.T) {
+	var gotQuery map[string][]string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TracesResponse{})
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL, "pk", "sk").GetTracesFilteredOrdered(
+		context.Background(),
+		"dep-1",
+		"",
+		"",
+		[]TraceFilter{{
+			Type:     "stringOptions",
+			Column:   "id",
+			Operator: "any of",
+			Value:    []string{"trace-1", "trace-2"},
+		}},
+		"core",
+		2,
+		0,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("GetTracesFilteredOrdered returned error: %v", err)
+	}
+
+	assertParam(t, gotQuery, "limit", "2")
+	assertParam(t, gotQuery, "fields", "core")
+	assertParam(t, gotQuery, "filter", `[{"type":"stringOptions","column":"id","operator":"any of","value":["trace-1","trace-2"]}]`)
+	assertParam(t, gotQuery, "tags", "deployment:dep-1")
 }
 
 func TestGetQueueTraces_QueryParams(t *testing.T) {

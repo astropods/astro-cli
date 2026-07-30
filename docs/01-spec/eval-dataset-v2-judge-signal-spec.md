@@ -325,7 +325,7 @@ Default queue load:
 
 1. `GET /dataset/review-queue` returns queue items sorted by trace recency only.
 2. Include stored prediction results and request lifecycle when available.
-3. The client calls `POST /dataset/predictions` with up to 50 trace IDs that have no completed prediction.
+3. The client calls `POST /dataset/predictions` without a request body. The server selects up to 50 of the most recent unjudged traces without completed predictions.
 4. The POST persists queued state and enqueues one River job per eligible trace, then returns without waiting for generation.
 5. The client refetches the queue to observe queued, in-progress, completed, and failed state without changing default ordering.
 
@@ -383,14 +383,14 @@ Response shape change:
 
 ### `POST /dataset/predictions`
 
-Add an enqueue-only prediction endpoint that accepts at most 50 trace IDs.
+Add a bodyless enqueue-only prediction endpoint that selects at most 50 recent traces.
 
 Flow:
 
-1. Resolve account, deployment, and dataset. Validate ownership and require one to 50 unique, non-empty trace IDs.
-2. Skip traces that are already judged or have a completed prediction.
+1. Resolve account, deployment, and dataset and validate ownership.
+2. Scan recent deployment traces newest-first and select up to 50 with input that are not already judged and do not have a completed prediction.
 3. Create or reset a durable queued request for each remaining trace and enqueue one unique River job per dataset and trace. Re-enqueue attempts also heal a request saved before a process crashed while inserting its job.
-4. Return an empty `201 Created`. Trace loading and model invocation never happen in the request.
+4. Return `202 Accepted` with the enqueued or failed trace IDs. Model invocation never happens in the request.
 
 Each worker handles one prediction. It marks the request in progress and loads and verifies the target trace and its direct feedback context from Langfuse.
 
@@ -453,7 +453,7 @@ Add `internal/evaljudge` with the judge constants, target input assembly, system
 
 ### PR 4 — Queue prediction API
 
-Add durable prediction-request lifecycle, the dedicated eval-judge River queue and worker, and enqueue-only `POST /dataset/predictions` with a 50-ID limit. Each job resolves the target trace context, invokes the judge through Bifrost, stores successful output, and records terminal failure state.
+Add durable prediction-request lifecycle, the dedicated eval-judge River queue and worker, and a bodyless `POST /dataset/predictions` that selects up to 50 recent eligible traces. Each job resolves the target trace context, invokes the judge through Bifrost, stores successful output, and records terminal failure state.
 
 ### PR 5 — Queue read API
 
@@ -461,4 +461,4 @@ Update `GET /dataset/review-queue` to sort by trace recency and include `predict
 
 ### PR 6+ — Client queue experience
 
-After final UI design, update the review queue to request predictions for up to 50 visible rows without stored predictions, refetch lifecycle and results from GET, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence. Remove `sentiment` from the queue response after the client migration is deployed.
+After final UI design, update the review queue to trigger server-selected predictions, refetch lifecycle and results from GET, derive the displayed signal from `prediction.verdict_score`, surface prediction confidence, capped explanation, and predicted criteria scores, and add sort controls for newest, likely good, likely bad, and highest confidence. Remove `sentiment` from the queue response after the client migration is deployed.

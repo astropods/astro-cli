@@ -296,7 +296,7 @@ func GetDatasetReviewQueue(
 			traceIDs = append(traceIDs, t.ID)
 		}
 
-		judged, err := judgmentStore.JudgedTraceIDs(ds.ID, traceIDs)
+		judged, err := judgmentStore.JudgedTraceIDs(c.Request.Context(), ds.ID, traceIDs)
 		if err != nil {
 			log.Error("Failed to load judged ids", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to filter queue"})

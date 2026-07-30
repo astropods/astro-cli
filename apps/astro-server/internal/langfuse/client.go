@@ -247,23 +247,25 @@ func (c *Client) GetUserTracesOrdered(ctx context.Context, deploymentID, userID,
 }
 
 // GetTracesFilteredOrdered returns one trace page using Langfuse's advanced
-// filter contract. Callers supply the complete deployment/time/user filter so
-// multiple predicates on the same field compose instead of replacing legacy
-// query parameters.
+// filter contract and caller-selected field groups.
 func (c *Client) GetTracesFilteredOrdered(
 	ctx context.Context,
 	deploymentID, startTime, endTime string,
 	filters []TraceFilter,
+	fields string,
 	limit, offset int,
 	orderBy string,
 ) (*TracesResponse, error) {
+	if fields == "" {
+		fields = "core,metrics"
+	}
 	return c.getTraces(ctx, traceFilter{
 		deploymentID: deploymentID,
 		startTime:    startTime,
 		endTime:      endTime,
 		limit:        limit,
 		offset:       offset,
-		fields:       "core,metrics",
+		fields:       fields,
 		orderBy:      orderBy,
 		filters:      filters,
 	})

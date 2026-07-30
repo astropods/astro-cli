@@ -3044,6 +3044,7 @@ func loadFilteredTraceCriteria(
 					fetchCtx,
 					deploymentID, startTime, endTime,
 					filters,
+					"core,metrics",
 					limit, offset,
 					orderBy,
 				)
@@ -3168,6 +3169,7 @@ func GetLangfuseTraces(
 					c.Request.Context(),
 					lctx.DeploymentID, startTime, endTime,
 					criteria.upstreamFilters(lctx.DeploymentID, startTime, endTime),
+					"core,metrics",
 					limit, offset, orderBy,
 				)
 			} else if criteria.userID != "" {

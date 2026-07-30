@@ -411,11 +411,11 @@ func replaceReasonsTx(tx *sql.Tx, evalDatasetID, traceID string, reasons []Reaso
 }
 
 // JudgedTraceIDs returns the subset of the input trace_ids that already have a judgment row.
-func (s *Store) JudgedTraceIDs(evalDatasetID string, traceIDs []string) (map[string]bool, error) {
+func (s *Store) JudgedTraceIDs(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]bool, error) {
 	if len(traceIDs) == 0 {
 		return map[string]bool{}, nil
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT trace_id
 		FROM eval_dataset_judgments
 		WHERE eval_dataset_id = $1 AND trace_id = ANY($2)

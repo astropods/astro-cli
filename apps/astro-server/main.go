@@ -606,6 +606,17 @@ func newImagePreflighter(cfg *config.Config) *k8s.ImagePreflighter {
 	return k8s.NewImagePreflighter(localMode)
 }
 
+func loadConfiguredKMSClient(ctx context.Context, keyARN string) (envelope.KMSClient, error) {
+	if keyARN == "" {
+		return nil, nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return kms.NewFromConfig(awsCfg), nil
+}
+
 // runWorker starts the River queue for all background job processing and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
@@ -717,13 +728,9 @@ func runWorker(
 	}
 
 	// Start River queue (handles all periodic workers)
-	var workerKMSClient envelope.KMSClient
-	if cfg.Deployment.KMSKeyARN != "" {
-		if awsCfg, err := awsconfig.LoadDefaultConfig(workerCtx); err != nil {
-			log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
-		} else {
-			workerKMSClient = kms.NewFromConfig(awsCfg)
-		}
+	workerKMSClient, err := loadConfiguredKMSClient(workerCtx, cfg.Deployment.KMSKeyARN)
+	if err != nil {
+		log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
 	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                      db,
@@ -842,30 +849,26 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 	// OTel ingest keys (account-scoped telemetry credential for local coding
 	// tools). At key creation we best-effort ensure the account's Langfuse
-	// project exists so the trace leg has a destination. The provisioner/KMS are
-	// nil when Langfuse isn't configured (dev/test) — key creation still works,
-	// it just skips the project ensure.
+	// project exists so the trace leg has a destination. The provisioner is nil
+	// when its database isn't configured; the KMS client is shared by every API
+	// path that may read encrypted Langfuse credentials.
 	ingestTokenStore := ingesttoken.NewStore(db)
 	var ingestLangfuseProvisioner *langfuse.Provisioner
 	var ingestLangfuseStore *langfuse.Store
-	var ingestKMSClient envelope.KMSClient
+	langfuseKMSClient, err := loadConfiguredKMSClient(context.Background(), cfg.Deployment.KMSKeyARN)
+	if err != nil {
+		log.Warn("AWS config load failed for Langfuse KMS; encrypted credentials will be unavailable", "error", err)
+	}
 	if cfg.Deployment.LangfuseDBURL != "" {
 		if p, err := langfuse.NewProvisioner(cfg.Deployment.LangfuseDBURL, cfg.Deployment.LangfuseSalt, cfg.Deployment.LangfuseOrgID); err != nil {
 			log.Warn("Langfuse provisioner init failed; ingest-key creation will skip project ensure", "error", err)
 		} else {
 			ingestLangfuseProvisioner = p
 			ingestLangfuseStore = langfuse.NewStore(db)
-			if cfg.Deployment.KMSKeyARN != "" {
-				if awsCfg, err := awsconfig.LoadDefaultConfig(context.Background()); err != nil {
-					log.Warn("AWS config load failed for ingest-key KMS; Langfuse project ensure may fail", "error", err)
-				} else {
-					ingestKMSClient = kms.NewFromConfig(awsCfg)
-				}
-			}
 		}
 	}
 	deps.Clients.LangfuseProvisioner = ingestLangfuseProvisioner
-	deps.Clients.KMSClient = ingestKMSClient
+	deps.Clients.KMSClient = langfuseKMSClient
 
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
@@ -1182,7 +1185,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
 				)
-				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, ingestKMSClient, cfg, queue),
+				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, langfuseKMSClient, cfg, queue),
 					oapispec.Tags("Observability"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2053,6 +2056,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
 				oapispec.QueryParam("end_time", "RFC3339 snapshot time returned by the first page; required when offset is non-zero", false),
 				oapispec.Response(200, nil),
+			)
+			api.POST(protected, "/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, &handlers.DatasetPredictionsResponse{}),
+				oapispec.Response(500, &handlers.DatasetPredictionsResponse{}),
 			)
 			api.POST(protected, "/deployments/:id/dataset/judgments", "Submit dataset judgment", handlers.PostDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),

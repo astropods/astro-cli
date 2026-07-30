@@ -285,13 +285,27 @@ func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID, clusterID str
 	return err
 }
 
-// InsertEvalJudgePredictionJob enqueues one eval-dataset prediction target.
-func (q *Queue) InsertEvalJudgePredictionJob(ctx context.Context, evalDatasetID, traceID string) error {
-	_, err := q.Insert(ctx, EvalJudgePredictionArgs{
-		EvalDatasetID: evalDatasetID,
-		TraceID:       traceID,
-	}, nil)
+// InsertEvalJudgePredictionJobs enqueues eval-dataset prediction targets in one
+// River transaction.
+func (q *Queue) InsertEvalJudgePredictionJobs(ctx context.Context, evalDatasetID string, traceIDs []string) error {
+	if len(traceIDs) == 0 {
+		return nil
+	}
+	_, err := q.client.InsertMany(ctx, evalJudgePredictionInsertManyParams(evalDatasetID, traceIDs))
 	return err
+}
+
+func evalJudgePredictionInsertManyParams(evalDatasetID string, traceIDs []string) []river.InsertManyParams {
+	params := make([]river.InsertManyParams, 0, len(traceIDs))
+	for _, traceID := range traceIDs {
+		params = append(params, river.InsertManyParams{
+			Args: EvalJudgePredictionArgs{
+				EvalDatasetID: evalDatasetID,
+				TraceID:       traceID,
+			},
+		})
+	}
+	return params
 }
 
 // InsertBillingSuspend enqueues a billing suspend for an account (scale its

@@ -82,19 +82,44 @@ func (s *Store) GetPredictionRequests(ctx context.Context, evalDatasetID string,
 // QueuePredictionRequest inserts queued state or resets terminal state for a
 // new explicit attempt. Active queued and in-progress state is preserved.
 func (s *Store) QueuePredictionRequest(ctx context.Context, evalDatasetID, traceID string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.QueuePredictionRequests(ctx, evalDatasetID, []string{traceID})
+	return err
+}
+
+// QueuePredictionRequests inserts or requeues current state for a batch and
+// returns the trace IDs whose rows were inserted or reset. Active queued and
+// in-progress rows are preserved and omitted from the result.
+func (s *Store) QueuePredictionRequests(ctx context.Context, evalDatasetID string, traceIDs []string) ([]string, error) {
+	if len(traceIDs) == 0 {
+		return []string{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
 		INSERT INTO eval_dataset_prediction_requests (eval_dataset_id, trace_id)
-		VALUES ($1, $2)
+		SELECT $1, unnest($2::text[])
 		ON CONFLICT (eval_dataset_id, trace_id) DO UPDATE SET
 			status = 'queued',
 			error_message = NULL,
 			updated_at = now()
 		WHERE eval_dataset_prediction_requests.status IN ('completed', 'failed')
-	`, evalDatasetID, traceID)
+		RETURNING trace_id
+	`, evalDatasetID, pq.Array(traceIDs))
 	if err != nil {
-		return fmt.Errorf("judgmentstore queue prediction request: %w", err)
+		return nil, fmt.Errorf("judgmentstore queue prediction requests: %w", err)
 	}
-	return nil
+	defer func() { _ = rows.Close() }()
+
+	queuedTraceIDs := make([]string, 0, len(traceIDs))
+	for rows.Next() {
+		var traceID string
+		if err := rows.Scan(&traceID); err != nil {
+			return nil, fmt.Errorf("judgmentstore queue prediction requests scan: %w", err)
+		}
+		queuedTraceIDs = append(queuedTraceIDs, traceID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("judgmentstore queue prediction requests iter: %w", err)
+	}
+	return queuedTraceIDs, nil
 }
 
 // UpdatePredictionRequest replaces the current lifecycle state and optional
@@ -123,6 +148,32 @@ func (s *Store) UpdatePredictionRequest(
 	}
 	if affected == 0 {
 		return fmt.Errorf("judgmentstore update prediction request: request not found")
+	}
+	return nil
+}
+
+// UpdatePredictionRequests replaces lifecycle state for a batch.
+func (s *Store) UpdatePredictionRequests(
+	ctx context.Context,
+	evalDatasetID string,
+	traceIDs []string,
+	status PredictionRequestStatus,
+	errorMessage *string,
+) error {
+	if len(traceIDs) == 0 {
+		return nil
+	}
+	if !status.Valid() {
+		return fmt.Errorf("judgmentstore update prediction requests: invalid status %q", status)
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE eval_dataset_prediction_requests
+		SET status = $3, error_message = $4, updated_at = now()
+		WHERE eval_dataset_id = $1 AND trace_id = ANY($2)
+	`, evalDatasetID, pq.Array(traceIDs), string(status), errorMessage)
+	if err != nil {
+		return fmt.Errorf("judgmentstore update prediction requests: %w", err)
 	}
 	return nil
 }

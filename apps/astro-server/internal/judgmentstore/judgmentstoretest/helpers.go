@@ -1,10 +1,11 @@
-// Package judgmentstoretest provides sqlmock-based helpers for tests that
-// exercise judgmentstore.Store from other packages. It keeps the judgment and
-// reason query expectations in one place so they stay in sync as the
-// eval_dataset_judgments / eval_dataset_judgment_reasons schema evolves.
+// Package judgmentstoretest provides test doubles and sqlmock helpers for tests
+// that exercise judgment storage from other packages. It keeps shared behavior
+// and query expectations in one place as the judgment schema evolves.
 package judgmentstoretest
 
 import (
+	"context"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 
@@ -80,4 +81,80 @@ func ExpectReplaceReasonsMissing(mock sqlmock.Sqlmock, datasetID, traceID string
 		WithArgs(datasetID, traceID).
 		WillReturnRows(sqlmock.NewRows([]string{"verdict"}))
 	mock.ExpectRollback()
+}
+
+// PredictionRequestUpdate records one batch lifecycle update made through a
+// FakePredictionStore.
+type PredictionRequestUpdate struct {
+	TraceIDs     []string
+	Status       judgmentstore.PredictionRequestStatus
+	ErrorMessage *string
+}
+
+// FakePredictionStore is a deterministic prediction-store implementation for
+// handler tests. PreservedIDs model queued or in-progress rows that a batch
+// queue operation leaves unchanged.
+type FakePredictionStore struct {
+	Judged         map[string]bool
+	Predictions    map[string]judgmentstore.Prediction
+	JudgedErr      error
+	PredictionsErr error
+	QueueErr       error
+	UpdateErr      error
+	BatchTraceIDs  []string
+	PredictionIDs  []string
+	QueuedTraceIDs []string
+	PreservedIDs   map[string]bool
+	Updates        []PredictionRequestUpdate
+}
+
+func (f *FakePredictionStore) JudgedTraceIDs(
+	_ context.Context,
+	_ string,
+	traceIDs []string,
+) (map[string]bool, error) {
+	f.BatchTraceIDs = append([]string(nil), traceIDs...)
+	return f.Judged, f.JudgedErr
+}
+
+func (f *FakePredictionStore) GetPredictions(
+	_ context.Context,
+	_ string,
+	traceIDs []string,
+) (map[string]judgmentstore.Prediction, error) {
+	f.PredictionIDs = append([]string(nil), traceIDs...)
+	return f.Predictions, f.PredictionsErr
+}
+
+func (f *FakePredictionStore) QueuePredictionRequests(
+	_ context.Context,
+	_ string,
+	traceIDs []string,
+) ([]string, error) {
+	f.QueuedTraceIDs = append(f.QueuedTraceIDs, traceIDs...)
+	if f.QueueErr != nil {
+		return nil, f.QueueErr
+	}
+	changed := make([]string, 0, len(traceIDs))
+	for _, traceID := range traceIDs {
+		if !f.PreservedIDs[traceID] {
+			changed = append(changed, traceID)
+		}
+	}
+	return changed, nil
+}
+
+func (f *FakePredictionStore) UpdatePredictionRequests(
+	_ context.Context,
+	_ string,
+	traceIDs []string,
+	status judgmentstore.PredictionRequestStatus,
+	errorMessage *string,
+) error {
+	f.Updates = append(f.Updates, PredictionRequestUpdate{
+		TraceIDs:     append([]string(nil), traceIDs...),
+		Status:       status,
+		ErrorMessage: errorMessage,
+	})
+	return f.UpdateErr
 }
