@@ -19,6 +19,9 @@ type memberEmails interface {
 // *account.AccountStore satisfies it.
 type accountLookup interface {
 	GetFirstMemberUserID(accountID string) (string, error)
+	// DisplayNamesForUsers returns user_id → display name for the given users;
+	// users without a resolvable name are omitted.
+	DisplayNamesForUsers(userIDs []string) (map[string]string, error)
 }
 
 // managerLookup resolves an account's org managers (org:manage — owner + admin)
@@ -67,7 +70,32 @@ func (d *Deliverer) Deliver(ctx context.Context, ev Event) error {
 		return nil
 	}
 
+	d.attachNames(recipients)
+
 	return d.provider.Trigger(ctx, ev.workflowID(), recipients, d.finalizePayload(ev.Payload), ev.transactionID())
+}
+
+// attachNames fills each recipient's display name for the subscriber greeting,
+// in place. Best-effort: a lookup failure logs and leaves names empty rather
+// than failing the send — the alert matters more than the greeting.
+func (d *Deliverer) attachNames(recipients []Recipient) {
+	if d.accounts == nil {
+		return
+	}
+	ids := make([]string, 0, len(recipients))
+	for _, r := range recipients {
+		ids = append(ids, r.UserID)
+	}
+	names, err := d.accounts.DisplayNamesForUsers(ids)
+	if err != nil {
+		if d.log != nil {
+			d.log.Warn("notify: display name lookup failed, sending without names", "error", err)
+		}
+		return
+	}
+	for i := range recipients {
+		recipients[i].Name = names[recipients[i].UserID]
+	}
 }
 
 // finalizePayload returns a copy of the event payload with a relative ctaUrl

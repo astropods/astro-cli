@@ -25,30 +25,40 @@ const (
 	EngineLangfuse Engine = "langfuse" // Langfuse-sourced metrics; not wired yet
 )
 
-// Severity picks which of the two observation workflows a condition triggers:
-// Warning for a degraded-but-running agent, Critical for a failing one. Every
-// condition maps to one; the specific condition rides in the payload `reason`.
+// Severity picks which of the three observation workflows a condition triggers:
+// Info for a healthy agent wasting resources (over-provisioned), Warning for a
+// degraded-but-running agent, Critical for a failing one. Every condition maps
+// to one; the specific condition rides in the payload `reason`.
 type Severity int
 
 const (
-	SeverityWarning Severity = iota
+	SeverityInfo Severity = iota
+	SeverityWarning
 	SeverityCritical
 )
 
 // String is the wire/display name of a severity.
 func (s Severity) String() string {
-	if s == SeverityCritical {
+	switch s {
+	case SeverityCritical:
 		return "critical"
+	case SeverityWarning:
+		return "warning"
+	default:
+		return "info"
 	}
-	return "warning"
 }
 
 // notifyType maps a severity to its Novu workflow / notification type.
 func (s Severity) notifyType() notify.Type {
-	if s == SeverityCritical {
+	switch s {
+	case SeverityCritical:
 		return notify.TypeObservationCritical
+	case SeverityWarning:
+		return notify.TypeObservationWarning
+	default:
+		return notify.TypeObservationInfo
 	}
-	return notify.TypeObservationWarning
 }
 
 // Condition is one alertable resource/health rule. Name is the stable
@@ -86,7 +96,7 @@ var Conditions = []Condition{
 		// single transient backoff doesn't alert.
 		Name:        "crash_loop",
 		Title:       "Crash loop",
-		Description: "A container is stuck restarting in CrashLoopBackOff.",
+		Description: "A container keeps crashing and restarting, and can't stay running.",
 		Severity:    SeverityCritical,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}) > 0`,
@@ -156,7 +166,7 @@ var Conditions = []Condition{
 		Name:        "cpu_over_provisioned",
 		Title:       "CPU over-provisioned",
 		Description: "CPU usage stayed far below its request — consider lowering it.",
-		Severity:    SeverityWarning,
+		Severity:    SeverityInfo,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (rate(container_cpu_usage_seconds_total[1h]) / on (namespace, pod, container) group_left kube_pod_container_resource_requests{resource="cpu"}) < 0.1`,
 		For:         6 * time.Hour,
@@ -167,7 +177,7 @@ var Conditions = []Condition{
 		Name:        "memory_over_provisioned",
 		Title:       "Memory over-provisioned",
 		Description: "Memory usage stayed far below its request — consider lowering it.",
-		Severity:    SeverityWarning,
+		Severity:    SeverityInfo,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (container_memory_working_set_bytes / on (namespace, pod, container) group_left kube_pod_container_resource_requests{resource="memory"}) < 0.4`,
 		For:         6 * time.Hour,

@@ -31,11 +31,13 @@ const (
 
 	TypeSecurityKeyChanged Type = "security.key_changed"
 
-	// All observation conditions collapse to two workflows by severity: a
+	// All observation conditions collapse to three workflows by severity: a
+	// healthy agent wasting resources (over-provisioned) triggers Info, a
 	// degraded-but-running agent triggers Warning, a failing agent triggers
 	// Critical. The specific condition (crash loop, OOM, …) rides in the payload
-	// `reason`, so the two templates render any condition. Keeping two workflows
-	// means two preference toggles, not one per condition.
+	// `reason`, so the three templates render any condition. Keeping three
+	// workflows means three preference toggles, not one per condition.
+	TypeObservationInfo     Type = "observation.info"
 	TypeObservationWarning  Type = "observation.warning"
 	TypeObservationCritical Type = "observation.critical"
 )

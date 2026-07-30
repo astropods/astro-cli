@@ -7,11 +7,13 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/novu"
 )
 
-// Recipient is a resolved audience member: a stable subscriber identity plus
-// the email the email channel needs.
+// Recipient is a resolved audience member: a stable subscriber identity, the
+// email the email channel needs, and a display name for subscriber greetings
+// (may be empty when the user has no resolvable personal profile).
 type Recipient struct {
 	UserID string
 	Email  string
+	Name   string
 }
 
 // Provider delivers a resolved event to the notification backend.
@@ -32,7 +34,7 @@ func NewNovuProvider(client *novu.Client) Provider { return &novuProvider{client
 func (p *novuProvider) Trigger(ctx context.Context, workflowID string, recipients []Recipient, payload map[string]any, transactionID string) error {
 	subs := make([]novu.Subscriber, 0, len(recipients))
 	for _, r := range recipients {
-		subs = append(subs, novu.Subscriber{SubscriberID: r.UserID, Email: r.Email})
+		subs = append(subs, novu.Subscriber{SubscriberID: r.UserID, Email: r.Email, FirstName: r.Name})
 	}
 	return p.client.Trigger(ctx, novu.TriggerRequest{
 		WorkflowID:    workflowID,

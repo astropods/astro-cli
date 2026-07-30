@@ -176,9 +176,9 @@ It is a **lightweight in-process evaluator**, not an embed of `prometheus/promet
 
 **Firing state.** `deployment_alert_state` (deployment_id, workload, condition, active_since, notified) — one row per breaching (deployment, workload, condition); the evaluator resolves each breaching pod to a deployment + workload (the pod's `app.kubernetes.io/component`) before tracking, so the UI can attribute an alert and a redeploy is a distinct episode. `active_since` drives the `for` sustained window; `notified` marks the workload's firing edge as handled. Rows are deleted on resolve (v1 does a **silent resolve**). Per-workload state does **not** multiply mail: the evaluator emits only when a workload fires and no other workload of the same deployment has already notified this condition — one notification per (deployment, condition) episode, its `reason` naming the workload. A per-episode `DedupeKey` (`name:deployment:workload:active_since`) means a re-breach after a resolve is a distinct alert at Novu, not a suppressed duplicate. This is the choke point that keeps observation alerts rare.
 
-**Two workflows by severity.** Conditions do **not** map 1:1 to Novu workflows. Every condition carries a `Severity` (`critical` or `warning`) and collapses to one of two workflows: `observation.critical` ("Agent failing" — crash loop, OOM, unschedulable) or `observation.warning` ("Agent degraded" — restarts, memory/compute pressure, error spikes). The specific condition rides in the payload `reason` (e.g. "Out of memory"), so two shared templates render every condition. This gives the user **two preference toggles**, not one per condition, and adding a condition needs no new workflow. Firing state stays keyed on the granular condition name so two same-severity conditions on one deployment don't collide.
+**Three workflows by severity.** Conditions do **not** map 1:1 to Novu workflows. Every condition carries a `Severity` (`critical`, `warning`, or `info`) and collapses to one of three workflows: `observation.critical` ("Agent failing" — crash loop, OOM, unschedulable), `observation.warning` ("Agent degraded" — restarts, memory/compute pressure, error spikes), or `observation.info` ("Agent over-provisioned" — CPU/memory usage far below request, a cost/waste signal rather than a health problem). The specific condition rides in the payload `reason` (short title, e.g. "Out of memory") plus `details` (a one-line explanation of what happened, e.g. "A container was killed for exceeding its memory limit"), so three shared templates render every condition. This gives the user **three preference toggles**, not one per condition, and adding a condition needs no new workflow. Firing state stays keyed on the granular condition name so two same-severity conditions on one deployment don't collide.
 
-**Emit.** On an edge, the sweep calls `notify.Observation(severity→type, account, agent, deploymentID, title)`, reusing delivery, preferences, and dedupe. `DedupeKey` = condition name + deployment id + firing-since, so a retry/re-run of the sweep cannot double-send.
+**Emit.** On an edge, the sweep calls `notify.Observation(severity→type, account, agent, deploymentID, title, description)`, reusing delivery, preferences, and dedupe. `DedupeKey` = condition name + deployment id + firing-since, so a retry/re-run of the sweep cannot double-send.
 
 **Conditions.** All shipped conditions are VM/Prom (`promql` engine); each maps to a severity workflow.
 
@@ -190,13 +190,13 @@ It is a **lightweight in-process evaluator**, not an embed of `prometheus/promet
 | `restart_storm` | restarts over N in a 5m window | warning → `observation.warning` |
 | `memory_over_budget` | memory util over threshold, sustained (OOM precursor) | warning → `observation.warning` |
 | `compute_over_budget` | CPU at limit / throttled, sustained | warning → `observation.warning` |
-| `cpu_over_provisioned` | CPU usage far below its request, sustained (waste) | warning → `observation.warning` |
-| `memory_over_provisioned` | memory usage far below its request, sustained (waste) | warning → `observation.warning` |
+| `cpu_over_provisioned` | CPU usage far below its request, sustained (waste) | info → `observation.info` |
+| `memory_over_provisioned` | memory usage far below its request, sustained (waste) | info → `observation.info` |
 | `error_spike` *(Langfuse, unshipped)* | error rate over threshold, sustained | warning → `observation.warning` |
 | `latency_high` *(Langfuse, unshipped)* | p95 over threshold, sustained | warning → `observation.warning` |
 | `storage_near_full` *(sidecar, unshipped)* | disk > 85% / 95% | warning → `observation.warning` |
 
-Audience `members`; per-user opt-out applies. Both observation workflows deliver **in-app by default with email off** (opt-in per user), since these can be higher-volume than discrete events. Resolve notifications are in-app only. The eight VM/Prom conditions are implemented; the Langfuse and sidecar rows await their engine/source.
+Audience `members`; per-user opt-out applies. All three observation workflows deliver **in-app by default with email off** (opt-in per user), since these can be higher-volume than discrete events. Resolve notifications are in-app only. The eight VM/Prom conditions are implemented; the Langfuse and sidecar rows await their engine/source.
 
 ---
 
@@ -264,8 +264,9 @@ The member-change template branches on `action` (a Novu conditional block) for t
 
 | Identifier | Critical | Default channels | Payload properties |
 | --- | --- | --- | --- |
-| `observation.critical` | no | in-app (email opt-in) | `agent`, `reason`, `ctaUrl` |
-| `observation.warning` | no | in-app (email opt-in) | `agent`, `reason`, `ctaUrl` |
+| `observation.critical` | no | in-app (email opt-in) | `agent`, `reason`, `details`, `ctaUrl` |
+| `observation.warning` | no | in-app (email opt-in) | `agent`, `reason`, `details`, `ctaUrl` |
+| `observation.info` | no | in-app (email opt-in) | `agent`, `reason`, `details`, `ctaUrl` |
 
 **System**
 

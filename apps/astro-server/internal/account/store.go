@@ -335,6 +335,26 @@ func (s *AccountStore) GetPersonalProfiles(userIDs []string) (map[string]Persona
 	return profiles, nil
 }
 
+// DisplayNamesForUsers returns user_id → personal display name for the given
+// users, for populating notification subscriber names. It prefers the personal
+// display name and falls back to the account handle; users with neither (or no
+// personal account) are omitted.
+func (s *AccountStore) DisplayNamesForUsers(userIDs []string) (map[string]string, error) {
+	profiles, err := s.GetPersonalProfiles(userIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(profiles))
+	for uid, p := range profiles {
+		if name := p.DisplayName; name != "" {
+			out[uid] = name
+		} else if p.Name != "" {
+			out[uid] = p.Name
+		}
+	}
+	return out, nil
+}
+
 // IsMember checks if a user is a member of an account
 func (s *AccountStore) IsMember(accountID, userID string) (bool, error) {
 	var count int

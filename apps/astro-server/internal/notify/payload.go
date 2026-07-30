@@ -9,6 +9,7 @@ const (
 	PayloadAccount = "account"
 	PayloadAgent   = "agent"
 	PayloadReason  = "reason"
+	PayloadDetails = "details"
 	PayloadRole    = "role"
 	PayloadAction  = "action" // e.g. added|role_changed|removed, created|revoked
 	PayloadKeyKind = "keyKind"
@@ -37,8 +38,9 @@ var payloadProps = map[Type][]string{
 
 	TypeSecurityKeyChanged: {PayloadKeyKind, PayloadKeyName, PayloadAction, PayloadCTAURL},
 
-	TypeObservationWarning:  {PayloadAgent, PayloadReason, PayloadCTAURL},
-	TypeObservationCritical: {PayloadAgent, PayloadReason, PayloadCTAURL},
+	TypeObservationInfo:     {PayloadAgent, PayloadReason, PayloadDetails, PayloadCTAURL},
+	TypeObservationWarning:  {PayloadAgent, PayloadReason, PayloadDetails, PayloadCTAURL},
+	TypeObservationCritical: {PayloadAgent, PayloadReason, PayloadDetails, PayloadCTAURL},
 }
 
 // PayloadProperties returns the payload property keys a notification type
@@ -204,17 +206,19 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 // --- Observation (member-addressed) ---
 
 // Observation builds an observation alert for an account's members. t is the
-// severity workflow (TypeObservationWarning or TypeObservationCritical); reason is
-// the human condition title (e.g. "Out of memory") the shared template renders,
-// since both severities cover many conditions. The observation evaluator sets a
-// per-episode DedupeKey so a re-fire after a resolve isn't collapsed with the
-// prior episode at Novu.
-func Observation(t Type, accountID, accountName, agentName, deploymentID, reason string) Event {
+// severity workflow (TypeObservationInfo, TypeObservationWarning, or
+// TypeObservationCritical); reason is the short human condition title (e.g. "Out
+// of memory") and details is a one-line explanation of what happened (e.g. "A
+// container was killed for exceeding its memory limit") that the shared template
+// renders, since each severity covers many conditions. The observation evaluator
+// sets a per-episode DedupeKey so a re-fire after a resolve isn't collapsed with
+// the prior episode at Novu.
+func Observation(t Type, accountID, accountName, agentName, deploymentID, reason, details string) Event {
 	return Event{
 		Type:      t,
 		AccountID: accountID,
 		Audience:  AudienceMembers,
 		EntityID:  deploymentID,
-		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
+		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadDetails: details, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
 	}
 }

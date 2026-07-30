@@ -38,9 +38,23 @@ func (f fakeEmails) EmailsForAccount(_ context.Context, _ string) (map[string]st
 type fakeAccounts struct {
 	ownerID string
 	err     error
+	names   map[string]string // user_id -> display name
 }
 
 func (f fakeAccounts) GetFirstMemberUserID(string) (string, error) { return f.ownerID, f.err }
+
+func (f fakeAccounts) DisplayNamesForUsers(userIDs []string) (map[string]string, error) {
+	if f.names == nil {
+		return map[string]string{}, nil
+	}
+	out := make(map[string]string, len(userIDs))
+	for _, id := range userIDs {
+		if n, ok := f.names[id]; ok {
+			out[id] = n
+		}
+	}
+	return out, nil
+}
 
 func newDeliverer(p Provider, emails fakeEmails, accounts fakeAccounts) *Deliverer {
 	return NewDeliverer(p, emails, accounts, nil, "https://app.example.com", nil)
@@ -68,6 +82,26 @@ func TestDeliverActorResolvesSelf(t *testing.T) {
 	}
 	if len(prov.recipients) != 1 || prov.recipients[0].UserID != "u_actor" || prov.recipients[0].Email != "a@x.com" {
 		t.Fatalf("recipients = %+v, want single actor a@x.com", prov.recipients)
+	}
+}
+
+func TestDeliverAttachesDisplayName(t *testing.T) {
+	prov := &fakeProvider{}
+	emails := fakeEmails{byEmail: map[string]string{"a@x.com": "u_actor"}}
+	accounts := fakeAccounts{names: map[string]string{"u_actor": "Jane Doe"}}
+	d := newDeliverer(prov, emails, accounts)
+
+	err := d.Deliver(context.Background(), Event{
+		Type:        TypeSystemTest,
+		AccountID:   "acct_1",
+		Audience:    AudienceActor,
+		ActorUserID: "u_actor",
+	})
+	if err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if len(prov.recipients) != 1 || prov.recipients[0].Name != "Jane Doe" {
+		t.Fatalf("recipients = %+v, want name Jane Doe attached", prov.recipients)
 	}
 }
 
@@ -219,14 +253,14 @@ func TestAccountWelcomePayload(t *testing.T) {
 }
 
 func TestObservationPayloadDeepLink(t *testing.T) {
-	ev := Observation(TypeObservationCritical, "acct_1", "acme", "my-agent", "dep_9", "Out of memory")
+	ev := Observation(TypeObservationCritical, "acct_1", "acme", "my-agent", "dep_9", "Out of memory", "A container was killed for exceeding its memory limit.")
 	if got := ev.Payload[PayloadCTAURL]; got != "/acme/agents/dep_9/deployments" {
 		t.Fatalf("ctaUrl = %v, want /acme/agents/dep_9/deployments", got)
 	}
 }
 
 func TestObservationPayloadFallsBackWithoutHandle(t *testing.T) {
-	ev := Observation(TypeObservationCritical, "acct_1", "", "my-agent", "dep_9", "Out of memory")
+	ev := Observation(TypeObservationCritical, "acct_1", "", "my-agent", "dep_9", "Out of memory", "A container was killed for exceeding its memory limit.")
 	if got := ev.Payload[PayloadCTAURL]; got != "/agents" {
 		t.Fatalf("ctaUrl = %v, want /agents fallback when handle unknown", got)
 	}

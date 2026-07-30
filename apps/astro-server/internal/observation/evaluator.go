@@ -206,7 +206,7 @@ func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.
 				"error", err, "account_id", dep.AccountID, "deployment", dep.ID)
 		}
 	}
-	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, accountName, dep.AgentName, dep.ID, reason)
+	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, accountName, dep.AgentName, dep.ID, reason, c.Description)
 	// Per-episode dedupe keyed by condition + deployment + workload + window start.
 	ev.DedupeKey = fmt.Sprintf("%s:%s:%s:%d", c.Name, dep.ID, workload, since.Unix())
 	if err := e.emit(ctx, ev); err != nil && e.log != nil {
