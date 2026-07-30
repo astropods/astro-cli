@@ -495,6 +495,12 @@ func SaveNormalizedSpec(
 
 	// --- Knowledge ---
 	for name, knowledge := range ds.Knowledge {
+		// Bound (external) stores have no container — no K8s workload is ever
+		// applied for them (see spec_applier.go), so don't persist an expected
+		// workload row that the status logic would wait on forever.
+		if knowledge.IsBound() {
+			continue
+		}
 		replicas := knowledge.Replicas
 		if replicas == 0 {
 			replicas = 1

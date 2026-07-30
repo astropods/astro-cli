@@ -320,6 +320,69 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 
 }
 
+func TestSaveNormalizedSpec_BoundKnowledge_NoWorkload(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec: "deployment/v1",
+		Source: spec.DeploymentSource{
+			Account: "test-acct", Name: "bound-agent", Build: "build-1", Registry: "r.io",
+		},
+		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: spec.DeploymentAgent{
+			Image:     "r.io/bound-agent:latest",
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Update:    spec.DefaultUpdateStrategy(),
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+		},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			// Bound (external) store: only a binding ARN, no container. No K8s
+			// workload is applied for it, so it must not be persisted as an
+			// expected workload — otherwise deployment status waits on it forever.
+			"writer": {Binding: "arn:aws:managed-store:writer"},
+			// Managed container store: persisted as usual, for contrast.
+			"redis": {
+				Image: "redis:7-alpine", Replicas: 1,
+				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Provider:  "redis",
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
+				Update:    spec.DefaultUpdateStrategy(),
+			},
+		},
+	}
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "bound-agent",
+		DisplayName: "Bound Agent", BuildID: "build-1", Namespace: "ns-bound",
+		SpecJSON: `{"spec":"deployment/v1"}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
+	}
+
+	workloads, err := store.GetWorkloads(d.ID)
+	if err != nil {
+		t.Fatalf("GetWorkloads failed: %v", err)
+	}
+
+	var knowledgeNames []string
+	for _, w := range workloads {
+		if w.ComponentKind == "knowledge" {
+			knowledgeNames = append(knowledgeNames, w.ComponentKey)
+		}
+	}
+	// Only the managed "redis" store should be persisted; the bound "writer"
+	// store must be excluded.
+	if len(knowledgeNames) != 1 || knowledgeNames[0] != "redis" {
+		t.Errorf("expected only 'redis' knowledge workload, got %v", knowledgeNames)
+	}
+}
+
 func TestSaveDeploymentPending_TxFnError_Rollback(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
