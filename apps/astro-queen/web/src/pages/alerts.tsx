@@ -111,13 +111,14 @@ export function AlertsPage() {
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Severity</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">State</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Since</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Last notified</th>
               <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {active?.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-2 py-4 text-center text-muted-foreground">
+                <td colSpan={9} className="px-2 py-4 text-center text-muted-foreground">
                   {search ? "No matching alerts." : "No active alerts. All clear. 🎉"}
                 </td>
               </tr>
@@ -185,6 +186,9 @@ function AlertRow({ alert: a }: { alert: ActiveAlert }) {
       </td>
       <td className="px-2 py-1.5 text-muted-foreground">
         {a.active_since ? formatDateTime(a.active_since) : "—"}
+      </td>
+      <td className="px-2 py-1.5 text-muted-foreground">
+        {a.last_notified ? formatDateTime(a.last_notified) : "—"}
       </td>
       <td className="px-2 py-1.5">
         <div className="flex items-center justify-end gap-1">

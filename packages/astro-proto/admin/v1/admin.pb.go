@@ -1018,6 +1018,7 @@ type ActiveAlert struct {
 	ActiveSince  string `json:"active_since,omitempty"`
 	Muted        bool   `json:"muted,omitempty"`
 	MutedUntil   string `json:"muted_until,omitempty"`
+	LastNotified string `json:"last_notified,omitempty"`
 }
 
 type ListAlertsRequest struct{}

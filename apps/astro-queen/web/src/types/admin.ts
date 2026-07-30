@@ -603,6 +603,7 @@ export interface ActiveAlert {
   active_since?: string;
   muted?: boolean;
   muted_until?: string;
+  last_notified?: string;
 }
 
 export interface ListAlertsResponse {

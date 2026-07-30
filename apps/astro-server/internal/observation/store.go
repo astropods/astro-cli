@@ -51,6 +51,14 @@ type Mute struct {
 	MutedUntil   time.Time
 }
 
+// NotifyRecord is the last time a (deployment, condition) notified, from the
+// daily-cap ledger.
+type NotifyRecord struct {
+	DeploymentID   string
+	Condition      string
+	LastNotifiedAt time.Time
+}
+
 // ForCondition returns every currently-tracked breach for a condition, across
 // all deployments and workloads.
 func (s *Store) ForCondition(ctx context.Context, condition string) ([]Tracked, error) {
@@ -234,6 +242,27 @@ func (s *Store) ListMutes(ctx context.Context, now time.Time) ([]Mute, error) {
 			return nil, fmt.Errorf("observation: scan mute: %w", err)
 		}
 		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ListNotified returns the last-notified timestamp for every (deployment,
+// condition) that has notified at least once — the daily-cap ledger, used to
+// show when an alert last paged.
+func (s *Store) ListNotified(ctx context.Context) ([]NotifyRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT deployment_id, condition, last_notified_at FROM deployment_alert_notifications WHERE last_notified_at IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("observation: list notified: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []NotifyRecord
+	for rows.Next() {
+		var r NotifyRecord
+		if err := rows.Scan(&r.DeploymentID, &r.Condition, &r.LastNotifiedAt); err != nil {
+			return nil, fmt.Errorf("observation: scan notified: %w", err)
+		}
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

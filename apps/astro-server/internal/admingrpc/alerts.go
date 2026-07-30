@@ -48,13 +48,21 @@ func (s *Server) ListAlerts(ctx context.Context, _ *adminv1.ListAlertsRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("list alert mutes: %w", err)
 	}
+	notified, err := s.alertStore.ListNotified(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list alert notifications: %w", err)
+	}
 
-	// Index mutes by (deployment, condition) so we can flag tracked rows and
-	// detect mutes that have no matching breach.
+	// Index mutes and last-notified timestamps by (deployment, condition) so we
+	// can enrich tracked rows and detect mutes that have no matching breach.
 	type muteKey struct{ dep, cond string }
 	muteByKey := make(map[muteKey]time.Time, len(mutes))
 	for _, m := range mutes {
 		muteByKey[muteKey{m.DeploymentID, m.Condition}] = m.MutedUntil
+	}
+	notifiedByKey := make(map[muteKey]time.Time, len(notified))
+	for _, n := range notified {
+		notifiedByKey[muteKey{n.DeploymentID, n.Condition}] = n.LastNotifiedAt
 	}
 
 	// Resolve deployment identity in one pass (id → agent/account).
@@ -96,6 +104,9 @@ func (s *Server) ListAlerts(ctx context.Context, _ *adminv1.ListAlertsRequest) (
 			a.MutedUntil = until.UTC().Format(time.RFC3339)
 			seenMuteKeys[key] = struct{}{}
 		}
+		if last, ok := notifiedByKey[key]; ok {
+			a.LastNotified = last.UTC().Format(time.RFC3339)
+		}
 		active = append(active, a)
 	}
 
@@ -108,7 +119,7 @@ func (s *Server) ListAlerts(ctx context.Context, _ *adminv1.ListAlertsRequest) (
 		}
 		id := depByID[m.DeploymentID]
 		cm := meta[m.Condition]
-		active = append(active, &adminv1.ActiveAlert{
+		row := &adminv1.ActiveAlert{
 			DeploymentID: m.DeploymentID,
 			AgentName:    id.agent,
 			AccountID:    id.accountID,
@@ -119,7 +130,11 @@ func (s *Server) ListAlerts(ctx context.Context, _ *adminv1.ListAlertsRequest) (
 			State:        "ok",
 			Muted:        true,
 			MutedUntil:   m.MutedUntil.UTC().Format(time.RFC3339),
-		})
+		}
+		if last, ok := notifiedByKey[key]; ok {
+			row.LastNotified = last.UTC().Format(time.RFC3339)
+		}
+		active = append(active, row)
 	}
 
 	return &adminv1.ListAlertsResponse{Catalog: catalog, Active: active}, nil

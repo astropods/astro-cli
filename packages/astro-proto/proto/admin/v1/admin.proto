@@ -584,6 +584,7 @@ message ActiveAlert {
   string active_since  = 10; // RFC3339
   bool   muted         = 11;
   string muted_until   = 12; // RFC3339; set while muted
+  string last_notified = 13; // RFC3339; last time this (deployment, condition) paged
 }
 
 message ListAlertsRequest {}
