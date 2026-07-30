@@ -418,8 +418,8 @@ export function useWakeUpDeployment(account: string) {
             ? { ...old, value: 'deploying', reason: 'provisioning' }
             : { value: 'deploying', reason: 'provisioning', details: 'Pods are being provisioned' },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.runtime(variables.deploymentId) });
-      queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('deployments') });
+      invalidateDeploymentLists(queryClient, account);
+      invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
 }

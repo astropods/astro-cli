@@ -311,6 +311,26 @@ describe('useWakeUpDeployment', () => {
       details: 'Pods are being provisioned',
     });
   });
+
+  it('invalidates the deployment record so the toggle and pod tiles reconcile off the stale paused status', async () => {
+    server.use(
+      http.post('/api/v1/deployments/:id/wakeup', () =>
+        HttpResponse.json({ status: 'pending', deployment_id: 'dep-code-reviewer' }),
+      ),
+    );
+
+    const { wrapper, queryClient } = createHookWrapper();
+    queryClient.setQueryData(deploymentKeys.detail('dep-code-reviewer'), { deployment: mockDeployments.deployments[0] });
+
+    const { result } = renderHook(() => useWakeUpDeployment(testAccount), { wrapper });
+
+    result.current.mutate({ deploymentId: 'dep-code-reviewer' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const detailState = queryClient.getQueryState(deploymentKeys.detail('dep-code-reviewer'));
+    expect(detailState?.isInvalidated).toBe(true);
+  });
 });
 
 describe('statusRefetchInterval', () => {
