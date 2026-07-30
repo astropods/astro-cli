@@ -196,3 +196,9 @@ export const knowledgeKeys = {
   logs: (account: string, name: string, timeRange: string) => ['knowledge', account, name, 'logs', timeRange] as const,
   metrics: (account: string, name: string) => ['knowledge', account, name, 'metrics'] as const,
 };
+
+export const supabaseKeys = {
+  status: (account: string) => ['supabase', account, 'status'] as const,
+  projects: (account: string) => ['supabase', account, 'projects'] as const,
+  projectHealth: (account: string, ref: string) => ['supabase', account, 'projects', ref, 'health'] as const,
+};

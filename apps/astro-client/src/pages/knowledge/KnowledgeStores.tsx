@@ -36,6 +36,7 @@ import {
   isTransitionalStatus,
   statusLabel,
   PROVIDER_LABELS,
+  displayProvider,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
@@ -189,8 +190,8 @@ export default function KnowledgeStores() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <span className="inline-flex items-center gap-2">
-                      <ProviderIcon provider={store.provider} className="size-4" />
-                      {PROVIDER_LABELS[store.provider] ?? store.provider}
+                      <ProviderIcon provider={displayProvider(store)} className="size-4" />
+                      {PROVIDER_LABELS[displayProvider(store)] ?? store.provider}
                     </span>
                   </TableCell>
                   <TableCell>

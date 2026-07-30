@@ -65,7 +65,7 @@ func externalStoreRowWithKey(id, name string, key []byte) *sqlmock.Rows {
 	return sqlmock.NewRows(knowledgeColumns).AddRow(
 		id, testAccount().ID, name, "arn:knowledge:acme:"+name,
 		"postgres", "external", "ready", "10Gi", nil,
-		false, nil, key, nil, nil, now, now,
+		false, nil, key, nil, nil, nil, now, now,
 	)
 }
 

@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	awskms "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
@@ -44,22 +42,23 @@ type KnowledgeReconcileWorker struct {
 	log      *logger.Logger
 	billing  *metering.BillingStateManager
 
-	// kmsClient is optional; when nil it's built from the default AWS config.
-	// Tests inject a fake to exercise credential rewriting without real KMS.
+	// localMode selects the credential KMS backend: the local dev backend when
+	// ENVIRONMENT == "local", real AWS KMS otherwise. Same choice as the handlers.
+	localMode bool
+
+	// kmsClient is a test-only override; when nil the backend is chosen from
+	// localMode. Tests inject a fake to exercise credential rewriting.
 	kmsClient envelope.KMSClient
 }
 
-// kmsClientFor returns the worker's injected KMS client, or builds one from the
-// default AWS config.
+// kmsClientFor returns the injected KMS client (tests) or the env-selected
+// backend (local dev vs real AWS KMS). Selection is by environment, never by
+// the stored key ARN.
 func (w *KnowledgeReconcileWorker) kmsClientFor(ctx context.Context) (envelope.KMSClient, error) {
 	if w.kmsClient != nil {
 		return w.kmsClient, nil
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
-	}
-	return awskms.NewFromConfig(awsCfg), nil
+	return knowledgestore.KMSBackend(ctx, w.localMode)
 }
 
 // Knowledge rows do not yet carry per-cluster routing; StatefulSet, LB, and
@@ -145,8 +144,6 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context, k8sClient 
 		return
 	}
 
-	// Load KMS client once — only if any store actually needs secret recovery.
-	var kmsClient *awskms.Client
 	for _, ks := range stores {
 		secretName := k8s.KnowledgeSecretName(ks.ID)
 		exists, err := k8s.SecretExists(ctx, k8sClient, ks.AccountID, secretName)
@@ -172,12 +169,10 @@ func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context, k8sClient 
 			continue
 		}
 
-		if kmsClient == nil {
-			kmsClient, err = loadKMSClient(ctx)
-			if err != nil {
-				w.log.Error("KnowledgeReconcile: failed to load KMS client", "error", err)
-				return
-			}
+		kmsClient, err := w.kmsClientFor(ctx)
+		if err != nil {
+			w.log.Error("KnowledgeReconcile: failed to init KMS backend", "error", err)
+			return
 		}
 
 		plainCreds, decErr := knowledgestore.DecryptCredentials(ctx, kmsClient, ks.EncryptedDataKey, creds)
@@ -328,13 +323,4 @@ func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg stri
 	if err := w.ksStore.SetError(storeID, errMsg); err != nil {
 		w.log.Error("KnowledgeReconcile: failed to record store error", "error", err, "store_id", storeID)
 	}
-}
-
-// loadKMSClient loads the default AWS config and returns a KMS client.
-func loadKMSClient(ctx context.Context) (*awskms.Client, error) {
-	cfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
-	}
-	return awskms.NewFromConfig(cfg), nil
 }

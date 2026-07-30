@@ -1,15 +1,17 @@
-import { useState, useMemo, useCallback, useReducer, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
-import { CheckIcon, ExclamationTriangleIcon, GlobeAltIcon, InformationCircleIcon, LockClosedIcon, Square2StackIcon } from "@heroicons/react/24/outline";
+import { useState, useMemo, useCallback, useEffect, useReducer, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { ArrowUpRightIcon, CheckIcon, ExclamationTriangleIcon, EyeIcon, EyeSlashIcon, GlobeAltIcon, InformationCircleIcon, LockClosedIcon, ServerStackIcon, Square2StackIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { useConnectKnowledgeStore } from "@/api/queries/knowledge";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { useSupabaseConnect, useSupabaseProjects, useSupabaseDisconnect } from "@/api/queries/supabase";
 import {
   validateStoreName,
   PROVIDER_FIELDS,
@@ -17,7 +19,7 @@ import {
   PROVIDER_LABELS,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
-import type { KnowledgeProvider, KnowledgeStore } from "@/lib/api";
+import { ApiRequestError, type KnowledgeProvider, type KnowledgeStore, type SupabaseProject } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Tag } from "@/components/Tag";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -43,6 +45,12 @@ export function ConfigureForm({
   const { setCreateDefault } = useActiveAccount();
   const [formState, dispatch] = useReducer((_: FormState, next: FormState) => next, { step: "form" });
 
+  // Supabase is a first-class provider card, but a Supabase store is a plain
+  // PostgreSQL store under the hood — the OAuth flow only auto-imports the
+  // project's host/port/database/username. The store is created as "postgres".
+  const isSupabase = provider === "supabase";
+  const submitProvider: KnowledgeProvider = isSupabase ? "postgres" : provider;
+
   const [name, setName] = useState("");
   const initialConnectionFields = {
     privateLink: false,
@@ -57,6 +65,62 @@ export function ConfigureForm({
   const [connectionFields, setConnectionFields] = useState(initialConnectionFields);
 
   const connect = useConnectKnowledgeStore(account);
+
+  // ── Supabase OAuth state ────────────────────────────────────────────────────
+  // The projects query doubles as the connection check: a "supabase_not_connected"
+  // 422 means the account still needs to run the OAuth flow. That keeps the whole
+  // section driven by one query — no separate status flag to keep in sync.
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Capture the OAuth error once: the effect below strips it from the URL, so
+  // reading it live would make the error banner vanish after a single render.
+  const [supabaseErrorParam] = useState(() => searchParams.get("supabase_error"));
+  const [selectedProject, setSelectedProject] = useState<SupabaseProject | null>(null);
+
+  const supabaseConnect = useSupabaseConnect(account);
+  const supabaseDisconnect = useSupabaseDisconnect(account);
+  const supabaseProjects = useSupabaseProjects(account, { enabled: isSupabase });
+  const supabaseNotConnected =
+    supabaseProjects.error instanceof ApiRequestError &&
+    supabaseProjects.error.code === "supabase_not_connected";
+
+  // Strip the OAuth return params once, so a refresh doesn't re-show the banner.
+  useEffect(() => {
+    if (!searchParams.has("supabase_connected") && !searchParams.has("supabase_error")) return;
+    setSearchParams(
+      (p) => { p.delete("supabase_connected"); p.delete("supabase_error"); return p; },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams]);
+
+  function handleSupabaseConnect() {
+    supabaseConnect.mutate("/knowledge/new?provider=supabase", {
+      onSuccess: (data) => {
+        // A redirect_url starts the OAuth dance; otherwise the account is already
+        // connected server-side and we just need to (re)load the project list.
+        if (data.redirect_url) window.location.href = data.redirect_url;
+        else void supabaseProjects.refetch();
+      },
+    });
+  }
+
+  function handleSupabaseProjectSelect(p: SupabaseProject | null) {
+    setSelectedProject(p);
+    setConnectionFields((f) => ({
+      ...f,
+      host: p ? `db.${p.id}.supabase.co` : "",
+      port: p ? "5432" : String(PROVIDER_PORTS[provider] ?? ""),
+      database: p ? "postgres" : "",
+      username: p ? "postgres" : "",
+    }));
+  }
+
+  function handleSupabaseDisconnect() {
+    // The disconnect hook clears the projects cache; the still-mounted query then
+    // refetches and 422s back to the connect prompt. We just reset the selection.
+    supabaseDisconnect.mutate(undefined, {
+      onSuccess: () => handleSupabaseProjectSelect(null),
+    });
+  }
 
   const nameError = validateStoreName(name);
   const fields = useMemo(() => PROVIDER_FIELDS[provider], [provider]);
@@ -75,9 +139,9 @@ export function ConfigureForm({
     name &&
     !nameError &&
     !connect.isPending &&
-    host &&
-    !hostError &&
-    (!needsPort || port);
+    (isSupabase
+      ? !!selectedProject && !!connectionFields.password
+      : host && !hostError && (!needsPort || port));
 
   function onMutationSuccess(store: KnowledgeStore) {
     setCreateDefault(account);
@@ -106,7 +170,7 @@ export function ConfigureForm({
     connect.mutate(
       {
         name,
-        provider,
+        provider: submitProvider,
         host: h,
         port: p ? Number(p) : undefined,
         database: fields.includes("database") ? database || undefined : undefined,
@@ -115,6 +179,17 @@ export function ConfigureForm({
         api_key: fields.includes("api_key") ? apiKey || undefined : undefined,
         private_link: pl || undefined,
         skip_health_check: (!pl && skipHealthCheck) || undefined,
+        // Mark the Supabase origin; the server composes the store annotations
+        // from this (the store is created as plain "postgres").
+        supabase_project:
+          isSupabase && selectedProject
+            ? {
+                id: selectedProject.id,
+                name: selectedProject.name,
+                region: selectedProject.region,
+                organization_id: selectedProject.organization_id,
+              }
+            : undefined,
       },
       { onSuccess: onMutationSuccess, onError: () => dispatch({ step: "form" }) },
     );
@@ -222,13 +297,49 @@ export function ConfigureForm({
     );
   }
 
+  const supabaseSectionProps = {
+    notConnected: supabaseNotConnected,
+    loading: supabaseProjects.isLoading,
+    loadError: supabaseProjects.isError && !supabaseNotConnected,
+    projects: supabaseProjects.data?.projects,
+    selectedProject,
+    connecting: supabaseConnect.isPending,
+    disconnecting: supabaseDisconnect.isPending,
+    connectError: supabaseErrorParam ?? (supabaseConnect.isError ? "connect_failed" : undefined),
+    password: connectionFields.password,
+    onPasswordChange: (v: string) => setConnectionFields((f) => ({ ...f, password: v })),
+    onConnect: handleSupabaseConnect,
+    onProjectSelect: handleSupabaseProjectSelect,
+    onDisconnect: handleSupabaseDisconnect,
+    onRetry: () => void supabaseProjects.refetch(),
+  };
+
+  // Before the OAuth handshake there is nothing to name or configure yet, so the
+  // Supabase provider shows a focused connect card in place of the full form.
+  if (isSupabase && supabaseNotConnected) {
+    return (
+      <div className="mx-auto max-w-xl">
+        <FormSection
+          title="Connection"
+          description="Import a project from your Supabase account. Credentials are encrypted and stored securely."
+        >
+          <SupabaseConnectionSection {...supabaseSectionProps} />
+        </FormSection>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-xl">
       <form onSubmit={handleSubmit}>
         <div className="space-y-12">
           <FormSection
             title="Connection"
-            description="Connect your own database. Credentials are encrypted at rest."
+            description={
+              isSupabase
+                ? "Import a project from your Supabase account. Credentials are encrypted and stored securely."
+                : "Connect your own database. Your credentials are encrypted and stored securely."
+            }
           >
             <div className="space-y-5">
               <div>
@@ -244,6 +355,10 @@ export function ConfigureForm({
                 {name && nameError && <p className="mt-1 text-xs text-destructive">{nameError}</p>}
               </div>
 
+              {isSupabase && <SupabaseConnectionSection {...supabaseSectionProps} />}
+
+              {!isSupabase && (
+              <>
               <div className="space-y-2" role="radiogroup" aria-label="Connection path">
                 <KnowledgeFormRadioRow
                   selected={!privateLink}
@@ -383,6 +498,8 @@ export function ConfigureForm({
                   />
                 </div>
               )}
+              </>
+              )}
             </div>
           </FormSection>
         </div>
@@ -405,6 +522,224 @@ export function ConfigureForm({
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// We can't reliably deep-link to the org-scoped new-project form (the dashboard
+// slug isn't derivable when the user has no projects yet), so we just open the
+// Supabase dashboard and let the user create the project there.
+const SUPABASE_DASHBOARD_URL = "https://supabase.com/dashboard";
+
+function SupabaseDashboardLink({ withPrefix = false }: { withPrefix?: boolean }) {
+  return (
+    <p className="mt-3 text-[12px] text-muted-foreground">
+      {withPrefix ? "Don't see your project? " : null}
+      <a
+        href={SUPABASE_DASHBOARD_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline"
+      >
+        {withPrefix ? "Create a new project in Supabase" : "Or create new project in Supabase"}
+        <ArrowUpRightIcon className="size-3" />
+      </a>
+    </p>
+  );
+}
+
+export function SupabaseConnectionSection({
+  notConnected,
+  loading,
+  loadError,
+  projects,
+  selectedProject,
+  connecting,
+  disconnecting,
+  connectError,
+  password,
+  onPasswordChange,
+  onConnect,
+  onProjectSelect,
+  onDisconnect,
+  onRetry,
+}: {
+  notConnected: boolean;
+  loading: boolean;
+  loadError: boolean;
+  projects?: SupabaseProject[];
+  selectedProject: SupabaseProject | null;
+  connecting: boolean;
+  disconnecting: boolean;
+  connectError?: string;
+  password: string;
+  onPasswordChange: (v: string) => void;
+  onConnect: () => void;
+  onProjectSelect: (p: SupabaseProject | null) => void;
+  onDisconnect: () => void;
+  onRetry: () => void;
+}) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <div className="@container overflow-hidden rounded-[8px] border border-border dark:border-border-strong bg-secondary/50">
+      {notConnected ? (
+        <>
+          <div className="space-y-2.5 p-4">
+            <Button type="button" onClick={onConnect} disabled={connecting} className="w-full">
+              {connecting ? (
+                <Spinner size={16} />
+              ) : (
+                <ProviderIcon provider="supabase" className="size-4 text-primary-foreground dark:text-primary-foreground" />
+              )}
+              Connect Supabase
+            </Button>
+            <div className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
+              <LockClosedIcon className="mt-[1px] size-3.5 shrink-0" aria-hidden />
+              <span>You'll be redirected to Supabase to authorize access.</span>
+            </div>
+            {connectError && (
+              <p className="text-[12px] text-destructive">
+                {connectError === "invalid_state" || connectError === "token_exchange_failed"
+                  ? "Authorization failed. Please try again."
+                  : "Couldn't connect to Supabase. Please try again."}
+              </p>
+            )}
+          </div>
+          <div className="border-t border-border-strong/60 p-4">
+            <p className="text-[12px] text-muted-foreground">
+              No Supabase account?{" "}
+              <a
+                href="https://supabase.com/dashboard/sign-up"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                Sign up
+                <ArrowUpRightIcon className="size-3" />
+              </a>
+            </p>
+          </div>
+        </>
+      ) : loading ? (
+        <div className="flex items-center gap-2 p-4 text-[12px] text-muted-foreground">
+          <Spinner size={12} />
+          <span>Loading projects…</span>
+        </div>
+      ) : loadError ? (
+        <div className="flex items-center justify-between gap-3 p-4">
+          <p className="text-[12px] text-destructive">Couldn't load your Supabase projects.</p>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>Try again</Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col items-start gap-3 p-4 @sm:flex-row @sm:items-center @sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-success/10">
+                <ProviderIcon provider="supabase" className="size-6" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-semibold text-foreground">Supabase</p>
+                <div className="mt-0.5 flex items-center gap-1.5 text-[12px]">
+                  <span className="size-1.5 shrink-0 rounded-full bg-success" aria-hidden />
+                  <span className="font-medium text-success">Connected</span>
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={onDisconnect}
+              disabled={disconnecting}
+              className="shrink-0"
+            >
+              Disconnect
+            </Button>
+          </div>
+
+          {projects && projects.length > 0 ? (
+            <>
+              <div className="space-y-4 border-t border-border-strong/60 p-4">
+                <div>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <Label size="md" className="mb-0">Project</Label>
+                    <a
+                      href={SUPABASE_DASHBOARD_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      Create new project
+                      <ArrowUpRightIcon className="size-3" />
+                    </a>
+                  </div>
+                  <Select
+                    value={selectedProject?.id ?? ""}
+                    onValueChange={(id) => onProjectSelect(projects.find((pr) => pr.id === id) ?? null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          <span className="inline-flex items-center gap-2">
+                            <span className="font-medium">{p.name}</span>
+                            <Tag>{p.region}</Tag>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedProject && (
+                  <div>
+                    <Label htmlFor="ks-supabase-pass" size="md">Database password</Label>
+                    <div className="relative">
+                      <Input
+                        id="ks-supabase-pass"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => onPasswordChange(e.target.value)}
+                        autoComplete="new-password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {showPassword ? <EyeSlashIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-[12px] text-muted-foreground">
+                      Find this in your Supabase dashboard under Project Settings → Database.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {selectedProject && (
+                <div className="flex items-center gap-2 border-t border-border-strong/60 bg-background/40 px-4 py-2.5 text-[12px]">
+                  <ServerStackIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="text-muted-foreground">Host</span>
+                  <span className="truncate font-mono text-foreground">
+                    db.{selectedProject.id}.supabase.co:5432
+                  </span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2 border-t border-border-strong/60 p-4">
+              <p className="text-[12px] text-muted-foreground">No projects found in your Supabase account.</p>
+              <SupabaseDashboardLink withPrefix />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

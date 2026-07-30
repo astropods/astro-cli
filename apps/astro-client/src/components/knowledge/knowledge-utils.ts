@@ -1,6 +1,45 @@
 import type { KnowledgeProvider, KnowledgeStatus } from "@/lib/api";
 import type { StatusBadgeColor } from "@/components/StatusBadge";
 
+/**
+ * A Supabase store is created as a plain "postgres" store; its Supabase origin
+ * lives only in annotations.source. For display we surface that origin so the
+ * store shows the Supabase icon/label instead of generic Postgres.
+ */
+export function displayProvider(store: {
+  provider: KnowledgeProvider;
+  annotations?: Record<string, string>;
+}): KnowledgeProvider {
+  return store.annotations?.source === "supabase" ? "supabase" : store.provider;
+}
+
+/**
+ * Maps a Supabase service status (e.g. "ACTIVE_HEALTHY") to a human-friendly
+ * label. Unknown statuses are humanized (ACTIVE_HEALTHY → "Active healthy");
+ * when no status is present, falls back to the boolean healthy flag.
+ */
+const SUPABASE_HEALTH_LABELS: Record<string, string> = {
+  ACTIVE_HEALTHY: "Healthy",
+  ACTIVE_UNHEALTHY: "Unhealthy",
+  UNHEALTHY: "Unhealthy",
+  COMING_UP: "Starting",
+  INIT_READ_REPLICA: "Starting",
+  RESTORING: "Restoring",
+  RESTARTING: "Restarting",
+  PAUSING: "Pausing",
+  PAUSED: "Paused",
+  INACTIVE: "Inactive",
+};
+
+export function supabaseHealthLabel(status?: string, healthy?: boolean): string {
+  if (status) {
+    if (SUPABASE_HEALTH_LABELS[status]) return SUPABASE_HEALTH_LABELS[status];
+    const words = status.replace(/_/g, " ").toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  return healthy ? "Healthy" : "Unhealthy";
+}
+
 export const PROVIDER_LABELS: Record<KnowledgeProvider, string> = {
   postgres: "PostgreSQL",
   qdrant: "Qdrant",
@@ -8,6 +47,7 @@ export const PROVIDER_LABELS: Record<KnowledgeProvider, string> = {
   neo4j: "Neo4j",
   pinecone: "Pinecone",
   mysql: "MySQL",
+  supabase: "Supabase",
 };
 
 export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
@@ -17,6 +57,7 @@ export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
   neo4j: 7687, // Bolt port — drivers use Bolt, not HTTP (7474)
   pinecone: null, // no port field
   mysql: 3306,
+  supabase: 5432, // Supabase is PostgreSQL
 };
 
 // Only providers available for new store creation.
@@ -24,7 +65,7 @@ export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
 // MySQL is external-only for now — managed provisioning is not yet wired up.
 // Qdrant is disabled for now — will be re-enabled later.
 export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis", "neo4j"];
-export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "mysql", "redis", "neo4j", "pinecone"];
+export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "supabase", "mysql", "redis", "neo4j", "pinecone"];
 
 /** Which credential fields to show for each provider in the connect dialog. */
 export const PROVIDER_FIELDS: Record<KnowledgeProvider, string[]> = {
@@ -34,6 +75,9 @@ export const PROVIDER_FIELDS: Record<KnowledgeProvider, string[]> = {
   neo4j: ["host", "port", "username", "password"],
   qdrant: ["host", "port", "api_key"],
   pinecone: ["host", "api_key"],
+  // Supabase connects as PostgreSQL; host/port/database/username are auto-filled
+  // from the selected project, the user supplies only the database password.
+  supabase: ["host", "port", "database", "username", "password"],
 };
 
 export function statusToColor(status: KnowledgeStatus): StatusBadgeColor {
@@ -91,10 +135,11 @@ export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
   neo4j: "Graph database",
   pinecone: "Vector search",
   mysql: "Relational",
+  supabase: "Managed Postgres",
 };
 
 /** Providers available for new store creation. To enable a provider, add it here. */
-export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "mysql", "redis", "neo4j", "pinecone"];
+export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "supabase", "mysql", "redis", "neo4j", "pinecone"];
 export const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
 
 export const STORAGE_OPTIONS: { value: string; label: string }[] = [

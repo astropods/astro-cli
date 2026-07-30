@@ -1458,7 +1458,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("name", "Store name"),
 					oapispec.Response(200, nil),
 				)
-				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}),
+				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}, cfg.Deployment.IsLocal()),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2331,6 +2331,60 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 		}
 
+		// Account-scoped Supabase OAuth routes. Used to auto-import a user's
+		// Supabase projects when connecting a Supabase (PostgreSQL) knowledge
+		// store. OAuth is brokered by WorkOS Pipes as a custom provider — WorkOS
+		// stores and refreshes the tokens; we only ever hold a short-lived access
+		// token to call the Supabase API.
+		supabaseCfg := handlers.SupabaseHandlerConfig{
+			WebhookBaseURL: cfg.Auth.FrontendURL,
+			FrontendURL:    cfg.Auth.FrontendURL,
+		}
+		accountSupabaseRoutes := protected.Group("/accounts/:account")
+		accountSupabaseRoutes.Use(middleware.ResolveAccount(accountStore))
+		accountSupabaseRoutes.Use(middleware.RequireAccountMember(accountStore))
+		{
+			api.POST(accountSupabaseRoutes, "/supabase/connect", "Start Supabase OAuth flow",
+				handlers.SupabaseConnect(log, pipesClient, supabaseCfg),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.GET(accountSupabaseRoutes, "/supabase/status", "Get Supabase connection status",
+				handlers.SupabaseStatus(log, pipesClient),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.GET(accountSupabaseRoutes, "/supabase/projects", "List Supabase projects",
+				handlers.SupabaseListProjects(log, pipesClient),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.GET(accountSupabaseRoutes, "/supabase/projects/:ref/health", "Get Supabase project health",
+				handlers.SupabaseProjectHealth(log, pipesClient),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			api.DELETE(accountSupabaseRoutes, "/supabase", "Disconnect Supabase",
+				handlers.SupabaseDisconnect(log, pipesClient),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+			// WorkOS returns the browser here after OAuth; the handler confirms
+			// the token and bounces to the frontend. Authenticated + account-scoped
+			// like the GitHub callback (the session cookie rides the redirect).
+			api.GET(accountSupabaseRoutes, "/supabase/callback", "Supabase OAuth callback",
+				handlers.SupabaseCallback(log, pipesClient, supabaseCfg),
+				oapispec.Tags("Supabase"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+			)
+		}
+
 		// GitHub webhook receiver (no auth — HMAC verified inside handler)
 		router.POST("/webhooks/github", handlers.GitHubWebhook(log, ghStore, webhookStore, queue))
 
@@ -2375,7 +2429,7 @@ func startAdminGRPCServer(
 
 	var opts []grpc.ServerOption
 	if creds == nil {
-		if cfg.Deployment.Environment != "local" {
+		if !cfg.Deployment.IsLocal() {
 			log.Warn("Admin gRPC disabled — mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
 			return nil, nil
 		}

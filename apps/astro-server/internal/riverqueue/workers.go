@@ -434,10 +434,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
 	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
-		ksStore:  ksStoreForWorkers,
-		registry: cfg.K8sRegistry,
-		log:      cfg.Logger,
-		billing:  billing,
+		ksStore:   ksStoreForWorkers,
+		registry:  cfg.K8sRegistry,
+		log:       cfg.Logger,
+		billing:   billing,
+		localMode: cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.IsLocal(),
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 

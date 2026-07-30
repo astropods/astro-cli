@@ -13,6 +13,7 @@ import (
 
 	"database/sql"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
@@ -28,7 +29,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
-	spec "github.com/astropods/astro-spec"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -46,18 +46,20 @@ type encryptedCredentials struct {
 	KMSKeyARN   string
 }
 
-// encryptKnowledgeCreds encrypts a set of plaintext credentials using KMS envelope
-// encryption. Returns nil if kmsKeyARN is empty (KMS not configured).
-func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN string, creds map[string]string) (*encryptedCredentials, error) {
-	if kmsKeyARN == "" {
+// encryptKnowledgeCreds encrypts a set of plaintext credentials using KMS
+// envelope encryption. The backend is chosen by environment (local dev backend
+// when localMode, real AWS KMS otherwise) — the same code path runs everywhere.
+// Returns nil only when there's nothing to encrypt with: non-local and no
+// KMS_KEY_ARN configured (managed stores then fall back to a k8s Secret).
+func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN string, localMode bool, creds map[string]string) (*encryptedCredentials, error) {
+	if !localMode && kmsKeyARN == "" {
 		return nil, nil
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	kmsClient, err := knowledgestore.KMSBackend(ctx, localMode)
 	if err != nil {
-		log.Error("Failed to load AWS config", "error", err)
+		log.Error("Failed to initialize KMS backend", "error", err)
 		return nil, fmt.Errorf("failed to initialize KMS")
 	}
-	kmsClient := kms.NewFromConfig(awsCfg)
 	enc, err := envelope.NewEncryptor(ctx, kmsClient, kmsKeyARN)
 	if err != nil {
 		log.Error("Failed to create KMS encryptor", "error", err)
@@ -137,6 +139,7 @@ type KnowledgeResponse struct {
 	PublicHost   *string                     `json:"public_host,omitempty"`
 	Endpoint     *KnowledgeEndpointResponse  `json:"endpoint,omitempty"`
 	Error        *string                     `json:"error,omitempty"`
+	Annotations  map[string]string           `json:"annotations,omitempty"`
 	CreatedAt    time.Time                   `json:"created_at"`
 	UpdatedAt    time.Time                   `json:"updated_at"`
 	Events       []KnowledgeEvent            `json:"events,omitempty"`
@@ -178,6 +181,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 		Public:       ks.Public,
 		PublicHost:   ks.PublicHost,
 		Error:        ks.Error,
+		Annotations:  ks.Annotations,
 		CreatedAt:    ks.CreatedAt,
 		UpdatedAt:    ks.UpdatedAt,
 	}
@@ -253,7 +257,7 @@ func CreateKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, k8s
 			return
 		}
 
-		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, plainCreds)
+		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, cfg.Deployment.IsLocal(), plainCreds)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -382,10 +386,31 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 			APIKey          string `json:"api_key"`
 			SkipHealthCheck bool   `json:"skip_health_check"`
 			PrivateLink     bool   `json:"private_link"`
+			// SupabaseProject, when set, marks this store as imported from Supabase.
+			// The server composes the store annotations from it (the store itself is
+			// created as plain "postgres", so this is the only record of the origin).
+			SupabaseProject *struct {
+				ID             string `json:"id"`
+				Name           string `json:"name"`
+				Region         string `json:"region"`
+				OrganizationID string `json:"organization_id"`
+			} `json:"supabase_project"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Compose origin annotations server-side (the backend owns the schema).
+		var annotations knowledgestore.Annotations
+		if req.SupabaseProject != nil && req.SupabaseProject.ID != "" {
+			annotations = knowledgestore.Annotations{
+				"source":                "supabase",
+				"supabase_project_id":   req.SupabaseProject.ID,
+				"supabase_project_name": req.SupabaseProject.Name,
+				"region":                req.SupabaseProject.Region,
+				"organization_id":       req.SupabaseProject.OrganizationID,
+			}
 		}
 
 		if err := knowledgestore.ValidateStoreName(req.Name); err != nil {
@@ -424,7 +449,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		storeID := deployid.New()
 		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
 
-		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, creds)
+		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, cfg.Deployment.IsLocal(), creds)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -447,6 +472,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 			Status:           knowledgestore.StatusReady,
 			EncryptedDataKey: encryptedDataKey,
 			KMSKeyARN:        kmsKeyARN,
+			Annotations:      annotations,
 		})
 		if err != nil {
 			var pqErr *pq.Error
@@ -1280,7 +1306,7 @@ func GetKnowledgeStoreEvents(log *logger.Logger, ksStore *knowledgestore.Store, 
 
 // GetKnowledgeStoreCredentials resolves and returns the store's credentials.
 // Uses KMS decryption when available, falls back to reading the k8s Secret.
-func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, secretReader knowledgestore.SecretReader) gin.HandlerFunc {
+func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, secretReader knowledgestore.SecretReader, localMode bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -1303,13 +1329,13 @@ func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.St
 
 		var kmsClient envelope.KMSClient
 		if len(ks.EncryptedDataKey) > 0 {
-			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
-			if awsErr != nil {
-				log.Error("Failed to load AWS config", "error", awsErr)
+			var kmsErr error
+			kmsClient, kmsErr = knowledgestore.KMSBackend(c.Request.Context(), localMode)
+			if kmsErr != nil {
+				log.Error("Failed to initialize KMS backend", "error", kmsErr)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
 				return
 			}
-			kmsClient = kms.NewFromConfig(awsCfg)
 		}
 
 		storeNS := k8s.KnowledgeNamespace(ks.AccountID)

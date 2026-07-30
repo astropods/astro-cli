@@ -23,7 +23,7 @@ import (
 
 var knowledgeColumns = []string{
 	"id", "account_id", "name", "arn", "provider", "mode", "status", "storage", "storage_class",
-	"public", "public_host", "encrypted_data_key", "kms_key_arn", "error",
+	"public", "public_host", "encrypted_data_key", "kms_key_arn", "error", "annotations",
 	"created_at", "updated_at",
 }
 
@@ -42,8 +42,9 @@ func knowledgeRowWithMode(id, accountID, name, provider, mode, status string) *s
 		"arn:knowledge:acme:"+name,
 		provider, mode, status,
 		"10Gi", nil, // storage, storage_class
-		false, nil, nil, nil, nil,
-		now, now,
+		false, nil, nil, nil, nil, // public, public_host, encrypted_data_key, kms_key_arn, error
+		nil,      // annotations
+		now, now, // created_at, updated_at
 	)
 }
 
@@ -256,7 +257,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 			"id-"+name, testAccount().ID, name,
 			"arn:knowledge:acme:"+name, "qdrant", "managed", "ready",
 			"10Gi", nil, // storage, storage_class
-			false, nil, nil, nil, nil, now, now,
+			false, nil, nil, nil, nil, nil, now, now,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").WillReturnRows(rows)
@@ -375,7 +376,7 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 	log := logger.New("error", "json")
 
 	// No secret reader — simulates no k8s client available.
-	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore, nil))
+	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore, nil, false))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -465,6 +466,7 @@ func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
 			sqlmock.AnyArg(), // $11: public_host
 			sqlmock.AnyArg(), // $12: encrypted_data_key
 			sqlmock.AnyArg(), // $13: kms_key_arn
+			sqlmock.AnyArg(), // $14: annotations
 		).
 		WillReturnRows(knowledgeRow(acct.ID, acct.ID, "pg-main", "postgres", "provisioning"))
 
@@ -668,6 +670,7 @@ func TestConnectKnowledgeStore_ARNUsesAccountID(t *testing.T) {
 			sqlmock.AnyArg(), // $11: public_host
 			sqlmock.AnyArg(), // $12: encrypted_data_key
 			sqlmock.AnyArg(), // $13: kms_key_arn
+			sqlmock.AnyArg(), // $14: annotations
 		).
 		WillReturnRows(externalKnowledgeRow(acct.ID, acct.ID, "pg-prod", "postgres", "ready"))
 	// No KMS configured in minimalCfg() — SaveCredentials is skipped.
@@ -726,12 +729,12 @@ func TestListKnowledgeStores_MixedModes(t *testing.T) {
 	rows.AddRow(
 		"id-managed", testAccount().ID, "pg-main",
 		"arn:knowledge:acme:pg-main", "postgres", "managed", "ready",
-		"20Gi", nil, false, nil, nil, nil, nil, now, now,
+		"20Gi", nil, false, nil, nil, nil, nil, nil, now, now,
 	)
 	rows.AddRow(
 		"id-external", testAccount().ID, "pg-prod",
 		"arn:knowledge:acme:pg-prod", "postgres", "external", "ready",
-		"10Gi", nil, false, nil, nil, nil, nil, now, now,
+		"10Gi", nil, false, nil, nil, nil, nil, nil, now, now,
 	)
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").WillReturnRows(rows)
 

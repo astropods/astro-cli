@@ -154,7 +154,7 @@ func TestLoadCrossAccountResourcesBoundsConcurrencyAndPreservesFailures(t *testi
 var crossAccountKnowledgeColumns = []string{
 	"id", "account_id", "name", "arn", "provider", "mode", "status", "storage",
 	"storage_class", "public", "public_host", "encrypted_data_key", "kms_key_arn",
-	"error", "created_at", "updated_at", "count",
+	"error", "annotations", "created_at", "updated_at", "count",
 }
 
 func setupCrossAccountKnowledgeRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
@@ -265,7 +265,7 @@ func TestListCrossAccountKnowledgeStoresReturnsPaginationMetadata(t *testing.T) 
 		WithArgs("acct-1", 1, 0).
 		WillReturnRows(sqlmock.NewRows(crossAccountKnowledgeColumns).AddRow(
 			"store-1", "acct-1", "primary", "", "postgres", "managed", "ready", "10Gi",
-			nil, false, nil, nil, nil, nil, now, now, 2,
+			nil, false, nil, nil, nil, nil, nil, now, now, 2,
 		))
 
 	req := httptest.NewRequest(

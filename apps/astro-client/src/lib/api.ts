@@ -1763,7 +1763,7 @@ export interface NetworkTimeseriesResponse {
 // Knowledge
 // ============================================================================
 
-export type KnowledgeProvider = 'postgres' | 'qdrant' | 'redis' | 'neo4j' | 'pinecone' | 'mysql';
+export type KnowledgeProvider = 'postgres' | 'qdrant' | 'redis' | 'neo4j' | 'pinecone' | 'mysql' | 'supabase';
 export type KnowledgeMode = 'managed' | 'external';
 export type KnowledgeStatus = 'provisioning' | 'connecting' | 'pending-acceptance' | 'ready' | 'error';
 
@@ -1804,6 +1804,7 @@ export interface KnowledgeStore {
   public_host?: string;
   endpoint?: KnowledgeEndpoint;
   error?: string | null;
+  annotations?: Record<string, string>;
   created_at: string;
   updated_at: string;
   events?: KnowledgeEvent[];
@@ -1838,9 +1839,31 @@ export interface ConnectKnowledgeStoreInput {
   api_key?: string;
   private_link?: boolean;
   skip_health_check?: boolean;
+  // When set, marks the store as a Supabase import; the server composes the
+  // store's origin annotations from it.
+  supabase_project?: { id: string; name: string; region: string; organization_id: string };
 }
 
 export type KnowledgeCredentials = Record<string, string>;
+
+// ============================================================================
+// Supabase OAuth (project auto-import for PostgreSQL knowledge stores)
+// ============================================================================
+
+export interface SupabaseProject {
+  id: string;
+  name: string;
+  region: string;
+  organization_id: string;
+}
+
+// Proxied verbatim from Supabase's services-health endpoint; fields are optional
+// because we render whatever the provider reports without imposing a schema.
+export interface SupabaseServiceHealth {
+  name?: string;
+  status?: string;
+  healthy?: boolean;
+}
 
 // ============================================================================
 // GitHub
@@ -3295,6 +3318,40 @@ class ApiClient {
   async deleteKnowledgeStore(account: string, name: string): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ── Supabase OAuth ─────────────────────────────────────────────────────────
+
+  async supabaseConnect(account: string, redirectTo: string): Promise<{ redirect_url?: string; connected?: boolean }> {
+    return this.request<{ redirect_url?: string; connected?: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/supabase/connect`,
+      { method: 'POST', body: JSON.stringify({ redirect_to: redirectTo }) }
+    );
+  }
+
+  async supabaseStatus(account: string): Promise<{ connected: boolean }> {
+    return this.request<{ connected: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/supabase/status`
+    );
+  }
+
+  async supabaseListProjects(account: string): Promise<{ projects: SupabaseProject[] }> {
+    return this.request<{ projects: SupabaseProject[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/supabase/projects`
+    );
+  }
+
+  async supabaseProjectHealth(account: string, ref: string): Promise<{ services: SupabaseServiceHealth[] }> {
+    return this.request<{ services: SupabaseServiceHealth[] }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/supabase/projects/${encodeURIComponent(ref)}/health`
+    );
+  }
+
+  async supabaseDisconnect(account: string): Promise<{ disconnected: boolean }> {
+    return this.request<{ disconnected: boolean }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/supabase`,
       { method: 'DELETE' }
     );
   }

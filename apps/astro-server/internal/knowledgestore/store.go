@@ -3,6 +3,8 @@ package knowledgestore
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -10,6 +12,47 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 )
+
+// Annotations is a free-form string→string map attached to a store, modeled on
+// Kubernetes annotations. Persisted as a jsonb column; Value/Scan round-trip it
+// transparently. Used to record provider-agnostic origin info, e.g. a Supabase
+// import: {"source":"supabase","supabase_project_id":"...","region":"..."}.
+type Annotations map[string]string
+
+// Value implements driver.Valuer. Returns a JSON string (not []byte, which lib/pq
+// would send as bytea) so Postgres parses it into jsonb; nil/empty → SQL NULL.
+func (a Annotations) Value() (driver.Value, error) {
+	if len(a) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(map[string]string(a))
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// Scan implements sql.Scanner for a jsonb column (NULL → nil map).
+func (a *Annotations) Scan(src any) error {
+	if src == nil {
+		*a = nil
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return fmt.Errorf("annotations: unsupported scan type %T", src)
+	}
+	if len(b) == 0 {
+		*a = nil
+		return nil
+	}
+	return json.Unmarshal(b, (*map[string]string)(a))
+}
 
 // ValidateStorageSize checks that a storage size string is a valid Kubernetes
 // resource quantity (e.g. "10Gi", "20Gi", "500Mi"). Uses the same parser K8s
@@ -90,8 +133,10 @@ type KnowledgeStore struct {
 	EncryptedDataKey []byte
 	KMSKeyARN        *string
 	Error            *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// Annotations is provider-agnostic origin detail (e.g. Supabase import info).
+	Annotations Annotations
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 const (
@@ -106,13 +151,13 @@ const (
 )
 
 const storeColumns = `id, account_id, name, arn, provider, mode, status, storage, storage_class,
-       public, public_host, encrypted_data_key, kms_key_arn, error, created_at, updated_at`
+       public, public_host, encrypted_data_key, kms_key_arn, error, annotations, created_at, updated_at`
 
 func storeScanDest(s *KnowledgeStore) []any {
 	return []any{
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
 		&s.Mode, &s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
-		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error,
+		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error, &s.Annotations,
 		&s.CreatedAt, &s.UpdatedAt,
 	}
 }
@@ -141,6 +186,7 @@ type CreateParams struct {
 	PublicHost       string
 	EncryptedDataKey []byte
 	KMSKeyARN        string
+	Annotations      Annotations // optional origin annotations or nil
 }
 
 // Create inserts a new knowledge store record and returns it.
@@ -167,11 +213,11 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 
 	row := s.db.QueryRow(`
 		INSERT INTO knowledge_stores
-		  (id, account_id, name, arn, provider, mode, status, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		  (id, account_id, name, arn, provider, mode, status, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn, annotations)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING `+storeColumns,
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
-		mode, status, p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN,
+		mode, status, p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN, p.Annotations,
 	)
 	return scanStore(row)
 }

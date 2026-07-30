@@ -18,6 +18,7 @@ import {
   isTransitionalStatus,
   statusLabel,
   PROVIDER_LABELS,
+  displayProvider,
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
@@ -90,8 +91,8 @@ function KnowledgeStoreDetailContent() {
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <Chip>
-                  <ProviderIcon provider={store.provider} className="size-3.5 shrink-0" />
-                  {PROVIDER_LABELS[store.provider] ?? store.provider}
+                  <ProviderIcon provider={displayProvider(store)} className="size-3.5 shrink-0" />
+                  {PROVIDER_LABELS[displayProvider(store)] ?? store.provider}
                   <span className="text-faint-foreground">·</span>
                   {store.mode === "managed" ? "Managed" : "External"}
                 </Chip>

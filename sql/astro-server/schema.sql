@@ -772,6 +772,11 @@ CREATE TABLE public.knowledge_stores (
     encrypted_data_key bytea,
     kms_key_arn        varchar,
     error              text,
+    -- Provider-agnostic origin annotations, e.g. Supabase import details:
+    -- { "source": "supabase", "supabase_project_id": "...", "region": "...",
+    --   "organization_id": "..." }. A Supabase store is a plain Postgres store
+    -- (provider='postgres'); this is the only record of its Supabase origin.
+    annotations        jsonb,
     created_at         timestamptz  NOT NULL DEFAULT now(),
     updated_at         timestamptz  NOT NULL DEFAULT now(),
     CONSTRAINT knowledge_stores_pkey PRIMARY KEY (id),

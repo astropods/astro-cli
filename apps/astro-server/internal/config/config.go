@@ -305,6 +305,13 @@ type DeploymentConfig struct {
 	RegistryPullCredential string // REGISTRY_PULL_CREDENTIAL
 }
 
+// IsLocal reports whether the server is running in the local dev environment
+// (ENVIRONMENT=local). Use this instead of comparing Environment to "local" so
+// the check lives in one place.
+func (d DeploymentConfig) IsLocal() bool {
+	return d.Environment == "local"
+}
+
 // Load loads configuration from environment variables with defaults
 func Load() (*Config, error) {
 	cfg := &Config{

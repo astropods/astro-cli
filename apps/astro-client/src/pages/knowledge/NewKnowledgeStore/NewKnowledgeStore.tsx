@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import type { Route } from "./+types/NewKnowledgeStore";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
@@ -6,7 +7,7 @@ import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
 import { CreateInAccountPicker } from "@/components/CreateInAccountPicker";
-import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
+import { PROVIDER_LABELS, ALL_PROVIDERS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderList } from "./ProviderList";
 import { ConfigureForm } from "./ConfigureForm";
@@ -19,7 +20,12 @@ function NewKnowledgeStoreContent() {
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const account = selectedAccount ?? activeAccount;
   const avatarUrl = accounts.find((a) => a.name === account)?.avatar_url;
-  const [provider, setProvider] = useState<KnowledgeProvider | null>(null);
+  // Pre-select a provider from ?provider=… so the Supabase OAuth round-trip
+  // (which redirects back here) returns straight to the configure form.
+  const [searchParams] = useSearchParams();
+  const providerParam = searchParams.get("provider") as KnowledgeProvider | null;
+  const initialProvider = providerParam && ALL_PROVIDERS.includes(providerParam) ? providerParam : null;
+  const [provider, setProvider] = useState<KnowledgeProvider | null>(initialProvider);
 
   return (
     <div className="flex-1 bg-background">

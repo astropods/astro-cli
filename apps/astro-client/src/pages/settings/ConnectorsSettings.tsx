@@ -9,12 +9,14 @@ import { SectionHeader } from "@/components/settings/SettingsShared";
 import { ConnectorRow, ConnectorRowList, ConnectorRowItem } from "@/components/settings/ConnectorRow";
 import { useGitHubAccountStatus, useGitHubAccountDisconnect, useGitHubAccountConnect, useGitHubAccountOrgs } from "@/api/queries/github";
 import { useSlackAccountStatus, useSlackAccountDisconnect, useSlackAccountConnect } from "@/api/queries/slack";
+import { useSupabaseStatus, useSupabaseConnect, useSupabaseDisconnect } from "@/api/queries/supabase";
 import type { GitHubConnectResponse } from "@/lib/api";
-import { githubKeys, slackKeys } from "@/api/queries/keys";
+import { githubKeys, slackKeys, supabaseKeys } from "@/api/queries/keys";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
 import { Slack } from "@/components/ui/svgs/slack";
+import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import { useCleanupOAuthParams } from "@/hooks/use-cleanup-oauth-params";
 import { Link2Off, MoreHorizontal } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
@@ -31,6 +33,7 @@ export const meta: MetaFunction = () => [{ title: "Connectors - Settings | Astro
 const RETURN_PATH = "/settings/connectors";
 const GITHUB_OAUTH_PARAMS = ["github_connected", "github_login"] as const;
 const SLACK_OAUTH_PARAMS = ["slack_connected", "slack_user", "slack_team", "slack_error"] as const;
+const SUPABASE_OAUTH_PARAMS = ["supabase_connected", "supabase_error"] as const;
 
 function slackErrorMessage(code: string): string {
   if (code === "access_denied") return "Slack didn't authorize the connection. Try again, or contact your workspace admin if this keeps happening.";
@@ -40,6 +43,7 @@ const GITHUB_APP_SETTINGS_URL = "https://github.com/settings/connections/applica
 
 const GITHUB_DESCRIPTION = "Build and deploy agents directly from your repositories.";
 const SLACK_DESCRIPTION = "Message agents directly from any connected Slack workspace.";
+const SUPABASE_DESCRIPTION = "Import your Supabase Postgres projects when creating a knowledge store.";
 
 function RequestAccessLink() {
   return (
@@ -412,6 +416,100 @@ function SlackSection() {
   );
 }
 
+function SupabaseSection() {
+  const { personalAccount } = useAuth();
+  const account = personalAccount?.name ?? "";
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+
+  // Capture once — useCleanupOAuthParams strips the param on mount, so reading
+  // it live would flash the error banner away before it can be read.
+  const [oauthError] = useState(() => searchParams.get("supabase_error") ?? "");
+  useCleanupOAuthParams(SUPABASE_OAUTH_PARAMS);
+
+  const { data: status, isLoading } = useSupabaseStatus(account, { enabled: !!account });
+  const connect = useSupabaseConnect(account);
+  const disconnect = useSupabaseDisconnect(account);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const connected = status?.connected ?? false;
+
+  const handleConnect = () => {
+    connect.mutate(RETURN_PATH, {
+      onSuccess: (data) => {
+        if (data.redirect_url) window.location.href = data.redirect_url;
+      },
+    });
+  };
+
+  const handleDisconnect = () => {
+    const key = supabaseKeys.status(account);
+    const previous = queryClient.getQueryData(key);
+    queryClient.setQueryData(key, { connected: false });
+    setConfirmOpen(false);
+    disconnect.mutate(undefined, {
+      onError: () => { queryClient.setQueryData(key, previous); },
+    });
+  };
+
+  const action = connected ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label="Supabase options">
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={disconnect.isPending}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : (
+    <Button variant="outline" size="sm" aria-label="Connect Supabase" disabled={connect.isPending} onClick={handleConnect}>
+      {connect.isPending ? "Connecting…" : "Connect"}
+    </Button>
+  );
+
+  return (
+    <>
+      {oauthError && (
+        <div className="mb-3">
+          <ErrorPanel variant="inline">Couldn't connect to Supabase. Please try again.</ErrorPanel>
+        </div>
+      )}
+
+      <ConnectorRow
+        icon={<ProviderIcon provider="supabase" className="size-6" />}
+        name="Supabase"
+        description={connected ? "Connected" : SUPABASE_DESCRIPTION}
+        action={action}
+        isLoading={isLoading}
+      />
+
+      <ConfirmationDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Disconnect Supabase?"
+        description="Existing knowledge stores keep working, but you won't be able to import new Supabase projects until you reconnect."
+        checkboxLabel="I understand that disconnecting Supabase will remove my OAuth connection."
+        actionLabel="Disconnect"
+        pendingLabel="Disconnecting…"
+        error={disconnect.isError ? (disconnect.error as Error) : null}
+        defaultErrorMessage="Failed to disconnect Supabase. Please try again."
+        isPending={disconnect.isPending}
+        canConfirm
+        onConfirm={handleDisconnect}
+        onReset={() => disconnect.reset()}
+      />
+    </>
+  );
+}
+
 export default function ConnectorsSettings() {
   return (
     <>
@@ -419,6 +517,7 @@ export default function ConnectorsSettings() {
       <div>
         <GitHubSection />
         <SlackSection />
+        <SupabaseSection />
       </div>
     </>
   );
