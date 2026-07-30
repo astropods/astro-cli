@@ -6,7 +6,7 @@ tmp_dir = "tmp"
 
 [build]
   cmd = "go build -o ./tmp/queen ."
-  full_bin = "./tmp/queen server --no-open"
+  full_bin = "./tmp/queen local admin --no-open"
   delay = 1000
   exclude_dir = ["tmp", "web", "bin", "vendor"]
   exclude_regex = ["_test.go"]

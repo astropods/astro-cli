@@ -18,6 +18,7 @@ import (
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
@@ -35,9 +36,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
-	spec "github.com/astropods/astro-spec"
 	"github.com/lib/pq"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -83,6 +84,10 @@ type Server struct {
 
 	auditStore   *auditlog.Store
 	workosClient *auth.WorkOSClient
+
+	// alertStore backs the observation-alert admin surface (ListAlerts and the
+	// clear/mute/unmute actions). Constructed in New from the shared db.
+	alertStore *observation.Store
 
 	// quotaReporter resolves per-account resource usage and effective limits for
 	// the account detail view. Nil until SetQuotaReporter is called; GetAccount
@@ -197,6 +202,7 @@ func New(
 		ingestionIngressDomain: ingestionIngressDomain,
 		auditStore:             auditStore,
 		cache:                  cache,
+		alertStore:             observation.NewStore(db),
 	}
 }
 

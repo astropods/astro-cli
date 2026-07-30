@@ -50,6 +50,7 @@ type stateStore interface {
 	MarkNotified(ctx context.Context, deploymentID, workload, condition string) error
 	ClaimDailyNotify(ctx context.Context, deploymentID, condition string, at, cutoff time.Time) (bool, error)
 	Clear(ctx context.Context, deploymentID, workload, condition string) error
+	IsMuted(ctx context.Context, deploymentID, condition string, now time.Time) (bool, error)
 }
 
 // dailyNotifyWindow caps observation alerts to one send per (deployment,
@@ -175,6 +176,16 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 			continue // this workload already fired this episode
 		}
 		if now.Sub(activeSince) >= c.For {
+			// An admin mute silences this (deployment, condition): keep the row
+			// tracked as pending (skip MarkNotified) so it re-fires automatically
+			// on a later sweep once the mute expires, rather than being swallowed.
+			muted, err := e.state.IsMuted(ctx, b.dep.ID, c.Name, now)
+			if err != nil {
+				return err
+			}
+			if muted {
+				continue
+			}
 			if err := e.state.MarkNotified(ctx, b.dep.ID, b.workload, c.Name); err != nil {
 				return err
 			}

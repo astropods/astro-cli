@@ -33,6 +33,24 @@ type Tracked struct {
 	Notified     bool
 }
 
+// TrackedAlert is one persisted firing-state row carrying its condition, for the
+// cross-deployment admin listing (unlike Tracked, which is scoped to a single
+// condition query).
+type TrackedAlert struct {
+	DeploymentID string
+	Workload     string
+	Condition    string
+	ActiveSince  time.Time
+	Notified     bool
+}
+
+// Mute is an active admin mute for a (deployment, condition).
+type Mute struct {
+	DeploymentID string
+	Condition    string
+	MutedUntil   time.Time
+}
+
 // ForCondition returns every currently-tracked breach for a condition, across
 // all deployments and workloads.
 func (s *Store) ForCondition(ctx context.Context, condition string) ([]Tracked, error) {
@@ -46,6 +64,26 @@ func (s *Store) ForCondition(ctx context.Context, condition string) ([]Tracked, 
 	for rows.Next() {
 		var t Tracked
 		if err := rows.Scan(&t.DeploymentID, &t.Workload, &t.ActiveSince, &t.Notified); err != nil {
+			return nil, fmt.Errorf("observation: scan state: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ListAll returns every currently-tracked breach across all deployments,
+// workloads, and conditions — the source for the admin cross-deployment view.
+func (s *Store) ListAll(ctx context.Context) ([]TrackedAlert, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT deployment_id, workload, condition, active_since, notified FROM deployment_alert_state ORDER BY active_since`)
+	if err != nil {
+		return nil, fmt.Errorf("observation: list all state: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []TrackedAlert
+	for rows.Next() {
+		var t TrackedAlert
+		if err := rows.Scan(&t.DeploymentID, &t.Workload, &t.Condition, &t.ActiveSince, &t.Notified); err != nil {
 			return nil, fmt.Errorf("observation: scan state: %w", err)
 		}
 		out = append(out, t)
@@ -116,7 +154,8 @@ func (s *Store) ClaimDailyNotify(ctx context.Context, deploymentID, condition st
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (deployment_id, condition)
 		 DO UPDATE SET last_notified_at = $3
-		 WHERE deployment_alert_notifications.last_notified_at < $4
+		 WHERE deployment_alert_notifications.last_notified_at IS NULL
+		    OR deployment_alert_notifications.last_notified_at < $4
 		 RETURNING deployment_id`,
 		deploymentID, condition, at, cutoff).Scan(&got)
 	if err == sql.ErrNoRows {
@@ -137,4 +176,64 @@ func (s *Store) Clear(ctx context.Context, deploymentID, workload, condition str
 		return fmt.Errorf("observation: clear: %w", err)
 	}
 	return nil
+}
+
+// Mute silences notifications for a (deployment, condition) until `until`. The
+// evaluator keeps detecting and tracking the breach; it just suppresses the
+// send while the mute is active. Idempotent: re-muting updates the expiry. Uses
+// the notification-control row (upsert leaves any daily-cap ledger intact).
+func (s *Store) Mute(ctx context.Context, deploymentID, condition string, until time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO deployment_alert_notifications (deployment_id, condition, muted_until)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (deployment_id, condition) DO UPDATE SET muted_until = $3`,
+		deploymentID, condition, until)
+	if err != nil {
+		return fmt.Errorf("observation: mute: %w", err)
+	}
+	return nil
+}
+
+// Unmute clears a (deployment, condition) mute. It nulls muted_until rather than
+// deleting the row so the daily-cap ledger (last_notified_at) survives.
+func (s *Store) Unmute(ctx context.Context, deploymentID, condition string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE deployment_alert_notifications SET muted_until = NULL WHERE deployment_id = $1 AND condition = $2`,
+		deploymentID, condition)
+	if err != nil {
+		return fmt.Errorf("observation: unmute: %w", err)
+	}
+	return nil
+}
+
+// IsMuted reports whether a (deployment, condition) has an active mute at `now`.
+func (s *Store) IsMuted(ctx context.Context, deploymentID, condition string, now time.Time) (bool, error) {
+	var muted bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM deployment_alert_notifications
+		 WHERE deployment_id = $1 AND condition = $2 AND muted_until > $3)`,
+		deploymentID, condition, now).Scan(&muted)
+	if err != nil {
+		return false, fmt.Errorf("observation: is muted: %w", err)
+	}
+	return muted, nil
+}
+
+// ListMutes returns all currently-active mutes (muted_until in the future).
+func (s *Store) ListMutes(ctx context.Context, now time.Time) ([]Mute, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT deployment_id, condition, muted_until FROM deployment_alert_notifications WHERE muted_until > $1`, now)
+	if err != nil {
+		return nil, fmt.Errorf("observation: list mutes: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []Mute
+	for rows.Next() {
+		var m Mute
+		if err := rows.Scan(&m.DeploymentID, &m.Condition, &m.MutedUntil); err != nil {
+			return nil, fmt.Errorf("observation: scan mute: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

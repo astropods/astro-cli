@@ -14,6 +14,7 @@ import { QuotaRequestsPage } from "@/pages/quota-requests";
 import { FeedbackPage } from "@/pages/feedback";
 import { ClustersPage } from "@/pages/clusters";
 import { MigrationsPage } from "@/pages/migrations";
+import { AlertsPage } from "@/pages/alerts";
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "admin/clusters", element: <ClustersPage /> },
       { path: "admin/migrations", element: <MigrationsPage /> },
       { path: "admin/feedback", element: <FeedbackPage /> },
+      { path: "admin/alerts", element: <AlertsPage /> },
     ],
   },
 ]);

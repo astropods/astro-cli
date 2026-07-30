@@ -36,10 +36,11 @@ func (fakeDeploys) GetRuntimeSnapshot(string) (*deploymentstore.RuntimeSnapshot,
 type memState struct {
 	m     map[string]Tracked
 	notif map[string]time.Time
+	mutes map[string]time.Time // "deploymentID|condition" -> muted_until
 }
 
 func newMemState() *memState {
-	return &memState{m: map[string]Tracked{}, notif: map[string]time.Time{}}
+	return &memState{m: map[string]Tracked{}, notif: map[string]time.Time{}, mutes: map[string]time.Time{}}
 }
 
 func mkey(dep, wl, cond string) string { return dep + "|" + wl + "|" + cond }
@@ -82,6 +83,11 @@ func (s *memState) ClaimDailyNotify(_ context.Context, dep, cond string, at, cut
 func (s *memState) Clear(_ context.Context, dep, wl, cond string) error {
 	delete(s.m, mkey(dep, wl, cond))
 	return nil
+}
+
+func (s *memState) IsMuted(_ context.Context, dep, cond string, now time.Time) (bool, error) {
+	until, ok := s.mutes[dep+"|"+cond]
+	return ok && until.After(now), nil
 }
 
 func breaching(ns string) []Series {
@@ -181,6 +187,37 @@ func TestEvaluatePerWorkloadStateSingleNotification(t *testing.T) {
 	reason, _ := emitted[0].Payload[notify.PayloadReason].(string)
 	if !strings.Contains(reason, "Crash loop") || !strings.Contains(reason, "—") {
 		t.Fatalf("reason should name the affected workload, got %q", reason)
+	}
+}
+
+// A muted (deployment, condition) is still detected and tracked (stays pending),
+// but no notification is emitted while the mute is active. Once the mute expires,
+// a later sweep fires it — the mute defers, it does not swallow.
+func TestEvaluateMuteSuppressesThenFiresAfterExpiry(t *testing.T) {
+	var emitted []notify.Event
+	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
+	st := newMemState()
+	cond := Condition{Name: "crash_loop", Title: "Crash loop", Severity: SeverityCritical, Engine: EnginePromQL, Query: "q", For: 0}
+	q := fakeEngine{vec: breaching("ns1")}
+	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
+	t0 := time.Unix(1000, 0)
+
+	// Mute the deployment+condition for 10 minutes.
+	st.mutes["dep_ns1|crash_loop"] = t0.Add(10 * time.Minute)
+
+	_ = e.evaluate(context.Background(), cond, q, t0)
+	_ = e.evaluate(context.Background(), cond, q, t0.Add(5*time.Minute)) // still muted
+	if len(emitted) != 0 {
+		t.Fatalf("muted condition must not emit, got %d", len(emitted))
+	}
+	if tr, ok := st.m[mkey("dep_ns1", "", "crash_loop")]; !ok || tr.Notified {
+		t.Fatalf("muted breach should stay tracked & pending (not notified), got %+v (present=%v)", tr, ok)
+	}
+
+	// Mute expires → next sweep fires (the breach is still active).
+	_ = e.evaluate(context.Background(), cond, q, t0.Add(11*time.Minute))
+	if len(emitted) != 1 {
+		t.Fatalf("want 1 emit after the mute expires, got %d", len(emitted))
 	}
 }
 

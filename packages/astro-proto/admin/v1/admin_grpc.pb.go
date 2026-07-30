@@ -70,6 +70,10 @@ type AdminServiceClient interface {
 	PauseQueue(ctx context.Context, in *PauseQueueRequest, opts ...grpc.CallOption) (*PauseQueueResponse, error)
 	ResumeQueue(ctx context.Context, in *ResumeQueueRequest, opts ...grpc.CallOption) (*ResumeQueueResponse, error)
 	RefreshMessagingCache(ctx context.Context, in *RefreshMessagingCacheRequest, opts ...grpc.CallOption) (*RefreshMessagingCacheResponse, error)
+	ListAlerts(ctx context.Context, in *ListAlertsRequest, opts ...grpc.CallOption) (*ListAlertsResponse, error)
+	ClearAlert(ctx context.Context, in *ClearAlertRequest, opts ...grpc.CallOption) (*ClearAlertResponse, error)
+	MuteAlert(ctx context.Context, in *MuteAlertRequest, opts ...grpc.CallOption) (*MuteAlertResponse, error)
+	UnmuteAlert(ctx context.Context, in *UnmuteAlertRequest, opts ...grpc.CallOption) (*UnmuteAlertResponse, error)
 }
 
 type adminServiceClient struct {
@@ -536,6 +540,38 @@ func (c *adminServiceClient) RefreshMessagingCache(ctx context.Context, in *Refr
 	return out, nil
 }
 
+func (c *adminServiceClient) ListAlerts(ctx context.Context, in *ListAlertsRequest, opts ...grpc.CallOption) (*ListAlertsResponse, error) {
+	out := new(ListAlertsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAlerts", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ClearAlert(ctx context.Context, in *ClearAlertRequest, opts ...grpc.CallOption) (*ClearAlertResponse, error) {
+	out := new(ClearAlertResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ClearAlert", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) MuteAlert(ctx context.Context, in *MuteAlertRequest, opts ...grpc.CallOption) (*MuteAlertResponse, error) {
+	out := new(MuteAlertResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/MuteAlert", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) UnmuteAlert(ctx context.Context, in *UnmuteAlertRequest, opts ...grpc.CallOption) (*UnmuteAlertResponse, error) {
+	out := new(UnmuteAlertResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/UnmuteAlert", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -596,6 +632,10 @@ type AdminServiceServer interface {
 	PauseQueue(context.Context, *PauseQueueRequest) (*PauseQueueResponse, error)
 	ResumeQueue(context.Context, *ResumeQueueRequest) (*ResumeQueueResponse, error)
 	RefreshMessagingCache(context.Context, *RefreshMessagingCacheRequest) (*RefreshMessagingCacheResponse, error)
+	ListAlerts(context.Context, *ListAlertsRequest) (*ListAlertsResponse, error)
+	ClearAlert(context.Context, *ClearAlertRequest) (*ClearAlertResponse, error)
+	MuteAlert(context.Context, *MuteAlertRequest) (*MuteAlertResponse, error)
+	UnmuteAlert(context.Context, *UnmuteAlertRequest) (*UnmuteAlertResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -728,7 +768,6 @@ func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *Re
 	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
 }
 
-
 func (UnimplementedAdminServiceServer) ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListFeedback not implemented")
 }
@@ -823,6 +862,18 @@ func (UnimplementedAdminServiceServer) ResumeQueue(context.Context, *ResumeQueue
 
 func (UnimplementedAdminServiceServer) RefreshMessagingCache(context.Context, *RefreshMessagingCacheRequest) (*RefreshMessagingCacheResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshMessagingCache not implemented")
+}
+func (UnimplementedAdminServiceServer) ListAlerts(context.Context, *ListAlertsRequest) (*ListAlertsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAlerts not implemented")
+}
+func (UnimplementedAdminServiceServer) ClearAlert(context.Context, *ClearAlertRequest) (*ClearAlertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClearAlert not implemented")
+}
+func (UnimplementedAdminServiceServer) MuteAlert(context.Context, *MuteAlertRequest) (*MuteAlertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MuteAlert not implemented")
+}
+func (UnimplementedAdminServiceServer) UnmuteAlert(context.Context, *UnmuteAlertRequest) (*UnmuteAlertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnmuteAlert not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1692,6 +1743,66 @@ func _AdminService_RefreshMessagingCache_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListAlerts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAlertsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAlerts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAlerts"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAlerts(ctx, req.(*ListAlertsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ClearAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ClearAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ClearAlert"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ClearAlert(ctx, req.(*ClearAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_MuteAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuteAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).MuteAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/MuteAlert"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).MuteAlert(ctx, req.(*MuteAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_UnmuteAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnmuteAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).UnmuteAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/UnmuteAlert"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).UnmuteAlert(ctx, req.(*UnmuteAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1754,6 +1865,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "PauseQueue", Handler: _AdminService_PauseQueue_Handler},
 		{MethodName: "ResumeQueue", Handler: _AdminService_ResumeQueue_Handler},
 		{MethodName: "RefreshMessagingCache", Handler: _AdminService_RefreshMessagingCache_Handler},
+		{MethodName: "ListAlerts", Handler: _AdminService_ListAlerts_Handler},
+		{MethodName: "ClearAlert", Handler: _AdminService_ClearAlert_Handler},
+		{MethodName: "MuteAlert", Handler: _AdminService_MuteAlert_Handler},
+		{MethodName: "UnmuteAlert", Handler: _AdminService_UnmuteAlert_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

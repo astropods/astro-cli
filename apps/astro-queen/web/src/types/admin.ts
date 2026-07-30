@@ -582,3 +582,30 @@ export interface ListClusterMigrationsResponse {
   jobs: ClusterMigrationJob[];
   mismatch_count: number;
 }
+
+export interface AlertCondition {
+  name: string;
+  title: string;
+  description: string;
+  severity: string; // "info" | "warning" | "critical"
+}
+
+export interface ActiveAlert {
+  deployment_id: string;
+  agent_name?: string;
+  account_id?: string;
+  account_name?: string;
+  workload?: string;
+  condition: string;
+  title?: string;
+  severity?: string;
+  state: string; // "pending" | "firing" | "ok" (mute with no active breach)
+  active_since?: string;
+  muted?: boolean;
+  muted_until?: string;
+}
+
+export interface ListAlertsResponse {
+  catalog: AlertCondition[];
+  active: ActiveAlert[];
+}

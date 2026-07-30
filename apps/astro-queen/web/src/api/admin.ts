@@ -33,6 +33,7 @@ import type {
   InvalidateCachesResponse,
   RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
+  ListAlertsResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -808,6 +809,53 @@ export function useCheckClusterHealth() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
+    },
+  });
+}
+
+export function useAlerts() {
+  return useQuery({
+    queryKey: adminKeys.alerts(),
+    queryFn: () => api.get<ListAlertsResponse>("/api/admin/alerts"),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useClearAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      deployment_id: string;
+      workload?: string;
+      condition: string;
+    }) => api.post("/api/admin/alerts/clear", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.alerts() });
+    },
+  });
+}
+
+export function useMuteAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      deployment_id: string;
+      condition: string;
+      duration_seconds: number;
+    }) => api.post("/api/admin/alerts/mute", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.alerts() });
+    },
+  });
+}
+
+export function useUnmuteAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { deployment_id: string; condition: string }) =>
+      api.post("/api/admin/alerts/unmute", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.alerts() });
     },
   });
 }

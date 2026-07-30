@@ -997,3 +997,55 @@ type RefreshMessagingCacheResponse struct {
 	Image   string `json:"image,omitempty"`
 	Message string `json:"message,omitempty"`
 }
+
+type AlertCondition struct {
+	Name        string `json:"name,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+}
+
+type ActiveAlert struct {
+	DeploymentID string `json:"deployment_id,omitempty"`
+	AgentName    string `json:"agent_name,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
+	AccountName  string `json:"account_name,omitempty"`
+	Workload     string `json:"workload,omitempty"`
+	Condition    string `json:"condition,omitempty"`
+	Title        string `json:"title,omitempty"`
+	Severity     string `json:"severity,omitempty"`
+	State        string `json:"state,omitempty"`
+	ActiveSince  string `json:"active_since,omitempty"`
+	Muted        bool   `json:"muted,omitempty"`
+	MutedUntil   string `json:"muted_until,omitempty"`
+}
+
+type ListAlertsRequest struct{}
+
+type ListAlertsResponse struct {
+	Catalog []*AlertCondition `json:"catalog,omitempty"`
+	Active  []*ActiveAlert    `json:"active,omitempty"`
+}
+
+type ClearAlertRequest struct {
+	DeploymentID string `json:"deployment_id,omitempty"`
+	Workload     string `json:"workload,omitempty"`
+	Condition    string `json:"condition,omitempty"`
+}
+
+type ClearAlertResponse struct{}
+
+type MuteAlertRequest struct {
+	DeploymentID    string `json:"deployment_id,omitempty"`
+	Condition       string `json:"condition,omitempty"`
+	DurationSeconds int64  `json:"duration_seconds,omitempty"`
+}
+
+type MuteAlertResponse struct{}
+
+type UnmuteAlertRequest struct {
+	DeploymentID string `json:"deployment_id,omitempty"`
+	Condition    string `json:"condition,omitempty"`
+}
+
+type UnmuteAlertResponse struct{}

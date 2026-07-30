@@ -58,6 +58,10 @@ service AdminService {
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
   rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
   rpc RefreshMessagingCache(RefreshMessagingCacheRequest) returns (RefreshMessagingCacheResponse);
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
+  rpc ClearAlert(ClearAlertRequest) returns (ClearAlertResponse);
+  rpc MuteAlert(MuteAlertRequest) returns (MuteAlertResponse);
+  rpc UnmuteAlert(UnmuteAlertRequest) returns (UnmuteAlertResponse);
 }
 
 message ListDeploymentsRequest {
@@ -556,6 +560,57 @@ message ListFeedbackResponse {
   repeated FeedbackSubmission submissions = 1;
   int32 count = 2;
 }
+
+// AlertCondition is one entry in the fixed observation-alert catalog.
+message AlertCondition {
+  string name        = 1;
+  string title       = 2;
+  string description = 3;
+  string severity    = 4; // "info" | "warning" | "critical"
+}
+
+// ActiveAlert is one currently-tracked breach (pending or firing) for a
+// deployment+workload, enriched with deployment/account identity and mute state.
+message ActiveAlert {
+  string deployment_id = 1;
+  string agent_name    = 2;
+  string account_id    = 3;
+  string account_name  = 4;
+  string workload      = 5;
+  string condition     = 6;
+  string title         = 7;
+  string severity      = 8;
+  string state         = 9;  // "pending" | "firing"
+  string active_since  = 10; // RFC3339
+  bool   muted         = 11;
+  string muted_until   = 12; // RFC3339; set while muted
+}
+
+message ListAlertsRequest {}
+message ListAlertsResponse {
+  repeated AlertCondition catalog = 1;
+  repeated ActiveAlert active     = 2;
+}
+
+message ClearAlertRequest {
+  string deployment_id = 1;
+  string workload      = 2;
+  string condition     = 3;
+}
+message ClearAlertResponse {}
+
+message MuteAlertRequest {
+  string deployment_id   = 1;
+  string condition       = 2;
+  int64  duration_seconds = 3;
+}
+message MuteAlertResponse {}
+
+message UnmuteAlertRequest {
+  string deployment_id = 1;
+  string condition     = 2;
+}
+message UnmuteAlertResponse {}
 
 message GetPodLogsRequest {
   string deployment_id = 1;

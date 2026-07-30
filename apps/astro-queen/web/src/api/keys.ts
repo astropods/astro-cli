@@ -34,4 +34,5 @@ export const adminKeys = {
   feedback: () => [...adminKeys.all, "feedback"] as const,
   migrations: (mismatchesOnly?: boolean) =>
     [...adminKeys.all, "migrations", mismatchesOnly ?? false] as const,
+  alerts: () => [...adminKeys.all, "alerts"] as const,
 };

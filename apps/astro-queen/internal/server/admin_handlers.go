@@ -40,6 +40,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/feedback", s.handleListFeedback)
 	mux.HandleFunc("GET /api/admin/migrations", s.handleListClusterMigrations)
 	mux.HandleFunc("POST /api/admin/refresh-messaging-cache", s.handleRefreshMessagingCache)
+	mux.HandleFunc("GET /api/admin/alerts", s.handleListAlerts)
+	mux.HandleFunc("POST /api/admin/alerts/clear", s.handleClearAlert)
+	mux.HandleFunc("POST /api/admin/alerts/mute", s.handleMuteAlert)
+	mux.HandleFunc("POST /api/admin/alerts/unmute", s.handleUnmuteAlert)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -449,6 +453,79 @@ func (s *Server) handleListFeedback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRefreshMessagingCache(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.RefreshMessagingCache(r.Context(), &adminv1.RefreshMessagingCacheRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ListAlerts(r.Context(), &adminv1.ListAlertsRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleClearAlert(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeploymentID string `json:"deployment_id"`
+		Workload     string `json:"workload"`
+		Condition    string `json:"condition"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DeploymentID == "" || body.Condition == "" {
+		http.Error(w, `{"error":"deployment_id and condition are required in request body"}`, http.StatusBadRequest)
+		return
+	}
+	resp, err := s.admin.ClearAlert(r.Context(), &adminv1.ClearAlertRequest{
+		DeploymentID: body.DeploymentID,
+		Workload:     body.Workload,
+		Condition:    body.Condition,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleMuteAlert(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeploymentID    string `json:"deployment_id"`
+		Condition       string `json:"condition"`
+		DurationSeconds int64  `json:"duration_seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DeploymentID == "" || body.Condition == "" || body.DurationSeconds <= 0 {
+		http.Error(w, `{"error":"deployment_id, condition and a positive duration_seconds are required in request body"}`, http.StatusBadRequest)
+		return
+	}
+	resp, err := s.admin.MuteAlert(r.Context(), &adminv1.MuteAlertRequest{
+		DeploymentID:    body.DeploymentID,
+		Condition:       body.Condition,
+		DurationSeconds: body.DurationSeconds,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleUnmuteAlert(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeploymentID string `json:"deployment_id"`
+		Condition    string `json:"condition"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DeploymentID == "" || body.Condition == "" {
+		http.Error(w, `{"error":"deployment_id and condition are required in request body"}`, http.StatusBadRequest)
+		return
+	}
+	resp, err := s.admin.UnmuteAlert(r.Context(), &adminv1.UnmuteAlertRequest{
+		DeploymentID: body.DeploymentID,
+		Condition:    body.Condition,
+	})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

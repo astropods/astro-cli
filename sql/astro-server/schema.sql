@@ -195,17 +195,24 @@ CREATE TABLE public.deployment_alert_state (
     CONSTRAINT deployment_alert_state_pkey PRIMARY KEY (deployment_id, workload, condition)
 );
 
--- Daily-cap ledger for observation alerts. One row per (deployment_id,
--- condition) recording when that condition last notified. Unlike
--- deployment_alert_state (deleted on resolve), this row survives resolves so a
--- flapping deployment that resolves and re-breaches many times a day is capped
--- to one alert per (deployment, condition) per rolling 24h. The evaluator only
--- sends when the last_notified_at is older than the window. See
--- internal/observation.
+-- Per-(deployment, condition) notification control for observation alerts. One
+-- row carries both the daily-cap ledger and any admin mute; both columns are
+-- nullable and independent. Unlike deployment_alert_state (deleted on resolve),
+-- this row survives resolves so its suppression state persists across episodes.
+--   last_notified_at: when the condition last notified (NULL = never). Caps a
+--     flapping deployment to one alert per (deployment, condition) per rolling
+--     24h — the evaluator only sends when this is NULL or older than the window.
+--   muted_until: while in the future, an admin has silenced this condition. The
+--     evaluator still detects and tracks the breach (the deployment_alert_state
+--     row stays pending), but suppresses the send, so the condition re-fires
+--     automatically once the mute expires. Scoped per (deployment, condition) to
+--     match the dedup scope — all workloads of a condition mute together.
+-- See internal/observation.
 CREATE TABLE public.deployment_alert_notifications (
     deployment_id    text        NOT NULL,
     condition        text        NOT NULL,
-    last_notified_at timestamptz NOT NULL,
+    last_notified_at timestamptz,
+    muted_until      timestamptz,
     CONSTRAINT deployment_alert_notifications_pkey PRIMARY KEY (deployment_id, condition)
 );
 
