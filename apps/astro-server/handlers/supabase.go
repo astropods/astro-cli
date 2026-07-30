@@ -388,6 +388,77 @@ func supabaseFetchProjectsFromURL(ctx context.Context, accessToken, baseURL stri
 	return projects, nil
 }
 
+// SupabasePoolerConfig holds the connection-pooler (Supavisor) coordinates for a
+// project's primary database, as reported by the Management API. We connect
+// Supabase-backed knowledge stores through this pooler instead of the direct
+// db.<ref>.supabase.co endpoint: the direct endpoint is IPv6-only and therefore
+// unreachable from our IPv4-only VPCs, whereas the pooler is IPv4-reachable.
+// The pooler host (which Supavisor cluster, aws-0 vs aws-1) and user
+// (postgres.<ref>) are not derivable from the region, so they must come from
+// the API rather than be constructed client-side.
+type SupabasePoolerConfig struct {
+	DatabaseType string `json:"database_type"` // "PRIMARY" for the writable db; others are read replicas
+	DBHost       string `json:"db_host"`
+	DBName       string `json:"db_name"`
+	DBPort       int    `json:"db_port"`
+	DBUser       string `json:"db_user"`
+}
+
+// supabaseFetchPoolerConfig returns the connection-pooler coordinates for a
+// project's database from the Supabase Management API.
+func supabaseFetchPoolerConfig(ctx context.Context, accessToken, ref string) (SupabasePoolerConfig, error) {
+	return supabaseFetchPoolerConfigFromURL(ctx, accessToken, supabaseAPIBase, ref)
+}
+
+func supabaseFetchPoolerConfigFromURL(ctx context.Context, accessToken, baseURL, ref string) (SupabasePoolerConfig, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/projects/"+ref+"/config/database/pooler", nil)
+	if err != nil {
+		return SupabasePoolerConfig{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := supabaseHTTPClient.Do(req)
+	if err != nil {
+		return SupabasePoolerConfig{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusUnauthorized {
+		return SupabasePoolerConfig{}, errSupabaseUnauthorized
+	}
+	if resp.StatusCode != http.StatusOK {
+		return SupabasePoolerConfig{}, fmt.Errorf("supabase pooler config endpoint returned %d: %s", resp.StatusCode, truncateBody(raw))
+	}
+
+	// The endpoint returns an array with one entry per database (primary + any
+	// read replicas); some API versions return a bare object. Accept both, and
+	// prefer the PRIMARY (writable) entry — read replicas can't accept writes.
+	var many []SupabasePoolerConfig
+	if err := json.Unmarshal(raw, &many); err == nil && len(many) > 0 {
+		var fallback SupabasePoolerConfig
+		for _, p := range many {
+			if p.DBHost == "" {
+				continue
+			}
+			if p.DatabaseType == "PRIMARY" {
+				return p, nil
+			}
+			if fallback.DBHost == "" {
+				fallback = p
+			}
+		}
+		if fallback.DBHost != "" {
+			return fallback, nil
+		}
+	}
+	var one SupabasePoolerConfig
+	if err := json.Unmarshal(raw, &one); err == nil && one.DBHost != "" {
+		return one, nil
+	}
+	return SupabasePoolerConfig{}, fmt.Errorf("supabase pooler config: no db_host in response")
+}
+
 // supabaseFetchHealth returns the raw services-health array for a project. We
 // proxy it verbatim (json.RawMessage) rather than decode into a fixed schema, so
 // the client renders exactly what Supabase reports.

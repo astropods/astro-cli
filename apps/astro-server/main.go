@@ -1394,7 +1394,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(403, &handlers.ErrorResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, cfg, queue, db, quotaChecker), "knowledge_stores"),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, pipesClient, cfg, queue, db, quotaChecker), "knowledge_stores"),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

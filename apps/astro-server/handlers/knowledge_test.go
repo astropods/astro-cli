@@ -490,7 +490,7 @@ func TestConnectKnowledgeStore_Success(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "postgres-prod", "postgres", "ready"))
@@ -525,7 +525,7 @@ func TestConnectKnowledgeStore_MissingHost(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	body := `{"name":"pg-prod","provider":"postgres","port":5432}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -542,7 +542,7 @@ func TestConnectKnowledgeStore_MissingPort(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com"}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -559,7 +559,7 @@ func TestConnectKnowledgeStore_InvalidProvider(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	body := `{"name":"my-store","provider":"cassandra","host":"db.example.com","port":9042}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -576,7 +576,7 @@ func TestConnectKnowledgeStore_InvalidName(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	body := `{"name":"My-Store","provider":"postgres","host":"db.example.com","port":5432}`
 	req := httptest.NewRequest(http.MethodPost, "/knowledge/connect", strings.NewReader(body))
@@ -593,7 +593,7 @@ func TestConnectKnowledgeStore_MissingCredentials(t *testing.T) {
 	router, ksStore, _ := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	// Postgres requires PASSWORD but it's not provided.
 	body := `{"name":"pg-prod","provider":"postgres","host":"db.example.com","port":5432,"database":"mydb","username":"app"}`
@@ -611,7 +611,7 @@ func TestConnectKnowledgeStore_Conflict(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnError(&pq.Error{Code: "23505", Message: "duplicate key"})
@@ -631,7 +631,7 @@ func TestConnectKnowledgeStore_DBError(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	mock.ExpectQuery("INSERT INTO knowledge_stores").
 		WillReturnError(sqlmock.ErrCancelled)
@@ -650,7 +650,7 @@ func TestConnectKnowledgeStore_DBError(t *testing.T) {
 func TestConnectKnowledgeStore_ARNUsesAccountID(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
-	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, minimalCfg(), nil, nil, nil))
+	router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, minimalCfg(), nil, nil, nil))
 
 	acct := testAccount()
 	expectedARN := arn.KnowledgeStore(acct.ID, "pg-prod")
@@ -806,7 +806,7 @@ func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.
 	t.Run("not_in_plan", func(t *testing.T) {
 		router, ksStore, mock := setupKS()
 		log := logger.New("error", "json")
-		router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, privateLinkCfg, nil, nil, &disabledQuotaChecker{resource: "knowledge_endpoints"}))
+		router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, privateLinkCfg, nil, nil, &disabledQuotaChecker{resource: "knowledge_endpoints"}))
 		mock.ExpectQuery("INSERT INTO knowledge_stores").
 			WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
 
@@ -824,7 +824,7 @@ func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.
 	t.Run("quota_exceeded", func(t *testing.T) {
 		router, ksStore, mock := setupKS()
 		log := logger.New("error", "json")
-		router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, privateLinkCfg, nil, nil, &exceededQuotaChecker{resource: "knowledge_endpoints"}))
+		router.POST("/knowledge/connect", ConnectKnowledgeStore(log, ksStore, nil, privateLinkCfg, nil, nil, &exceededQuotaChecker{resource: "knowledge_endpoints"}))
 		mock.ExpectQuery("INSERT INTO knowledge_stores").
 			WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
 

@@ -26,6 +26,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
@@ -367,7 +368,7 @@ func provisionStoreAsync(ctx context.Context, log *logger.Logger, ksStore *knowl
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cfg *config.Config, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -439,6 +440,56 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, cf
 		}
 		if req.APIKey != "" {
 			creds["API_KEY"] = req.APIKey
+		}
+
+		// For Supabase-imported stores, connect through the session pooler rather
+		// than the direct db.<ref>.supabase.co endpoint the client sends. The direct
+		// endpoint is IPv6-only and unreachable from our IPv4-only VPCs; the pooler
+		// is IPv4. The pooler host (aws-0 vs aws-1 cluster) and user (postgres.<ref>)
+		// aren't derivable from the region, so we resolve them from the Management
+		// API and override the credentials — the backend owns the connection shape.
+		if req.SupabaseProject != nil && req.SupabaseProject.ID != "" {
+			if !supabaseProjectRefPattern.MatchString(req.SupabaseProject.ID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid supabase project ref"})
+				return
+			}
+			session, ok := middleware.GetSession(c)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+				return
+			}
+			token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
+				Provider:       supabaseProvider,
+				UserID:         session.UserID,
+				OrganizationID: session.OrganizationID,
+			})
+			if err != nil {
+				if errors.Is(err, pipes.ErrNotInstalled) || errors.Is(err, pipes.ErrNeedsReauthorization) {
+					c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "supabase_not_connected"})
+					return
+				}
+				log.Error("supabase: get access token for pooler config", "error", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve Supabase token"})
+				return
+			}
+			pooler, err := supabaseFetchPoolerConfig(c.Request.Context(), token.AccessToken, req.SupabaseProject.ID)
+			if err != nil {
+				if errors.Is(err, errSupabaseUnauthorized) {
+					c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "supabase_not_connected"})
+					return
+				}
+				log.Error("supabase: fetch pooler config", "error", err, "project", req.SupabaseProject.ID)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to resolve Supabase connection details"})
+				return
+			}
+			// Session pooler: pooler host + user from the API, session-mode port
+			// 5432 (transaction mode would be 6543). Database stays as reported.
+			creds["HOST"] = pooler.DBHost
+			creds["PORT"] = "5432"
+			creds["USERNAME"] = pooler.DBUser
+			if pooler.DBName != "" {
+				creds["DATABASE"] = pooler.DBName
+			}
 		}
 
 		if err := knowledgestore.ValidateExternalCredentials(req.Provider, creds); err != nil {

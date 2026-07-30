@@ -105,6 +105,10 @@ export function ConfigureForm({
 
   function handleSupabaseProjectSelect(p: SupabaseProject | null) {
     setSelectedProject(p);
+    // The server resolves the real connection from the Supabase Management API
+    // and rewrites HOST/PORT/USERNAME to the session pooler (the direct
+    // db.<ref>.supabase.co endpoint is IPv6-only and unreachable from our VPCs).
+    // We still send a placeholder host to satisfy the required field.
     setConnectionFields((f) => ({
       ...f,
       host: p ? `db.${p.id}.supabase.co` : "",
@@ -725,9 +729,9 @@ export function SupabaseConnectionSection({
               {selectedProject && (
                 <div className="flex items-center gap-2 border-t border-border-strong/60 bg-background/40 px-4 py-2.5 text-[12px]">
                   <ServerStackIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="text-muted-foreground">Host</span>
+                  <span className="text-muted-foreground">Connection</span>
                   <span className="truncate font-mono text-foreground">
-                    db.{selectedProject.id}.supabase.co:5432
+                    Session pooler (port 5432)
                   </span>
                 </div>
               )}

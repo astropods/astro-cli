@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -347,5 +349,75 @@ func TestSupabaseConnect_AlreadyConnected(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp["connected"] != true {
 		t.Errorf("expected connected: true, got %v", resp)
+	}
+}
+
+// --- supabaseFetchPoolerConfig ---
+
+func TestSupabaseFetchPoolerConfig(t *testing.T) {
+	objectBody := `{"db_host":"aws-1-us-east-1.pooler.supabase.com","db_name":"postgres","db_port":6543,"db_user":"postgres.abcdef1234567890","pool_mode":"transaction"}`
+	arrayBody := `[{"db_host":"aws-0-eu-west-2.pooler.supabase.com","db_name":"postgres","db_port":6543,"db_user":"postgres.zzz9999888877776","pool_mode":"transaction"}]`
+
+	tests := []struct {
+		name     string
+		body     string
+		wantHost string
+		wantUser string
+	}{
+		{"object shape", objectBody, "aws-1-us-east-1.pooler.supabase.com", "postgres.abcdef1234567890"},
+		{"array shape", arrayBody, "aws-0-eu-west-2.pooler.supabase.com", "postgres.zzz9999888877776"},
+		{
+			"prefers primary over replica",
+			`[{"database_type":"READ_REPLICA","db_host":"replica.pooler.supabase.com","db_user":"postgres.replica0000000"},{"database_type":"PRIMARY","db_host":"primary.pooler.supabase.com","db_user":"postgres.primary0000000"}]`,
+			"primary.pooler.supabase.com",
+			"postgres.primary0000000",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/projects/ref123/config/database/pooler" {
+					t.Errorf("unexpected path: %s", r.URL.Path)
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer tok" {
+					t.Errorf("missing bearer token, got %q", got)
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			cfg, err := supabaseFetchPoolerConfigFromURL(context.Background(), "tok", srv.URL, "ref123")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.DBHost != tc.wantHost || cfg.DBUser != tc.wantUser {
+				t.Errorf("got host=%q user=%q, want host=%q user=%q", cfg.DBHost, cfg.DBUser, tc.wantHost, tc.wantUser)
+			}
+		})
+	}
+}
+
+func TestSupabaseFetchPoolerConfig_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	_, err := supabaseFetchPoolerConfigFromURL(context.Background(), "tok", srv.URL, "ref123")
+	if !errors.Is(err, errSupabaseUnauthorized) {
+		t.Fatalf("expected errSupabaseUnauthorized, got %v", err)
+	}
+}
+
+func TestSupabaseFetchPoolerConfig_NoHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"pool_mode":"transaction"}`))
+	}))
+	defer srv.Close()
+
+	_, err := supabaseFetchPoolerConfigFromURL(context.Background(), "tok", srv.URL, "ref123")
+	if err == nil {
+		t.Fatal("expected error when db_host is absent")
 	}
 }
