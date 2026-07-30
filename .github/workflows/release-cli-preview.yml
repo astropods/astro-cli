@@ -69,8 +69,10 @@ jobs:
 
       # Build astro-client's chat SPA and copy it into the CLI embed dir so the
       # binaries below ship the latest chat UI (see modules/astro-cli/internal/chatui).
+      # The embed task lives in astro-client (not the public CLI) so the CLI repo
+      # never references astro-client.
       - name: Build and embed chat UI
-        run: bun x moon run astro-cli:embed-chat-ui
+        run: bun x moon run astro-client:embed-into-cli
 
       - name: Set build variables
         id: vars
@@ -97,14 +99,14 @@ jobs:
         run: |
           mkdir -p bin
           LDFLAGS="-s -w \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=${BINARY_NAME} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Version=${VERSION} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.Commit=${COMMIT} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.WorkOSClientID=${WORKOS_CLIENT_ID} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultServerURL=${SERVER_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DefaultRegistryURL=${REGISTRY_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.DownloadBaseURL=${DOWNLOAD_URL} \
-            -X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY}"
+            -X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=${BINARY_NAME} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.Version=${VERSION} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.Commit=${COMMIT} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.WorkOSClientID=${WORKOS_CLIENT_ID} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=${SERVER_URL} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.DefaultRegistryURL=${REGISTRY_URL} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.DownloadBaseURL=${DOWNLOAD_URL} \
+            -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY}"
 
           for OS in darwin linux; do
             for ARCH in amd64 arm64; do

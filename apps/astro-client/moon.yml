@@ -58,7 +58,7 @@ tasks:
       - "vite.config.ts"
 
   # Standalone, SSR-free chat bundle embedded into the astro CLI. Output is
-  # copied into apps/astro-cli/internal/chatui/webdist during the CLI release
+  # copied into modules/astro-cli/internal/chatui/webdist during the CLI release
   # build (named webdist, not dist — the repo-root .gitignore ignores "dist").
   build-chat-embed:
     command: "bun run build:chat-embed"
@@ -71,3 +71,15 @@ tasks:
       - "package.json"
     outputs:
       - "chat-embed-dist/**/*"
+
+  # Build the chat bundle and copy it into the private astro-cli submodule's embed
+  # dir (modules/astro-cli/internal/chatui/webdist). This task lives here, not in
+  # the CLI's moon.yml, so the public CLI repo never references astro-client. The
+  # dir is cleared first (preserving the tracked .gitkeep) so content-hashed
+  # bundles from prior builds don't accumulate in the go:embed.
+  embed-into-cli:
+    command: "sh -c 'find ../../modules/astro-cli/internal/chatui/webdist -mindepth 1 ! -name .gitkeep -delete && cp -R chat-embed-dist/. ../../modules/astro-cli/internal/chatui/webdist/'"
+    deps:
+      - "build-chat-embed"
+    options:
+      cache: false
