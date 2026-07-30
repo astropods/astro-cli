@@ -164,12 +164,19 @@ export async function refreshDeploymentChatTail(
   return merged;
 }
 
-export function useDeploymentChatConversations(deploymentId: string) {
+/** Lists the deployment's chat conversations from the messaging sidecar. Only
+ *  runs when `enabled`: the caller gates on a reachable agent so the list never
+ *  fires the proxy at a stopped/unreachable sidecar (which 5xxs and trips the
+ *  per-route alert). */
+export function useDeploymentChatConversations(
+  deploymentId: string,
+  enabled = true,
+) {
   const api = useApiClient();
   return useQuery({
     queryKey: chatKeys.conversations(deploymentId),
     queryFn: () => api.listDeploymentChatConversations(deploymentId),
-    enabled: !!deploymentId,
+    enabled: enabled && !!deploymentId,
   });
 }
 

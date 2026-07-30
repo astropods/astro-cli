@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeploymentChatConversations } from "@/api/queries/chat";
+import { useDeploymentChatReadiness } from "@/hooks/use-deployment-chat-readiness";
 import { chatKeys } from "@/api/queries/keys";
 import type { ChatSession } from "@/lib/chat/types";
 
@@ -13,8 +14,20 @@ const DEFAULT_TITLE = "New conversation";
  * the agent's shared persistent disk. Keyed by the opaque WorkOS user id.
  */
 export function useChatSessions(deploymentId: string) {
-  const { data, isLoading } = useDeploymentChatConversations(deploymentId);
+  // Only list conversations once the agent is reachable; the list proxies to the
+  // sidecar and would 5xx (tripping the per-route alert) against a stopped or
+  // unreachable deployment.
+  const { ready, resolved } = useDeploymentChatReadiness(deploymentId);
+  const { data, isLoading } = useDeploymentChatConversations(deploymentId, ready);
   const queryClient = useQueryClient();
+
+  // A disabled TanStack query reports isLoading:false, so while the readiness
+  // gate is still settling the list looks "loaded but empty". Surface that
+  // pre-fetch window as loading (until the gate resolves, then track the real
+  // query) so run-once consumers like auto-select wait for actual data instead
+  // of firing against an empty list. An unreachable agent resolves to not-ready
+  // with no fetch, so loading correctly ends without the list ever running.
+  const loading = !resolved || (ready && isLoading);
 
   const sessions = useMemo(
     (): ChatSession[] =>
@@ -38,5 +51,5 @@ export function useChatSessions(deploymentId: string) {
     });
   }, [deploymentId, queryClient]);
 
-  return { sessions, recordFirstMessage, isLoading };
+  return { sessions, recordFirstMessage, isLoading: loading };
 }

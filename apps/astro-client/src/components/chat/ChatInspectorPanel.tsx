@@ -24,10 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountMembers } from "@/api/queries/accounts";
-import {
-  useDeploymentRuntime,
-  useDeploymentStatus,
-} from "@/api/queries/deployments";
+import { useDeploymentStatus } from "@/api/queries/deployments";
 import {
   useObservabilitySummaries,
   useObservabilitySummary,
@@ -51,10 +48,8 @@ import {
 } from "@/components/agent-detail/traces/trace-utils";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
-import {
-  deriveChatComposerState,
-  type ChatComposerState,
-} from "@/lib/deployment-utils";
+import { type ChatComposerState } from "@/lib/deployment-utils";
+import { useDeploymentChatReadiness } from "@/hooks/use-deployment-chat-readiness";
 import {
   DeploymentTab,
   deploymentPath,
@@ -109,10 +104,13 @@ export function ChatInspectorPanel({
   const { data: statusData } = useDeploymentStatus(deploymentId);
 
   // Hide the Files tab entirely unless the agent supports files (the sidecar has
-  // storage and the agent declared it). Cached + shared with the composer/settings
-  // fetch, so no extra request. If Files is the active tab when it disappears,
-  // fall back to Overview.
-  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId);
+  // storage and the agent declared it). Gated on reachability so the agent/config
+  // proxy never fires at a stopped/unreachable sidecar (which 5xxs and trips the
+  // per-route alert); cached + shared with the composer/settings fetch, so no
+  // extra request. If Files is the active tab when it disappears, fall back to
+  // Overview.
+  const { ready } = useDeploymentChatReadiness(deploymentId);
+  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId, ready);
   const filesEnabled = agentConfig?.capabilities?.files === true;
   const visibleTabs = filesEnabled ? TABS : TABS.filter((t) => t.id !== "files");
   useEffect(() => {
@@ -446,26 +444,12 @@ const SETTINGS_UNAVAILABLE_NOTICE: Record<
 };
 
 function SettingsTab({ deploymentId }: { deploymentId: string }) {
-  const { data: status } = useDeploymentStatus(deploymentId);
-  const { data: runtimeData, isError: runtimeError } =
-    useDeploymentRuntime(deploymentId);
-  const state = deriveChatComposerState(status, runtimeData?.runtime);
-  // Pessimistic gate: only fetch once BOTH the status and the runtime
-  // (messaging reachability) have *settled* AND the agent is ready. Deriving
-  // `ready` while either is still loading would fire agent/config against a
-  // possibly-paused/unreachable sidecar — the exact request this view exists to
-  // avoid. While loading, `state` is "ready" optimistically but `resolved` is
-  // false, so we surface the "unknown" notice rather than issuing the request.
-  //
-  // A runtime *error* counts as settled (not still-loading): the runtime read
-  // is DB-backed and cluster-independent, so it won't 503 on a briefly
-  // unreachable cluster — but on a genuine read error, pinning the tab on
-  // "Checking…" forever would be worse than attempting the (hardened,
-  // fail-fast) request as the old code always did.
-  const resolved = !!status && (!!runtimeData || runtimeError);
-  const ready = resolved && state === "ready";
-  // Only hit the messaging proxy (agent/config) when the agent is actually
-  // reachable — otherwise the proxy hangs and 5xxs on an unresponsive sidecar.
+  // Only hit the messaging proxy (agent/config) once the agent is reachable;
+  // otherwise the proxy 5xxs on a stopped/paused/unreachable sidecar, the exact
+  // request this view exists to avoid. `ready` waits for status and runtime to
+  // settle; `state` drives the notice shown until then. See
+  // useDeploymentChatReadiness.
+  const { state, ready } = useDeploymentChatReadiness(deploymentId);
   const { data: config, isLoading, isError } = useDeploymentAgentConfig(
     deploymentId,
     ready,

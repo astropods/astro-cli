@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 import { useDeploymentChat } from "@/hooks/use-deployment-chat";
 import { useDeploymentAgentConfig } from "@/api/queries/chat";
+import { useDeploymentChatReadiness } from "@/hooks/use-deployment-chat-readiness";
 import { chatMessagesToThreadMessages } from "@/lib/messaging/chat-message-adapter";
 import { dictationAdapter } from "@/lib/chat/dictation";
 import { useApiClient } from "@/lib/api-context";
@@ -79,9 +80,12 @@ export function DeploymentChatRuntimeProvider({
   // the sidecar reports capabilities.files only when it has storage AND the agent
   // declared it consumes attachments. Absent capabilities (older sidecar / agent
   // that didn't opt in) reads as false, so the button stays hidden rather than
-  // offering an upload the agent would silently ignore. The query is cached and
-  // shared with the inspector's fetch, so this adds no extra request.
-  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId);
+  // offering an upload the agent would silently ignore. Gated on reachability so
+  // the agent/config proxy never fires at a stopped/unreachable sidecar (which
+  // 5xxs and trips the per-route alert); the query is cached and shared with the
+  // inspector's fetch, so this adds no extra request.
+  const { ready } = useDeploymentChatReadiness(deploymentId);
+  const { data: agentConfig } = useDeploymentAgentConfig(deploymentId, ready);
   const filesEnabled = agentConfig?.capabilities?.files === true;
 
   const onNew = useCallback(
