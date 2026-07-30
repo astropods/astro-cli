@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Loader2, Rocket, Save, History, X, Play, Check } from "lucide-react";
+import { Loader2, Rocket, Save, History, X, Play, Check, Info } from "lucide-react";
 import { motion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { BlueprintVersionPicker } from "@/components/deploy/BlueprintVersionPicker";
 import { useBlueprint } from "@/api/queries/blueprints";
-import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIngestion, useWakeUpDeployment, useDeploymentStatus } from "@/api/queries/deployments";
+import { useUploadDeploymentAvatar, useUpdateDeploymentDisplayName, useTriggerIngestion, useDeploymentStatus } from "@/api/queries/deployments";
 import { isPausedState } from "@/lib/deployment-utils";
 import { bustDeploymentAvatar, useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import { deploymentKeys } from "@/api/queries/keys";
@@ -56,14 +56,11 @@ export default function AgentConfigure() {
   const uploadAvatar = useUploadDeploymentAvatar(account);
   const avatarBust = useDeploymentAvatarBust(deployment.id);
   const renameMutation = useUpdateDeploymentDisplayName(deployment.id);
-  const wakeupMutation = useWakeUpDeployment(account);
   const { data: liveStatus } = useDeploymentStatus(deploymentId);
-  // A paused agent can't redeploy; explain why and offer Resume. Prefer the live
+  // Redeploying a paused agent reactivates it (the deploy path resets the record
+  // to pending and reapplies the spec), so warn rather than block. Prefer the live
   // status (flips on resume) over the record, which lags until it refetches.
   const paused = liveStatus ? liveStatus.value === "inactive" : isPausedState(deployment);
-  const handleResume = useCallback(() => {
-    wakeupMutation.mutate({ deploymentId: deployment.id });
-  }, [wakeupMutation, deployment.id]);
 
   // Build links are one-time handoffs into upgrade mode. Keeping the temporary
   // selection out of the URL makes refreshes and future tab visits start from
@@ -238,9 +235,13 @@ export default function AgentConfigure() {
       >
         <div className="@container/footer pointer-events-auto w-full max-w-[52rem] rounded-lg border border-border bg-surface/95 py-3 pl-5 pr-3 shadow-lg backdrop-blur @max-[600px]/footer:px-5 supports-[backdrop-filter]:bg-surface/90">
           <div className="flex items-center gap-3 @max-[600px]/footer:flex-col @max-[600px]/footer:gap-3">
-            <p className="text-body text-muted-foreground @max-[600px]/footer:text-center">
-              {paused
-                ? "This agent is paused, so it can't be redeployed. Resume it to deploy again."
+            <div className="flex items-center gap-2 @max-[600px]/footer:justify-center">
+              {paused && !isNameOnly && (
+                <Info className="size-4 shrink-0 text-foreground-accent" aria-hidden />
+              )}
+            <p className="text-body leading-snug text-muted-foreground @max-[600px]/footer:text-center">
+              {paused && !isNameOnly
+                ? "This agent is paused. Redeploying will reactivate it and resume serving traffic."
                 : isRollback
                 ? `Rollback to config #${rollbackRevision}. Review and redeploy.`
                 : isBuildOverride
@@ -251,20 +252,9 @@ export default function AgentConfigure() {
                 ? "Save to update the agent name."
                 : "Redeploy the current configuration."}
             </p>
+            </div>
             <div className="ml-auto flex shrink-0 items-center gap-1.5 @max-[600px]/footer:ml-0 @max-[600px]/footer:w-full @max-[400px]/footer:flex-col">
-              {paused && (
-                <Button
-                  type="button"
-                  variant="default"
-                  className="shrink-0 @max-[600px]/footer:flex-1 @max-[400px]/footer:w-full @max-[400px]/footer:flex-none"
-                  disabled={wakeupMutation.isPending}
-                  onClick={handleResume}
-                >
-                  {wakeupMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-                  {wakeupMutation.isPending ? "Resuming…" : "Resume to deploy"}
-                </Button>
-              )}
-              {!paused && (form.isDirty || hasOverride) && (
+              {(form.isDirty || hasOverride) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -275,7 +265,7 @@ export default function AgentConfigure() {
                   Discard
                 </Button>
               )}
-              {paused ? null : isNameOnly ? (
+              {isNameOnly ? (
                 <Button
                   type="submit"
                   form={FORM_ID}
