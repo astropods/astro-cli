@@ -2198,6 +2198,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		}
 		githubRoutes := protected.Group("/agents/:account/:name")
 		githubRoutes.Use(middleware.ResolveAccount(accountStore))
+		githubRoutes.Use(middleware.RequireAccountMember(accountStore))
 		{
 			api.POST(githubRoutes, "/github/link", "Link a GitHub repo to an agent",
 				handlers.GitHubLink(log, pipesClient, ghStore, webhookStore, githubCfg),
