@@ -232,9 +232,11 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 
 	apiKey, gatewayURL, err := w.ensureJudgeKey(ctx, dataset.AccountID)
 	if err != nil {
-		if errors.Is(err, aigateway.ErrJudgeKeyOrphaned) || errors.Is(err, aigateway.ErrJudgeKeyDecrypt) {
+		if errors.Is(err, aigateway.ErrJudgeKeyDecrypt) {
 			return w.failPermanent(job, fmt.Errorf("ensure judge key: %w", err), predictionFailureMessage)
 		}
+		// A deterministic-key conflict can be a concurrent first provision:
+		// another job may have minted the key but not saved its local row yet.
 		return w.retryOrRecordFailure(job, fmt.Errorf("ensure judge key: %w", err))
 	}
 

@@ -457,6 +457,61 @@ func TestEvalJudgePredictionWorkerInvocationFailures(t *testing.T) {
 			t.Fatalf("Work error = %v, want JobCancel", err)
 		}
 	})
+
+	t.Run("judge key conflict retries while another job saves the key", func(t *testing.T) {
+		worker, store, _, predictor := newEvalJudgeWorkerFixture()
+		keyAttempts := 0
+		worker.ensureJudgeKey = func(context.Context, string) (string, string, error) {
+			keyAttempts++
+			if keyAttempts == 1 {
+				return "", "", aigateway.ErrJudgeKeyOrphaned
+			}
+			return "judge-key", "https://gateway.example", nil
+		}
+
+		err := worker.Work(context.Background(), predictionJob(1))
+		var cancelErr *river.JobCancelError
+		if err == nil || errors.As(err, &cancelErr) {
+			t.Fatalf("Work error = %v, want retryable", err)
+		}
+		if !errors.Is(err, aigateway.ErrJudgeKeyOrphaned) {
+			t.Fatalf("Work error = %v, want ErrJudgeKeyOrphaned", err)
+		}
+		if predictor.calls != 0 {
+			t.Fatalf("Predict calls = %d, want 0", predictor.calls)
+		}
+		if len(store.updates) != 1 || store.updates[0].status != judgmentstore.PredictionRequestInProgress {
+			t.Fatalf("updates = %+v", store.updates)
+		}
+
+		if err := worker.Work(context.Background(), predictionJob(2)); err != nil {
+			t.Fatalf("retry Work: %v", err)
+		}
+		if keyAttempts != 2 || predictor.calls != 1 || store.stored == nil {
+			t.Fatalf("key attempts=%d predict calls=%d stored=%v", keyAttempts, predictor.calls, store.stored != nil)
+		}
+		last := store.updates[len(store.updates)-1]
+		if last.status != judgmentstore.PredictionRequestCompleted {
+			t.Fatalf("last update = %+v", last)
+		}
+	})
+
+	t.Run("judge key conflict fails after final attempt", func(t *testing.T) {
+		worker, store, _, _ := newEvalJudgeWorkerFixture()
+		worker.ensureJudgeKey = func(context.Context, string) (string, string, error) {
+			return "", "", aigateway.ErrJudgeKeyOrphaned
+		}
+
+		err := worker.Work(context.Background(), predictionJob(3))
+		if err == nil || !errors.Is(err, aigateway.ErrJudgeKeyOrphaned) {
+			t.Fatalf("Work error = %v, want ErrJudgeKeyOrphaned", err)
+		}
+		last := store.updates[len(store.updates)-1]
+		if last.status != judgmentstore.PredictionRequestFailed ||
+			last.message == nil || *last.message != predictionFailureMessage {
+			t.Fatalf("last update = %+v", last)
+		}
+	})
 }
 
 func TestEvalJudgePredictionWorkerFailurePersistenceRetries(t *testing.T) {
