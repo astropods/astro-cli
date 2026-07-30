@@ -11,7 +11,10 @@ export type MessagingStreamHandlers = {
     attachments?: ChatAttachment[],
   ) => void;
   onFinish: () => void;
-  onProtocolError: () => void;
+  // Server-sent terminal error (agent failed / disconnected / stalled).
+  onError: (message: string) => void;
+  // Any inbound SSE event (chunk, heartbeat, ...): the transport is alive.
+  onActivity: () => void;
   onInteraction?: (interaction: Interaction) => void;
 };
 
@@ -20,6 +23,7 @@ type SsePayload = {
   chunk_type?: string;
   content?: string;
   attachments?: ChatAttachment[];
+  message?: string;
 };
 
 function parseSsePayload(data: string): SsePayload | null {
@@ -52,25 +56,49 @@ export function openMessagingStream(
       if (interaction) handlers.onInteraction?.(interaction);
       return;
     }
-    if (typ === "finish" || typ === "error") {
+    if (typ === "error") {
+      handlers.onError(
+        payload.message || "The agent stopped responding. You can try sending again.",
+      );
+      return;
+    }
+    if (typ === "finish") {
       handlers.onFinish();
     }
   };
 
   es.addEventListener("chunk", (e) => {
+    handlers.onActivity();
     if (e instanceof MessageEvent) handleData("chunk", String(e.data));
   });
+  es.addEventListener("heartbeat", () => handlers.onActivity());
+  es.addEventListener("status", () => handlers.onActivity());
   es.addEventListener("interaction", (e) => {
+    handlers.onActivity();
     if (e instanceof MessageEvent) handleData("interaction", String(e.data));
   });
   es.addEventListener("finish", (e) => {
+    handlers.onActivity();
     if (e instanceof MessageEvent) handleData("finish", String(e.data));
     else handlers.onFinish();
   });
   es.addEventListener("error", (e) => {
-    if (e instanceof MessageEvent) handlers.onProtocolError();
+    // A plain Event is a native connection error: EventSource auto-reconnects and
+    // the liveness watchdog (loss of heartbeats) covers a dead pipe, so it must
+    // NOT count as activity or it would re-arm the watchdog every reconnect. A
+    // MessageEvent is a server-sent error event: always terminal, even if its
+    // payload is malformed (fall back to the default message).
+    if (!(e instanceof MessageEvent)) return;
+    const payload = parseSsePayload(String(e.data));
+    handlers.onError(
+      payload?.message ||
+        "The agent stopped responding. You can try sending again.",
+    );
   });
-  es.onmessage = (e) => handleData("", String(e.data));
+  es.onmessage = (e) => {
+    handlers.onActivity();
+    handleData("", String(e.data));
+  };
 
   return es;
 }

@@ -51,6 +51,15 @@ class MockEventSource {
     const event = new MessageEvent(type, { data });
     listeners.forEach((listener) => listener(event));
   }
+
+  // A native connection error, as EventSource dispatches on each failed
+  // reconnect: a plain Event on the "error" listener, not a MessageEvent.
+  emitNativeError() {
+    const listeners = this.listeners.get("error");
+    if (!listeners) return;
+    const event = new Event("error");
+    listeners.forEach((listener) => listener(event));
+  }
 }
 
 const deploymentId = "dep-chat-1";
@@ -466,12 +475,10 @@ describe("useDeploymentChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
-  it("watchdog reaps a stalled turn so a resend opens a fresh stream", async () => {
-    // A turn whose stream never delivers a finish (a stalled or reaped-but-not-
-    // closed sidecar generation) must be reaped by the per-stream watchdog: the
-    // EventSource is closed and removed so a resend isn't short-circuited by the
-    // "already streaming" guard into reusing the dead stream. Regression guard for
-    // the in-flight timeout that left the stream open and blocked retries.
+  it("liveness watchdog reaps a dead SSE pipe so a resend opens a fresh stream", async () => {
+    // With no inbound activity at all (not even heartbeats) the pipe is dead; the
+    // watchdog closes the EventSource so a resend isn't short-circuited by the
+    // "already streaming" guard into reusing it.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     messagingHandlers();
 
@@ -486,19 +493,17 @@ describe("useDeploymentChat", () => {
     });
 
     expect(MockEventSource.instances.length).toBe(1);
-    const stalledStream = MockEventSource.instances[0];
+    const deadStream = MockEventSource.instances[0];
     expect(result.current.isStreaming).toBe(true);
 
-    // No finish ever arrives; advance past the watchdog (IN_FLIGHT_TIMEOUT_MS,
-    // 3 min).
+    // No chunk and no heartbeat arrives; advance past the liveness window (90s).
     act(() => {
-      vi.advanceTimersByTime(3 * 60 * 1000 + 1000);
+      vi.advanceTimersByTime(90 * 1000 + 1000);
     });
 
     expect(result.current.streamError).toBeTruthy();
     expect(result.current.isStreaming).toBe(false);
-    // The watchdog must close the stalled stream, not merely reset UI state.
-    expect(stalledStream.readyState).toBe(MockEventSource.CLOSED);
+    expect(deadStream.readyState).toBe(MockEventSource.CLOSED);
 
     // Resending must open a brand-new stream rather than reuse the dead one.
     await act(async () => {
@@ -507,5 +512,475 @@ describe("useDeploymentChat", () => {
 
     expect(MockEventSource.instances.length).toBe(2);
     expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("heartbeats keep a long, content-quiet turn alive", async () => {
+    // A slow turn emits no content for minutes but the sidecar heartbeats every
+    // 30s. Each heartbeat resets the liveness watchdog, so the turn keeps
+    // streaming with no error. Regression guard for the old fixed whole-turn
+    // timeout that cut off long turns even while the pipe was healthy.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // Heartbeat every 30s for 6 min (well past the old 3-min cap), no content.
+    for (let i = 0; i < 12; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30 * 1000);
+      });
+      act(() => {
+        stream.emit("heartbeat", JSON.stringify({ type: "heartbeat" }));
+      });
+      expect(result.current.streamError).toBeNull();
+      expect(result.current.isStreaming).toBe(true);
+      expect(stream.readyState).not.toBe(MockEventSource.CLOSED);
+    }
+
+    // Heartbeats stop; after a full silent window the watchdog reaps the pipe.
+    act(() => {
+      vi.advanceTimersByTime(90 * 1000 + 1000);
+    });
+
+    expect(result.current.streamError).toBeTruthy();
+    expect(result.current.isStreaming).toBe(false);
+    expect(stream.readyState).toBe(MockEventSource.CLOSED);
+  });
+
+  it("interaction events keep a content-quiet turn alive", async () => {
+    // An agent can stream interaction prompts (asking the user for input) with no
+    // chunks and, if heartbeats pause, nothing else. Interactions are real inbound
+    // data and must reset the liveness watchdog, or a live turn would be reaped as
+    // a dead pipe. Regression guard for interaction not counting as activity.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // An interaction every 60s for 5 min (well past the 90s window), no heartbeats.
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        vi.advanceTimersByTime(60 * 1000);
+      });
+      act(() => {
+        stream.emit("interaction", JSON.stringify({ type: "interaction" }));
+      });
+      expect(result.current.streamError).toBeNull();
+      expect(result.current.isStreaming).toBe(true);
+    }
+  });
+
+  it("native reconnect errors do not keep a dead pipe alive", async () => {
+    // A genuinely dead pipe makes EventSource auto-reconnect, dispatching a
+    // native (non-MessageEvent) error every few seconds. Those must NOT count as
+    // liveness, or the watchdog re-arms forever and the turn hangs — the exact
+    // case this backstop exists for. Only real inbound data resets the watchdog.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // Native reconnect errors every 3s across the whole 90s liveness window.
+    for (let i = 0; i < 30; i++) {
+      act(() => {
+        vi.advanceTimersByTime(3 * 1000);
+      });
+      act(() => {
+        stream.emitNativeError();
+      });
+    }
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(result.current.streamError).toBeTruthy();
+    expect(result.current.isStreaming).toBe(false);
+    expect(stream.readyState).toBe(MockEventSource.CLOSED);
+  });
+
+  it("server error event surfaces its message and ends the turn", async () => {
+    // The server is authoritative for termination: an error event ends the turn
+    // immediately and shows the server's message, without waiting on the watchdog.
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    act(() => {
+      stream.emit(
+        "error",
+        JSON.stringify({
+          type: "error",
+          message: "The agent disconnected. You can try sending again.",
+          retryable: true,
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+    });
+    expect(result.current.streamError).toBe(
+      "The agent disconnected. You can try sending again.",
+    );
+  });
+
+  it("a malformed server error event still terminates the turn", async () => {
+    // A server-sent error event is a terminal signal even if its payload doesn't
+    // parse: it must end the turn (with the default message), not merely reset the
+    // liveness watchdog and leave the turn hanging until a backstop fires.
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    act(() => {
+      stream.emit("error", "not-json{");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+    });
+    expect(result.current.streamError).toBe(
+      "The agent stopped responding. You can try sending again.",
+    );
+  });
+
+  it("content-stall cap reaps a turn that only heartbeats and never produces content", async () => {
+    // Defense-in-depth: a sidecar that keeps heartbeating but produces no content
+    // and never sends a terminal event resets the liveness watchdog forever.
+    // Heartbeats are not content, so the 15-min content-stall cap still ends the
+    // turn — the composer can't stay blocked indefinitely against a regressed server.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // Heartbeat every 30s for 14.5 min; the 90s liveness watchdog never fires and
+    // heartbeats never reset the content-stall cap.
+    for (let i = 0; i < 29; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30 * 1000);
+      });
+      act(() => {
+        stream.emit("heartbeat", JSON.stringify({ type: "heartbeat" }));
+      });
+    }
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamError).toBeNull();
+
+    // Cross the 15-min content-stall cap.
+    act(() => {
+      vi.advanceTimersByTime(31 * 1000);
+    });
+
+    expect(result.current.streamError).toBeTruthy();
+    expect(result.current.isStreaming).toBe(false);
+    expect(stream.readyState).toBe(MockEventSource.CLOSED);
+  });
+
+  it("a continuously-streaming turn is not cut off by the content-stall cap", async () => {
+    // The cap resets on content, so a healthy long turn that keeps streaming
+    // chunks (e.g. deep research, large codegen) runs well past 15 min without
+    // being cut off — the failure class this change avoids reintroducing.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // A content chunk every 60s for 20 min (past the 15-min cap). 60s is under the
+    // 90s liveness window (chunks reset that too), and each chunk resets the stall
+    // cap, so the turn keeps streaming with no error.
+    for (let i = 0; i < 20; i++) {
+      act(() => {
+        vi.advanceTimersByTime(60 * 1000);
+      });
+      act(() => {
+        stream.emit(
+          "chunk",
+          JSON.stringify({ type: "chunk", content: `tok${i} ` }),
+        );
+      });
+      expect(result.current.streamError).toBeNull();
+      expect(result.current.isStreaming).toBe(true);
+      expect(stream.readyState).not.toBe(MockEventSource.CLOSED);
+    }
+  });
+
+  it("a pending interaction pauses the content-stall cap so a long human pause isn't reaped", async () => {
+    // The agent streams an interaction prompt then waits for the user. Heartbeats
+    // keep the liveness watchdog alive, but the content-stall cap must be paused
+    // (the turn is parked on the user, not the agent), so a >15-min pause to answer
+    // isn't reaped as "stopped producing output".
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // The agent asks for input, then goes quiet awaiting the user's answer.
+    act(() => {
+      stream.emit(
+        "interaction",
+        JSON.stringify({
+          type: "interaction",
+          id: "int-1",
+          dataSchema: { type: "object" },
+          actions: ["submit"],
+        }),
+      );
+    });
+
+    // 16 min pass with only heartbeats (past the 15-min stall cap) while the user
+    // is still deciding. The turn must stay alive.
+    for (let i = 0; i < 33; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30 * 1000);
+      });
+      act(() => {
+        stream.emit("heartbeat", JSON.stringify({ type: "heartbeat" }));
+      });
+      expect(result.current.streamError).toBeNull();
+      expect(result.current.isStreaming).toBe(true);
+    }
+  });
+
+  it("re-arms the content-stall cap after an interaction is resolved", async () => {
+    // Resolving an interaction re-arms the paused stall cap, so if the agent then
+    // resumes with only heartbeats and no content (a regressed sidecar), the turn
+    // is still bounded rather than pinned open forever.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    messagingHandlers();
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useDeploymentChat(deploymentId, { conversationId: null }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+
+    const stream = MockEventSource.instances[0];
+    expect(result.current.isStreaming).toBe(true);
+
+    // The agent asks for input (pausing the stall cap); the user answers.
+    act(() => {
+      stream.emit(
+        "interaction",
+        JSON.stringify({
+          type: "interaction",
+          id: "int-1",
+          dataSchema: { type: "object" },
+          actions: ["submit"],
+        }),
+      );
+    });
+    act(() => {
+      result.current.clearPendingInteraction();
+    });
+
+    // The agent resumes but produces only heartbeats (no content) for 16 min. The
+    // re-armed stall cap must still reap it.
+    for (let i = 0; i < 32; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30 * 1000);
+      });
+      act(() => {
+        stream.emit("heartbeat", JSON.stringify({ type: "heartbeat" }));
+      });
+    }
+    act(() => {
+      vi.advanceTimersByTime(60 * 1000);
+    });
+
+    expect(result.current.streamError).toBeTruthy();
+    expect(result.current.isStreaming).toBe(false);
+    expect(stream.readyState).toBe(MockEventSource.CLOSED);
+  });
+
+  it("surfaces a background conversation's terminal error when the user returns", async () => {
+    const convA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const convB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    server.use(
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${convA}`,
+        () =>
+          HttpResponse.json({
+            conversation_id: convA,
+            messages: [{ id: "ua", role: "user", content: "hi" }],
+            assistant_streaming: true,
+          }),
+      ),
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${convB}`,
+        () =>
+          HttpResponse.json({
+            conversation_id: convB,
+            messages: [{ id: "ub", role: "user", content: "yo" }],
+            assistant_streaming: false,
+          }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result, rerender } = renderHook(
+      ({ cid }: { cid: string }) =>
+        useDeploymentChat(deploymentId, { conversationId: cid }),
+      { wrapper, initialProps: { cid: convA } },
+    );
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    const aStream = MockEventSource.latest();
+
+    // Leave A for B; A's stream stays open in the background.
+    rerender({ cid: convB });
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+    // A's turn errors while off-screen — it must not surface on B...
+    act(() => {
+      aStream.emit(
+        "error",
+        JSON.stringify({ type: "error", message: "The agent hit an error." }),
+      );
+    });
+    expect(result.current.streamError).toBeNull();
+
+    // ...but returning to A shows it instead of a silently re-armed composer.
+    rerender({ cid: convA });
+    await waitFor(() =>
+      expect(result.current.streamError).toBe("The agent hit an error."),
+    );
+  });
+
+  it("surfaces a background error when returning from a null 'new chat' state", async () => {
+    const convA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    server.use(
+      http.get(
+        `/api/v1/deployments/${deploymentId}/chat/conversations/${convA}`,
+        () =>
+          HttpResponse.json({
+            conversation_id: convA,
+            messages: [{ id: "ua", role: "user", content: "hi" }],
+            assistant_streaming: true,
+          }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result, rerender } = renderHook(
+      ({ cid }: { cid: string | null }) =>
+        useDeploymentChat(deploymentId, { conversationId: cid }),
+      { wrapper, initialProps: { cid: convA as string | null } },
+    );
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    const aStream = MockEventSource.latest();
+
+    // Switch to a null "new chat"; A's stream stays open in the background.
+    rerender({ cid: null });
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+    // A errors while off-screen.
+    act(() => {
+      aStream.emit(
+        "error",
+        JSON.stringify({ type: "error", message: "A failed while away." }),
+      );
+    });
+    expect(result.current.streamError).toBeNull();
+
+    // Returning to A from the null state must still surface the stashed error
+    // (this null -> conversation transition previously short-circuited it).
+    rerender({ cid: convA });
+    await waitFor(() =>
+      expect(result.current.streamError).toBe("A failed while away."),
+    );
   });
 });

@@ -26,7 +26,18 @@ import {
 import { openMessagingStream } from "@/lib/messaging/transport";
 import { parseInteraction, type Interaction } from "@/lib/chat/interaction";
 
-const IN_FLIGHT_TIMEOUT_MS = 3 * 60 * 1000;
+// Transport backstop: the server is authoritative for turn termination (it emits
+// a terminal finish/error on finish, agent error, disconnect, or stall), so this
+// only guards a dead SSE pipe. Reset on any inbound event (chunks + 30s
+// heartbeats); fires only after this long of total silence.
+const STREAM_LIVENESS_TIMEOUT_MS = 90 * 1000;
+// Content-stall cap: defense-in-depth against a sidecar that keeps heartbeating
+// (so the liveness watchdog never fires) but produces no content and never sends
+// a terminal event, which would otherwise pin the composer open forever. Reset
+// only by content chunks (not heartbeats), so a healthy turn that keeps streaming
+// is never cut off, while a heartbeat-only zombie is still reaped after this long
+// with no content. Comfortably above the server's 5-min idle window.
+const CONTENT_STALL_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Platform deployment chat.
@@ -80,11 +91,22 @@ export function useDeploymentChat(
   // is closed only when the turn finishes or the hook unmounts. This lets a turn
   // complete and persist while a different conversation is on screen.
   const streamsRef = useRef<Map<string, EventSource>>(new Map());
-  // Per-stream watchdog timers keyed by conversation. Armed when a stream opens,
-  // cleared when its turn ends. If a turn never produces a finish event (a
-  // stalled or reaped-but-not-closed sidecar generation), the timer finalizes
-  // the stream so its EventSource is closed and a resend can open a fresh one.
+  // Per-stream liveness watchdog timers keyed by conversation. Armed on stream
+  // open and reset on any inbound activity; if the SSE pipe goes fully silent
+  // (no chunks, no heartbeats) the timer finalizes the stream so its EventSource
+  // is closed and a resend can open a fresh one.
   const streamTimersRef = useRef<Map<string, number>>(new Map());
+  // Per-stream content-stall caps keyed by conversation. Armed on stream open and
+  // reset on each content chunk (not heartbeats) — the no-progress backstop
+  // (see CONTENT_STALL_TIMEOUT_MS).
+  const streamStallTimersRef = useRef<Map<string, number>>(new Map());
+  // Terminal errors that arrived for a background (off-screen) conversation,
+  // keyed by conversation. Surfaced when the user returns to it instead of being
+  // silently dropped (the composer would otherwise just re-arm with no reason).
+  const backgroundErrorsRef = useRef<Map<string, string>>(new Map());
+  // Latest armStallTimer, so clearPendingInteraction (defined above it) can re-arm
+  // the content-stall cap when the user answers an interaction.
+  const armStallTimerRef = useRef<(conversationId: string) => void>(() => {});
   // Always-current active conversation, read by the long-lived stream callbacks.
   // They must compare against the conversation on screen now — not the one
   // captured when the stream opened — to tell whether a chunk/finish is for the
@@ -210,6 +232,12 @@ export function useDeploymentChat(
       setResolvedInteractionIds((prev) => new Set(prev).add(resolved.id));
     }
     setLiveInteraction(null);
+    // The user answered: re-arm the content-stall cap (paused while the interaction
+    // was pending) so the agent's resume is still bounded if it produces no content.
+    const convId = activeConversationIdRef.current;
+    if (convId && streamsRef.current.has(convId)) {
+      armStallTimerRef.current(convId);
+    }
   }, []);
 
   // Drop suppressions the queue no longer lists (bounds the set; allows id reuse).
@@ -276,6 +304,11 @@ export function useDeploymentChat(
       window.clearTimeout(timer);
       streamTimersRef.current.delete(conversationId);
     }
+    const stallTimer = streamStallTimersRef.current.get(conversationId);
+    if (stallTimer !== undefined) {
+      window.clearTimeout(stallTimer);
+      streamStallTimersRef.current.delete(conversationId);
+    }
   }, []);
 
   const finalizeConversation = useCallback(
@@ -322,6 +355,61 @@ export function useDeploymentChat(
     [closeStream, conversationKey, deploymentId, queryClient],
   );
 
+  // Surface a turn's terminal error. On the active conversation it shows the
+  // message and suppresses the lagging server snapshot so the composer unblocks;
+  // for a background conversation it's stashed and surfaced when the user returns
+  // (see the conversation-switch effect), so an off-screen failure isn't dropped.
+  const surfaceTurnError = useCallback(
+    (conversationId: string, message: string) => {
+      if (conversationId === activeConversationIdRef.current) {
+        setStreamError(message);
+        setSuppressedConvId(conversationId);
+      } else {
+        backgroundErrorsRef.current.set(conversationId, message);
+      }
+    },
+    [],
+  );
+
+  // Arm (or re-arm) a conversation's liveness watchdog. Reset on any inbound SSE
+  // activity; fires only when the pipe goes fully silent (dead transport).
+  const armWatchdog = useCallback(
+    (conversationId: string) => {
+      const existing = streamTimersRef.current.get(conversationId);
+      if (existing !== undefined) window.clearTimeout(existing);
+      const timer = window.setTimeout(() => {
+        surfaceTurnError(
+          conversationId,
+          "Connection lost. You can try sending again.",
+        );
+        finalizeConversation(conversationId);
+      }, STREAM_LIVENESS_TIMEOUT_MS);
+      streamTimersRef.current.set(conversationId, timer);
+    },
+    [finalizeConversation, surfaceTurnError],
+  );
+
+  // Arm (or reset) a conversation's content-stall cap. Reset on each content
+  // chunk (see the stream's onChunk), so a turn that keeps streaming is never cut
+  // off; a sidecar that only heartbeats but produces no content can't pin the
+  // composer open past this window. Sits alongside the liveness watchdog.
+  const armStallTimer = useCallback(
+    (conversationId: string) => {
+      const existing = streamStallTimersRef.current.get(conversationId);
+      if (existing !== undefined) window.clearTimeout(existing);
+      const timer = window.setTimeout(() => {
+        surfaceTurnError(
+          conversationId,
+          "The agent stopped producing output. You can try sending again.",
+        );
+        finalizeConversation(conversationId);
+      }, CONTENT_STALL_TIMEOUT_MS);
+      streamStallTimersRef.current.set(conversationId, timer);
+    },
+    [finalizeConversation, surfaceTurnError],
+  );
+  armStallTimerRef.current = armStallTimer;
+
   const prevConversationRef = useRef<string | null>(null);
   const prevDeploymentRef = useRef(deploymentId);
   useLayoutEffect(() => {
@@ -331,6 +419,26 @@ export function useDeploymentChat(
     const prev = prevConversationRef.current;
     prevConversationRef.current = activeConversationId;
 
+    if (deploymentChanged || prev !== activeConversationId) {
+      // Surface a terminal error that arrived while this conversation was in the
+      // background (else clear the previous conversation's error/stop-suppression).
+      // Runs before the early-returns below so it also covers a null -> conversation
+      // switch, which those returns skip — otherwise the stashed error is dropped
+      // and the composer re-arms with no reason.
+      const bgError =
+        activeConversationId !== null
+          ? backgroundErrorsRef.current.get(activeConversationId)
+          : undefined;
+      if (bgError !== undefined) {
+        backgroundErrorsRef.current.delete(activeConversationId!);
+        setStreamError(bgError);
+        setSuppressedConvId(activeConversationId);
+      } else {
+        setStreamError(null);
+        setSuppressedConvId(null);
+      }
+    }
+
     if (!deploymentChanged && prev === activeConversationId) return;
     if (
       !deploymentChanged &&
@@ -338,13 +446,6 @@ export function useDeploymentChat(
       activeConversationId !== null
     ) {
       return;
-    }
-
-    if (deploymentChanged || prev !== activeConversationId) {
-      setStreamError(null);
-      // A different conversation is now active — drop any stop-suppression that
-      // belonged to the previous one.
-      setSuppressedConvId(null);
     }
 
     if (!activeConversationId) {
@@ -391,6 +492,13 @@ export function useDeploymentChat(
     setResolvedInteractionIds(new Set());
   }, [conversationIdFromOptions, deploymentId]);
 
+  // Drop stashed background errors when the deployment changes — their
+  // conversations are no longer reachable here, so bound the map to one
+  // deployment's conversations rather than the hook's whole lifetime.
+  useEffect(() => {
+    backgroundErrorsRef.current.clear();
+  }, [deploymentId]);
+
   useEffect(() => {
     useTailPollRef.current = turnInFlight && !sseActiveRef.current;
   }, [turnInFlight]);
@@ -405,40 +513,51 @@ export function useDeploymentChat(
     // navigated back to mid-turn).
     if (streamsRef.current.has(convId)) return;
     const es = openMessagingStream(api, deploymentId, convId, {
-      onChunk: (content, chunkType, attachments) =>
-        patchAssistantChunk(convId, content, chunkType, attachments),
+      onChunk: (content, chunkType, attachments) => {
+        // Content is real progress: reset the stall cap so a turn that keeps
+        // streaming is never cut off (heartbeats, via onActivity, do not).
+        armStallTimer(convId);
+        patchAssistantChunk(convId, content, chunkType, attachments);
+      },
       onFinish: () => finalizeConversation(convId),
-      onProtocolError: () => finalizeConversation(convId),
-      onInteraction: (interaction) => setLiveInteraction({ convId, interaction }),
+      onError: (message) => {
+        surfaceTurnError(convId, message);
+        finalizeConversation(convId);
+      },
+      // Reset the liveness watchdog on any inbound activity (chunks + heartbeats).
+      onActivity: () => armWatchdog(convId),
+      onInteraction: (interaction) => {
+        // A pending interaction parks the turn on the user, not the agent: pause
+        // the content-stall cap so a long human pause isn't read as a stall. The
+        // next content chunk (the agent resuming after the reply) re-arms it.
+        const stall = streamStallTimersRef.current.get(convId);
+        if (stall !== undefined) {
+          window.clearTimeout(stall);
+          streamStallTimersRef.current.delete(convId);
+        }
+        setLiveInteraction({ convId, interaction });
+      },
     });
     streamsRef.current.set(convId, es);
-    // Watchdog: bound the turn's lifetime so a stall (no finish event ever
-    // arrives) can't pin the stream open forever. This covers background turns
-    // too — the stream outlives the active view, so the timer, not the on-screen
-    // state, is what reaps a stalled turn. Cleared by finalizeConversation on a
-    // normal finish; on fire it closes the stream so a resend opens a fresh one.
-    const timer = window.setTimeout(() => {
-      if (convId === activeConversationIdRef.current) {
-        setStreamError("Response timed out. You can try sending again.");
-        // Suppress this conversation's server streaming snapshot so the composer
-        // unblocks; without it a persisted assistant_streaming with no live SSE
-        // would keep turnInFlight deriving true. Cleared on the next send or a
-        // conversation switch.
-        setSuppressedConvId(convId);
-      }
-      finalizeConversation(convId);
-    }, IN_FLIGHT_TIMEOUT_MS);
-    streamTimersRef.current.set(convId, timer);
+    // Arm the liveness watchdog for the pipe (reset by any activity) and the
+    // content-stall cap (reset only by content chunks). Both cover background
+    // turns too: the stream outlives the active view, so the timers, not the
+    // on-screen state, reap a stuck turn.
+    armWatchdog(convId);
+    armStallTimer(convId);
     // No cleanup here: the stream is closed by finalizeConversation when its turn
-    // ends (which also cancels the timer above), or by the unmount effect below —
+    // ends (which also cancels the timers above), or by the unmount effect below —
     // never on a conversation switch, so an in-flight turn keeps streaming in the
     // background.
   }, [
     activeConversationId,
     api,
+    armWatchdog,
+    armStallTimer,
     deploymentId,
     finalizeConversation,
     patchAssistantChunk,
+    surfaceTurnError,
     turnInFlight,
   ]);
 
@@ -447,11 +566,14 @@ export function useDeploymentChat(
   useEffect(() => {
     const streams = streamsRef.current;
     const timers = streamTimersRef.current;
+    const stallTimers = streamStallTimersRef.current;
     return () => {
       streams.forEach((es) => es.close());
       streams.clear();
       timers.forEach((t) => window.clearTimeout(t));
       timers.clear();
+      stallTimers.forEach((t) => window.clearTimeout(t));
+      stallTimers.clear();
     };
   }, []);
 

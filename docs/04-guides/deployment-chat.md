@@ -119,6 +119,34 @@ requirement — the loading state can't get stuck waiting on a lost `finish`.
 Clients need no special handling: `EventSource` sends `Last-Event-ID` and
 reconnects on its own, and replayed events arrive as ordinary `chunk`/`finish`.
 
+## Turn termination (server-authoritative)
+
+The sidecar is authoritative for ending a turn — a client never decides on its
+own that an agent is done or dead. Every turn ends with exactly one terminal SSE
+event:
+
+- **`finish`** — the turn completed normally (or was stopped via `…/cancel`).
+- **`error`** — the turn ended abnormally: the agent errored, its gRPC stream
+  dropped mid-turn, or it produced no output within the idle window. The payload
+  is `{ "type": "error", "message": string, "retryable": boolean }`, where
+  `message` is a user-safe string. Clients surface `message` and re-arm the
+  composer. `retryable` is a forward-looking hint (whether re-sending is worth
+  it); the current web client does not branch on it and always re-arms.
+
+The sidecar guarantees that terminal event for every abnormal case: a per-turn
+idle watchdog reaps a turn whose agent goes silent, and an agent-disconnect
+handler finalizes in-flight turns when the agent's stream ends. All abnormal
+paths funnel through one helper that claims the turn atomically, so exactly one
+terminal event fires even when several triggers race.
+
+`heartbeat` and `status` events carry no turn state — they exist only as
+**liveness** signals. A client resets any transport-liveness timer on every
+inbound event (chunk, finish, error, heartbeat, status), so a slow-but-healthy
+turn is never cut off. The one case a client must still detect itself is a
+genuinely dead pipe — no events at all, not even heartbeats, and note that a
+browser's own `EventSource` reconnect errors are *not* liveness — which is a pure
+transport backstop, not turn logic.
+
 ## Eligibility (clients)
 
 Use deployment list `messaging_web_configured` (batch DB: messaging sidecar + `http` service) to show chat-capable agents. Before send, gate on `GET …/status` → `active` and `GET …/runtime` → `messaging_reachable` when exposed.
