@@ -1,6 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useRef, useState } from 'react'
-import { KeyRound, KeySquare, ArrowLeft, Settings, Loader2, Users, ScrollText } from 'lucide-react'
+import { KeyRound, Database, ArrowLeft, Settings, Loader2, Users, ScrollText } from 'lucide-react'
 import { CreditCardIcon } from '@heroicons/react/24/outline'
 import {
   SidebarLayout,
@@ -151,8 +151,8 @@ function OrgSettingsContent() {
             {isAdmin && (
               <SidebarNavItem to={`/settings/org/${orgSlug}/api-keys`}>
                 <span className="flex items-center gap-2">
-                  <KeySquare className="size-3.5" />
-                  API Keys
+                  <Database className="size-3.5" />
+                  Data Sources
                 </span>
               </SidebarNavItem>
             )}

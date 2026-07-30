@@ -26,7 +26,7 @@ export function SectionHeader({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="space-y-1 min-w-0">
           <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
-          <p className="text-[13px] text-muted-foreground">{subtitle}</p>
+          <p className="text-[13px] text-pretty text-muted-foreground">{subtitle}</p>
         </div>
         {action && <div className="shrink-0">{action}</div>}
       </div>

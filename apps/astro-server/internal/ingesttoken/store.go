@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // keyPrefix is the human-readable prefix on every plaintext ingest key.
@@ -32,6 +34,9 @@ type Token struct {
 	CreatedBy   *string
 	LastUsedAt  *time.Time
 	RevokedAt   *time.Time
+	// ExcludedEmails are lowercased user emails whose full-text content is
+	// dropped at ingest (usage metadata is still collected).
+	ExcludedEmails []string
 }
 
 // Store manages the otel_ingest_tokens table.
@@ -66,25 +71,48 @@ func Hash(plaintext string) []byte {
 }
 
 // Create inserts a new ingest key for an account and returns the stored row.
-// createdBy may be empty (stored as NULL).
-func (s *Store) Create(accountID, name string, tokenHash []byte, tokenPrefix, createdBy string) (*Token, error) {
+// createdBy may be empty (stored as NULL). excludedEmails are stored as given
+// (callers normalize before persisting).
+func (s *Store) Create(accountID, name string, tokenHash []byte, tokenPrefix, createdBy string, excludedEmails []string) (*Token, error) {
 	var by *string
 	if createdBy != "" {
 		by = &createdBy
 	}
 	row := s.db.QueryRow(`
-		INSERT INTO otel_ingest_tokens (account_id, name, token_hash, token_prefix, created_by)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, account_id, name, token_prefix, created_at, created_by, last_used_at, revoked_at
-	`, accountID, name, tokenHash, tokenPrefix, by)
+		INSERT INTO otel_ingest_tokens (account_id, name, token_hash, token_prefix, created_by, excluded_emails)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, account_id, name, token_prefix, created_at, created_by, last_used_at, revoked_at, excluded_emails
+	`, accountID, name, tokenHash, tokenPrefix, by, pq.Array(excludedEmails))
 
 	return scanToken(row)
+}
+
+// UpdateExclusions replaces an active key's exclusion list. Scoped to the
+// account so one account cannot edit another's key. Returns sql.ErrNoRows if
+// no active key matches. emails are stored as given (callers normalize first).
+func (s *Store) UpdateExclusions(accountID, id string, emails []string) error {
+	res, err := s.db.Exec(`
+		UPDATE otel_ingest_tokens
+		SET excluded_emails = $1
+		WHERE id = $2 AND account_id = $3 AND revoked_at IS NULL
+	`, pq.Array(emails), id, accountID)
+	if err != nil {
+		return fmt.Errorf("ingesttoken update exclusions: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("ingesttoken update exclusions rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ListByAccount returns the account's active (non-revoked) keys, newest first.
 func (s *Store) ListByAccount(accountID string) ([]*Token, error) {
 	rows, err := s.db.Query(`
-		SELECT id, account_id, name, token_prefix, created_at, created_by, last_used_at, revoked_at
+		SELECT id, account_id, name, token_prefix, created_at, created_by, last_used_at, revoked_at, excluded_emails
 		FROM otel_ingest_tokens
 		WHERE account_id = $1 AND revoked_at IS NULL
 		ORDER BY created_at DESC
@@ -135,6 +163,7 @@ func scanToken(s scanner) (*Token, error) {
 	if err := s.Scan(
 		&t.ID, &t.AccountID, &t.Name, &t.TokenPrefix,
 		&t.CreatedAt, &t.CreatedBy, &t.LastUsedAt, &t.RevokedAt,
+		pq.Array(&t.ExcludedEmails),
 	); err != nil {
 		return nil, fmt.Errorf("ingesttoken scan: %w", err)
 	}

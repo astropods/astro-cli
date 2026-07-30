@@ -7,6 +7,7 @@ import (
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
+	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 )
 
 func logRecord(body string, traceID, spanID []byte, attrs ...*commonpb.KeyValue) *logspb.LogRecord {
@@ -115,7 +116,7 @@ func TestTransformLogsToTraces(t *testing.T) {
 			}},
 		}},
 	}
-	out := transformLogsToTraces(in, "acct-1", false)
+	out := transformLogsToTraces(in, "acct-1", false, nil)
 	if out == nil {
 		t.Fatal("expected a traces request")
 	}
@@ -142,7 +143,51 @@ func TestTransformLogsToTracesEmpty(t *testing.T) {
 			}},
 		}},
 	}
-	if out := transformLogsToTraces(in, "acct-1", false); out != nil {
+	if out := transformLogsToTraces(in, "acct-1", false, nil); out != nil {
 		t.Fatal("expected nil when no content-bearing records")
+	}
+}
+
+func TestTransformLogsToTracesExcludesEmail(t *testing.T) {
+	trace := []byte("0123456789abcdef")
+	rl := func(email string) *logspb.ResourceLogs {
+		return &logspb.ResourceLogs{
+			ScopeLogs: []*logspb.ScopeLogs{{
+				LogRecords: []*logspb.LogRecord{
+					logRecord("claude_code.user_prompt", trace, []byte("01234567"),
+						strAttr("prompt", "q"), strAttr("user.email", email)),
+				},
+			}},
+		}
+	}
+	in := &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{
+		rl("Excluded@Example.com"), // matches case-insensitively
+		rl("kept@example.com"),
+	}}
+	excluded := map[string]struct{}{"excluded@example.com": {}}
+
+	out := transformLogsToTraces(in, "acct-1", false, excluded)
+	if out == nil {
+		t.Fatal("expected a traces request for the non-excluded record")
+	}
+	spans := out.GetResourceSpans()[0].GetScopeSpans()[0].GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected only the non-excluded record to survive, got %d spans", len(spans))
+	}
+	if v := find(spans[0].Attributes, attrLangfuseUserID); v == nil || v.Value.GetStringValue() != "kept@example.com" {
+		t.Fatalf("surviving span is not the kept user: %+v", v)
+	}
+}
+
+func TestTransformLogsToTracesExcludesViaResourceEmail(t *testing.T) {
+	trace := []byte("0123456789abcdef")
+	in := &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
+		Resource:  &resourcepb.Resource{Attributes: []*commonpb.KeyValue{strAttr("user.email", "excluded@example.com")}},
+		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{logRecord("claude_code.user_prompt", trace, []byte("01234567"), strAttr("prompt", "q"))}}},
+	}}}
+	excluded := map[string]struct{}{"excluded@example.com": {}}
+
+	if out := transformLogsToTraces(in, "acct-1", false, excluded); out != nil {
+		t.Fatal("expected nil: the only record's resource email is excluded")
 	}
 }

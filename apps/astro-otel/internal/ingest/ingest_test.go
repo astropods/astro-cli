@@ -3,7 +3,10 @@ package ingest
 import (
 	"testing"
 
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
 func strAttr(key, val string) *commonpb.KeyValue {
@@ -120,4 +123,83 @@ func TestDropAttr(t *testing.T) {
 	if len(out) != 1 || find(out, sessionIDKey) != nil {
 		t.Fatalf("session.id not dropped: %+v", out)
 	}
+}
+
+func TestEmailExcluded(t *testing.T) {
+	set := map[string]struct{}{"dev@example.com": {}}
+	if !emailExcluded([]*commonpb.KeyValue{strAttr("user.email", "Dev@Example.com")}, set) {
+		t.Fatal("expected case-insensitive match")
+	}
+	if emailExcluded([]*commonpb.KeyValue{strAttr("user.email", "other@example.com")}, set) {
+		t.Fatal("non-listed email should not be excluded")
+	}
+	if emailExcluded([]*commonpb.KeyValue{strAttr("service.name", "svc")}, set) {
+		t.Fatal("no user.email should not be excluded")
+	}
+	if emailExcluded([]*commonpb.KeyValue{strAttr("user.email", "dev@example.com")}, nil) {
+		t.Fatal("empty exclusion set should exclude nobody")
+	}
+}
+
+// spanWithEmail builds a one-span ResourceSpans; resourceEmail/spanEmail are
+// stamped where non-empty.
+func resourceSpans(resourceEmail string, spanEmails ...string) *tracepb.ResourceSpans {
+	var res *resourcepb.Resource
+	if resourceEmail != "" {
+		res = &resourcepb.Resource{Attributes: []*commonpb.KeyValue{strAttr("user.email", resourceEmail)}}
+	}
+	spans := make([]*tracepb.Span, 0, len(spanEmails))
+	for _, e := range spanEmails {
+		var attrs []*commonpb.KeyValue
+		if e != "" {
+			attrs = []*commonpb.KeyValue{strAttr("user.email", e)}
+		}
+		spans = append(spans, &tracepb.Span{Attributes: attrs})
+	}
+	return &tracepb.ResourceSpans{Resource: res, ScopeSpans: []*tracepb.ScopeSpans{{Spans: spans}}}
+}
+
+func spanCount(req *coltracepb.ExportTraceServiceRequest) int {
+	n := 0
+	for _, rs := range req.GetResourceSpans() {
+		for _, ss := range rs.GetScopeSpans() {
+			n += len(ss.GetSpans())
+		}
+	}
+	return n
+}
+
+func TestDropExcludedSpans(t *testing.T) {
+	excluded := map[string]struct{}{"excluded@example.com": {}}
+
+	t.Run("empty set keeps everything", func(t *testing.T) {
+		req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{resourceSpans("", "a@x.com")}}
+		if !dropExcludedSpans(req, nil) || spanCount(req) != 1 {
+			t.Fatalf("nil set should keep all spans, got %d", spanCount(req))
+		}
+	})
+
+	t.Run("drops excluded span keeps others", func(t *testing.T) {
+		req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+			resourceSpans("", "excluded@example.com", "kept@example.com"),
+		}}
+		if !dropExcludedSpans(req, excluded) {
+			t.Fatal("expected survivors")
+		}
+		if spanCount(req) != 1 {
+			t.Fatalf("expected 1 surviving span, got %d", spanCount(req))
+		}
+	})
+
+	t.Run("resource-level email drops all its spans", func(t *testing.T) {
+		req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{
+			resourceSpans("excluded@example.com", "", ""),
+		}}
+		if dropExcludedSpans(req, excluded) {
+			t.Fatal("expected nothing to survive when the resource email is excluded")
+		}
+		if spanCount(req) != 0 {
+			t.Fatalf("expected 0 surviving spans, got %d", spanCount(req))
+		}
+	})
 }

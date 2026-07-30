@@ -3,7 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,13 +19,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OtelIngestTokenMeta is the non-secret view of an ingest key.
+// OtelIngestTokenMeta is the non-secret view of an ingest key. ExcludedEmails
+// is included so the UI can edit the exclusion list without revealing the key.
 type OtelIngestTokenMeta struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	TokenPrefix string     `json:"token_prefix"`
-	CreatedAt   time.Time  `json:"created_at"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	TokenPrefix    string     `json:"token_prefix"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastUsedAt     *time.Time `json:"last_used_at,omitempty"`
+	ExcludedEmails []string   `json:"excluded_emails"`
 }
 
 type ListOtelIngestTokensResponse struct {
@@ -32,7 +36,50 @@ type ListOtelIngestTokensResponse struct {
 }
 
 type CreateOtelIngestTokenRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name           string   `json:"name" binding:"required"`
+	ExcludedEmails []string `json:"excluded_emails"`
+}
+
+// UpdateOtelIngestTokenExclusionsRequest replaces a key's exclusion list.
+type UpdateOtelIngestTokenExclusionsRequest struct {
+	ExcludedEmails []string `json:"excluded_emails"`
+}
+
+// UpdateOtelIngestTokenExclusionsResponse is the normalized list as stored.
+type UpdateOtelIngestTokenExclusionsResponse struct {
+	ExcludedEmails []string `json:"excluded_emails"`
+}
+
+// maxExcludedEmails caps a key's exclusion list. Generous — a large team can
+// still be listed — while bounding the row and the ingest-time set.
+const maxExcludedEmails = 500
+
+var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+
+// normalizeEmails trims, lowercases, dedupes, and validates the exclusion list.
+// Ingest matches lowercased user.email, so normalization here is what makes the
+// match case-insensitive. Returns a 400-worthy error on any invalid entry.
+func normalizeEmails(in []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		e := strings.ToLower(strings.TrimSpace(raw))
+		if e == "" {
+			continue
+		}
+		if !emailRe.MatchString(e) {
+			return nil, fmt.Errorf("invalid email address: %q", raw)
+		}
+		if _, ok := seen[e]; ok {
+			continue
+		}
+		seen[e] = struct{}{}
+		out = append(out, e)
+	}
+	if len(out) > maxExcludedEmails {
+		return nil, fmt.Errorf("too many excluded emails (max %d)", maxExcludedEmails)
+	}
+	return out, nil
 }
 
 // CreateOtelIngestTokenResponse carries the plaintext token, returned exactly
@@ -45,12 +92,17 @@ type CreateOtelIngestTokenResponse struct {
 }
 
 func toMeta(t *ingesttoken.Token) OtelIngestTokenMeta {
+	emails := t.ExcludedEmails
+	if emails == nil {
+		emails = []string{}
+	}
 	return OtelIngestTokenMeta{
-		ID:          t.ID,
-		Name:        t.Name,
-		TokenPrefix: t.TokenPrefix,
-		CreatedAt:   t.CreatedAt,
-		LastUsedAt:  t.LastUsedAt,
+		ID:             t.ID,
+		Name:           t.Name,
+		TokenPrefix:    t.TokenPrefix,
+		CreatedAt:      t.CreatedAt,
+		LastUsedAt:     t.LastUsedAt,
+		ExcludedEmails: emails,
 	}
 }
 
@@ -114,6 +166,12 @@ func CreateOtelIngestToken(
 			return
 		}
 
+		excluded, err := normalizeEmails(req.ExcludedEmails)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		plaintext, hash, prefix, err := ingesttoken.Generate()
 		if err != nil {
 			log.Error("Failed to generate OTel ingest token", "error", err, "account_id", acct.ID)
@@ -126,7 +184,7 @@ func CreateOtelIngestToken(
 			createdBy = user.ID
 		}
 
-		tok, err := store.Create(acct.ID, req.Name, hash, prefix, createdBy)
+		tok, err := store.Create(acct.ID, req.Name, hash, prefix, createdBy, excluded)
 		if err != nil {
 			log.Error("Failed to create OTel ingest token", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create ingest key"})
@@ -180,5 +238,44 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
 		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", ""))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
+	}
+}
+
+// UpdateOtelIngestTokenExclusions replaces a key's exclusion list. This edits
+// privacy exclusions in place — no key rotation, and the plaintext is never
+// re-revealed — so it takes only the key id and the new email set.
+// PATCH /api/v1/accounts/:account/otel-keys/:tokenID/exclusions
+func UpdateOtelIngestTokenExclusions(log *logger.Logger, store *ingesttoken.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+		tokenID := c.Param("tokenID")
+
+		var req UpdateOtelIngestTokenExclusionsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+			return
+		}
+		excluded, err := normalizeEmails(req.ExcludedEmails)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := store.UpdateExclusions(acct.ID, tokenID, excluded); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
+				return
+			}
+			log.Error("Failed to update OTel ingest token exclusions", "error", err, "account_id", acct.ID, "token_id", tokenID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update exclusions"})
+			return
+		}
+
+		log.Info("OTel ingest token exclusions updated", "account_id", acct.ID, "token_id", tokenID, "excluded_count", len(excluded))
+		c.JSON(http.StatusOK, UpdateOtelIngestTokenExclusionsResponse{ExcludedEmails: excluded})
 	}
 }

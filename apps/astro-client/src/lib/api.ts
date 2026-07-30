@@ -2021,6 +2021,10 @@ export interface OtelIngestKey {
   token_prefix: string;
   created_at: string;
   last_used_at?: string;
+  excluded_emails: string[];
+  // Which external tool this source is (e.g. "claude-code"). Absent today —
+  // every source is Claude Code — but drives the per-kind icon in the table.
+  source_type?: string;
 }
 
 export interface OtelIngestKeysListResponse {
@@ -3622,6 +3626,18 @@ class ApiClient {
     return this.request(
       `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys/${encodeURIComponent(keyId)}`,
       { method: 'DELETE' }
+    );
+  }
+
+  // Edit a key's exclusion list in place — no key rotation, key never revealed.
+  async updateOtelIngestKeyExclusions(
+    account: string,
+    keyId: string,
+    excludedEmails: string[],
+  ): Promise<{ excluded_emails: string[] }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys/${encodeURIComponent(keyId)}/exclusions`,
+      { method: 'PATCH', body: JSON.stringify({ excluded_emails: excludedEmails }) }
     );
   }
 

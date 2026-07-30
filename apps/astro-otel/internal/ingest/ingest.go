@@ -74,32 +74,32 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-// authenticate resolves the bearer key to an account. Returns an HTTP status
-// to write on failure (0 = success).
-func (h *Handler) authenticate(r *http.Request) (accountID string, hash []byte, status int) {
+// authenticate resolves the bearer key to an account and its exclusion set.
+// Returns an HTTP status to write on failure (0 = success).
+func (h *Handler) authenticate(r *http.Request) (accountID string, hash []byte, excluded map[string]struct{}, status int) {
 	const prefix = "Bearer "
 	authz := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authz, prefix) {
-		return "", nil, http.StatusUnauthorized
+		return "", nil, nil, http.StatusUnauthorized
 	}
 	token := strings.TrimSpace(authz[len(prefix):])
 	if token == "" {
-		return "", nil, http.StatusUnauthorized
+		return "", nil, nil, http.StatusUnauthorized
 	}
 	sum := sha256.Sum256([]byte(token))
-	id, found, err := h.store.ResolveAccount(r.Context(), sum[:])
+	id, excluded, found, err := h.store.ResolveAccount(r.Context(), sum[:])
 	if err != nil {
 		h.log.Error("resolve account failed", "error", err)
-		return "", nil, http.StatusServiceUnavailable
+		return "", nil, nil, http.StatusServiceUnavailable
 	}
 	if !found {
-		return "", nil, http.StatusUnauthorized
+		return "", nil, nil, http.StatusUnauthorized
 	}
-	return id, sum[:], 0
+	return id, sum[:], excluded, 0
 }
 
 func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
-	accountID, hash, status := h.authenticate(r)
+	accountID, hash, excluded, status := h.authenticate(r)
 	if status != 0 {
 		w.WriteHeader(status)
 		return
@@ -114,6 +114,14 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 	var req coltracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid OTLP protobuf", http.StatusBadRequest)
+		return
+	}
+
+	// Drop content for excluded users before anything reaches Langfuse. Their
+	// usage metadata still flows via the metrics leg. Ack an empty response if
+	// nothing survives, so the exporter doesn't retry.
+	if !dropExcludedSpans(&req, excluded) {
+		writeProto(w, &coltracepb.ExportTraceServiceResponse{})
 		return
 	}
 
@@ -167,7 +175,10 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	accountID, hash, status := h.authenticate(r)
+	// Metrics are usage metadata (tokens, model, cost) and carry no prompt
+	// content, so exclusions never apply here — excluded users' usage still
+	// flows, which is the whole point of the exclusion.
+	accountID, hash, _, status := h.authenticate(r)
 	if status != 0 {
 		w.WriteHeader(status)
 		return
@@ -289,6 +300,54 @@ func shouldRedact(key string) bool {
 		}
 	}
 	return false
+}
+
+// emailExcluded reports whether attrs carry a user.email in the exclusion set.
+// Matching is case-insensitive; the set is already lowercased.
+func emailExcluded(attrs []*commonpb.KeyValue, excluded map[string]struct{}) bool {
+	if len(excluded) == 0 {
+		return false
+	}
+	email := strings.ToLower(stringAttr(attrs, attrUserEmail))
+	if email == "" {
+		return false
+	}
+	_, ok := excluded[email]
+	return ok
+}
+
+// dropExcludedSpans removes every span belonging to an excluded user, pruning
+// emptied scope/resource containers, so nothing content-bearing reaches
+// Langfuse. user.email may sit on the span or on its enclosing resource, so
+// both are checked. Returns true if any span survives.
+func dropExcludedSpans(req *coltracepb.ExportTraceServiceRequest, excluded map[string]struct{}) bool {
+	if len(excluded) == 0 {
+		return true
+	}
+	keptRS := req.ResourceSpans[:0]
+	for _, rs := range req.GetResourceSpans() {
+		resExcluded := rs.GetResource() != nil && emailExcluded(rs.Resource.Attributes, excluded)
+		keptSS := rs.ScopeSpans[:0]
+		for _, ss := range rs.GetScopeSpans() {
+			keptSpans := ss.Spans[:0]
+			for _, span := range ss.GetSpans() {
+				if resExcluded || emailExcluded(span.GetAttributes(), excluded) {
+					continue
+				}
+				keptSpans = append(keptSpans, span)
+			}
+			if len(keptSpans) > 0 {
+				ss.Spans = keptSpans
+				keptSS = append(keptSS, ss)
+			}
+		}
+		if len(keptSS) > 0 {
+			rs.ScopeSpans = keptSS
+			keptRS = append(keptRS, rs)
+		}
+	}
+	req.ResourceSpans = keptRS
+	return len(keptRS) > 0
 }
 
 // redact returns attrs with prompt/completion/tool-body entries removed.

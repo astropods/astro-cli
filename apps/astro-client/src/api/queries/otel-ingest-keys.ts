@@ -30,3 +30,14 @@ export function useRevokeOtelIngestKey(account: string) {
     },
   });
 }
+
+export function useUpdateOtelIngestKeyExclusions(account: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ keyId, excludedEmails }: { keyId: string; excludedEmails: string[] }) =>
+      api.updateOtelIngestKeyExclusions(account, keyId, excludedEmails),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: otelIngestKeyKeys.byAccount(account) });
+    },
+  });
+}

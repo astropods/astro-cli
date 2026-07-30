@@ -12,10 +12,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-otel/internal/envelope"
+	"github.com/lib/pq"
 )
 
 // Store resolves ingest keys and Langfuse credentials, with caching.
@@ -32,7 +34,10 @@ type Store struct {
 type accountEntry struct {
 	accountID string
 	found     bool
-	exp       time.Time
+	// excluded is the set of lowercased user emails whose full-text content is
+	// dropped at ingest. nil when the key excludes no one.
+	excluded map[string]struct{}
+	exp      time.Time
 }
 
 type credEntry struct {
@@ -52,34 +57,57 @@ func New(db *sql.DB, kms envelope.KMSClient, ttl time.Duration) *Store {
 	}
 }
 
-// ResolveAccount returns the account id for an ingest-key hash, and whether an
-// active (non-revoked) key was found. Both hits and misses are cached, so a
-// flood of invalid keys can't hammer the DB.
-func (s *Store) ResolveAccount(ctx context.Context, hash []byte) (accountID string, found bool, err error) {
+// ResolveAccount returns the account id for an ingest-key hash, the key's
+// exclusion set (lowercased emails, nil when empty), and whether an active
+// (non-revoked) key was found. Both hits and misses are cached, so a flood of
+// invalid keys can't hammer the DB, and an edited exclusion list propagates
+// within the cache TTL — the same lag as a revoke.
+func (s *Store) ResolveAccount(ctx context.Context, hash []byte) (accountID string, excluded map[string]struct{}, found bool, err error) {
 	key := hex.EncodeToString(hash)
 
 	s.mu.Lock()
 	if e, ok := s.accounts[key]; ok && time.Now().Before(e.exp) {
 		s.mu.Unlock()
-		return e.accountID, e.found, nil
+		return e.accountID, e.excluded, e.found, nil
 	}
 	s.mu.Unlock()
 
-	var id string
+	var (
+		id     string
+		emails []string
+	)
 	row := s.db.QueryRowContext(ctx,
-		`SELECT account_id::text FROM otel_ingest_tokens WHERE token_hash = $1 AND revoked_at IS NULL`,
+		`SELECT account_id::text, excluded_emails FROM otel_ingest_tokens WHERE token_hash = $1 AND revoked_at IS NULL`,
 		hash,
 	)
-	switch err := row.Scan(&id); {
+	switch err := row.Scan(&id, pq.Array(&emails)); {
 	case errors.Is(err, sql.ErrNoRows):
 		s.put(key, accountEntry{found: false, exp: time.Now().Add(s.ttl)})
-		return "", false, nil
+		return "", nil, false, nil
 	case err != nil:
-		return "", false, fmt.Errorf("resolve account: %w", err)
+		return "", nil, false, fmt.Errorf("resolve account: %w", err)
 	}
 
-	s.put(key, accountEntry{accountID: id, found: true, exp: time.Now().Add(s.ttl)})
-	return id, true, nil
+	set := toEmailSet(emails)
+	s.put(key, accountEntry{accountID: id, found: true, excluded: set, exp: time.Now().Add(s.ttl)})
+	return id, set, true, nil
+}
+
+// toEmailSet lowercases and trims emails into a lookup set, or nil when empty.
+func toEmailSet(emails []string) map[string]struct{} {
+	if len(emails) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(emails))
+	for _, e := range emails {
+		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
+			set[e] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 func (s *Store) put(key string, e accountEntry) {

@@ -50,7 +50,7 @@ const (
 )
 
 func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
-	accountID, hash, status := h.authenticate(r)
+	accountID, hash, excluded, status := h.authenticate(r)
 	if status != 0 {
 		w.WriteHeader(status)
 		return
@@ -68,10 +68,10 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	traces := transformLogsToTraces(&req, accountID, h.cfg.RedactAttributes)
+	traces := transformLogsToTraces(&req, accountID, h.cfg.RedactAttributes, excluded)
 	if traces == nil {
-		// Nothing content-bearing (content redacted at the source, or off).
-		// Ack so the exporter doesn't retry.
+		// Nothing content-bearing (excluded user, content redacted at the
+		// source, or off). Ack so the exporter doesn't retry.
 		writeProto(w, &collogspb.ExportLogsServiceResponse{})
 		return
 	}
@@ -107,15 +107,22 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 // carrying one synthesized span per content-bearing Claude Code record.
 // Returns nil when no record yields content (so the caller can ack and skip
 // the forward).
-func transformLogsToTraces(in *collogspb.ExportLogsServiceRequest, accountID string, redactOn bool) *coltracepb.ExportTraceServiceRequest {
+func transformLogsToTraces(in *collogspb.ExportLogsServiceRequest, accountID string, redactOn bool, excluded map[string]struct{}) *coltracepb.ExportTraceServiceRequest {
 	var spans []*tracepb.Span
 	var resourceAttrs []*commonpb.KeyValue
 	for _, rl := range in.GetResourceLogs() {
 		if resourceAttrs == nil && rl.GetResource() != nil {
 			resourceAttrs = rl.GetResource().GetAttributes()
 		}
+		// Log records are pure content (prompt/response/tool bodies), so for an
+		// excluded user there is nothing to keep — drop them outright. Email may
+		// sit on the record or the enclosing resource.
+		resExcluded := rl.GetResource() != nil && emailExcluded(rl.GetResource().GetAttributes(), excluded)
 		for _, sl := range rl.GetScopeLogs() {
 			for _, rec := range sl.GetLogRecords() {
+				if resExcluded || emailExcluded(rec.GetAttributes(), excluded) {
+					continue
+				}
 				if span := synthesizeSpan(rec, redactOn); span != nil {
 					spans = append(spans, span)
 				}

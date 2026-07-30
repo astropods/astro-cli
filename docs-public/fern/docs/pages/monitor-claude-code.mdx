@@ -17,8 +17,8 @@ You turn this on through your Anthropic admin console's **managed settings**, so
 ## Set up
 
 <Steps>
-  <Step title="Create an ingest key">
-    In Astro AI, go to **Settings → API Keys** and create a new ingest key. Give it a name you'll recognize (for example, `Engineering laptops`), then copy the secret — it's shown only once.
+  <Step title="Create a data source">
+    In Astro AI, go to **Settings → Data Sources** and add a new source. Give it a name you'll recognize (for example, `Engineering laptops`), then copy the secret — it's shown only once.
 
     Astro AI generates a ready-to-paste settings block with your key and endpoint already filled in. Keep this open for the next step.
   </Step>
@@ -71,6 +71,14 @@ Include `OTEL_LOGS_EXPORTER = otlp` once if you enable either option. Both are o
 These options collect the contents of your team's Claude Code sessions. Enable them only where that's appropriate for your organization.
 </Warning>
 
+## Exclude specific users
+
+Even with prompt or tool-call collection on, you can exclude individual people from that content. On a data source in **Settings → Data Sources**, add the Anthropic account emails of the people to exclude.
+
+For an excluded person, Astro AI still records their usage metadata — token usage, cost, models, and session counts — but never stores the text of their prompts, responses, or tool calls. Everyone else on that data source is unaffected.
+
+Exclusions are matched on each person's Anthropic account email and are set per data source, so add someone to every data source their machines use. You can edit the list at any time without rotating the key, and changes take effect within about a minute.
+
 ## What's collected
 
 | | Collected |
@@ -78,11 +86,12 @@ These options collect the contents of your team's Claude Code sessions. Enable t
 | **Always** | Session and interaction counts, token usage, cost, model names, and tool activity — attributed to the team member and session. |
 | **Prompts and responses** | Only when you add `OTEL_LOG_USER_PROMPTS`. |
 | **Tool inputs** | Only when you add `OTEL_LOG_TOOL_DETAILS`. |
+| **Excluded users** | Usage metadata only — never prompts, responses, or tool calls, even with content collection on. |
 | **Never** | Raw model API request bodies. |
 
 ## Manage keys
 
-- **Stop collecting** from a set of machines: revoke the ingest key in **Settings → API Keys**. Machines using it stop sending telemetry immediately.
+- **Stop collecting** from a set of machines: revoke the data source in **Settings → Data Sources**. Machines using it stop sending telemetry immediately.
 - **Rotate a key**: create a new one, update the managed settings block, then revoke the old key.
 - **Turn off content collection**: remove the optional settings from the block. To turn off telemetry entirely, remove the block or revoke the key.
 
@@ -91,7 +100,7 @@ These options collect the contents of your team's Claude Code sessions. Enable t
 Nothing appearing in the dashboard:
 
 - Confirm the block is saved in Claude Code managed settings, and that developers have approved the new settings on their machines. Managed settings can take up to an hour to reach each machine.
-- Confirm the ingest key hasn't been revoked in **Settings → API Keys**.
+- Confirm the data source hasn't been revoked in **Settings → Data Sources**.
 
 Prompts or tool calls not showing when you expect them:
 

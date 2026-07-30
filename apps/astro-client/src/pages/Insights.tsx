@@ -1,7 +1,9 @@
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Bot, Check, ChevronDown, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Bot, Check, ChevronDown, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { accountSettingsPath } from "@/lib/settings-paths";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
@@ -27,7 +29,7 @@ import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WarningPanel } from "@/components/ui/status-panel";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import { useResolvedTheme } from "@/lib/theme";
@@ -202,6 +204,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
   const { activeAccount } = useActiveAccount();
   const { accounts } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] =
     usePersistentSearchParams("insights", INSIGHTS_FILTER_PARAMS);
   const range = parseRange(searchParams.get("range"));
@@ -229,6 +232,19 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const paramAccount = searchParams.get("account");
   const accountNames = useMemo(() => accounts.map((account) => account.name), [accounts]);
   const scopeAccount = resolveInsightsScopeAccount(paramAccount, accountNames, activeAccount);
+  // "Add a source" links to this account's Data Sources settings and hotlinks
+  // the create modal open (see ApiKeysSettings' ?new= handling).
+  const dataSourcesHref = useMemo(
+    () => `${accountSettingsPath(accounts, scopeAccount, "api-keys")}?new=1`,
+    [accounts, scopeAccount],
+  );
+  // Only offer "Add a source" when the user could actually create one — the
+  // ingest-key create endpoint requires account manage rights (personal
+  // accounts, or org admins/owners). Mirrors the Vault "+ New" gating.
+  const canAddDataSource = useMemo(() => {
+    const acct = accounts.find((a) => a.name === scopeAccount);
+    return !acct || acct.type === "personal" || acct.role === "admin" || acct.role === "owner";
+  }, [accounts, scopeAccount]);
   useEffect(() => {
     const next = removeStaleInsightsAccountParam(
       searchParams,
@@ -324,44 +340,56 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
           {dateLabel}
         </span>
       )}
-      {sourceOptions.length > 1 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Filter sources"
-              className={cn(
-                "flex h-8 items-center gap-2 px-2.5 text-sm leading-none text-foreground transition-colors !bg-white dark:!bg-transparent hover:!bg-slate-50 dark:hover:!bg-slate-800",
-                inputBase,
-                inputFocusVisible,
-              )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Filter sources"
+            className={cn(
+              "flex h-8 items-center gap-2 px-2.5 text-sm leading-none text-foreground transition-colors !bg-white dark:!bg-transparent hover:!bg-slate-50 dark:hover:!bg-slate-800",
+              inputBase,
+              inputFocusVisible,
+            )}
+          >
+            Sources
+            <ChevronDown className="size-4 shrink-0 opacity-50" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {/* Agents (always present) */}
+          {sourceOptions.slice(0, 1).map((opt) => (
+            <DropdownMenuCheckboxItem
+              key={opt.key}
+              checked={!hiddenSources.has(opt.key)}
+              onCheckedChange={() => toggleSource(opt.key)}
+              onSelect={(e) => e.preventDefault()}
             >
-              Sources
-              <ChevronDown className="size-4 shrink-0 opacity-50" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            {sourceOptions.map((opt, i) => (
-              <Fragment key={opt.key}>
-                {i === 1 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">External</DropdownMenuLabel>
-                  </>
-                )}
-                <DropdownMenuCheckboxItem
-                  checked={!hiddenSources.has(opt.key)}
-                  onCheckedChange={() => toggleSource(opt.key)}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  {opt.icon}
-                  {opt.label}
-                </DropdownMenuCheckboxItem>
-              </Fragment>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+              {opt.icon}
+              {opt.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          {/* External — always shown, even with no external sources yet */}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">External</DropdownMenuLabel>
+          {sourceOptions.slice(1).map((opt) => (
+            <DropdownMenuCheckboxItem
+              key={opt.key}
+              checked={!hiddenSources.has(opt.key)}
+              onCheckedChange={() => toggleSource(opt.key)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {opt.icon}
+              {opt.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          {canAddDataSource && (
+            <DropdownMenuItem onSelect={() => navigate(dataSourcesHref)}>
+              <Plus className="size-4 shrink-0" />
+              Add a source
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <TimeRangeSelector
         value={range}
         onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}

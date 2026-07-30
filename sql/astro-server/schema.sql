@@ -620,7 +620,11 @@ CREATE TABLE public.otel_ingest_tokens (
     created_at   timestamptz NOT NULL DEFAULT now(),
     created_by   text,                                 -- WorkOS user id of the creator
     last_used_at timestamptz,
-    revoked_at   timestamptz
+    revoked_at   timestamptz,
+    -- Per-key privacy exclusions: lowercased user emails whose full-text
+    -- content (prompts, responses, tool calls) is dropped at ingest. Usage
+    -- metadata still flows; excluded users never reach the trace explorer.
+    excluded_emails text[] NOT NULL DEFAULT '{}'
 );
 CREATE UNIQUE INDEX otel_ingest_tokens_token_hash_idx ON public.otel_ingest_tokens (token_hash);
 CREATE INDEX otel_ingest_tokens_account_idx ON public.otel_ingest_tokens (account_id);
