@@ -19,9 +19,6 @@
 [submodule "modules/astro-infra"]
 	path = modules/astro-infra
 	url = git@github.com:astropods/astro-infra.git
-[submodule "modules/playground"]
-	path = modules/playground
-	url = git@github.com:astropods/playground.git
 [submodule "modules/astro-cli"]
 	path = modules/astro-cli
 	url = git@github.com:astropods/astro-cli.git
