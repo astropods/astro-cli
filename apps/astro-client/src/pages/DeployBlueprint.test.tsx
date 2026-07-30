@@ -577,6 +577,41 @@ describe('DeployBlueprint page', () => {
       expect(keyButtons.length).toBeGreaterThanOrEqual(2);
     });
 
+    it('does not restore a cleared autofill after Slack fields remount', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'SLACK_BOT_TOKEN', description: 'Matching bot token', secret: true },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+
+      const clearReference = await screen.findByRole('button', {
+        name: 'Clear vault reference',
+      });
+      expect(screen.getByText('Auto-filled')).toBeInTheDocument();
+      await user.click(clearReference);
+
+      const slackToggle = screen.getByRole('button', { name: /slack/i });
+      await user.click(slackToggle);
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Slack Bot Token')).not.toBeInTheDocument();
+      });
+      await user.click(slackToggle);
+
+      const botTokenInput = await screen.findByLabelText('Slack Bot Token');
+      expect(botTokenInput).toHaveValue('');
+      expect(screen.queryByText(/^Auto-filled/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Clear vault reference' })).not.toBeInTheDocument();
+    });
+
     it('shows vault entries in Slack token picker when account has variables', async () => {
       server.use(
         http.get('/api/v1/accounts/:account/variables', () =>
@@ -801,7 +836,7 @@ describe('DeployBlueprint page', () => {
       expect(keyButtons.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('shows vault entries in credential field picker when account has variables', async () => {
+    it('shows only type-compatible vault entries for each credential field', async () => {
       server.use(
         http.get('/api/v1/accounts/:account/variables', () =>
           HttpResponse.json({
@@ -817,14 +852,44 @@ describe('DeployBlueprint page', () => {
       await waitForForm();
 
       // With Slack disabled, the first key button belongs to OPENAI_API_KEY
-      const [firstKeyButton] = screen.getAllByTitle('Insert vault reference');
-      await userEvent.setup().click(firstKeyButton);
+      const user = userEvent.setup();
+      const [secretKeyButton, plainKeyButton] = screen.getAllByTitle('Insert vault reference');
+      await user.click(secretKeyButton);
 
       await waitFor(() => {
         expect(screen.getByText('OPENAI_KEY')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('SENTRY_TOKEN')).not.toBeInTheDocument();
+      expect(screen.queryByText('No variables yet')).not.toBeInTheDocument();
+
+      await user.click(secretKeyButton);
+      await user.click(plainKeyButton);
+
+      await waitFor(() => {
         expect(screen.getByText('SENTRY_TOKEN')).toBeInTheDocument();
       });
-      expect(screen.queryByText('No variables yet')).not.toBeInTheDocument();
+      expect(screen.queryByText('OPENAI_KEY')).not.toBeInTheDocument();
+    });
+
+    it('keeps concurrent autofills from required and optional sections', async () => {
+      server.use(
+        http.get('/api/v1/accounts/:account/variables', () =>
+          HttpResponse.json({
+            variables: [
+              { name: 'OPENAI_API_KEY', description: 'Matching secret', secret: true },
+              { name: 'SENTRY_DSN', description: 'Matching plain variable', secret: false },
+            ],
+          }),
+        ),
+      );
+
+      renderInstall();
+      await waitForForm();
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: 'Clear vault reference' })).toHaveLength(2);
+      });
+      expect(screen.getAllByText('Auto-filled')).toHaveLength(2);
     });
 
     it('shows empty state in credential field picker when account has no variables', async () => {

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
@@ -409,7 +410,44 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spe
 		}
 	}
 	if len(missing) > 0 {
+		sort.Strings(missing)
 		return nil, fmt.Errorf("unresolved variable references: %s", strings.Join(missing, "; "))
+	}
+
+	// A secret account variable may only resolve a secret deployment field, and
+	// likewise for plaintext variables. Checking before decryption prevents a
+	// secret value from being copied into a non-secret field and persisted as
+	// ordinary deployment configuration.
+	var incompatible []string
+	for varKey, acctVarName := range refs {
+		accountVarIsSecret := varMap[acctVarName].Secret
+		deploymentVarIsSecret := submittedSpec.Variables[varKey].Secret
+		if accountVarIsSecret == deploymentVarIsSecret {
+			continue
+		}
+
+		accountVarType := "plain"
+		if accountVarIsSecret {
+			accountVarType = "secret"
+		}
+		deploymentVarType := "plain"
+		if deploymentVarIsSecret {
+			deploymentVarType = "secret"
+		}
+		incompatible = append(
+			incompatible,
+			fmt.Sprintf(
+				"variables.%s: %s account variable %q cannot resolve a %s deployment variable",
+				varKey,
+				accountVarType,
+				acctVarName,
+				deploymentVarType,
+			),
+		)
+	}
+	if len(incompatible) > 0 {
+		sort.Strings(incompatible)
+		return nil, fmt.Errorf("incompatible variable references: %s", strings.Join(incompatible, "; "))
 	}
 
 	// Set up decryptor if any referenced variables are secrets

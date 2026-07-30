@@ -45,10 +45,10 @@ test.describe("deploy then configure round-trip", () => {
       { waitUntil: "domcontentloaded" },
     );
 
-    const secretField = page.getByRole("button", { name: /Openai Api Key.*Auto-filled/i });
+    const secretField = page.getByRole("button", { name: /Openai Api Key.*Configured/i });
     await expect(secretField).toBeVisible({ timeout: 20_000 });
     await expect(secretField).toContainText("•••••••");
-    await expect(secretField).toContainText("Auto-filled");
+    await expect(secretField).toContainText("Configured");
   });
 
   test("ingestion schedule survives round-trip to configure page", async ({ page }) => {
@@ -97,10 +97,10 @@ test.describe("deploy then configure round-trip", () => {
       { waitUntil: "domcontentloaded" },
     );
 
-    const secretField = page.getByRole("button", { name: /Openai Api Key.*Auto-filled/i });
+    const secretField = page.getByRole("button", { name: /Openai Api Key.*Configured/i });
     await expect(secretField).toBeVisible({ timeout: 20_000 });
     await expect(secretField).toContainText("•••••••");
-    await expect(secretField).toContainText("Auto-filled");
+    await expect(secretField).toContainText("Configured");
 
     await expect(page.getByRole("heading", { name: "Ingestion", exact: true })).toBeVisible();
     const scheduleSelect = page.getByRole("combobox").filter({ hasText: "Weekly on Sunday" });

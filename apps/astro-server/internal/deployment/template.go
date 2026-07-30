@@ -436,10 +436,17 @@ type ShapeOptions struct {
 	ConfiguredInlineSecrets []string
 }
 
-func markConfiguredInlineSecrets(vars map[string]spec.Variable, names []string) {
+func markConfiguredInlineSecrets(
+	vars map[string]spec.Variable,
+	names []string,
+	inputs map[string]spec.VariableInput,
+) {
 	for _, name := range names {
 		v, ok := vars[name]
-		if !ok {
+		if !ok || !v.Secret {
+			continue
+		}
+		if input, supplied := inputs[name]; supplied && (input.Value != "" || input.Ref != "") {
 			continue
 		}
 		v.Configured = true
@@ -577,8 +584,23 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// Root Variables = full schema (from shaped copy, includes descriptions etc.)
 	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
 	maps.Copy(schemaVars, shaped.Variables)
+	// Configured is server-derived deployment state, never blueprint input.
+	for name, variable := range schemaVars {
+		variable.Configured = false
+		schemaVars[name] = variable
+	}
+	for name, variable := range shaped.Variables {
+		variable.Configured = false
+		shaped.Variables[name] = variable
+	}
 	if opts != nil && len(opts.ConfiguredInlineSecrets) > 0 {
-		markConfiguredInlineSecrets(schemaVars, opts.ConfiguredInlineSecrets)
+		markConfiguredInlineSecrets(schemaVars, opts.ConfiguredInlineSecrets, req.Variables)
+		if req.Finalize {
+			// The signed template carries only an opaque preservation sentinel.
+			// /deploy resolves it from encrypted deployment storage after
+			// authorization; secret plaintext never crosses the browser boundary.
+			markConfiguredInlineSecrets(shaped.Variables, opts.ConfiguredInlineSecrets, req.Variables)
+		}
 	}
 
 	// Template = deployment/v1 ready: strip template-only fields
@@ -593,7 +615,9 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		v.Options = nil
 		v.Fields = nil
 		v.Default = ""
-		v.Configured = false
+		if !req.Finalize {
+			v.Configured = false
+		}
 		shaped.Variables[key] = v
 	}
 

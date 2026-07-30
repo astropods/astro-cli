@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -34,7 +35,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
-	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -4947,7 +4947,7 @@ func TestPostTemplate_InlineSecret_PrefillConfiguredNotExposed(t *testing.T) {
 	}
 }
 
-func TestPostTemplate_InlineSecret_FinalizePreservesWhenOmitted(t *testing.T) {
+func TestPostTemplate_InlineSecret_FinalizeReturnsPreservationSentinel(t *testing.T) {
 	router, indexMock, accountMock, deployMock := setupPostTemplateRouter(t)
 
 	depID := "dep-inline-2"
@@ -4967,8 +4967,166 @@ func TestPostTemplate_InlineSecret_FinalizePreservesWhenOmitted(t *testing.T) {
 	if !resp.Validation.Valid {
 		t.Fatalf("expected valid template, errors: %v", resp.Validation.Errors)
 	}
-	if got := resp.Template.Variables["API_KEY"].Value; got != inlineSecretPlaintext {
-		t.Errorf("template.variables.API_KEY.Value: expected preserved secret, got %q", got)
+	if strings.Contains(rec.Body.String(), inlineSecretPlaintext) {
+		t.Fatal("finalized template response must not contain inline secret plaintext")
+	}
+	if got := resp.Template.Variables["API_KEY"].Value; got != "" {
+		t.Errorf("template.variables.API_KEY.Value: expected empty, got %q", got)
+	}
+	if !resp.Template.Variables["API_KEY"].Configured {
+		t.Error("template.variables.API_KEY.Configured: expected signed preservation sentinel")
+	}
+}
+
+func TestHydratePreservedInlineSecrets(t *testing.T) {
+	deployDB, deployMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = deployDB.Close() })
+
+	deploymentID := "dep-preserve-inline"
+	deployMock.ExpectQuery(`SELECT role, env_name, value_encrypted, nonce, is_secret`).
+		WithArgs(deploymentID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
+		}).AddRow(
+			"agent", "API_KEY", []byte(inlineSecretPlaintext), nil,
+			true, "API_KEY", nil, false,
+		))
+
+	ds := &spec.AstroDeploymentSpec{
+		Variables: map[string]spec.Variable{
+			"API_KEY": {
+				Secret: true, Configured: true, Targets: []string{"agent"},
+			},
+		},
+	}
+	err = hydratePreservedInlineSecrets(
+		context.Background(),
+		ds,
+		&deploymentstore.Deployment{ID: deploymentID},
+		deploymentstore.NewStore(deployDB),
+		&config.Config{},
+		restoreConfiguredSecrets,
+	)
+	if err != nil {
+		t.Fatalf("hydratePreservedInlineSecrets: %v", err)
+	}
+	if got := ds.Variables["API_KEY"].Value; got != inlineSecretPlaintext {
+		t.Errorf("API_KEY.Value: expected stored plaintext inside server, got %q", got)
+	}
+	if ds.Variables["API_KEY"].Configured {
+		t.Error("API_KEY.Configured must be cleared before validation and persistence")
+	}
+}
+
+func TestHydratePreservedInlineSecretsValidationWithoutStore(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Variables: map[string]spec.Variable{
+			"API_KEY": {
+				Secret: true, Configured: true, Targets: []string{"agent"},
+			},
+		},
+	}
+
+	err := hydratePreservedInlineSecrets(
+		context.Background(),
+		ds,
+		nil,
+		nil,
+		&config.Config{},
+		validateConfiguredSecrets,
+	)
+	if err != nil {
+		t.Fatalf("validation should accept an opaque configured secret: %v", err)
+	}
+	if got := ds.Variables["API_KEY"].Value; got != "" {
+		t.Errorf("validation must not restore secret plaintext, got %q", got)
+	}
+	if !ds.Variables["API_KEY"].Configured {
+		t.Error("validation must leave the configured marker opaque")
+	}
+}
+
+func TestValidateDeploymentAcceptsOpaqueConfiguredSecretWithoutStore(t *testing.T) {
+	router, indexMock, accountMock := setupValidateRouter("user-1")
+	expectDeployPrep(accountMock, indexMock)
+
+	var body map[string]any
+	if err := json.Unmarshal([]byte(deployableSpec("dep-configured")), &body); err != nil {
+		t.Fatalf("unmarshal deployable spec: %v", err)
+	}
+	body["variables"].(map[string]any)["API_KEY"] = map[string]any{
+		"secret":     true,
+		"configured": true,
+		"targets":    []string{"agent"},
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal deployable spec: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(string(payload)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected configured secret to pass preflight validation, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHydratePreservedInlineSecretsDeployWithoutStoreIsRejected(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Variables: map[string]spec.Variable{
+			"API_KEY": {Secret: true, Configured: true},
+		},
+	}
+
+	err := hydratePreservedInlineSecrets(
+		context.Background(),
+		ds,
+		nil,
+		nil,
+		&config.Config{},
+		restoreConfiguredSecrets,
+	)
+	if err == nil || !strings.Contains(err.Error(), "existing deployment") {
+		t.Fatalf("deploy must reject a configured secret without storage, got %v", err)
+	}
+}
+
+func TestHydratePreservedInlineSecretsRejectsMissingStoredValue(t *testing.T) {
+	deployDB, deployMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = deployDB.Close() })
+
+	deployMock.ExpectQuery(`SELECT role, env_name, value_encrypted, nonce, is_secret`).
+		WithArgs("dep-missing-inline").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"role", "env_name", "value_encrypted", "nonce",
+			"is_secret", "user_var_name", "account_var_ref", "optional",
+		}))
+
+	ds := &spec.AstroDeploymentSpec{
+		Variables: map[string]spec.Variable{
+			"API_KEY": {Secret: true, Configured: true},
+		},
+	}
+	err = hydratePreservedInlineSecrets(
+		context.Background(),
+		ds,
+		&deploymentstore.Deployment{ID: "dep-missing-inline"},
+		deploymentstore.NewStore(deployDB),
+		&config.Config{},
+		restoreConfiguredSecrets,
+	)
+	if err == nil || !strings.Contains(err.Error(), "no stored inline secret") {
+		t.Fatalf("expected missing stored secret rejection, got %v", err)
 	}
 }
 

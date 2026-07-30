@@ -4,11 +4,6 @@
       "count": 1
     }
   },
-  "src/components/deploy/VariableFields.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 2
-    }
-  },
   "src/components/new-blueprint/RepoPicker.test.tsx": {
     "@typescript-eslint/no-explicit-any": {
       "count": 7

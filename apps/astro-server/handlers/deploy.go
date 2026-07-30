@@ -17,6 +17,7 @@ import (
 
 	"sync"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
@@ -42,7 +43,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
-	spec "github.com/astropods/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
@@ -337,6 +337,84 @@ type deployContext struct {
 	varRefs           map[string]string // variable name → original account variable ref (before resolution)
 }
 
+type configuredSecretMode int
+
+const (
+	restoreConfiguredSecrets configuredSecretMode = iota
+	validateConfiguredSecrets
+)
+
+// hydratePreservedInlineSecrets resolves signed Configured sentinels entirely
+// inside the deploy request. Finalized configure templates never contain the
+// stored plaintext; after signature verification and account authorization,
+// this function restores it from encrypted deployment storage and clears the
+// template-only marker before validation and persistence. Preflight validation
+// only validates the marker shape and leaves it opaque.
+func hydratePreservedInlineSecrets(
+	ctx context.Context,
+	ds *spec.AstroDeploymentSpec,
+	existing *deploymentstore.Deployment,
+	store *deploymentstore.Store,
+	cfg *config.Config,
+	mode configuredSecretMode,
+) error {
+	preserved := make([]string, 0)
+	for name, variable := range ds.Variables {
+		if !variable.Configured {
+			continue
+		}
+		if !variable.Secret || variable.Value != "" || variable.Ref != "" {
+			return fmt.Errorf("variables.%s has an invalid configured-secret marker", name)
+		}
+		preserved = append(preserved, name)
+	}
+	if len(preserved) == 0 {
+		return nil
+	}
+	if existing == nil || store == nil {
+		if mode == validateConfiguredSecrets {
+			return nil
+		}
+		return fmt.Errorf("configured secrets can only be preserved for an existing deployment")
+	}
+
+	stored, err := store.GetDeploymentVariables(existing.ID)
+	if err != nil {
+		return fmt.Errorf("load stored deployment variables: %w", err)
+	}
+	byName := make(map[string]deploymentstore.Variable, len(stored))
+	for _, variable := range stored {
+		if deploymentstore.IsInlineSecret(variable) {
+			byName[variable.Name] = variable
+		}
+	}
+
+	dec, err := deploymentstore.NewDeploymentDecryptor(
+		ctx,
+		existing.EncryptedDataKey,
+		cfg.Deployment.KMSKeyARN,
+	)
+	if err != nil {
+		return fmt.Errorf("initialize deployment secret decryptor: %w", err)
+	}
+
+	for _, name := range preserved {
+		storedVariable, ok := byName[name]
+		if !ok {
+			return fmt.Errorf("variables.%s has no stored inline secret to preserve", name)
+		}
+		plaintext, ok := deploymentstore.PlaintextValue(dec, storedVariable)
+		if !ok {
+			return fmt.Errorf("variables.%s could not be decrypted", name)
+		}
+		variable := ds.Variables[name]
+		variable.Value = plaintext
+		variable.Configured = false
+		ds.Variables[name] = variable
+	}
+	return nil
+}
+
 func prepareDeployment(
 	c *gin.Context,
 	log *logger.Logger,
@@ -346,6 +424,7 @@ func prepareDeployment(
 	cfg *config.Config,
 	deployStore *deploymentstore.Store,
 	varsStore *accountvars.Store,
+	configuredSecrets configuredSecretMode,
 ) (*deployContext, bool) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
@@ -460,9 +539,10 @@ func prepareDeployment(
 	// index at INSERT time — surfaced below as a 409 — so no pre-check is
 	// needed here.
 	var k8sNamespace, deploymentID string
+	var existing *deploymentstore.Deployment
 	var isUpdate bool
 	if submittedSpec.Target.DeploymentID != "" && deployStore != nil {
-		existing, _ := deployStore.GetDeploymentByID(submittedSpec.Target.DeploymentID)
+		existing, _ = deployStore.GetDeploymentByID(submittedSpec.Target.DeploymentID)
 		if existing == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found for given deployment_id"})
 			return nil, false
@@ -471,8 +551,8 @@ func prepareDeployment(
 			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active or failed"})
 			return nil, false
 		}
-		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
+		if existing.AccountID != targetAcct.ID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "deployment does not belong to target account"})
 			return nil, false
 		}
 		deploymentID = existing.ID
@@ -496,6 +576,14 @@ func prepareDeployment(
 	}
 
 	displayName := submittedSpec.Target.DisplayName
+
+	if err := hydratePreservedInlineSecrets(c.Request.Context(), submittedSpec, existing, deployStore, cfg, configuredSecrets); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "failed to preserve configured secret",
+			"details": err.Error(),
+		})
+		return nil, false
+	}
 
 	// Resolve account variable refs before validation; capture the original refs
 	// so they can be persisted and restored when building the prefilled template.
@@ -625,7 +713,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore, restoreConfiguredSecrets)
 		if !ok {
 			return
 		}
@@ -887,7 +975,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil, nil)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil, nil, validateConfiguredSecrets)
 		if !ok {
 			return
 		}
@@ -3733,7 +3821,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
 				return
 			}
-			applyStoredVarsToRequest(c.Request.Context(), log, &req, storedVars, existing, cfg)
+			applyStoredVarsToRequest(&req, storedVars)
 
 			// Check cache — skips generateTemplate + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
@@ -3957,26 +4045,10 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 // they don't exist on the template until ShapeTemplate's ApplyAdapterShaping
 // runs, but ShapeTemplate's variable-filling pass runs after that, so by then
 // req.Variables can populate the freshly-injected entry.
-//
-// On finalize, inline secrets omitted from the client request are decrypted
-// from deployment_build_env and injected so redeploys preserve them.
 func applyStoredVarsToRequest(
-	ctx context.Context,
-	log *logger.Logger,
 	req *spec.TemplateRequest,
 	storedVars []deploymentstore.Variable,
-	dep *deploymentstore.Deployment,
-	cfg *config.Config,
 ) {
-	var dec *envelope.Decryptor
-	if req.Finalize && dep != nil {
-		var decErr error
-		dec, decErr = deploymentstore.NewDeploymentDecryptor(ctx, dep.EncryptedDataKey, cfg.Deployment.KMSKeyARN)
-		if decErr != nil {
-			log.Warn("Failed to create deployment decryptor", "error", decErr, "deployment_id", dep.ID)
-		}
-	}
-
 	for _, sv := range storedVars {
 		if _, alreadySet := req.Variables[sv.Name]; alreadySet {
 			continue
@@ -3990,15 +4062,10 @@ func applyStoredVarsToRequest(
 		case !sv.Secret:
 			// Plaintext value for a non-secret variable.
 			input.Value = sv.Value
-		case req.Finalize && deploymentstore.IsInlineSecret(sv):
-			plaintext, ok := deploymentstore.PlaintextValue(dec, sv)
-			if !ok {
-				log.Warn("Failed to decrypt stored inline secret for finalize", "variable", sv.Name, "deployment_id", dep.ID)
-				continue
-			}
-			input.Value = plaintext
 		default:
-			// Prefill: inline secret value is never sent to the UI.
+			// Inline secret values are never sent to the UI. ShapeOptions marks
+			// them configured and finalized templates carry a signed sentinel
+			// which /deploy resolves from storage.
 			continue
 		}
 		if req.Variables == nil {

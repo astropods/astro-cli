@@ -164,6 +164,7 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
             onAdapterCredentialsChange={form.setAdapterCredentials}
             showError={!!form.errors.adapters}
             adapterErrorKeys={form.errors.adapterCredentials}
+            invalidRefKeys={form.invalidVaultRefKeys}
             credentialLayoutByAdapter={{ web: "inline-card", slack: "inline-card" }}
             webGrants={form.webGrants}
             onWebGrantsChange={form.setWebGrants}
@@ -174,6 +175,9 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
             vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
+            vaultAutoFillEnabled={form.vaultAutoFillEnabled}
+            vaultAutoFillState={form.vaultAutoFillState}
+            onVaultAutoFillStateChange={form.setVaultAutoFillFieldState}
             bulkSetVariables={form.bulkSetVariables}
           />
         </FormSection>
@@ -229,6 +233,9 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
             vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
+            vaultAutoFillEnabled={form.vaultAutoFillEnabled}
+            vaultAutoFillState={form.vaultAutoFillState}
+            onVaultAutoFillStateChange={form.setVaultAutoFillFieldState}
             bulkSetVariables={form.bulkSetVariables}
           />
         </FormSection>
@@ -247,6 +254,9 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
             vaultEntriesLoaded={form.vaultEntriesLoaded}
             vaultSettingsUrl={form.vaultSettingsUrl}
             vaultLoadError={form.vaultEntriesLoadError}
+            vaultAutoFillEnabled={form.vaultAutoFillEnabled}
+            vaultAutoFillState={form.vaultAutoFillState}
+            onVaultAutoFillStateChange={form.setVaultAutoFillFieldState}
             bulkSetVariables={form.bulkSetVariables}
           />
         </FormSection>

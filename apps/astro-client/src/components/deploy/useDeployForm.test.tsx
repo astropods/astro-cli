@@ -222,6 +222,104 @@ describe('useDeployForm vault variable readiness', () => {
     });
     expect(valid).toBe(false);
   });
+
+  it('rejects a vault reference whose account-variable type does not match the field', async () => {
+    server.use(
+      http.get('/api/v1/accounts/:account/variables', () => {
+        return HttpResponse.json({
+          variables: [
+            { name: 'SHARED_KEY', secret: false, description: '', created_at: '', updated_at: '' },
+          ],
+        });
+      }),
+    );
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    act(() => {
+      result.current.setVariableValues((prev) => ({
+        ...prev,
+        OPENAI_API_KEY: '{{secrets.SHARED_KEY}}',
+      }));
+    });
+
+    expect(result.current.invalidVaultRefKeys).toEqual(['OPENAI_API_KEY']);
+    let valid = true;
+    act(() => {
+      valid = result.current.trySubmit();
+    });
+    expect(valid).toBe(false);
+  });
+
+  it('rejects a token prefix that misrepresents the account variable', async () => {
+    server.use(
+      http.get('/api/v1/accounts/:account/variables', () => {
+        return HttpResponse.json({
+          variables: [
+            { name: 'SHARED_KEY', secret: true, description: '', created_at: '', updated_at: '' },
+          ],
+        });
+      }),
+    );
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.vaultEntriesLoaded).toBe(true);
+    });
+    act(() => {
+      result.current.setVariableValues((prev) => ({
+        ...prev,
+        OPENAI_API_KEY: '{{vars.SHARED_KEY}}',
+      }));
+    });
+
+    expect(result.current.invalidVaultRefKeys).toEqual(['OPENAI_API_KEY']);
+  });
+
+  it('enables auto-fill only after fresh deploy seeding and never for configure', async () => {
+    const fresh = createAuthWrapper();
+    const { result: freshResult } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+      }),
+      { wrapper: fresh.wrapper },
+    );
+
+    await waitFor(() => {
+      expect(freshResult.current.initialValues).not.toBeNull();
+      expect(freshResult.current.vaultAutoFillEnabled).toBe(true);
+    });
+
+    const configure = createAuthWrapper();
+    const { result: configureResult } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: wrapTemplateResponse(mockTemplate),
+        deploymentId: 'dep-123',
+      }),
+      { wrapper: configure.wrapper },
+    );
+
+    await waitFor(() => {
+      expect(configureResult.current.initialValues).not.toBeNull();
+    });
+    expect(configureResult.current.vaultAutoFillEnabled).toBe(false);
+  });
 });
 
 describe('useDeployForm with pre-filled template', () => {
@@ -1184,12 +1282,14 @@ describe('adapterDisplayFields object variable sub-fields', () => {
     // Real server-driven fields
     expect(fieldMap.SLACK_BOT_TOKEN?.label).toBe('Slack Bot Token');
     expect(fieldMap.SLACK_BOT_TOKEN?.placeholder).toBe('xoxb-...');
+    expect(fieldMap.SLACK_BOT_TOKEN?.vaultReferenceAllowed).not.toBe(false);
 
     // Sub-fields from SLACK_CONFIG.fields — labels driven by server schema
     expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.label).toBe('Actionable Reactions');
     expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.description).toBe('Emoji names the bot acts on');
     expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.placeholder).toBe('ticket, bug');
     expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.optional).toBe(true);
+    expect(fieldMap['SLACK_CONFIG.actionable_reactions']?.vaultReferenceAllowed).toBe(false);
 
     expect(fieldMap['SLACK_CONFIG.allowed_channel_ids']?.label).toBe('Allowed Channel IDs');
     expect(fieldMap['SLACK_CONFIG.allowed_channel_ids']?.placeholder).toBe('C12345, C67890');

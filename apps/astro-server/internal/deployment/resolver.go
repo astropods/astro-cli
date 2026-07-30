@@ -36,9 +36,10 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		errs = append(errs, refErrs...)
 	}
 
-	// 3. Check required variables non-empty (ref counts as provided — resolved before this point)
+	// 3. Check required variables non-empty. Refs count as provided after
+	// resolution; configured markers count as opaque values during preflight.
 	for key, v := range submitted.Variables {
-		if !v.Optional && v.Value == "" && v.Ref == "" {
+		if !v.Optional && v.Value == "" && v.Ref == "" && !v.Configured {
 			errs = append(errs, fmt.Sprintf("variables.%s.value: required variable is empty", key))
 		}
 		if v.Value != "" && v.Ref != "" {

@@ -47,6 +47,20 @@ func TestValidateAndResolve_EmptyRequiredVariable(t *testing.T) {
 	}
 }
 
+func TestValidateAndResolve_ConfiguredRequiredSecret(t *testing.T) {
+	ds := baseDeploymentSpec()
+	ds.Variables = map[string]spec.Variable{
+		"API_KEY": {Secret: true, Configured: true},
+	}
+	result, err := ValidateAndResolve(ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("expected configured secret to be valid during preflight, got %v", result.Errors)
+	}
+}
+
 func TestValidateAndResolve_OptionalEmptyVariable(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Variables = map[string]spec.Variable{

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, WandSparkles, CaseSensitive, CaseLower } from 'lucide-react'
+import { X, WandSparkles, CaseSensitive, CaseLower, Check } from 'lucide-react'
 import { MagnifyingGlassIcon, KeyIcon, PlusIcon } from '@heroicons/react/24/outline'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,8 @@ export function buildVaultToken(name: string, secret: boolean): string {
 interface VaultPickerProps {
   onSelect: (token: string) => void
   entries?: AccountVariable[]
+  /** Only entries with the field's secret/plain type are valid references. */
+  expectedSecret?: boolean
   accountName?: string
   vaultSettingsUrl?: string
   /** When set, failed vault list fetch — do not show empty-vault copy. */
@@ -52,7 +54,7 @@ interface VaultPickerProps {
   newVarSecret?: boolean
 }
 
-export function VaultPicker({ onSelect, entries = [], accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange, bulkSetVariables, newVarName, newVarValue, newVarSecret }: VaultPickerProps) {
+export function VaultPicker({ onSelect, entries = [], expectedSecret, accountName, vaultSettingsUrl, loadError, bestMatchNames, possibleMatchNames, selectedName, open: controlledOpen, onOpenChange: controlledOnOpenChange, bulkSetVariables, newVarName, newVarValue, newVarSecret }: VaultPickerProps) {
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = (o: boolean) => { setLocalOpen(o); controlledOnOpenChange?.(o) }
@@ -92,7 +94,10 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
     promise.catch(() => { /* swallow — gate stays closed until session updates */ })
   }, [targetOrgId, switchOrg])
 
-  const filtered = entries.filter(e =>
+  const compatibleEntries = expectedSecret === undefined
+    ? entries
+    : entries.filter((entry) => entry.secret === expectedSecret)
+  const filtered = compatibleEntries.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase()) ||
     e.description?.toLowerCase().includes(search.toLowerCase())
   )
@@ -139,10 +144,14 @@ export function VaultPicker({ onSelect, entries = [], accountName, vaultSettings
                 </Button>
               ) : null}
             </div>
-          ) : entries.length === 0 ? (
+          ) : compatibleEntries.length === 0 ? (
             <div className="px-4 py-5 text-center">
               <KeyIcon className="size-5 text-muted-foreground/50 mx-auto mb-2" />
-              <p className="text-sm font-medium text-foreground">No variables yet</p>
+              <p className="text-sm font-medium text-foreground">
+                {entries.length === 0
+                  ? 'No variables yet'
+                  : `No ${expectedSecret ? 'secret' : 'plain'} variables yet`}
+              </p>
               <p className="text-xs text-muted-foreground mt-1 mb-3">
                 {canCreate
                   ? 'Set and manage reusable credentials and configuration values for your agents'
@@ -325,6 +334,15 @@ export function AutoFilledBadge({
 
 export const CONFIGURED_INLINE_SECRET_MASK = '•••••••'
 
+function ConfiguredBadge() {
+  return (
+    <span className="ml-2 flex items-center gap-1 text-xs text-muted-foreground/60 select-none pointer-events-none">
+      <Check className="size-3 shrink-0" />
+      Configured
+    </span>
+  )
+}
+
 /** Masked inline secret saved on a prior deploy (configure/redeploy prefill). */
 export function ConfiguredInlineSecretChip({
   label,
@@ -350,18 +368,18 @@ export function ConfiguredInlineSecretChip({
         'flex h-11 w-full min-w-0 cursor-pointer items-center rounded-sm border border-input bg-[var(--input-background)] px-3.5 pr-24 text-body shadow-none transition-[color,box-shadow,border-color] outline-none',
         invalid && 'border-destructive',
       )}
-      aria-label={`${label}: ${CONFIGURED_INLINE_SECRET_MASK} Auto-filled, click to edit`}
+      aria-label={`${label}: ${CONFIGURED_INLINE_SECRET_MASK} Configured, click to edit`}
     >
       <span className="font-mono text-sm tracking-wider text-muted-foreground">
         {CONFIGURED_INLINE_SECRET_MASK}
       </span>
-      <AutoFilledBadge />
+      <ConfiguredBadge />
     </div>
   )
 }
 
 // Chip shown in the input field when a vault ref is active.
-// invalid=true means the referenced variable doesn't exist in the target account.
+// invalid=true means the reference is missing or incompatible with the field.
 export function VaultRefChip({ token, onClear, invalid, autoFillLabel, onAutoFillClick }: { token: string; onClear: () => void; invalid?: boolean; autoFillLabel?: string; onAutoFillClick?: () => void }) {
   const parsed = parseVaultToken(token)
   if (!parsed) return null

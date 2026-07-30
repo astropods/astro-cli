@@ -22,7 +22,7 @@ test.describe("vault autosuggest", () => {
     // empty vault so other test suites are unaffected by these entries.
     await seedVault(request, [
       { name: "OPENAI_API_KEY", value: "sk-demo-existing", secret: true, description: "Primary OpenAI API key" },
-      { name: "APP_ENV", value: "development", secret: false, description: "Runtime environment" },
+      { name: "BACKUP_API_KEY", value: "sk-demo-backup", secret: true, description: "Backup API key" },
     ]);
   });
 
@@ -128,16 +128,16 @@ test.describe("vault autosuggest", () => {
     await expect(page.getByRole("button", { name: /clear vault reference/i })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/auto.filled/i)).toBeVisible({ timeout: 10_000 });
 
-    // Open the vault picker and select APP_ENV (a different entry)
+    // Open the vault picker and select a different, type-compatible entry
     await page.getByTitle("Insert vault reference").click();
     await expect(page.getByPlaceholder("Find...")).toBeVisible();
-    await page.getByRole("button").filter({ hasText: /^APP_ENV/ }).click();
+    await page.getByRole("button").filter({ hasText: /^BACKUP_API_KEY/ }).click();
 
     // Auto-fill label should be gone — user made an explicit choice
     await expect(page.getByText(/auto.filled/i)).toHaveCount(0);
     // Chip should now show the newly selected entry
     const chip = page.getByRole("button", { name: /clear vault reference/i });
-    await expect(chip).toContainText("APP_ENV");
+    await expect(chip).toContainText("BACKUP_API_KEY");
   });
 
   test("picker marks exact match with tooltip 'Exact match'", async ({ page }) => {

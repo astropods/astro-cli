@@ -42,8 +42,8 @@ describe('configured inline secrets', () => {
         />
       </Providers>,
     )
-    expect(screen.getByRole('button', { name: /API Key.*Auto-filled/i })).toBeInTheDocument()
-    expect(screen.getByText('Auto-filled')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /API Key.*Configured/i })).toBeInTheDocument()
+    expect(screen.getByText('Configured')).toBeInTheDocument()
   })
 
   it('restores mask after click-away without typing', async () => {
@@ -60,12 +60,12 @@ describe('configured inline secrets', () => {
       </Providers>,
     )
 
-    await user.click(screen.getByRole('button', { name: /API Key.*Auto-filled/i }))
+    await user.click(screen.getByRole('button', { name: /API Key.*Configured/i }))
     const input = document.getElementById('API_KEY') as HTMLInputElement
     expect(input).toHaveValue('')
 
     fireEvent.blur(input)
-    expect(screen.getByRole('button', { name: /API Key.*Auto-filled/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /API Key.*Configured/i })).toBeInTheDocument()
   })
 
   it('shows reveal toggle only when user has typed a replacement value', async () => {
@@ -87,7 +87,7 @@ describe('configured inline secrets', () => {
 
     expect(screen.queryByRole('button', { name: /reveal value/i })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /API Key.*Auto-filled/i }))
+    await user.click(screen.getByRole('button', { name: /API Key.*Configured/i }))
     await user.type(document.getElementById('API_KEY')!, 'new-secret')
     expect(screen.getByRole('button', { name: /reveal value/i })).toBeInTheDocument()
   })

@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError, TemplateResponse, TemplateRequest, TemplateProvisioning, TemplateInterfaces, AuthGrant } from "@/lib/api";
 import { ApiRequestError, getApiErrorMessage } from "@/lib/api";
 import { accountSettingsPath } from "@/lib/settings-paths";
-import type { VariableDisplay } from "./VariableFields";
+import type { VariableDisplay, VaultAutoFillState } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
 import { useAccountVariables } from "@/api/queries";
@@ -25,9 +25,21 @@ function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   return parsed ? { ref: parsed.name } : { value: raw };
 }
 
-function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
+function isInvalidVaultRef(
+  value: string,
+  expectedSecret: boolean,
+  knownTypes: Map<string, boolean>,
+): boolean {
   const parsed = parseVaultToken(value);
-  return parsed !== null && !knownNames.has(parsed.name);
+  if (!parsed) return false;
+
+  const tokenIsSecret = parsed.type === "secret";
+  const accountVariableIsSecret = knownTypes.get(parsed.name);
+  return (
+    accountVariableIsSecret === undefined
+    || tokenIsSecret !== expectedSecret
+    || accountVariableIsSecret !== expectedSecret
+  );
 }
 
 function formatVaultVariablesLoadError(err: unknown): string {
@@ -466,8 +478,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const vaultEntriesLoadError = vaultVarsQueryFailed
     ? formatVaultVariablesLoadError(vaultVarsQueryError)
     : null;
-  const accountVarNames = useMemo(
-    () => new Set(accountVarsReady ? accountVarsData?.variables.map(v => v.name) ?? [] : []),
+  const accountVarTypes = useMemo(
+    () => new Map(
+      accountVarsReady
+        ? accountVarsData?.variables.map((variable) => [variable.name, variable.secret] as const) ?? []
+        : [],
+    ),
     [accountVarsData?.variables, accountVarsReady],
   );
 
@@ -560,6 +576,20 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
+  // Field-level auto-fill provenance belongs to the form so temporarily
+  // unmounting adapter fields cannot grant them another suggestion opportunity.
+  const [vaultAutoFillState, setVaultAutoFillState] = useState<VaultAutoFillState>({});
+  const setVaultAutoFillFieldState = useCallback(
+    (fieldKey: string, token: string | null) => {
+      setVaultAutoFillState((current) => {
+        if (Object.hasOwn(current, fieldKey) && current[fieldKey] === token) {
+          return current;
+        }
+        return { ...current, [fieldKey]: token };
+      });
+    },
+    [],
+  );
   const [selectedAdapters, setSelectedAdaptersRaw] = useState<string[]>(computedDefaults.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(computedDefaults.adapterCredentials ?? {});
   const [webGrants, setWebGrants] = useState<AuthGrant[]>(computedDefaults.webGrants ?? []);
@@ -918,6 +948,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
             optional: fieldDef.optional ?? true,
             secret: false,
             deprecated: fieldDef.deprecated,
+            vaultReferenceAllowed: false,
           }]);
         }
       }
@@ -929,22 +960,44 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     return { adapterVariableDefs: varDefs, adapterDisplayFields: displayDefs };
   }, [template, selectedAdapters]);
 
+  // Only real template fields can carry a top-level vault reference. Adapter
+  // display fields may also include virtual object sub-fields, so derive this
+  // list from the submission definitions instead.
+  const vaultFieldEntries = useMemo<[string, VariableDisplay][]>(() => {
+    const fields = new Map<string, VariableDisplay>();
+    for (const [key, display] of variableEntries) fields.set(key, display);
+    for (const [key, display] of Object.values(adapterVariableDefs).flat()) {
+      fields.set(key, display);
+    }
+    return [...fields.entries()];
+  }, [variableEntries, adapterVariableDefs]);
+
   const vaultRefKeys = useMemo(
-    () => variableEntries
+    () => vaultFieldEntries
       .filter(([key]) => parseVaultToken(allFormValues[key] ?? '') !== null)
       .map(([key]) => key),
-    [variableEntries, allFormValues],
+    [vaultFieldEntries, allFormValues],
   );
 
   // Always-on vault ref validation — not gated by submitted so chips turn red
   // immediately when the target account changes, without requiring a submit attempt.
   const invalidVaultRefKeys = useMemo(
     () => accountVarsReady
-      ? variableEntries
-          .filter(([key]) => isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames))
+      ? vaultFieldEntries
+          .filter(([key, display]) => (
+            isInvalidVaultRef(allFormValues[key] ?? '', !!display.secret, accountVarTypes)
+          ))
           .map(([key]) => key)
       : [],
-    [accountVarsReady, variableEntries, allFormValues, accountVarNames],
+    [accountVarsReady, vaultFieldEntries, allFormValues, accountVarTypes],
+  );
+  const variableFieldKeys = useMemo(
+    () => new Set(variableEntries.map(([key]) => key)),
+    [variableEntries],
+  );
+  const adapterFieldKeys = useMemo(
+    () => new Set(Object.values(adapterVariableDefs).flat().map(([key]) => key)),
+    [adapterVariableDefs],
   );
   const missingSharedKnowledgeBindings = useMemo(
     () => sharedKnowledgeEntriesMissingBinding(
@@ -987,7 +1040,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       .filter(([key, v]) => !isVariableFilled(v, allFormValues[key]))
       .map(([key]) => key);
 
-    const credErrors = [...new Set([...emptyRequired, ...invalidVaultRefKeys])];
+    const invalidVariableRefs = invalidVaultRefKeys.filter((key) => variableFieldKeys.has(key));
+    const credErrors = [...new Set([...emptyRequired, ...invalidVariableRefs])];
     if (credErrors.length > 0) {
       result.credentials = credErrors;
     }
@@ -998,8 +1052,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         .filter(([key, def]) => !def.optional && !isVariableFilled(def, allFormValues[key]))
         .map(([key]) => key);
     });
-    if (emptyAdapterCreds.length > 0) {
-      result.adapterCredentials = emptyAdapterCreds;
+    const invalidAdapterRefs = invalidVaultRefKeys.filter((key) => adapterFieldKeys.has(key));
+    const adapterCredErrors = [...new Set([...emptyAdapterCreds, ...invalidAdapterRefs])];
+    if (adapterCredErrors.length > 0) {
+      result.adapterCredentials = adapterCredErrors;
     }
 
     const emptySchedules = scheduleIngestions.filter(
@@ -1014,7 +1070,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, trimmedDeployName, deployNameLengthError, selectedAdapters, requiresMessagingAdapter, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys, missingSharedKnowledgeBindings]);
+  }, [submitted, targetAccount, trimmedDeployName, deployNameLengthError, selectedAdapters, requiresMessagingAdapter, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys, variableFieldKeys, adapterFieldKeys, missingSharedKnowledgeBindings]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules && !errors.knowledgeBindings
@@ -1306,6 +1362,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     vaultEntriesLoaded: accountVarsReady,
     vaultEntriesLoadError,
     vaultSettingsUrl: accountSettingsPath(accounts, targetAccount, 'secrets'),
+    // Auto-fill only after a fresh form has completed its authoritative seed.
+    // Configure/redeploy forms preserve the deployment exactly as loaded.
+    vaultAutoFillEnabled: !opts?.deploymentId && initialValues !== null,
+    vaultAutoFillState,
+    setVaultAutoFillFieldState,
 
     errors,
     invalidVaultRefKeys,
@@ -1366,6 +1427,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       }
       if (Object.keys(newAdapterValues).length > 0) {
         setAdapterCredentials((prev) => ({ ...prev, ...newAdapterValues }));
+      }
+      for (const key of [
+        ...Object.keys(newVarValues),
+        ...Object.keys(newAdapterValues),
+      ]) {
+        setVaultAutoFillFieldState(key, null);
       }
 
       return { matched, skipped };

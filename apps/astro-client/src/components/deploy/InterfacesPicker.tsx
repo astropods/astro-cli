@@ -1,11 +1,11 @@
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Check } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
 import { AstroMark } from "@/components/ui/svgs/astroMark";
 import { cn } from "@/lib/utils";
 import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
-import type { VariableDisplay } from "./VariableFields";
+import type { VariableDisplay, VaultAutoFillState } from "./VariableFields";
 import { GrantsEditor } from "./GrantsEditor";
 import type { AccountVariable, AuthGrant } from "@/lib/api";
 
@@ -23,9 +23,10 @@ export interface InterfacesPickerProps {
   /** Per-adapter credential field definitions, keyed by adapter id. */
   adapterCredDefs: Record<string, [string, VariableDisplay][]>;
   adapterCredentials: Record<string, string>;
-  onAdapterCredentialsChange: (values: Record<string, string>) => void;
+  onAdapterCredentialsChange: Dispatch<SetStateAction<Record<string, string>>>;
   showError?: boolean;
   adapterErrorKeys?: string[];
+  invalidRefKeys?: string[];
   /** Controls where adapter credential fields render for each adapter id. */
   credentialLayoutByAdapter?: Record<string, "below" | "inline-card">;
   /** Auth grants per adapter — when present, a grants editor renders inside the adapter card. */
@@ -39,6 +40,9 @@ export interface InterfacesPickerProps {
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  vaultAutoFillEnabled?: boolean;
+  vaultAutoFillState?: VaultAutoFillState;
+  onVaultAutoFillStateChange?: (fieldKey: string, token: string | null) => void;
   /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
   bulkSetVariables?: (imported: Record<string, string>) => void;
 }
@@ -51,6 +55,7 @@ export function InterfacesPicker({
   onAdapterCredentialsChange,
   showError,
   adapterErrorKeys,
+  invalidRefKeys,
   credentialLayoutByAdapter,
   webGrants,
   onWebGrantsChange,
@@ -61,6 +66,9 @@ export function InterfacesPicker({
   vaultEntriesLoaded,
   vaultSettingsUrl,
   vaultLoadError,
+  vaultAutoFillEnabled,
+  vaultAutoFillState,
+  onVaultAutoFillStateChange,
   bulkSetVariables,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
@@ -161,11 +169,15 @@ export function InterfacesPicker({
                       values={adapterCredentials}
                       onChange={onAdapterCredentialsChange}
                       errorKeys={adapterErrorKeys}
+                      invalidRefKeys={invalidRefKeys}
                       account={targetAccount}
                       vaultEntries={vaultEntries}
                       vaultEntriesLoaded={vaultEntriesLoaded}
                       vaultSettingsUrl={vaultSettingsUrl}
                       vaultLoadError={vaultLoadError}
+                      vaultAutoFillEnabled={vaultAutoFillEnabled}
+                      vaultAutoFillState={vaultAutoFillState}
+                      onVaultAutoFillStateChange={onVaultAutoFillStateChange}
                       bulkSetVariables={bulkSetVariables}
                     />
                   </div>
@@ -198,11 +210,15 @@ export function InterfacesPicker({
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
                   errorKeys={adapterErrorKeys}
+                  invalidRefKeys={invalidRefKeys}
                   account={targetAccount}
                   vaultEntries={vaultEntries}
                   vaultEntriesLoaded={vaultEntriesLoaded}
                   vaultSettingsUrl={vaultSettingsUrl}
                   vaultLoadError={vaultLoadError}
+                  vaultAutoFillEnabled={vaultAutoFillEnabled}
+                  vaultAutoFillState={vaultAutoFillState}
+                  onVaultAutoFillStateChange={onVaultAutoFillStateChange}
                   bulkSetVariables={bulkSetVariables}
                 />
               </div>

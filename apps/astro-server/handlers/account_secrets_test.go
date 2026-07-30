@@ -381,3 +381,127 @@ func TestValidVarName(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveVarReferences_RejectsSecretTypeMismatch(t *testing.T) {
+	tests := []struct {
+		name             string
+		accountVarSecret bool
+		deploymentSecret bool
+		wantMessage      string
+	}{
+		{
+			name:             "secret account variable into plain deployment variable",
+			accountVarSecret: true,
+			deploymentSecret: false,
+			wantMessage:      `secret account variable "SHARED_VALUE" cannot resolve a plain deployment variable`,
+		},
+		{
+			name:             "plain account variable into secret deployment variable",
+			accountVarSecret: false,
+			deploymentSecret: true,
+			wantMessage:      `plain account variable "SHARED_VALUE" cannot resolve a secret deployment variable`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+
+			now := time.Now()
+			rows := sqlmock.NewRows([]string{
+				"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at",
+			}).AddRow("acct-1", "SHARED_VALUE", "stored-value", tt.accountVarSecret, nil, "", now, now)
+			mock.ExpectQuery("SELECT.*account_variables").
+				WithArgs("acct-1", sqlmock.AnyArg()).
+				WillReturnRows(rows)
+
+			deployment := &spec.AstroDeploymentSpec{
+				Variables: map[string]spec.Variable{
+					"TARGET_VALUE": {
+						Ref:    "SHARED_VALUE",
+						Secret: tt.deploymentSecret,
+					},
+				},
+			}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+			refs, resolveErr := resolveVarReferences(
+				ctx,
+				logger.New("error", "json"),
+				deployment,
+				"acct-1",
+				accountvars.NewStore(db),
+				&config.Config{},
+			)
+
+			require.Nil(t, refs)
+			require.ErrorContains(t, resolveErr, "incompatible variable references")
+			require.ErrorContains(t, resolveErr, tt.wantMessage)
+			require.Equal(t, "SHARED_VALUE", deployment.Variables["TARGET_VALUE"].Ref)
+			require.Empty(t, deployment.Variables["TARGET_VALUE"].Value)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestResolveVarReferences_ResolvesMatchingTypes(t *testing.T) {
+	tests := []struct {
+		name   string
+		secret bool
+	}{
+		{name: "plain", secret: false},
+		{name: "secret", secret: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+
+			now := time.Now()
+			rows := sqlmock.NewRows([]string{
+				"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at",
+			}).AddRow("acct-1", "SHARED_VALUE", "stored-value", tt.secret, nil, "", now, now)
+			mock.ExpectQuery("SELECT.*account_variables").
+				WithArgs("acct-1", sqlmock.AnyArg()).
+				WillReturnRows(rows)
+			if tt.secret {
+				mock.ExpectQuery("SELECT.*account_encryption_keys").
+					WithArgs("acct-1").
+					WillReturnRows(sqlmock.NewRows([]string{
+						"account_id", "encrypted_data_key", "kms_key_arn", "created_at",
+					}))
+			}
+
+			deployment := &spec.AstroDeploymentSpec{
+				Variables: map[string]spec.Variable{
+					"TARGET_VALUE": {
+						Ref:    "SHARED_VALUE",
+						Secret: tt.secret,
+					},
+				},
+			}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+			refs, resolveErr := resolveVarReferences(
+				ctx,
+				logger.New("error", "json"),
+				deployment,
+				"acct-1",
+				accountvars.NewStore(db),
+				&config.Config{},
+			)
+
+			require.NoError(t, resolveErr)
+			require.Equal(t, map[string]string{"TARGET_VALUE": "SHARED_VALUE"}, refs)
+			require.Empty(t, deployment.Variables["TARGET_VALUE"].Ref)
+			require.Equal(t, "stored-value", deployment.Variables["TARGET_VALUE"].Value)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}

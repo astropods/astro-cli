@@ -2449,6 +2449,61 @@ func TestShapeTemplate_ConfiguredInlineSecrets(t *testing.T) {
 	}
 }
 
+func TestShapeTemplate_FinalizeUsesConfiguredSentinelWithoutPlaintext(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+		Finalize: true,
+	}, &ShapeOptions{
+		ConfiguredInlineSecrets: []string{"MY_API_KEY"},
+	})
+
+	v := resp.Template.Variables["MY_API_KEY"]
+	if !v.Configured {
+		t.Error("finalized template should preserve the configured sentinel")
+	}
+	if v.Value != "" || v.Ref != "" {
+		t.Errorf("finalized template must not expose a configured secret: %+v", v)
+	}
+}
+
+func TestShapeTemplate_FinalizeReplacementClearsConfiguredSentinel(t *testing.T) {
+	base := baseTemplateForShape(t)
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+		Finalize: true,
+		Variables: map[string]spec.VariableInput{
+			"MY_API_KEY": {Value: "replacement"},
+		},
+	}, &ShapeOptions{
+		ConfiguredInlineSecrets: []string{"MY_API_KEY"},
+	})
+
+	v := resp.Template.Variables["MY_API_KEY"]
+	if v.Configured {
+		t.Error("explicit replacement must not carry the preservation sentinel")
+	}
+	if v.Value != "replacement" {
+		t.Errorf("replacement value = %q, want replacement", v.Value)
+	}
+}
+
+func TestShapeTemplate_FinalizeDoesNotTrustSourceConfiguredMarker(t *testing.T) {
+	base := baseTemplateForShape(t)
+	variable := base.Variables["MY_API_KEY"]
+	variable.Configured = true
+	base.Variables["MY_API_KEY"] = variable
+
+	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+		Finalize: true,
+	}, nil)
+
+	if resp.Variables["MY_API_KEY"].Configured {
+		t.Fatal("schema must not inherit configured marker from blueprint input")
+	}
+	if resp.Template.Variables["MY_API_KEY"].Configured {
+		t.Fatal("finalized template must not inherit configured marker from blueprint input")
+	}
+}
+
 func TestShapeTemplate_VariableFilling(t *testing.T) {
 	base := baseTemplateForShape(t)
 	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{

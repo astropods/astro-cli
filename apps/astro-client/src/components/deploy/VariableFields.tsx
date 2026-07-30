@@ -1,4 +1,5 @@
-import { useRef, useCallback } from "react";
+import { useCallback } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Info, ExternalLink } from "lucide-react";
 import {
   Tooltip,
@@ -30,14 +31,19 @@ export interface VariableDisplay {
   deprecated?: string;
   /** Inline secret is stored; value is not returned by the API. */
   configured?: boolean;
+  /** False for display-only fields that cannot be submitted as vault references. */
+  vaultReferenceAllowed?: boolean;
 }
+
+/** Auto-filled token by field. Missing means not evaluated; null means consumed. */
+export type VaultAutoFillState = Record<string, string | null>;
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */
 
 export interface VariableFieldsProps {
   variables: [string, VariableDisplay][];
   values: Record<string, string>;
-  onChange: (values: Record<string, string>) => void;
+  onChange: Dispatch<SetStateAction<Record<string, string>>>;
   errorKeys?: string[];
   invalidRefKeys?: string[];
   account?: string;
@@ -45,24 +51,21 @@ export interface VariableFieldsProps {
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  vaultAutoFillEnabled?: boolean;
+  vaultAutoFillState?: VaultAutoFillState;
+  onVaultAutoFillStateChange?: (fieldKey: string, token: string | null) => void;
   /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
   bulkSetVariables?: (imported: Record<string, string>) => void;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldsProps) {
-  if (variables.length === 0) return null;
-
-  // Keep a ref so per-field onChange callbacks always see the latest values,
-  // preventing stale-closure overwrites when multiple fields auto-fill in the
-  // same effect batch.
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
-
+export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, vaultAutoFillEnabled, vaultAutoFillState, onVaultAutoFillStateChange, bulkSetVariables }: VariableFieldsProps) {
   const handleFieldChange = useCallback((key: string, val: string) => {
-    const updated = { ...valuesRef.current, [key]: val };
-    valuesRef.current = updated;
-    onChange(updated);
+    // Functional updates compose when several fields auto-fill in one effect
+    // turn, including fields rendered by separate required/optional sections.
+    onChange((current) => ({ ...current, [key]: val }));
   }, [onChange]);
+
+  if (variables.length === 0) return null;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -133,12 +136,19 @@ export function VariableFields({ variables, values, onChange, errorKeys, invalid
                 vaultEntriesLoaded={vaultEntriesLoaded}
                 vaultSettingsUrl={vaultSettingsUrl}
                 vaultLoadError={vaultLoadError}
+                vaultAutoFillEnabled={vaultAutoFillEnabled}
+                vaultAutoFilledToken={vaultAutoFillState?.[key]}
+                onVaultAutoFilledTokenChange={
+                  onVaultAutoFillStateChange
+                    ? (token) => onVaultAutoFillStateChange(key, token)
+                    : undefined
+                }
                 bulkSetVariables={bulkSetVariables}
               />
             </div>
             {errorKeys?.includes(key) && (
               <p className="text-destructive text-xs mt-1">
-                {values[key] ? 'Variable not found in selected account' : 'Required'}
+                {values[key] ? 'Invalid variable reference for this field' : 'Required'}
               </p>
             )}
           </div>

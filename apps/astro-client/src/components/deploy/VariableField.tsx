@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { ShieldCheckIcon } from "@heroicons/react/24/outline";
+import type { AccountVariable } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -76,59 +77,94 @@ export function isVariableFilled(meta: VariableDisplay, value: string | undefine
   }
 }
 
-function findVaultSuggestions(fieldKey: string, entries: import("@/lib/api").AccountVariable[]) {
+function findVaultSuggestions(
+  fieldKey: string,
+  entries: AccountVariable[],
+  expectedSecret: boolean,
+) {
   const key = fieldKey.toLowerCase();
-  const exactCase = entries.filter((e) => e.name === fieldKey);
-  const exactCI = entries.filter((e) => e.name !== fieldKey && e.name.toLowerCase() === key);
+  const compatibleEntries = entries.filter((entry) => entry.secret === expectedSecret);
+  const exactCase = compatibleEntries.filter((e) => e.name === fieldKey);
+  const exactCI = compatibleEntries.filter((e) => e.name !== fieldKey && e.name.toLowerCase() === key);
   const best = exactCase;
   const possible = exactCI;
   return { best, possible, all: [...best, ...possible] };
 }
 
-function makeVaultToken(entry: import("@/lib/api").AccountVariable): string {
+function makeVaultToken(entry: AccountVariable): string {
   return entry.secret ? `{{secrets.${entry.name}}}` : `{{vars.${entry.name}}}`;
 }
 
-/** Auto-fills the field with the best vault match once on first render when empty.
+/** Offers one auto-fill opportunity after a fresh form has finished seeding.
  *
- *  `entriesLoaded` must reflect TanStack Query's `isSuccess` for the vault entries
- *  query. Gating on this distinguishes "vault is still loading" from "vault is
- *  loaded and empty", which avoids a race with the parent form's seeding effect:
- *  if both fire in the same commit, the parent's full-replacement setState wipes
- *  this fill, and `didAutoFill.current = true` latches us out of recovery. By
- *  waiting for the query to resolve, the fill writes on a later render with no
- *  competing setter.
+ * Once entries are loaded, the opportunity is consumed whether or not a fill
+ * occurs. That prevents clearing a prefilled or user-entered value from
+ * resurrecting an auto-suggestion later. Explicit user changes also clear the
+ * provenance marker, including selecting the same entry from the picker.
  */
 function useVaultAutoFill(
   fieldKey: string,
   value: string,
-  entries: import("@/lib/api").AccountVariable[],
+  expectedSecret: boolean,
+  entries: AccountVariable[],
   entriesLoaded: boolean,
+  enabled: boolean,
   onChange: (val: string) => void,
+  controlledAutoFilledToken?: string | null,
+  onAutoFilledTokenChange?: (token: string | null) => void,
 ) {
-  const suggestions = useMemo(() => findVaultSuggestions(fieldKey, entries), [fieldKey, entries]);
-  const didAutoFill = useRef(false);
-  const [autoFilledToken, setAutoFilledToken] = useState<string | null>(null);
+  const suggestions = useMemo(
+    () => findVaultSuggestions(fieldKey, entries, expectedSecret),
+    [fieldKey, entries, expectedSecret],
+  );
+  const [localAutoFilledToken, setLocalAutoFilledToken] = useState<string | null>();
+  const autoFilledToken = onAutoFilledTokenChange
+    ? controlledAutoFilledToken
+    : localAutoFilledToken;
+  const setAutoFilledToken = useCallback(
+    (token: string | null) => {
+      if (onAutoFilledTokenChange) {
+        onAutoFilledTokenChange(token);
+      } else {
+        setLocalAutoFilledToken(token);
+      }
+    },
+    [onAutoFilledTokenChange],
+  );
 
   useEffect(() => {
-    if (!entriesLoaded) return;
-    if (!didAutoFill.current && value === "" && suggestions.all.length > 0) {
-      const token = makeVaultToken(suggestions.all[0]);
-      didAutoFill.current = true;
-      setAutoFilledToken(token);
-      onChange(token);
+    if (!enabled || !entriesLoaded || autoFilledToken !== undefined) return;
+    if (value !== "" || suggestions.all.length === 0) {
+      setAutoFilledToken(null);
+      return;
     }
-  }, [suggestions, value, onChange, entriesLoaded]);
 
-  // Derived: true only while the value still matches what was auto-filled.
-  // Clears automatically when the user picks a different entry or clears the field.
-  const isAutoFilled = !!autoFilledToken && value === autoFilledToken;
+    const token = makeVaultToken(suggestions.all[0]);
+    setAutoFilledToken(token);
+    onChange(token);
+  }, [
+    autoFilledToken,
+    enabled,
+    entriesLoaded,
+    suggestions,
+    value,
+    onChange,
+    setAutoFilledToken,
+  ]);
 
-  return { isAutoFilled, suggestions };
+  const handleUserChange = useCallback((nextValue: string) => {
+    setAutoFilledToken(null);
+    onChange(nextValue);
+  }, [onChange, setAutoFilledToken]);
+
+  const isAutoFilled =
+    typeof autoFilledToken === "string" && value === autoFilledToken;
+
+  return { isAutoFilled, suggestions, handleUserChange };
 }
 
 /** Builds the inline "auto filled" / "auto filled · N others" label. */
-function autoFillLabel(suggestions: import("@/lib/api").AccountVariable[]): string {
+function autoFillLabel(suggestions: AccountVariable[]): string {
   const others = suggestions.length - 1;
   if (others <= 0) return "Auto-filled";
   return `Auto-filled · ${others} other ${others > 1 ? "matches" : "match"}`;
@@ -142,15 +178,21 @@ export interface VariableFieldProps {
   hasError?: boolean;
   refInvalid?: boolean;
   account?: string;
-  vaultEntries?: import("@/lib/api").AccountVariable[];
+  vaultEntries?: AccountVariable[];
   vaultEntriesLoaded?: boolean;
   vaultSettingsUrl?: string;
   vaultLoadError?: string | null;
+  /** Auto-fill is enabled only for a seeded, fresh deploy form. */
+  vaultAutoFillEnabled?: boolean;
+  /** Form-owned auto-fill provenance; undefined means this field has not been evaluated. */
+  vaultAutoFilledToken?: string | null;
+  /** Persists auto-fill provenance across field unmounts. */
+  onVaultAutoFilledTokenChange?: (token: string | null) => void;
   /** Form-level bulk mapper used when the vault picker creates multiple variables at once. */
   bulkSetVariables?: (imported: Record<string, string>) => void;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, vaultAutoFillEnabled = false, vaultAutoFilledToken, onVaultAutoFilledTokenChange, bulkSetVariables }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -253,15 +295,26 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, refIn
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} bulkSetVariables={bulkSetVariables} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} vaultAutoFillEnabled={vaultAutoFillEnabled} vaultAutoFilledToken={vaultAutoFilledToken} onVaultAutoFilledTokenChange={onVaultAutoFilledTokenChange} bulkSetVariables={bulkSetVariables} />;
   }
 
   // 7. Default — text input
-  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} bulkSetVariables={bulkSetVariables} />;
+  return <DefaultTextField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} vaultEntries={vaultEntries} vaultEntriesLoaded={vaultEntriesLoaded} vaultSettingsUrl={vaultSettingsUrl} vaultLoadError={vaultLoadError} vaultAutoFillEnabled={vaultAutoFillEnabled} vaultAutoFilledToken={vaultAutoFilledToken} onVaultAutoFilledTokenChange={onVaultAutoFilledTokenChange} bulkSetVariables={bulkSetVariables} />;
 }
 
-function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
-  const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], vaultEntriesLoaded ?? false, onChange);
+function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, vaultAutoFillEnabled, vaultAutoFilledToken, onVaultAutoFilledTokenChange, bulkSetVariables }: VariableFieldProps) {
+  const vaultReferenceAllowed = meta.vaultReferenceAllowed !== false;
+  const { isAutoFilled, suggestions, handleUserChange } = useVaultAutoFill(
+    fieldKey,
+    value,
+    false,
+    vaultEntries ?? [],
+    vaultEntriesLoaded ?? false,
+    (vaultAutoFillEnabled ?? false) && vaultReferenceAllowed,
+    onChange,
+    vaultAutoFilledToken,
+    onVaultAutoFilledTokenChange,
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
   const isVaultRef = parseVaultToken(value) !== null;
   const bestMatchNames = suggestions.best.map((s) => s.name);
@@ -273,7 +326,7 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
       {isVaultRef ? (
         <VaultRefChip
           token={value}
-          onClear={() => onChange("")}
+          onClear={() => handleUserChange("")}
           invalid={hasError || refInvalid}
           autoFillLabel={isAutoFilled ? autoFillLabel(suggestions.all) : undefined}
           onAutoFillClick={isAutoFilled && suggestions.all.length > 1 ? () => setPickerOpen(true) : undefined}
@@ -284,26 +337,39 @@ function DefaultTextField({ fieldKey, meta, value, onChange, hasError, refInvali
           name={fieldKey}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value.trim())}
+          onChange={(e) => handleUserChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
           autoComplete="off"
           spellCheck={false}
           aria-invalid={hasError || undefined}
-          className="pr-9"
+          className={vaultReferenceAllowed ? "pr-9" : undefined}
         />
       )}
-      <div className="absolute right-2">
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
-      </div>
+      {vaultReferenceAllowed && (
+        <div className="absolute right-2">
+          <VaultPicker onSelect={handleUserChange} entries={vaultEntries} expectedSecret={false} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
+        </div>
+      )}
     </div>
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, bulkSetVariables }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account, vaultEntries, vaultEntriesLoaded, vaultSettingsUrl, vaultLoadError, vaultAutoFillEnabled, vaultAutoFilledToken, onVaultAutoFilledTokenChange, bulkSetVariables }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const { isAutoFilled, suggestions } = useVaultAutoFill(fieldKey, value, vaultEntries ?? [], vaultEntriesLoaded ?? false, onChange);
+  const vaultReferenceAllowed = meta.vaultReferenceAllowed !== false;
+  const { isAutoFilled, suggestions, handleUserChange } = useVaultAutoFill(
+    fieldKey,
+    value,
+    true,
+    vaultEntries ?? [],
+    vaultEntriesLoaded ?? false,
+    (vaultAutoFillEnabled ?? false) && !meta.configured && vaultReferenceAllowed,
+    onChange,
+    vaultAutoFilledToken,
+    onVaultAutoFilledTokenChange,
+  );
   const isVaultRef = parseVaultToken(value) !== null;
   const showConfiguredChip =
     meta.configured && !isVaultRef && !value?.trim() && !editing;
@@ -325,7 +391,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
       {isVaultRef ? (
         <VaultRefChip
           token={value}
-          onClear={() => onChange("")}
+          onClear={() => handleUserChange("")}
           invalid={hasError || refInvalid}
           autoFillLabel={isAutoFilled ? autoFillLabel(suggestions.all) : undefined}
           onAutoFillClick={isAutoFilled && suggestions.all.length > 1 ? () => setPickerOpen(true) : undefined}
@@ -346,9 +412,9 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
           type={revealed ? "text" : "password"}
           value={value}
           onBlur={exitEditIfStillEmpty}
-          onChange={(e) => onChange(e.target.value.trim())}
+          onChange={(e) => handleUserChange(e.target.value.trim())}
           placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-          className="pr-16"
+          className={vaultReferenceAllowed ? "pr-16" : "pr-9"}
           autoComplete="new-password"
           spellCheck={false}
           aria-invalid={hasError || undefined}
@@ -366,7 +432,9 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, ac
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={onChange} entries={vaultEntries} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
+        {vaultReferenceAllowed && (
+          <VaultPicker onSelect={handleUserChange} entries={vaultEntries} expectedSecret={true} accountName={account} vaultSettingsUrl={vaultSettingsUrl} loadError={vaultLoadError} bestMatchNames={bestMatchNames.length > 0 ? bestMatchNames : undefined} possibleMatchNames={possibleMatchNames.length > 0 ? possibleMatchNames : undefined} selectedName={selectedName} open={pickerOpen} onOpenChange={setPickerOpen} bulkSetVariables={bulkSetVariables} newVarName={fieldKey} newVarValue={isVaultRef ? "" : value} newVarSecret={meta.secret ?? false} />
+        )}
       </div>
     </div>
   );

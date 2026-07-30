@@ -58,7 +58,11 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
   const selectedBuildId = searchParams.get("build") ?? latestBuildId;
   const selectedHistoricalBuild = !!selectedBuildId && selectedBuildId !== latestBuildId;
 
-  const form = useDeployForm(account ?? "", agentSlug ?? "", {
+  // Wait for blueprint metadata before bootstrapping the form. Otherwise a
+  // client-only load first requests the implicit latest template and then
+  // immediately requests the same build explicitly, reseeding over autofills
+  // produced between those responses.
+  const form = useDeployForm(account ?? "", agent ? agentSlug ?? "" : "", {
     initialTemplateResponse:
       !selectedHistoricalBuild &&
       loaderData?.templateResponse &&

@@ -299,6 +299,56 @@ describe("user edits the agent name", () => {
 });
 
 describe("user edits configuration variables", () => {
+  it("keeps a configured secret clean when a same-named vault entry exists", async () => {
+    const vaultRequest = vi.fn();
+    server.use(
+      http.get("/api/v1/accounts/:account/variables", () => {
+        vaultRequest();
+        return HttpResponse.json({
+          variables: [
+            {
+              name: "OPENAI_API_KEY",
+              secret: true,
+              description: "Saved account secret",
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        });
+      }),
+      http.post("/api/v1/agents/:account/:name/deployment-template", async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Parameters<typeof wrapTemplateResponse>[1];
+        const openAIVariable = mockTemplate.variables?.OPENAI_API_KEY;
+        if (!openAIVariable) throw new Error("OPENAI_API_KEY fixture is required");
+        const tmpl = {
+          ...mockTemplate,
+          interfaces: { ...mockTemplate.interfaces, adapters: ["web"] },
+          variables: {
+            ...mockTemplate.variables,
+            OPENAI_API_KEY: {
+              ...openAIVariable,
+              configured: true,
+            },
+          },
+        };
+        const response = wrapTemplateResponse(tmpl, body);
+        response.validation = { valid: true, errors: [] };
+        return HttpResponse.json(response);
+      }),
+    );
+
+    renderConfigure();
+    await waitForForm();
+    expect(await screen.findByRole("button", { name: /OpenAI API Key.*Configured/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(vaultRequest).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText(/auto.filled/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/redeploy to apply/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /discard/i })).not.toBeInTheDocument();
+  });
+
   it("changing a variable shows the footer with Redeploy button", async () => {
     const { user } = renderConfigure();
     await waitForForm();
