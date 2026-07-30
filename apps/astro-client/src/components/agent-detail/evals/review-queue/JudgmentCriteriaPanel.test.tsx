@@ -92,6 +92,25 @@ describe("JudgmentCriteriaPanel", () => {
     expect(onSave).toHaveBeenCalledWith([{ dimension_key: "accuracy", value: -1 }]);
   });
 
+  it("starts with supplied prediction reasons selected", () => {
+    const { onSave } = renderPanel("bad", {
+      initialKeys: ["accuracy", "tone"],
+    });
+
+    expect(
+      screen.getByRole("button", { name: /hallucination/i }),
+    ).toHaveAttribute("data-active");
+    expect(
+      screen.getByRole("button", { name: /inappropriate tone/i }),
+    ).toHaveAttribute("data-active");
+
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(onSave).toHaveBeenCalledWith([
+      { dimension_key: "accuracy", value: -1 },
+      { dimension_key: "tone", value: -1 },
+    ]);
+  });
+
   it("Save with no selection emits an empty array", () => {
     const { onSave } = renderPanel("good");
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));

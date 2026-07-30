@@ -17,7 +17,6 @@ import type {
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
   JudgmentCriterion,
-  ReviewQueueItem,
 } from "@/lib/api";
 import {
   useChangeDatasetJudgment,
@@ -80,7 +79,6 @@ export function DatasetTable({
       undoJudgment.mutate(
         {
           traceId: item.source_trace_id,
-          reviewQueueItem: datasetItemToReviewQueueItem(item),
         },
         {
           onSuccess: () =>
@@ -251,17 +249,4 @@ export function DatasetTable({
       </TableBody>
     </Table>
   );
-}
-
-function datasetItemToReviewQueueItem(item: EvalDatasetItem): ReviewQueueItem {
-  return {
-    trace_id: item.source_trace_id,
-    timestamp: item.created_at,
-    input: item.input,
-    output: item.expected_output,
-    sentiment: "",
-    prediction_status: "not_requested",
-    prediction_error: null,
-    prediction: null,
-  };
 }

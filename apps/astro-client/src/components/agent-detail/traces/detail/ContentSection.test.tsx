@@ -13,6 +13,18 @@ describe("ContentSection", () => {
     );
   });
 
+  it("renders optional header metadata", () => {
+    render(
+      <ContentSection
+        label="User"
+        content="hello"
+        headerMeta={<span>14:08</span>}
+      />,
+    );
+
+    expect(screen.getByText("14:08")).toBeInTheDocument();
+  });
+
   it("applies an optional content scroll class", () => {
     render(
       <ContentSection

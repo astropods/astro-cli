@@ -180,8 +180,10 @@ export const evalKeys = {
     ['evals', deploymentId, 'items'] as const,
   items: (deploymentId: string, limit: number, verdict?: string) =>
     ['evals', deploymentId, 'items', limit, verdict ?? 'all'] as const,
+  reviewQueues: (deploymentId: string) =>
+    ['evals', deploymentId, 'review-queue'] as const,
   reviewQueue: (deploymentId: string, prediction?: string) =>
-    ['evals', deploymentId, 'review-queue', prediction ?? 'all'] as const,
+    [...evalKeys.reviewQueues(deploymentId), prediction ?? 'all'] as const,
 };
 
 export const auditLogKeys = {

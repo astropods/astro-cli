@@ -2,6 +2,7 @@ import type {
   DatasetJudgmentVerdict,
   EvalDatasetItemsVerdict,
   JudgmentCriterion,
+  ReviewQueuePredictionCriterion,
 } from "@/lib/api";
 
 /** good/bad verdicts get the criteria panel and stay on screen until Done;
@@ -16,6 +17,7 @@ export function verdictHasCriteria(
  *  the server enum; labels and display order are frontend-owned. */
 export interface JudgmentCriterionDimension {
   dimensionKey: string;
+  dimensionLabel: string;
   goodLabel: string;
   badLabel: string;
   goodTooltip: string;
@@ -27,6 +29,7 @@ export interface JudgmentCriterionDimension {
 export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
   {
     dimensionKey: "accuracy",
+    dimensionLabel: "Accuracy",
     goodLabel: "Correct info",
     badLabel: "Hallucination",
     goodTooltip:
@@ -36,6 +39,7 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
   },
   {
     dimensionKey: "completeness",
+    dimensionLabel: "Completeness",
     goodLabel: "Complete",
     badLabel: "Incomplete",
     goodTooltip:
@@ -45,6 +49,7 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
   },
   {
     dimensionKey: "instruction_following",
+    dimensionLabel: "Instruction following",
     goodLabel: "Followed instruction",
     badLabel: "Ignored instruction",
     goodTooltip:
@@ -54,6 +59,7 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
   },
   {
     dimensionKey: "scope_clarity",
+    dimensionLabel: "Scope & clarity",
     goodLabel: "Clear & well-scoped",
     badLabel: "Unclear or poorly scoped",
     goodTooltip:
@@ -63,6 +69,7 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
   },
   {
     dimensionKey: "tone",
+    dimensionLabel: "Tone",
     goodLabel: "Appropriate tone",
     badLabel: "Inappropriate tone",
     goodTooltip:
@@ -106,4 +113,45 @@ export function toCriteria(
 ): JudgmentCriterion[] {
   const value = criterionValueForVerdict(verdict);
   return Array.from(selectedKeys, (dimension_key) => ({ dimension_key, value }));
+}
+
+export type PredictionCriterionAssessment =
+  | "accepted"
+  | "warning"
+  | "rejected";
+
+/** Returns the predicted score for a criterion, defaulting missing dimensions
+ *  to the neutral middle band. */
+export function predictionCriterionValue(
+  criteria: ReviewQueuePredictionCriterion[],
+  dimensionKey: string,
+): number {
+  return (
+    criteria.find(({ dimension_key }) => dimension_key === dimensionKey)
+      ?.dimension_value ?? 0
+  );
+}
+
+/** Converts a model score into the shared presentation and selection bands. */
+export function predictionCriterionAssessment(
+  value: number,
+): PredictionCriterionAssessment {
+  if (value > 0.25) return "accepted";
+  if (value < -0.75) return "rejected";
+  return "warning";
+}
+
+/** Selects predicted criterion dimensions that support the agreed verdict. */
+export function predictedCriterionKeysForVerdict(
+  criteria: ReviewQueuePredictionCriterion[],
+  verdict: EvalDatasetItemsVerdict,
+): string[] {
+  return JUDGMENT_CRITERIA.filter(({ dimensionKey }) => {
+    const assessment = predictionCriterionAssessment(
+      predictionCriterionValue(criteria, dimensionKey),
+    );
+    return verdict === "good"
+      ? assessment === "accepted"
+      : assessment === "rejected";
+  }).map(({ dimensionKey }) => dimensionKey);
 }

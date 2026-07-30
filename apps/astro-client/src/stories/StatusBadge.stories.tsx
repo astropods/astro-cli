@@ -5,6 +5,12 @@ const meta = {
   title: "Design System/Primitives/StatusBadge",
   component: StatusBadge,
   args: { color: "success", children: "Active" },
+  argTypes: {
+    size: {
+      control: "select",
+      options: ["sm", "md"],
+    },
+  },
 } satisfies Meta<typeof StatusBadge>;
 
 export default meta;
@@ -17,6 +23,15 @@ export const Colors: Story = {
       <StatusBadge color="warning">Warning</StatusBadge>
       <StatusBadge color="error">Error</StatusBadge>
       <StatusBadge color="muted">Muted</StatusBadge>
+    </div>
+  ),
+};
+
+export const Sizes: Story = {
+  render: () => (
+    <div className="flex items-center gap-3">
+      <StatusBadge color="success" size="sm">Small</StatusBadge>
+      <StatusBadge color="success" size="md">Medium</StatusBadge>
     </div>
   ),
 };

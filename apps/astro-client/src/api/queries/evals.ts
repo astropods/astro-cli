@@ -9,6 +9,7 @@ import {
 import { useApiClient } from "../../lib/api-context";
 import type {
   DatasetJudgmentCriteriaResponse,
+  DatasetPredictionsResponse,
   DatasetJudgmentResponse,
   DatasetJudgmentVerdict,
   EvalDatasetItemsResponse,
@@ -28,6 +29,7 @@ type DatasetJudgmentVariables = {
   reviewQueueItem?: ReviewQueueItem;
   nextReviewQueueItem?: ReviewQueueItem;
   reviewQueuePageIndex?: number;
+  initialCriteriaKeys?: string[];
 };
 
 type DatasetUndoJudgmentVariables = {
@@ -54,6 +56,7 @@ type ReviewQueueInfiniteData = InfiniteData<
 >;
 
 const REVIEW_QUEUE_PAGE_SIZE = 50;
+const REVIEW_QUEUE_POLL_INTERVAL_MS = 5_000;
 
 interface UsePostDatasetJudgmentOptions {
   onSuccess?: (
@@ -127,6 +130,30 @@ export function useDatasetReviewQueue(
       last.next_cursor || undefined,
     enabled: !!deploymentId && enabled,
     staleTime: 30_000,
+    refetchInterval: (query) => {
+      const hasJudgingItems = query.state.data?.pages.some((page) =>
+        page.items.some(
+          (item) =>
+            item.prediction_status === "queued" ||
+            item.prediction_status === "in_progress",
+        ),
+      );
+      return hasJudgingItems ? REVIEW_QUEUE_POLL_INTERVAL_MS : false;
+    },
+  });
+}
+
+export function usePostDatasetPredictions(deploymentId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<DatasetPredictionsResponse, Error, void>({
+    mutationFn: () => api.postDatasetPredictions(deploymentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: evalKeys.reviewQueues(deploymentId),
+      });
+    },
   });
 }
 
@@ -268,13 +295,21 @@ export function useUndoDatasetJudgment(
         );
       }
 
-      // Keep the restored queue item optimistic, matching the judge path.
-      // Refetching an infinite review queue would replay every loaded page's
-      // expensive Langfuse fetch and sentiment annotation for a single undo.
-      await Promise.all([
+      const invalidations = [
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
-      ]);
+      ];
+      if (!restoredItem) {
+        invalidations.push(
+          queryClient.invalidateQueries({
+            queryKey: evalKeys.reviewQueues(deploymentId),
+          }),
+        );
+      }
+
+      // Queue-originated undo stays optimistic because it already has the full
+      // item. Dataset-originated undo reloads the server-owned prediction data.
+      await Promise.all(invalidations);
     },
   });
 }

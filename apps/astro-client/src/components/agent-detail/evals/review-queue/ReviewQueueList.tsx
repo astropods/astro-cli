@@ -1,16 +1,9 @@
-import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
-import { formatTimeAgo } from "@/lib/time-format";
-import type { ReviewQueueItem, ReviewQueueSentiment } from "@/lib/api";
-
-const SENTIMENT_DOT: Record<ReviewQueueSentiment, string> = {
-  positive: "bg-success",
-  negative: "bg-destructive",
-  "": "bg-muted-foreground/60",
-};
+import type { ReviewQueueItem } from "@/lib/api";
+import { PredictionVerdictIndicator } from "./PredictionVerdictIndicator";
 
 interface ReviewQueueListProps {
   items: ReviewQueueItem[];
@@ -103,16 +96,6 @@ function ReviewQueueListBody({
   isLoadingMore: boolean;
   onLoadMore: () => void;
 }) {
-  // Freeze relative timestamps to the moment items arrive; otherwise every
-  // selection re-render bumps the "12s ago" → "13s ago" for recent rows.
-  const agoByTraceId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of items) {
-      map.set(item.trace_id, item.timestamp ? formatTimeAgo(item.timestamp) : "");
-    }
-    return map;
-  }, [items]);
-
   return (
     <div className="flex min-h-full flex-col">
       <ul className="flex flex-col">
@@ -120,7 +103,6 @@ function ReviewQueueListBody({
           <li key={item.trace_id}>
             <ReviewQueueRow
               item={item}
-              ago={agoByTraceId.get(item.trace_id) ?? ""}
               selected={selectedId === item.trace_id}
               onSelect={() => onSelect(item.trace_id)}
             />
@@ -141,12 +123,10 @@ function ReviewQueueListBody({
 
 function ReviewQueueRow({
   item,
-  ago,
   selected,
   onSelect,
 }: {
   item: ReviewQueueItem;
-  ago: string;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -158,27 +138,21 @@ function ReviewQueueRow({
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        "flex min-h-16 w-full items-center gap-3 border-b border-l-2 border-border px-4 py-3.5 text-left transition-colors",
+        "flex min-h-13 w-full items-center gap-3 border-b border-l-2 border-border px-4 py-2.5 text-left transition-colors",
         selected
           ? "border-l-primary bg-primary/10"
           : "border-l-transparent hover:bg-muted/40",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "size-2 flex-none rounded-full",
-          SENTIMENT_DOT[item.sentiment] ?? SENTIMENT_DOT[""],
-        )}
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="min-w-0 flex-1">
         <div className="truncate text-body text-foreground" title={title}>
           {title}
         </div>
-        {ago && (
-          <div className="truncate font-mono text-mono-sm text-muted-foreground">{ago}</div>
-        )}
       </div>
+      <PredictionVerdictIndicator
+        prediction={item.prediction}
+        status={item.prediction_status}
+      />
     </button>
   );
 }

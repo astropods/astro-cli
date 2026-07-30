@@ -214,6 +214,103 @@ describe("review queue view", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("asks the server to enqueue the most recent unjudged traces", async () => {
+    let postedBody: string | null = null;
+
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([queueItem({})]),
+    );
+    server.use(
+      http.post(
+        "/api/v1/deployments/:id/dataset/predictions",
+        async ({ request }) => {
+          postedBody = await request.text();
+          return HttpResponse.json(
+            {
+              enqueued_trace_ids: ["trace-1"],
+              failed_trace_ids: [],
+            },
+            { status: 202 },
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await user.hover(
+      await screen.findByRole("button", { name: "Run AI Judge" }),
+    );
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(
+      within(tooltip).getByRole("heading", {
+        name: "Automatically judge traces",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(tooltip).getByText(
+        "The judge will score up to 50 of the most recent unjudged traces. You can confirm each verdict in the queue.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(tooltip).getByText("Estimated ~500 credits"),
+    ).toBeInTheDocument();
+    expect(
+      within(tooltip).getByRole("link", { name: "View usage" }),
+    ).toHaveAttribute("href", "/settings/billing");
+
+    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+
+    await waitFor(() => {
+      expect(postedBody).toBe("");
+    });
+  });
+
+  it("disables the judge button while predictions are active", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace-1",
+          prediction_status: "queued",
+        }),
+        queueItem({
+          trace_id: "trace-2",
+          prediction_status: "in_progress",
+        }),
+        queueItem({
+          trace_id: "trace-3",
+          prediction_status: "not_requested",
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Judging 2 items" }),
+      ).toHaveAttribute("aria-disabled", "true");
+    });
+  });
+
+  it("disables the judge button when the loaded queue has nothing to judge", async () => {
+    setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
+
+    renderDataset({ tab: null });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Run AI Judge" }),
+      ).toHaveAttribute("aria-disabled", "true");
+    });
+  });
+
   it("shows queue errors independently from the dataset summary", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
     server.use(
@@ -338,7 +435,6 @@ describe("review queue view", () => {
     expect(
       screen.getByRole("button", { name: /view trace_111111/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Likely positive")).toBeInTheDocument();
   });
 
   it("switches from the default queue tab to the dataset tab", async () => {
@@ -374,7 +470,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("shows the selected trace position in the detail header", async () => {
+  it("navigates between traces from the detail header", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -398,15 +494,57 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     expect(screen.getByLabelText("Trace 1 of 2")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous trace" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: /second prompt/i }));
+    await user.click(screen.getByRole("button", { name: "Next trace" }));
     expect(screen.getByText("Second response")).toBeInTheDocument();
-    expect(screen.getByText("Likely negative")).toBeInTheDocument();
     expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next trace" })).toBeDisabled();
+  });
+
+  it("passes the selected prediction filter to the review queue", async () => {
+    const requestedFilters: Array<string | null> = [];
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get(
+        "/api/v1/deployments/:id/dataset/review-queue",
+        ({ request }) => {
+          const prediction = new URL(request.url).searchParams.get("prediction");
+          requestedFilters.push(prediction);
+          return HttpResponse.json(
+            reviewQueueResponse([
+              queueItem({
+                trace_id: `trace_${prediction ?? "all"}`,
+                input: `${prediction ?? "all"} prompt`,
+                output: `${prediction ?? "all"} response`,
+              }),
+            ]),
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("all response")).toBeInTheDocument();
+
+    for (const [label, prediction] of [
+      ["Good", "good"],
+      ["Bad", "bad"],
+      ["Not sure", "unknown"],
+      ["Not judged", "none"],
+    ] as const) {
+      await user.click(
+        screen.getByRole("combobox", { name: "Filter review queue" }),
+      );
+      await user.click(screen.getByRole("option", { name: label }));
+      expect(
+        await screen.findByText(`${prediction} response`),
+      ).toBeInTheDocument();
+    }
+
+    expect(requestedFilters).toEqual([null, "good", "bad", "unknown", "none"]);
   });
 
   it("loads additional queue pages with cursors", async () => {
@@ -585,7 +723,7 @@ describe("review queue view", () => {
 
     renderDataset({ tab: null });
 
-    await screen.findByText("No signal");
+    await screen.findByText("answer");
     expect(screen.queryByRole("button", { name: /^pretty$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^raw$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
@@ -608,7 +746,6 @@ describe("review queue view", () => {
     expect(
       screen.getByRole("button", { name: /resize cruise line content/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("No signal")).toBeInTheDocument();
   });
 
   it("lets the dataset page own review detail scrolling", async () => {
@@ -899,7 +1036,7 @@ describe("review queue view", () => {
   it.each([
     ["Good", "good"],
     ["Bad", "bad"],
-    ["Skip", "unknown"],
+    ["Not sure", "unknown"],
   ] as const)("posts %s as %s", async (label, verdict) => {
     let posted: DatasetJudgmentRequest | null = null;
     setupDataset(
@@ -937,6 +1074,76 @@ describe("review queue view", () => {
       expect(posted).toEqual({
         trace_id: "trace_111111",
         verdict,
+      });
+    });
+  });
+
+  it("uses the selected prediction as the agree verdict", async () => {
+    let posted: DatasetJudgmentRequest | null = null;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_predicted",
+          input: "Predicted prompt",
+          output: "Predicted response",
+          prediction_status: "completed",
+          prediction: {
+            verdict_score: -0.8,
+            confidence: 79,
+            explanation: "The response did not address the request.",
+            judge_version: "1",
+            criteria: [
+              { dimension_key: "accuracy", dimension_value: -0.9 },
+              { dimension_key: "completeness", dimension_value: 0.6 },
+              { dimension_key: "instruction_following", dimension_value: 0 },
+              { dimension_key: "scope_clarity", dimension_value: -0.4 },
+              { dimension_key: "tone", dimension_value: 0.2 },
+            ],
+          },
+        }),
+      ]),
+    );
+    server.use(
+      http.post(
+        "/api/v1/deployments/:id/dataset/judgments",
+        async ({ request }) => {
+          posted = (await request.json()) as DatasetJudgmentRequest;
+          return HttpResponse.json(
+            {
+              eval_dataset_id: "dataset-1",
+              trace_id: posted.trace_id,
+              verdict: posted.verdict,
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Predicted response");
+    await user.click(
+      screen.getByRole("button", { name: "Agree with judge" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /hallucination/i }),
+    ).toHaveAttribute("data-active");
+    expect(
+      screen.getByRole("button", { name: /unclear or poorly scoped/i }),
+    ).not.toHaveAttribute("data-active");
+    expect(
+      screen.getByRole("button", { name: /incomplete/i }),
+    ).not.toHaveAttribute("data-active");
+
+    await waitFor(() => {
+      expect(posted).toEqual({
+        trace_id: "trace_predicted",
+        verdict: "bad",
       });
     });
   });
@@ -1499,6 +1706,14 @@ describe("dataset view", () => {
                     trace_id: deletedTraceId,
                     input: "Undo prompt",
                     output: "Undo response",
+                    prediction_status: "completed",
+                    prediction: {
+                      verdict_score: -0.8,
+                      confidence: 82,
+                      explanation: "The response missed the requested result.",
+                      judge_version: "1",
+                      criteria: [],
+                    },
                   }),
                 ]
               : [],
@@ -1543,6 +1758,9 @@ describe("dataset view", () => {
       await user.click(screen.getByRole("button", { name: /^review queue$/i }));
 
       expect(await screen.findByText("Undo response")).toBeInTheDocument();
+      expect(
+        await screen.findByRole("button", { name: /undo prompt bad/i }),
+      ).toBeInTheDocument();
     } finally {
       if (hadAnimate) {
         Object.defineProperty(HTMLElement.prototype, "animate", {

@@ -18,6 +18,7 @@ export interface ContentSectionProps {
   label: string;
   content: unknown;
   icon?: ReactNode;
+  headerMeta?: ReactNode;
   mode?: "pretty" | "raw";
   defaultOpen?: boolean;
   emptyText?: string;
@@ -29,6 +30,7 @@ export function ContentSection({
   label,
   content,
   icon,
+  headerMeta,
   mode = "pretty",
   defaultOpen = true,
   emptyText = "No content.",
@@ -123,24 +125,29 @@ export function ContentSection({
           {icon && <span className="flex flex-none items-center justify-center">{icon}</span>}
           <span className="truncate text-body-sm font-medium text-foreground">{label}</span>
         </button>
-        {!parsed.isEmpty && (
-          <button
-            type="button"
-            onClick={() => void copy(parsed.copyText)}
-            className="mr-2 flex items-center gap-1 rounded px-1.5 py-0.5 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {copied ? (
-              <>
-                <Check className="size-3 text-foreground-accent" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="size-3" />
-                Copy
-              </>
+        {(headerMeta || !parsed.isEmpty) && (
+          <div className="mr-2 flex flex-none items-center gap-2">
+            {headerMeta}
+            {!parsed.isEmpty && (
+              <button
+                type="button"
+                onClick={() => void copy(parsed.copyText)}
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-mono-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {copied ? (
+                  <>
+                    <Check className="size-3 text-foreground-accent" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-3" />
+                    Copy
+                  </>
+                )}
+              </button>
             )}
-          </button>
+          </div>
         )}
       </div>
 

@@ -27,6 +27,7 @@ import {
 import { SectionHeader } from "@/components/settings/SettingsShared";
 import { PaymentMethod } from "@/components/settings/PaymentMethod";
 import { Button } from "@/components/ui/button";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import {
   RequestIncreaseDialog,
   formatNumber,
@@ -538,12 +539,18 @@ function QuotaUsageTable({ meters }: { meters: Record<string, UsageMeter> }) {
               </TableCell>
               <TableCell>
                 {hasQuota ? (
-                  <div className="h-1.5 w-full rounded-full bg-border">
-                    <div
-                      className={cn("h-full rounded-full", isHigh ? "bg-destructive" : !isMedium && "bg-primary")}
-                      style={isMedium ? { width: `${pct}%`, background: "var(--warning)" } : { width: `${pct}%` }}
-                    />
-                  </div>
+                  <ProgressBar
+                    aria-label={`${label} utilization`}
+                    aria-valuetext={`${Math.round(pct)}% used`}
+                    value={pct}
+                    tone={
+                      isHigh
+                        ? "destructive"
+                        : isMedium
+                          ? "warning"
+                          : "primary"
+                    }
+                  />
                 ) : (
                   <span className="text-body-sm text-muted-foreground">—</span>
                 )}

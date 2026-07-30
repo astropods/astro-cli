@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DatasetJudgmentVerdict } from "@/lib/api";
 
-const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
+export const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
   verdict: DatasetJudgmentVerdict;
   label: string;
   shortcut: string;
@@ -28,7 +28,7 @@ const REVIEW_QUEUE_VERDICT_OPTIONS: Array<{
   },
   {
     verdict: "unknown",
-    label: "Skip",
+    label: "Not sure",
     shortcut: "S",
     Icon: Minus,
     iconClassName: "text-muted-foreground",
@@ -64,6 +64,29 @@ function getReviewQueueShortcutVerdict(event: KeyboardEvent) {
   return REVIEW_QUEUE_VERDICT_SHORTCUTS[event.key.toLowerCase()] ?? null;
 }
 
+export function useReviewQueueVerdictShortcuts({
+  disabled,
+  onSelect,
+}: {
+  disabled: boolean;
+  onSelect: (verdict: DatasetJudgmentVerdict) => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const verdict = getReviewQueueShortcutVerdict(event);
+      if (!verdict || disabled) {
+        return;
+      }
+
+      event.preventDefault();
+      onSelect(verdict);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [disabled, onSelect]);
+}
+
 function isEditableShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -90,7 +113,7 @@ export function ReviewQueueVerdictControls({
   showError: boolean;
   onSelect: (
     verdict: DatasetJudgmentVerdict,
-    trigger: HTMLButtonElement | null,
+    trigger: HTMLElement | null,
   ) => void;
 }) {
   const verdictButtonRefs = useRef<
@@ -103,28 +126,22 @@ export function ReviewQueueVerdictControls({
   // Once a verdict is recorded, lock the controls until the trace clears.
   const locked = isPending || activeVerdict !== null;
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const verdict = getReviewQueueShortcutVerdict(event);
-      if (!verdict || locked) {
-        return;
-      }
-
-      event.preventDefault();
-      onSelect(verdict, verdictButtonRefs.current[verdict]);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [locked, onSelect]);
+  useReviewQueueVerdictShortcuts({
+    disabled: locked,
+    onSelect: (verdict) =>
+      onSelect(verdict, verdictButtonRefs.current[verdict]),
+  });
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
+    <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 @max-[520px]/review-card:flex-col @max-[520px]/review-card:items-stretch">
       {showError && (
-        <div className="min-w-0 text-body-sm text-muted-foreground @max-[520px]/review-card:flex-none">
+        <div className="w-full min-w-0 text-body-sm text-destructive @max-[520px]/review-card:flex-none">
           Could not save verdict. Try again.
         </div>
       )}
+      <span className="flex-none text-body-sm text-muted-foreground">
+        Select a verdict
+      </span>
       <div className="flex flex-wrap items-center gap-2 @max-[520px]/review-card:grid @max-[520px]/review-card:grid-cols-1">
         {REVIEW_QUEUE_VERDICT_OPTIONS.map(
           ({ verdict, label, shortcut, Icon, iconClassName }) => {
@@ -167,7 +184,7 @@ export function markedLabel(verdict: DatasetJudgmentVerdict) {
   return `Marked as ${label.toLowerCase()}`;
 }
 
-function ShortcutKey({
+export function ShortcutKey({
   children,
   className,
   ariaHidden = false,

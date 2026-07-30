@@ -15,6 +15,7 @@ export interface JudgmentCriteriaPanelProps {
   isUndoing: boolean;
   isSaving: boolean;
   isError: boolean;
+  initialKeys?: Iterable<string>;
   onUndo: () => void;
   onSave: (criteria: JudgmentCriterion[]) => void;
 }
@@ -27,11 +28,12 @@ export function JudgmentCriteriaPanel({
   isUndoing,
   isSaving,
   isError,
+  initialKeys,
   onUndo,
   onSave,
 }: JudgmentCriteriaPanelProps) {
   const { selected, toggle, selectedCriteriaForVerdict } =
-    useJudgmentCriteriaSelection();
+    useJudgmentCriteriaSelection(initialKeys);
 
   const handleSave = () => {
     onSave(selectedCriteriaForVerdict(verdict));

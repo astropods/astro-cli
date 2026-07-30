@@ -1209,6 +1209,11 @@ export interface ReviewQueueParams {
   prediction?: ReviewQueuePredictionFilter;
 }
 
+export interface DatasetPredictionsResponse {
+  enqueued_trace_ids: string[];
+  failed_trace_ids: string[];
+}
+
 export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
 
 export interface DatasetJudgmentRequest {
@@ -3044,6 +3049,17 @@ class ApiClient {
         cursor,
         prediction,
       })}`
+    );
+  }
+
+  async postDatasetPredictions(
+    deploymentId: string,
+  ): Promise<DatasetPredictionsResponse> {
+    return this.request<DatasetPredictionsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/predictions`,
+      {
+        method: "POST",
+      },
     );
   }
 
