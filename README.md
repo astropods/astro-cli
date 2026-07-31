@@ -7,11 +7,14 @@
 [![Go Version](https://img.shields.io/badge/go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-[Prerequisites](#prerequisites) · [Build](#build-from-source) · [Test](#test) · [Architecture](#architecture) · [Design](#design-principles)
+[Install](https://docs.astropods.com/install-cli) · [CLI Reference](https://docs.astropods.com/cli-reference) · [Build from source](#build-from-source) · [Architecture](#architecture) · [Design](#design-principles)
 
 </div>
 
 ---
+
+> 📖 To install a released build, see [**Install the CLI**](https://docs.astropods.com/install-cli).
+> For every command and flag, see the [**CLI reference**](https://docs.astropods.com/cli-reference).
 
 ## Prerequisites
 
