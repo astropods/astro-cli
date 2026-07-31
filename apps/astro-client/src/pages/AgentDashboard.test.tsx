@@ -6,18 +6,6 @@ import { server } from '@/test/msw/server';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import AgentDashboard from './AgentDashboard';
 
-vi.mock('@/components/DeploymentAgentCard', () => ({
-  DeploymentAgentCard: ({
-    deployment,
-  }: {
-    deployment: { display_name?: string; name: string };
-  }) => (
-    <div data-testid="deployment-card">
-      {deployment.display_name ?? deployment.name}
-    </div>
-  ),
-}));
-
 vi.mock('@/components/ui/LiveRevealOverlay', () => ({
   LiveRevealOverlay: ({
     deployment,
@@ -49,6 +37,14 @@ function renderDashboard(path = '/agents', auth = mockAuthContext) {
         path: '/agents',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AgentDashboard as any,
+        // Match the real loader's shape so usePrimeQueryCache runs against
+        // realistic data (otherwise the cache-priming code path is untested).
+        loader: () => ({
+          account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
+          deployments: { deployments: [], count: 0 },
+          summary: null,
+          usage: null,
+        }),
       },
     ],
     { initialEntries: [path], auth },
@@ -174,257 +170,8 @@ describe('AgentDashboard page', () => {
     fireEvent.change(screen.getByPlaceholderText('Search agents...'), { target: { value: 'zzz-no-match' } });
 
     await waitFor(() => {
-      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
+      expect(screen.getByText('No agents match your search.')).toBeInTheDocument();
     });
-  });
-});
-
-describe('AgentDashboard – cross-account', () => {
-  const twoAccountAuth = {
-    ...mockAuthContext,
-    accounts: [
-      { id: 'acct-1', name: 'testuser', type: 'personal' },
-      { id: 'acct-2', name: 'orgaccount', type: 'org' },
-    ],
-  };
-
-  function mockPerAccountDeployments(onRequest?: (account: string) => void) {
-    server.use(
-      http.get('/api/v1/deployments', ({ request }) => {
-        const account = new URL(request.url).searchParams.get('account');
-        if (account) onRequest?.(account);
-        const dep = (id: string, name: string, display: string) => ({
-          id,
-          name,
-          display_name: display,
-          build_id: 'b1',
-          namespace: `ns-${id}`,
-          status: 'Running',
-          replicas: 1,
-          ready: 1,
-          created_at: '2025-04-01T00:00:00Z',
-          components: [],
-        });
-        if (account === 'orgaccount') {
-          return HttpResponse.json({ deployments: [dep('dep-org', 'org-agent', 'Org Agent')], count: 1 });
-        }
-        return HttpResponse.json({ deployments: [dep('dep-user', 'user-agent', 'User Agent')], count: 1 });
-      }),
-    );
-  }
-
-  function renderTwoAccountDashboard() {
-    return renderRoute(
-      [
-        {
-          path: '/agents',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Component: AgentDashboard as any,
-        },
-      ],
-      { initialEntries: ['/agents'], auth: twoAccountAuth },
-    );
-  }
-
-  it('merges deployments from every account the user belongs to', async () => {
-    mockPerAccountDeployments();
-
-    renderTwoAccountDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('User Agent')).toBeInTheDocument();
-      expect(screen.getByText('Org Agent')).toBeInTheDocument();
-    });
-  });
-
-  it('stops after a short final deployment page when has_more is omitted', async () => {
-    const offsets: number[] = [];
-    server.use(
-      http.get(
-        '/api/v1/accounts/:account/observability/deployment-summaries',
-        () => HttpResponse.json({ summaries: {} }),
-      ),
-      http.get('/api/v1/me/deployments', ({ request }) => {
-        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0);
-        offsets.push(offset);
-        const deployments = Array.from(
-          { length: offset === 0 ? 100 : 1 },
-          (_, index) => {
-            const number = offset + index;
-            return {
-              id: `dep-${number}`,
-              name: `agent-${number}`,
-              display_name: `Deployment ${number}`,
-              build_id: 'b1',
-              namespace: `ns-${number}`,
-              status: 'Running',
-              created_at: '2025-04-01T00:00:00Z',
-            };
-          },
-        );
-        return HttpResponse.json({
-          results: [{
-            account: 'testuser',
-            data: {
-              deployments,
-              count: 101,
-            },
-            count: 101,
-            limit: 100,
-            offset,
-          }],
-          failed_accounts: [],
-          rejected_accounts: [],
-        });
-      }),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('Deployment 100')).toBeInTheDocument();
-    });
-    expect(screen.getAllByTestId('deployment-card')).toHaveLength(101);
-    for (let number = 0; number < 101; number++) {
-      expect(screen.getByText(`Deployment ${number}`)).toBeInTheDocument();
-    }
-    expect(offsets).toEqual([0, 100]);
-    expect(screen.queryByText(/Couldn't load testuser/)).not.toBeInTheDocument();
-  });
-
-  it('stops and de-duplicates when a deployment page repeats', async () => {
-    const offsets: number[] = [];
-    const deployments = Array.from({ length: 100 }, (_, number) => ({
-      id: `dep-${number}`,
-      name: `agent-${number}`,
-      display_name: `Deployment ${number}`,
-      build_id: 'b1',
-      namespace: `ns-${number}`,
-      status: 'Running',
-      created_at: '2025-04-01T00:00:00Z',
-    }));
-    server.use(
-      http.get(
-        '/api/v1/accounts/:account/observability/deployment-summaries',
-        () => HttpResponse.json({ summaries: {} }),
-      ),
-      http.get('/api/v1/me/deployments', ({ request }) => {
-        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0);
-        offsets.push(offset);
-        return HttpResponse.json({
-          results: [{
-            account: 'testuser',
-            data: { deployments, count: 200 },
-            count: 200,
-            limit: 100,
-            offset,
-            has_more: true,
-          }],
-          failed_accounts: [],
-          rejected_accounts: [],
-        });
-      }),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('deployment-card')).toHaveLength(100);
-      expect(offsets).toEqual([0, 100]);
-    });
-    expect(screen.queryByText(/Couldn't load testuser/)).not.toBeInTheDocument();
-  });
-
-  it('narrows to the selected account via the account filter', async () => {
-    const user = userEvent.setup();
-    const requestedAccounts: string[] = [];
-    mockPerAccountDeployments((account) => requestedAccounts.push(account));
-
-    renderTwoAccountDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('Org Agent')).toBeInTheDocument();
-    });
-    requestedAccounts.length = 0;
-
-    await user.click(screen.getByRole('button', { name: /filter by account/i }));
-    await user.click(await screen.findByRole('button', { name: /orgaccount/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByText('User Agent')).not.toBeInTheDocument();
-    });
-    expect(screen.getByText('Org Agent')).toBeInTheDocument();
-    expect(requestedAccounts).toEqual(['orgaccount']);
-  });
-
-  it('keeps successful agents visible and retries failed accounts', async () => {
-    const user = userEvent.setup();
-    let orgFails = true;
-
-    server.use(
-      http.get('/api/v1/deployments', ({ request }) => {
-        const account = new URL(request.url).searchParams.get('account');
-        if (account === 'orgaccount') {
-          return orgFails
-            ? HttpResponse.json({ error: 'unavailable' }, { status: 503 })
-            : HttpResponse.json({
-                deployments: [{
-                  id: 'dep-org',
-                  name: 'org-agent',
-                  display_name: 'Org Agent',
-                  build_id: 'b1',
-                  namespace: 'ns-org',
-                  status: 'Running',
-                  created_at: '2025-04-01T00:00:00Z',
-                }],
-                count: 1,
-              });
-        }
-        return HttpResponse.json({
-          deployments: [{
-            id: 'dep-user',
-            name: 'user-agent',
-            display_name: 'User Agent',
-            build_id: 'b1',
-            namespace: 'ns-user',
-            status: 'Running',
-            created_at: '2025-04-01T00:00:00Z',
-          }],
-          count: 1,
-        });
-      }),
-    );
-
-    renderTwoAccountDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('User Agent')).toBeInTheDocument();
-      expect(screen.getByText("Couldn't load orgaccount")).toBeInTheDocument();
-    });
-    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
-
-    orgFails = false;
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Org Agent')).toBeInTheDocument();
-      expect(screen.queryByText("Couldn't load orgaccount")).not.toBeInTheDocument();
-    });
-  });
-
-  it('does not show the onboarding empty state when every account read fails', async () => {
-    server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({ error: 'unavailable' }, { status: 503 }),
-      ),
-    );
-
-    renderTwoAccountDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText("Couldn't load 2 accounts")).toBeInTheDocument();
-    });
-    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
   });
 });
 
@@ -437,6 +184,13 @@ describe('reveal overlay after deploy', () => {
           path: '/agents',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Component: AgentDashboard as any,
+          // Match the real loader's shape (account + deployments + summary + usage).
+          loader: () => ({
+            account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
+            deployments: { deployments: [], count: 0 },
+            summary: null,
+            usage: null,
+          }),
         },
         {
           // `deploymentPath(account, id)` with no tab now resolves directly

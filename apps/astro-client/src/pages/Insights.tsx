@@ -23,8 +23,8 @@ import { useAccountInsights } from "@/api/queries/observability";
 import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
-import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { SettledContentReveal } from "@/components/ui/content-reveal";
+import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -39,10 +39,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
-import {
-  removeStaleInsightsAccountParam,
-  resolveInsightsScopeAccount,
-} from "./insights-account-param";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -55,7 +51,6 @@ const SHOW_TOP_LABEL = `Show top ${DEFAULT_TABLE_LIMIT}`;
 const DEFAULT_AGENT_SORT: AgentSortKey = "cost_usd";
 const DEFAULT_USER_SORT: UserSortKey = "cost_usd";
 const INSIGHTS_FILTER_PARAMS = [
-  "account",
   "range",
   "view",
   "hide_sources",
@@ -178,7 +173,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // Range / view / search-query toggles change search params client-side, so
 // they skip the loader. The consolidated Insights response contains every
-// supported range; view + q are pure client-side display choices.
+// supported range; view + q are pure client-side display choices. The only
+// loader re-run is the programmatic revalidate signal used for org-switching
+// (currentUrl === nextUrl).
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -229,40 +226,23 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     ],
     [devtoolSources, resolvedTheme],
   );
-  const paramAccount = searchParams.get("account");
-  const accountNames = useMemo(() => accounts.map((account) => account.name), [accounts]);
-  const scopeAccount = resolveInsightsScopeAccount(paramAccount, accountNames, activeAccount);
   // "Add a source" links to this account's Data Sources settings and hotlinks
   // the create modal open (see ApiKeysSettings' ?new= handling).
   const dataSourcesHref = useMemo(
-    () => `${accountSettingsPath(accounts, scopeAccount, "api-keys")}?new=1`,
-    [accounts, scopeAccount],
+    () => `${accountSettingsPath(accounts, activeAccount, "api-keys")}?new=1`,
+    [accounts, activeAccount],
   );
   // Only offer "Add a source" when the user could actually create one — the
   // ingest-key create endpoint requires account manage rights (personal
   // accounts, or org admins/owners). Mirrors the Vault "+ New" gating.
   const canAddDataSource = useMemo(() => {
-    const acct = accounts.find((a) => a.name === scopeAccount);
+    const acct = accounts.find((a) => a.name === activeAccount);
     return !acct || acct.type === "personal" || acct.role === "admin" || acct.role === "owner";
-  }, [accounts, scopeAccount]);
-  useEffect(() => {
-    const next = removeStaleInsightsAccountParam(
-      searchParams,
-      accountNames,
-    );
-    if (next) setSearchParams(next, { replace: true });
-  }, [accountNames, paramAccount, searchParams, setSearchParams]);
-  const setScopeAccount = useCallback((next: string) => {
-    setSearchParams((prev) => {
-      if (next === activeAccount) prev.delete("account");
-      else prev.set("account", next);
-      return prev;
-    }, { replace: true });
-  }, [activeAccount, setSearchParams]);
+  }, [accounts, activeAccount]);
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
-  const accountForSlackResync = scopeAccount || loaderData.account || "";
+  const accountForSlackResync = activeAccount || loaderData.account || "";
   const [slackRefreshStatus, setSlackRefreshStatus] = useState<SlackRefreshStatus>("idle");
 
   useEffect(() => {
@@ -333,6 +313,10 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
   const dateLabel = buildDateLabel(range);
 
+  // Header right side packs three controls onto one row: date label (left),
+  // range chips (middle), scope switcher (right). The date label tracks the
+  // range chip so the user sees the resolved window without scanning back to
+  // a separate sub-bar.
   const headerAction = (
     <div className="flex items-center gap-3">
       {dateLabel && (
@@ -394,26 +378,20 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         value={range}
         onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}
       />
+      <PageScopeSwitcher />
     </div>
   );
 
   return (
     <PageContainer outerClassName="bg-background">
       <PageHeader
-        title="Insights for"
-        adornment={
-          <AccountScopeFilter
-            value={scopeAccount}
-            onChange={setScopeAccount}
-            className="-ml-1"
-          />
-        }
-        description="Track usage, cost, and reliability for this account."
+        title="Insights"
+        description="Track usage, cost, and reliability across your organization."
         action={headerAction}
       />
 
       <InsightsView
-        account={scopeAccount}
+        account={activeAccount}
         range={range}
         view={view}
         onViewChange={setView}

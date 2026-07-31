@@ -43,7 +43,7 @@ export function ProvisioningStage({
   }, [store, onReady, onError]);
 
   if (store?.status === "pending-acceptance") {
-    return <PendingAcceptanceStage store={store} account={account} />;
+    return <PendingAcceptanceStage store={store} />;
   }
 
   const completedCount = Math.min(store?.events?.length ?? 0, STEPS.length);

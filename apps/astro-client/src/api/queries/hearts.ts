@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Blueprint, type BlueprintsListResponse } from '../../lib/api';
-import { allAccountKeys, blueprintKeys, heartKeys } from './keys';
+import { blueprintKeys, heartKeys } from './keys';
 
 function patchBlueprint(blueprint: Blueprint, hearted: boolean, heartCount: number): Blueprint {
   return { ...blueprint, hearted, heart_count: heartCount };
@@ -119,7 +119,6 @@ export function useToggleHeart(account: string, name: string) {
         queryClient.invalidateQueries({ queryKey: key });
       }
       queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
-      queryClient.invalidateQueries({ queryKey: allAccountKeys.resource('blueprints') });
       queryClient.invalidateQueries({ queryKey: heartKeys.all });
     },
   });

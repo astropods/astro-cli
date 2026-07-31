@@ -65,6 +65,7 @@ export interface BlueprintListViewProps {
   variant?: "grid" | "list";
   /** Pad the grid to this many slots. Fixed row heights apply from 2-column layouts up. */
   slotCount?: number;
+  showAuthor?: boolean;
   /** Forwarded to each BlueprintCard so the blueprint-detail breadcrumb can
    *  reflect the surface the user came from. */
   from?: string;
@@ -82,6 +83,7 @@ export function BlueprintListView({
   ownerAccounts,
   variant = "grid",
   slotCount,
+  showAuthor = false,
   from,
 }: BlueprintListViewProps) {
   if (isLoading && blueprints.length === 0) {
@@ -176,6 +178,7 @@ export function BlueprintListView({
             heartCount={blueprint.heart_count}
             isDraft={blueprint.versions.length === 0}
             onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
+            author={showAuthor ? blueprint.publishers?.[0] : undefined}
             from={from}
           />
         ))}
@@ -200,6 +203,7 @@ export function BlueprintListView({
               deployCount={blueprint.metrics?.deploy_count}
               isDraft={blueprint.versions.length === 0}
               onArchive={ownerAccounts?.has(blueprint.account) ? () => {} : undefined}
+              author={showAuthor ? blueprint.publishers?.[0] : undefined}
               from={from}
             />
           </BlueprintGridSlot>

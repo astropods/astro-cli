@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, waitFor, cleanup } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@/test/test-utils';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 import { DeployedAgentsSection } from './DeployedAgentsSection';
-import type { DeploymentWithAccount } from '@/api/queries/all-accounts';
 import type { AgentDeploymentSummary } from '@/lib/api';
 
 // The dashboard derives the "Update available" badge purely from
@@ -13,42 +12,26 @@ import type { AgentDeploymentSummary } from '@/lib/api';
 // per-account blueprint queries. These tests pin that contract so the
 // fan-out path can't regress back in.
 
-function renderSection(
-  deployments: DeploymentWithAccount[],
-  account: string,
-  {
-    accountFilters = [],
-    onAccountFiltersChange = () => {},
-    isError = false,
-    failedAccounts = [],
-    onRetry = () => {},
-  }: {
-    accountFilters?: string[];
-    onAccountFiltersChange?: (accounts: string[]) => void;
-    isError?: boolean;
-    failedAccounts?: string[];
-    onRetry?: () => void;
-  } = {},
-) {
-  return renderWithProviders(
-    <DeployedAgentsSection
-      deployments={deployments}
-      account={account}
-      isLoading={false}
-      isError={isError}
-      failedAccounts={failedAccounts}
-      onRetry={onRetry}
-      accountFilters={accountFilters}
-      onAccountFiltersChange={onAccountFiltersChange}
-    />,
+function renderSection(deployments: AgentDeploymentSummary[], account: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity, staleTime: 0 },
+      mutations: { retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <DeployedAgentsSection deployments={deployments} account={account} isLoading={false} />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
-function makeDeployment(overrides: Partial<AgentDeploymentSummary> & { id: string; name: string; build_id: string }): DeploymentWithAccount {
+function makeDeployment(overrides: Partial<AgentDeploymentSummary> & { id: string; name: string; build_id: string }): AgentDeploymentSummary {
   return {
     namespace: `ns-${overrides.id}`,
     created_at: '2026-01-01T00:00:00Z',
-    account: 'team',
     ...overrides,
   };
 }
@@ -60,7 +43,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   beforeEach(() => cleanup());
 
   it('renders the badge when latest_build_id differs from current build_id', async () => {
-    const deployments: DeploymentWithAccount[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-stale',
         name: 'critical-agent',
@@ -80,7 +63,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   });
 
   it('does not render the badge when latest_build_id equals current build_id', async () => {
-    const deployments: DeploymentWithAccount[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-current',
         name: 'critical-agent',
@@ -102,7 +85,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   it('does not render the badge when latest_build_id is absent', async () => {
     // Mirrors the server behaviour when there are no published versions, the
     // batch lookup failed, or the response predates the field.
-    const deployments: DeploymentWithAccount[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-unknown',
         name: 'critical-agent',
@@ -143,7 +126,7 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
   });
 
   it('badges only the deployments whose latest_build_id has drifted', async () => {
-    const deployments: DeploymentWithAccount[] = [
+    const deployments: AgentDeploymentSummary[] = [
       makeDeployment({
         id: 'dep-stale',
         name: 'agent-a',
@@ -176,29 +159,5 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
     expect(screen.getAllByText(updateBadge)).toHaveLength(1);
     const stale = screen.getByText('Stale A').closest('a, div');
     expect(stale?.textContent ?? '').toMatch(updateBadge);
-  });
-
-  it('shows a clearable filtered-empty state when an account filter has no deployments', async () => {
-    const onAccountFiltersChange = vi.fn();
-    renderSection(
-      [],
-      'team',
-      { accountFilters: ['other-team'], onAccountFiltersChange },
-    );
-
-    expect(await screen.findByText('No agents match your filters.')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Filter by account' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(onAccountFiltersChange).toHaveBeenCalledWith([]);
-  });
-
-  it('shows a retryable fallback when the aggregate request fails', async () => {
-    const onRetry = vi.fn();
-    renderSection([], 'team', { isError: true, onRetry });
-
-    expect(screen.getByText("Couldn't load agents")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(onRetry).toHaveBeenCalledOnce();
   });
 });

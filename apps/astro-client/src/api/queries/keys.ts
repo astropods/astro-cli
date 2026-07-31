@@ -3,16 +3,6 @@
 // so invalidation is predictable and typo-proof.
 import { blueprintListParamsKey, type BlueprintListParams } from '@/lib/blueprint-list-params';
 
-export type AllAccountResource = 'blueprints' | 'knowledge' | 'deployments';
-
-export const allAccountKeys = {
-  resource: (resource: AllAccountResource) => ['all-accounts', resource] as const,
-  list: (resource: AllAccountResource, accounts: string[]) =>
-    ['all-accounts', resource, 'list', accounts] as const,
-  target: (resource: AllAccountResource, purpose: 'poll' | 'retry', accounts: string[]) =>
-    ['all-accounts', resource, purpose, accounts] as const,
-};
-
 export const accountKeys = {
   profile: ['profile'] as const,
   detail: (name: string) => ['accounts', name] as const,
@@ -29,6 +19,8 @@ export const blueprintKeys = {
   all: ['agents'] as const,
   list: (account: string, params?: BlueprintListParams) =>
     [...blueprintAccountPrefix(account), blueprintListParamsKey(params)] as const,
+  infiniteList: (account: string, params?: BlueprintListParams) =>
+    [...blueprintAccountPrefix(account), blueprintListParamsKey(params), 'infinite'] as const,
   /** Prefix for all filtered list queries for an account. */
   byAccount: blueprintAccountPrefix,
   detail: (account: string, name: string) => ['agents', account, name] as const,

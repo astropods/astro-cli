@@ -6,7 +6,6 @@ import { useAuth } from "@/lib/auth";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
-import { CreateInAccountPicker } from "@/components/CreateInAccountPicker";
 import { PROVIDER_LABELS, ALL_PROVIDERS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderList } from "./ProviderList";
@@ -15,10 +14,8 @@ import { ConfigureForm } from "./ConfigureForm";
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
 
 function NewKnowledgeStoreContent() {
-  const { activeAccount } = useActiveAccount();
+  const { activeAccount: account } = useActiveAccount();
   const { accounts } = useAuth();
-  const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
-  const account = selectedAccount ?? activeAccount;
   const avatarUrl = accounts.find((a) => a.name === account)?.avatar_url;
   // Pre-select a provider from ?provider=… so the Supabase OAuth round-trip
   // (which redirects back here) returns straight to the configure form.
@@ -29,36 +26,28 @@ function NewKnowledgeStoreContent() {
 
   return (
     <div className="flex-1 bg-background">
-      {provider !== null && (
-        <PageBreadcrumb
-          items={[
-            { label: "Knowledge Stores", to: knowledgePath },
-            { label: account, to: accountProfilePath(account) },
-            { label: `Add store / ${PROVIDER_LABELS[provider]}` },
-          ]}
-          mobileItems={[
-            {
-              label: (
-                <span className="inline-flex items-center gap-2">
-                  <UserAvatar handle={account} name={account} avatarUrl={avatarUrl} className="size-5" />
-                  {account}
-                </span>
-              ),
-              to: accountProfilePath(account),
-            },
-          ]}
-        />
-      )}
+      <PageBreadcrumb
+        items={[
+          { label: "Knowledge Stores", to: knowledgePath },
+          { label: account, to: accountProfilePath(account) },
+          { label: provider ? `Add store / ${PROVIDER_LABELS[provider]}` : "Add store" },
+        ]}
+        mobileItems={[
+          {
+            label: (
+              <span className="inline-flex items-center gap-2">
+                <UserAvatar handle={account} name={account} avatarUrl={avatarUrl} className="size-5" />
+                {account}
+              </span>
+            ),
+            to: accountProfilePath(account),
+          },
+        ]}
+      />
 
       <div className="px-6 py-8">
         {provider === null ? (
-          <div className="mx-auto max-w-2xl">
-            <h1 className="text-heading-1 text-foreground">Add new knowledge store</h1>
-            <div className="mt-6 space-y-8">
-              <CreateInAccountPicker value={account} onChange={setSelectedAccount} />
-              <ProviderList onSelect={setProvider} />
-            </div>
-          </div>
+          <ProviderList onSelect={setProvider} />
         ) : (
           <ConfigureForm provider={provider} account={account} />
         )}

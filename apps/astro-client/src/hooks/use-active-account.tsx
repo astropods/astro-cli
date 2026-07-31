@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useTransition, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRevalidator, useRouteLoaderData } from "react-router";
 import { useAuth } from "@/lib/auth";
+import { setOrgSwitchProgress } from "@/lib/org-switch-progress";
 import {
   ACTIVE_ACCOUNT_COOKIE,
   LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY,
@@ -9,7 +11,7 @@ import {
 
 interface ActiveAccountContextValue {
   activeAccount: string;
-  setCreateDefault: (account: string) => void;
+  setActiveAccount: (account: string) => void;
 }
 
 const ActiveAccountContext = createContext<ActiveAccountContextValue | null>(null);
@@ -30,16 +32,6 @@ function clearActiveAccountCookie() {
   document.cookie = `${ACTIVE_ACCOUNT_COOKIE}=;path=/;max-age=0;SameSite=Lax${secureFlag()}`;
 }
 
-function persistActiveAccount(accountName: string, personalAccountName?: string) {
-  if (accountName === personalAccountName) {
-    clearActiveAccountCookie();
-    try { localStorage.removeItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
-  } else {
-    writeActiveAccountCookie(accountName);
-    try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
-  }
-}
-
 function readActiveAccountCookie(): string | null {
   if (typeof document === "undefined") return null;
   return readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE);
@@ -48,22 +40,98 @@ function readActiveAccountCookie(): string | null {
 export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   const { accounts, personalAccount } = useAuth();
   const revalidator = useRevalidator();
+  const queryClient = useQueryClient();
   // Source initial value from the root loader (cookie-derived) rather than
   // localStorage so SSR and first client render agree — prevents a hydration
   // flash on the switcher.
   const rootData = useRouteLoaderData("root") as { activeAccount?: string } | undefined;
   const ssrAccount = rootData?.activeAccount ?? "";
 
+  // Client override makes setActiveAccount feel instant; the revalidator
+  // refreshes loader data underneath.
   const [override, setOverride] = useState<string | null>(null);
+  const [isAccountPending, startAccountTransition] = useTransition();
   const validOverride = override && accounts.some((a) => a.name === override) ? override : null;
   const activeAccount = validOverride || ssrAccount || personalAccount?.name || "";
+  const accountSwitchTargetRef = useRef<string | null>(null);
 
-  // Create flows persist their next default without changing page view scope.
-  const setCreateDefault = useCallback((accountName: string) => {
-    if (!accounts.some((account) => account.name === accountName)) return;
-    persistActiveAccount(accountName, personalAccount?.name);
+  const setActiveAccount = useCallback((accountName: string) => {
+    const fromAccount = activeAccount;
+    const switching =
+      accounts.some((a) => a.name === accountName) && accountName !== fromAccount;
+
+    if (accountName === personalAccount?.name) {
+      clearActiveAccountCookie();
+      try { localStorage.removeItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
+    } else {
+      writeActiveAccountCookie(accountName);
+      try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
+    }
+
+    if (switching) {
+      accountSwitchTargetRef.current = accountName;
+      setOrgSwitchProgress(true);
+      // Defer revalidate + override so the progress bar can paint before the
+      // heavy outlet re-render on cached pages.
+      requestAnimationFrame(() => {
+        revalidator.revalidate();
+        requestAnimationFrame(() => {
+          startAccountTransition(() => setOverride(accountName));
+        });
+      });
+      return;
+    }
     setOverride(accountName);
-  }, [accounts, personalAccount?.name]);
+    // Re-runs page loaders (and the root loader thanks to shouldRevalidate)
+    // under the new cookie so SSR-backed data refreshes for the new org.
+    revalidator.revalidate();
+  }, [accounts, activeAccount, personalAccount?.name, revalidator]);
+
+  // Keep org-switch progress active until revalidation, the account override
+  // transition, and any account-scoped fetches have settled.
+  useEffect(() => {
+    const target = accountSwitchTargetRef.current;
+    if (!target || activeAccount !== target) return;
+
+    let sawFetch = false;
+    let pendingClear = false;
+
+    function accountFetching() {
+      return queryClient.isFetching({
+        predicate: (q) => q.queryKey.includes(target),
+      });
+    }
+
+    function finishSwitch() {
+      if (accountSwitchTargetRef.current !== target) return;
+      accountSwitchTargetRef.current = null;
+      setOrgSwitchProgress(false);
+    }
+
+    function scheduleWarmCacheClear() {
+      if (pendingClear) return;
+      pendingClear = true;
+      // Let the progress bar paint and the outlet commit before clearing on warm cache.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(finishSwitch);
+      });
+    }
+
+    function checkDone() {
+      if (revalidator.state !== "idle") return;
+      if (isAccountPending) return;
+      if (accountFetching() > 0) sawFetch = true;
+      if (sawFetch) {
+        if (accountFetching() === 0) finishSwitch();
+        return;
+      }
+      scheduleWarmCacheClear();
+    }
+
+    checkDone();
+    const unsub = queryClient.getQueryCache().subscribe(checkDone);
+    return () => unsub();
+  }, [activeAccount, isAccountPending, queryClient, revalidator.state]);
 
   // One-time migration for users from before the cookie existed: if
   // localStorage has a valid stored account but the cookie isn't set yet,
@@ -84,7 +152,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   }, [accounts, revalidator]);
 
   return (
-    <ActiveAccountContext.Provider value={{ activeAccount, setCreateDefault }}>
+    <ActiveAccountContext.Provider value={{ activeAccount, setActiveAccount }}>
       {children}
     </ActiveAccountContext.Provider>
   );

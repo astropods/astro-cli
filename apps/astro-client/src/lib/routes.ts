@@ -80,7 +80,6 @@ export const insightsPath = "/insights";
 export const knowledgePath = "/knowledge";
 export const newKnowledgePath = "/knowledge/new";
 
-export function knowledgeDetailPath(name: string, account?: string) {
-  const path = `/knowledge/${encodeURIComponent(name)}`;
-  return account ? `${path}?account=${encodeURIComponent(account)}` : path;
+export function knowledgeDetailPath(name: string) {
+  return `/knowledge/${name}`;
 }

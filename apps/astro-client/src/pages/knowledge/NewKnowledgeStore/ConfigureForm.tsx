@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { useConnectKnowledgeStore } from "@/api/queries/knowledge";
-import { useActiveAccount } from "@/hooks/use-active-account";
 import { useSupabaseConnect, useSupabaseProjects, useSupabaseDisconnect } from "@/api/queries/supabase";
 import {
   validateStoreName,
@@ -42,7 +41,6 @@ export function ConfigureForm({
   account: string;
 }) {
   const navigate = useNavigate();
-  const { setCreateDefault } = useActiveAccount();
   const [formState, dispatch] = useReducer((_: FormState, next: FormState) => next, { step: "form" });
 
   // Supabase is a first-class provider card, but a Supabase store is a plain
@@ -148,9 +146,8 @@ export function ConfigureForm({
       : host && !hostError && (!needsPort || port));
 
   function onMutationSuccess(store: KnowledgeStore) {
-    setCreateDefault(account);
     if (store.status === "ready") {
-      navigate(knowledgeDetailPath(store.name, account), { replace: true });
+      navigate(knowledgeDetailPath(store.name), { replace: true });
     } else {
       dispatch({ step: "provisioning", submittedName: store.name });
     }
@@ -274,7 +271,7 @@ export function ConfigureForm({
             <Link to={knowledgePath}>Back to stores</Link>
           </Button>
           <Button asChild>
-            <Link to={knowledgeDetailPath(formState.submittedName, account)}>View store →</Link>
+            <Link to={knowledgeDetailPath(formState.submittedName)}>View store →</Link>
           </Button>
         </div>
       </div>
@@ -294,7 +291,7 @@ export function ConfigureForm({
             <Link to={knowledgePath}>Back to Knowledge Stores</Link>
           </Button>
           <Button asChild>
-            <Link to={knowledgeDetailPath(formState.submittedName, account)}>View store details</Link>
+            <Link to={knowledgeDetailPath(formState.submittedName)}>View store details</Link>
           </Button>
         </div>
       </div>

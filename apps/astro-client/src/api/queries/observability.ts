@@ -1,18 +1,9 @@
-import { useCallback } from 'react';
 import {
   keepPreviousData,
-  queryOptions,
   useInfiniteQuery,
-  useQueries,
   useQuery,
-  type UseQueryResult,
 } from '@tanstack/react-query';
-import {
-  api,
-  type DeploymentSummariesResponse,
-  type DeploymentSummaryEntry,
-  type InsightsQueryParams,
-} from '@/lib/api';
+import { api, type InsightsQueryParams } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
@@ -91,31 +82,6 @@ export function useObservabilitySummaries(account: string) {
     queryFn: () => api.getDeploymentObservabilitySummaries(account),
     enabled: !!account,
     ...ACTIVITY_QUERY_OPTS,
-  });
-}
-
-// Fans out one summaries read per account and merges into a single deployment-id
-// keyed map. Deployment ids are globally unique, so a flat merge is safe.
-export function useObservabilitySummariesForAccounts(accountNames: string[]) {
-  // `combine` with a stable callback keeps the merged `{ summaries }` reference
-  // stable across renders where no query data changed, so downstream memos
-  // (e.g. useMultiAccountDeploymentSummaryMaps) aren't invalidated every render.
-  return useQueries({
-    queries: accountNames.map((account) =>
-      queryOptions({
-        queryKey: observabilityKeys.deploymentSummaries(account),
-        queryFn: () => api.getDeploymentObservabilitySummaries(account),
-        enabled: !!account,
-        ...ACTIVITY_QUERY_OPTS,
-      }),
-    ),
-    combine: useCallback((results: UseQueryResult<DeploymentSummariesResponse>[]) => {
-      const summaries: Record<string, DeploymentSummaryEntry> = {};
-      for (const r of results) {
-        if (r.data?.summaries) Object.assign(summaries, r.data.summaries);
-      }
-      return { summaries };
-    }, []),
   });
 }
 

@@ -12,16 +12,24 @@ import { RequestIncreaseDialog } from "@/components/RequestIncreaseDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { Camera, Check } from "lucide-react";
 import {
   ArrowPathIcon,
+  BuildingOffice2Icon,
   CheckCircleIcon,
   CommandLineIcon,
 } from "@heroicons/react/24/outline";
-import { CreateInAccountPicker } from "@/components/CreateInAccountPicker";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Globe, LockKeyhole } from "lucide-react";
 import { LiveRevealConfetti } from "@/components/ui/LiveRevealConfetti";
 import { GitHubIcon } from "@/components/ui/svgs/githubIcon";
@@ -126,8 +134,12 @@ function validateSource(sourcePath: SourcePath, isGitHubConnected: boolean, repo
 
 function NewBlueprintContent() {
   const { personalAccount, accounts, organizationId, switchOrg } = useAuth();
-  const { activeAccount, setCreateDefault } = useActiveAccount();
+  const { activeAccount } = useActiveAccount();
   const userAccount = personalAccount?.name ?? "user";
+  const sortedAccounts = useMemo(
+    () => [...accounts].sort((a, b) => a.type === "personal" ? -1 : b.type === "personal" ? 1 : a.name.localeCompare(b.name)),
+    [accounts],
+  );
 
   const [, setSearchParams] = useSearchParams();
 
@@ -314,7 +326,6 @@ function NewBlueprintContent() {
           if (!isAlreadyPublished && !isBlueprintCreated) {
             await createBlueprint.mutateAsync({ name: slug, visibility });
             setIsBlueprintCreated(true);
-            setCreateDefault(selectedOrg);
           }
           if (avatarFile) {
             await uploadAvatar.mutateAsync({ account: selectedOrg, name: slug, file: avatarFile }).catch(() => {});
@@ -362,7 +373,7 @@ function NewBlueprintContent() {
     } finally {
       setIsPublishing(false);
     }
-  }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild, accounts, organizationId, switchOrg, setCreateDefault]);
+  }, [isPublishing, isAlreadyPublished, isBlueprintCreated, createBlueprint, uploadAvatar, slug, visibility, selectedOrg, avatarFile, sourcePath, pickerValue, githubLink, accountScan, rebuild, accounts, organizationId, switchOrg]);
 
   const handleCreateOrConfirm = useCallback(() => {
     if (!gate(validateSource(sourcePath, isGitHubConnected, pickerValue.repoFullName))) return;
@@ -719,11 +730,28 @@ function NewBlueprintContent() {
                               ) : null}
                             </div>
                           </div>
-                          <CreateInAccountPicker
-                            value={selectedOrg}
-                            onChange={setSelectedOrg}
-                            disabled={isAlreadyPublished}
-                          />
+                          <div>
+                            <Label size="md">Create in</Label>
+                            <Select value={selectedOrg} onValueChange={setSelectedOrg} disabled={isAlreadyPublished}>
+                              <SelectTrigger className="[&>span]:flex [&>span]:items-center"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {sortedAccounts.map((a) => (
+                                  <SelectItem key={a.id} value={a.name}>
+                                    <span className="inline-flex items-center gap-2">
+                                      {a.type === "personal" ? (
+                                        <UserAvatar handle={a.name} name={a.display_name || a.name} className="size-[18px] shrink-0" />
+                                      ) : (
+                                        <span className="flex size-[18px] items-center justify-center rounded-md bg-accent shrink-0">
+                                          <BuildingOffice2Icon className="size-2.5 text-muted-foreground" />
+                                        </span>
+                                      )}
+                                      {a.display_name || a.name}
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                           <div>
                             <Label size="md">Visibility</Label>
                             <div className="mt-1.5 flex gap-2">

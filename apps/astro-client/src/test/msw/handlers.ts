@@ -20,8 +20,6 @@ import type {
   AccountOrgsResponse,
   AccountSearchResponse,
   AccountSearchResult,
-  CrossAccountResourceResponse,
-  KnowledgeStoreListResponse,
   TemplateRequest,
 } from '@/lib/api';
 
@@ -49,36 +47,6 @@ function paginateBlueprintList(
     offset,
     has_more: offset + page.length < filtered.length,
   };
-}
-
-async function aggregateAccountRequests<T>(
-  request: Request,
-  load: (account: string) => Promise<Response>,
-): Promise<CrossAccountResourceResponse<T>> {
-  const accounts = new URL(request.url).searchParams.getAll('account');
-  const settled = await Promise.all(
-    accounts.map(async (account) => ({ account, response: await load(account) })),
-  );
-  const results: CrossAccountResourceResponse<T>['results'] = [];
-  const failed_accounts: string[] = [];
-  for (const { account, response } of settled) {
-    if (!response.ok) {
-      failed_accounts.push(account);
-      continue;
-    }
-    results.push({ account, data: (await response.json()) as T });
-  }
-  return { results, failed_accounts, rejected_accounts: [] };
-}
-
-function loadBlueprintPage(request: Request, account: string) {
-  const aggregateURL = new URL(request.url);
-  const url = new URL(`/api/v1/agents/${encodeURIComponent(account)}`, request.url);
-  for (const param of ['q', 'tag', 'visibility', 'sort', 'limit', 'offset']) {
-    const value = aggregateURL.searchParams.get(param);
-    if (value) url.searchParams.set(param, value);
-  }
-  return fetch(url);
 }
 
 // Fixture data — realistic but minimal
@@ -326,32 +294,6 @@ export const mockSearchAccounts: AccountSearchResult[] = [
 ];
 
 export const handlers = [
-  http.get('/api/v1/me/blueprints', async ({ request }) =>
-    HttpResponse.json(
-      await aggregateAccountRequests<BlueprintsListResponse>(request, (account) =>
-        loadBlueprintPage(request, account),
-      ),
-    ),
-  ),
-
-  http.get('/api/v1/me/knowledge', async ({ request }) =>
-    HttpResponse.json(
-      await aggregateAccountRequests<KnowledgeStoreListResponse>(request, (account) =>
-        fetch(new URL(`/api/v1/accounts/${encodeURIComponent(account)}/knowledge`, request.url)),
-      ),
-    ),
-  ),
-
-  http.get('/api/v1/me/deployments', async ({ request }) =>
-    HttpResponse.json(
-      await aggregateAccountRequests<DeploymentsListResponse>(request, (account) => {
-        const url = new URL('/api/v1/deployments', request.url);
-        url.searchParams.set('account', account);
-        return fetch(url);
-      }),
-    ),
-  ),
-
   // GET /api/v1/agents
   http.get('/api/v1/agents', ({ request }) => {
     return HttpResponse.json<BlueprintsListResponse>(

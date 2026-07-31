@@ -78,9 +78,10 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Root revalidates only on programmatic revalidations (currentUrl === nextUrl).
-// This keeps URL navigations cheap while allowing cookie migrations and other
-// explicit refreshes to update the resolved active account.
+// Root revalidates only on programmatic revalidations (currentUrl === nextUrl),
+// which is the signal setActiveAccount sends after writing the cookie. That
+// keeps URL navigations cheap (no /me fetch per click) while still letting
+// org switches refresh the resolved active account at the root level.
 export function shouldRevalidate({ currentUrl, nextUrl }: { currentUrl: URL; nextUrl: URL }) {
   return currentUrl.toString() === nextUrl.toString();
 }

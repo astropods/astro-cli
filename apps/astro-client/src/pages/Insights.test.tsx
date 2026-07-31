@@ -1,16 +1,10 @@
 import { describe, it, expect } from "vitest";
-import {
-  buildInsightsQueryParams,
-  shouldRevalidate,
-} from "./Insights";
-import {
-  removeStaleInsightsAccountParam,
-  resolveInsightsScopeAccount,
-} from "./insights-account-param";
+import { buildInsightsQueryParams, shouldRevalidate } from "./Insights";
 
 // Insights opts most search-param changes out of loader revalidation
-// (range/agent toggles handle the new query key client-side). Explicit
-// programmatic revalidations still re-run the loader.
+// (range/agent toggles handle the new query key client-side). Only
+// programmatic revalidations — the signal setActiveAccount sends — should
+// re-run the loader.
 describe("Insights shouldRevalidate", () => {
   const args = (currentUrl: string, nextUrl: string, defaultShouldRevalidate = false) => ({
     currentUrl: new URL(currentUrl),
@@ -18,7 +12,7 @@ describe("Insights shouldRevalidate", () => {
     defaultShouldRevalidate,
   });
 
-  it("revalidates on programmatic revalidation (currentUrl === nextUrl)", () => {
+  it("revalidates on programmatic revalidation (currentUrl === nextUrl) — the org-switch signal", () => {
     expect(shouldRevalidate(args("http://x/insights", "http://x/insights"))).toBe(true);
     expect(shouldRevalidate(args("http://x/insights?range=7d", "http://x/insights?range=7d"))).toBe(true);
   });
@@ -61,38 +55,5 @@ describe("buildInsightsQueryParams", () => {
     const params = buildInsightsQueryParams({ query: "  alpha  ", skipRanges: true });
     expect(params.q).toBe("alpha");
     expect(params.skip_ranges).toBe("true");
-  });
-});
-
-describe("removeStaleInsightsAccountParam", () => {
-  it("removes an unknown account without dropping other query params", () => {
-    const next = removeStaleInsightsAccountParam(
-      new URLSearchParams("account=ghost&range=7d&q=agent"),
-      ["acme"],
-    );
-
-    expect(next?.get("account")).toBeNull();
-    expect(next?.get("range")).toBe("7d");
-    expect(next?.get("q")).toBe("agent");
-  });
-
-  it("waits for accounts to load and preserves known accounts", () => {
-    const params = new URLSearchParams("account=acme&range=7d");
-    expect(removeStaleInsightsAccountParam(params, [])).toBeNull();
-    expect(removeStaleInsightsAccountParam(params, ["acme"])).toBeNull();
-  });
-});
-
-describe("resolveInsightsScopeAccount", () => {
-  it("does not trust a URL account before memberships load", () => {
-    expect(resolveInsightsScopeAccount("other", [], "active")).toBe("active");
-  });
-
-  it("uses a URL account as soon as the matching membership is available", () => {
-    expect(resolveInsightsScopeAccount("other", ["active", "other"], "active")).toBe("other");
-  });
-
-  it("falls back to the active account for stale memberships", () => {
-    expect(resolveInsightsScopeAccount("ghost", ["active"], "active")).toBe("active");
   });
 });

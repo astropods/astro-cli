@@ -9,13 +9,7 @@ import { PROVIDER_LABELS } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, knowledgeDetailPath } from "@/lib/routes";
 import type { KnowledgeStore } from "@/lib/api";
 
-export function PendingAcceptanceStage({
-  store,
-  account,
-}: {
-  store: KnowledgeStore;
-  account: string;
-}) {
+export function PendingAcceptanceStage({ store }: { store: KnowledgeStore }) {
   return (
     <div className="mx-auto max-w-lg flex flex-col items-center">
 
@@ -86,7 +80,7 @@ export function PendingAcceptanceStage({
           <Link to={knowledgePath}>Back to stores</Link>
         </Button>
         <Button asChild>
-          <Link to={knowledgeDetailPath(store.name, account)}>View store →</Link>
+          <Link to={knowledgeDetailPath(store.name)}>View store →</Link>
         </Button>
       </div>
     </div>

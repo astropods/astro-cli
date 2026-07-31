@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { api, ApiRequestError, type AuthResponse, type Account } from "./api";
 import { AuthProvider } from "./AuthProvider";
 import { useAuth } from "./use-auth";
-import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 
 afterEach(() => {
   cleanup();
@@ -33,16 +33,16 @@ function renderUseAuth() {
   });
 }
 
-function renderUseAuthWithAccountFilter() {
+function renderUseAuthWithPersistentFilter() {
   return renderHook(
     () => {
       const auth = useAuth();
-      const [selectedAccounts] = useAccountFilterParam("insights");
-      return { auth, selectedAccounts };
+      const [searchParams] = usePersistentSearchParams("insights", ["range"]);
+      return { auth, selectedRange: searchParams.get("range") };
     },
     {
       wrapper: ({ children }) => (
-        <MemoryRouter initialEntries={["/insights?account=shared"]}>
+        <MemoryRouter initialEntries={["/insights?range=90d"]}>
           <AuthProvider>{children}</AuthProvider>
         </MemoryRouter>
       ),
@@ -145,15 +145,15 @@ describe("AuthProvider switchOrg", () => {
       organization_id: "org-2",
     });
 
-    const { result } = renderUseAuthWithAccountFilter();
+    const { result } = renderUseAuthWithPersistentFilter();
     await waitFor(() => {
       expect(result.current.auth.isLoading).toBe(false);
-      expect(result.current.selectedAccounts).toEqual(["shared"]);
+      expect(result.current.selectedRange).toBe("90d");
       expect(
         new URLSearchParams(
           localStorage.getItem("astro:page-filters:insights") ?? "",
-        ).get("account"),
-      ).toBe("shared");
+        ).get("range"),
+      ).toBe("90d");
     });
 
     await act(async () => {
@@ -161,7 +161,7 @@ describe("AuthProvider switchOrg", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.selectedAccounts).toEqual([]);
+      expect(result.current.selectedRange).toBeNull();
     });
     expect(localStorage.getItem("astro:page-filters:insights")).toBeNull();
     expect(localStorage.getItem("unrelated")).toBe("keep");
@@ -218,10 +218,10 @@ describe("AuthProvider authentication", () => {
       ]),
     );
 
-    const { result } = renderUseAuthWithAccountFilter();
+    const { result } = renderUseAuthWithPersistentFilter();
     await waitFor(() => {
       expect(result.current.auth.isLoading).toBe(false);
-      expect(result.current.selectedAccounts).toEqual(["shared"]);
+      expect(result.current.selectedRange).toBe("90d");
     });
 
     act(() => {
@@ -233,7 +233,7 @@ describe("AuthProvider authentication", () => {
       );
     });
 
-    await waitFor(() => expect(result.current.selectedAccounts).toEqual([]));
+    await waitFor(() => expect(result.current.selectedRange).toBeNull());
     expect(localStorage.getItem("astro:page-filters:insights")).toBeNull();
     expect(localStorage.getItem("unrelated")).toBe("keep");
   });
@@ -247,7 +247,7 @@ describe("AuthProvider logout", () => {
   });
 
   it("clears persisted page filters before redirecting", async () => {
-    localStorage.setItem("astro:page-filters:insights", "account=secret");
+    localStorage.setItem("astro:page-filters:insights", "range=90d");
     localStorage.setItem("unrelated", "keep");
 
     const { result } = renderUseAuth();

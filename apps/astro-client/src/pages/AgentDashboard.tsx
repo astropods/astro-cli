@@ -1,19 +1,33 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
+import { getActiveAccount } from "@/lib/api.server";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
+import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
-import { useAllAccountsDeployments } from "@/api/queries/all-accounts";
+import { useDeployments } from "@/api/queries/deployments";
+import { deploymentKeys } from "@/api/queries/keys";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
-import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
 import type { AgentDeploymentSummary, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
-export default function AgentDashboard() {
+// Inline (not loadAccountScoped) to prime the deployments cache before render.
+export async function loader({ request }: Route.LoaderArgs) {
+  const ctx = await getActiveAccount(request);
+  if (!ctx) {
+    return { account: null, deployments: null };
+  }
+  const deployments = await ctx.api.listDeployments(ctx.accountName).catch(() => null);
+  return { account: ctx.accountName, deployments };
+}
+
+
+function AgentDashboardInner() {
   const { isAuthenticated } = useAuth();
   const { activeAccount: userAccount } = useActiveAccount();
   const location = useLocation();
@@ -32,15 +46,10 @@ export default function AgentDashboard() {
     } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
-  const [accountFilters, setAccountFilters] = useAccountFilterParam("agents");
+  const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
 
-  const {
-    deployments: allDeployments,
-    isLoading,
-    isError,
-    failedAccounts,
-    retryFailed,
-  } = useAllAccountsDeployments(isAuthenticated, accountFilters);
+  const deployments = data?.deployments ?? [];
+
 
   const clearRevealState = () => {
     navigate(location.pathname + location.search, { replace: true, state: {} });
@@ -53,19 +62,15 @@ export default function AgentDashboard() {
       >
         <PageHeader
           title="Agents"
-          description="Deployed agents running across your accounts."
+          description="Deployed agents running in your account."
+          action={<PageScopeSwitcher />}
         />
 
         <DeployedAgentsSection
-          deployments={allDeployments}
+          deployments={deployments}
           account={userAccount}
           isLoading={isLoading}
-          isError={isError}
-          failedAccounts={failedAccounts}
-          onRetry={retryFailed}
           skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
-          accountFilters={accountFilters}
-          onAccountFiltersChange={setAccountFilters}
         />
       </PageContainer>
 
@@ -87,4 +92,13 @@ export default function AgentDashboard() {
       )}
     </>
   );
+}
+
+export default function AgentDashboard({ loaderData }: Route.ComponentProps) {
+  usePrimeQueryCache(loaderData, (qc, ld) => {
+    if (!ld?.account) return;
+    if (ld.deployments) qc.setQueryData(deploymentKeys.all(ld.account), ld.deployments);
+  });
+
+  return <AgentDashboardInner />;
 }

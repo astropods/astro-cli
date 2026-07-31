@@ -349,21 +349,6 @@ export interface BlueprintsListResponse {
   has_more?: boolean;
 }
 
-export interface CrossAccountResourceResult<T> {
-  account: string;
-  data: T;
-  count?: number;
-  limit?: number;
-  offset?: number;
-  has_more?: boolean;
-}
-
-export interface CrossAccountResourceResponse<T> {
-  results: CrossAccountResourceResult<T>[];
-  failed_accounts: string[];
-  rejected_accounts: string[];
-}
-
 export interface HeartedAgent {
   account: string;
   name: string;
@@ -2244,23 +2229,6 @@ export interface QuotaIncreaseListResponse {
 // ApiClient
 // ============================================================================
 
-type CurrentUserResource = "blueprints" | "knowledge" | "deployments";
-
-function currentUserResourcePath(
-  resource: CurrentUserResource,
-  accounts: string[],
-  page?: { limit: number; offset: number },
-): string {
-  const params = new URLSearchParams();
-  accounts.forEach((account) => params.append("account", account));
-  if (page) {
-    params.set("limit", String(page.limit));
-    params.set("offset", String(page.offset));
-  }
-  const query = params.toString();
-  return `/api/v1/me/${resource}${query ? `?${query}` : ""}`;
-}
-
 class ApiClient {
   private baseUrl: string;
   private authUrl: string;
@@ -2495,16 +2463,6 @@ class ApiClient {
     if (opts?.limit) params.set('limit', String(opts.limit));
     return this.request<AccountSearchResponse>(
       `/api/v1/accounts/search?${params}`
-    );
-  }
-
-  async listCurrentUserResources<T>(
-    resource: CurrentUserResource,
-    accounts: string[],
-    page?: { limit: number; offset: number },
-  ): Promise<CrossAccountResourceResponse<T>> {
-    return this.request<CrossAccountResourceResponse<T>>(
-      currentUserResourcePath(resource, accounts, page),
     );
   }
 
