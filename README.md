@@ -1,7 +1,17 @@
-# Astro CLI
+<div align="center">
 
-`ast` is the command-line tool for building, running, pushing, and deploying
-agents on the Astro AI platform.
+# astro-cli
+
+**`ast` — the command-line tool for building, running, pushing, and deploying agents on the Astro AI platform.**
+
+[![Go Version](https://img.shields.io/badge/go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
+[Prerequisites](#prerequisites) · [Build](#build-from-source) · [Test](#test) · [Architecture](#architecture) · [Design](#design-principles)
+
+</div>
+
+---
 
 ## Prerequisites
 
