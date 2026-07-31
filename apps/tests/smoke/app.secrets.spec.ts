@@ -63,7 +63,7 @@ test.describe("settings — variables & secrets", () => {
 });
 
 test.describe("weather-poet deploy", () => {
-  test("deploy page auto-fills saved variables under Configuration", async ({ page }) => {
+  test("deploy page only auto-fills type-compatible saved variables", async ({ page }) => {
     await page.goto("/rabbah/weather-poet", { waitUntil: "load" });
 
     // Authenticated — clicking deploy goes directly to the deploy page, not login
@@ -81,8 +81,14 @@ test.describe("weather-poet deploy", () => {
     await expect(page.getByText("Anthropic API Key", { exact: true })).toBeVisible();
     await expect(page.getByText("Weather API Key", { exact: true })).toBeVisible();
 
-    // Both are auto-filled from the saved account variables
-    await expect(page.getByText("Auto-filled").first()).toBeVisible();
-    await expect(page.getByText("Auto-filled")).toHaveCount(2);
+    // The secret Anthropic variable is compatible and auto-fills.
+    const anthropicReference = page
+      .getByRole("button", { name: "Clear vault reference" })
+      .filter({ hasText: "ANTHROPIC_API_KEY" });
+    await expect(anthropicReference).toBeVisible();
+    await expect(page.getByText("Auto-filled", { exact: true })).toHaveCount(1);
+
+    // The saved Weather variable is plaintext, so it cannot fill a secret field.
+    await expect(page.locator("#WEATHER_API_KEY")).toHaveValue("");
   });
 });
