@@ -16,9 +16,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
@@ -204,7 +204,7 @@ func newConfigureE2ERouter(userID string, index *agentindex.Index, accountStore 
 
 // postConfigure POSTs a deployment-template request for the given URL path
 // and returns the parsed response body plus the raw recorder.
-func postConfigure(t *testing.T, fx *configureE2EFixture, urlAccount string) (*httptest.ResponseRecorder, spec.TemplateResponse) {
+func postConfigure(t *testing.T, fx *configureE2EFixture, urlAccount string) (*httptest.ResponseRecorder, deployment.TemplateResponse) {
 	t.Helper()
 	body := fmt.Sprintf(`{"deployment_id":%q}`, fx.deployment.ID)
 	req := httptest.NewRequest(
@@ -216,7 +216,7 @@ func postConfigure(t *testing.T, fx *configureE2EFixture, urlAccount string) (*h
 	rec := httptest.NewRecorder()
 	fx.router.ServeHTTP(rec, req)
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if rec.Code == http.StatusOK {
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("unmarshal response: %v; body=%s", err, rec.Body.String())

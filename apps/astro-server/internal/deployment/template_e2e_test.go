@@ -217,8 +217,8 @@ dev:
 	// All ${} references should be valid
 	for key, val := range ds.Agent.Environment {
 		if strings.HasPrefix(val, "${") {
-			refs := spec.ParseReferences(val)
-			errs := spec.ValidateReferences(refs, ds)
+			refs := ParseReferences(val)
+			errs := ValidateReferences(refs, ds)
 			if len(errs) > 0 {
 				t.Errorf("env %s: reference %q does not resolve: %v", key, val, errs)
 			}
@@ -230,11 +230,11 @@ dev:
 		ing.Image = "registry.example.com/" + name + ":test-build"
 		ds.Ingestion[name] = ing
 	}
-	yamlBytes, err := spec.SerializeDeploymentSpec(ds)
+	yamlBytes, err := SerializeDeploymentSpec(ds)
 	if err != nil {
 		t.Fatalf("serialize: %v", err)
 	}
-	if _, err := spec.ParseDeploymentSpec(yamlBytes); err != nil {
+	if _, err := ParseDeploymentSpec(yamlBytes); err != nil {
 		t.Fatalf("round-trip parse failed: %v", err)
 	}
 }
@@ -347,8 +347,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if ds.Agent.Replicas != 1 {
 		t.Errorf("agent.replicas: expected 1, got %d", ds.Agent.Replicas)
 	}
-	if spec.PrimaryPort(ds.Agent.Endpoints) != 8080 {
-		t.Errorf("agent port: expected 8080, got %d", spec.PrimaryPort(ds.Agent.Endpoints))
+	if PrimaryPort(ds.Agent.Endpoints) != 8080 {
+		t.Errorf("agent port: expected 8080, got %d", PrimaryPort(ds.Agent.Endpoints))
 	}
 
 	// === Models ===
@@ -366,7 +366,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if local.GPU.VRAM != "24Gi" || local.GPU.Runtime != "cuda" {
 		t.Errorf("models.local.gpu: expected 24Gi/cuda, got %+v", local.GPU)
 	}
-	if local.Resources != spec.GPUResources {
+	if local.Resources != GPUResources {
 		t.Errorf("models.local.resources: expected GPUResources, got %+v", local.Resources)
 	}
 	if local.Update.Strategy != "recreate" {
@@ -390,8 +390,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if cache.Provider != "redis" {
 		t.Errorf("knowledge.cache.provider: expected redis, got %s", cache.Provider)
 	}
-	if spec.PrimaryPort(cache.Endpoints) != 6379 {
-		t.Errorf("knowledge.cache port: expected 6379, got %d", spec.PrimaryPort(cache.Endpoints))
+	if PrimaryPort(cache.Endpoints) != 6379 {
+		t.Errorf("knowledge.cache port: expected 6379, got %d", PrimaryPort(cache.Endpoints))
 	}
 	if !cache.Persistent {
 		t.Error("knowledge.cache.persistent: expected true (redis provider has MountPath)")
@@ -405,8 +405,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if docs.Provider != "qdrant" {
 		t.Errorf("knowledge.docs.provider: expected qdrant, got %s", docs.Provider)
 	}
-	if spec.PrimaryPort(docs.Endpoints) != 6333 {
-		t.Errorf("knowledge.docs port: expected 6333, got %d", spec.PrimaryPort(docs.Endpoints))
+	if PrimaryPort(docs.Endpoints) != 6333 {
+		t.Errorf("knowledge.docs port: expected 6333, got %d", PrimaryPort(docs.Endpoints))
 	}
 	if _, ok := docs.Endpoints["grpc"]; !ok {
 		t.Error("knowledge.docs: expected grpc endpoint for qdrant")
@@ -429,8 +429,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if graph.Provider != "neo4j" {
 		t.Errorf("knowledge.graph.provider: expected neo4j, got %s", graph.Provider)
 	}
-	if spec.PrimaryPort(graph.Endpoints) != 7474 {
-		t.Errorf("knowledge.graph port: expected 7474, got %d", spec.PrimaryPort(graph.Endpoints))
+	if PrimaryPort(graph.Endpoints) != 7474 {
+		t.Errorf("knowledge.graph port: expected 7474, got %d", PrimaryPort(graph.Endpoints))
 	}
 	if _, ok := graph.Endpoints["bolt"]; !ok {
 		t.Error("knowledge.graph: expected bolt endpoint for neo4j")
@@ -447,8 +447,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if db.Provider != "postgres" {
 		t.Errorf("knowledge.db.provider: expected postgres, got %s", db.Provider)
 	}
-	if spec.PrimaryPort(db.Endpoints) != 5432 {
-		t.Errorf("knowledge.db port: expected 5432, got %d", spec.PrimaryPort(db.Endpoints))
+	if PrimaryPort(db.Endpoints) != 5432 {
+		t.Errorf("knowledge.db port: expected 5432, got %d", PrimaryPort(db.Endpoints))
 	}
 	if !db.Persistent {
 		t.Error("knowledge.db.persistent: expected true")
@@ -484,8 +484,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	if webhookIng.Trigger.Type != "webhook" {
 		t.Errorf("ingestion.webhook_ingest.trigger.type: expected webhook, got %s", webhookIng.Trigger.Type)
 	}
-	if spec.PrimaryPort(webhookIng.Endpoints) != 3001 {
-		t.Errorf("ingestion.webhook_ingest port: expected 3001, got %d", spec.PrimaryPort(webhookIng.Endpoints))
+	if PrimaryPort(webhookIng.Endpoints) != 3001 {
+		t.Errorf("ingestion.webhook_ingest port: expected 3001, got %d", PrimaryPort(webhookIng.Endpoints))
 	}
 	if webhookIng.Image != "registry.astropods.ai/testuser/my-agent-webhook:abc123" {
 		t.Errorf("ingestion.webhook_ingest.image: got %s", webhookIng.Image)
@@ -658,8 +658,8 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	// === All ${} references should resolve ===
 	for key, val := range env {
 		if strings.HasPrefix(val, "${") {
-			refs := spec.ParseReferences(val)
-			errs := spec.ValidateReferences(refs, ds)
+			refs := ParseReferences(val)
+			errs := ValidateReferences(refs, ds)
 			if len(errs) > 0 {
 				t.Errorf("env %s: reference %q does not resolve: %v", key, val, errs)
 			}
@@ -675,11 +675,11 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	}
 
 	// === YAML round-trip ===
-	yamlBytes, err := spec.SerializeDeploymentSpec(ds)
+	yamlBytes, err := SerializeDeploymentSpec(ds)
 	if err != nil {
 		t.Fatalf("serialize: %v", err)
 	}
-	parsed, err := spec.ParseDeploymentSpec(yamlBytes)
+	parsed, err := ParseDeploymentSpec(yamlBytes)
 	if err != nil {
 		t.Fatalf("round-trip parse failed: %v", err)
 	}

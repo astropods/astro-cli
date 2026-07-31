@@ -15,16 +15,16 @@ import (
 // The second return slot is retained as []string for ergonomic test diffs but
 // is always nil — tamper detection lives in the deploy handler via signature
 // verification, not at the spec layer.
-func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*spec.AstroDeploymentSpec)) (*ResolveResult, []string) {
+func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*AstroDeploymentSpec)) (*ResolveResult, []string) {
 	t.Helper()
 	tmpl := mustGenerate(t, input)
 
 	// Deep-copy via serialise/parse so fill edits a clean copy
-	raw, err := spec.SerializeDeploymentSpec(tmpl)
+	raw, err := SerializeDeploymentSpec(tmpl)
 	if err != nil {
 		t.Fatalf("serialize template: %v", err)
 	}
-	submitted, err := spec.ParseDeploymentSpec(raw)
+	submitted, err := ParseDeploymentSpec(raw)
 	if err != nil {
 		t.Fatalf("parse template: %v", err)
 	}
@@ -44,9 +44,9 @@ func fillAndDeploy(t *testing.T, input TemplateInput, fill func(*spec.AstroDeplo
 
 // setVarValue updates only the value of an existing variable, preserving all
 // other fields (optional, secret, targets, description) set by the template.
-func setVarValue(ds *spec.AstroDeploymentSpec, key, value string) {
+func setVarValue(ds *AstroDeploymentSpec, key, value string) {
 	if ds.Variables == nil {
-		ds.Variables = make(map[string]spec.Variable)
+		ds.Variables = make(map[string]Variable)
 	}
 	v := ds.Variables[key]
 	v.Value = value
@@ -56,7 +56,7 @@ func setVarValue(ds *spec.AstroDeploymentSpec, key, value string) {
 // ===== Minimal deploy =====
 
 func TestTemplateDeploy_MinimalSpec(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 	})
 	if len(editErrs) > 0 {
 		t.Fatalf("EnforceEditable errors: %v", editErrs)
@@ -72,7 +72,7 @@ func TestTemplateDeploy_MinimalSpec(t *testing.T) {
 // ===== Slack adapter =====
 
 func TestTemplateDeploy_SlackAdapter_WithTokens(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Update only the value — preserve optional/secret/targets from the template
 		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
@@ -87,7 +87,7 @@ func TestTemplateDeploy_SlackAdapter_WithTokens(t *testing.T) {
 }
 
 func TestTemplateDeploy_SlackAdapter_MissingBotToken(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Only fill app token, leave bot token empty
 		setVarValue(ds, "SLACK_APP_TOKEN", "xapp-test-token")
@@ -110,7 +110,7 @@ func TestTemplateDeploy_SlackAdapter_MissingBotToken(t *testing.T) {
 }
 
 func TestTemplateDeploy_SlackAdapter_MissingAppToken(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Only fill bot token, leave app token empty
 		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
@@ -133,7 +133,7 @@ func TestTemplateDeploy_SlackAdapter_MissingAppToken(t *testing.T) {
 }
 
 func TestTemplateDeploy_SlackAdapter_MissingBothTokens(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Variables are in the template but left empty — user forgot to fill them in
 	})
@@ -148,7 +148,7 @@ func TestTemplateDeploy_SlackAdapter_MissingBothTokens(t *testing.T) {
 // ===== Web adapter =====
 
 func TestTemplateDeploy_WebAdapter(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *AstroDeploymentSpec) {
 		ds.Interfaces.Adapters = []string{"web"}
 	})
 	if len(editErrs) > 0 {
@@ -167,7 +167,7 @@ func TestTemplateDeploy_AnthropicModel_WithCredential(t *testing.T) {
 		"llm": {Provider: "anthropic"},
 	}
 
-	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, input, func(ds *AstroDeploymentSpec) {
 		setVarValue(ds, "ANTHROPIC_API_KEY", "sk-ant-test")
 	})
 	if len(editErrs) > 0 {
@@ -184,7 +184,7 @@ func TestTemplateDeploy_AnthropicModel_MissingCredential(t *testing.T) {
 		"llm": {Provider: "anthropic"},
 	}
 
-	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
+	result, editErrs := fillAndDeploy(t, input, func(ds *AstroDeploymentSpec) {
 		// ANTHROPIC_API_KEY left empty — user forgot to fill it in
 	})
 	if len(editErrs) > 0 {

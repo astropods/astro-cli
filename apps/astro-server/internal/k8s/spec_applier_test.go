@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
-	spec "github.com/astropods/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,20 +28,20 @@ func newTestApplier() *Applier {
 	}
 }
 
-func httpEp(port int) map[string]spec.Endpoint {
-	return map[string]spec.Endpoint{"http": {Port: port}}
+func httpEp(port int) map[string]deployment.Endpoint {
+	return map[string]deployment.Endpoint{"http": {Port: port}}
 }
 
-func minimalDeploymentSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func minimalDeploymentSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "build-123", Account: "acme"},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "my-agent", Build: "build-123", Account: "acme"},
+		Target: deployment.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: deployment.DeploymentAgent{
 			Image:     "test-registry.example.com/my-agent:latest",
 			Endpoints: httpEp(8080),
 			Replicas:  1,
-			Update:    spec.DefaultUpdateStrategy(),
+			Update:    deployment.DefaultUpdateStrategy(),
 		},
 	}
 }
@@ -85,12 +85,12 @@ func TestApplyDeploymentSpec_MinimalAgent(t *testing.T) {
 func TestApplyDeploymentSpec_WithModel(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Models = map[string]spec.DeploymentModel{
+	ds.Models = map[string]deployment.DeploymentModel{
 		"llm": {
 			Image:     "test-registry.example.com/my-model:latest",
 			Endpoints: httpEp(8000),
 			Replicas:  1,
-			Update:    spec.DefaultUpdateStrategy(),
+			Update:    deployment.DefaultUpdateStrategy(),
 		},
 	}
 	ds.Agent.Environment = map[string]string{
@@ -134,14 +134,14 @@ func TestApplyDeploymentSpec_WithModel(t *testing.T) {
 func TestApplyDeploymentSpec_WithKnowledgePersistent(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"docs": {
 			Image:      "test-registry.example.com/qdrant:latest",
 			Endpoints:  httpEp(6333),
 			Replicas:   1,
 			Persistent: true,
-			Storage:    &spec.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"},
-			Update:     spec.DefaultUpdateStrategy(),
+			Storage:    &deployment.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"},
+			Update:     deployment.DefaultUpdateStrategy(),
 			Provider:   "qdrant",
 		},
 	}
@@ -175,13 +175,13 @@ func TestApplyDeploymentSpec_WithKnowledgePersistent(t *testing.T) {
 func TestApplyDeploymentSpec_WithKnowledgeNonPersistent(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"cache": {
 			Image:      "test-registry.example.com/redis:latest",
 			Endpoints:  httpEp(6379),
 			Replicas:   1,
 			Persistent: false,
-			Update:     spec.DefaultUpdateStrategy(),
+			Update:     deployment.DefaultUpdateStrategy(),
 		},
 	}
 
@@ -215,12 +215,12 @@ func TestApplyDeploymentSpec_WithKnowledgeNonPersistent(t *testing.T) {
 func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Integrations = map[string]spec.DeploymentIntegration{
+	ds.Integrations = map[string]deployment.DeploymentIntegration{
 		"search": {
 			Image:     "test-registry.example.com/search:latest",
 			Endpoints: httpEp(3000),
 			Replicas:  1,
-			Update:    spec.DefaultUpdateStrategy(),
+			Update:    deployment.DefaultUpdateStrategy(),
 		},
 	}
 
@@ -253,7 +253,7 @@ func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 func TestApplyDeploymentSpec_WithSecretVariables(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"API_KEY": {Value: "sk-secret-123", Secret: true},
 	}
 
@@ -279,7 +279,7 @@ func TestApplyDeploymentSpec_WithSecretVariables(t *testing.T) {
 func TestApplyDeploymentSpec_WithObservability(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Observability = spec.DeploymentObservability{Enabled: true}
+	ds.Observability = deployment.DeploymentObservability{Enabled: true}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
 	if err != nil {
@@ -311,12 +311,12 @@ func TestApplyDeploymentSpec_WithObservability(t *testing.T) {
 func TestApplyDeploymentSpec_ObservabilityCustomImage(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Observability = spec.DeploymentObservability{
+	ds.Observability = deployment.DeploymentObservability{
 		Enabled:  true,
 		Provider: "langfuse",
 		Image:    "custom-registry.example.com/collector:v2",
 		Port:     4318,
-		Resources: spec.DeploymentResources{
+		Resources: deployment.DeploymentResources{
 			CPU: "200m", Memory: "256Mi",
 			CPULimit: "1", MemoryLimit: "1Gi",
 		},
@@ -352,7 +352,7 @@ func TestApplyDeploymentSpec_ObservabilityCustomImage(t *testing.T) {
 func TestApplyDeploymentSpec_ObservabilityCustomPort(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Observability = spec.DeploymentObservability{
+	ds.Observability = deployment.DeploymentObservability{
 		Enabled: true,
 		Port:    5318,
 	}
@@ -380,7 +380,7 @@ func TestApplyDeploymentSpec_ObservabilityCustomPort(t *testing.T) {
 func TestApplyDeploymentSpec_ObservabilityDisabled(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Observability = spec.DeploymentObservability{Enabled: false}
+	ds.Observability = deployment.DeploymentObservability{Enabled: false}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
 	if err != nil {
@@ -397,10 +397,10 @@ func TestApplyDeploymentSpec_ObservabilityDisabled(t *testing.T) {
 func TestApplyDeploymentSpec_WithIngestionSchedule(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"daily": {
 			Image:   "test-registry.example.com/ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+			Trigger: deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
 		},
 	}
 
@@ -426,10 +426,10 @@ func TestApplyDeploymentSpec_WithIngestionSchedule(t *testing.T) {
 func TestApplyDeploymentSpec_WithIngestionStartup(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"init": {
 			Image:   "test-registry.example.com/ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "startup"},
+			Trigger: deployment.DeploymentTrigger{Type: "startup"},
 		},
 	}
 
@@ -455,11 +455,11 @@ func TestApplyDeploymentSpec_WithIngestionStartup(t *testing.T) {
 func TestApplyDeploymentSpec_WithIngestionWebhook(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"hook": {
 			Image:     "test-registry.example.com/ingest:latest",
 			Endpoints: httpEp(9090),
-			Trigger:   spec.DeploymentTrigger{Type: "webhook"},
+			Trigger:   deployment.DeploymentTrigger{Type: "webhook"},
 		},
 	}
 
@@ -497,36 +497,36 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 		"DB_HOST":  "${knowledge.docs.host}",
 		"TOOL_URL": "${integrations.search.http.url}",
 	}
-	ds.Models = map[string]spec.DeploymentModel{
+	ds.Models = map[string]deployment.DeploymentModel{
 		"llm": {
 			Image: "test-registry.example.com/my-model:latest", Endpoints: httpEp(8000),
-			Replicas: 2, Update: spec.DefaultUpdateStrategy(),
-			GPU:       &spec.DeploymentGPU{VRAM: "24Gi", Runtime: "cuda", Count: 1},
-			Resources: spec.GPUResources,
+			Replicas: 2, Update: deployment.DefaultUpdateStrategy(),
+			GPU:       &deployment.DeploymentGPU{VRAM: "24Gi", Runtime: "cuda", Count: 1},
+			Resources: deployment.GPUResources,
 		},
 	}
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"docs": {
 			Image: "test-registry.example.com/qdrant:latest", Endpoints: httpEp(6333),
-			Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy(),
-			Storage:  &spec.StorageConfig{Size: "50Gi", Class: "gp3", AccessMode: "ReadWriteOnce"},
+			Replicas: 1, Persistent: true, Update: deployment.DefaultUpdateStrategy(),
+			Storage:  &deployment.StorageConfig{Size: "50Gi", Class: "gp3", AccessMode: "ReadWriteOnce"},
 			Provider: "qdrant",
 		},
 	}
-	ds.Integrations = map[string]spec.DeploymentIntegration{
+	ds.Integrations = map[string]deployment.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
-			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 		},
 	}
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"ANTHROPIC_API_KEY": {Value: "sk-123", Secret: true},
 	}
-	ds.Observability = spec.DeploymentObservability{Enabled: true}
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Observability = deployment.DeploymentObservability{Enabled: true}
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"daily": {
 			Image:   "test-registry.example.com/ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+			Trigger: deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
 		},
 	}
 
@@ -576,35 +576,35 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
 	a := newTestApplier()
 	agentName := "my-agent"
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: agentName, Build: "build-1", Account: "acme"},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: agentName, Build: "build-1", Account: "acme"},
+		Target: deployment.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: deployment.DeploymentAgent{
 			Image: "test-registry.example.com/agent:latest", Endpoints: httpEp(8080),
-			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"llm": {
 				Image: "test-registry.example.com/my-model:latest", Endpoints: httpEp(8000),
-				Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+				Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"vectors": {
 				Image: "test-registry.example.com/qdrant:latest", Endpoints: httpEp(6333),
-				Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy(),
-				Storage:  &spec.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
+				Replicas: 1, Persistent: true, Update: deployment.DefaultUpdateStrategy(),
+				Storage:  &deployment.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
 				Provider: "qdrant",
 			},
 		},
-		Integrations: map[string]spec.DeploymentIntegration{
+		Integrations: map[string]deployment.DeploymentIntegration{
 			"search": {
 				Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
-				Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+				Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Observability: spec.DeploymentObservability{
+		Observability: deployment.DeploymentObservability{
 			Enabled: true, Image: "collector:latest", Port: 4318,
 		},
 	}
@@ -700,19 +700,19 @@ func TestApplyDeploymentSpec_ResourceStatusNames(t *testing.T) {
 func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 		},
-		Resources: spec.MessagingResources,
+		Resources: deployment.MessagingResources,
 		Environment: map[string]string{
 			"SLACK_BOT_TOKEN": "${variables.SLACK_BOT_TOKEN}",
 			"SLACK_APP_TOKEN": "${variables.SLACK_APP_TOKEN}",
 		},
 	}
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"SLACK_BOT_TOKEN": {Value: "xoxb-test", Secret: true},
 		"SLACK_APP_TOKEN": {Value: "xapp-test", Secret: true},
 	}
@@ -769,8 +769,8 @@ func TestApplyDeploymentSpec_DefaultsPersistentDisk(t *testing.T) {
 	if pvc.Name != "data" {
 		t.Errorf("expected PVC name 'data', got %q", pvc.Name)
 	}
-	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != spec.DefaultAgentStorageSize {
-		t.Errorf("expected default storage %s, got %s", spec.DefaultAgentStorageSize, got.String())
+	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.String() != deployment.DefaultAgentStorageSize {
+		t.Errorf("expected default storage %s, got %s", deployment.DefaultAgentStorageSize, got.String())
 	}
 	app := containerByName(ss.Spec.Template.Spec.Containers, "app")
 	if app == nil {
@@ -788,7 +788,7 @@ func TestApplyDeploymentSpec_PreservesExplicitVolume(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
 	ds.Agent.Volume = "/custom"
-	ds.Agent.Storage = &spec.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"}
+	ds.Agent.Storage = &deployment.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"}
 	ctx := context.Background()
 
 	if _, err := a.ApplyDeploymentSpec(ctx, ds); err != nil {
@@ -813,11 +813,11 @@ func TestApplyDeploymentSpec_PreservesExplicitVolume(t *testing.T) {
 func TestApplyDeploymentSpec_MessagingSharesDefaultDisk(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec() // no volume — defaulted at apply time
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters:  []string{"web"},
 		Image:     "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090, Protocol: "grpc"}},
-		Resources: spec.MessagingResources,
+		Endpoints: map[string]deployment.Endpoint{"grpc": {Port: 9090, Protocol: "grpc"}},
+		Resources: deployment.MessagingResources,
 	}
 	ctx := context.Background()
 
@@ -953,18 +953,18 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
 
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 		},
-		Resources: spec.MessagingResources,
+		Resources: deployment.MessagingResources,
 		Environment: map[string]string{
 			"SLACK_CONFIG": "${variables.SLACK_CONFIG}",
 		},
 	}
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"SLACK_CONFIG": {Value: `{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}`, Secret: false, Targets: []string{"interface.slack"}},
 	}
 
@@ -1088,15 +1088,15 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {
 				Port:     8080,
 				Protocol: "http",
-				Expose: &spec.EndpointExpose{
+				Expose: &deployment.EndpointExpose{
 					Enabled: true,
 					Domain:  "my-agent.custom.example.com",
 				},
@@ -1146,10 +1146,10 @@ func TestApplyDeploymentSpec_AdapterExposedWhenDefined(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
@@ -1175,10 +1175,10 @@ func TestApplyDeploymentSpec_NoIngressWithoutDomain(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "" // no ingress domain configured
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
@@ -1200,10 +1200,10 @@ func TestApplyDeploymentSpec_SlackOnlyNoIngress(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 		},
 	}
@@ -1223,13 +1223,13 @@ func TestApplyDeploymentSpec_SlackOnlyNoIngress(t *testing.T) {
 func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 7070, Protocol: "grpc"},
 		},
-		Resources: spec.DeploymentResources{
+		Resources: deployment.DeploymentResources{
 			CPU: "200m", Memory: "256Mi",
 			CPULimit: "1", MemoryLimit: "1Gi",
 		},
@@ -1256,8 +1256,8 @@ func TestApplyDeploymentSpec_WithFrontendExpose(t *testing.T) {
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
 	// Agent exposes its own frontend on port 80
-	ds.Agent.Endpoints = map[string]spec.Endpoint{
-		"http": {Port: 80, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true}},
+	ds.Agent.Endpoints = map[string]deployment.Endpoint{
+		"http": {Port: 80, Protocol: "http", Expose: &deployment.EndpointExpose{Enabled: true}},
 	}
 	// No messaging sidecar
 	ds.Interfaces = nil
@@ -1725,12 +1725,12 @@ func containsString(list []string, s string) bool {
 // Secret is created with the correct values AND the messaging sidecar container
 // has envFrom referencing that secret.
 func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
-	slackSpec := func() *spec.AstroDeploymentSpec {
+	slackSpec := func() *deployment.AstroDeploymentSpec {
 		ds := minimalDeploymentSpec()
-		ds.Interfaces = &spec.DeploymentInterfaces{
+		ds.Interfaces = &deployment.DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Image:    "test-registry.example.com/messaging:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]deployment.Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
 			},
 			Environment: map[string]string{
@@ -1745,7 +1745,7 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		a := newTestApplier()
 		ds := slackSpec()
 		// Simulate stripped spec: secret variables exist but values are empty
-		ds.Variables = map[string]spec.Variable{
+		ds.Variables = map[string]deployment.Variable{
 			"SLACK_BOT_TOKEN": {Value: "", Secret: true, Targets: []string{"interface.slack"}},
 			"SLACK_APP_TOKEN": {Value: "", Secret: true, Targets: []string{"interface.slack"}},
 		}
@@ -1774,7 +1774,7 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		a := newTestApplier()
 		ds := slackSpec()
 		// Simulate rehydrated spec: secret variables have values restored
-		ds.Variables = map[string]spec.Variable{
+		ds.Variables = map[string]deployment.Variable{
 			"SLACK_BOT_TOKEN": {Value: "xoxb-real-token", Secret: true, Targets: []string{"interface.slack"}},
 			"SLACK_APP_TOKEN": {Value: "xapp-real-token", Secret: true, Targets: []string{"interface.slack"}},
 		}
@@ -1979,11 +1979,11 @@ func TestApplyCronJob_SuspendedCronJobIsUnsuspendedOnApply(t *testing.T) {
 	}
 
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"daily": {
 			Image:     "test-registry.example.com/my-agent:latest",
-			Resources: spec.StandardResources,
-			Trigger:   spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+			Resources: deployment.StandardResources,
+			Trigger:   deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
 		},
 	}
 
@@ -2015,15 +2015,15 @@ func TestApplyDeploymentSpec_OIDCAuth_FrontDoorOwnsOIDC(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
-		Auth: &spec.DeploymentInterfacesAuth{
-			Web: &spec.DeploymentWebAuth{Type: "oidc"},
+		Auth: &deployment.DeploymentInterfacesAuth{
+			Web: &deployment.DeploymentWebAuth{Type: "oidc"},
 		},
 	}
 
@@ -2066,10 +2066,10 @@ func TestApplyDeploymentSpec_IdentityTokenInjectedIntoAgentAndMessaging(t *testi
 	a.deployTokenSecret = "test-secret"
 
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
@@ -2142,15 +2142,15 @@ func TestApplyDeploymentSpec_SlackAnyoneGrantInToken(t *testing.T) {
 	a.deployTokenSecret = "test-secret"
 
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 		},
-		Auth: &spec.DeploymentInterfacesAuth{
-			Slack: &spec.DeploymentSlackAuth{
-				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+		Auth: &deployment.DeploymentInterfacesAuth{
+			Slack: &deployment.DeploymentSlackAuth{
+				Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 			},
 		},
 	}
@@ -2198,10 +2198,10 @@ func TestApplyDeploymentSpec_CustomAnyoneGrantInToken(t *testing.T) {
 	// adapter. The agent's exposed http endpoint (from minimalDeploymentSpec)
 	// is the interface; auth.custom records who may reach it.
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
-		Auth: &spec.DeploymentInterfacesAuth{
-			Custom: &spec.DeploymentCustomAuth{
-				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+	ds.Interfaces = &deployment.DeploymentInterfaces{
+		Auth: &deployment.DeploymentInterfacesAuth{
+			Custom: &deployment.DeploymentCustomAuth{
+				Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 			},
 		},
 	}
@@ -2246,15 +2246,15 @@ func TestApplyDeploymentSpec_RefusesGrantsWithoutSecret(t *testing.T) {
 	// a.deployTokenSecret intentionally empty
 
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 		},
-		Auth: &spec.DeploymentInterfacesAuth{
-			Web: &spec.DeploymentWebAuth{
-				Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+		Auth: &deployment.DeploymentInterfacesAuth{
+			Web: &deployment.DeploymentWebAuth{
+				Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 			},
 		},
 	}
@@ -2287,10 +2287,10 @@ func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 	// a.deployTokenSecret left empty
 
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
@@ -2322,12 +2322,12 @@ func TestApplyDeploymentSpec_IdentityTokenSkippedWhenSecretUnset(t *testing.T) {
 func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Agent(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"db": {
 			Image:     "test-registry.example.com/pgvector:latest",
 			Endpoints: httpEp(5432),
 			Replicas:  1,
-			Update:    spec.DefaultUpdateStrategy(),
+			Update:    deployment.DefaultUpdateStrategy(),
 			Provider:  "postgres",
 		},
 	}
@@ -2377,19 +2377,19 @@ func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Agent(t *testing.T) {
 func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Ingestion(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"db": {
 			Image:     "test-registry.example.com/pgvector:latest",
 			Endpoints: httpEp(5432),
 			Replicas:  1,
-			Update:    spec.DefaultUpdateStrategy(),
+			Update:    deployment.DefaultUpdateStrategy(),
 			Provider:  "postgres",
 		},
 	}
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"sync": {
 			Image:   "test-registry.example.com/sync:latest",
-			Trigger: spec.DeploymentTrigger{Type: "startup"},
+			Trigger: deployment.DeploymentTrigger{Type: "startup"},
 		},
 	}
 
@@ -2431,14 +2431,14 @@ func TestApplyDeploymentSpec_KnowledgeCredSecretKeyRefs_Ingestion(t *testing.T) 
 func TestApplyDeploymentSpec_K8_IngestionContainerMountsConfigMapAndSecret(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"PLAIN_VAR":  {Value: "hello", Secret: false, Targets: []string{"agent", "ingestion"}},
 		"SECRET_VAR": {Value: "secret", Secret: true, Targets: []string{"agent", "ingestion"}},
 	}
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"nightly": {
 			Image:   "test-registry.example.com/sync:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+			Trigger: deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
 		},
 	}
 
@@ -2487,7 +2487,7 @@ func TestApplyDeploymentSpec_K10_SecretValueNotInConfigMap(t *testing.T) {
 		"API_KEY":   "${variables.API_KEY}",
 		"LOG_LEVEL": "${variables.LOG_LEVEL}",
 	}
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"API_KEY":   {Value: "sk-top-secret", Secret: true},
 		"LOG_LEVEL": {Value: "debug", Secret: false},
 	}
@@ -2538,14 +2538,14 @@ func TestWebIngressDomain(t *testing.T) {
 // interfaces.auth.custom.public, with an explicit expose.domain overriding both.
 func TestResolveAgentIngressHost_Cohort(t *testing.T) {
 	const agent = "my-agent"
-	exposed := func(domain string) map[string]spec.Endpoint {
-		return map[string]spec.Endpoint{
-			"http": {Port: 80, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true, Domain: domain}},
+	exposed := func(domain string) map[string]deployment.Endpoint {
+		return map[string]deployment.Endpoint{
+			"http": {Port: 80, Protocol: "http", Expose: &deployment.EndpointExpose{Enabled: true, Domain: domain}},
 		}
 	}
-	customAuth := func(public bool) *spec.DeploymentInterfaces {
-		return &spec.DeploymentInterfaces{
-			Auth: &spec.DeploymentInterfacesAuth{Custom: &spec.DeploymentCustomAuth{Public: public}},
+	customAuth := func(public bool) *deployment.DeploymentInterfaces {
+		return &deployment.DeploymentInterfaces{
+			Auth: &deployment.DeploymentInterfacesAuth{Custom: &deployment.DeploymentCustomAuth{Public: public}},
 		}
 	}
 	newApplier := func() *Applier {
@@ -2614,9 +2614,9 @@ func TestEnsureKnowledgeCredentialSecrets_BoundStore(t *testing.T) {
 			"pg.database": "mydb",
 		},
 	}
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "b1"},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	ds := &deployment.AstroDeploymentSpec{
+		Source: deployment.DeploymentSource{Name: "my-agent", Build: "b1"},
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
 		},
 	}
@@ -2666,9 +2666,9 @@ func TestEnsureKnowledgeCredentialSecrets_BoundStore(t *testing.T) {
 func TestEnsureKnowledgeCredentialSecrets_BoundStoreNoCreds(t *testing.T) {
 	fakeClient := fake.NewClientset()
 	a := &Applier{clientset: fakeClient, namespace: "test-ns"} // no boundCredentials
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "b1"},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	ds := &deployment.AstroDeploymentSpec{
+		Source: deployment.DeploymentSource{Name: "my-agent", Build: "b1"},
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
 		},
 	}
@@ -2708,7 +2708,7 @@ func TestApplyDeploymentSpec_BoundStoreEndToEnd(t *testing.T) {
 	}
 
 	ds := minimalDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"pg": {Provider: "postgres", Binding: "arn:knowledge:acme:shared-pg"},
 	}
 	// Mirror template.go's auto-injected coord ref (credentials are NOT injected

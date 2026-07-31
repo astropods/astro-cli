@@ -9,15 +9,15 @@ import (
 	spec "github.com/astropods/astro-spec"
 )
 
-func httpEndpoints(port int) map[string]spec.Endpoint {
-	return map[string]spec.Endpoint{"http": {Port: port}}
+func httpEndpoints(port int) map[string]Endpoint {
+	return map[string]Endpoint{"http": {Port: port}}
 }
 
 func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "my-agent", Build: "abc123"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "agent:latest",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -26,7 +26,7 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 				"LLM_PORT": "${models.llm.http.port}",
 			},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]DeploymentModel{
 			"llm": {Image: "my-model:latest", Endpoints: httpEndpoints(8000)},
 		},
 	}
@@ -59,10 +59,10 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -70,7 +70,7 @@ func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
 				"QDRANT_PORT": "${knowledge.docs.http.port}",
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]DeploymentKnowledge{
 			"docs": {Image: "qdrant:latest", Endpoints: httpEndpoints(6333)},
 		},
 	}
@@ -88,17 +88,17 @@ func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"SEARCH_URL": "${integrations.search.http.url}",
 			},
 		},
-		Integrations: map[string]spec.DeploymentIntegration{
+		Integrations: map[string]DeploymentIntegration{
 			"search": {Image: "search:latest", Endpoints: httpEndpoints(3000)},
 		},
 	}
@@ -116,17 +116,17 @@ func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_VariableReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"API_KEY": "${variables.ANTHROPIC_API_KEY}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"ANTHROPIC_API_KEY": {Value: "sk-secret-123", Secret: true},
 		},
 	}
@@ -149,10 +149,10 @@ func TestResolveDeploymentSpecEnv_VariableReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_SourceReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123", Account: "acme"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "my-agent", Build: "abc123", Account: "acme"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -178,17 +178,17 @@ func TestResolveDeploymentSpecEnv_SourceReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"COMBINED": "http://${models.llm.host}:${models.llm.http.port}/v1",
 			},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]DeploymentModel{
 			"llm": {Image: "my-model:latest", Endpoints: httpEndpoints(8000)},
 		},
 	}
@@ -206,10 +206,10 @@ func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_PlainValues(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -231,10 +231,10 @@ func TestResolveDeploymentSpecEnv_PlainValues(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "my-agent", Build: "abc123"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 	}
 
 	rctx := ResolveContext{Namespace: "prod", AgentName: "my-agent"}
@@ -259,15 +259,15 @@ func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_ExternalAgentURL(t *testing.T) {
-	exposedEndpoints := func(port int) map[string]spec.Endpoint {
-		return map[string]spec.Endpoint{
-			"http": {Port: port, Expose: &spec.EndpointExpose{Enabled: true}},
+	exposedEndpoints := func(port int) map[string]Endpoint {
+		return map[string]Endpoint{
+			"http": {Port: port, Expose: &EndpointExpose{Enabled: true}},
 		}
 	}
 
 	tests := []struct {
 		name              string
-		endpoints         map[string]spec.Endpoint
+		endpoints         map[string]Endpoint
 		externalAgentHost string
 		wantURL           string // empty means key must be absent
 	}{
@@ -293,9 +293,9 @@ func TestResolveDeploymentSpecEnv_ExternalAgentURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ds := &spec.AstroDeploymentSpec{
-				Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-				Agent:  spec.DeploymentAgent{Image: "x", Endpoints: tc.endpoints},
+			ds := &AstroDeploymentSpec{
+				Source: DeploymentSource{Name: "agent", Build: "b1"},
+				Agent:  DeploymentAgent{Image: "x", Endpoints: tc.endpoints},
 			}
 			rctx := ResolveContext{
 				Namespace:         "ns",
@@ -312,11 +312,11 @@ func TestResolveDeploymentSpecEnv_ExternalAgentURL(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Observability: spec.DeploymentObservability{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Observability: DeploymentObservability{
 			Enabled: true,
 			Port:    5318,
 		},
@@ -332,11 +332,11 @@ func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_OTELDefaultPort(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Observability: spec.DeploymentObservability{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Observability: DeploymentObservability{
 			Enabled: true,
 			// Port: 0 — should default to 4318
 		},
@@ -352,11 +352,11 @@ func TestResolveDeploymentSpecEnv_OTELDefaultPort(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_ObservabilityEnv(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Observability: spec.DeploymentObservability{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Observability: DeploymentObservability{
 			Enabled: true,
 			Environment: map[string]string{
 				"CUSTOM_COLLECTOR_VAR": "some-value",
@@ -373,16 +373,16 @@ func TestResolveDeploymentSpecEnv_ObservabilityEnv(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_InterfacesGRPCAddr(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack", "web"},
 			Image:    "messaging:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
-				"http": {Port: 8080, Expose: &spec.EndpointExpose{Enabled: true}},
+				"http": {Port: 8080, Expose: &EndpointExpose{Enabled: true}},
 			},
 		},
 	}
@@ -397,14 +397,14 @@ func TestResolveDeploymentSpecEnv_InterfacesGRPCAddr(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_InterfacesCustomPort(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Image:    "messaging:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 7070, Protocol: "grpc"},
 			},
 		},
@@ -420,11 +420,11 @@ func TestResolveDeploymentSpecEnv_InterfacesCustomPort(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_InterfacesDefaultPort(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Image:    "messaging:latest",
 			// No endpoints — should default to 9090
@@ -441,14 +441,14 @@ func TestResolveDeploymentSpecEnv_InterfacesDefaultPort(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_InterfaceEnvVariableRefs(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Image:    "messaging:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
 			},
 			Environment: map[string]string{
@@ -456,7 +456,7 @@ func TestResolveDeploymentSpecEnv_InterfaceEnvVariableRefs(t *testing.T) {
 				"SLACK_APP_TOKEN": "${variables.SLACK_APP_TOKEN}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"SLACK_BOT_TOKEN": {Value: "xoxb-test-token", Secret: true},
 			"SLACK_APP_TOKEN": {Value: "xapp-test-token", Secret: true},
 		},
@@ -484,10 +484,10 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 	// Verifies that Jira-style secret variables are correctly resolved into
 	// SecretData and that ${variables.*} references in the agent environment
 	// resolve to the actual values.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -496,7 +496,7 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 				"JIRA_EMAIL":    "${variables.JIRA_EMAIL}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"JIRA_API_KEY":  {Value: "jira-token-abc", Secret: true},
 			"JIRA_BASE_URL": {Value: "https://myorg.atlassian.net", Secret: true},
 			"JIRA_EMAIL":    {Value: "bot@myorg.com", Secret: true},
@@ -525,17 +525,17 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_CompositeSecretRef(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"AUTH_HEADER": "Bearer ${variables.API_KEY}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"API_KEY": {Value: "sk-secret-123", Secret: true},
 		},
 	}
@@ -555,17 +555,17 @@ func TestResolveDeploymentSpecEnv_CompositeSecretRef(t *testing.T) {
 func TestResolveDeploymentSpecEnv_HardcodedValueMatchingSecretKey(t *testing.T) {
 	// When a hardcoded env key matches a secret variable key (collected in phase 1),
 	// the hardcoded value should stay in SecretData (not duplicate into ConfigMap).
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"API_KEY": "hardcoded-override",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"API_KEY": {Value: "sk-secret-123", Secret: true},
 		},
 	}
@@ -584,11 +584,11 @@ func TestResolveDeploymentSpecEnv_HardcodedValueMatchingSecretKey(t *testing.T) 
 }
 
 func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Variables: map[string]Variable{
 			"EMPTY_KEY": {Value: "", Secret: true},
 		},
 	}
@@ -603,17 +603,17 @@ func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 }
 
 func TestResolveDeploymentSpecEnv_EmptyNonSecretVariableResolvesToEmptyString(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
 				"SLACK_CONFIG": "${variables.SLACK_CONFIG}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"SLACK_CONFIG": {Value: "", Secret: false},
 		},
 	}
@@ -629,10 +629,10 @@ func TestResolveDeploymentSpecEnv_EmptyNonSecretVariableResolvesToEmptyString(t 
 func TestResolveDeploymentSpecEnv_StrippedSecretRouting(t *testing.T) {
 	// Stripped spec (empty secret values): env keys referencing secret variables
 	// should still route to SecretData so backfill/repair key sets are correct.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Target: DeploymentTarget{},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -642,7 +642,7 @@ func TestResolveDeploymentSpecEnv_StrippedSecretRouting(t *testing.T) {
 				"APP_NAME":    "${variables.APP_NAME}",
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"API_KEY":  {Value: "", Secret: true}, // stripped
 			"APP_NAME": {Value: "my-app", Secret: false},
 		},
@@ -681,11 +681,11 @@ func TestResolveDeploymentSpecEnv_StrippedSecretRouting(t *testing.T) {
 // values. Before the fix, stripped specs routed secret-referencing env keys to
 // ConfigMapData because referencesSecret required v.Value != "".
 func TestResolveDeploymentSpecEnv_BackfillKeySetMatchesFreshDeploy(t *testing.T) {
-	makeSpec := func(secretValue string) *spec.AstroDeploymentSpec {
-		return &spec.AstroDeploymentSpec{
-			Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-			Target: spec.DeploymentTarget{},
-			Agent: spec.DeploymentAgent{
+	makeSpec := func(secretValue string) *AstroDeploymentSpec {
+		return &AstroDeploymentSpec{
+			Source: DeploymentSource{Name: "agent", Build: "b1"},
+			Target: DeploymentTarget{},
+			Agent: DeploymentAgent{
 				Image:     "x",
 				Endpoints: httpEndpoints(8080),
 				Environment: map[string]string{
@@ -695,7 +695,7 @@ func TestResolveDeploymentSpecEnv_BackfillKeySetMatchesFreshDeploy(t *testing.T)
 					"APP_NAME":    "${variables.APP_NAME}",
 				},
 			},
-			Variables: map[string]spec.Variable{
+			Variables: map[string]Variable{
 				"API_KEY":  {Value: secretValue, Secret: true},
 				"APP_NAME": {Value: "my-app", Secret: false},
 			},
@@ -876,10 +876,10 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	// Inject the bogus duplicate keys that the old code would have produced.
 	// The old CustomProviderCredentialKeys generated ANTHROPIC_ANTHROPIC_API_KEY
 	// and OPENAI_OPENAI_API_KEY from the custom provider path.
-	buggyTemplate.Variables["ANTHROPIC_ANTHROPIC_API_KEY"] = spec.Variable{
+	buggyTemplate.Variables["ANTHROPIC_ANTHROPIC_API_KEY"] = Variable{
 		Secret: true, Optional: true, Targets: []string{"agent"},
 	}
-	buggyTemplate.Variables["OPENAI_OPENAI_API_KEY"] = spec.Variable{
+	buggyTemplate.Variables["OPENAI_OPENAI_API_KEY"] = Variable{
 		Secret: true, Optional: true, Targets: []string{"agent"},
 	}
 	buggyTemplate.Agent.Environment["ANTHROPIC_ANTHROPIC_API_KEY"] = "${variables.ANTHROPIC_ANTHROPIC_API_KEY}"
@@ -919,7 +919,7 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	buggyTemplate.Spec = "deployment/v1"
 
 	// Strip secrets (as the server does before storing)
-	stripped := spec.StripSecretVariableValues(buggyTemplate)
+	stripped := StripSecretVariableValues(buggyTemplate)
 
 	// Verify the buggy spec has the problems
 	if _, ok := stripped.Variables["ANTHROPIC_ANTHROPIC_API_KEY"]; !ok {
@@ -1058,9 +1058,9 @@ func TestHasSecretValues(t *testing.T) {
 func TestResolveDeploymentSpecEnv_KnowledgeCredentialRefs(t *testing.T) {
 	// Credential refs (${knowledge.*.credentials.*}) should resolve from
 	// BoundCredentials for both bound and self-hosted entries.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "agent", Build: "b1"},
+		Agent: DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
@@ -1070,7 +1070,7 @@ func TestResolveDeploymentSpecEnv_KnowledgeCredentialRefs(t *testing.T) {
 				"POSTGRES_PASSWORD": "${knowledge.postgres.credentials.password}",
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {
 				Image:     "pgvector:latest",
 				Endpoints: httpEndpoints(5432),

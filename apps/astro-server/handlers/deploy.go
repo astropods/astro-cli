@@ -67,11 +67,11 @@ func NewTemplateCache() *TemplateCache {
 }
 
 type templateCacheEntry struct {
-	template  *spec.AstroDeploymentSpec
+	template  *deployment.AstroDeploymentSpec
 	expiresAt time.Time
 }
 
-func (tc *TemplateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
+func (tc *TemplateCache) get(key string) (*deployment.AstroDeploymentSpec, bool) {
 	if tc == nil {
 		return nil, false
 	}
@@ -87,7 +87,7 @@ func (tc *TemplateCache) get(key string) (*spec.AstroDeploymentSpec, bool) {
 	return entry.template, true
 }
 
-func (tc *TemplateCache) set(key string, tmpl *spec.AstroDeploymentSpec) {
+func (tc *TemplateCache) set(key string, tmpl *deployment.AstroDeploymentSpec) {
 	if tc == nil {
 		return
 	}
@@ -225,17 +225,17 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 // DeployAgent returns a handler for deploying agents to Kubernetes
 // parseDeploySpec reads and parses a deployment spec from the request body.
 // Supports both YAML and JSON (detected automatically).
-func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
+func parseDeploySpec(c *gin.Context) (*deployment.AstroDeploymentSpec, error) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body: %w", err)
 	}
-	return spec.ParseDeploymentSpec(body)
+	return deployment.ParseDeploymentSpec(body)
 }
 
 // applyAccountClusterPlacement sets target.cluster_id from the target account's
 // placement binding. Empty binding clears cluster_id (primary cluster).
-func applyAccountClusterPlacement(ds *spec.AstroDeploymentSpec, targetAcct *account.Account) {
+func applyAccountClusterPlacement(ds *deployment.AstroDeploymentSpec, targetAcct *account.Account) {
 	if ds == nil || targetAcct == nil {
 		return
 	}
@@ -309,7 +309,7 @@ func validateDeployTargetCluster(
 func respondDeploymentTemplate(
 	c *gin.Context,
 	cfg *config.Config,
-	resp *spec.TemplateResponse,
+	resp *deployment.TemplateResponse,
 	targetAcct *account.Account,
 	finalize bool,
 ) {
@@ -352,7 +352,7 @@ const (
 // only validates the marker shape and leaves it opaque.
 func hydratePreservedInlineSecrets(
 	ctx context.Context,
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 	existing *deploymentstore.Deployment,
 	store *deploymentstore.Store,
 	cfg *config.Config,
@@ -418,7 +418,7 @@ func hydratePreservedInlineSecrets(
 func prepareDeployment(
 	c *gin.Context,
 	log *logger.Logger,
-	submittedSpec *spec.AstroDeploymentSpec,
+	submittedSpec *deployment.AstroDeploymentSpec,
 	accountStore *account.AccountStore,
 	agentIndex *agentindex.Index,
 	cfg *config.Config,
@@ -764,7 +764,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				}
 			}
 			if len(requested) > 0 {
-				var bindingErrs []spec.ValidationError
+				var bindingErrs []deployment.ValidationError
 				resolvedBindings, bindingErrs = deployment.ResolveBindings(c.Request.Context(), ksStore, dctx.acct.ID, submittedSpec.Knowledge, requested)
 				if len(bindingErrs) > 0 {
 					c.JSON(http.StatusBadRequest, gin.H{
@@ -796,7 +796,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		stripped := spec.StripSecretVariableValues(dctx.resolveResult.Spec)
+		stripped := deployment.StripSecretVariableValues(dctx.resolveResult.Spec)
 		specJSON, marshalErr := json.Marshal(stripped)
 		if marshalErr != nil {
 			log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
@@ -3652,7 +3652,7 @@ func generateTemplate(
 	acct *account.Account,
 	agent *agentindex.Agent,
 	buildIDOverride string,
-) (*spec.AstroDeploymentSpec, bool) {
+) (*deployment.AstroDeploymentSpec, bool) {
 	accountID := acct.ID
 	name := agent.Name
 
@@ -3715,7 +3715,7 @@ func generateTemplate(
 func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, cache *TemplateCache) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
-		var req spec.TemplateRequest
+		var req deployment.TemplateRequest
 		if c.Request.Body != nil && c.Request.ContentLength != 0 {
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
@@ -3853,7 +3853,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			// For historical revisions, also override display name from the stored spec.
 			if req.Revision > 0 {
-				var storedSpec spec.AstroDeploymentSpec
+				var storedSpec deployment.AstroDeploymentSpec
 				if jsonErr := json.Unmarshal([]byte(prefillExisting.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
 					if storedSpec.Target.DisplayName != "" {
 						template.Target.DisplayName = storedSpec.Target.DisplayName
@@ -3919,12 +3919,12 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 //
 // Existing grants in the template (e.g. coming from the agent's astropods.yml)
 // are preserved — we only seed when both blocks are empty.
-func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID string) {
+func seedFreshAuthGrants(template *deployment.AstroDeploymentSpec, deployerUserID string) {
 	if template.Interfaces == nil {
 		return
 	}
 	if template.Interfaces.Auth == nil {
-		template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+		template.Interfaces.Auth = &deployment.DeploymentInterfacesAuth{}
 	}
 	auth := template.Interfaces.Auth
 	if (auth.Web != nil && len(auth.Web.Grants) > 0) || (auth.Slack != nil && len(auth.Slack.Grants) > 0) {
@@ -3932,13 +3932,13 @@ func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID stri
 	}
 
 	if auth.Web == nil {
-		auth.Web = &spec.DeploymentWebAuth{}
+		auth.Web = &deployment.DeploymentWebAuth{}
 	}
-	auth.Web.Grants = []spec.DeploymentAuthorizationGrant{{UserID: deployerUserID}}
+	auth.Web.Grants = []deployment.DeploymentAuthorizationGrant{{UserID: deployerUserID}}
 
 	if slices.Contains(template.Interfaces.Adapters, "slack") {
-		auth.Slack = &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+		auth.Slack = &deployment.DeploymentSlackAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 		}
 	}
 }
@@ -3950,7 +3950,7 @@ func seedFreshAuthGrants(template *spec.AstroDeploymentSpec, deployerUserID stri
 // astropods.yml) sets web grants but leaves slack unset. Without a slack
 // grant the signed token's anyone_adapters claim ends up empty and the
 // channel is unreachable. Existing slack grants are preserved.
-func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
+func ensureSlackAnyoneGrant(ds *deployment.AstroDeploymentSpec) {
 	if ds.Interfaces == nil {
 		return
 	}
@@ -3958,14 +3958,14 @@ func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
 		return
 	}
 	if ds.Interfaces.Auth == nil {
-		ds.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+		ds.Interfaces.Auth = &deployment.DeploymentInterfacesAuth{}
 	}
 	auth := ds.Interfaces.Auth
 	if auth.Slack != nil && len(auth.Slack.Grants) > 0 {
 		return
 	}
-	auth.Slack = &spec.DeploymentSlackAuth{
-		Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+	auth.Slack = &deployment.DeploymentSlackAuth{
+		Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 	}
 }
 
@@ -3975,7 +3975,7 @@ func ensureSlackAnyoneGrant(ds *spec.AstroDeploymentSpec) {
 // applyStoredVarsToRequest instead, because adapter-injected variables
 // (e.g. SLACK_BOT_TOKEN) only exist on the template after ShapeTemplate's
 // ApplyAdapterShaping pass.
-func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSpec, existing *deploymentstore.Deployment, accountStore *account.AccountStore, deployStore *deploymentstore.Store, authzStore *authorizationstore.Store) {
+func mergeDeploymentPrefill(log *logger.Logger, template *deployment.AstroDeploymentSpec, existing *deploymentstore.Deployment, accountStore *account.AccountStore, deployStore *deploymentstore.Store, authzStore *authorizationstore.Store) {
 	template.Target.DeploymentID = existing.ID
 	template.Target.DisplayName = existing.DisplayName
 
@@ -3989,7 +3989,7 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 	// nested / optional and don't have flat columns, so the JSON path is
 	// still the simplest source.
 	if existing.DeploymentSpecJSON != "" {
-		var storedSpec spec.AstroDeploymentSpec
+		var storedSpec deployment.AstroDeploymentSpec
 		if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
 			// Restore stored adapters + auth (incl. web/custom public flags). A
 			// custom-interface-only agent's freshly generated base has no
@@ -3998,7 +3998,7 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 			// redeploy.
 			if storedSpec.Interfaces != nil {
 				if template.Interfaces == nil {
-					template.Interfaces = &spec.DeploymentInterfaces{}
+					template.Interfaces = &deployment.DeploymentInterfaces{}
 				}
 				template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
 				template.Interfaces.Auth = storedSpec.Interfaces.Auth
@@ -4046,14 +4046,14 @@ func mergeDeploymentPrefill(log *logger.Logger, template *spec.AstroDeploymentSp
 // runs, but ShapeTemplate's variable-filling pass runs after that, so by then
 // req.Variables can populate the freshly-injected entry.
 func applyStoredVarsToRequest(
-	req *spec.TemplateRequest,
+	req *deployment.TemplateRequest,
 	storedVars []deploymentstore.Variable,
 ) {
 	for _, sv := range storedVars {
 		if _, alreadySet := req.Variables[sv.Name]; alreadySet {
 			continue
 		}
-		var input spec.VariableInput
+		var input deployment.VariableInput
 		switch {
 		case sv.Ref != "":
 			// Originally set via an account variable reference — restore the
@@ -4069,7 +4069,7 @@ func applyStoredVarsToRequest(
 			continue
 		}
 		if req.Variables == nil {
-			req.Variables = make(map[string]spec.VariableInput)
+			req.Variables = make(map[string]deployment.VariableInput)
 		}
 		req.Variables[sv.Name] = input
 	}
@@ -4094,7 +4094,7 @@ func shapeOptsWithConfiguredInlineSecrets(opts *deployment.ShapeOptions, stored 
 // deploy handler runs the resulting list through ReplaceGrantsTx inside the
 // same transaction that creates the deployment row, so the grants table is
 // never out of sync with the deployments table.
-func buildAuthorizationGrants(deploymentID string, ds *spec.AstroDeploymentSpec) []authorizationstore.Grant {
+func buildAuthorizationGrants(deploymentID string, ds *deployment.AstroDeploymentSpec) []authorizationstore.Grant {
 	var grants []authorizationstore.Grant
 	if ds == nil {
 		return grants
@@ -4126,7 +4126,7 @@ func buildAuthorizationGrants(deploymentID string, ds *spec.AstroDeploymentSpec)
 //
 // Caller must have run validateAuthorizationSpec first to ensure exactly one
 // of the three subject fields is set.
-func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant, adapter string) authorizationstore.Grant {
+func specGrantToStore(deploymentID string, g deployment.DeploymentAuthorizationGrant, adapter string) authorizationstore.Grant {
 	out := authorizationstore.Grant{DeploymentID: deploymentID, Adapter: adapter}
 	switch {
 	case g.Anyone:
@@ -4145,8 +4145,8 @@ func specGrantToStore(deploymentID string, g spec.DeploymentAuthorizationGrant, 
 // storeGrantToSpec is the inverse of specGrantToStore. Returns a spec grant
 // (without an adapter field — that's encoded by where the grant ends up in
 // the auth block).
-func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationGrant {
-	out := spec.DeploymentAuthorizationGrant{}
+func storeGrantToSpec(g *authorizationstore.Grant) deployment.DeploymentAuthorizationGrant {
+	out := deployment.DeploymentAuthorizationGrant{}
 	switch g.SubjectType {
 	case authorizationstore.SubjectTypeAnyone:
 		out.Anyone = true
@@ -4162,7 +4162,7 @@ func storeGrantToSpec(g *authorizationstore.Grant) spec.DeploymentAuthorizationG
 // (org/user/anyone) and that slack grants are org-scoped only.
 // Returns a list of human-readable error strings, empty when the block is
 // valid.
-func validateAuthorizationSpec(ds *spec.AstroDeploymentSpec) []string {
+func validateAuthorizationSpec(ds *deployment.AstroDeploymentSpec) []string {
 	if ds == nil {
 		return nil
 	}
@@ -4171,7 +4171,7 @@ func validateAuthorizationSpec(ds *spec.AstroDeploymentSpec) []string {
 
 	// adapter keys the dedup set; path is the spec location used in messages
 	// (frontend grants live on the endpoint, not under interfaces.auth).
-	check := func(adapter, path string, grants []spec.DeploymentAuthorizationGrant) {
+	check := func(adapter, path string, grants []deployment.DeploymentAuthorizationGrant) {
 		for i, g := range grants {
 			prefix := fmt.Sprintf("%s[%d]", path, i)
 
@@ -4260,7 +4260,7 @@ func validateAuthorizationSpec(ds *spec.AstroDeploymentSpec) []string {
 // template's interfaces.auth so the UI reflects the live access state. Used by
 // the deployment-template prefill path on redeploys. Grants are dispatched into
 // auth.web / auth.slack / auth.custom based on each row's adapter.
-func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationstore.Store, deploymentID string, template *spec.AstroDeploymentSpec) {
+func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationstore.Store, deploymentID string, template *deployment.AstroDeploymentSpec) {
 	grants, err := authzStore.ListGrants(deploymentID)
 	if err != nil {
 		log.Error("Failed to list authorization grants", "error", err, "deployment_id", deploymentID)
@@ -4280,12 +4280,12 @@ func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationst
 		}
 	}
 
-	ensureAuth := func() *spec.DeploymentInterfacesAuth {
+	ensureAuth := func() *deployment.DeploymentInterfacesAuth {
 		if template.Interfaces == nil {
-			template.Interfaces = &spec.DeploymentInterfaces{}
+			template.Interfaces = &deployment.DeploymentInterfaces{}
 		}
 		if template.Interfaces.Auth == nil {
-			template.Interfaces.Auth = &spec.DeploymentInterfacesAuth{}
+			template.Interfaces.Auth = &deployment.DeploymentInterfacesAuth{}
 		}
 		return template.Interfaces.Auth
 	}
@@ -4296,19 +4296,19 @@ func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationst
 		case authorizationstore.AdapterWeb:
 			auth := ensureAuth()
 			if auth.Web == nil {
-				auth.Web = &spec.DeploymentWebAuth{}
+				auth.Web = &deployment.DeploymentWebAuth{}
 			}
 			auth.Web.Grants = append(auth.Web.Grants, sg)
 		case authorizationstore.AdapterSlack:
 			auth := ensureAuth()
 			if auth.Slack == nil {
-				auth.Slack = &spec.DeploymentSlackAuth{}
+				auth.Slack = &deployment.DeploymentSlackAuth{}
 			}
 			auth.Slack.Grants = append(auth.Slack.Grants, sg)
 		case authorizationstore.AdapterCustom:
 			auth := ensureAuth()
 			if auth.Custom == nil {
-				auth.Custom = &spec.DeploymentCustomAuth{}
+				auth.Custom = &deployment.DeploymentCustomAuth{}
 			}
 			auth.Custom.Grants = append(auth.Custom.Grants, sg)
 		}

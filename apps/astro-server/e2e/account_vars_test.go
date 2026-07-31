@@ -10,7 +10,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
-	spec "github.com/astropods/astro-spec"
 	_ "github.com/lib/pq"
 )
 
@@ -414,8 +413,8 @@ func TestAccountVars_RefResolution(t *testing.T) {
 	}
 
 	// Build a spec with refs and literal values
-	submittedSpec := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	submittedSpec := &deployment.AstroDeploymentSpec{
+		Variables: map[string]deployment.Variable{
 			"API_KEY":   {Ref: "API_KEY", Secret: true, Targets: []string{"agent"}},
 			"LOG_LEVEL": {Ref: "LOG_LEVEL", Targets: []string{"agent"}},
 			"INLINE":    {Value: "literal-value", Targets: []string{"agent"}, Optional: true},
@@ -474,7 +473,7 @@ func TestAccountVars_RefValidation(t *testing.T) {
 	// ref counts as provided — required variable with ref should pass
 	t.Run("ref_satisfies_required", func(t *testing.T) {
 		ds := minimalDeploySpec()
-		ds.Variables = map[string]spec.Variable{
+		ds.Variables = map[string]deployment.Variable{
 			"MY_KEY": {Ref: "MY_KEY", Targets: []string{"agent"}, Secret: true},
 		}
 		result, err := deployment.ValidateAndResolve(ds)
@@ -489,7 +488,7 @@ func TestAccountVars_RefValidation(t *testing.T) {
 	// both value and ref set — should error
 	t.Run("value_and_ref_conflict", func(t *testing.T) {
 		ds := minimalDeploySpec()
-		ds.Variables = map[string]spec.Variable{
+		ds.Variables = map[string]deployment.Variable{
 			"MY_KEY": {Value: "inline", Ref: "MY_KEY", Targets: []string{"agent"}},
 		}
 		result, err := deployment.ValidateAndResolve(ds)
@@ -513,7 +512,7 @@ func TestAccountVars_RefValidation(t *testing.T) {
 	// empty required variable without ref — should error
 	t.Run("empty_required_no_ref", func(t *testing.T) {
 		ds := minimalDeploySpec()
-		ds.Variables = map[string]spec.Variable{
+		ds.Variables = map[string]deployment.Variable{
 			"MY_KEY": {Targets: []string{"agent"}, Secret: true},
 		}
 		result, err := deployment.ValidateAndResolve(ds)
@@ -567,17 +566,17 @@ func TestAccountVars_RefMissing(t *testing.T) {
 }
 
 // minimalDeploySpec returns a bare-minimum valid deployment spec for validation tests.
-func minimalDeploySpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func minimalDeploySpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Account: "test",
 			Name:    "agent",
 			Build:   "b1",
 		},
-		Agent: spec.DeploymentAgent{
+		Agent: deployment.DeploymentAgent{
 			Image: "test:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]deployment.Endpoint{
 				"http": {Port: 8080, Protocol: "http"},
 			},
 		},

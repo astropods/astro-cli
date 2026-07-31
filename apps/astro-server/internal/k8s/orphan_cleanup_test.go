@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
-	spec "github.com/astropods/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -37,11 +36,11 @@ func TestComputeExpectedResourceNames_MinimalAgent(t *testing.T) {
 
 func TestComputeExpectedResourceNames_WithIntegrationsAndKnowledge(t *testing.T) {
 	ds := minimalDeploymentSpec()
-	ds.Integrations = map[string]spec.DeploymentIntegration{
-		"search": {Image: "img", Endpoints: httpEp(3000), Replicas: 1, Update: spec.DefaultUpdateStrategy()},
+	ds.Integrations = map[string]deployment.DeploymentIntegration{
+		"search": {Image: "img", Endpoints: httpEp(3000), Replicas: 1, Update: deployment.DefaultUpdateStrategy()},
 	}
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
-		"docs": {Image: "img", Endpoints: httpEp(6333), Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy()},
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
+		"docs": {Image: "img", Endpoints: httpEp(6333), Replicas: 1, Persistent: true, Update: deployment.DefaultUpdateStrategy()},
 	}
 
 	expected := computeExpectedResourceNames(ds, "", "")
@@ -68,10 +67,10 @@ func TestComputeExpectedResourceNames_WithIntegrationsAndKnowledge(t *testing.T)
 
 func TestComputeExpectedResourceNames_WithIngestion(t *testing.T) {
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
-		"daily": {Image: "img", Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"}},
-		"init":  {Image: "img", Trigger: spec.DeploymentTrigger{Type: "startup"}},
-		"hook":  {Image: "img", Endpoints: httpEp(9090), Trigger: spec.DeploymentTrigger{Type: "webhook"}},
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
+		"daily": {Image: "img", Trigger: deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"}},
+		"init":  {Image: "img", Trigger: deployment.DeploymentTrigger{Type: "startup"}},
+		"hook":  {Image: "img", Endpoints: httpEp(9090), Trigger: deployment.DeploymentTrigger{Type: "webhook"}},
 	}
 
 	expected := computeExpectedResourceNames(ds, "", "ingestion.example.com")
@@ -102,7 +101,7 @@ func TestComputeExpectedResourceNames_WithIngestion(t *testing.T) {
 
 func TestComputeExpectedResourceNames_WithObservability(t *testing.T) {
 	ds := minimalDeploymentSpec()
-	ds.Observability = spec.DeploymentObservability{Enabled: true}
+	ds.Observability = deployment.DeploymentObservability{Enabled: true}
 
 	expected := computeExpectedResourceNames(ds, "", "")
 
@@ -117,10 +116,10 @@ func TestComputeExpectedResourceNames_WithObservability(t *testing.T) {
 
 func TestComputeExpectedResourceNames_WithMessagingAndIngress(t *testing.T) {
 	ds := minimalDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &deployment.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]deployment.Endpoint{
 			"grpc": {Port: 9090, Protocol: "grpc"},
 			"http": {Port: 8080, Protocol: "http"},
 		},
@@ -145,10 +144,10 @@ func TestCleanupOrphanedResources_DeletesRemovedTool(t *testing.T) {
 
 	// First deploy with an integration
 	ds := minimalDeploymentSpec()
-	ds.Integrations = map[string]spec.DeploymentIntegration{
+	ds.Integrations = map[string]deployment.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
-			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 		},
 	}
 
@@ -202,10 +201,10 @@ func TestCleanupOrphanedResources_KeepsCurrentResources(t *testing.T) {
 	ctx := context.Background()
 
 	ds := minimalDeploymentSpec()
-	ds.Integrations = map[string]spec.DeploymentIntegration{
+	ds.Integrations = map[string]deployment.DeploymentIntegration{
 		"search": {
 			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
-			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			Replicas: 1, Update: deployment.DefaultUpdateStrategy(),
 		},
 	}
 

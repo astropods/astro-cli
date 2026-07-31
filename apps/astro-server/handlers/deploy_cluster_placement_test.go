@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 )
 
 func TestApplyAccountClusterPlacement(t *testing.T) {
 	clusterID := "eu-west-1-managed"
-	ds := &spec.AstroDeploymentSpec{Spec: "deployment/v1"}
+	ds := &deployment.AstroDeploymentSpec{Spec: "deployment/v1"}
 
 	applyAccountClusterPlacement(ds, &account.Account{ClusterID: &clusterID})
 	if ds.Target.ClusterID != clusterID {

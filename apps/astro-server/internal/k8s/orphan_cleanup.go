@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
-	spec "github.com/astropods/astro-spec"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -15,7 +14,7 @@ import (
 // map is keyed by resource kind (Service, Deployment, StatefulSet, Ingress,
 // CronJob, Job) and each value is a set of expected names.
 func computeExpectedResourceNames(
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 	ingressDomain string,
 	ingestionIngressDomain string,
 ) map[string]map[string]bool {
@@ -39,7 +38,7 @@ func computeExpectedResourceNames(
 	expected["StatefulSet"][agentResourceName] = true
 
 	// Agent ingress
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+	if ep := deployment.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		host := ""
 		if ep.Expose != nil {
 			host = ep.Expose.Domain
@@ -96,7 +95,7 @@ func computeExpectedResourceNames(
 		}
 		if webEnabled {
 			host := ""
-			if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
+			if ep := deployment.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
 				host = ep.Expose.Domain
 			}
 			if host == "" && ingressDomain != "" {

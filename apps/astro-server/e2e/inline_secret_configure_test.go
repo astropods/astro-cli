@@ -17,33 +17,33 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 )
 
 const configureInlineSecret = "sk-e2e-inline-configure-leak-test"
 
-func minimalAPIKeySpec(agentName, buildID, accountName string) *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func minimalAPIKeySpec(agentName, buildID, accountName string) *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Account:  accountName,
 			Name:     agentName,
 			Build:    buildID,
 			Registry: "test.ecr/repo",
 		},
-		Target: spec.DeploymentTarget{
+		Target: deployment.DeploymentTarget{
 			Runtime: "kubernetes",
 			Account: accountName,
 		},
-		Agent: spec.DeploymentAgent{
+		Agent: deployment.DeploymentAgent{
 			Image:     "test.ecr/repo/" + agentName + ":" + buildID,
 			Replicas:  1,
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {
 				Value: configureInlineSecret, Secret: true, Optional: false,
 				Targets: []string{"agent"},
@@ -53,11 +53,11 @@ func minimalAPIKeySpec(agentName, buildID, accountName string) *spec.AstroDeploy
 }
 
 func saveInlineSecretDeployment(
-	t *testing.T, db *sql.DB, store *ds.Store, accountID string, full *spec.AstroDeploymentSpec,
+	t *testing.T, db *sql.DB, store *ds.Store, accountID string, full *deployment.AstroDeploymentSpec,
 ) *ds.Deployment {
 	t.Helper()
 	ns := "ns-inline-" + deployid.Compact(deployid.New())
-	stripped := spec.StripSecretVariableValues(full)
+	stripped := deployment.StripSecretVariableValues(full)
 	specJSON, err := json.Marshal(stripped)
 	if err != nil {
 		t.Fatalf("marshal stripped spec: %v", err)
@@ -146,7 +146,7 @@ func TestConfigurePrefill_InlineSecret_NotInResponse(t *testing.T) {
 		t.Fatal("configure template response must not contain inline secret plaintext")
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

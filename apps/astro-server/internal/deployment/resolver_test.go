@@ -2,20 +2,18 @@ package deployment
 
 import (
 	"testing"
-
-	spec "github.com/astropods/astro-spec"
 )
 
-func agentEndpoints() map[string]spec.Endpoint {
-	return map[string]spec.Endpoint{"http": {Port: 8080}}
+func agentEndpoints() map[string]Endpoint {
+	return map[string]Endpoint{"http": {Port: 8080}}
 }
 
-func baseDeploymentSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func baseDeploymentSpec() *AstroDeploymentSpec {
+	return &AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "agent", Build: "b1", Account: "acme"},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
-		Agent:  spec.DeploymentAgent{Image: "agent:latest", Endpoints: agentEndpoints()},
+		Source: DeploymentSource{Name: "agent", Build: "b1", Account: "acme"},
+		Target: DeploymentTarget{Runtime: "kubernetes"},
+		Agent:  DeploymentAgent{Image: "agent:latest", Endpoints: agentEndpoints()},
 	}
 }
 
@@ -35,7 +33,7 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 
 func TestValidateAndResolve_EmptyRequiredVariable(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]Variable{
 		"API_KEY": {Value: "", Description: "required key", Secret: true},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -49,7 +47,7 @@ func TestValidateAndResolve_EmptyRequiredVariable(t *testing.T) {
 
 func TestValidateAndResolve_ConfiguredRequiredSecret(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]Variable{
 		"API_KEY": {Secret: true, Configured: true},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -63,7 +61,7 @@ func TestValidateAndResolve_ConfiguredRequiredSecret(t *testing.T) {
 
 func TestValidateAndResolve_OptionalEmptyVariable(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]Variable{
 		"OPTIONAL_KEY": {Value: "", Description: "optional", Optional: true, Secret: true},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -77,10 +75,10 @@ func TestValidateAndResolve_OptionalEmptyVariable(t *testing.T) {
 
 func TestValidateAndResolve_InvalidCronExpression(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"ingest": {
 			Image:   "ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "not-a-cron"},
+			Trigger: DeploymentTrigger{Type: "schedule", Schedule: "not-a-cron"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -94,10 +92,10 @@ func TestValidateAndResolve_InvalidCronExpression(t *testing.T) {
 
 func TestValidateAndResolve_ValidCronExpression(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"ingest": {
 			Image:   "ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 * * * *"},
+			Trigger: DeploymentTrigger{Type: "schedule", Schedule: "0 * * * *"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -111,10 +109,10 @@ func TestValidateAndResolve_ValidCronExpression(t *testing.T) {
 
 func TestValidateAndResolve_MissingScheduleForScheduleTrigger(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"ingest": {
 			Image:   "ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule"},
+			Trigger: DeploymentTrigger{Type: "schedule"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -128,10 +126,10 @@ func TestValidateAndResolve_MissingScheduleForScheduleTrigger(t *testing.T) {
 
 func TestValidateAndResolve_InvalidAdapterName(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &DeploymentInterfaces{
 		Adapters:  []string{"telegram"},
 		Image:     "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
+		Endpoints: map[string]Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -144,10 +142,10 @@ func TestValidateAndResolve_InvalidAdapterName(t *testing.T) {
 
 func TestValidateAndResolve_SlackAdapterRequiresTokens(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &DeploymentInterfaces{
 		Adapters:  []string{"slack"},
 		Image:     "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
+		Endpoints: map[string]Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -160,12 +158,12 @@ func TestValidateAndResolve_SlackAdapterRequiresTokens(t *testing.T) {
 
 func TestValidateAndResolve_SlackAdapterWithTokens(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &DeploymentInterfaces{
 		Adapters:  []string{"slack"},
 		Image:     "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
+		Endpoints: map[string]Endpoint{"grpc": {Port: 9090}},
 	}
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]Variable{
 		"SLACK_BOT_TOKEN": {Value: "xoxb-123", Secret: true},
 		"SLACK_APP_TOKEN": {Value: "xapp-456", Secret: true},
 	}
@@ -197,8 +195,8 @@ func TestValidateAndResolve_ValidReference(t *testing.T) {
 	ds.Agent.Environment = map[string]string{
 		"LLM_URL": "${models.llm.http.url}",
 	}
-	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "my-model:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}}},
+	ds.Models = map[string]DeploymentModel{
+		"llm": {Image: "my-model:latest", Endpoints: map[string]Endpoint{"http": {Port: 8000}}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -212,15 +210,15 @@ func TestValidateAndResolve_ValidReference(t *testing.T) {
 func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Agent.Replicas = 0
-	ds.Agent.Update = spec.UpdateStrategy{}
-	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "my-model:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}}},
+	ds.Agent.Update = UpdateStrategy{}
+	ds.Models = map[string]DeploymentModel{
+		"llm": {Image: "my-model:latest", Endpoints: map[string]Endpoint{"http": {Port: 8000}}},
 	}
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
-		"docs": {Image: "qdrant:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}, Persistent: true},
+	ds.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Image: "qdrant:latest", Endpoints: map[string]Endpoint{"http": {Port: 6333}}, Persistent: true},
 	}
-	ds.Integrations = map[string]spec.DeploymentIntegration{
-		"search": {Image: "search:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
+	ds.Integrations = map[string]DeploymentIntegration{
+		"search": {Image: "search:latest", Endpoints: map[string]Endpoint{"http": {Port: 3000}}},
 	}
 
 	result, err := ValidateAndResolve(ds)
@@ -265,7 +263,7 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 
 func TestValidateAndResolve_BoundKnowledgeSkipsDefaults(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]DeploymentKnowledge{
 		"docs": {Binding: "arn:knowledge-store:acct123:my-pg-store"},
 	}
 
@@ -289,7 +287,7 @@ func TestValidateAndResolve_BoundKnowledgeSkipsDefaults(t *testing.T) {
 func TestValidateAndResolve_BoundKnowledgeSkipsValidation(t *testing.T) {
 	ds := baseDeploymentSpec()
 	// Bound entry has no image or endpoints — should pass validation
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]DeploymentKnowledge{
 		"docs": {Binding: "arn:knowledge-store:acct123:my-pg-store"},
 	}
 
@@ -310,11 +308,11 @@ func TestValidateAndResolve_BoundKnowledgeSkipsValidation(t *testing.T) {
 
 func TestValidateAndResolve_MixedBoundAndInlineKnowledge(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]DeploymentKnowledge{
 		"managed": {Binding: "arn:knowledge-store:acct123:pg-store"},
 		"local": {
 			Image:      "qdrant:latest",
-			Endpoints:  map[string]spec.Endpoint{"http": {Port: 6333}},
+			Endpoints:  map[string]Endpoint{"http": {Port: 6333}},
 			Persistent: true,
 		},
 	}
@@ -351,8 +349,8 @@ func TestValidateAndResolve_MixedBoundAndInlineKnowledge(t *testing.T) {
 
 func TestValidateAndResolve_InlineKnowledgeMissingImage(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
-		"docs": {Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}},
+	ds.Knowledge = map[string]DeploymentKnowledge{
+		"docs": {Endpoints: map[string]Endpoint{"http": {Port: 6333}}},
 	}
 
 	result, err := ValidateAndResolve(ds)
@@ -366,7 +364,7 @@ func TestValidateAndResolve_InlineKnowledgeMissingImage(t *testing.T) {
 
 func TestValidateAndResolve_InlineKnowledgeMissingEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]DeploymentKnowledge{
 		"docs": {Image: "qdrant:latest"},
 	}
 
@@ -392,10 +390,10 @@ func TestValidateAndResolve_SetsDeploymentSpecVersion(t *testing.T) {
 
 func TestValidateAndResolve_WebhookIngestionMissingEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"data": {
 			Image:   "ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "webhook"},
+			Trigger: DeploymentTrigger{Type: "webhook"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -409,11 +407,11 @@ func TestValidateAndResolve_WebhookIngestionMissingEndpoints(t *testing.T) {
 
 func TestValidateAndResolve_WebhookIngestionWithEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"data": {
 			Image:     "ingest:latest",
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 3001}},
-			Trigger:   spec.DeploymentTrigger{Type: "webhook"},
+			Endpoints: map[string]Endpoint{"http": {Port: 3001}},
+			Trigger:   DeploymentTrigger{Type: "webhook"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -427,9 +425,9 @@ func TestValidateAndResolve_WebhookIngestionWithEndpoints(t *testing.T) {
 
 func TestValidateAndResolve_MissingIngestionImage(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]DeploymentIngestion{
 		"data": {
-			Trigger: spec.DeploymentTrigger{Type: "startup"},
+			Trigger: DeploymentTrigger{Type: "startup"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -443,7 +441,7 @@ func TestValidateAndResolve_MissingIngestionImage(t *testing.T) {
 
 func TestValidateAndResolve_MissingModelEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Models = map[string]spec.DeploymentModel{
+	ds.Models = map[string]DeploymentModel{
 		"llm": {Image: "my-model:latest"},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -457,8 +455,8 @@ func TestValidateAndResolve_MissingModelEndpoints(t *testing.T) {
 
 func TestValidateAndResolve_MissingIntegrationImage(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Integrations = map[string]spec.DeploymentIntegration{
-		"search": {Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
+	ds.Integrations = map[string]DeploymentIntegration{
+		"search": {Endpoints: map[string]Endpoint{"http": {Port: 3000}}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -471,10 +469,10 @@ func TestValidateAndResolve_MissingIntegrationImage(t *testing.T) {
 
 func TestValidateAndResolve_DiscordAdapterRejected(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &DeploymentInterfaces{
 		Adapters:  []string{"discord"},
 		Image:     "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
+		Endpoints: map[string]Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -487,12 +485,12 @@ func TestValidateAndResolve_DiscordAdapterRejected(t *testing.T) {
 
 func TestValidateAndResolve_InterfacesReferenceValidation(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Interfaces = &spec.DeploymentInterfaces{
+	ds.Interfaces = &DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "messaging:latest",
-		Endpoints: map[string]spec.Endpoint{
+		Endpoints: map[string]Endpoint{
 			"grpc": {Port: 9090},
-			"http": {Port: 8080, Expose: &spec.EndpointExpose{Enabled: true}},
+			"http": {Port: 8080, Expose: &EndpointExpose{Enabled: true}},
 		},
 		Environment: map[string]string{
 			"MY_AGENT_URL": "${models.missing.http.url}",

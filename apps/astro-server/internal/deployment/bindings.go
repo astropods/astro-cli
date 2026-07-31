@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	spec "github.com/astropods/astro-spec"
-
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 )
 
@@ -24,11 +22,11 @@ func ResolveBindings(
 	ctx context.Context,
 	ksStore *knowledgestore.Store,
 	accountID string,
-	knowledge map[string]spec.DeploymentKnowledge,
+	knowledge map[string]DeploymentKnowledge,
 	requested map[string]string,
-) (map[string]ResolvedBinding, []spec.ValidationError) {
+) (map[string]ResolvedBinding, []ValidationError) {
 	resolved := make(map[string]ResolvedBinding, len(requested))
-	var errs []spec.ValidationError
+	var errs []ValidationError
 
 	for name, arn := range requested {
 		field := fmt.Sprintf("bindings.knowledge.%s", name)
@@ -36,7 +34,7 @@ func ResolveBindings(
 		// Entry must exist in the agent's knowledge map.
 		entry, ok := knowledge[name]
 		if !ok {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   field,
 				Message: fmt.Sprintf("no knowledge entry %q in agent spec", name),
 			})
@@ -46,14 +44,14 @@ func ResolveBindings(
 		// ARN must resolve to a store in the caller's account.
 		store, err := ksStore.GetByARN(ctx, arn)
 		if err != nil {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   field,
 				Message: "failed to look up store",
 			})
 			continue
 		}
 		if store == nil || store.AccountID != accountID {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   field,
 				Message: "store not found",
 			})
@@ -62,7 +60,7 @@ func ResolveBindings(
 
 		// Provider must match.
 		if store.Provider != entry.Provider {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   field,
 				Message: fmt.Sprintf("provider mismatch: entry declares %s, store is %s", entry.Provider, store.Provider),
 			})
@@ -71,7 +69,7 @@ func ResolveBindings(
 
 		// Store must be ready.
 		if store.Status != knowledgestore.StatusReady {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   field,
 				Message: fmt.Sprintf("store is not ready (status: %s)", store.Status),
 			})

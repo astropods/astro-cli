@@ -5,16 +5,16 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 )
 
 // validateAuth wraps an interfaces.auth block in a minimal deployment spec so
 // these cases can exercise validateAuthorizationSpec, which now takes the full
 // spec (frontend grants live on the exposed endpoint, not under interfaces).
-func validateAuth(auth *spec.DeploymentInterfacesAuth) []string {
-	return validateAuthorizationSpec(&spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Auth: auth},
+func validateAuth(auth *deployment.DeploymentInterfacesAuth) []string {
+	return validateAuthorizationSpec(&deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Auth: auth},
 	})
 }
 
@@ -22,9 +22,9 @@ func validateAuth(auth *spec.DeploymentInterfacesAuth) []string {
 
 // C4: a grant with no subject set must be rejected.
 func TestValidateAuth_NoSubject(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{}},
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{{}},
 		},
 	})
 	if len(errs) == 0 {
@@ -34,9 +34,9 @@ func TestValidateAuth_NoSubject(t *testing.T) {
 
 // C1: org + user_id together → reject.
 func TestValidateAuth_AccountAndUser(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Org: "acct-1", UserID: "alice"},
 			},
 		},
@@ -48,9 +48,9 @@ func TestValidateAuth_AccountAndUser(t *testing.T) {
 
 // C2: org + anyone together → reject.
 func TestValidateAuth_AccountAndAnyone(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Org: "acct-1", Anyone: true},
 			},
 		},
@@ -62,9 +62,9 @@ func TestValidateAuth_AccountAndAnyone(t *testing.T) {
 
 // C3: user_id + anyone → reject.
 func TestValidateAuth_UserAndAnyone(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{UserID: "alice", Anyone: true},
 			},
 		},
@@ -78,9 +78,9 @@ func TestValidateAuth_UserAndAnyone(t *testing.T) {
 // container forwards (team_id, slack_user_id), the resolver looks up the
 // linked WorkOS user, and the user grant matches via the same path as web.
 func TestValidateAuth_UserOnSlack(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Slack: &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Slack: &deployment.DeploymentSlackAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{UserID: "alice"},
 			},
 		},
@@ -94,9 +94,9 @@ func TestValidateAuth_UserOnSlack(t *testing.T) {
 // for slack since the bot is per-account; this is the seeded fresh-deploy
 // default for slack-enabled deployments).
 func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Slack: &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Slack: &deployment.DeploymentSlackAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Anyone: true},
 			},
 		},
@@ -108,9 +108,9 @@ func TestValidateAuth_AnyoneOnSlack(t *testing.T) {
 
 // C8: duplicate grant within an adapter → reject.
 func TestValidateAuth_Duplicate(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Org: "acct-1"},
 				{Org: "acct-1"},
 			},
@@ -123,16 +123,16 @@ func TestValidateAuth_Duplicate(t *testing.T) {
 
 // All valid forms succeed.
 func TestValidateAuth_ValidMix(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Org: "acct-1"},
 				{UserID: "alice"},
 				{Anyone: true},
 			},
 		},
-		Slack: &spec.DeploymentSlackAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{
+		Slack: &deployment.DeploymentSlackAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{
 				{Org: "acct-1"},
 			},
 		},
@@ -152,8 +152,8 @@ func TestValidateAuth_NilBlock(t *testing.T) {
 
 // C12: empty grants → no validation errors (semantics handled by apply path).
 func TestValidateAuth_EmptyGrants(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{Grants: []spec.DeploymentAuthorizationGrant{}},
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{Grants: []deployment.DeploymentAuthorizationGrant{}},
 	})
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got %v", errs)
@@ -162,8 +162,8 @@ func TestValidateAuth_EmptyGrants(t *testing.T) {
 
 // E1: fresh deploy with slack disabled seeds only the deployer's user grant.
 func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
-	tmpl := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
+	tmpl := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Adapters: []string{"web"}},
 	}
 	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces.Auth == nil || tmpl.Interfaces.Auth.Web == nil {
@@ -183,8 +183,8 @@ func TestSeedFreshAuthGrants_WebOnly(t *testing.T) {
 // E1: with slack enabled, an `anyone` grant is seeded under slack so the
 // channel is reachable out of the box.
 func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
-	tmpl := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
+	tmpl := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
 	}
 	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces.Auth.Web == nil || len(tmpl.Interfaces.Auth.Web.Grants) != 1 {
@@ -203,12 +203,12 @@ func TestSeedFreshAuthGrants_SlackEnabled(t *testing.T) {
 
 // E2: existing grants on the template (from astropods.yml) are not overwritten.
 func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
-	tmpl := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
+	tmpl := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters: []string{"web"},
-			Auth: &spec.DeploymentInterfacesAuth{
-				Web: &spec.DeploymentWebAuth{
-					Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Web: &deployment.DeploymentWebAuth{
+					Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 				},
 			},
 		},
@@ -221,7 +221,7 @@ func TestSeedFreshAuthGrants_PreservesExisting(t *testing.T) {
 
 // Robust to nil Interfaces — no panic.
 func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
-	tmpl := &spec.AstroDeploymentSpec{}
+	tmpl := &deployment.AstroDeploymentSpec{}
 	seedFreshAuthGrants(tmpl, "alice")
 	if tmpl.Interfaces != nil {
 		t.Errorf("did not expect Interfaces to be created")
@@ -236,8 +236,8 @@ func TestSeedFreshAuthGrants_NilInterfaces(t *testing.T) {
 // deployment with no slack grants would otherwise sign a token with empty
 // anyone_adapters and leave the channel unreachable.
 func TestEnsureSlackAnyoneGrant_NoAuthBlock(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Adapters: []string{"web", "slack"}},
 	}
 	ensureSlackAnyoneGrant(ds)
 	if ds.Interfaces.Auth == nil || ds.Interfaces.Auth.Slack == nil {
@@ -251,12 +251,12 @@ func TestEnsureSlackAnyoneGrant_NoAuthBlock(t *testing.T) {
 // Web grants present but slack grants missing — the existing seed bails out
 // in this case, so the deploy-time invariant must seed slack independently.
 func TestEnsureSlackAnyoneGrant_WebGrantsOnly(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters: []string{"web", "slack"},
-			Auth: &spec.DeploymentInterfacesAuth{
-				Web: &spec.DeploymentWebAuth{
-					Grants: []spec.DeploymentAuthorizationGrant{{UserID: "alice"}},
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Web: &deployment.DeploymentWebAuth{
+					Grants: []deployment.DeploymentAuthorizationGrant{{UserID: "alice"}},
 				},
 			},
 		},
@@ -277,12 +277,12 @@ func TestEnsureSlackAnyoneGrant_WebGrantsOnly(t *testing.T) {
 // Existing slack grants must be preserved — do not overwrite a user's
 // org-scoped slack grant with anyone.
 func TestEnsureSlackAnyoneGrant_PreservesExistingSlackGrants(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters: []string{"slack"},
-			Auth: &spec.DeploymentInterfacesAuth{
-				Slack: &spec.DeploymentSlackAuth{
-					Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Slack: &deployment.DeploymentSlackAuth{
+					Grants: []deployment.DeploymentAuthorizationGrant{{Org: "acct-1"}},
 				},
 			},
 		},
@@ -298,8 +298,8 @@ func TestEnsureSlackAnyoneGrant_PreservesExistingSlackGrants(t *testing.T) {
 
 // Slack adapter not selected → no slack block created.
 func TestEnsureSlackAnyoneGrant_NoSlackAdapter(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Adapters: []string{"web"}},
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Adapters: []string{"web"}},
 	}
 	ensureSlackAnyoneGrant(ds)
 	if ds.Interfaces.Auth != nil && ds.Interfaces.Auth.Slack != nil {
@@ -309,7 +309,7 @@ func TestEnsureSlackAnyoneGrant_NoSlackAdapter(t *testing.T) {
 
 // Robust to nil Interfaces — no panic, no allocation.
 func TestEnsureSlackAnyoneGrant_NilInterfaces(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{}
+	ds := &deployment.AstroDeploymentSpec{}
 	ensureSlackAnyoneGrant(ds)
 	if ds.Interfaces != nil {
 		t.Errorf("did not expect Interfaces to be created")
@@ -337,13 +337,13 @@ func TestMergeAuthorizationFromStore(t *testing.T) {
 			AddRow("dep-1", "anyone", "", "web").
 			AddRow("dep-1", "user", "alice", "web"))
 
-	auth := &spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{Org: "stale"}},
+	auth := &deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{{Org: "stale"}},
 		},
 	}
-	mergeAuthorizationFromStore(log, store, "dep-1", &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{Auth: auth},
+	mergeAuthorizationFromStore(log, store, "dep-1", &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{Auth: auth},
 	})
 
 	// Stored order is (subject_type, subject_id, adapter):
@@ -367,7 +367,7 @@ func TestMergeAuthorizationFromStore(t *testing.T) {
 func TestSpecGrantToStore(t *testing.T) {
 	cases := []struct {
 		name    string
-		in      spec.DeploymentAuthorizationGrant
+		in      deployment.DeploymentAuthorizationGrant
 		adapter string
 		want    struct {
 			subjectType, subjectID string
@@ -375,19 +375,19 @@ func TestSpecGrantToStore(t *testing.T) {
 	}{
 		{
 			name:    "org",
-			in:      spec.DeploymentAuthorizationGrant{Org: "acct-1"},
+			in:      deployment.DeploymentAuthorizationGrant{Org: "acct-1"},
 			adapter: "web",
 			want:    struct{ subjectType, subjectID string }{"org", "acct-1"},
 		},
 		{
 			name:    "user",
-			in:      spec.DeploymentAuthorizationGrant{UserID: "alice"},
+			in:      deployment.DeploymentAuthorizationGrant{UserID: "alice"},
 			adapter: "web",
 			want:    struct{ subjectType, subjectID string }{"user", "alice"},
 		},
 		{
 			name:    "anyone",
-			in:      spec.DeploymentAuthorizationGrant{Anyone: true},
+			in:      deployment.DeploymentAuthorizationGrant{Anyone: true},
 			adapter: "web",
 			want:    struct{ subjectType, subjectID string }{"anyone", ""},
 		},
@@ -413,10 +413,10 @@ func TestSpecGrantToStore(t *testing.T) {
 // A public messaging-web surface bypasses ALB OIDC, so org/user grants have no
 // identity to authorize against. Only an "anyone" grant is allowed.
 func TestValidateAuth_PublicWeb_OrgGrantRejected(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
 			Public: true,
-			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
+			Grants: []deployment.DeploymentAuthorizationGrant{{Org: "acct-1"}},
 		},
 	})
 	if len(errs) == 0 {
@@ -425,10 +425,10 @@ func TestValidateAuth_PublicWeb_OrgGrantRejected(t *testing.T) {
 }
 
 func TestValidateAuth_PublicWeb_AnyoneAllowed(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{
 			Public: true,
-			Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}},
+			Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}},
 		},
 	})
 	if len(errs) != 0 {
@@ -438,8 +438,8 @@ func TestValidateAuth_PublicWeb_AnyoneAllowed(t *testing.T) {
 
 // Public web with no grants is rejected — there's nothing to authorize against.
 func TestValidateAuth_PublicWeb_NoGrantsRejected(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Web: &spec.DeploymentWebAuth{Public: true},
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Web: &deployment.DeploymentWebAuth{Public: true},
 	})
 	if len(errs) == 0 {
 		t.Fatal("expected error: public web requires an anyone grant")
@@ -448,9 +448,9 @@ func TestValidateAuth_PublicWeb_NoGrantsRejected(t *testing.T) {
 
 // Custom-interface grants are validated for shape...
 func TestValidateAuth_CustomGrantShapeValidated(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Custom: &spec.DeploymentCustomAuth{
-			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1", UserID: "alice"}},
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Custom: &deployment.DeploymentCustomAuth{
+			Grants: []deployment.DeploymentAuthorizationGrant{{Org: "acct-1", UserID: "alice"}},
 		},
 	})
 	if len(errs) == 0 {
@@ -461,10 +461,10 @@ func TestValidateAuth_CustomGrantShapeValidated(t *testing.T) {
 // ...but custom has NO public-requires-anyone rule (it's unenforced — the
 // agent's own server authorizes), so public + an org grant is accepted.
 func TestValidateAuth_CustomPublicWithOrgGrantAllowed(t *testing.T) {
-	errs := validateAuth(&spec.DeploymentInterfacesAuth{
-		Custom: &spec.DeploymentCustomAuth{
+	errs := validateAuth(&deployment.DeploymentInterfacesAuth{
+		Custom: &deployment.DeploymentCustomAuth{
 			Public: true,
-			Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}},
+			Grants: []deployment.DeploymentAuthorizationGrant{{Org: "acct-1"}},
 		},
 	})
 	if len(errs) != 0 {
@@ -474,11 +474,11 @@ func TestValidateAuth_CustomPublicWithOrgGrantAllowed(t *testing.T) {
 
 // buildAuthorizationGrants flattens custom grants under the "custom" adapter.
 func TestBuildAuthorizationGrants_Custom(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
-			Auth: &spec.DeploymentInterfacesAuth{
-				Web:    &spec.DeploymentWebAuth{Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}}},
-				Custom: &spec.DeploymentCustomAuth{Grants: []spec.DeploymentAuthorizationGrant{{Org: "acct-1"}}},
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Web:    &deployment.DeploymentWebAuth{Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}}},
+				Custom: &deployment.DeploymentCustomAuth{Grants: []deployment.DeploymentAuthorizationGrant{{Org: "acct-1"}}},
 			},
 		},
 	}
@@ -514,7 +514,7 @@ func TestMergeAuthorizationFromStore_Custom(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"deployment_id", "subject_type", "subject_id", "adapter"}).
 			AddRow("dep-1", "org", "acct-1", "custom"))
 
-	template := &spec.AstroDeploymentSpec{}
+	template := &deployment.AstroDeploymentSpec{}
 	mergeAuthorizationFromStore(log, store, "dep-1", template)
 
 	if template.Interfaces == nil || template.Interfaces.Auth == nil || template.Interfaces.Auth.Custom == nil {

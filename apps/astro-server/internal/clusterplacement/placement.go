@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro-spec"
 )
 
 // NormalizedClusterID maps empty and the primary sentinel to "" so placement
@@ -32,7 +32,7 @@ func ClusterIDLabel(id string) string {
 
 // PatchDeploymentSpecClusterID updates target.cluster_id in stored deployment spec JSON.
 func PatchDeploymentSpecClusterID(specJSON, clusterID string) (string, error) {
-	var ds spec.AstroDeploymentSpec
+	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(specJSON), &ds); err != nil {
 		return "", fmt.Errorf("parse deployment spec: %w", err)
 	}

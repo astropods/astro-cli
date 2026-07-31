@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	_ "github.com/lib/pq"
 )
 
@@ -733,14 +733,14 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "cleanup-agent"},
-		Agent: spec.DeploymentAgent{
+	ds := &deployment.AstroDeploymentSpec{
+		Source: deployment.DeploymentSource{Name: "cleanup-agent"},
+		Agent: deployment.DeploymentAgent{
 			Image:     "agent:latest",
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
-			Update:    spec.DefaultUpdateStrategy(),
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Update:    deployment.DefaultUpdateStrategy(),
 		},
 	}
 	// Deploy v1 with normalized workloads

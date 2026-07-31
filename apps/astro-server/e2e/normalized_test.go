@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro-spec"
 	_ "github.com/lib/pq"
 )
 
@@ -54,16 +54,16 @@ func ensureTestAccount(t *testing.T, db *sql.DB) string {
 	return id
 }
 
-func parseSasbotSpec(t *testing.T) *spec.AstroDeploymentSpec {
+func parseSasbotSpec(t *testing.T) *deployment.AstroDeploymentSpec {
 	t.Helper()
-	var s spec.AstroDeploymentSpec
+	var s deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(sasbotSpecJSON), &s); err != nil {
 		t.Fatalf("failed to parse sasbot spec: %v", err)
 	}
 	return &s
 }
 
-func saveSasbot(t *testing.T, db *sql.DB, store *ds.Store, spec *spec.AstroDeploymentSpec, nsCfg *ds.NormalizedSpecConfig) *ds.Deployment {
+func saveSasbot(t *testing.T, db *sql.DB, store *ds.Store, spec *deployment.AstroDeploymentSpec, nsCfg *ds.NormalizedSpecConfig) *ds.Deployment {
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
 	d, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
@@ -403,14 +403,14 @@ func TestIngressHostname_AgentMatchesSpecApplier(t *testing.T) {
 		domain    = "agents.astropods.ai"
 	)
 
-	dsSpec := &spec.AstroDeploymentSpec{
+	dsSpec := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/weather-poet:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
-			Endpoints: map[string]spec.Endpoint{
-				"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Endpoints: map[string]deployment.Endpoint{
+				"http": {Port: 8080, Protocol: "http", Expose: &deployment.EndpointExpose{Enabled: true}},
 			},
 		},
 	}
@@ -455,18 +455,18 @@ func TestIngressHostname_MessagingMatchesSpecApplier(t *testing.T) {
 		domain    = "agents.astropods.ai"
 	)
 
-	dsSpec := &spec.AstroDeploymentSpec{
+	dsSpec := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/weather-poet:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
 		},
-		Interfaces: &spec.DeploymentInterfaces{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters:  []string{"web"},
 			Image:     "messaging:latest",
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
-			Endpoints: map[string]spec.Endpoint{
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+			Endpoints: map[string]deployment.Endpoint{
 				"http": {Port: 3000, Protocol: "http"},
 			},
 		},
@@ -525,19 +525,19 @@ func TestIngressHostname_IngestionMatchesSpecApplier(t *testing.T) {
 		ingestionName   = "github-hooks"
 	)
 
-	dsSpec := &spec.AstroDeploymentSpec{
+	dsSpec := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: agentName, Build: "b1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/weather-poet:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
+		Ingestion: map[string]deployment.DeploymentIngestion{
 			ingestionName: {
 				Image:     "ingestion:latest",
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
-				Trigger:   spec.DeploymentTrigger{Type: "webhook"},
-				Endpoints: map[string]spec.Endpoint{
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Trigger:   deployment.DeploymentTrigger{Type: "webhook"},
+				Endpoints: map[string]deployment.Endpoint{
 					"http": {Port: 8080, Protocol: "http"},
 				},
 			},

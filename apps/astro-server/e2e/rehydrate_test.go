@@ -14,34 +14,34 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	_ "github.com/lib/pq"
 )
 
 // minimalSlackSpec returns a minimal deployment spec with slack adapter enabled
 // and two secret variables (SLACK_BOT_TOKEN, SLACK_APP_TOKEN) plus a non-secret.
-func minimalSlackSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func minimalSlackSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Name: "rehydrate-test", Build: "abc123", Registry: "test.ecr/repo",
 		},
-		Agent: spec.DeploymentAgent{
+		Agent: deployment.DeploymentAgent{
 			Image:     "test.ecr/repo/agent:abc123",
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
 			Replicas:  1,
 		},
-		Interfaces: &spec.DeploymentInterfaces{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters: []string{"slack"},
 			Image:    "test.ecr/repo/messaging:latest",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]deployment.Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"SLACK_BOT_TOKEN": {
 				Value: "xoxb-test-token-value", Secret: true, Optional: false,
 				Targets: []string{"interface.slack"},
@@ -63,14 +63,14 @@ func minimalSlackSpec() *spec.AstroDeploymentSpec {
 // If enc is non-nil, secret values are encrypted before storage.
 func saveDeploymentWithSecrets(
 	t *testing.T, db *sql.DB, store *ds.Store,
-	full *spec.AstroDeploymentSpec,
+	full *deployment.AstroDeploymentSpec,
 	enc *envelope.Encryptor,
 ) *ds.Deployment {
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
 
 	// Strip secrets from the spec JSON (mirrors deploy handler behaviour)
-	stripped := spec.StripSecretVariableValues(full)
+	stripped := deployment.StripSecretVariableValues(full)
 	specJSON, err := json.Marshal(stripped)
 	if err != nil {
 		t.Fatalf("marshal stripped spec: %v", err)
@@ -109,7 +109,7 @@ func TestRehydrateSecrets_Plaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentRevision: %v", err)
 	}
-	var loaded spec.AstroDeploymentSpec
+	var loaded deployment.AstroDeploymentSpec
 	if err := json.Unmarshal(rev.SpecJSON, &loaded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRehydrateSecrets_Encrypted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentRevision: %v", err)
 	}
-	var loaded spec.AstroDeploymentSpec
+	var loaded deployment.AstroDeploymentSpec
 	if err := json.Unmarshal(rev.SpecJSON, &loaded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -224,12 +224,12 @@ func TestRehydrateSecrets_NoVariables(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 
 	// Save a deployment with no variables
-	noVarSpec := &spec.AstroDeploymentSpec{
+	noVarSpec := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "no-vars", Build: "b1", Registry: "r"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "no-vars", Build: "b1", Registry: "r"},
+		Agent: deployment.DeploymentAgent{
 			Image:     "img:b1",
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 			Replicas:  1,
 		},
 	}
@@ -315,7 +315,7 @@ func TestRepairPreservesVariables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentRevision: %v", err)
 	}
-	var loaded spec.AstroDeploymentSpec
+	var loaded deployment.AstroDeploymentSpec
 	if err := json.Unmarshal(rev.SpecJSON, &loaded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

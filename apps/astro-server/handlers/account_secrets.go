@@ -7,12 +7,13 @@ import (
 	"sort"
 	"strings"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	spec "github.com/astropods/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
@@ -363,7 +364,7 @@ func applyValue(v *accountvars.AccountVariable, plaintext string, enc *envelope.
 // account variables and populating the value (decrypting secrets as needed).
 // It returns the original refs map (variable name → account variable name) so
 // callers can persist the refs for later use (e.g. prefilled deployment templates).
-func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *spec.AstroDeploymentSpec, accountID string, store *accountvars.Store, cfg *config.Config) (map[string]string, error) {
+func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *deployment.AstroDeploymentSpec, accountID string, store *accountvars.Store, cfg *config.Config) (map[string]string, error) {
 	if len(submittedSpec.Variables) == 0 {
 		return nil, nil
 	}

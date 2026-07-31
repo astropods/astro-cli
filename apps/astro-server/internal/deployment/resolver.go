@@ -3,19 +3,18 @@ package deployment
 import (
 	"fmt"
 
-	spec "github.com/astropods/astro-spec"
 	"github.com/robfig/cron/v3"
 )
 
 // ResolveResult holds the outcome of validation and resolution.
 type ResolveResult struct {
-	Spec   *spec.AstroDeploymentSpec
+	Spec   *AstroDeploymentSpec
 	Errors []string
 }
 
 // ValidateAndResolve validates a filled-in deployment spec and produces
 // a fully resolved spec ready for translation.
-func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, error) {
+func ValidateAndResolve(submitted *AstroDeploymentSpec) (*ResolveResult, error) {
 	result := &ResolveResult{}
 	var errs []string
 
@@ -24,15 +23,15 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 
 	// 2. Reference validation
 	if submitted.Agent.Environment != nil {
-		refs := spec.ExtractAllReferences(submitted.Agent.Environment)
-		refErrs := spec.ValidateReferences(refs, submitted)
+		refs := ExtractAllReferences(submitted.Agent.Environment)
+		refErrs := ValidateReferences(refs, submitted)
 		errs = append(errs, refErrs...)
 	}
 
 	// Also validate references in interfaces environment
 	if submitted.Interfaces != nil && submitted.Interfaces.Environment != nil {
-		refs := spec.ExtractAllReferences(submitted.Interfaces.Environment)
-		refErrs := spec.ValidateReferences(refs, submitted)
+		refs := ExtractAllReferences(submitted.Interfaces.Environment)
+		refErrs := ValidateReferences(refs, submitted)
 		errs = append(errs, refErrs...)
 	}
 
@@ -149,12 +148,12 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 	return result, nil
 }
 
-func ensureVariable(ds *spec.AstroDeploymentSpec, key, description string, optional bool, targets []string) {
+func ensureVariable(ds *AstroDeploymentSpec, key, description string, optional bool, targets []string) {
 	if ds.Variables == nil {
-		ds.Variables = make(map[string]spec.Variable)
+		ds.Variables = make(map[string]Variable)
 	}
 	if _, exists := ds.Variables[key]; !exists {
-		ds.Variables[key] = spec.Variable{
+		ds.Variables[key] = Variable{
 			Description: description,
 			Optional:    optional,
 			Secret:      true,
@@ -163,7 +162,7 @@ func ensureVariable(ds *spec.AstroDeploymentSpec, key, description string, optio
 	}
 }
 
-func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
+func applyDefaults(ds *AstroDeploymentSpec) *AstroDeploymentSpec {
 	// Copy to avoid mutating input
 	resolved := *ds
 
@@ -171,7 +170,7 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 		resolved.Agent.Replicas = 1
 	}
 	if resolved.Agent.Update.Strategy == "" {
-		resolved.Agent.Update = spec.DefaultUpdateStrategy()
+		resolved.Agent.Update = DefaultUpdateStrategy()
 	}
 
 	for name, m := range resolved.Models {
@@ -179,7 +178,7 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 			m.Replicas = 1
 		}
 		if m.Update.Strategy == "" {
-			m.Update = spec.DefaultUpdateStrategy()
+			m.Update = DefaultUpdateStrategy()
 		}
 		resolved.Models[name] = m
 	}
@@ -192,10 +191,10 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 			k.Replicas = 1
 		}
 		if k.Update.Strategy == "" {
-			k.Update = spec.DefaultUpdateStrategy()
+			k.Update = DefaultUpdateStrategy()
 		}
 		if k.Persistent && k.Storage == nil {
-			defaultStorage := spec.DefaultStorageConfig()
+			defaultStorage := DefaultStorageConfig()
 			k.Storage = &defaultStorage
 		}
 		resolved.Knowledge[name] = k
@@ -206,7 +205,7 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 			t.Replicas = 1
 		}
 		if t.Update.Strategy == "" {
-			t.Update = spec.DefaultUpdateStrategy()
+			t.Update = DefaultUpdateStrategy()
 		}
 		resolved.Integrations[name] = t
 	}

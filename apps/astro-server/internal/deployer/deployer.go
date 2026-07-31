@@ -12,6 +12,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
@@ -23,7 +24,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -89,7 +89,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		return nil, fmt.Errorf("no current revision for deployment %s", dep.ID)
 	}
 
-	var ds spec.AstroDeploymentSpec
+	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal(rev.SpecJSON, &ds); err != nil {
 		return nil, fmt.Errorf("unmarshal deployment spec: %w", err)
 	}
@@ -255,7 +255,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 func (d *Deployer) populateBuildEnv(
 	ctx context.Context,
 	dep *deploymentstore.Deployment,
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 	boundKnowledge map[string]deployment.BoundKnowledgeInfo,
 	allCredentials map[string]string,
 ) error {
@@ -286,7 +286,7 @@ func (d *Deployer) populateBuildEnv(
 	}
 
 	externalAgentHost := ""
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+	if ep := deployment.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		if ep.Expose != nil && ep.Expose.Domain != "" {
 			externalAgentHost = ep.Expose.Domain
 		} else {
@@ -368,7 +368,7 @@ func (d *Deployer) encryptorForDeployment(
 // store or credentials cannot be resolved — deploying without credentials would
 // produce a running agent that silently fails to connect.
 func (d *Deployer) resolveBoundKnowledge(
-	ctx context.Context, dep *deploymentstore.Deployment, ds *spec.AstroDeploymentSpec, k8sForDep k8s.ClusterClient,
+	ctx context.Context, dep *deploymentstore.Deployment, ds *deployment.AstroDeploymentSpec, k8sForDep k8s.ClusterClient,
 ) (map[string]deployment.BoundKnowledgeInfo, map[string]string, error) {
 	if d.KnowledgeStore == nil {
 		return nil, nil, nil
@@ -571,7 +571,7 @@ func (d *Deployer) TeardownOnCluster(ctx context.Context, dep *deploymentstore.D
 // Targets=["agent","ingestion"] produces one row per role). Their
 // values are identical by construction, so we take the first one we
 // see and skip duplicates.
-func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.Deployment, ds *spec.AstroDeploymentSpec) error {
+func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.Deployment, ds *deployment.AstroDeploymentSpec) error {
 	rows, err := d.Store.GetBuildEnv(dep.ID)
 	if err != nil {
 		return fmt.Errorf("get deployment_build_env: %w", err)
@@ -592,7 +592,7 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 	}
 
 	if ds.Variables == nil {
-		ds.Variables = make(map[string]spec.Variable)
+		ds.Variables = make(map[string]deployment.Variable)
 	}
 
 	seen := map[string]bool{}

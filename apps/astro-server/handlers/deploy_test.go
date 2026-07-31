@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -142,7 +141,7 @@ func TestTemplateCache_DeleteByDeploymentID_RemovesMatchingEntry(t *testing.T) {
 	cache := NewTemplateCache()
 	depID := "abc-123-def"
 	key := "myorg:myorg:my-agent:build-1:" + depID + ":0"
-	cache.set(key, &spec.AstroDeploymentSpec{})
+	cache.set(key, &deployment.AstroDeploymentSpec{})
 
 	cache.DeleteByDeploymentID(depID)
 
@@ -157,8 +156,8 @@ func TestTemplateCache_DeleteByDeploymentID_LeavesOtherEntriesIntact(t *testing.
 	otherID := "zzz-999-qqq"
 	targetKey := "myorg:myorg:my-agent:build-1:" + targetID + ":0"
 	otherKey := "myorg:myorg:other-agent:build-2:" + otherID + ":0"
-	cache.set(targetKey, &spec.AstroDeploymentSpec{})
-	cache.set(otherKey, &spec.AstroDeploymentSpec{})
+	cache.set(targetKey, &deployment.AstroDeploymentSpec{})
+	cache.set(otherKey, &deployment.AstroDeploymentSpec{})
 
 	cache.DeleteByDeploymentID(targetID)
 
@@ -2003,7 +2002,7 @@ var testSigningKey = []byte("test-signing-key-32-bytes-padding!")
 // handler's mandatory signature check passes.
 func signedDeployRequest(t *testing.T, body string) *http.Request {
 	t.Helper()
-	var ds spec.AstroDeploymentSpec
+	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(body), &ds); err != nil {
 		t.Fatalf("signedDeployRequest: invalid body JSON: %v", err)
 	}
@@ -2063,7 +2062,7 @@ func TestDeploy_TamperedBody(t *testing.T) {
 
 	// Sign one body, submit a different one — signature won't match.
 	original := deployableSpec("")
-	var ds spec.AstroDeploymentSpec
+	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(original), &ds); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -4625,7 +4624,7 @@ func TestPostTemplate_FreshTemplate_EmptyBody(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -4668,7 +4667,7 @@ func TestPostTemplate_FreshTemplate_WithVariables(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	if v := resp.Template.Variables["API_KEY"]; v.Value != "sk-test-123" {
@@ -4695,7 +4694,7 @@ func TestPostTemplate_FreshTemplate_WithAdapters(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	// Response interfaces should reflect the selection
@@ -4746,7 +4745,7 @@ func TestPostTemplate_WithDeploymentID_PrefillsValues(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	// Variables should be prefilled from stored deployment
@@ -4811,7 +4810,7 @@ func TestPostTemplate_WithDeploymentID_PreservesSlackTokenRef(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -4867,7 +4866,7 @@ func TestPostTemplate_WithDeploymentID_PreservesSlackConfigValue(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -4925,7 +4924,7 @@ func TestPostTemplate_InlineSecret_PrefillConfiguredNotExposed(t *testing.T) {
 		t.Fatalf("response body must not contain inline secret plaintext")
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -4960,7 +4959,7 @@ func TestPostTemplate_InlineSecret_FinalizeReturnsPreservationSentinel(t *testin
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -4996,8 +4995,8 @@ func TestHydratePreservedInlineSecrets(t *testing.T) {
 			true, "API_KEY", nil, false,
 		))
 
-	ds := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	ds := &deployment.AstroDeploymentSpec{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {
 				Secret: true, Configured: true, Targets: []string{"agent"},
 			},
@@ -5023,8 +5022,8 @@ func TestHydratePreservedInlineSecrets(t *testing.T) {
 }
 
 func TestHydratePreservedInlineSecretsValidationWithoutStore(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	ds := &deployment.AstroDeploymentSpec{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {
 				Secret: true, Configured: true, Targets: []string{"agent"},
 			},
@@ -5079,8 +5078,8 @@ func TestValidateDeploymentAcceptsOpaqueConfiguredSecretWithoutStore(t *testing.
 }
 
 func TestHydratePreservedInlineSecretsDeployWithoutStoreIsRejected(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	ds := &deployment.AstroDeploymentSpec{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {Secret: true, Configured: true},
 		},
 	}
@@ -5112,8 +5111,8 @@ func TestHydratePreservedInlineSecretsRejectsMissingStoredValue(t *testing.T) {
 			"is_secret", "user_var_name", "account_var_ref", "optional",
 		}))
 
-	ds := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	ds := &deployment.AstroDeploymentSpec{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {Secret: true, Configured: true},
 		},
 	}
@@ -5143,7 +5142,7 @@ func TestPostTemplate_InlineSecret_FinalizeSchemaStillScrubbed(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -5307,7 +5306,7 @@ func TestPostTemplate_SchedulesInResponse(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	// Schedules in response should reflect the override
@@ -5449,7 +5448,7 @@ func TestPostTemplate_CrossAccountPrefill_UsesSourceAccount(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -5514,7 +5513,7 @@ func TestPostTemplate_SameAccountPrefill(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	if resp.Template.Source.Account != "myorg" {
@@ -5570,7 +5569,7 @@ func TestPostTemplate_LegacyPrefill_FallsBackToURLAccount(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	if resp.Template.Source.Account != "myorg" {
@@ -5689,7 +5688,7 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp spec.TemplateResponse
+	var resp deployment.TemplateResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 
 	if resp.Template.Source.Build != pinnedBuild {

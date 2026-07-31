@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -28,7 +28,7 @@ type e2eOpts struct {
 // e2eResult holds all outputs from the pipeline for assertions.
 type e2eResult struct {
 	ApplyResult    *ApplyResult
-	DeploymentSpec *spec.AstroDeploymentSpec
+	DeploymentSpec *deployment.AstroDeploymentSpec
 	Clientset      kubernetes.Interface
 	Namespace      string
 }
@@ -74,7 +74,7 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	// Fill credential/variable values
 	for key, val := range opts.Credentials {
 		if ds.Variables == nil {
-			ds.Variables = make(map[string]spec.Variable)
+			ds.Variables = make(map[string]deployment.Variable)
 		}
 		v, ok := ds.Variables[key]
 		if !ok {
@@ -194,8 +194,8 @@ agent:
 	}
 
 	// Verify correct port in the deployment spec
-	if spec.PrimaryPort(r.DeploymentSpec.Agent.Endpoints) != 8080 {
-		t.Errorf("expected default port 8080, got %d", spec.PrimaryPort(r.DeploymentSpec.Agent.Endpoints))
+	if deployment.PrimaryPort(r.DeploymentSpec.Agent.Endpoints) != 8080 {
+		t.Errorf("expected default port 8080, got %d", deployment.PrimaryPort(r.DeploymentSpec.Agent.Endpoints))
 	}
 
 	// Check agent-http endpoint
@@ -2128,7 +2128,7 @@ integrations:
 
 // --- utility ---
 
-func variableKeys(m map[string]spec.Variable) []string {
+func variableKeys(m map[string]deployment.Variable) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

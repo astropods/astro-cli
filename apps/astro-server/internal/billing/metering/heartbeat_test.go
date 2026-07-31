@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	_ "modernc.org/sqlite"
 )
 
@@ -58,10 +58,10 @@ func TestParseMemory(t *testing.T) {
 }
 
 func TestContainerBreakdown_BasicAgent(t *testing.T) {
-	s := &spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	s := &deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+			Resources: deployment.DeploymentResources{CPU: "1", Memory: "2Gi"},
 		},
 	}
 	containers := containerBreakdown(s)
@@ -78,10 +78,10 @@ func TestContainerBreakdown_BasicAgent(t *testing.T) {
 }
 
 func TestContainerBreakdown_MemoryHeavy(t *testing.T) {
-	s := &spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	s := &deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "4Gi"},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "4Gi"},
 		},
 	}
 	containers := containerBreakdown(s)
@@ -92,10 +92,10 @@ func TestContainerBreakdown_MemoryHeavy(t *testing.T) {
 }
 
 func TestContainerBreakdown_WithReplicas(t *testing.T) {
-	s := &spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	s := &deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Replicas:  3,
-			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+			Resources: deployment.DeploymentResources{CPU: "1", Memory: "2Gi"},
 		},
 	}
 	containers := containerBreakdown(s)
@@ -109,19 +109,19 @@ func TestContainerBreakdown_WithReplicas(t *testing.T) {
 }
 
 func TestContainerBreakdown_MultipleContainers(t *testing.T) {
-	s := &spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	s := &deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"llm": {
 				Replicas:  1,
-				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
+				Resources: deployment.DeploymentResources{CPU: "2", Memory: "8Gi"},
 			},
 		},
-		Interfaces: &spec.DeploymentInterfaces{
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "128Mi"},
+		Interfaces: &deployment.DeploymentInterfaces{
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "128Mi"},
 		},
 	}
 	containers := containerBreakdown(s)
@@ -223,15 +223,15 @@ func TestHeartbeat_EmitComputeUsage_FallbackToJSON(t *testing.T) {
 		}))
 
 	// Falls back to JSON parsing
-	depSpec := spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	depSpec := deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+			Resources: deployment.DeploymentResources{CPU: "1", Memory: "2Gi"},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"llm": {
 				Replicas:  1,
-				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
+				Resources: deployment.DeploymentResources{CPU: "2", Memory: "8Gi"},
 			},
 		},
 	}
@@ -254,9 +254,6 @@ func TestHeartbeat_EmitComputeUsage_FallbackToJSON(t *testing.T) {
 		}
 	}
 }
-
-
-
 
 func TestHeartbeat_EmitKnowledgeStorage(t *testing.T) {
 	var received []CloudEvent
@@ -376,7 +373,6 @@ func TestHeartbeat_EmitKnowledgeCompute(t *testing.T) {
 	}
 }
 
-
 func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
 	var received []CloudEvent
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -402,5 +398,3 @@ func TestHeartbeat_EmitKnowledgeCompute_SkipsNonReady(t *testing.T) {
 		t.Errorf("expected 0 events for no ready stores, got %d", len(received))
 	}
 }
-
-

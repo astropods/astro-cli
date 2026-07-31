@@ -120,7 +120,7 @@ type ResolveOptions struct {
 // The result is the complete set of env rows for the deployment: every
 // container's projected ConfigMap and Secret derives from this slice,
 // filtered by Role.
-func Resolve(ds *spec.AstroDeploymentSpec, opts ResolveOptions) ([]Resolution, error) {
+func Resolve(ds *AstroDeploymentSpec, opts ResolveOptions) ([]Resolution, error) {
 	if ds == nil {
 		return nil, fmt.Errorf("deployment spec is nil")
 	}
@@ -187,14 +187,14 @@ func Resolve(ds *spec.AstroDeploymentSpec, opts ResolveOptions) ([]Resolution, e
 //
 // Nil credentials, tokens, etc. are fine: those drive non-user_var
 // rows that this function intentionally skips.
-func UserVarResolutions(ds *spec.AstroDeploymentSpec, varRefs map[string]string) []Resolution {
+func UserVarResolutions(ds *AstroDeploymentSpec, varRefs map[string]string) []Resolution {
 	return resolveUserVars(ds, ResolveOptions{AccountVarRefs: varRefs})
 }
 
 // resolveUserVars walks ds.Variables and emits user_var rows for every
 // (variable, target_role) pair. Targets dictates which roles see which
 // variables — this is what makes cross-role leaks impossible.
-func resolveUserVars(ds *spec.AstroDeploymentSpec, opts ResolveOptions) []Resolution {
+func resolveUserVars(ds *AstroDeploymentSpec, opts ResolveOptions) []Resolution {
 	var out []Resolution
 	for name, v := range ds.Variables {
 		roles := rolesForTargets(v.Targets, ds)
@@ -228,7 +228,7 @@ func resolveUserVars(ds *spec.AstroDeploymentSpec, opts ResolveOptions) []Resolu
 //	                          ingestion (the bare form is a wildcard).
 //	"ingestion.<name>"      → IngestionRole(<name>) only — narrows the
 //	                          fan-out to one specific ingestion.
-func rolesForTargets(targets []string, ds *spec.AstroDeploymentSpec) []Role {
+func rolesForTargets(targets []string, ds *AstroDeploymentSpec) []Role {
 	seen := map[Role]bool{}
 	add := func(r Role) {
 		if !seen[r] {
@@ -280,7 +280,7 @@ func rolesForTargets(targets []string, ds *spec.AstroDeploymentSpec) []Role {
 //
 // User variables with Targets containing "agent" are emitted by
 // resolveUserVars and not duplicated here.
-func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext) []Resolution {
+func resolveAgentRole(ds *AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext) []Resolution {
 	var out []Resolution
 
 	// --- Platform meta ---
@@ -294,7 +294,7 @@ func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup 
 	}
 	agentSvc := GenerateAgentResourceName(ds.Source.Name, "agent")
 	agentHost := GenerateServiceDNS(agentSvc, opts.Namespace)
-	agentPort := spec.PrimaryPort(ds.Agent.Endpoints)
+	agentPort := PrimaryPort(ds.Agent.Endpoints)
 	if agentPort == 0 {
 		agentPort = 8080
 	}
@@ -305,7 +305,7 @@ func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup 
 			Value:  fmt.Sprintf("http://%s:%d", agentHost, agentPort),
 			Source: EnvSourcePlatformMeta},
 	)
-	if opts.ExternalAgentHost != "" && spec.ExposedEndpoint(ds.Agent.Endpoints) != nil {
+	if opts.ExternalAgentHost != "" && ExposedEndpoint(ds.Agent.Endpoints) != nil {
 		out = append(out, Resolution{
 			Role: RoleAgent, EnvName: "ASTRO_EXTERNAL_AGENT_URL",
 			Value:  "https://" + opts.ExternalAgentHost,
@@ -339,11 +339,11 @@ func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup 
 	// --- Messaging gRPC address ---
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		grpcPort := 0
-		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+		if ep := EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
 			grpcPort = ep.Port
 		}
 		if grpcPort == 0 {
-			grpcPort = spec.PrimaryPort(ds.Interfaces.Endpoints)
+			grpcPort = PrimaryPort(ds.Interfaces.Endpoints)
 		}
 		if grpcPort == 0 {
 			grpcPort = 9090
@@ -401,7 +401,7 @@ func resolveAgentRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup 
 // resolveAgentKnowledgeRows emits the connection-coord + credential rows
 // the agent needs for each declared knowledge store. Per-store renaming
 // (POSTGRES_USERS_USER for the second postgres store) is applied here.
-func resolveAgentKnowledgeRows(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo) []Resolution {
+func resolveAgentKnowledgeRows(ds *AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo) []Resolution {
 	if len(ds.Knowledge) == 0 {
 		return nil
 	}
@@ -504,7 +504,7 @@ func resolveAgentKnowledgeRows(ds *spec.AstroDeploymentSpec, opts ResolveOptions
 
 // resolveMessagingRole emits Resolutions for the messaging sidecar.
 // Mirrors the env wiring done by buildMessagingContainer today.
-func resolveMessagingRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext) []Resolution {
+func resolveMessagingRole(ds *AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext) []Resolution {
 	if ds.Interfaces == nil || len(ds.Interfaces.Adapters) == 0 {
 		return nil
 	}
@@ -512,23 +512,23 @@ func resolveMessagingRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, loo
 
 	// Resolve grpc + http (web) ports the same way the applier picks them.
 	grpcPort := 0
-	if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+	if ep := EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
 		grpcPort = ep.Port
 	}
 	if grpcPort == 0 {
-		grpcPort = spec.PrimaryPort(ds.Interfaces.Endpoints)
+		grpcPort = PrimaryPort(ds.Interfaces.Endpoints)
 	}
 	if grpcPort == 0 {
 		grpcPort = 9090
 	}
 	webPort := 0
-	if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
+	if ep := EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
 		webPort = ep.Port
 	}
 	if webPort == 0 {
 		webPort = 8090
 	}
-	agentPort := spec.PrimaryPort(ds.Agent.Endpoints)
+	agentPort := PrimaryPort(ds.Agent.Endpoints)
 	if agentPort == 0 {
 		agentPort = 8080
 	}
@@ -603,7 +603,7 @@ func resolveMessagingRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, loo
 }
 
 // resolveCollectorRole emits Resolutions for the OTel collector sidecar.
-func resolveCollectorRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions) []Resolution {
+func resolveCollectorRole(ds *AstroDeploymentSpec, opts ResolveOptions) []Resolution {
 	if !ds.Observability.Enabled {
 		return nil
 	}
@@ -637,7 +637,7 @@ func resolveCollectorRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions) []R
 //
 // The values come from the per-store cred Secret in BoundCredentials,
 // keyed as "<knowledgeName>.<attr>" — same source the agent reads from.
-func resolveKnowledgeRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, name string) []Resolution {
+func resolveKnowledgeRole(ds *AstroDeploymentSpec, opts ResolveOptions, name string) []Resolution {
 	k := ds.Knowledge[name]
 	if k.Provider == "" {
 		return nil
@@ -677,7 +677,7 @@ func resolveKnowledgeRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, nam
 // wholesale, so they get whatever the user has tagged with target
 // "ingestion" plus the platform-emitted entries (under the new model,
 // scoped to this role).
-func resolveIngestionRole(ds *spec.AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext, name string, ing spec.DeploymentIngestion) []Resolution {
+func resolveIngestionRole(ds *AstroDeploymentSpec, opts ResolveOptions, lookup map[string]componentInfo, rctx ResolveContext, name string, ing DeploymentIngestion) []Resolution {
 	role := IngestionRole(name)
 	var out []Resolution
 
@@ -726,8 +726,8 @@ func envNamesIn(rs []Resolution, role Role) map[string]bool {
 // hasKnowledgeCredRef reports whether `value` contains a
 // ${knowledge.X.credentials.Y} reference.
 func hasKnowledgeCredRef(value string) bool {
-	for _, ref := range spec.ParseReferences(value) {
-		if ref.Kind == spec.RefKnowledge && ref.Endpoint == "credentials" {
+	for _, ref := range ParseReferences(value) {
+		if ref.Kind == RefKnowledge && ref.Endpoint == "credentials" {
 			return true
 		}
 	}
@@ -737,12 +737,12 @@ func hasKnowledgeCredRef(value string) bool {
 // isVariableRef reports whether `value` is a single `${variables.X}`
 // reference. Used to suppress duplicate rows for variables already
 // emitted by resolveUserVars.
-func isVariableRef(value string, ds *spec.AstroDeploymentSpec) bool {
-	refs := spec.ParseReferences(value)
+func isVariableRef(value string, ds *AstroDeploymentSpec) bool {
+	refs := ParseReferences(value)
 	if len(refs) != 1 {
 		return false
 	}
-	if refs[0].Kind != spec.RefVariable {
+	if refs[0].Kind != RefVariable {
 		return false
 	}
 	if _, ok := ds.Variables[refs[0].Name]; !ok {
@@ -754,7 +754,7 @@ func isVariableRef(value string, ds *spec.AstroDeploymentSpec) bool {
 // primaryEndpointFromInfo picks the canonical endpoint name from a
 // component's resolved endpoint map. Prefers "http" then "grpc"; falls
 // back to any single entry. (template.go has a sibling helper that does
-// the same against a spec.Endpoint map; this one operates on resolved
+// the same against a Endpoint map; this one operates on resolved
 // componentEndpointInfo.)
 func primaryEndpointFromInfo(eps map[string]componentEndpointInfo) string {
 	if _, ok := eps["http"]; ok {

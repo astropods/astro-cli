@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -416,8 +417,8 @@ func TestResolveVarReferences_RejectsSecretTypeMismatch(t *testing.T) {
 				WithArgs("acct-1", sqlmock.AnyArg()).
 				WillReturnRows(rows)
 
-			deployment := &spec.AstroDeploymentSpec{
-				Variables: map[string]spec.Variable{
+			deployment := &deployment.AstroDeploymentSpec{
+				Variables: map[string]deployment.Variable{
 					"TARGET_VALUE": {
 						Ref:    "SHARED_VALUE",
 						Secret: tt.deploymentSecret,
@@ -476,8 +477,8 @@ func TestResolveVarReferences_ResolvesMatchingTypes(t *testing.T) {
 					}))
 			}
 
-			deployment := &spec.AstroDeploymentSpec{
-				Variables: map[string]spec.Variable{
+			deployment := &deployment.AstroDeploymentSpec{
+				Variables: map[string]deployment.Variable{
 					"TARGET_VALUE": {
 						Ref:    "SHARED_VALUE",
 						Secret: tt.secret,

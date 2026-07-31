@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploytoken"
-	spec "github.com/astropods/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -26,7 +26,7 @@ import (
 // ApplyDeploymentSpec applies a fully resolved AstroDeploymentSpec to the cluster.
 func (a *Applier) ApplyDeploymentSpec(
 	ctx context.Context,
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 ) (*ApplyResult, error) {
 	result := &ApplyResult{
 		Resources:        []deployment.ResourceStatus{},
@@ -234,7 +234,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	a.applyServiceAndRecord(ctx, agentService, result)
 
 	// Agent ingress — when frontend is exposed
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+	if ep := deployment.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-agent")
 		host := externalAgentHost
 		if host != "" {
@@ -513,11 +513,11 @@ func (a *Applier) ApplyDeploymentSpec(
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		// Resolve interface grpc port: prefer "grpc" endpoint, fall back to primary, default 9090
 		grpcPort := int32(0)
-		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+		if ep := deployment.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
 			grpcPort = int32(ep.Port) // nolint:gosec
 		}
 		if grpcPort == 0 {
-			grpcPort = int32(spec.PrimaryPort(ds.Interfaces.Endpoints)) // nolint:gosec
+			grpcPort = int32(deployment.PrimaryPort(ds.Interfaces.Endpoints)) // nolint:gosec
 		}
 		if grpcPort == 0 {
 			grpcPort = 9090
@@ -528,7 +528,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		// same pod) or container (grpc port — same container). +10 each
 		// shift, retrying until no collision.
 		webPort := int32(0)
-		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
+		if ep := deployment.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
 			webPort = int32(ep.Port) // nolint:gosec
 		}
 		if webPort == 0 {
@@ -557,7 +557,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				resolvedIfaceEnv[key] = val
 				continue
 			}
-			if val, ok := resolved.SecretData[key]; ok && val != "" && !spec.IsReference(val) {
+			if val, ok := resolved.SecretData[key]; ok && val != "" && !deployment.IsReference(val) {
 				messagingSecretData[key] = val
 			}
 		}
@@ -680,7 +680,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		if webEnabled && !a.localMode {
 			ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-messaging")
 			host := ""
-			if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
+			if ep := deployment.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
 				host = ep.Expose.Domain
 			}
 			if host == "" {
@@ -815,7 +815,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		ingestionSpec := spec.Ingestion{
 			Container: spec.ContainerConfig{
 				Image:       ingestion.Image,
-				Port:        spec.PrimaryPort(ingestion.Endpoints),
+				Port:        deployment.PrimaryPort(ingestion.Endpoints),
 				Environment: ingestion.Environment,
 			},
 			Trigger: spec.IngestionTrigger{
@@ -863,7 +863,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		case "webhook":
 			// port is required for webhook triggers (validated by deployment parser)
-			port := int32(spec.PrimaryPort(ingestion.Endpoints)) // nolint:gosec
+			port := int32(deployment.PrimaryPort(ingestion.Endpoints)) // nolint:gosec
 			// Service
 			svc := BuildService(ServiceConfig{
 				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
@@ -979,35 +979,35 @@ func (a *Applier) ApplyDeploymentSpec(
 // primaryPort returns the primary port from a component's Endpoints map as int32.
 // Prefers the "http" endpoint; otherwise returns the first endpoint sorted alphabetically.
 // Returns 0 if endpoints is nil or empty.
-func primaryPort(endpoints map[string]spec.Endpoint) int32 {
-	return int32(spec.PrimaryPort(endpoints)) // nolint:gosec
+func primaryPort(endpoints map[string]deployment.Endpoint) int32 {
+	return int32(deployment.PrimaryPort(endpoints)) // nolint:gosec
 }
 
-// pvcConfigFromSpec unpacks a spec.StorageConfig into the size/class/access-mode
+// pvcConfigFromSpec unpacks a deployment.StorageConfig into the size/class/access-mode
 // triple BuildStatefulSet expects. Defaults match DefaultStorageConfig().
 // normalizeAgentStorageDefaults ensures the agent has a persistent volume.
 // When no mount path is set it applies the platform defaults (mount path +
 // modest storage size); an explicitly requested volume or storage config is
 // left untouched. Idempotent — re-applying a defaulted spec is a no-op.
-func normalizeAgentStorageDefaults(ds *spec.AstroDeploymentSpec) {
+func normalizeAgentStorageDefaults(ds *deployment.AstroDeploymentSpec) {
 	// Ingress response timeout applies regardless of the volume short-circuit
 	// below, so default it first. Specs stored before this field existed arrive
 	// empty and would otherwise fall through to Contour's stock 15s.
 	if ds.Agent.ResponseTimeout == "" {
-		ds.Agent.ResponseTimeout = spec.DefaultResponseTimeout
+		ds.Agent.ResponseTimeout = deployment.DefaultResponseTimeout
 	}
 	if ds.Agent.Volume != "" {
 		return
 	}
 	ds.Agent.Volume = spec.DefaultAgentVolumeMount
 	if ds.Agent.Storage == nil {
-		s := spec.DefaultStorageConfig()
-		s.Size = spec.DefaultAgentStorageSize
+		s := deployment.DefaultStorageConfig()
+		s.Size = deployment.DefaultAgentStorageSize
 		ds.Agent.Storage = &s
 	}
 }
 
-func pvcConfigFromSpec(s *spec.StorageConfig) (size, class string, mode corev1.PersistentVolumeAccessMode) {
+func pvcConfigFromSpec(s *deployment.StorageConfig) (size, class string, mode corev1.PersistentVolumeAccessMode) {
 	size, mode = "10Gi", corev1.ReadWriteOnce
 	if s == nil {
 		return
@@ -1026,7 +1026,7 @@ func pvcConfigFromSpec(s *spec.StorageConfig) (size, class string, mode corev1.P
 // agent's Deployment or StatefulSet. Pulled out so the branch in
 // ApplyDeploymentSpec stays readable.
 type agentWorkloadInput struct {
-	ds                                              *spec.AstroDeploymentSpec
+	ds                                              *deployment.AstroDeploymentSpec
 	agentName, accountName, buildID, resourceName   string
 	port                                            int32
 	deployToken, secretName, configMapName, envHash string
@@ -1382,7 +1382,7 @@ func apiserverProxyNetworkPolicy(namespace string, cpSubnetCIDRs []string) *netw
 
 // buildKnowledgeService builds a knowledge service exposing all declared endpoints.
 func (a *Applier) buildKnowledgeService(
-	resourceName, accountName, agentName, buildID, name string, endpoints map[string]spec.Endpoint,
+	resourceName, accountName, agentName, buildID, name string, endpoints map[string]deployment.Endpoint,
 ) *corev1.Service {
 	labels := deployment.GenerateLabels(accountName, agentName, buildID, fmt.Sprintf("knowledge-%s", name))
 	selector := deployment.GenerateSelector(accountName, agentName, fmt.Sprintf("knowledge-%s", name))
@@ -1412,8 +1412,8 @@ func (a *Applier) buildKnowledgeService(
 // ingress will be created on, or "" if the agent has no exposed endpoint or
 // no host can be determined. Mirrors the host-selection used when building
 // the ingress so callers can pre-compute the URL for env injection.
-func (a *Applier) resolveAgentIngressHost(ds *spec.AstroDeploymentSpec, agentName string) string {
-	ep := spec.ExposedEndpoint(ds.Agent.Endpoints)
+func (a *Applier) resolveAgentIngressHost(ds *deployment.AstroDeploymentSpec, agentName string) string {
+	ep := deployment.ExposedEndpoint(ds.Agent.Endpoints)
 	if ep == nil {
 		return ""
 	}
@@ -1516,7 +1516,7 @@ func providerCredKeys(provider string) []knowledgeCredKey {
 // existingSecrets is the list of cred Secret names the applier successfully
 // created/found; we skip stores whose Secret didn't materialise rather than
 // referencing a missing secret which would block pod startup.
-func knowledgeCredEnvVars(ds *spec.AstroDeploymentSpec, agentName string, existingSecrets []string) []corev1.EnvVar {
+func knowledgeCredEnvVars(ds *deployment.AstroDeploymentSpec, agentName string, existingSecrets []string) []corev1.EnvVar {
 	if len(ds.Knowledge) == 0 {
 		return nil
 	}
@@ -1623,7 +1623,7 @@ type knowledgeCredResult struct {
 // use in credential reference resolution (${knowledge.*.credentials.*}).
 func (a *Applier) ensureKnowledgeCredentialSecrets(
 	ctx context.Context,
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 	accountName, agentName, buildID string,
 ) knowledgeCredResult {
 	result := knowledgeCredResult{
@@ -1701,7 +1701,7 @@ func (a *Applier) ensureKnowledgeCredentialSecrets(
 // external credentials. Returns ("", false) when no bound credentials exist for
 // the store (nothing to reference).
 func (a *Applier) ensureBoundCredentialSecret(
-	ctx context.Context, ds *spec.AstroDeploymentSpec, name, accountName, agentName, buildID string,
+	ctx context.Context, ds *deployment.AstroDeploymentSpec, name, accountName, agentName, buildID string,
 ) (string, bool) {
 	storageKeyMap := spec.CredentialStorageKeyMap(ds.Knowledge[name].Provider) // storageKey -> attr
 	if len(storageKeyMap) == 0 {
@@ -1758,7 +1758,7 @@ func (a *Applier) ensureBoundCredentialSecret(
 //
 // Auto-emitted entries (ASTRO_AGENT_*, OTEL_EXPORTER_OTLP_ENDPOINT, etc.)
 // are not in ds.Variables; they pass through unfiltered.
-func scopeAgentEnv(ds *spec.AstroDeploymentSpec, resolved *deployment.ResolvedEnv) (sec, cm map[string]string) {
+func scopeAgentEnv(ds *deployment.AstroDeploymentSpec, resolved *deployment.ResolvedEnv) (sec, cm map[string]string) {
 	exclude := interfaceOnlyKeys(ds)
 
 	sec = make(map[string]string, len(resolved.SecretData))
@@ -1781,7 +1781,7 @@ func scopeAgentEnv(ds *spec.AstroDeploymentSpec, resolved *deployment.ResolvedEn
 // interfaceOnlyKeys returns the set of variable names whose Targets are
 // exclusively "interface.*" entries. These belong to the messaging
 // container only and must not appear in the agent's mounted Secret.
-func interfaceOnlyKeys(ds *spec.AstroDeploymentSpec) map[string]bool {
+func interfaceOnlyKeys(ds *deployment.AstroDeploymentSpec) map[string]bool {
 	out := map[string]bool{}
 	for name, v := range ds.Variables {
 		if len(v.Targets) == 0 {
@@ -1806,7 +1806,7 @@ func interfaceOnlyKeys(ds *spec.AstroDeploymentSpec) map[string]bool {
 // applier can skip Secret creation for stripped/unresolved specs.
 func hasNonEmpty(data map[string]string) bool {
 	for _, v := range data {
-		if v != "" && !spec.IsReference(v) {
+		if v != "" && !deployment.IsReference(v) {
 			return true
 		}
 	}

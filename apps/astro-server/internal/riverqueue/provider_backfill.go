@@ -8,8 +8,8 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 )
 
 // ProviderBackfillArgs are the job arguments for the workload-provider backfill.
@@ -80,7 +80,7 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 
 		for _, p := range batch {
 			scanned++
-			var ds spec.AstroDeploymentSpec
+			var ds deployment.AstroDeploymentSpec
 			if err := json.Unmarshal([]byte(p.specJSON), &ds); err != nil {
 				w.log.Warn("Provider backfill: parse spec", "deployment_id", p.id, "error", err)
 				continue

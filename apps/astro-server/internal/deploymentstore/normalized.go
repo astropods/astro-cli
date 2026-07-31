@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro-spec"
 	"github.com/lib/pq"
 )
 
@@ -165,7 +165,7 @@ func (c *NormalizedSpecConfig) webDomain(public bool) string {
 func SaveNormalizedSpec(
 	tx *sql.Tx,
 	deploymentID string,
-	ds *spec.AstroDeploymentSpec,
+	ds *deployment.AstroDeploymentSpec,
 	enc *envelope.Encryptor,
 	nsCfg *NormalizedSpecConfig,
 ) error {
@@ -256,11 +256,11 @@ func SaveNormalizedSpec(
 		provider   string
 		image      string
 		replicas   int
-		resources  spec.DeploymentResources
-		update     spec.UpdateStrategy
+		resources  deployment.DeploymentResources
+		update     deployment.UpdateStrategy
 		hc         *spec.Healthcheck
-		endpoints  map[string]spec.Endpoint
-		gpu        *spec.DeploymentGPU
+		endpoints  map[string]deployment.Endpoint
+		gpu        *deployment.DeploymentGPU
 		persistent bool
 	}
 
@@ -339,7 +339,7 @@ func SaveNormalizedSpec(
 
 	// resolveIngressHost determines the hostname for an exposed endpoint.
 	// Uses explicit domain from spec, falling back to generated host from ingressDomain.
-	resolveIngressHost := func(ep *spec.Endpoint, ingressDomain string) string {
+	resolveIngressHost := func(ep *deployment.Endpoint, ingressDomain string) string {
 		if ep == nil {
 			return ""
 		}
@@ -352,7 +352,7 @@ func SaveNormalizedSpec(
 		return ""
 	}
 
-	saveEndpoints := func(workloadID int, endpoints map[string]spec.Endpoint) error {
+	saveEndpoints := func(workloadID int, endpoints map[string]deployment.Endpoint) error {
 		for name, ep := range endpoints {
 			proto := ep.Protocol
 			if proto == "" {
@@ -411,7 +411,7 @@ func SaveNormalizedSpec(
 	if agentMount == "" {
 		agentMount = spec.DefaultAgentVolumeMount
 	}
-	agentStorageSize := spec.DefaultAgentStorageSize
+	agentStorageSize := deployment.DefaultAgentStorageSize
 	agentStorageClass := ""
 	agentAccessMode := "ReadWriteOnce"
 	if ds.Agent.Storage != nil {
@@ -436,7 +436,7 @@ func SaveNormalizedSpec(
 		return fmt.Errorf("agent volume: %w", err)
 	}
 	// Agent ingress — matches spec_applier logic: ExposedEndpoint + ingressDomain fallback
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+	if ep := deployment.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
 		if host := resolveIngressHost(ep, nsCfg.webDomain(ds.Interfaces.CustomPublic())); host != "" {
 			// Find the service ID for the exposed endpoint's port
 			var svcID int
@@ -811,7 +811,7 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 		return 0, 0, 0, fmt.Errorf("deployment has no spec JSON")
 	}
 
-	var ds spec.AstroDeploymentSpec
+	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err != nil {
 		return 0, 0, 0, fmt.Errorf("parse spec JSON: %w", err)
 	}
@@ -1068,9 +1068,9 @@ func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, e
 // deployment_volumes tables. nil when no agent row exists (legacy or
 // partially-rebuilt deployments) — callers should fall back to defaults.
 type AgentProvisioning struct {
-	Resources spec.DeploymentResources
+	Resources deployment.DeploymentResources
 	Volume    string
-	Storage   *spec.StorageConfig
+	Storage   *deployment.StorageConfig
 }
 
 // GetAgentProvisioning loads the agent workload row for the deployment
@@ -1102,7 +1102,7 @@ func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, e
 		return nil, fmt.Errorf("query agent provisioning: %w", err)
 	}
 	out := &AgentProvisioning{
-		Resources: spec.DeploymentResources{
+		Resources: deployment.DeploymentResources{
 			CPU:         cpuReq.String,
 			Memory:      memReq.String,
 			CPULimit:    cpuLim.String,
@@ -1111,7 +1111,7 @@ func (s *Store) GetAgentProvisioning(deploymentID string) (*AgentProvisioning, e
 	}
 	if mountPath.Valid && mountPath.String != "" {
 		out.Volume = mountPath.String
-		out.Storage = &spec.StorageConfig{
+		out.Storage = &deployment.StorageConfig{
 			Size:       size.String,
 			AccessMode: accessMode.String,
 		}

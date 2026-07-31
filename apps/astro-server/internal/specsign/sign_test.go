@@ -3,35 +3,35 @@ package specsign
 import (
 	"testing"
 
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 )
 
-func testSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func testSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Account:  "acme",
 			Name:     "my-agent",
 			Build:    "abc123",
 			Registry: "registry.example.com",
 		},
-		Target: spec.DeploymentTarget{
+		Target: deployment.DeploymentTarget{
 			Account:     "acme",
 			DisplayName: "My Agent",
 		},
-		Agent: spec.DeploymentAgent{
+		Agent: deployment.DeploymentAgent{
 			Image: "registry.example.com/acme/my-agent:abc123",
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]deployment.Endpoint{
 				"http": {Port: 8080, Protocol: "http"},
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"postgres": {
 				Image:     "postgres:16",
-				Endpoints: map[string]spec.Endpoint{"tcp": {Port: 5432, Protocol: "tcp"}},
+				Endpoints: map[string]deployment.Endpoint{"tcp": {Port: 5432, Protocol: "tcp"}},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"API_KEY": {Value: "secret", Secret: true},
 		},
 	}
@@ -67,7 +67,7 @@ func TestVerify_TamperedImage(t *testing.T) {
 func TestVerify_TamperedBinding(t *testing.T) {
 	key := NewKey()
 	ds := testSpec()
-	ds.Knowledge = map[string]spec.DeploymentKnowledge{
+	ds.Knowledge = map[string]deployment.DeploymentKnowledge{
 		"pg": {Binding: "arn:knowledge-store:acct:store1"},
 	}
 	sig := Sign(key, ds)

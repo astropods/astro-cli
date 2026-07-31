@@ -3,8 +3,6 @@ package deployment
 import (
 	"strings"
 	"testing"
-
-	spec "github.com/astropods/astro-spec"
 )
 
 // findResolution returns the first Resolution matching the role+env name,
@@ -22,13 +20,13 @@ func TestResolve_SlackVarsDoNotLeakToAgent(t *testing.T) {
 	// The cross-role leak case from the bug that motivated this work:
 	// a SLACK_BOT_TOKEN with target=interface.slack must not produce
 	// any row for role='agent'.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "myagent", Build: "build1"},
-		Agent: spec.DeploymentAgent{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "myagent", Build: "build1"},
+		Agent: DeploymentAgent{
 			Image:     "agent:latest",
 			Endpoints: httpEndpoints(8080),
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"ANTHROPIC_API_KEY": {
 				Secret: true, Value: "sk-ant-...",
 				Targets: []string{"agent"},
@@ -42,7 +40,7 @@ func TestResolve_SlackVarsDoNotLeakToAgent(t *testing.T) {
 				Targets: []string{"interface.slack"},
 			},
 		},
-		Interfaces: &spec.DeploymentInterfaces{
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack"},
 		},
 	}
@@ -79,12 +77,12 @@ func TestResolve_MessagingHardcodedKnobs(t *testing.T) {
 	// Messaging container's hardcoded env knobs (GRPC_*, STORAGE_TYPE,
 	// DEPLOYMENT_MODE; SLACK_ENABLED / WEB_* conditionals) must appear
 	// regardless of whether the user has any vars.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Interfaces: &spec.DeploymentInterfaces{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Interfaces: &DeploymentInterfaces{
 			Adapters: []string{"slack", "web"},
-			Endpoints: map[string]spec.Endpoint{
+			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 9090},
 				"http": {Port: 8090},
 			},
@@ -132,12 +130,12 @@ func TestResolve_KnowledgePostgresPerStoreRenaming(t *testing.T) {
 	// canonical names (POSTGRES_USER / _PASSWORD); the "users" store
 	// gets renamed (POSTGRES_USERS_USER / _PASSWORD). Both rows live
 	// on the agent role; the per-store renaming is handled by Resolve.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Knowledge: map[string]spec.DeploymentKnowledge{
-			"postgres": {Provider: "postgres", Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}}},
-			"users":    {Provider: "postgres", Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}}},
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Knowledge: map[string]DeploymentKnowledge{
+			"postgres": {Provider: "postgres", Endpoints: map[string]Endpoint{"http": {Port: 5432}}},
+			"users":    {Provider: "postgres", Endpoints: map[string]Endpoint{"http": {Port: 5432}}},
 		},
 	}
 	opts := ResolveOptions{
@@ -245,10 +243,10 @@ func TestResolve_ExternalKnowledgeStoreInjectsAllVars(t *testing.T) {
 			for attr, v := range tc.creds {
 				prefixed["db."+attr] = v
 			}
-			ds := &spec.AstroDeploymentSpec{
-				Source: spec.DeploymentSource{Name: "a", Build: "b"},
-				Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-				Knowledge: map[string]spec.DeploymentKnowledge{
+			ds := &AstroDeploymentSpec{
+				Source: DeploymentSource{Name: "a", Build: "b"},
+				Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+				Knowledge: map[string]DeploymentKnowledge{
 					"db": {Provider: tc.provider, Binding: "arn:knowledge:acct:shared"},
 				},
 			}
@@ -305,19 +303,19 @@ func TestResolve_NoDuplicateRowsForSameEnvName(t *testing.T) {
 	// Schema-level: (deployment, role, env_name) is unique. Resolve
 	// must never emit two entries with the same (Role, EnvName).
 	// This is the structural guarantee the dedupe fix codifies.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Variables: map[string]Variable{
 			"DB_URL": {
 				Secret: true, Value: "postgres://x",
 				Targets: []string{"agent", "ingestion"},
 			},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
+		Ingestion: map[string]DeploymentIngestion{
 			"reporter": {Image: "x", Endpoints: httpEndpoints(8080)},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {Provider: "postgres"},
 		},
 	}
@@ -348,13 +346,13 @@ func TestResolve_NoDuplicateRowsForSameEnvName(t *testing.T) {
 
 // P5: a variable with a named ingestion target appears only in that job.
 func TestResolve_NamedIngestionTargetScopedToThatJobOnly(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Variables: map[string]Variable{
 			"NIGHTLY_VAR": {Value: "v", Targets: []string{"ingestion.nightly"}},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
+		Ingestion: map[string]DeploymentIngestion{
 			"nightly": {Image: "x"},
 			"hook":    {Image: "x"},
 		},
@@ -386,10 +384,10 @@ func TestResolve_NamedIngestionTargetScopedToThatJobOnly(t *testing.T) {
 
 // P11: the collector container receives its required platform env vars.
 func TestResolve_CollectorReceivesPlatformEnvVars(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source:        spec.DeploymentSource{Name: "my-agent", Build: "build1"},
-		Agent:         spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Observability: spec.DeploymentObservability{Enabled: true, Image: "collector:latest", Port: 4318},
+	ds := &AstroDeploymentSpec{
+		Source:        DeploymentSource{Name: "my-agent", Build: "build1"},
+		Agent:         DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Observability: DeploymentObservability{Enabled: true, Image: "collector:latest", Port: 4318},
 	}
 
 	rs, err := Resolve(ds, ResolveOptions{Namespace: "ns", DeploymentID: "dep-1"})
@@ -407,10 +405,10 @@ func TestResolve_CollectorReceivesPlatformEnvVars(t *testing.T) {
 
 // P12: a knowledge container receives the env vars specific to its store.
 func TestResolve_KnowledgeContainerReceivesStoreEnvVars(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Knowledge: map[string]DeploymentKnowledge{
 			"db": {Image: "pgvector:latest", Provider: "postgres", Endpoints: httpEndpoints(5432), Replicas: 1},
 		},
 	}
@@ -443,13 +441,13 @@ func TestResolve_KnowledgeContainerReceivesStoreEnvVars(t *testing.T) {
 
 // P13: an ingestion container receives the env vars scoped to that job.
 func TestResolve_IngestionContainerReceivesItsEnvVars(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Variables: map[string]Variable{
 			"SYNC_CONFIG": {Value: "v", Targets: []string{"ingestion.sync"}},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
+		Ingestion: map[string]DeploymentIngestion{
 			"sync": {Image: "sync:latest"},
 		},
 	}
@@ -471,16 +469,16 @@ func TestResolve_IngestionContainerReceivesItsEnvVars(t *testing.T) {
 func TestResolve_DBURLFansOutToAgentAndEachIngestion(t *testing.T) {
 	// A user variable with Targets=["agent","ingestion"] must produce
 	// one row for the agent and one for each declared ingestion role.
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "a", Build: "b"},
-		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "a", Build: "b"},
+		Agent:  DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
+		Variables: map[string]Variable{
 			"DB_URL": {
 				Secret: false, Value: "postgres://x",
 				Targets: []string{"agent", "ingestion"},
 			},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
+		Ingestion: map[string]DeploymentIngestion{
 			"reporter":  {Image: "x", Endpoints: httpEndpoints(8080)},
 			"backfill":  {Image: "x", Endpoints: httpEndpoints(8080)},
 			"unrelated": {Image: "x", Endpoints: httpEndpoints(8080)},

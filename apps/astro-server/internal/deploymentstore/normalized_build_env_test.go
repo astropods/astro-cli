@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
-	spec "github.com/astropods/astro-spec"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -21,62 +21,62 @@ import (
 // fullSpecDeploymentSpec returns a realistic DeploymentSpec that exercises
 // agent, model, persistent knowledge, non-persistent knowledge, ingestion
 // (schedule), and observability (collector) — the same mix as TestTemplate_FullSpec.
-func fullSpecDeploymentSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func fullSpecDeploymentSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "research-assistant", Build: "build1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "research-assistant", Build: "build1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/research-assistant:build1", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
-			Update:    spec.DefaultUpdateStrategy(),
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Update:    deployment.DefaultUpdateStrategy(),
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"local": {
 				Image: "r.io/my-model:latest", Replicas: 1,
-				Resources: spec.StandardResources,
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000, Protocol: "http"}},
-				Update:    spec.DefaultUpdateStrategy(),
+				Resources: deployment.StandardResources,
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 8000, Protocol: "http"}},
+				Update:    deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"db": {
 				Image: "r.io/pgvector:latest", Replicas: 1, Provider: "postgres",
-				Persistent: true, Storage: &spec.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
-				Resources: spec.StandardResources,
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 5432, Protocol: "tcp"}},
-				Update:    spec.UpdateStrategy{Strategy: "recreate"},
+				Persistent: true, Storage: &deployment.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
+				Resources: deployment.StandardResources,
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 5432, Protocol: "tcp"}},
+				Update:    deployment.UpdateStrategy{Strategy: "recreate"},
 			},
 			"cache": {
 				Image: "r.io/redis:latest", Replicas: 1, Provider: "redis",
 				Persistent: false,
-				Resources:  spec.StandardResources,
-				Endpoints:  map[string]spec.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
-				Update:     spec.DefaultUpdateStrategy(),
+				Resources:  deployment.StandardResources,
+				Endpoints:  map[string]deployment.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
+				Update:     deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Ingestion: map[string]spec.DeploymentIngestion{
-			"nightly": {Image: "r.io/sync:latest", Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"}, Resources: spec.StandardResources},
+		Ingestion: map[string]deployment.DeploymentIngestion{
+			"nightly": {Image: "r.io/sync:latest", Trigger: deployment.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"}, Resources: deployment.StandardResources},
 		},
-		Observability: spec.DeploymentObservability{
+		Observability: deployment.DeploymentObservability{
 			Enabled: true, Image: "r.io/collector:latest", Port: 4318,
-			Resources: spec.CollectorResources,
+			Resources: deployment.CollectorResources,
 		},
 	}
 }
 
 // targetingSpec returns a spec whose variables exercise every target type:
 // agent, interface.slack, bare ingestion fan-out, named ingestion, multi-target.
-func targetingSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func targetingSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "target-test", Build: "b1"},
-		Agent:  spec.DeploymentAgent{Image: "img:b1", Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}}, Replicas: 1},
-		Ingestion: map[string]spec.DeploymentIngestion{
-			"nightly": {Image: "sync:b1", Trigger: spec.DeploymentTrigger{Type: "schedule"}},
-			"hook":    {Image: "hook:b1", Trigger: spec.DeploymentTrigger{Type: "webhook"}},
+		Source: deployment.DeploymentSource{Name: "target-test", Build: "b1"},
+		Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
+		Ingestion: map[string]deployment.DeploymentIngestion{
+			"nightly": {Image: "sync:b1", Trigger: deployment.DeploymentTrigger{Type: "schedule"}},
+			"hook":    {Image: "hook:b1", Trigger: deployment.DeploymentTrigger{Type: "webhook"}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"AGENT_VAR":    {Value: "va", Targets: []string{"agent"}},
 			"SLACK_TOKEN":  {Value: "xoxb-1", Secret: true, Targets: []string{"interface.slack"}},
 			"ALL_INGEST":   {Value: "vi", Targets: []string{"ingestion"}},
@@ -88,7 +88,7 @@ func targetingSpec() *spec.AstroDeploymentSpec {
 	}
 }
 
-func saveSpec(t *testing.T, store *Store, accountID string, name string, ds *spec.AstroDeploymentSpec, enc *envelope.Encryptor) string {
+func saveSpec(t *testing.T, store *Store, accountID string, name string, ds *deployment.AstroDeploymentSpec, enc *envelope.Encryptor) string {
 	t.Helper()
 	depID := newID()
 	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
@@ -324,12 +324,12 @@ func TestSaveNormalizedSpec_BuildEnv_UpdateDeployClears(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	baseSpec := func(varName, varValue string) *spec.AstroDeploymentSpec {
-		return &spec.AstroDeploymentSpec{
+	baseSpec := func(varName, varValue string) *deployment.AstroDeploymentSpec {
+		return &deployment.AstroDeploymentSpec{
 			Spec:   "deployment/v1",
-			Source: spec.DeploymentSource{Name: "update-test", Build: "b1"},
-			Agent:  spec.DeploymentAgent{Image: "img:b1", Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}}, Replicas: 1},
-			Variables: map[string]spec.Variable{
+			Source: deployment.DeploymentSource{Name: "update-test", Build: "b1"},
+			Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
+			Variables: map[string]deployment.Variable{
 				varName: {Value: varValue, Targets: []string{"agent"}},
 			},
 		}
@@ -400,14 +400,14 @@ func TestGetBuildEnv_ReturnsAllRows(t *testing.T) {
 		t.Fatalf("NewTestEncryptor: %v", err)
 	}
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "get-be-test", Build: "b1"},
-		Agent:  spec.DeploymentAgent{Image: "img:b1", Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}}, Replicas: 1},
-		Ingestion: map[string]spec.DeploymentIngestion{
-			"sync": {Image: "sync:b1", Trigger: spec.DeploymentTrigger{Type: "startup"}},
+		Source: deployment.DeploymentSource{Name: "get-be-test", Build: "b1"},
+		Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
+		Ingestion: map[string]deployment.DeploymentIngestion{
+			"sync": {Image: "sync:b1", Trigger: deployment.DeploymentTrigger{Type: "startup"}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			// R2: non-secret stored as plaintext
 			"PLAIN": {Value: "hello", Secret: false, Targets: []string{"agent"}},
 			// R3: secret stored as ciphertext + nonce
@@ -497,14 +497,14 @@ func TestGetDeploymentVariables_RoleReconstruction(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "role-recon", Build: "b1"},
-		Agent:  spec.DeploymentAgent{Image: "img:b1", Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}}, Replicas: 1},
-		Ingestion: map[string]spec.DeploymentIngestion{
-			"nightly": {Image: "sync:b1", Trigger: spec.DeploymentTrigger{Type: "startup"}},
+		Source: deployment.DeploymentSource{Name: "role-recon", Build: "b1"},
+		Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
+		Ingestion: map[string]deployment.DeploymentIngestion{
+			"nightly": {Image: "sync:b1", Trigger: deployment.DeploymentTrigger{Type: "startup"}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			// V1: agent role → Targets=["agent"]
 			"AGENT_VAR": {Value: "va", Targets: []string{"agent"}},
 			// V2: messaging role → Targets=["interface.slack"]

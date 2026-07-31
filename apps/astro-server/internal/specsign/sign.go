@@ -16,7 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 )
 
 // NewKey generates a random 32-byte HMAC key.
@@ -31,7 +31,7 @@ func NewKey() []byte {
 // Sign computes an HMAC-SHA256 signature over the deployment spec.
 // Target fields (account, display_name, deployment_id, cluster_id) are
 // excluded because the client may set them after receiving the template.
-func Sign(key []byte, ds *spec.AstroDeploymentSpec) string {
+func Sign(key []byte, ds *deployment.AstroDeploymentSpec) string {
 	payload := canonicalize(ds)
 	mac := hmac.New(sha256.New, key)
 	mac.Write(payload)
@@ -40,7 +40,7 @@ func Sign(key []byte, ds *spec.AstroDeploymentSpec) string {
 
 // Verify checks the HMAC-SHA256 signature. Returns true if the spec is
 // unmodified from what the template endpoint produced (ignoring target fields).
-func Verify(key []byte, ds *spec.AstroDeploymentSpec, signature string) bool {
+func Verify(key []byte, ds *deployment.AstroDeploymentSpec, signature string) bool {
 	expected, err := hex.DecodeString(signature)
 	if err != nil || len(expected) == 0 {
 		return false
@@ -53,7 +53,7 @@ func Verify(key []byte, ds *spec.AstroDeploymentSpec, signature string) bool {
 
 // canonicalize produces a deterministic JSON representation of the spec
 // with target fields zeroed so they don't affect the signature.
-func canonicalize(ds *spec.AstroDeploymentSpec) []byte {
+func canonicalize(ds *deployment.AstroDeploymentSpec) []byte {
 	// Copy the spec and zero client-owned target fields.
 	cp := *ds
 	cp.Target.Account = ""

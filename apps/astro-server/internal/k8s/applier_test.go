@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,10 +27,10 @@ func TestApplyDeploymentSpec_RedeployRecreatesStartupJob(t *testing.T) {
 	ctx := context.Background()
 
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"init": {
 			Image:   "test-registry.example.com/ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "startup"},
+			Trigger: deployment.DeploymentTrigger{Type: "startup"},
 		},
 	}
 
@@ -97,10 +97,10 @@ func TestApplyDeploymentSpec_RedeploySurvivesTerminatingStartupJob(t *testing.T)
 	const jobName = "my-agent-ingestion-init"
 
 	ds := minimalDeploymentSpec()
-	ds.Ingestion = map[string]spec.DeploymentIngestion{
+	ds.Ingestion = map[string]deployment.DeploymentIngestion{
 		"init": {
 			Image:   "test-registry.example.com/ingest:latest",
-			Trigger: spec.DeploymentTrigger{Type: "startup"},
+			Trigger: deployment.DeploymentTrigger{Type: "startup"},
 		},
 	}
 

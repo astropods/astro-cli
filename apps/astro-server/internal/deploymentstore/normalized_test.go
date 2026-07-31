@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
-	spec "github.com/astropods/astro-spec"
 	_ "github.com/lib/pq"
 )
 
@@ -125,56 +125,56 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Account: "test-acct", Name: "my-agent", Build: "build-1", Registry: "r.io",
 		},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
-		Agent: spec.DeploymentAgent{
+		Target: deployment.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: deployment.DeploymentAgent{
 			Image:    "r.io/my-agent:latest",
 			Replicas: 2,
-			Resources: spec.DeploymentResources{
+			Resources: deployment.DeploymentResources{
 				CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi",
 			},
-			Update: spec.UpdateStrategy{Strategy: "rolling", MaxUnavailable: "25%", MaxSurge: "25%"},
-			Endpoints: map[string]spec.Endpoint{
+			Update: deployment.UpdateStrategy{Strategy: "rolling", MaxUnavailable: "25%", MaxSurge: "25%"},
+			Endpoints: map[string]deployment.Endpoint{
 				"http": {Port: 8080, Protocol: "http"},
 			},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"gpt4": {
 				Image: "my-model:latest", Replicas: 1,
-				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi", CPULimit: "4", MemoryLimit: "16Gi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000, Protocol: "http"}},
-				GPU:       &spec.DeploymentGPU{VRAM: "8Gi", Runtime: "cuda", Count: 1},
-				Update:    spec.UpdateStrategy{Strategy: "recreate"},
+				Resources: deployment.DeploymentResources{CPU: "2", Memory: "8Gi", CPULimit: "4", MemoryLimit: "16Gi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 8000, Protocol: "http"}},
+				GPU:       &deployment.DeploymentGPU{VRAM: "8Gi", Runtime: "cuda", Count: 1},
+				Update:    deployment.UpdateStrategy{Strategy: "recreate"},
 			},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"redis": {
 				Image: "redis:7-alpine", Replicas: 1,
-				Resources:  spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Resources:  deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
 				Persistent: true, Provider: "redis",
-				Storage:   &spec.StorageConfig{Size: "5Gi", AccessMode: "ReadWriteOnce"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
-				Update:    spec.DefaultUpdateStrategy(),
+				Storage:   &deployment.StorageConfig{Size: "5Gi", AccessMode: "ReadWriteOnce"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
+				Update:    deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Integrations: map[string]spec.DeploymentIntegration{
+		Integrations: map[string]deployment.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 1,
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
-				Update:    spec.DefaultUpdateStrategy(),
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+				Update:    deployment.DefaultUpdateStrategy(),
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"API_KEY":    {Value: "sk-secret-123", Secret: true, Targets: []string{"agent"}},
 			"LOG_LEVEL":  {Value: "debug", Secret: false, Targets: []string{"agent", "search"}},
 			"OPTIONAL_V": {Value: "", Secret: false, Optional: true},
 		},
-		Observability: spec.DeploymentObservability{
+		Observability: deployment.DeploymentObservability{
 			Enabled: true, Image: "collector:latest", Port: 4318,
 		},
 	}
@@ -325,20 +325,20 @@ func TestSaveNormalizedSpec_BoundKnowledge_NoWorkload(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Account: "test-acct", Name: "bound-agent", Build: "build-1", Registry: "r.io",
 		},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
-		Agent: spec.DeploymentAgent{
+		Target: deployment.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: deployment.DeploymentAgent{
 			Image:     "r.io/bound-agent:latest",
 			Replicas:  1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
-			Update:    spec.DefaultUpdateStrategy(),
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "1", MemoryLimit: "1Gi"},
+			Update:    deployment.DefaultUpdateStrategy(),
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080, Protocol: "http"}},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			// Bound (external) store: only a binding ARN, no container. No K8s
 			// workload is applied for it, so it must not be persisted as an
 			// expected workload — otherwise deployment status waits on it forever.
@@ -346,10 +346,10 @@ func TestSaveNormalizedSpec_BoundKnowledge_NoWorkload(t *testing.T) {
 			// Managed container store: persisted as usual, for contrast.
 			"redis": {
 				Image: "redis:7-alpine", Replicas: 1,
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi", CPULimit: "500m", MemoryLimit: "512Mi"},
 				Provider:  "redis",
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
-				Update:    spec.DefaultUpdateStrategy(),
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 6379, Protocol: "tcp"}},
+				Update:    deployment.DefaultUpdateStrategy(),
 			},
 		},
 	}
@@ -498,17 +498,17 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 	// storage by using a nil encryptor and verifying the strip behavior
 	// For the encrypted path, the actual crypto is tested in envelope_test.go
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Name: "enc-test-agent", Build: "build-1", Registry: "r.io",
 		},
-		Agent: spec.DeploymentAgent{
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"SECRET_KEY": {Value: "super-secret", Secret: true, Targets: []string{"agent"}},
 			"PLAIN_VAR":  {Value: "visible", Secret: false, Targets: []string{"agent"}},
 		},
@@ -582,15 +582,15 @@ func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
 		t.Fatalf("NewTestEncryptor: %v", err)
 	}
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "b64-agent", Build: "build-1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "b64-agent", Build: "build-1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"API_KEY":   {Value: "sk-secret-key-with-binary-unsafe-bytes", Secret: true, Targets: []string{"agent"}},
 			"PLAIN_VAR": {Value: "hello", Secret: false, Targets: []string{"agent"}},
 		},
@@ -654,22 +654,22 @@ func TestGetWorkloadSummaries(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "summary-agent", Build: "build-1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "summary-agent", Build: "build-1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:latest", Replicas: 2,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Models: map[string]spec.DeploymentModel{
+		Models: map[string]deployment.DeploymentModel{
 			"llm": {
 				Image: "my-model:latest", Replicas: 1,
-				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 8000}},
+				Resources: deployment.DeploymentResources{CPU: "2", Memory: "8Gi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 8000}},
 			},
 		},
-		Observability: spec.DeploymentObservability{Enabled: true, Image: "collector:latest"},
+		Observability: deployment.DeploymentObservability{Enabled: true, Image: "collector:latest"},
 	}
 
 	deploymentID := newID()
@@ -748,24 +748,24 @@ func TestGetWorkloadSummaries_PersistentFlag(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
-		Source: spec.DeploymentSource{Name: "persist-agent"},
-		Agent: spec.DeploymentAgent{
+	ds := &deployment.AstroDeploymentSpec{
+		Source: deployment.DeploymentSource{Name: "persist-agent"},
+		Agent: deployment.DeploymentAgent{
 			Image: "agent:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Knowledge: map[string]spec.DeploymentKnowledge{
+		Knowledge: map[string]deployment.DeploymentKnowledge{
 			"vectors": {
 				Image: "qdrant:latest", Replicas: 1, Persistent: true, Provider: "qdrant",
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-				Storage:   &spec.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}},
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Storage:   &deployment.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 6333}},
 			},
 			"cache": {
 				Image: "redis:7", Replicas: 1, Persistent: false, Provider: "redis",
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 6379}},
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 6379}},
 			},
 		},
 	}
@@ -843,19 +843,19 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "active-wl-agent", Build: "build-1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "active-wl-agent", Build: "build-1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "500m", Memory: "1Gi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "500m", Memory: "1Gi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Integrations: map[string]spec.DeploymentIntegration{
+		Integrations: map[string]deployment.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 2,
-				Resources: spec.DeploymentResources{CPU: "200m", Memory: "512Mi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+				Resources: deployment.DeploymentResources{CPU: "200m", Memory: "512Mi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 			},
 		},
 	}
@@ -948,22 +948,22 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 	store := NewStore(db)
 
 	// Initial spec: agent + tool "search" + variable "API_KEY"
-	ds1 := &spec.AstroDeploymentSpec{
+	ds1 := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "update-agent", Build: "build-1", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "update-agent", Build: "build-1", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:latest", Replicas: 1,
-			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Integrations: map[string]spec.DeploymentIntegration{
+		Integrations: map[string]deployment.DeploymentIntegration{
 			"search": {
 				Image: "r.io/search:latest", Replicas: 1,
-				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}},
+				Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Endpoints: map[string]deployment.Endpoint{"http": {Port: 3000}},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"API_KEY":   {Value: "sk-123", Secret: true, Targets: []string{"agent"}},
 			"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
 		},
@@ -997,15 +997,15 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 	}
 
 	// Updated spec: agent only (tool removed), API_KEY removed
-	ds2 := &spec.AstroDeploymentSpec{
+	ds2 := &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "update-agent", Build: "build-2", Registry: "r.io"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "update-agent", Build: "build-2", Registry: "r.io"},
+		Agent: deployment.DeploymentAgent{
 			Image: "r.io/agent:v2", Replicas: 2,
-			Resources: spec.DeploymentResources{CPU: "200m", Memory: "512Mi"},
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Resources: deployment.DeploymentResources{CPU: "200m", Memory: "512Mi"},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"LOG_LEVEL": {Value: "info", Secret: false, Targets: []string{"agent"}},
 		},
 	}
@@ -1186,12 +1186,12 @@ func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Name: "ref-store-agent", Build: "build-1", Registry: "r.io",
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			// Secret resolved from account variable ref — ref was cleared before this point.
 			"API_KEY": {Value: "resolved-secret", Secret: true, Targets: []string{"agent"}},
 			// Non-secret resolved from account variable ref.
@@ -1261,12 +1261,12 @@ func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &deployment.AstroDeploymentSpec{
 		Spec: "deployment/v1",
-		Source: spec.DeploymentSource{
+		Source: deployment.DeploymentSource{
 			Name: "ref-roundtrip-agent", Build: "b1", Registry: "r.io",
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]deployment.Variable{
 			"SECRET_KEY": {Value: "plaintext", Secret: true, Targets: []string{"agent"}},
 			"PLAIN_KEY":  {Value: "value", Secret: false, Targets: []string{"agent"}},
 		},
@@ -1307,13 +1307,13 @@ func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
 
 // --- build_env dual-write parity tests (review concerns from #852) ---
 
-func minimalAgentSpec() *spec.AstroDeploymentSpec {
-	return &spec.AstroDeploymentSpec{
+func minimalAgentSpec() *deployment.AstroDeploymentSpec {
+	return &deployment.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
-		Source: spec.DeploymentSource{Name: "review-test", Build: "b1", Registry: "r"},
-		Agent: spec.DeploymentAgent{
+		Source: deployment.DeploymentSource{Name: "review-test", Build: "b1", Registry: "r"},
+		Agent: deployment.DeploymentAgent{
 			Image:     "img:b1",
-			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
 			Replicas:  1,
 		},
 	}
@@ -1349,7 +1349,7 @@ func TestSaveNormalizedSpec_EmptyTargets_DoesNotDiverge(t *testing.T) {
 	store := NewStore(db)
 
 	ds := minimalAgentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"NO_TARGETS": {Value: "x", Secret: false, Targets: nil},
 	}
 
@@ -1387,7 +1387,7 @@ func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
 	}
 
 	ds := minimalAgentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"API_KEY":   {Value: "sk-secret-123", Secret: true, Targets: []string{"agent"}},
 		"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
 	}

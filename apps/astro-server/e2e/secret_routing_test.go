@@ -20,7 +20,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -180,7 +179,7 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 	}
 
 	// Parse spec and fill secret values
-	var specObj spec.AstroDeploymentSpec
+	var specObj deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(secretRoutingSpec), &specObj); err != nil {
 		t.Fatalf("parse spec: %v", err)
 	}

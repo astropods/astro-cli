@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 )
 
 const heartbeatInterval = 5 * time.Minute
@@ -111,7 +111,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 			if replicas <= 0 {
 				replicas = 1
 			}
-			cu := containerCU(spec.DeploymentResources{CPU: w.CPURequest, Memory: w.MemoryRequest}, replicas)
+			cu := containerCU(deployment.DeploymentResources{CPU: w.CPURequest, Memory: w.MemoryRequest}, replicas)
 			if cu <= 0 {
 				continue
 			}
@@ -133,7 +133,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 			return
 		}
 		for _, d := range deployments {
-			var depSpec spec.AstroDeploymentSpec
+			var depSpec deployment.AstroDeploymentSpec
 			if err := json.Unmarshal([]byte(d.SpecJSON), &depSpec); err != nil {
 				h.log.Error("metering: failed to parse deployment spec", "error", err, "account_id", d.AccountID, "agent", d.AgentName)
 				continue
@@ -203,7 +203,7 @@ func (h *Heartbeat) getActiveWorkloads(ctx context.Context) ([]activeWorkloadRow
 }
 
 // containerBreakdown returns per-container compute unit calculations for a deployment spec.
-func containerBreakdown(s *spec.AstroDeploymentSpec) []containerUsage {
+func containerBreakdown(s *deployment.AstroDeploymentSpec) []containerUsage {
 	var result []containerUsage
 
 	result = append(result, makeContainerUsage("agent", s.Agent.Resources, s.Agent.Replicas))
@@ -227,7 +227,7 @@ func containerBreakdown(s *spec.AstroDeploymentSpec) []containerUsage {
 	return result
 }
 
-func makeContainerUsage(component string, r spec.DeploymentResources, replicas int) containerUsage {
+func makeContainerUsage(component string, r deployment.DeploymentResources, replicas int) containerUsage {
 	if replicas <= 0 {
 		replicas = 1
 	}
@@ -241,7 +241,7 @@ func makeContainerUsage(component string, r spec.DeploymentResources, replicas i
 }
 
 // containerCU calculates compute units for a single container type.
-func containerCU(r spec.DeploymentResources, replicas int) float64 {
+func containerCU(r deployment.DeploymentResources, replicas int) float64 {
 	if replicas <= 0 {
 		replicas = 1
 	}
@@ -384,11 +384,11 @@ func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
 		}
 		res := knowledgeProviderResourceStrings(provider)
 		events = append(events, usageEvent("knowledge_compute_usage", accountID, map[string]any{
-			"cu_hours": cu * intervalHours,
-			"store_name":         name,
-			"provider":           provider,
-			"cpu":                res.cpu,
-			"memory":             res.memory,
+			"cu_hours":   cu * intervalHours,
+			"store_name": name,
+			"provider":   provider,
+			"cpu":        res.cpu,
+			"memory":     res.memory,
 		}))
 	}
 

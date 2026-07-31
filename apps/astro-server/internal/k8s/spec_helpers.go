@@ -3,7 +3,7 @@ package k8s
 import (
 	"fmt"
 
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -12,7 +12,7 @@ import (
 
 // BuildResourceRequirements converts DeploymentResources to k8s ResourceRequirements.
 // Returns nil if all fields are empty (caller should apply its own default).
-func BuildResourceRequirements(res spec.DeploymentResources) *corev1.ResourceRequirements {
+func BuildResourceRequirements(res deployment.DeploymentResources) *corev1.ResourceRequirements {
 	if res.CPU == "" && res.Memory == "" && res.CPULimit == "" && res.MemoryLimit == "" {
 		return nil
 	}
@@ -39,7 +39,7 @@ func BuildResourceRequirements(res spec.DeploymentResources) *corev1.ResourceReq
 }
 
 // BuildResourceRequirementsWithGPU converts DeploymentResources + GPU config to k8s ResourceRequirements.
-func BuildResourceRequirementsWithGPU(res spec.DeploymentResources, gpu *spec.DeploymentGPU) *corev1.ResourceRequirements {
+func BuildResourceRequirementsWithGPU(res deployment.DeploymentResources, gpu *deployment.DeploymentGPU) *corev1.ResourceRequirements {
 	reqs := BuildResourceRequirements(res)
 	if reqs == nil {
 		return nil
@@ -59,7 +59,7 @@ func BuildResourceRequirementsWithGPU(res spec.DeploymentResources, gpu *spec.De
 }
 
 // BuildDeploymentStrategy converts an UpdateStrategy to a k8s DeploymentStrategy.
-func BuildDeploymentStrategy(us spec.UpdateStrategy) *appsv1.DeploymentStrategy {
+func BuildDeploymentStrategy(us deployment.UpdateStrategy) *appsv1.DeploymentStrategy {
 	switch us.Strategy {
 	case "recreate":
 		return &appsv1.DeploymentStrategy{
@@ -88,7 +88,7 @@ func BuildDeploymentStrategy(us spec.UpdateStrategy) *appsv1.DeploymentStrategy 
 }
 
 // BuildStatefulSetUpdateStrategy converts an UpdateStrategy to a k8s StatefulSetUpdateStrategy.
-func BuildStatefulSetUpdateStrategy(us spec.UpdateStrategy) *appsv1.StatefulSetUpdateStrategy {
+func BuildStatefulSetUpdateStrategy(us deployment.UpdateStrategy) *appsv1.StatefulSetUpdateStrategy {
 	switch us.Strategy {
 	case "recreate":
 		// StatefulSets don't have "Recreate" — use OnDelete which requires manual pod deletion
@@ -105,7 +105,7 @@ func BuildStatefulSetUpdateStrategy(us spec.UpdateStrategy) *appsv1.StatefulSetU
 }
 
 // BuildGPUNodeSelector returns a node selector map for GPU workloads.
-func BuildGPUNodeSelector(gpu *spec.DeploymentGPU) map[string]string {
+func BuildGPUNodeSelector(gpu *deployment.DeploymentGPU) map[string]string {
 	if gpu == nil {
 		return nil
 	}
@@ -120,7 +120,7 @@ func BuildGPUNodeSelector(gpu *spec.DeploymentGPU) map[string]string {
 }
 
 // BuildGPUTolerations returns tolerations for GPU-tainted nodes.
-func BuildGPUTolerations(gpu *spec.DeploymentGPU) []corev1.Toleration {
+func BuildGPUTolerations(gpu *deployment.DeploymentGPU) []corev1.Toleration {
 	if gpu == nil {
 		return nil
 	}

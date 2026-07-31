@@ -44,7 +44,7 @@ type ResolvedEnv struct {
 // ResolveDeploymentSpecEnv resolves all ${} references in the deployment spec's
 // environment maps into concrete k8s values (service DNS, variable values, etc).
 // It also builds the standard connection-string ConfigMap and secret data.
-func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext) *ResolvedEnv {
+func ResolveDeploymentSpecEnv(ds *AstroDeploymentSpec, rctx ResolveContext) *ResolvedEnv {
 	result := &ResolvedEnv{
 		ConfigMapData: make(map[string]string),
 		SecretData:    make(map[string]string),
@@ -85,7 +85,7 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	// Add agent's own URL
 	agentServiceName := GenerateAgentResourceName(ds.Source.Name, "agent")
 	agentHost := GenerateServiceDNS(agentServiceName, rctx.Namespace)
-	agentPort := spec.PrimaryPort(ds.Agent.Endpoints)
+	agentPort := PrimaryPort(ds.Agent.Endpoints)
 	if agentPort == 0 {
 		agentPort = 8080
 	}
@@ -94,7 +94,7 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 
 	// Add external URL when the agent has an exposed endpoint and a public
 	// host has been resolved. ALB ingresses are always HTTPS on 443.
-	if rctx.ExternalAgentHost != "" && spec.ExposedEndpoint(ds.Agent.Endpoints) != nil {
+	if rctx.ExternalAgentHost != "" && ExposedEndpoint(ds.Agent.Endpoints) != nil {
 		result.ConfigMapData["ASTRO_EXTERNAL_AGENT_URL"] = "https://" + rctx.ExternalAgentHost
 	}
 
@@ -116,11 +116,11 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		// Prefer "grpc" endpoint; fall back to primary port; default 9090
 		grpcPort := 0
-		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+		if ep := EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
 			grpcPort = ep.Port
 		}
 		if grpcPort == 0 {
-			grpcPort = spec.PrimaryPort(ds.Interfaces.Endpoints)
+			grpcPort = PrimaryPort(ds.Interfaces.Endpoints)
 		}
 		if grpcPort == 0 {
 			grpcPort = 9090
@@ -147,7 +147,7 @@ type componentInfo struct {
 }
 
 // buildComponentLookup builds a map of component references to their resolved DNS/ports.
-func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map[string]componentInfo {
+func buildComponentLookup(ds *AstroDeploymentSpec, rctx ResolveContext) map[string]componentInfo {
 	lookup := make(map[string]componentInfo)
 
 	for name, model := range ds.Models {
@@ -200,7 +200,7 @@ func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map
 	return lookup
 }
 
-func endpointInfoMap(endpoints map[string]spec.Endpoint) map[string]componentEndpointInfo {
+func endpointInfoMap(endpoints map[string]Endpoint) map[string]componentEndpointInfo {
 	m := make(map[string]componentEndpointInfo, len(endpoints))
 	for name, ep := range endpoints {
 		m[name] = componentEndpointInfo{Port: ep.Port, Protocol: ep.Protocol}
@@ -215,7 +215,7 @@ func endpointInfoMap(endpoints map[string]spec.Endpoint) map[string]componentEnd
 func resolveEnvMap(
 	env map[string]string,
 	lookup map[string]componentInfo,
-	ds *spec.AstroDeploymentSpec,
+	ds *AstroDeploymentSpec,
 	rctx ResolveContext,
 	result *ResolvedEnv,
 ) {
@@ -233,15 +233,15 @@ func resolveEnvMap(
 // reference to a variable marked as secret, or any ${knowledge.*.credentials.*}
 // reference (credentials are always secret). This ensures correct routing for
 // both fresh deploys and backfill/repair with stripped specs.
-func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
-	refs := spec.ParseReferences(value)
+func referencesSecret(value string, ds *AstroDeploymentSpec) bool {
+	refs := ParseReferences(value)
 	for _, ref := range refs {
-		if ref.Kind == spec.RefVariable {
+		if ref.Kind == RefVariable {
 			if v, ok := ds.Variables[ref.Name]; ok && v.Secret {
 				return true
 			}
 		}
-		if ref.Kind == spec.RefKnowledge && ref.Endpoint == "credentials" {
+		if ref.Kind == RefKnowledge && ref.Endpoint == "credentials" {
 			return true
 		}
 	}
@@ -261,7 +261,7 @@ func secretKeyExists(key string, result *ResolvedEnv) bool {
 // but values are empty or contain unresolved references.
 func (r *ResolvedEnv) HasSecretValues() bool {
 	for _, v := range r.SecretData {
-		if v != "" && !spec.IsReference(v) {
+		if v != "" && !IsReference(v) {
 			return true
 		}
 	}
@@ -269,8 +269,8 @@ func (r *ResolvedEnv) HasSecretValues() bool {
 }
 
 // resolveValue resolves a single value that may contain ${} references.
-func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroDeploymentSpec, rctx ResolveContext) string {
-	refs := spec.ParseReferences(value)
+func resolveValue(value string, lookup map[string]componentInfo, ds *AstroDeploymentSpec, rctx ResolveContext) string {
+	refs := ParseReferences(value)
 	if len(refs) == 0 {
 		return value
 	}
@@ -281,9 +281,9 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 		shouldReplace := false
 
 		switch ref.Kind {
-		case spec.RefModel, spec.RefKnowledge, spec.RefIntegration:
+		case RefModel, RefKnowledge, RefIntegration:
 			// Handle credential references for bound knowledge entries.
-			if ref.Kind == spec.RefKnowledge && ref.Endpoint == "credentials" {
+			if ref.Kind == RefKnowledge && ref.Endpoint == "credentials" {
 				credKey := ref.Name + "." + ref.Attribute
 				if val, ok := rctx.BoundCredentials[credKey]; ok {
 					replacement = val
@@ -326,7 +326,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 				}
 			}
 
-		case spec.RefVariable:
+		case RefVariable:
 			if v, ok := ds.Variables[ref.Name]; ok {
 				replacement = v.Value
 				// Non-secret variables should resolve even when empty.
@@ -337,7 +337,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 				}
 			}
 
-		case spec.RefSource:
+		case RefSource:
 			switch ref.Name {
 			case "name":
 				replacement = ds.Source.Name

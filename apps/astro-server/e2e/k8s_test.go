@@ -21,7 +21,6 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	spec "github.com/astropods/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -103,28 +102,28 @@ const slackSpecJSON = `{
   "observability": {"enabled": false}
 }`
 
-func parseMinimalSpec(t *testing.T) *spec.AstroDeploymentSpec {
+func parseMinimalSpec(t *testing.T) *deployment.AstroDeploymentSpec {
 	t.Helper()
-	var s spec.AstroDeploymentSpec
+	var s deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(minimalSpecJSON), &s); err != nil {
 		t.Fatalf("parse minimal spec: %v", err)
 	}
 	return &s
 }
 
-func parseSlackSpec(t *testing.T) *spec.AstroDeploymentSpec {
+func parseSlackSpec(t *testing.T) *deployment.AstroDeploymentSpec {
 	t.Helper()
-	var s spec.AstroDeploymentSpec
+	var s deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(slackSpecJSON), &s); err != nil {
 		t.Fatalf("parse slack spec: %v", err)
 	}
 	return &s
 }
 
-func copySpec(t *testing.T, s *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
+func copySpec(t *testing.T, s *deployment.AstroDeploymentSpec) *deployment.AstroDeploymentSpec {
 	t.Helper()
 	data, _ := json.Marshal(s)
-	var out spec.AstroDeploymentSpec
+	var out deployment.AstroDeploymentSpec
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("copy spec: %v", err)
 	}
@@ -263,7 +262,7 @@ func listResourceNames(clientset kubernetes.Interface, ns, kind string) []string
 	return names
 }
 
-func fillSecrets(s *spec.AstroDeploymentSpec) {
+func fillSecrets(s *deployment.AstroDeploymentSpec) {
 	for k, v := range s.Variables {
 		if v.Secret && v.Value == "" {
 			v.Value = "test-value-" + k
@@ -272,7 +271,7 @@ func fillSecrets(s *spec.AstroDeploymentSpec) {
 	}
 }
 
-func applySpec(t *testing.T, client k8s.ClusterClient, ns string, s *spec.AstroDeploymentSpec, extraCfg *k8s.ApplierConfig) *k8s.ApplyResult {
+func applySpec(t *testing.T, client k8s.ClusterClient, ns string, s *deployment.AstroDeploymentSpec, extraCfg *k8s.ApplierConfig) *k8s.ApplyResult {
 	t.Helper()
 
 	cfg := k8s.ApplierConfig{
@@ -782,9 +781,9 @@ const ingestionScheduleSpecJSON = `{
   "observability": {"enabled": false}
 }`
 
-func parseIngestionScheduleSpec(t *testing.T) *spec.AstroDeploymentSpec {
+func parseIngestionScheduleSpec(t *testing.T) *deployment.AstroDeploymentSpec {
 	t.Helper()
-	var s spec.AstroDeploymentSpec
+	var s deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(ingestionScheduleSpecJSON), &s); err != nil {
 		t.Fatalf("parse ingestion schedule spec: %v", err)
 	}

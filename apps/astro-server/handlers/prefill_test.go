@@ -6,9 +6,9 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	spec "github.com/astropods/astro-spec"
 )
 
 // Redeploy prefill must preserve the custom interface's public state. A
@@ -16,10 +16,10 @@ import (
 // interfaces block, so the stored auth (incl. custom.public) has to be restored
 // onto a created block — otherwise the public flag is silently reset on redeploy.
 func TestMergeDeploymentPrefill_CustomPublicPreserved(t *testing.T) {
-	stored := spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
-			Auth: &spec.DeploymentInterfacesAuth{
-				Custom: &spec.DeploymentCustomAuth{Public: true},
+	stored := deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Custom: &deployment.DeploymentCustomAuth{Public: true},
 			},
 		},
 	}
@@ -36,11 +36,11 @@ func TestMergeDeploymentPrefill_CustomPublicPreserved(t *testing.T) {
 	}
 
 	// A freshly generated frontend/custom-only template has no interfaces block.
-	template := &spec.AstroDeploymentSpec{
-		Agent: spec.DeploymentAgent{
+	template := &deployment.AstroDeploymentSpec{
+		Agent: deployment.DeploymentAgent{
 			Image: "registry.example.com/my-agent:abc",
-			Endpoints: map[string]spec.Endpoint{
-				"http": {Port: 80, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true}},
+			Endpoints: map[string]deployment.Endpoint{
+				"http": {Port: 80, Protocol: "http", Expose: &deployment.EndpointExpose{Enabled: true}},
 			},
 		},
 	}
@@ -67,11 +67,11 @@ func TestMergeDeploymentPrefill_CustomPublicPreserved(t *testing.T) {
 // The same round-trip for the messaging web surface: web.public survives a
 // redeploy of an agent that already has a messaging interfaces block.
 func TestMergeDeploymentPrefill_WebPublicPreserved(t *testing.T) {
-	stored := spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
+	stored := deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Adapters: []string{"web"},
-			Auth: &spec.DeploymentInterfacesAuth{
-				Web: &spec.DeploymentWebAuth{Type: "oidc", Public: true, Grants: []spec.DeploymentAuthorizationGrant{{Anyone: true}}},
+			Auth: &deployment.DeploymentInterfacesAuth{
+				Web: &deployment.DeploymentWebAuth{Type: "oidc", Public: true, Grants: []deployment.DeploymentAuthorizationGrant{{Anyone: true}}},
 			},
 		},
 	}
@@ -87,11 +87,11 @@ func TestMergeDeploymentPrefill_WebPublicPreserved(t *testing.T) {
 	}
 
 	// A messaging agent's base template already carries an interfaces block.
-	template := &spec.AstroDeploymentSpec{
-		Interfaces: &spec.DeploymentInterfaces{
+	template := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
 			Image:    "registry.example.com/messaging:latest",
 			Adapters: []string{"web"},
-			Auth:     &spec.DeploymentInterfacesAuth{Web: &spec.DeploymentWebAuth{Type: "oidc"}},
+			Auth:     &deployment.DeploymentInterfacesAuth{Web: &deployment.DeploymentWebAuth{Type: "oidc"}},
 		},
 	}
 

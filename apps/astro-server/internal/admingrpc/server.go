@@ -852,7 +852,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	// Include adapters from the stored deployment spec (default to empty list)
 	resp.Adapters = []string{}
 	{
-		var ds spec.AstroDeploymentSpec
+		var ds deployment.AstroDeploymentSpec
 		if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err == nil && ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 			resp.Adapters = ds.Interfaces.Adapters
 		}
@@ -2473,7 +2473,7 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 	}
 
 	// Parse the currently stored deployment spec.
-	var storedDS spec.AstroDeploymentSpec
+	var storedDS deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &storedDS); err != nil {
 		return nil, fmt.Errorf("parse stored deployment spec: %w", err)
 	}
@@ -2524,7 +2524,7 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 // retemplateDeploymentSpec re-generates the template from the original package
 // spec and merges the new variables/environment into the stored deployment spec.
 // Existing variable Values are preserved (they hold user-supplied secrets).
-func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, storedDS *spec.AstroDeploymentSpec) error {
+func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, storedDS *deployment.AstroDeploymentSpec) error {
 	// Look up the package spec from agent_versions.
 	var specJSON string
 	err := s.db.QueryRow(`

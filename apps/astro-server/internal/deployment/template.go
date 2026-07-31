@@ -88,29 +88,29 @@ const defaultMessagingImage = "astropods/messaging:latest"
 // GenerateDeploymentTemplate creates a deployment spec template from a registered astro-spec.
 // The template has placeholder values for user-fillable fields and ${} references
 // for component wiring. The spec version is "deployment-template/v1".
-func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec, error) {
+func GenerateDeploymentTemplate(input TemplateInput) (*AstroDeploymentSpec, error) {
 	astroSpec := input.Spec
 	if astroSpec == nil {
 		return nil, fmt.Errorf("astro spec is required")
 	}
 
-	ds := &spec.AstroDeploymentSpec{
+	ds := &AstroDeploymentSpec{
 		Spec: "deployment-template/v1",
-		Source: spec.DeploymentSource{
+		Source: DeploymentSource{
 			Account:  input.Account,
 			Name:     input.AgentName,
 			Build:    input.BuildID,
 			Registry: input.RegistryURL,
 		},
-		Target: spec.DeploymentTarget{
+		Target: DeploymentTarget{
 			Runtime: "kubernetes",
 		},
-		Observability: spec.DeploymentObservability{
+		Observability: DeploymentObservability{
 			Enabled:   true,
 			Provider:  "langfuse",
 			Image:     resolveImage("astropods/collector:latest", input),
 			Port:      4318,
-			Resources: spec.CollectorResources,
+			Resources: CollectorResources,
 		},
 	}
 
@@ -133,7 +133,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			}
 
 			if ds.Models == nil {
-				ds.Models = make(map[string]spec.DeploymentModel)
+				ds.Models = make(map[string]DeploymentModel)
 			}
 			dm := buildDeploymentModel(model, name, input)
 			ds.Models[name] = dm
@@ -194,7 +194,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			}
 
 			if ds.Knowledge == nil {
-				ds.Knowledge = make(map[string]spec.DeploymentKnowledge)
+				ds.Knowledge = make(map[string]DeploymentKnowledge)
 			}
 			dk := buildDeploymentKnowledge(knowledge, name, input)
 			ds.Knowledge[name] = dk
@@ -249,7 +249,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			}
 
 			if ds.Integrations == nil {
-				ds.Integrations = make(map[string]spec.DeploymentIntegration)
+				ds.Integrations = make(map[string]DeploymentIntegration)
 			}
 			dt := buildDeploymentIntegration(tool, name, input)
 			ds.Integrations[name] = dt
@@ -263,13 +263,13 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	}
 
 	// Build variables: merge provider credentials + user inputs
-	variables := make(map[string]spec.Variable)
+	variables := make(map[string]Variable)
 
 	// Extract credentials (cloud providers + custom provider secrets) → variables with secret:true
 	validator := NewValidator()
 	credInfos := validator.GetRequiredCredentials(astroSpec, nil)
 	for _, ci := range credInfos {
-		variables[ci.Key] = spec.Variable{
+		variables[ci.Key] = Variable{
 			Description: ci.Description,
 			Optional:    ci.Optional,
 			Secret:      true,
@@ -282,7 +282,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Build ingestion before collecting inputs so that component-level input
 	// defaults can be injected into the ingestion container environment.
 	if len(astroSpec.Ingestion) > 0 {
-		ds.Ingestion = make(map[string]spec.DeploymentIngestion, len(astroSpec.Ingestion))
+		ds.Ingestion = make(map[string]DeploymentIngestion, len(astroSpec.Ingestion))
 		for name, ingestion := range astroSpec.Ingestion {
 			ds.Ingestion[name] = buildDeploymentIngestion(ingestion, name, input)
 		}
@@ -311,34 +311,34 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	if agentImage == "" {
 		return nil, fmt.Errorf("agent image is not set in spec")
 	}
-	agentEndpoints := map[string]spec.Endpoint{
+	agentEndpoints := map[string]Endpoint{
 		"http": {Port: 8080, Protocol: "http"},
 	}
 	// When the agent declares a frontend, expose its HTTP endpoint for ingress
 	if astroSpec.Agent.HasFrontend() {
-		agentEndpoints["http"] = spec.Endpoint{
+		agentEndpoints["http"] = Endpoint{
 			Port: 80, Protocol: "http",
-			Expose: &spec.EndpointExpose{Enabled: true},
+			Expose: &EndpointExpose{Enabled: true},
 		}
 	}
 	// Every deployment gets a persistent disk by default. Defaulting the volume
 	// mount routes the agent through the StatefulSet + PVC path; the messaging
 	// sidecar shares this volume (see spec_applier.go). Users may override size,
 	// class, or mount path via provisioning (applyVolume).
-	agentStorage := spec.DefaultStorageConfig()
-	agentStorage.Size = spec.DefaultAgentStorageSize
-	ds.Agent = spec.DeploymentAgent{
+	agentStorage := DefaultStorageConfig()
+	agentStorage.Size = DefaultAgentStorageSize
+	ds.Agent = DeploymentAgent{
 		Image:           agentImage,
 		Endpoints:       agentEndpoints,
 		Replicas:        1,
-		Resources:       spec.StandardResources,
+		Resources:       StandardResources,
 		Volume:          spec.DefaultAgentVolumeMount,
 		Storage:         &agentStorage,
 		Environment:     agentEnv,
 		Healthcheck:     astroSpec.Agent.Healthcheck,
-		Update:          spec.DefaultUpdateStrategy(),
+		Update:          DefaultUpdateStrategy(),
 		AIGateway:       astroSpec.UsesGateway(),
-		ResponseTimeout: spec.DefaultResponseTimeout,
+		ResponseTimeout: DefaultResponseTimeout,
 	}
 
 	// Interfaces block — only emitted when the agent supports messaging
@@ -347,21 +347,21 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		if messagingImage == "" {
 			messagingImage = defaultMessagingImage
 		}
-		ds.Interfaces = &spec.DeploymentInterfaces{
+		ds.Interfaces = &DeploymentInterfaces{
 			Adapters:  []string{},
 			Image:     resolveImage(messagingImage, input),
-			Resources: spec.MessagingResources,
-			Endpoints: map[string]spec.Endpoint{
+			Resources: MessagingResources,
+			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
-				"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: false}},
+				"http": {Port: 8080, Protocol: "http", Expose: &EndpointExpose{Enabled: false}},
 			},
-			Auth: &spec.DeploymentInterfacesAuth{
-				Web: &spec.DeploymentWebAuth{Type: "oidc"},
+			Auth: &DeploymentInterfacesAuth{
+				Web: &DeploymentWebAuth{Type: "oidc"},
 			},
 		}
 
 		if ds.Variables == nil {
-			ds.Variables = make(map[string]spec.Variable)
+			ds.Variables = make(map[string]Variable)
 		}
 
 		// Slack variables are NOT injected here. They are adapter-specific and
@@ -377,7 +377,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 // applyCompute overlays a user-facing ComponentCompute on top of base
 // DeploymentResources. Any non-empty field on c becomes both request and
 // limit on the result (Guaranteed QoS); empty fields keep the base values.
-func applyCompute(base spec.DeploymentResources, c *spec.ComponentCompute) spec.DeploymentResources {
+func applyCompute(base DeploymentResources, c *ComponentCompute) DeploymentResources {
 	out := base
 	if c == nil {
 		return out
@@ -397,7 +397,7 @@ func applyCompute(base spec.DeploymentResources, c *spec.ComponentCompute) spec.
 // existing volume + storage. A non-empty Mount switches the agent to
 // the StatefulSet path; supplying Storage when no mount exists is a
 // no-op (the user must set a mount first).
-func applyVolume(agent *spec.DeploymentAgent, v *spec.ComponentVolume) {
+func applyVolume(agent *DeploymentAgent, v *ComponentVolume) {
 	if v == nil {
 		return
 	}
@@ -408,7 +408,7 @@ func applyVolume(agent *spec.DeploymentAgent, v *spec.ComponentVolume) {
 		return
 	}
 	if agent.Storage == nil {
-		def := spec.DefaultStorageConfig()
+		def := DefaultStorageConfig()
 		agent.Storage = &def
 	}
 	if v.Storage == nil {
@@ -437,9 +437,9 @@ type ShapeOptions struct {
 }
 
 func markConfiguredInlineSecrets(
-	vars map[string]spec.Variable,
+	vars map[string]Variable,
 	names []string,
-	inputs map[string]spec.VariableInput,
+	inputs map[string]VariableInput,
 ) {
 	for _, name := range names {
 		v, ok := vars[name]
@@ -458,7 +458,7 @@ func markConfiguredInlineSecrets(
 
 // ShapeTemplate applies deploy-time inputs (adapters, variables, bindings) to a base template
 // and returns a TemplateResponse with the shaped template, variable schema, and validation.
-func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spec.TemplateRequest, opts *ShapeOptions) *spec.TemplateResponse {
+func ShapeTemplate(ctx context.Context, base *AstroDeploymentSpec, req *TemplateRequest, opts *ShapeOptions) *TemplateResponse {
 	// Deep-copy via JSON round-trip so mutations don't affect the base.
 	shaped := deepCopySpec(base)
 
@@ -469,7 +469,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// non-empty adapter list, so an auth-only block spins up no sidecar.
 	if req.Interfaces != nil && (shaped.Interfaces != nil || len(req.Interfaces.Adapters) > 0 || req.Interfaces.Auth != nil) {
 		if shaped.Interfaces == nil {
-			shaped.Interfaces = &spec.DeploymentInterfaces{}
+			shaped.Interfaces = &DeploymentInterfaces{}
 		}
 		shaped.Interfaces.Adapters = req.Interfaces.Adapters
 		if req.Interfaces.Auth != nil {
@@ -480,7 +480,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		if slices.Contains(req.Interfaces.Adapters, "web") {
 			if ep, ok := shaped.Interfaces.Endpoints["http"]; ok {
 				if ep.Expose == nil {
-					ep.Expose = &spec.EndpointExpose{}
+					ep.Expose = &EndpointExpose{}
 				}
 				ep.Expose.Enabled = true
 				shaped.Interfaces.Endpoints["http"] = ep
@@ -498,8 +498,8 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	}
 
 	// --- Binding shaping ---
-	var errs []spec.ValidationError
-	var resolvedBindings *spec.ResolvedBindings
+	var errs []ValidationError
+	var resolvedBindings *ResolvedBindings
 	if opts != nil && opts.KnowledgeStore != nil && req.Bindings != nil && len(req.Bindings.Knowledge) > 0 {
 		resolved, bindingErrs := ResolveBindings(
 			ctx, opts.KnowledgeStore, opts.AccountID,
@@ -508,8 +508,8 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		errs = append(errs, bindingErrs...)
 
 		if len(resolved) > 0 {
-			resolvedBindings = &spec.ResolvedBindings{
-				Knowledge: make(map[string]spec.KnowledgeBindingInfo, len(resolved)),
+			resolvedBindings = &ResolvedBindings{
+				Knowledge: make(map[string]KnowledgeBindingInfo, len(resolved)),
 			}
 			// Build set of bound entry names for variable/editable filtering.
 			boundNames := make(map[string]bool, len(resolved))
@@ -517,11 +517,11 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 				boundNames[name] = true
 				// Zero container fields but preserve binding ARN and provider
 				// so reference resolution can look up provider endpoints.
-				shaped.Knowledge[name] = spec.DeploymentKnowledge{
+				shaped.Knowledge[name] = DeploymentKnowledge{
 					Binding:  rb.ARN,
 					Provider: shaped.Knowledge[name].Provider,
 				}
-				resolvedBindings.Knowledge[name] = spec.KnowledgeBindingInfo{
+				resolvedBindings.Knowledge[name] = KnowledgeBindingInfo{
 					ARN: rb.ARN, Name: rb.Name, Provider: rb.Provider, Status: rb.Status,
 				}
 			}
@@ -553,7 +553,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// Fresh templates set this, but stored specs predating the field arrive
 	// empty — default so the echo and deployed Ingress always carry a value.
 	if shaped.Agent.ResponseTimeout == "" {
-		shaped.Agent.ResponseTimeout = spec.DefaultResponseTimeout
+		shaped.Agent.ResponseTimeout = DefaultResponseTimeout
 	}
 
 	// --- Variable filling ---
@@ -582,7 +582,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 
 	// --- Build response ---
 	// Root Variables = full schema (from shaped copy, includes descriptions etc.)
-	schemaVars := make(map[string]spec.Variable, len(shaped.Variables))
+	schemaVars := make(map[string]Variable, len(shaped.Variables))
 	maps.Copy(schemaVars, shaped.Variables)
 	// Configured is server-derived deployment state, never blueprint input.
 	for name, variable := range schemaVars {
@@ -626,7 +626,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	// so slack tokens are caught here when slack is selected).
 	for key, v := range schemaVars {
 		if !v.Optional && v.Value == "" && v.Ref == "" && !v.Configured {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   "variables." + key,
 				Message: "required variable is empty",
 			})
@@ -637,12 +637,12 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	for name, ing := range shaped.Ingestion {
 		if ing.Trigger.Type == "schedule" {
 			if ing.Trigger.Schedule == "" {
-				errs = append(errs, spec.ValidationError{
+				errs = append(errs, ValidationError{
 					Field:   "ingestion." + name + ".trigger.schedule",
 					Message: "cron expression required for schedule trigger",
 				})
 			} else if !isValidCron(ing.Trigger.Schedule) {
-				errs = append(errs, spec.ValidationError{
+				errs = append(errs, ValidationError{
 					Field:   "ingestion." + name + ".trigger.schedule",
 					Message: "invalid cron expression",
 				})
@@ -657,7 +657,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Field < errs[j].Field })
 
 	// Promote the user-editable interface config to the response root.
-	respInterfaces := spec.TemplateInterfaces{Adapters: []string{}}
+	respInterfaces := TemplateInterfaces{Adapters: []string{}}
 	if shaped.Interfaces != nil {
 		if len(shaped.Interfaces.Adapters) > 0 {
 			respInterfaces.Adapters = shaped.Interfaces.Adapters
@@ -675,9 +675,9 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 
 	// Promote resolved agent provisioning to the response root so clients
 	// can render sizing controls without diffing nested template fields.
-	respProvisioning := spec.TemplateProvisioning{
-		Agent: &spec.ComponentProvisioning{
-			Compute: &spec.ComponentCompute{
+	respProvisioning := TemplateProvisioning{
+		Agent: &ComponentProvisioning{
+			Compute: &ComponentCompute{
 				CPU:    shaped.Agent.Resources.CPU,
 				Memory: shaped.Agent.Resources.Memory,
 			},
@@ -685,13 +685,13 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		},
 	}
 	if shaped.Agent.Volume != "" {
-		respProvisioning.Agent.Volume = &spec.ComponentVolume{
+		respProvisioning.Agent.Volume = &ComponentVolume{
 			Mount:   shaped.Agent.Volume,
 			Storage: shaped.Agent.Storage,
 		}
 	}
 
-	return &spec.TemplateResponse{
+	return &TemplateResponse{
 		Spec:         "deployment-template/v1",
 		Template:     *shaped,
 		Variables:    schemaVars,
@@ -699,7 +699,7 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 		Schedules:    respSchedules,
 		Bindings:     resolvedBindings,
 		Provisioning: respProvisioning,
-		Validation: spec.TemplateValidation{
+		Validation: TemplateValidation{
 			Valid:  len(errs) == 0,
 			Errors: errs,
 		},
@@ -707,13 +707,13 @@ func ShapeTemplate(ctx context.Context, base *spec.AstroDeploymentSpec, req *spe
 }
 
 // deepCopySpec creates a deep copy of an AstroDeploymentSpec via JSON round-trip.
-func deepCopySpec(s *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
+func deepCopySpec(s *AstroDeploymentSpec) *AstroDeploymentSpec {
 	b, err := json.Marshal(s)
 	if err != nil {
 		// Should never happen with a well-formed spec.
 		panic("deployment: failed to marshal spec for deep copy: " + err.Error())
 	}
-	var copy spec.AstroDeploymentSpec
+	var copy AstroDeploymentSpec
 	if err := json.Unmarshal(b, &copy); err != nil {
 		panic("deployment: failed to unmarshal spec for deep copy: " + err.Error())
 	}
@@ -730,20 +730,20 @@ func isValidCron(expr string) bool {
 // validateAgentProvisioning checks that the agent's resolved compute and
 // volume settings are well-formed. Field paths match the wire shape so
 // clients can map errors back to the controls the user touched.
-func validateAgentProvisioning(a *spec.DeploymentAgent) []spec.ValidationError {
-	var errs []spec.ValidationError
+func validateAgentProvisioning(a *DeploymentAgent) []ValidationError {
+	var errs []ValidationError
 	checkQuantity := func(field, value string) {
 		if value == "" {
 			return
 		}
 		if _, err := k8sresource.ParseQuantity(value); err != nil {
-			errs = append(errs, spec.ValidationError{Field: field, Message: "invalid quantity: " + err.Error()})
+			errs = append(errs, ValidationError{Field: field, Message: "invalid quantity: " + err.Error()})
 		}
 	}
 	checkQuantity("agent.compute.cpu", a.Resources.CPU)
 	checkQuantity("agent.compute.memory", a.Resources.Memory)
 	if a.Volume != "" && !path.IsAbs(a.Volume) {
-		errs = append(errs, spec.ValidationError{
+		errs = append(errs, ValidationError{
 			Field:   "agent.volume.mount",
 			Message: "mount path must be absolute",
 		})
@@ -753,19 +753,19 @@ func validateAgentProvisioning(a *spec.DeploymentAgent) []spec.ValidationError {
 	}
 	if a.ResponseTimeout != "" {
 		if d, err := time.ParseDuration(a.ResponseTimeout); err != nil {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   "agent.responseTimeout",
 				Message: "invalid duration: use a Go duration like 15s or 2m",
 			})
 		} else if d <= 0 {
-			errs = append(errs, spec.ValidationError{
+			errs = append(errs, ValidationError{
 				Field:   "agent.responseTimeout",
 				Message: "must be greater than zero",
 			})
-		} else if d > spec.MaxResponseTimeout {
-			errs = append(errs, spec.ValidationError{
+		} else if d > MaxResponseTimeout {
+			errs = append(errs, ValidationError{
 				Field:   "agent.responseTimeout",
-				Message: "must not exceed " + spec.MaxResponseTimeout.String(),
+				Message: "must not exceed " + MaxResponseTimeout.String(),
 			})
 		}
 	}
@@ -787,7 +787,7 @@ func portNameToProtocol(name string) string {
 
 // primaryEndpointName returns the name of the primary endpoint for env-var ref generation.
 // Prefers "http"; otherwise first alphabetically.
-func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
+func primaryEndpointName(endpoints map[string]Endpoint) string {
 	if _, ok := endpoints["http"]; ok {
 		return "http"
 	}
@@ -819,11 +819,11 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 // to ds.Variables. Called by ApplyAdapterShaping when the slack adapter is
 // selected. Merges into any values already present from user inputs, preserving
 // Value, Ref, and Default while overwriting platform-owned metadata.
-func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
+func injectSlackVariables(ds *AstroDeploymentSpec) {
 	if ds.Variables == nil {
-		ds.Variables = make(map[string]spec.Variable)
+		ds.Variables = make(map[string]Variable)
 	}
-	merge := func(key string, v spec.Variable) {
+	merge := func(key string, v Variable) {
 		if existing, ok := ds.Variables[key]; ok {
 			// Preserve user-supplied content; overwrite platform-owned metadata.
 			v.Value = existing.Value
@@ -834,7 +834,7 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 			ds.Variables[key] = v
 		}
 	}
-	merge("SLACK_BOT_TOKEN", spec.Variable{
+	merge("SLACK_BOT_TOKEN", Variable{
 		Description: "Slack bot token for API access and messaging",
 		Label:       "Slack Bot Token",
 		Placeholder: "xoxb-...",
@@ -843,7 +843,7 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 		Secret:      true,
 		Targets:     []string{"interface.slack"},
 	})
-	merge("SLACK_APP_TOKEN", spec.Variable{
+	merge("SLACK_APP_TOKEN", Variable{
 		Description: "Slack app-level token for socket mode connections",
 		Label:       "Slack App Token",
 		Placeholder: "xapp-...",
@@ -853,14 +853,14 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 		Targets:     []string{"interface.slack"},
 	})
 	if _, ok := ds.Variables["SLACK_CONFIG"]; !ok {
-		ds.Variables["SLACK_CONFIG"] = spec.Variable{
+		ds.Variables["SLACK_CONFIG"] = Variable{
 			Description: "Slack adapter configuration",
 			Label:       "Slack Configuration",
 			Datatype:    "object",
 			Optional:    true,
 			Secret:      false,
 			Targets:     []string{"interface.slack"},
-			Fields: map[string]spec.VariableField{
+			Fields: map[string]VariableField{
 				"actionable_reactions": {
 					Label:       "Actionable Reactions",
 					Description: "Emoji names the bot acts on",
@@ -895,7 +895,7 @@ func injectSlackVariables(ds *spec.AstroDeploymentSpec) {
 	}
 }
 
-func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string) {
+func ApplyAdapterShaping(ds *AstroDeploymentSpec, selectedAdapters []string) {
 	if ds.Interfaces == nil {
 		return
 	}
@@ -950,7 +950,7 @@ func ApplyAdapterShaping(ds *spec.AstroDeploymentSpec, selectedAdapters []string
 // req.Bindings — even an empty Knowledge map, or one whose ARNs are all
 // empty strings — is treated as explicit intent and left untouched, so the
 // client can clear bindings on a deployment that already has them.
-func ApplyStoredBindingsToRequest(log *logger.Logger, req *spec.TemplateRequest, storedSpecJSON string) {
+func ApplyStoredBindingsToRequest(log *logger.Logger, req *TemplateRequest, storedSpecJSON string) {
 	if req.Bindings != nil {
 		return
 	}
@@ -963,11 +963,11 @@ func ApplyStoredBindingsToRequest(log *logger.Logger, req *spec.TemplateRequest,
 // deployment spec JSON. Returns nil if no bound entries are found (or on
 // parse error). Used by the template handler to seed the TemplateRequest
 // when the client opens the configure panel for an existing deployment.
-func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *spec.TemplateBindings {
+func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *TemplateBindings {
 	if specJSON == "" {
 		return nil
 	}
-	var stored spec.AstroDeploymentSpec
+	var stored AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(specJSON), &stored); err != nil {
 		// The JSON came from our own DB — a decode failure means corruption
 		// or a schema break we should surface, not silently skip.
@@ -985,19 +985,19 @@ func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *spec.Template
 	if len(restored) == 0 {
 		return nil
 	}
-	return &spec.TemplateBindings{Knowledge: restored}
+	return &TemplateBindings{Knowledge: restored}
 }
 
 // ApplyBindingShaping adjusts a template so that knowledge entries whose
 // submitted counterparts carry a binding ARN are zeroed to match the shape
 // the client originally received from ShapeTemplate.
-func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.AstroDeploymentSpec) {
+func ApplyBindingShaping(template *AstroDeploymentSpec, submitted *AstroDeploymentSpec) {
 	boundNames := make(map[string]bool)
 	for name, k := range submitted.Knowledge {
 		if k.IsBound() {
 			boundNames[name] = true
 			// Zero container fields but preserve binding + provider.
-			template.Knowledge[name] = spec.DeploymentKnowledge{
+			template.Knowledge[name] = DeploymentKnowledge{
 				Binding:  k.Binding,
 				Provider: template.Knowledge[name].Provider,
 			}
@@ -1020,26 +1020,26 @@ func ApplyBindingShaping(template *spec.AstroDeploymentSpec, submitted *spec.Ast
 	}
 }
 
-func buildDeploymentModel(model spec.Model, name string, input TemplateInput) spec.DeploymentModel {
+func buildDeploymentModel(model spec.Model, name string, input TemplateInput) DeploymentModel {
 	container := model.ResolvedContainer()
 	port := container.Port
 	if port == 0 {
 		port = 8080
 	}
 
-	dm := spec.DeploymentModel{
+	dm := DeploymentModel{
 		Image:       resolveBuiltImage(spec.ComponentModel, name, container.Image, container.Build, input),
-		Endpoints:   spec.SingleEndpoint("http", port, "http"),
+		Endpoints:   SingleEndpoint("http", port, "http"),
 		Replicas:    1,
-		Resources:   spec.StandardResources,
+		Resources:   StandardResources,
 		Healthcheck: container.Healthcheck,
-		Update:      spec.DefaultUpdateStrategy(),
+		Update:      DefaultUpdateStrategy(),
 	}
 
 	// Container-mode GPU (explicit gpu block in the spec)
 	if container.HasGPU() {
-		dm.Resources = spec.GPUResources
-		dm.GPU = &spec.DeploymentGPU{
+		dm.Resources = GPUResources
+		dm.GPU = &DeploymentGPU{
 			VRAM:    container.GPU.VRAM,
 			Runtime: container.GPU.Runtime,
 			Count:   1,
@@ -1047,7 +1047,7 @@ func buildDeploymentModel(model spec.Model, name string, input TemplateInput) sp
 		if dm.GPU.Runtime == "" {
 			dm.GPU.Runtime = "cuda"
 		}
-		dm.Update = spec.UpdateStrategy{Strategy: "recreate"}
+		dm.Update = UpdateStrategy{Strategy: "recreate"}
 	}
 
 	if len(container.Environment) > 0 {
@@ -1056,21 +1056,21 @@ func buildDeploymentModel(model spec.Model, name string, input TemplateInput) sp
 	return dm
 }
 
-func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input TemplateInput) spec.DeploymentKnowledge {
+func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input TemplateInput) DeploymentKnowledge {
 	container := knowledge.ResolvedContainer()
 	port := container.Port
 	if port == 0 {
 		port = 8080
 	}
 
-	dk := spec.DeploymentKnowledge{
+	dk := DeploymentKnowledge{
 		Image:       resolveBuiltImage(spec.ComponentKnowledge, name, container.Image, container.Build, input),
-		Endpoints:   spec.SingleEndpoint("http", port, "http"),
+		Endpoints:   SingleEndpoint("http", port, "http"),
 		Replicas:    1,
-		Resources:   spec.StandardResources,
+		Resources:   StandardResources,
 		Persistent:  container.Persistent,
 		Healthcheck: container.Healthcheck,
-		Update:      spec.DefaultUpdateStrategy(),
+		Update:      DefaultUpdateStrategy(),
 		Provider:    knowledge.Provider,
 	}
 
@@ -1078,11 +1078,11 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input Templ
 	if knowledge.IsProviderMode() {
 		prov := spec.GetProvider(knowledge.Provider)
 		if prov.DefaultPort != 0 {
-			dk.Endpoints = spec.SingleEndpoint("http", prov.DefaultPort, "http")
+			dk.Endpoints = SingleEndpoint("http", prov.DefaultPort, "http")
 		}
 		if len(prov.ExtraPorts) > 0 {
 			for _, ep := range prov.ExtraPorts {
-				dk.Endpoints[ep.Name] = spec.Endpoint{Port: ep.Port, Protocol: portNameToProtocol(ep.Name)}
+				dk.Endpoints[ep.Name] = Endpoint{Port: ep.Port, Protocol: portNameToProtocol(ep.Name)}
 			}
 		}
 
@@ -1097,12 +1097,12 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input Templ
 	}
 
 	if dk.Persistent {
-		dk.Storage = &spec.StorageConfig{
+		dk.Storage = &StorageConfig{
 			Size:       "10Gi",
 			AccessMode: "ReadWriteOnce",
 		}
 		// Persistent stores default to recreate strategy
-		dk.Update = spec.UpdateStrategy{Strategy: "recreate"}
+		dk.Update = UpdateStrategy{Strategy: "recreate"}
 	}
 
 	dk.Volume = container.Volume
@@ -1139,12 +1139,12 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, name string, input Templ
 	return dk
 }
 
-func buildDeploymentIntegration(tool spec.Integration, name string, input TemplateInput) spec.DeploymentIntegration {
+func buildDeploymentIntegration(tool spec.Integration, name string, input TemplateInput) DeploymentIntegration {
 	port := 8080
-	dt := spec.DeploymentIntegration{
+	dt := DeploymentIntegration{
 		Replicas:  1,
-		Resources: spec.StandardResources,
-		Update:    spec.DefaultUpdateStrategy(),
+		Resources: StandardResources,
+		Update:    DefaultUpdateStrategy(),
 	}
 	if tool.Container != nil {
 		dt.Image = resolveBuiltImage(spec.ComponentIntegration, name, tool.Container.Image, tool.Container.Build, input)
@@ -1156,15 +1156,15 @@ func buildDeploymentIntegration(tool spec.Integration, name string, input Templa
 			dt.Environment = tool.Container.Environment
 		}
 	}
-	dt.Endpoints = spec.SingleEndpoint("http", port, "http")
+	dt.Endpoints = SingleEndpoint("http", port, "http")
 	return dt
 }
 
-func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input TemplateInput) spec.DeploymentIngestion {
-	di := spec.DeploymentIngestion{
+func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input TemplateInput) DeploymentIngestion {
+	di := DeploymentIngestion{
 		Image:     resolveBuiltImage(spec.ComponentIngestion, name, ingestion.Container.Image, ingestion.Container.Build, input),
-		Resources: spec.StandardResources,
-		Trigger: spec.DeploymentTrigger{
+		Resources: StandardResources,
+		Trigger: DeploymentTrigger{
 			Type: ingestion.Trigger.Type,
 		},
 		Healthcheck: ingestion.Container.Healthcheck,
@@ -1174,7 +1174,7 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input Templ
 	}
 	// Webhook triggers expose a port via endpoints
 	if ingestion.Container.Port > 0 {
-		di.Endpoints = spec.SingleEndpoint("http", ingestion.Container.Port, "http")
+		di.Endpoints = SingleEndpoint("http", ingestion.Container.Port, "http")
 	}
 	// Schedule triggers get an empty placeholder
 	if ingestion.Trigger.Type == "schedule" {
@@ -1257,7 +1257,7 @@ func stripScheme(url string) string {
 // on whether its value references a secret variable; the messaging-side
 // applier then mounts secrets via a scoped messaging-only Secret. So secrets
 // MUST appear here — otherwise they'd never reach the messaging container.
-func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
+func wireInterfaceEnvironment(ds *AstroDeploymentSpec) {
 	if ds.Interfaces == nil || len(ds.Variables) == 0 {
 		return
 	}
@@ -1276,9 +1276,9 @@ func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
 
 // collectVariablesFromInputs gathers all Input declarations from the astro spec into
 // the variables map and injects default values into the relevant container environments.
-func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploymentSpec, agentEnv map[string]string, variables map[string]spec.Variable) {
+func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *AstroDeploymentSpec, agentEnv map[string]string, variables map[string]Variable) {
 	addVariable := func(input spec.Input, targets []string) {
-		v := spec.Variable{
+		v := Variable{
 			Datatype:    input.Datatype,
 			Secret:      input.Secret,
 			Description: input.Description,

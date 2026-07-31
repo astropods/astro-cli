@@ -4,19 +4,20 @@ import (
 	"testing"
 
 	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
 func TestBuildResourceRequirements_Empty(t *testing.T) {
-	res := BuildResourceRequirements(spec.DeploymentResources{})
+	res := BuildResourceRequirements(deployment.DeploymentResources{})
 	if res != nil {
 		t.Error("expected nil for empty resources")
 	}
 }
 
 func TestBuildResourceRequirements_Standard(t *testing.T) {
-	res := BuildResourceRequirements(spec.StandardResources)
+	res := BuildResourceRequirements(deployment.StandardResources)
 	if res == nil {
 		t.Fatal("expected non-nil for standard resources")
 	}
@@ -35,7 +36,7 @@ func TestBuildResourceRequirements_Standard(t *testing.T) {
 }
 
 func TestBuildResourceRequirements_GPU(t *testing.T) {
-	res := BuildResourceRequirementsWithGPU(spec.GPUResources, &spec.DeploymentGPU{
+	res := BuildResourceRequirementsWithGPU(deployment.GPUResources, &deployment.DeploymentGPU{
 		VRAM: "24Gi", Runtime: "cuda", Count: 2,
 	})
 	if res == nil {
@@ -53,7 +54,7 @@ func TestBuildResourceRequirements_GPU(t *testing.T) {
 }
 
 func TestBuildResourceRequirements_GPUDefaultCount(t *testing.T) {
-	res := BuildResourceRequirementsWithGPU(spec.GPUResources, &spec.DeploymentGPU{
+	res := BuildResourceRequirementsWithGPU(deployment.GPUResources, &deployment.DeploymentGPU{
 		VRAM: "24Gi", Runtime: "cuda",
 	})
 	gpuQty := res.Requests["nvidia.com/gpu"]
@@ -63,7 +64,7 @@ func TestBuildResourceRequirements_GPUDefaultCount(t *testing.T) {
 }
 
 func TestBuildResourceRequirements_PartialFields(t *testing.T) {
-	res := BuildResourceRequirements(spec.DeploymentResources{
+	res := BuildResourceRequirements(deployment.DeploymentResources{
 		CPU: "200m", Memory: "512Mi",
 	})
 	if res == nil {
@@ -79,7 +80,7 @@ func TestBuildResourceRequirements_PartialFields(t *testing.T) {
 }
 
 func TestBuildDeploymentStrategy_Rolling(t *testing.T) {
-	strategy := BuildDeploymentStrategy(spec.UpdateStrategy{
+	strategy := BuildDeploymentStrategy(deployment.UpdateStrategy{
 		Strategy: "rolling", MaxUnavailable: "1", MaxSurge: "2",
 	})
 	if strategy == nil {
@@ -100,7 +101,7 @@ func TestBuildDeploymentStrategy_Rolling(t *testing.T) {
 }
 
 func TestBuildDeploymentStrategy_RollingPercentage(t *testing.T) {
-	strategy := BuildDeploymentStrategy(spec.UpdateStrategy{
+	strategy := BuildDeploymentStrategy(deployment.UpdateStrategy{
 		Strategy: "rolling", MaxUnavailable: "25%", MaxSurge: "25%",
 	})
 	if strategy.RollingUpdate.MaxUnavailable.String() != "25%" {
@@ -109,7 +110,7 @@ func TestBuildDeploymentStrategy_RollingPercentage(t *testing.T) {
 }
 
 func TestBuildDeploymentStrategy_Recreate(t *testing.T) {
-	strategy := BuildDeploymentStrategy(spec.UpdateStrategy{Strategy: "recreate"})
+	strategy := BuildDeploymentStrategy(deployment.UpdateStrategy{Strategy: "recreate"})
 	if strategy == nil {
 		t.Fatal("expected non-nil for recreate strategy")
 	}
@@ -119,7 +120,7 @@ func TestBuildDeploymentStrategy_Recreate(t *testing.T) {
 }
 
 func TestBuildDeploymentStrategy_Empty(t *testing.T) {
-	strategy := BuildDeploymentStrategy(spec.UpdateStrategy{})
+	strategy := BuildDeploymentStrategy(deployment.UpdateStrategy{})
 	if strategy == nil {
 		t.Fatal("expected non-nil for empty strategy (defaults to rolling)")
 	}
@@ -129,7 +130,7 @@ func TestBuildDeploymentStrategy_Empty(t *testing.T) {
 }
 
 func TestBuildStatefulSetUpdateStrategy_Recreate(t *testing.T) {
-	strategy := BuildStatefulSetUpdateStrategy(spec.UpdateStrategy{Strategy: "recreate"})
+	strategy := BuildStatefulSetUpdateStrategy(deployment.UpdateStrategy{Strategy: "recreate"})
 	if strategy == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -139,28 +140,28 @@ func TestBuildStatefulSetUpdateStrategy_Recreate(t *testing.T) {
 }
 
 func TestBuildStatefulSetUpdateStrategy_Rolling(t *testing.T) {
-	strategy := BuildStatefulSetUpdateStrategy(spec.UpdateStrategy{Strategy: "rolling"})
+	strategy := BuildStatefulSetUpdateStrategy(deployment.UpdateStrategy{Strategy: "rolling"})
 	if strategy.Type != appsv1.RollingUpdateStatefulSetStrategyType {
 		t.Errorf("type: expected RollingUpdate, got %s", strategy.Type)
 	}
 }
 
 func TestBuildGPUNodeSelector_Cuda(t *testing.T) {
-	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{Runtime: "cuda"})
+	sel := BuildGPUNodeSelector(&deployment.DeploymentGPU{Runtime: "cuda"})
 	if sel["workload-type"] != "gpu" {
 		t.Errorf("expected workload-type=gpu, got %v", sel)
 	}
 }
 
 func TestBuildGPUNodeSelector_ROCM(t *testing.T) {
-	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{Runtime: "rocm"})
+	sel := BuildGPUNodeSelector(&deployment.DeploymentGPU{Runtime: "rocm"})
 	if sel["workload-type"] != "gpu" {
 		t.Errorf("expected workload-type=gpu, got %v", sel)
 	}
 }
 
 func TestBuildGPUNodeSelector_DefaultRuntime(t *testing.T) {
-	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{})
+	sel := BuildGPUNodeSelector(&deployment.DeploymentGPU{})
 	if sel["workload-type"] != "gpu" {
 		t.Errorf("expected workload-type=gpu for default runtime, got %v", sel)
 	}
@@ -174,7 +175,7 @@ func TestBuildGPUNodeSelector_Nil(t *testing.T) {
 }
 
 func TestBuildGPUTolerations_Cuda(t *testing.T) {
-	tols := BuildGPUTolerations(&spec.DeploymentGPU{Runtime: "cuda"})
+	tols := BuildGPUTolerations(&deployment.DeploymentGPU{Runtime: "cuda"})
 	if len(tols) != 1 {
 		t.Fatalf("expected 1 toleration, got %d", len(tols))
 	}
@@ -241,10 +242,10 @@ func TestBuildDeployment_WithPostStartCommand(t *testing.T) {
 }
 
 func TestBuildDeployment_WithSpecDrivenFields(t *testing.T) {
-	resources := BuildResourceRequirements(spec.DeploymentResources{
+	resources := BuildResourceRequirements(deployment.DeploymentResources{
 		CPU: "500m", Memory: "1Gi", CPULimit: "2", MemoryLimit: "4Gi",
 	})
-	strategy := BuildDeploymentStrategy(spec.UpdateStrategy{
+	strategy := BuildDeploymentStrategy(deployment.UpdateStrategy{
 		Strategy: "rolling", MaxUnavailable: "1", MaxSurge: "1",
 	})
 
@@ -274,7 +275,7 @@ func TestBuildDeployment_WithSpecDrivenFields(t *testing.T) {
 }
 
 func TestBuildStatefulSet_WithSpecDrivenFields(t *testing.T) {
-	resources := BuildResourceRequirements(spec.DeploymentResources{
+	resources := BuildResourceRequirements(deployment.DeploymentResources{
 		CPU: "500m", Memory: "2Gi", CPULimit: "2", MemoryLimit: "8Gi",
 	})
 

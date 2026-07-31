@@ -24,7 +24,7 @@ func baseInput() TemplateInput {
 	}
 }
 
-func mustGenerate(t *testing.T, input TemplateInput) *spec.AstroDeploymentSpec {
+func mustGenerate(t *testing.T, input TemplateInput) *AstroDeploymentSpec {
 	t.Helper()
 	ds, err := GenerateDeploymentTemplate(input)
 	if err != nil {
@@ -109,20 +109,20 @@ func TestTemplate_AgentBlock(t *testing.T) {
 	if ds.Agent.Image != "registry.example.com/my-agent:abc123" {
 		t.Errorf("agent.image: got %s", ds.Agent.Image)
 	}
-	if spec.PrimaryPort(ds.Agent.Endpoints) != 8080 {
-		t.Errorf("agent.endpoints http port: expected 8080, got %d", spec.PrimaryPort(ds.Agent.Endpoints))
+	if PrimaryPort(ds.Agent.Endpoints) != 8080 {
+		t.Errorf("agent.endpoints http port: expected 8080, got %d", PrimaryPort(ds.Agent.Endpoints))
 	}
 	if ds.Agent.Replicas != 1 {
 		t.Errorf("agent.replicas: expected 1, got %d", ds.Agent.Replicas)
 	}
-	if ds.Agent.Resources != spec.StandardResources {
+	if ds.Agent.Resources != StandardResources {
 		t.Errorf("agent.resources: expected StandardResources, got %+v", ds.Agent.Resources)
 	}
 	if ds.Agent.Update.Strategy != "rolling" {
 		t.Errorf("agent.update.strategy: expected rolling, got %s", ds.Agent.Update.Strategy)
 	}
 	// Agent expose should be false by default (no exposed endpoint)
-	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil && ep.Expose != nil && ep.Expose.Enabled {
+	if ep := ExposedEndpoint(ds.Agent.Endpoints); ep != nil && ep.Expose != nil && ep.Expose.Enabled {
 		t.Error("agent: expected no exposed endpoint by default")
 	}
 }
@@ -196,8 +196,8 @@ func TestTemplate_ContainerModel(t *testing.T) {
 	if m.Image != "registry.example.com/dockerhub/library/custom-embedder:v1" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/custom-embedder:v1, got %s", m.Image)
 	}
-	if spec.PrimaryPort(m.Endpoints) != 9999 {
-		t.Errorf("endpoints primary port: expected 9999, got %d", spec.PrimaryPort(m.Endpoints))
+	if PrimaryPort(m.Endpoints) != 9999 {
+		t.Errorf("endpoints primary port: expected 9999, got %d", PrimaryPort(m.Endpoints))
 	}
 	if m.Environment["MODEL_NAME"] != "all-MiniLM-L6-v2" {
 		t.Errorf("environment: MODEL_NAME not preserved")
@@ -222,8 +222,8 @@ func TestTemplate_ContainerModel_BuildWithoutImage(t *testing.T) {
 	if m.Image != expected {
 		t.Errorf("image: expected %s, got %s", expected, m.Image)
 	}
-	if spec.PrimaryPort(m.Endpoints) != 9999 {
-		t.Errorf("endpoints primary port: expected 9999, got %d", spec.PrimaryPort(m.Endpoints))
+	if PrimaryPort(m.Endpoints) != 9999 {
+		t.Errorf("endpoints primary port: expected 9999, got %d", PrimaryPort(m.Endpoints))
 	}
 }
 
@@ -254,7 +254,7 @@ func TestTemplate_GPUModel(t *testing.T) {
 	if m.GPU.Count != 1 {
 		t.Errorf("gpu.count: expected 1, got %d", m.GPU.Count)
 	}
-	if m.Resources != spec.GPUResources {
+	if m.Resources != GPUResources {
 		t.Errorf("resources: expected GPUResources for GPU model, got %+v", m.Resources)
 	}
 	if m.Update.Strategy != "recreate" {
@@ -289,8 +289,8 @@ func TestTemplate_ModelDefaultPort(t *testing.T) {
 	}
 
 	ds := mustGenerate(t, input)
-	if spec.PrimaryPort(ds.Models["noport"].Endpoints) != 8080 {
-		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Models["noport"].Endpoints))
+	if PrimaryPort(ds.Models["noport"].Endpoints) != 8080 {
+		t.Errorf("endpoints: expected 8080 default, got %d", PrimaryPort(ds.Models["noport"].Endpoints))
 	}
 }
 
@@ -410,8 +410,8 @@ func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/qdrant/qdrant:latest" {
 		t.Errorf("image: expected registry.example.com/dockerhub/qdrant/qdrant:latest, got %s", k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 6333 {
-		t.Errorf("endpoints primary port: expected 6333, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 6333 {
+		t.Errorf("endpoints primary port: expected 6333, got %d", PrimaryPort(k.Endpoints))
 	}
 	if !k.Persistent {
 		t.Error("persistent: expected true")
@@ -452,8 +452,8 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/redis:7-alpine" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/redis:7-alpine, got %s", k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 6379 {
-		t.Errorf("endpoints primary port: expected 6379, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 6379 {
+		t.Errorf("endpoints primary port: expected 6379, got %d", PrimaryPort(k.Endpoints))
 	}
 	// Redis provider has MountPath /data → persistent by derivation
 	if !k.Persistent {
@@ -485,8 +485,8 @@ func TestTemplate_ProviderKnowledge_Neo4j(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/neo4j:5-community" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/neo4j:5-community, got %s", k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 7474 {
-		t.Errorf("endpoints primary port: expected 7474, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 7474 {
+		t.Errorf("endpoints primary port: expected 7474, got %d", PrimaryPort(k.Endpoints))
 	}
 
 	// Neo4j has default env vars
@@ -512,8 +512,8 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/my-db:latest" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/my-db:latest, got %s", k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 5000 {
-		t.Errorf("endpoints primary port: expected 5000, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 5000 {
+		t.Errorf("endpoints primary port: expected 5000, got %d", PrimaryPort(k.Endpoints))
 	}
 
 	// Container mode uses KNOWLEDGE_* prefix
@@ -544,8 +544,8 @@ func TestTemplate_ContainerKnowledge_BuildWithoutImage(t *testing.T) {
 	if k.Image != expectedImage {
 		t.Errorf("image: expected %s, got %s", expectedImage, k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 3000 {
-		t.Errorf("endpoints primary port: expected 3000, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 3000 {
+		t.Errorf("endpoints primary port: expected 3000, got %d", PrimaryPort(k.Endpoints))
 	}
 	if !k.Persistent {
 		t.Error("persistent: expected true (volume is set)")
@@ -564,8 +564,8 @@ func TestTemplate_ProviderKnowledge_Postgres(t *testing.T) {
 	if !strings.Contains(k.Image, "pgvector") {
 		t.Errorf("image: expected pgvector image, got %s", k.Image)
 	}
-	if spec.PrimaryPort(k.Endpoints) != 5432 {
-		t.Errorf("endpoints primary port: expected 5432, got %d", spec.PrimaryPort(k.Endpoints))
+	if PrimaryPort(k.Endpoints) != 5432 {
+		t.Errorf("endpoints primary port: expected 5432, got %d", PrimaryPort(k.Endpoints))
 	}
 	if !k.Persistent {
 		t.Error("persistent: expected true (postgres provider has MountPath)")
@@ -664,13 +664,13 @@ func TestTemplate_Tool(t *testing.T) {
 	if tool.Image != "registry.example.com/dockerhub/library/search:v2" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/search:v2, got %s", tool.Image)
 	}
-	if spec.PrimaryPort(tool.Endpoints) != 3000 {
-		t.Errorf("endpoints primary port: expected 3000, got %d", spec.PrimaryPort(tool.Endpoints))
+	if PrimaryPort(tool.Endpoints) != 3000 {
+		t.Errorf("endpoints primary port: expected 3000, got %d", PrimaryPort(tool.Endpoints))
 	}
 	if tool.Replicas != 1 {
 		t.Errorf("replicas: expected 1, got %d", tool.Replicas)
 	}
-	if tool.Resources != spec.StandardResources {
+	if tool.Resources != StandardResources {
 		t.Errorf("resources: expected StandardResources, got %+v", tool.Resources)
 	}
 
@@ -686,8 +686,8 @@ func TestTemplate_IntegrationDefaultPort(t *testing.T) {
 	}
 
 	ds := mustGenerate(t, input)
-	if spec.PrimaryPort(ds.Integrations["noport"].Endpoints) != 8080 {
-		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Integrations["noport"].Endpoints))
+	if PrimaryPort(ds.Integrations["noport"].Endpoints) != 8080 {
+		t.Errorf("endpoints: expected 8080 default, got %d", PrimaryPort(ds.Integrations["noport"].Endpoints))
 	}
 }
 
@@ -737,7 +737,7 @@ func TestTemplate_IngestionSchedule(t *testing.T) {
 	if ing.Environment["TARGET"] != "docs" {
 		t.Error("environment not preserved")
 	}
-	if ing.Resources != spec.StandardResources {
+	if ing.Resources != StandardResources {
 		t.Errorf("resources: expected StandardResources, got %+v", ing.Resources)
 	}
 }
@@ -757,8 +757,8 @@ func TestTemplate_IngestionWebhookPort(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	ing := ds.Ingestion["data"]
-	if spec.PrimaryPort(ing.Endpoints) != 3001 {
-		t.Errorf("endpoints primary port: expected 3001, got %d", spec.PrimaryPort(ing.Endpoints))
+	if PrimaryPort(ing.Endpoints) != 3001 {
+		t.Errorf("endpoints primary port: expected 3001, got %d", PrimaryPort(ing.Endpoints))
 	}
 	if ing.Trigger.Type != "webhook" {
 		t.Errorf("trigger.type: expected webhook, got %s", ing.Trigger.Type)
@@ -779,8 +779,8 @@ func TestTemplate_IngestionWebhookNoPort(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	if spec.PrimaryPort(ds.Ingestion["data"].Endpoints) != 0 {
-		t.Errorf("endpoints: expected 0 (unset), got %d", spec.PrimaryPort(ds.Ingestion["data"].Endpoints))
+	if PrimaryPort(ds.Ingestion["data"].Endpoints) != 0 {
+		t.Errorf("endpoints: expected 0 (unset), got %d", PrimaryPort(ds.Ingestion["data"].Endpoints))
 	}
 }
 
@@ -801,8 +801,8 @@ func TestTemplate_IngestionAllTypes(t *testing.T) {
 	if ds.Ingestion["sched"].Trigger.Type != "schedule" {
 		t.Error("schedule type not preserved")
 	}
-	if spec.PrimaryPort(ds.Ingestion["webhook"].Endpoints) != 9000 {
-		t.Errorf("webhook endpoints port: expected 9000, got %d", spec.PrimaryPort(ds.Ingestion["webhook"].Endpoints))
+	if PrimaryPort(ds.Ingestion["webhook"].Endpoints) != 9000 {
+		t.Errorf("webhook endpoints port: expected 9000, got %d", PrimaryPort(ds.Ingestion["webhook"].Endpoints))
 	}
 }
 
@@ -1240,7 +1240,7 @@ agent:
 	}
 
 	// gRPC endpoint on 9090
-	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
+	grpcEp := EndpointByName(ds.Interfaces.Endpoints, "grpc")
 	if grpcEp == nil {
 		t.Fatal("interfaces.endpoints.grpc: expected non-nil")
 	}
@@ -1249,7 +1249,7 @@ agent:
 	}
 
 	// HTTP endpoint present but not publicly exposed
-	httpEp := spec.EndpointByName(ds.Interfaces.Endpoints, "http")
+	httpEp := EndpointByName(ds.Interfaces.Endpoints, "http")
 	if httpEp == nil {
 		t.Fatal("interfaces.endpoints.http: expected non-nil")
 	}
@@ -1261,8 +1261,8 @@ agent:
 	}
 
 	// Resources match MessagingResources
-	if ds.Interfaces.Resources != spec.MessagingResources {
-		t.Errorf("interfaces.resources: expected MessagingResources %+v, got %+v", spec.MessagingResources, ds.Interfaces.Resources)
+	if ds.Interfaces.Resources != MessagingResources {
+		t.Errorf("interfaces.resources: expected MessagingResources %+v, got %+v", MessagingResources, ds.Interfaces.Resources)
 	}
 
 	// Auth defaults to web OIDC; no slack auth configured
@@ -1448,12 +1448,12 @@ func TestTemplate_FullSpec(t *testing.T) {
 		if !strings.HasPrefix(val, "${") {
 			continue
 		}
-		refs := spec.ParseReferences(val)
+		refs := ParseReferences(val)
 		if len(refs) == 0 {
 			t.Errorf("env %s: %q looks like a reference but failed to parse", key, val)
 			continue
 		}
-		if errs := spec.ValidateReferences(refs, ds); len(errs) > 0 {
+		if errs := ValidateReferences(refs, ds); len(errs) > 0 {
 			t.Errorf("env %s: reference %q does not resolve: %v", key, val, errs)
 		}
 	}
@@ -1462,8 +1462,8 @@ func TestTemplate_FullSpec(t *testing.T) {
 	// Bind the postgres store to a managed store. The container fields should be
 	// zeroed, credential variables removed, and editable fields for that entry gone.
 	bindingARN := "arn:knowledge-store:acme:pg-managed"
-	submitted := &spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	submitted := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"db": {Binding: bindingARN, Provider: "postgres"},
 		},
 	}
@@ -1541,8 +1541,8 @@ func TestTemplate_MultipleModels(t *testing.T) {
 	if ds.Models["custom"].Image != "registry.example.com/dockerhub/library/custom:latest" {
 		t.Errorf("custom image: got %s", ds.Models["custom"].Image)
 	}
-	if spec.PrimaryPort(ds.Models["custom"].Endpoints) != 5000 {
-		t.Errorf("custom endpoints port: expected 5000, got %d", spec.PrimaryPort(ds.Models["custom"].Endpoints))
+	if PrimaryPort(ds.Models["custom"].Endpoints) != 5000 {
+		t.Errorf("custom endpoints port: expected 5000, got %d", PrimaryPort(ds.Models["custom"].Endpoints))
 	}
 
 	// Each container-mode model gets generic MODEL_<NAME>_* env vars
@@ -1585,13 +1585,13 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	// Serialize to YAML
-	yamlBytes, err := spec.SerializeDeploymentSpec(ds)
+	yamlBytes, err := SerializeDeploymentSpec(ds)
 	if err != nil {
 		t.Fatalf("serialize: %v", err)
 	}
 
 	// Parse back
-	parsed, err := spec.ParseDeploymentSpec(yamlBytes)
+	parsed, err := ParseDeploymentSpec(yamlBytes)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -2061,12 +2061,12 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	// Extract and validate all references from agent environment
-	refs := spec.ExtractAllReferences(ds.Agent.Environment)
+	refs := ExtractAllReferences(ds.Agent.Environment)
 	if len(refs) == 0 {
 		t.Fatal("expected references in agent.environment")
 	}
 
-	errs := spec.ValidateReferences(refs, ds)
+	errs := ValidateReferences(refs, ds)
 	if len(errs) > 0 {
 		t.Errorf("generated template has invalid references:\n%s", strings.Join(errs, "\n"))
 	}
@@ -2109,19 +2109,19 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	if ds.Agent.Image != "registry.example.com/sasbot:abc123" {
 		t.Errorf("agent.image: got %s", ds.Agent.Image)
 	}
-	if spec.PrimaryPort(ds.Agent.Endpoints) != 8080 {
-		t.Errorf("agent endpoints primary port: expected 8080, got %d", spec.PrimaryPort(ds.Agent.Endpoints))
+	if PrimaryPort(ds.Agent.Endpoints) != 8080 {
+		t.Errorf("agent endpoints primary port: expected 8080, got %d", PrimaryPort(ds.Agent.Endpoints))
 	}
 
 	// Knowledge
 	if len(ds.Knowledge) != 2 {
 		t.Fatalf("knowledge: expected 2, got %d", len(ds.Knowledge))
 	}
-	if spec.PrimaryPort(ds.Knowledge["cache"].Endpoints) != 6379 {
-		t.Errorf("knowledge.cache endpoints port: expected 6379, got %d", spec.PrimaryPort(ds.Knowledge["cache"].Endpoints))
+	if PrimaryPort(ds.Knowledge["cache"].Endpoints) != 6379 {
+		t.Errorf("knowledge.cache endpoints port: expected 6379, got %d", PrimaryPort(ds.Knowledge["cache"].Endpoints))
 	}
-	if spec.PrimaryPort(ds.Knowledge["graph"].Endpoints) != 7474 {
-		t.Errorf("knowledge.graph endpoints port: expected 7474, got %d", spec.PrimaryPort(ds.Knowledge["graph"].Endpoints))
+	if PrimaryPort(ds.Knowledge["graph"].Endpoints) != 7474 {
+		t.Errorf("knowledge.graph endpoints port: expected 7474, got %d", PrimaryPort(ds.Knowledge["graph"].Endpoints))
 	}
 
 	// Ingestion — webhook with explicit port
@@ -2129,8 +2129,8 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	if ing.Image != "registry.example.com/sasbot-ingestion:abc123" {
 		t.Errorf("ingestion.data.image: got %s", ing.Image)
 	}
-	if spec.PrimaryPort(ing.Endpoints) != 3001 {
-		t.Errorf("ingestion.data endpoints port: expected 3001, got %d", spec.PrimaryPort(ing.Endpoints))
+	if PrimaryPort(ing.Endpoints) != 3001 {
+		t.Errorf("ingestion.data endpoints port: expected 3001, got %d", PrimaryPort(ing.Endpoints))
 	}
 	if ing.Trigger.Type != "webhook" {
 		t.Errorf("ingestion.data.trigger.type: expected webhook, got %s", ing.Trigger.Type)
@@ -2147,24 +2147,24 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	}
 
 	// Deployment spec should pass validation when variables are filled
-	ds.Variables["ANTHROPIC_API_KEY"] = spec.Variable{Value: "sk-test", Secret: true}
+	ds.Variables["ANTHROPIC_API_KEY"] = Variable{Value: "sk-test", Secret: true}
 	// Fill in the webhook ingestion endpoint to make it parseable
-	ds.Ingestion["data"] = spec.DeploymentIngestion{
+	ds.Ingestion["data"] = DeploymentIngestion{
 		Image:     ing.Image,
 		Endpoints: ing.Endpoints,
 		Resources: ing.Resources,
 		Trigger:   ing.Trigger,
 	}
-	yamlBytes, err := spec.SerializeDeploymentSpec(ds)
+	yamlBytes, err := SerializeDeploymentSpec(ds)
 	if err != nil {
 		t.Fatalf("serialize: %v", err)
 	}
-	parsed, err := spec.ParseDeploymentSpec(yamlBytes)
+	parsed, err := ParseDeploymentSpec(yamlBytes)
 	if err != nil {
 		t.Fatalf("round-trip parse failed: %v", err)
 	}
-	if spec.PrimaryPort(parsed.Ingestion["data"].Endpoints) != 3001 {
-		t.Errorf("round-trip port: expected 3001, got %d", spec.PrimaryPort(parsed.Ingestion["data"].Endpoints))
+	if PrimaryPort(parsed.Ingestion["data"].Endpoints) != 3001 {
+		t.Errorf("round-trip port: expected 3001, got %d", PrimaryPort(parsed.Ingestion["data"].Endpoints))
 	}
 }
 
@@ -2181,14 +2181,14 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 
 	// Simulate user inputs: select slack+web, fill token values.
 	adapterSelection := []string{"slack", "web"}
-	varInputs := map[string]spec.VariableInput{
+	varInputs := map[string]VariableInput{
 		"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
 		"SLACK_APP_TOKEN": {Value: "xapp-test"},
 	}
 
 	// --- POST path: ShapeTemplate does the fulfillment ---
-	postResp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: adapterSelection},
+	postResp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: adapterSelection},
 		Variables:  varInputs,
 	}, nil)
 	postSpec := postResp.Template
@@ -2205,7 +2205,7 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 		getSpec.Interfaces.Adapters = adapterSelection
 		if ep, ok := getSpec.Interfaces.Endpoints["http"]; ok {
 			if ep.Expose == nil {
-				ep.Expose = &spec.EndpointExpose{}
+				ep.Expose = &EndpointExpose{}
 			}
 			ep.Expose.Enabled = true
 			getSpec.Interfaces.Endpoints["http"] = ep
@@ -2255,13 +2255,13 @@ func TestGETandPOST_ProduceSameDeploySpec(t *testing.T) {
 
 // baseTemplateForShape builds a minimal template with variables and interfaces
 // suitable for testing ShapeTemplate.
-func baseTemplateForShape(t *testing.T) *spec.AstroDeploymentSpec {
+func baseTemplateForShape(t *testing.T) *AstroDeploymentSpec {
 	t.Helper()
 	input := baseInput()
 	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: true}
 	ds := mustGenerate(t, input)
 	// Add a non-optional agent variable for testing required-variable validation.
-	ds.Variables["MY_API_KEY"] = spec.Variable{
+	ds.Variables["MY_API_KEY"] = Variable{
 		Description: "API key for external service",
 		Targets:     []string{"agent"},
 		Secret:      true,
@@ -2272,7 +2272,7 @@ func baseTemplateForShape(t *testing.T) *spec.AstroDeploymentSpec {
 
 func TestShapeTemplate_EmptyRequest(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
 
 	// Envelope spec
 	if resp.Spec != "deployment-template/v1" {
@@ -2326,20 +2326,20 @@ func TestShapeTemplate_EmptyRequest(t *testing.T) {
 func TestShapeTemplate_ResponseTimeout(t *testing.T) {
 	t.Run("defaults when unset", func(t *testing.T) {
 		base := baseTemplateForShape(t)
-		resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
-		if got := resp.Template.Agent.ResponseTimeout; got != spec.DefaultResponseTimeout {
-			t.Errorf("template timeout: expected %s, got %q", spec.DefaultResponseTimeout, got)
+		resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
+		if got := resp.Template.Agent.ResponseTimeout; got != DefaultResponseTimeout {
+			t.Errorf("template timeout: expected %s, got %q", DefaultResponseTimeout, got)
 		}
-		if resp.Provisioning.Agent == nil || resp.Provisioning.Agent.ResponseTimeout != spec.DefaultResponseTimeout {
-			t.Errorf("echoed timeout: expected %s, got %+v", spec.DefaultResponseTimeout, resp.Provisioning.Agent)
+		if resp.Provisioning.Agent == nil || resp.Provisioning.Agent.ResponseTimeout != DefaultResponseTimeout {
+			t.Errorf("echoed timeout: expected %s, got %+v", DefaultResponseTimeout, resp.Provisioning.Agent)
 		}
 	})
 
 	t.Run("accepts a valid override", func(t *testing.T) {
 		base := baseTemplateForShape(t)
-		resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-			Provisioning: &spec.TemplateProvisioning{
-				Agent: &spec.ComponentProvisioning{ResponseTimeout: "90s"},
+		resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+			Provisioning: &TemplateProvisioning{
+				Agent: &ComponentProvisioning{ResponseTimeout: "90s"},
 			},
 		}, nil)
 		if got := resp.Template.Agent.ResponseTimeout; got != "90s" {
@@ -2355,9 +2355,9 @@ func TestShapeTemplate_ResponseTimeout(t *testing.T) {
 	t.Run("rejects invalid, non-positive, and over-cap values", func(t *testing.T) {
 		for _, v := range []string{"nonsense", "0s", "3m", "infinity"} {
 			base := baseTemplateForShape(t)
-			resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-				Provisioning: &spec.TemplateProvisioning{
-					Agent: &spec.ComponentProvisioning{ResponseTimeout: v},
+			resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+				Provisioning: &TemplateProvisioning{
+					Agent: &ComponentProvisioning{ResponseTimeout: v},
 				},
 			}, nil)
 			found := false
@@ -2383,8 +2383,8 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 	}
 
 	// Select slack adapter
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"slack"}},
 	}, nil)
 
 	// Root schema should have slack vars as non-optional
@@ -2423,7 +2423,7 @@ func TestShapeTemplate_AdapterShaping(t *testing.T) {
 
 func TestShapeTemplate_ConfiguredInlineSecrets(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, &ShapeOptions{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, &ShapeOptions{
 		ConfiguredInlineSecrets: []string{"MY_API_KEY"},
 	})
 
@@ -2451,7 +2451,7 @@ func TestShapeTemplate_ConfiguredInlineSecrets(t *testing.T) {
 
 func TestShapeTemplate_FinalizeUsesConfiguredSentinelWithoutPlaintext(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Finalize: true,
 	}, &ShapeOptions{
 		ConfiguredInlineSecrets: []string{"MY_API_KEY"},
@@ -2468,9 +2468,9 @@ func TestShapeTemplate_FinalizeUsesConfiguredSentinelWithoutPlaintext(t *testing
 
 func TestShapeTemplate_FinalizeReplacementClearsConfiguredSentinel(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Finalize: true,
-		Variables: map[string]spec.VariableInput{
+		Variables: map[string]VariableInput{
 			"MY_API_KEY": {Value: "replacement"},
 		},
 	}, &ShapeOptions{
@@ -2492,7 +2492,7 @@ func TestShapeTemplate_FinalizeDoesNotTrustSourceConfiguredMarker(t *testing.T) 
 	variable.Configured = true
 	base.Variables["MY_API_KEY"] = variable
 
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Finalize: true,
 	}, nil)
 
@@ -2506,8 +2506,8 @@ func TestShapeTemplate_FinalizeDoesNotTrustSourceConfiguredMarker(t *testing.T) 
 
 func TestShapeTemplate_VariableFilling(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Variables: map[string]spec.VariableInput{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Variables: map[string]VariableInput{
 			"MY_API_KEY": {Value: "sk-test-123"},
 		},
 	}, nil)
@@ -2534,8 +2534,8 @@ func TestShapeTemplate_VariableFilling(t *testing.T) {
 
 func TestShapeTemplate_VariableRef(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Variables: map[string]spec.VariableInput{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Variables: map[string]VariableInput{
 			"MY_API_KEY": {Ref: "prod-api-key"},
 		},
 	}, nil)
@@ -2554,14 +2554,14 @@ func TestShapeTemplate_FullyValid(t *testing.T) {
 	base := baseTemplateForShape(t)
 
 	// Fill all required variables
-	vars := make(map[string]spec.VariableInput)
+	vars := make(map[string]VariableInput)
 	for key, v := range base.Variables {
 		if !v.Optional {
-			vars[key] = spec.VariableInput{Value: "filled-" + key}
+			vars[key] = VariableInput{Value: "filled-" + key}
 		}
 	}
 
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Variables: vars,
 	}, nil)
 
@@ -2580,9 +2580,9 @@ func TestShapeTemplate_DoesNotMutateBase(t *testing.T) {
 	// Capture original state
 	origJSON, _ := json.Marshal(base)
 
-	ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
-		Variables:  map[string]spec.VariableInput{"MY_API_KEY": {Value: "mutated"}},
+	ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"slack"}},
+		Variables:  map[string]VariableInput{"MY_API_KEY": {Value: "mutated"}},
 	}, nil)
 
 	afterJSON, _ := json.Marshal(base)
@@ -2597,7 +2597,7 @@ func TestShapeTemplate_AdaptersFromPrefill(t *testing.T) {
 	base.Interfaces.Adapters = []string{"web", "slack"}
 
 	// Initial POST with no adapters in request — response should reflect the stored adapters.
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
 	if len(resp.Interfaces.Adapters) != 2 {
 		t.Fatalf("resp.Interfaces.Adapters: expected [web slack], got %v", resp.Interfaces.Adapters)
 	}
@@ -2612,16 +2612,16 @@ func TestShapeTemplate_AdaptersReshape(t *testing.T) {
 	base.Interfaces.Adapters = []string{"web", "slack"}
 
 	// Reshape: user deselects web — response should reflect only slack.
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"slack"}},
 	}, nil)
 	if len(resp.Interfaces.Adapters) != 1 || resp.Interfaces.Adapters[0] != "slack" {
 		t.Errorf("resp.Interfaces.Adapters after reshape: expected [slack], got %v", resp.Interfaces.Adapters)
 	}
 
 	// Reshape: user deselects all — response should be empty slice.
-	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{}},
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{}},
 	}, nil)
 	if resp.Interfaces.Adapters == nil {
 		t.Error("resp.Interfaces.Adapters should be non-nil (empty slice, not null)")
@@ -2640,8 +2640,8 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 	}
 
 	// Request with auth nil — preserves base auth
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"web"}},
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"web"}},
 	}, nil)
 	if resp.Interfaces.Auth == nil || resp.Interfaces.Auth.Web == nil || resp.Interfaces.Auth.Web.Type != "oidc" {
 		t.Error("expected auth preserved when request auth is nil")
@@ -2651,10 +2651,10 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 	}
 
 	// Request explicitly sets auth — overrides base
-	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{
 			Adapters: []string{"web"},
-			Auth:     &spec.DeploymentInterfacesAuth{},
+			Auth:     &DeploymentInterfacesAuth{},
 		},
 	}, nil)
 	if resp.Interfaces.Auth == nil {
@@ -2670,7 +2670,7 @@ func TestShapeTemplate_AuthShaping(t *testing.T) {
 
 func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 	base := baseTemplateForShape(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -2688,17 +2688,17 @@ func TestShapeTemplate_InterfacesJSONNeverNull(t *testing.T) {
 }
 
 // baseTemplateWithIngestion extends baseTemplateForShape with a schedule-triggered ingestion.
-func baseTemplateWithIngestion(t *testing.T) *spec.AstroDeploymentSpec {
+func baseTemplateWithIngestion(t *testing.T) *AstroDeploymentSpec {
 	t.Helper()
 	base := baseTemplateForShape(t)
-	base.Ingestion = map[string]spec.DeploymentIngestion{
+	base.Ingestion = map[string]DeploymentIngestion{
 		"nightly_sync": {
 			Image:   "sync:latest",
-			Trigger: spec.DeploymentTrigger{Type: "schedule", Schedule: ""},
+			Trigger: DeploymentTrigger{Type: "schedule", Schedule: ""},
 		},
 		"on_demand": {
 			Image:   "import:latest",
-			Trigger: spec.DeploymentTrigger{Type: "manual"},
+			Trigger: DeploymentTrigger{Type: "manual"},
 		},
 	}
 	return base
@@ -2706,7 +2706,7 @@ func baseTemplateWithIngestion(t *testing.T) *spec.AstroDeploymentSpec {
 
 func TestShapeTemplate_ScheduleShaping(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "0 3 * * *"},
 	}, nil)
 
@@ -2739,7 +2739,7 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
 
 	// Invalid cron should produce a validation error
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "not-a-cron"},
 	}, nil)
 	found := false
@@ -2753,7 +2753,7 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 	}
 
 	// Empty schedule should produce a required error
-	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
 	found = false
 	for _, e := range resp.Validation.Errors {
 		if e.Field == "ingestion.nightly_sync.trigger.schedule" && strings.Contains(e.Message, "required") {
@@ -2767,7 +2767,7 @@ func TestShapeTemplate_ScheduleValidation(t *testing.T) {
 
 func TestShapeTemplate_ScheduleIgnoredForNonScheduleTrigger(t *testing.T) {
 	base := baseTemplateWithIngestion(t)
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Schedules: map[string]string{"on_demand": "0 3 * * *"},
 	}, nil)
 
@@ -2788,13 +2788,13 @@ func TestShapeTemplate_ScheduleFromPrefill(t *testing.T) {
 	}
 
 	// Initial POST with no schedules in request — should reflect the stored schedule
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{}, nil)
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, nil)
 	if resp.Schedules["nightly_sync"] != "0 2 * * *" {
 		t.Errorf("resp.Schedules[nightly_sync]: expected '0 2 * * *', got '%s'", resp.Schedules["nightly_sync"])
 	}
 
 	// Reshape with new schedule — should override
-	resp = ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{
 		Schedules: map[string]string{"nightly_sync": "0 4 * * *"},
 	}, nil)
 	if resp.Schedules["nightly_sync"] != "0 4 * * *" {
@@ -2820,8 +2820,8 @@ func TestApplyAdapterShaping_DeployRoundTrip(t *testing.T) {
 	}
 
 	// 2. Shape with only "web" selected — mimics the POST template response.
-	shaped := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"web"}},
+	shaped := ShapeTemplate(context.Background(), canonical, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"web"}},
 	}, nil)
 	submittedSpec := &shaped.Template
 
@@ -2896,7 +2896,7 @@ func TestShapeTemplate_NoRequestInterfaces_StripsNonSelectedAdapterRefs(t *testi
 	// reflects that. Request body carries no interfaces overrides — the
 	// caller is just asking for the current state.
 	canonical.Interfaces.Adapters = []string{"web"}
-	resp := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{}, nil)
+	resp := ShapeTemplate(context.Background(), canonical, &TemplateRequest{}, nil)
 
 	if _, ok := resp.Template.Variables["SLACK_CONFIG"]; ok {
 		t.Error("SLACK_CONFIG variable should be stripped when slack is not in shaped adapter list")
@@ -2914,7 +2914,7 @@ func TestApplyAdapterShaping_KeepsSelectedAndNonInterface(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 	// Add a non-interface variable to verify it's preserved.
-	ds.Variables["MY_AGENT_VAR"] = spec.Variable{
+	ds.Variables["MY_AGENT_VAR"] = Variable{
 		Targets: []string{"agent"},
 		Value:   "hello",
 	}
@@ -2961,9 +2961,9 @@ func TestApplyAdapterShaping_SlackSelectedFlipsOptionality(t *testing.T) {
 
 	canonical := mustGenerate(t, input)
 
-	shaped := ShapeTemplate(context.Background(), canonical, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{Adapters: []string{"slack"}},
-		Variables: map[string]spec.VariableInput{
+	shaped := ShapeTemplate(context.Background(), canonical, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{Adapters: []string{"slack"}},
+		Variables: map[string]VariableInput{
 			"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
 			"SLACK_APP_TOKEN": {Value: "xapp-test"},
 		},
@@ -2979,8 +2979,8 @@ func TestApplyAdapterShaping_SlackSelectedFlipsOptionality(t *testing.T) {
 
 // Verify ApplyAdapterShaping is a no-op when spec has no interfaces.
 func TestApplyAdapterShaping_NilInterfaces(t *testing.T) {
-	ds := &spec.AstroDeploymentSpec{
-		Variables: map[string]spec.Variable{
+	ds := &AstroDeploymentSpec{
+		Variables: map[string]Variable{
 			"AGENT_VAR":       {Targets: []string{"agent"}, Value: "v"},
 			"SLACK_BOT_TOKEN": {Targets: []string{"interface.slack"}, Secret: true},
 		},
@@ -3047,16 +3047,16 @@ func TestRetemplate_SlackConfigNotLeakedForWebOnly(t *testing.T) {
 func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 	bindingARN := "arn:knowledge-store:acct123:pg-store"
 
-	template := &spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	template := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {
 				Image:      "postgres:16",
-				Endpoints:  map[string]spec.Endpoint{"http": {Port: 5432, Protocol: "tcp"}},
+				Endpoints:  map[string]Endpoint{"http": {Port: 5432, Protocol: "tcp"}},
 				Persistent: true,
-				Resources:  spec.DeploymentResources{CPU: "500m", Memory: "512Mi"},
+				Resources:  DeploymentResources{CPU: "500m", Memory: "512Mi"},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"POSTGRES_USER":     {Targets: []string{"knowledge.postgres"}, Secret: true},
 			"POSTGRES_PASSWORD": {Targets: []string{"knowledge.postgres"}, Secret: true},
 			"AGENT_VAR":         {Targets: []string{"agent"}, Value: "v"},
@@ -3064,11 +3064,11 @@ func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 	}
 
 	// Submitted spec is what ShapeTemplate would have produced — bound entry zeroed.
-	submitted := &spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	submitted := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {Binding: bindingARN},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"AGENT_VAR": {Targets: []string{"agent"}, Value: "v"},
 		},
 	}
@@ -3102,26 +3102,26 @@ func TestApplyBindingShaping_DeployRoundTrip(t *testing.T) {
 
 // ApplyBindingShaping should be a no-op when no knowledge entries are bound.
 func TestApplyBindingShaping_NoBoundEntries(t *testing.T) {
-	template := &spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	template := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {
 				Image:     "postgres:16",
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}},
+				Endpoints: map[string]Endpoint{"http": {Port: 5432}},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
 		},
 	}
 
-	submitted := &spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	submitted := &AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {
 				Image:     "postgres:16",
-				Endpoints: map[string]spec.Endpoint{"http": {Port: 5432}},
+				Endpoints: map[string]Endpoint{"http": {Port: 5432}},
 			},
 		},
-		Variables: map[string]spec.Variable{
+		Variables: map[string]Variable{
 			"POSTGRES_USER": {Targets: []string{"knowledge.postgres"}, Secret: true},
 		},
 	}
@@ -3202,8 +3202,8 @@ func TestTemplate_MultiplePostgresKnowledge_Credentials(t *testing.T) {
 // Test that RestoreBindingsFromSpec extracts bound entries from a stored
 // deployment spec JSON and produces the correct TemplateBindings.
 func TestRestoreBindingsFromSpec(t *testing.T) {
-	storedSpec := spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	storedSpec := AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {Binding: "arn:knowledge:acct:pg-store", Provider: "postgres"},
 			"cache":    {Image: "redis:7", Provider: "redis"},                             // not bound
 			"users":    {Binding: "arn:knowledge:acct:users-store", Provider: "postgres"}, // bound
@@ -3233,8 +3233,8 @@ func TestRestoreBindingsFromSpec(t *testing.T) {
 }
 
 func TestRestoreBindingsFromSpec_NoBoundEntries(t *testing.T) {
-	storedSpec := spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	storedSpec := AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"cache": {Image: "redis:7", Provider: "redis"},
 		},
 	}
@@ -3265,7 +3265,7 @@ func TestRestoreBindingsFromSpec_InvalidJSON(t *testing.T) {
 // Each test parses an inline astropods.yml string and asserts the generated
 // template has the correct interfaces and slack-variable shape.
 
-func mustGenerateFromYAML(t *testing.T, yaml string) *spec.AstroDeploymentSpec {
+func mustGenerateFromYAML(t *testing.T, yaml string) *AstroDeploymentSpec {
 	t.Helper()
 	s, err := spec.ParseString(yaml)
 	if err != nil {
@@ -3357,7 +3357,7 @@ agent:
 		t.Error("interfaces: expected nil when both frontend and messaging are false")
 	}
 
-	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	httpEp := EndpointByName(ds.Agent.Endpoints, "http")
 	if httpEp == nil {
 		t.Fatal("agent.endpoints.http: expected non-nil")
 	}
@@ -3390,7 +3390,7 @@ agent:
 		t.Error("interfaces: expected nil (messaging omitted → false)")
 	}
 
-	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	httpEp := EndpointByName(ds.Agent.Endpoints, "http")
 	if httpEp == nil {
 		t.Fatal("agent.endpoints.http: expected non-nil for frontend agent")
 	}
@@ -3445,7 +3445,7 @@ agent:
     messaging: true
 `)
 
-	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	httpEp := EndpointByName(ds.Agent.Endpoints, "http")
 	if httpEp == nil {
 		t.Fatal("agent.endpoints.http: expected non-nil")
 	}
@@ -3485,12 +3485,12 @@ agent:
 		t.Errorf("interfaces.image: got %s", ds.Interfaces.Image)
 	}
 
-	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
+	grpcEp := EndpointByName(ds.Interfaces.Endpoints, "grpc")
 	if grpcEp == nil || grpcEp.Port != 9090 {
 		t.Errorf("interfaces.endpoints.grpc.port: expected 9090, got %v", grpcEp)
 	}
 
-	httpEp := spec.EndpointByName(ds.Interfaces.Endpoints, "http")
+	httpEp := EndpointByName(ds.Interfaces.Endpoints, "http")
 	if httpEp == nil || httpEp.Port != 8080 {
 		t.Errorf("interfaces.endpoints.http.port: expected 8080, got %v", httpEp)
 	}
@@ -3498,7 +3498,7 @@ agent:
 		t.Error("interfaces.endpoints.http.expose.enabled: expected false")
 	}
 
-	if ds.Interfaces.Resources != spec.MessagingResources {
+	if ds.Interfaces.Resources != MessagingResources {
 		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
 	}
 
@@ -3517,8 +3517,8 @@ agent:
 // entries — used as the "deployment already has bindings" fixture.
 func storedSpecWithBindings(t *testing.T) string {
 	t.Helper()
-	stored := spec.AstroDeploymentSpec{
-		Knowledge: map[string]spec.DeploymentKnowledge{
+	stored := AstroDeploymentSpec{
+		Knowledge: map[string]DeploymentKnowledge{
 			"postgres": {Binding: "arn:knowledge:acct:pg-store", Provider: "postgres"},
 			"users":    {Binding: "arn:knowledge:acct:users-store", Provider: "postgres"},
 		},
@@ -3534,7 +3534,7 @@ func storedSpecWithBindings(t *testing.T) string {
 // be restored — that's the "open the configure panel for an existing
 // deployment" case the function was designed for.
 func TestApplyStoredBindingsToRequest_NilBindings_Restores(t *testing.T) {
-	req := &spec.TemplateRequest{}
+	req := &TemplateRequest{}
 	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
 
 	if req.Bindings == nil {
@@ -3548,8 +3548,8 @@ func TestApplyStoredBindingsToRequest_NilBindings_Restores(t *testing.T) {
 // When the client sends explicit non-empty ARNs, the request must win over
 // the stored bindings.
 func TestApplyStoredBindingsToRequest_ExplicitNonEmpty_Wins(t *testing.T) {
-	req := &spec.TemplateRequest{
-		Bindings: &spec.TemplateBindings{
+	req := &TemplateRequest{
+		Bindings: &TemplateBindings{
 			Knowledge: map[string]string{"postgres": "arn:knowledge:acct:other-store"},
 		},
 	}
@@ -3568,8 +3568,8 @@ func TestApplyStoredBindingsToRequest_ExplicitNonEmpty_Wins(t *testing.T) {
 // resulting bindings should be empty, not silently restored from the stored
 // spec.
 func TestApplyStoredBindingsToRequest_EmptyMap_ClearsAll(t *testing.T) {
-	req := &spec.TemplateRequest{
-		Bindings: &spec.TemplateBindings{Knowledge: map[string]string{}},
+	req := &TemplateRequest{
+		Bindings: &TemplateBindings{Knowledge: map[string]string{}},
 	}
 	ApplyStoredBindingsToRequest(nil, req, storedSpecWithBindings(t))
 
@@ -3585,8 +3585,8 @@ func TestApplyStoredBindingsToRequest_EmptyMap_ClearsAll(t *testing.T) {
 // Each "" must be preserved as an explicit unbind, not restored from the
 // stored spec.
 func TestApplyStoredBindingsToRequest_AllEmptyARNs_Unbinds(t *testing.T) {
-	req := &spec.TemplateRequest{
-		Bindings: &spec.TemplateBindings{
+	req := &TemplateRequest{
+		Bindings: &TemplateBindings{
 			Knowledge: map[string]string{"postgres": "", "users": ""},
 		},
 	}
@@ -3606,8 +3606,8 @@ func TestApplyStoredBindingsToRequest_AllEmptyARNs_Unbinds(t *testing.T) {
 // Mixed case: client unbinds one entry while leaving another bound. The
 // unbind must stick.
 func TestApplyStoredBindingsToRequest_MixedExplicit_Unbind(t *testing.T) {
-	req := &spec.TemplateRequest{
-		Bindings: &spec.TemplateBindings{
+	req := &TemplateRequest{
+		Bindings: &TemplateBindings{
 			Knowledge: map[string]string{
 				"postgres": "arn:knowledge:acct:pg-store",
 				"users":    "",
@@ -3639,15 +3639,15 @@ func TestShapeTemplate_FrontendOnlyWithCustomAuthDeploys(t *testing.T) {
 	if base.Interfaces != nil {
 		t.Fatalf("frontend-only base should have no interfaces block, got %+v", base.Interfaces)
 	}
-	if spec.ExposedEndpoint(base.Agent.Endpoints) == nil {
+	if ExposedEndpoint(base.Agent.Endpoints) == nil {
 		t.Fatal("frontend-only agent should expose its http endpoint")
 	}
 
 	// Deploy form sends interfaces.auth.custom (no messaging adapters).
-	resp := ShapeTemplate(context.Background(), base, &spec.TemplateRequest{
-		Interfaces: &spec.TemplateInterfaces{
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Interfaces: &TemplateInterfaces{
 			Adapters: []string{},
-			Auth:     &spec.DeploymentInterfacesAuth{Custom: &spec.DeploymentCustomAuth{Public: true}},
+			Auth:     &DeploymentInterfacesAuth{Custom: &DeploymentCustomAuth{Public: true}},
 		},
 	}, nil)
 
@@ -3662,11 +3662,11 @@ func TestShapeTemplate_FrontendOnlyWithCustomAuthDeploys(t *testing.T) {
 	}
 
 	// The shaped deployment spec must parse — this is the regression guard.
-	raw, err := spec.SerializeDeploymentSpec(&resp.Template)
+	raw, err := SerializeDeploymentSpec(&resp.Template)
 	if err != nil {
 		t.Fatalf("serialize shaped template: %v", err)
 	}
-	if _, err := spec.ParseDeploymentSpec(raw); err != nil {
+	if _, err := ParseDeploymentSpec(raw); err != nil {
 		t.Fatalf("frontend-only agent with custom auth should deploy, got: %v", err)
 	}
 }

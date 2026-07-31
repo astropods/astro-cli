@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	spec "github.com/astropods/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,7 +24,7 @@ import (
 func TestApplyDeploymentSpec_SecretValueRoundTrips(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"API_KEY": {Value: "sk-secret-%", Secret: true},
 	}
 
@@ -75,7 +75,7 @@ func TestApplyDeploymentSpec_NoDanglingRefWhenSecretApplyFails(t *testing.T) {
 
 	a := &Applier{clientset: fakeClient, namespace: "default", imagePullPolicy: corev1.PullNever}
 	ds := minimalDeploymentSpec()
-	ds.Variables = map[string]spec.Variable{
+	ds.Variables = map[string]deployment.Variable{
 		"API_KEY": {Value: "sk-secret-%", Secret: true},
 	}
 
