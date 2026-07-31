@@ -1,0 +1,45 @@
+name: Guardrails
+
+# Open-source hygiene gates. These keep the public CLI decoupled from the private
+# monorepo: no imports of private apps, no chat SPA committed, no leaked secrets.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  boundaries:
+    name: Import boundary & chat-embed guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No imports of private monorepo components
+        run: |
+          pattern='github\.com/astropods/astro/apps/(astro-server|astro-client|astro-queen|astro-registry|astro-otel)|github\.com/astropods/astro/packages/astro-proto'
+          if grep -rnE "$pattern" --include='*.go' .; then
+            echo "::error::CLI must not import private monorepo apps or the admin proto"
+            exit 1
+          fi
+          echo "OK: no forbidden imports"
+
+      - name: Chat embed dir tracks only .gitkeep
+        run: |
+          tracked="$(git ls-files internal/chatui/webdist/)"
+          if [ "$tracked" != "internal/chatui/webdist/.gitkeep" ]; then
+            echo "::error::internal/chatui/webdist must track only .gitkeep (found: $tracked)"
+            exit 1
+          fi
+          echo "OK: chat embed dir is clean"
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: gitleaks
+        run: |
+          ver=8.21.2
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks dir . --redact --no-banner

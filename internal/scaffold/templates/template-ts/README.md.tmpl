@@ -1,0 +1,92 @@
+# {{.Name}}
+
+{{.Description}}
+
+## Quick start
+
+```bash
+# Install dependencies
+bun install
+
+# Start the agent locally
+ast dev
+```
+
+## Project structure
+
+```
+{{.Name}}/
+├── agent/
+│   └── index.ts          # Agent entry point
+{{- if gt (len .Ingestions) 0}}
+├── ingestion/
+{{- range .Ingestions}}
+│   ├── {{.}}/
+│   │   ├── index.ts      # {{.}} ingestion pipeline
+│   │   └── Dockerfile
+{{- end}}
+{{- end}}
+├── astropods.yml             # Agent specification
+├── Dockerfile            # Agent container
+├── .env                  # Environment variables (set via ast configure; not committed)
+└── package.json
+```
+
+## Configuration
+
+The agent is configured in `astropods.yml`. Key sections:
+{{- if .AIGateway}}
+
+### Model
+
+Uses the **Astro AI Gateway** (a model with `provider: gateway`) for managed model access — no provider API key required. List selectable models under `models.default.models`; at deploy the model is chosen and injected as `MODEL_DEFAULT`. The platform injects `ASTRO_GATEWAY_URL` and `ASTRO_GATEWAY_API_KEY` at runtime. Run `ast login` to authenticate; the gateway is account-scoped.
+{{- end}}
+{{- if gt (len .Integrations) 0}}
+
+### Integrations
+
+| Integration | Type | Environment variable |
+|------------|------|---------------------|
+{{- range .Integrations}}
+{{- if eq . "anthropic"}}
+| Anthropic | Model API | `ANTHROPIC_API_KEY` |
+{{- else if eq . "openai"}}
+| OpenAI | Model API | `OPENAI_API_KEY` |
+{{- else if eq . "github"}}
+| GitHub | Tool | `GITHUB_TOKEN` |
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Knowledge) 0}}
+
+### Knowledge stores
+
+{{- range .Knowledge}}
+{{- if eq . "qdrant"}}
+- **Qdrant** — vector store for semantic search and embeddings
+{{- else if eq . "redis"}}
+- **Redis** — key-value store for caching and fast lookups
+{{- else if eq . "neo4j"}}
+- **Neo4j** — graph database for relationship data
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Interfaces) 0}}
+
+### Interfaces
+
+{{- range .Interfaces}}
+{{- if eq . "web"}}
+- **Web** — HTTP/SSE endpoint (playground available at `localhost:3100` during dev)
+{{- else if eq . "slack"}}
+- **Slack** — bot integration via Socket Mode
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Ingestions) 0}}
+
+### Ingestion
+
+Data pipeline triggered via **{{range $i, $v := .Ingestions}}{{if $i}}, {{end}}{{$v}}{{end}}**. Edit `ingestion/index.ts` to define how data flows into your knowledge stores.
+{{- end}}
+

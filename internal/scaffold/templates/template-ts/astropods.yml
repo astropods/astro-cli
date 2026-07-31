@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=https://astropods.com/schema/package.json
+spec: package/v1
+name: {{.Name}}
+meta: {}
+
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+{{- if or .AIGateway (.HasIntegration "anthropic") (.HasIntegration "openai")}}
+
+models:
+{{- if .AIGateway}}
+  # Astro AI Gateway — managed model access (injects ASTRO_GATEWAY_URL +
+  # ASTRO_GATEWAY_API_KEY at deploy). List selectable models below; the deployer
+  # picks one and it is injected as MODEL_DEFAULT.
+  default:
+    provider: gateway
+    models: [claude-sonnet-4-6]
+{{- end}}
+{{- range .Integrations}}
+{{- if eq . "anthropic"}}
+  anthropic:
+    provider: anthropic
+{{- else if eq . "openai"}}
+  openai:
+    provider: openai
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Knowledge) 0}}
+
+knowledge:
+{{- if .HasKnowledge "qdrant"}}
+  docs:
+    provider: qdrant
+{{- end}}
+{{- if .HasKnowledge "redis"}}
+  cache:
+    provider: redis
+{{- end}}
+{{- if .HasKnowledge "neo4j"}}
+  graph:
+    provider: neo4j
+{{- end}}
+{{- end}}
+{{- if .HasIntegration "github"}}
+
+integrations:
+  github:
+    provider: github
+{{- end}}
+{{- if gt (len .Ingestions) 0}}
+
+ingestion:
+{{- range .Ingestions}}
+  {{.}}:
+    container:
+      build:
+        context: .
+        dockerfile: ingestion/{{.}}/Dockerfile
+{{- if eq . "webhook"}}
+      port: 3001
+{{- end}}
+    trigger:
+      type: {{.}}
+{{- end}}
+{{- end}}
+{{- if gt (len .Interfaces) 0}}
+
+dev:
+  interfaces:
+    messaging:
+      adapters: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
+{{- end}}

@@ -1,0 +1,76 @@
+layer: "application"
+language: "go"
+
+tasks:
+  clean:
+    command: "rm -rf bin/ast-dev"
+    options:
+      cache: false
+
+  # The chat UI is NOT built or embedded here. A plain build embeds only the
+  # .gitkeep placeholder (webdist), and the chat route returns 503. The real
+  # chat SPA is produced and copied into webdist by the official release build
+  # only; a source build never contains it.
+
+  build:
+    command: sh -c 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=${ASTRO_SERVER_URL:-http://localhost:8080} -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-dev .'
+    inputs:
+      - "**/*.go"
+      - "cmd/docs/**"
+      - "internal/scaffold/templates/**"
+      - "internal/chatui/webdist/**"
+      - "go.mod"
+      - "go.sum"
+      - "/.git/refs/heads/*"
+    outputs:
+      - "bin/ast-dev"
+
+  build-preview:
+    command: sh -c 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
+    inputs:
+      - "**/*.go"
+      - "cmd/docs/**"
+      - "internal/scaffold/templates/**"
+      - "internal/chatui/webdist/**"
+      - "go.mod"
+      - "go.sum"
+      - "/.git/refs/heads/*"
+    outputs:
+      - "bin/ast-preview"
+
+  link:
+    command: "ln -sf $(pwd)/bin/ast-dev $HOME/go/bin/ast-dev"
+    deps:
+      - "build"
+
+  link-preview:
+    command: "ln -sf $(pwd)/bin/ast-preview $HOME/go/bin/ast-preview"
+    deps:
+      - "build-preview"
+
+  unlink:
+    command: "rm -f $HOME/go/bin/ast-dev"
+
+  test:
+    command: "go test -v ./cmd/... ./internal/..."
+    options:
+      persistent: false
+      cache: true
+    inputs:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+
+  e2e:
+    command: "go test -tags integration -v ./e2e/..."
+    options:
+      persistent: false
+      runInCI: false
+      cache: false
+    inputs:
+      - "e2e/**/*.go"
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"

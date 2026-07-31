@@ -1,0 +1,8 @@
+# Placeholder so `//go:embed all:webdist` always compiles on a fresh checkout.
+#
+# The real chat UI assets are produced and copied here by the official release
+# build; a plain source `go build` embeds only this placeholder. Built assets are
+# gitignored; only this placeholder is tracked.
+#
+# The dir is named "webdist" (not "dist") on purpose: the repo-root .gitignore
+# ignores every directory named "dist", which would otherwise drop this file.
