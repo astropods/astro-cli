@@ -87,6 +87,13 @@ Condition{ Name, Title string; Severity Severity; Engine Engine; Query string; F
 - **`Engine`** names the query backend (`promql`, `langfuse`). The evaluator routes the condition to that engine's `Querier`; an unregistered engine means the condition is skipped.
 - **`Query`** is that engine's expression. Every returned series must carry `namespace` and `pod` labels; those are the currently-breaching pods. PromQL queries aggregate `by (namespace, pod)`; the evaluator resolves each pod to its deployment + workload in code (a pod only alerts if its namespace maps to a deployment).
 - **`For`** is the sustained window a workload must stay breaching before firing. `For == 0` means fire on first detection — used when the query itself already spans a window (e.g. `increase(...[15m])`).
+- **`DetailsFor`** (optional) renders the breaching series' scalar value into a clause appended to `Description`, so the alert quotes concrete numbers instead of static text. When several pods map to one workload the highest value is reported — the worst offender for over-budget/restart rules, the least-wasteful (most conservative) pod for over-provisioned. Nil or an empty return leaves `Description` unadorned. Rules that use it:
+  - `cpu_over_provisioned` / `memory_over_provisioned` — turn the usage/request ratio into a right-sizing suggestion (e.g. "At its busiest, the agent used only about 30% of what you reserved … you could lower the reserved amount to around 60% of what it is now"), steering toward `targetUtilization` (0.5, i.e. ~2× headroom).
+  - `restart_storm` — quotes the restart count over the 5m window ("Restarted about 7 times in the last 5 minutes").
+  - `memory_over_budget` — quotes working set as a % of the limit ("Memory use reached about 94% of the limit …").
+  - `compute_over_budget` — quotes the throttled-periods fraction ("The agent hit its CPU limit about 72% of the time …").
+
+User-facing copy (Title, Description, and every `DetailsFor` clause) is written in plain language — no infra/k8s jargon (no "container", "pod", "throttled", "request", "OOM"). Users read these; they're not assumed to know the runtime internals.
 
 Shipped rule set (`conditions.go`) — all on the `promql` engine:
 
@@ -98,8 +105,8 @@ Shipped rule set (`conditions.go`) — all on the `promql` engine:
 | `restart_storm` | warning | `max by (namespace, pod) (increase(kube_pod_container_status_restarts_total[5m])) > 5` | 0 | acute restart burst (flapping before backoff trips) |
 | `memory_over_budget` | warning | `max by (namespace, pod) (container_memory_working_set_bytes / on(namespace,pod,container) group_left kube_pod_container_resource_limits{resource="memory"}) > 0.9` | 10m | working set sustained above 90% of limit |
 | `compute_over_budget` | warning | `max by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total[10m]) / rate(container_cpu_cfs_periods_total[10m])) > 0.5` | 10m | CPU CFS-throttled a majority of periods |
-| `cpu_over_provisioned` | warning | `max by (namespace, pod) (rate(container_cpu_usage_seconds_total[1h]) / on(namespace,pod,container) group_left kube_pod_container_resource_requests{resource="cpu"}) < 0.1` | 6h | CPU usage far below its request (wasted reservation) |
-| `memory_over_provisioned` | warning | `max by (namespace, pod) (container_memory_working_set_bytes / on(namespace,pod,container) group_left kube_pod_container_resource_requests{resource="memory"}) < 0.4` | 6h | memory usage far below its request (wasted reservation) |
+| `cpu_over_provisioned` | warning | `max by (namespace, pod) (quantile_over_time(0.95, rate(container_cpu_usage_seconds_total[5m])[1h:5m]) / on(namespace,pod,container) group_left kube_pod_container_resource_requests{resource="cpu"}) < 0.4` | 6h | P95 peak CPU far below its request (wasted reservation) |
+| `memory_over_provisioned` | warning | `max by (namespace, pod) (container_memory_working_set_bytes / on(namespace,pod,container) group_left kube_pod_container_resource_requests{resource="memory"}) < 0.5` | 6h | memory usage far below its request (wasted reservation) |
 
 `error_spike` / `latency_high` are `langfuse`-engine conditions (warning severity), intentionally unshipped — the Langfuse engine isn't wired yet, so adding them as `EngineLangfuse` conditions is inert until the engine registers, with no evaluator change. PromQL exprs target kube-state-metrics + cAdvisor and are best-effort; metric/label names may need tuning against the deployed exporters.
 

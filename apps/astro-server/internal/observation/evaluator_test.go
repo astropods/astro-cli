@@ -190,6 +190,75 @@ func TestEvaluatePerWorkloadStateSingleNotification(t *testing.T) {
 	}
 }
 
+// A condition with a DetailsFor formatter enriches the payload details with the
+// breaching series' value; when several pods map to one workload, the highest
+// value (least-wasteful pod) is reported.
+func TestEvaluateEnrichesDetailsFromValue(t *testing.T) {
+	var emitted []notify.Event
+	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
+	st := newMemState()
+	cond := Condition{
+		Name: "cpu_over_provisioned", Title: "CPU over-provisioned",
+		Description: "base.", Severity: SeverityInfo, Engine: EnginePromQL, Query: "q", For: 0,
+		DetailsFor: overProvisionedDetail,
+	}
+	// Two pods of the same workload: ratios 0.1 and 0.3 → the 0.3 pod wins.
+	q := fakeEngine{vec: []Series{
+		{Labels: map[string]string{"namespace": "ns1", "pod": "agent-abc"}, Value: 0.1},
+		{Labels: map[string]string{"namespace": "ns1", "pod": "agent-xyz"}, Value: 0.3},
+	}}
+	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
+
+	_ = e.evaluate(context.Background(), cond, q, time.Unix(1000, 0))
+
+	if len(emitted) != 1 {
+		t.Fatalf("want 1 emit, got %d", len(emitted))
+	}
+	details, _ := emitted[0].Payload[notify.PayloadDetails].(string)
+	if !strings.HasPrefix(details, "base. ") {
+		t.Fatalf("details should extend the base description, got %q", details)
+	}
+	// 0.3 ratio → ~30% of request, suggest ~60% of current (0.3/0.5).
+	if !strings.Contains(details, "30%") || !strings.Contains(details, "60%") {
+		t.Fatalf("details should quote the worst pod's ratio (30%%) and suggestion (60%%), got %q", details)
+	}
+}
+
+// The per-condition detail formatters render the query value into a clause, and
+// fall back to "" (base description only) for a non-positive value.
+func TestDetailFormatters(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func(float64) string
+		val  float64
+		want []string // all substrings must be present; nil means want == ""
+	}{
+		{"over-provisioned suggests a cut", overProvisionedDetail, 0.3, []string{"30%", "60%"}},
+		{"over-provisioned ignores out-of-range", overProvisionedDetail, 1.5, nil},
+		{"restart storm quotes the count", restartStormDetail, 7.4, []string{"7 times"}},
+		{"restart storm ignores zero", restartStormDetail, 0, nil},
+		{"memory over budget quotes % of limit", memoryOverBudgetDetail, 0.94, []string{"94%", "run out"}},
+		{"compute throttle quotes % of periods", computeThrottleDetail, 0.72, []string{"72%", "CPU limit"}},
+		{"compute throttle ignores zero", computeThrottleDetail, 0, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.fn(tc.val)
+			if tc.want == nil {
+				if got != "" {
+					t.Fatalf("want empty clause, got %q", got)
+				}
+				return
+			}
+			for _, sub := range tc.want {
+				if !strings.Contains(got, sub) {
+					t.Fatalf("clause %q missing %q", got, sub)
+				}
+			}
+		})
+	}
+}
+
 // A muted (deployment, condition) is still detected and tracked (stays pending),
 // but no notification is emitted while the mute is active. Once the mute expires,
 // a later sweep fires it — the mute defers, it does not swallow.

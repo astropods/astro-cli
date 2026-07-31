@@ -97,10 +97,13 @@ func (e *Evaluator) Sweep(ctx context.Context) error {
 	return nil
 }
 
-// breach is a currently-breaching workload of a deployment.
+// breach is a currently-breaching workload of a deployment. value is the scalar
+// the query returned for the breaching series (e.g. the usage/request ratio for
+// an over-provisioned rule), used to enrich the alert details.
 type breach struct {
 	dep      *deploymentstore.Deployment
 	workload string
+	value    float64
 }
 
 func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now time.Time) error {
@@ -144,7 +147,13 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 			podMaps[dep.ID] = pm
 		}
 		workload := pm.workloadFor(s.Labels["pod"])
-		breaching[entKey(dep.ID, workload)] = breach{dep: dep, workload: workload}
+		// Several pods can map to one workload; keep the highest value so an
+		// over-provisioned alert reports the least-wasteful (most conservative)
+		// pod, understating the waste rather than over-recommending a cut.
+		key := entKey(dep.ID, workload)
+		if existing, ok := breaching[key]; !ok || s.Value > existing.value {
+			breaching[key] = breach{dep: dep, workload: workload, value: s.Value}
+		}
 	}
 
 	tracked, err := e.state.ForCondition(ctx, c.Name)
@@ -200,7 +209,7 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 					return err
 				}
 				if sent {
-					e.fire(ctx, c, b.dep, b.workload, activeSince)
+					e.fire(ctx, c, b.dep, b.workload, b.value, activeSince)
 				} else if e.log != nil {
 					e.log.Info("observation: daily cap reached, suppressing alert",
 						"condition", c.Name, "deployment", b.dep.ID)
@@ -222,10 +231,18 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 
 // fire emits the alert for a breaching workload. Best-effort: an emit error is
 // logged, never fatal.
-func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.Deployment, workload string, since time.Time) {
+func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.Deployment, workload string, value float64, since time.Time) {
 	reason := c.Title
 	if workload != "" {
 		reason = fmt.Sprintf("%s — %s", c.Title, workload)
+	}
+	// Enrich the static description with the observed value when the condition
+	// knows how to phrase it (e.g. "Peak use was ~18% of the request …").
+	details := c.Description
+	if c.DetailsFor != nil {
+		if extra := c.DetailsFor(value); extra != "" {
+			details = c.Description + " " + extra
+		}
 	}
 	accountName := ""
 	if e.accounts != nil {
@@ -236,7 +253,7 @@ func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.
 				"error", err, "account_id", dep.AccountID, "deployment", dep.ID)
 		}
 	}
-	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, accountName, dep.AgentName, dep.ID, reason, c.Description)
+	ev := notify.Observation(c.Severity.notifyType(), dep.AccountID, accountName, dep.AgentName, dep.ID, reason, details)
 	// Per-episode dedupe keyed by condition + deployment + workload + window start.
 	ev.DedupeKey = fmt.Sprintf("%s:%s:%s:%d", c.Name, dep.ID, workload, since.Unix())
 	if err := e.emit(ctx, ev); err != nil && e.log != nil {
