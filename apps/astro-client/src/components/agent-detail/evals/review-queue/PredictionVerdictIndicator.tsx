@@ -1,4 +1,4 @@
-import { Sparkle } from "lucide-react";
+import { Sparkle, TriangleAlert } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ProgressBarTone } from "@/components/ui/progress-bar";
 import type {
@@ -99,10 +99,26 @@ export function PredictionVerdictIndicator({
     );
   }
 
+  if (!prediction && status === "failed") {
+    return (
+      <StatusBadge
+        color="warning"
+        size="sm"
+        className={cn("flex-none whitespace-nowrap", className)}
+      >
+        <TriangleAlert aria-hidden className="size-3.5" />
+        <span className="font-sans text-body-sm font-semibold tracking-normal">
+          Couldn’t judge
+        </span>
+      </StatusBadge>
+    );
+  }
+
   if (!prediction) {
     return (
       <StatusBadge
         color="muted"
+        size="sm"
         outline
         className={cn("flex-none whitespace-nowrap border-dashed", className)}
       >

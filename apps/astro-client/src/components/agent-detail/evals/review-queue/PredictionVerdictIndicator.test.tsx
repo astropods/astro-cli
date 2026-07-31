@@ -63,4 +63,14 @@ describe("PredictionVerdictIndicator", () => {
       expect(screen.queryByText("Not judged")).not.toBeInTheDocument();
     },
   );
+
+  it("shows a warning when prediction generation failed", () => {
+    render(
+      <PredictionVerdictIndicator prediction={null} status="failed" />,
+    );
+
+    expect(screen.getByText("Couldn’t judge")).toBeInTheDocument();
+    expect(screen.queryByText("Not judged")).not.toBeInTheDocument();
+    expect(screen.queryByText("Judging…")).not.toBeInTheDocument();
+  });
 });

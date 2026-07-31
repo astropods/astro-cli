@@ -30,6 +30,7 @@ export function Toaster(props: ToasterProps) {
           cancelButton: "bg-muted text-muted-foreground",
           closeButton: "text-muted-foreground",
           success: "[&_[data-icon]]:text-success",
+          warning: "[&_[data-icon]]:text-warning",
           error: "[&_[data-icon]]:text-destructive",
           info: "[&_[data-icon]]:text-foreground-accent",
         },

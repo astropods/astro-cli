@@ -3,11 +3,13 @@ import { act, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Outlet } from "react-router";
+import { toast } from "sonner";
 import { server } from "@/test/msw/server";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import { evalKeys } from "@/api/queries/keys";
 import type {
   DatasetJudgmentRequest,
+  DatasetPredictionsResponse,
   EvalDatasetItem,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
@@ -97,6 +99,31 @@ function mockReviewQueueRequest(
   );
 }
 
+function mockPredictionStatus(
+  resolve: () => PredictionStatusCounts | Promise<PredictionStatusCounts>,
+) {
+  server.use(
+    http.get(
+      "/api/v1/deployments/:id/dataset/predictions/status",
+      async () => HttpResponse.json(await resolve()),
+    ),
+  );
+}
+
+function mockRunPredictions(
+  resolve: (
+    request: Request,
+  ) => DatasetPredictionsResponse | Promise<DatasetPredictionsResponse>,
+) {
+  server.use(
+    http.post(
+      "/api/v1/deployments/:id/dataset/predictions",
+      async ({ request }) =>
+        HttpResponse.json(await resolve(request), { status: 202 }),
+    ),
+  );
+}
+
 function mockCreateJudgment(
   onCreate?: (judgment: DatasetJudgmentRequest) => void,
 ) {
@@ -170,9 +197,6 @@ function setupDataset(
     http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
       HttpResponse.json(queue),
     ),
-    http.get("/api/v1/deployments/:id/dataset/predictions/status", () =>
-      HttpResponse.json(predictionStatus),
-    ),
     http.get(
       "/api/v1/deployments/:id/observability/traces/:traceId",
       ({ params }) => {
@@ -200,6 +224,7 @@ function setupDataset(
       HttpResponse.json({ members: [] }),
     ),
   );
+  mockPredictionStatus(() => predictionStatus);
 }
 
 function renderDataset({
@@ -261,7 +286,7 @@ describe("review queue view", () => {
   it("shows an empty queue message when there are no traces to review", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
 
-    renderDataset({ tab: null });
+    const { container } = renderDataset({ tab: null });
 
     expect(
       await screen.findByText("No traces waiting for review."),
@@ -269,6 +294,9 @@ describe("review queue view", () => {
     expect(screen.getByText("You're all caught up")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /load more items/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector("[data-review-queue-controls]"),
     ).not.toBeInTheDocument();
   });
 
@@ -280,21 +308,13 @@ describe("review queue view", () => {
       emptyItems(),
       reviewQueueResponse([queueItem({})]),
     );
-    server.use(
-      http.post(
-        "/api/v1/deployments/:id/dataset/predictions",
-        async ({ request }) => {
-          postedBody = await request.text();
-          return HttpResponse.json(
-            {
-              enqueued_trace_ids: ["trace-1"],
-              failed_trace_ids: [],
-            },
-            { status: 202 },
-          );
-        },
-      ),
-    );
+    mockRunPredictions(async (request) => {
+      postedBody = await request.text();
+      return {
+        enqueued_trace_ids: ["trace-1"],
+        failed_trace_ids: [],
+      };
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
@@ -328,6 +348,110 @@ describe("review queue view", () => {
     });
   });
 
+  it.each([
+    {
+      completedCount: 2,
+      title: "Assessment complete",
+      description: "Traces scored by the judge are ready to review.",
+      label: "successful",
+    },
+    {
+      completedCount: 1,
+      title: "Some traces couldn’t be judged",
+      description: "Retry them on the next run or select a verdict.",
+      label: "partially failed",
+    },
+    {
+      completedCount: 0,
+      title: "Assessment failed",
+      description:
+        "Predictions could not be generated. Retry them on the next run.",
+      label: "failed",
+    },
+  ])(
+    "shows a completion toast after a $label judging run settles",
+    async ({ completedCount, title, description }) => {
+      const queueItems = [
+        queueItem({
+          trace_id: "trace-1",
+          prediction_status: "not_requested",
+        }),
+      ];
+      let predictionStatus: PredictionStatusCounts = {
+        queued: 0,
+        in_progress: 0,
+        completed: 5,
+        failed: 0,
+      };
+      setupDataset(
+        makeDatasetResponse(),
+        emptyItems(),
+        reviewQueueResponse(queueItems),
+        predictionStatus,
+      );
+      mockPredictionStatus(() => predictionStatus);
+      mockRunPredictions(() => {
+        predictionStatus = {
+          queued: 2,
+          in_progress: 0,
+          completed: 5,
+          failed: 0,
+        };
+        return {
+          enqueued_trace_ids: ["trace-1", "trace-2"],
+          failed_trace_ids: [],
+        };
+      });
+      const successToastSpy = vi.spyOn(toast, "success");
+      const warningToastSpy = vi.spyOn(toast, "warning");
+      const errorToastSpy = vi.spyOn(toast, "error");
+      const user = userEvent.setup();
+      const { queryClient } = renderDataset({ tab: null });
+
+      await user.click(
+        await screen.findByRole("button", { name: "Run AI Judge" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Judging 2 items" }),
+        ).toBeInTheDocument(),
+      );
+      expect(successToastSpy).not.toHaveBeenCalled();
+      expect(warningToastSpy).not.toHaveBeenCalled();
+      expect(errorToastSpy).not.toHaveBeenCalled();
+
+      predictionStatus = {
+        queued: 0,
+        in_progress: 0,
+        completed: 5 + completedCount,
+        failed: 2 - completedCount,
+      };
+      await act(async () => {
+        await queryClient.invalidateQueries({
+          queryKey: evalKeys.predictionStatus("dep-test"),
+        });
+      });
+
+      const expectedToastSpy =
+        completedCount === 0
+          ? errorToastSpy
+          : completedCount < 2
+            ? warningToastSpy
+            : successToastSpy;
+      await waitFor(() =>
+        expect(expectedToastSpy).toHaveBeenCalledWith(title, {
+          closeButton: true,
+          description,
+        }),
+      );
+      expect(
+        successToastSpy.mock.calls.length +
+          warningToastSpy.mock.calls.length +
+          errorToastSpy.mock.calls.length,
+      ).toBe(1);
+    },
+  );
+
   it("disables the judge button while predictions are active", async () => {
     setupDataset(
       makeDatasetResponse(),
@@ -355,6 +479,29 @@ describe("review queue view", () => {
         screen.getByRole("button", { name: "Judging 2 items" }),
       ).toHaveAttribute("aria-disabled", "true");
     });
+  });
+
+  it("shows a warning banner for a failed prediction", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace-failed",
+          prediction_status: "failed",
+          prediction_error: "judge request failed",
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(await screen.findAllByText("Couldn’t judge")).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "No prediction was made. It’ll re-run next time you run the judge.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables the judge button when the loaded queue has nothing to judge", async () => {
@@ -421,11 +568,7 @@ describe("review queue view", () => {
       reviewQueueResponse([]),
       predictionStatus,
     );
-    server.use(
-      http.get("/api/v1/deployments/:id/dataset/predictions/status", () =>
-        HttpResponse.json(predictionStatus),
-      ),
-    );
+    mockPredictionStatus(() => predictionStatus);
     mockReviewQueueRequest((url) => {
       queueRequestCount += 1;
       const prediction = url.searchParams.get("prediction");

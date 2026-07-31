@@ -144,6 +144,16 @@ describe("WarningPanel", () => {
     renderWithProviders(<WarningPanel>Watch out</WarningPanel>);
     expect(screen.getByText("Watch out")).toBeInTheDocument();
   });
+
+  it("supports extra-small text", () => {
+    renderWithProviders(
+      <WarningPanel title="Warning" variant="inline" size="xs">
+        Watch out
+      </WarningPanel>,
+    );
+    expect(screen.getByText("Warning")).toHaveClass("text-xs");
+    expect(screen.getByText("Watch out")).toHaveClass("text-xs");
+  });
 });
 
 describe("SuccessPanel", () => {

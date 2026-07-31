@@ -30,11 +30,13 @@ export function AutoJudgePopover({
   account,
   disabled,
   judgingCount,
+  onJudgingStarted,
 }: {
   deploymentId: string;
   account: string;
   disabled: boolean;
   judgingCount: number;
+  onJudgingStarted?: (predictionCount: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { accounts } = useAuth();
@@ -47,7 +49,12 @@ export function AutoJudgePopover({
   const handleRunJudge = () => {
     if (postPredictions.isPending || disabled) return;
     postPredictions.mutate(undefined, {
-      onSuccess: () => setOpen(false),
+      onSuccess: (response) => {
+        setOpen(false);
+        if (response.enqueued_trace_ids.length > 0) {
+          onJudgingStarted?.(response.enqueued_trace_ids.length);
+        }
+      },
     });
   };
 

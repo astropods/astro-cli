@@ -12,6 +12,15 @@ function ToastDemo() {
     <div className="flex flex-wrap items-center gap-3">
       <DemoButton onClick={() => toast("Trace added to dataset")}>Default</DemoButton>
       <DemoButton onClick={() => toast.success("Criteria saved")}>Success</DemoButton>
+      <DemoButton
+        onClick={() =>
+          toast.warning("Some traces couldn’t be judged", {
+            description: "Retry them on the next run or select a verdict.",
+          })
+        }
+      >
+        Warning
+      </DemoButton>
       <DemoButton onClick={() => toast.error("Could not save criteria. Try again.")}>
         Error
       </DemoButton>

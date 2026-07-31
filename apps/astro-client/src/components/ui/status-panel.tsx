@@ -3,6 +3,9 @@ import type { CSSProperties, ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
+type PanelTextSize = "sm" | "xs";
 
 export interface ErrorPanelProps {
   title?: string;
@@ -10,12 +13,14 @@ export interface ErrorPanelProps {
   dismissible?: boolean;
   onDismiss?: () => void;
   variant?: "default" | "inline";
+  size?: PanelTextSize;
 }
 
 interface DismissiblePanelProps {
   dismissible?: boolean;
   onDismiss?: () => void;
   variant?: "default" | "inline";
+  size?: PanelTextSize;
 }
 
 interface PanelToneConfig {
@@ -59,9 +64,10 @@ interface BasePanelProps {
   dismissible?: boolean;
   onDismiss?: () => void;
   variant?: "default" | "inline";
+  size?: PanelTextSize;
 }
 
-function BasePanel({ tone, title, children, dismissible = false, onDismiss, variant = "default" }: BasePanelProps) {
+function BasePanel({ tone, title, children, dismissible = false, onDismiss, variant = "default", size = "sm" }: BasePanelProps) {
   const [dismissed, setDismissed] = useState(false);
   const toneConfig = PANEL_TONES[tone];
   const panelStyle: CSSProperties = {
@@ -69,6 +75,7 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
     border: `1px solid ${toneConfig.borderColor}`,
   };
   const toneTextStyle: CSSProperties = { color: toneConfig.textColor };
+  const textSizeClass = size === "xs" ? "text-xs" : "text-sm";
 
   if (dismissed) return null;
 
@@ -86,9 +93,9 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Icon size={16} className="shrink-0" style={toneTextStyle} />
-            {title ? <span className="text-sm font-medium" style={toneTextStyle}>{title}</span> : null}
-            {title ? <span className="text-sm" style={toneTextStyle}>-</span> : null}
-            <span className="text-sm" style={toneTextStyle}>{children}</span>
+            {title ? <span className={cn(textSizeClass, "font-medium")} style={toneTextStyle}>{title}</span> : null}
+            {title ? <span className={textSizeClass} style={toneTextStyle}>-</span> : null}
+            <span className={textSizeClass} style={toneTextStyle}>{children}</span>
           </div>
           {dismissible ? (
             <button
@@ -115,7 +122,7 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
         {title ? (
           <div className="flex items-center gap-1.5 mb-2">
             <Icon size={16} className="shrink-0" style={toneTextStyle} />
-            <span className="text-sm font-medium" style={toneTextStyle}>{title}</span>
+            <span className={cn(textSizeClass, "font-medium")} style={toneTextStyle}>{title}</span>
           </div>
         ) : (
           <div className="mb-2" />
@@ -135,14 +142,14 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
           </button>
         ) : null}
       </div>
-      {children != null && <p className="text-sm whitespace-pre-wrap" style={toneTextStyle}>{children}</p>}
+      {children != null && <p className={cn(textSizeClass, "whitespace-pre-wrap")} style={toneTextStyle}>{children}</p>}
     </div>
   );
 }
 
-export function ErrorPanel({ title, children, dismissible = false, onDismiss, variant = "default" }: ErrorPanelProps) {
+export function ErrorPanel({ title, children, dismissible = false, onDismiss, variant = "default", size = "sm" }: ErrorPanelProps) {
   return (
-    <BasePanel tone="error" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant}>
+    <BasePanel tone="error" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant} size={size}>
       {children}
     </BasePanel>
   );
@@ -153,9 +160,9 @@ export interface NeutralPanelProps extends DismissiblePanelProps {
   children: ReactNode;
 }
 
-export function NeutralPanel({ title, children, dismissible = false, onDismiss, variant = "default" }: NeutralPanelProps) {
+export function NeutralPanel({ title, children, dismissible = false, onDismiss, variant = "default", size = "sm" }: NeutralPanelProps) {
   return (
-    <BasePanel tone="neutral" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant}>
+    <BasePanel tone="neutral" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant} size={size}>
       {children}
     </BasePanel>
   );
@@ -169,9 +176,9 @@ export interface SuccessPanelProps extends DismissiblePanelProps {
   children: ReactNode;
 }
 
-export function SuccessPanel({ title, children, dismissible = false, onDismiss, variant = "default" }: SuccessPanelProps) {
+export function SuccessPanel({ title, children, dismissible = false, onDismiss, variant = "default", size = "sm" }: SuccessPanelProps) {
   return (
-    <BasePanel tone="success" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant}>
+    <BasePanel tone="success" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant} size={size}>
       {children}
     </BasePanel>
   );
@@ -182,9 +189,9 @@ export interface WarningPanelProps extends DismissiblePanelProps {
   children: ReactNode;
 }
 
-export function WarningPanel({ title, children, dismissible = false, onDismiss, variant = "default" }: WarningPanelProps) {
+export function WarningPanel({ title, children, dismissible = false, onDismiss, variant = "default", size = "sm" }: WarningPanelProps) {
   return (
-    <BasePanel tone="warning" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant}>
+    <BasePanel tone="warning" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant} size={size}>
       {children}
     </BasePanel>
   );

@@ -7,8 +7,11 @@ import {
   type RefObject,
 } from "react";
 import { Check } from "lucide-react";
+import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Spinner } from "@/components/ui/spinner";
+import { WarningPanel } from "@/components/ui/status-panel";
+import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -78,6 +81,11 @@ type ActiveJudgment = {
 
 type ReviewQueuePanelAction = "none" | "open" | "sync";
 
+type JudgingRun = {
+  predictionCount: number;
+  completedBeforeRun: number;
+};
+
 export interface ReviewQueueViewProps {
   deploymentId: string;
   account: string;
@@ -107,8 +115,10 @@ export function ReviewQueueView({
     useState<ReviewQueueFilterValue>("all");
   const predictionFilter: ReviewQueuePredictionFilter | undefined =
     queueFilter === "all" ? undefined : queueFilter;
-  const { data: predictionStatus } =
-    useReviewQueuePredictionStatus(deploymentId);
+  const {
+    data: predictionStatus,
+    isError: predictionStatusIsError,
+  } = useReviewQueuePredictionStatus(deploymentId);
   const {
     data,
     isLoading,
@@ -122,6 +132,7 @@ export function ReviewQueueView({
   const [predictionExplanationTraceId, setPredictionExplanationTraceId] =
     useState<string | null>(null);
   const [activeJudgment, setActiveJudgment] = useState<ActiveJudgment | null>(null);
+  const [judgingRun, setJudgingRun] = useState<JudgingRun | null>(null);
   // Mirrors selectedId for synchronous reads inside mutation callbacks.
   const selectedIdRef = useRef<string | null>(null);
   // Tracks the trace currently shown in the open detail panel.
@@ -145,11 +156,52 @@ export function ReviewQueueView({
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
   const selectedPrediction = selectedItem?.prediction ?? null;
+  const selectedPredictionFailed =
+    selectedItem?.prediction_status === "failed" && !selectedPrediction;
   const selectedIndex = selectedItem
     ? items.findIndex((item) => item.trace_id === selectedItem.trace_id)
     : -1;
   const baselineStatus = getBaselineStatus(summary);
   const canLoadMore = Boolean(hasNextPage);
+
+  useEffect(() => {
+    if (
+      judgingRun === null ||
+      predictionStatusIsError ||
+      predictionStatus === undefined ||
+      judgingCount > 0
+    ) {
+      return;
+    }
+
+    const completedCount = Math.min(
+      judgingRun.predictionCount,
+      Math.max(0, predictionStatus.completed - judgingRun.completedBeforeRun),
+    );
+    const failedCount = judgingRun.predictionCount - completedCount;
+    const toastOptions = {
+      closeButton: true,
+      description:
+        failedCount === 0
+          ? "Traces scored by the judge are ready to review."
+          : completedCount > 0
+            ? "Retry them on the next run or select a verdict."
+            : "Predictions could not be generated. Retry them on the next run.",
+    };
+    if (completedCount === 0) {
+      toast.error("Assessment failed", toastOptions);
+    } else if (failedCount > 0) {
+      toast.warning("Some traces couldn’t be judged", toastOptions);
+    } else {
+      toast.success("Assessment complete", toastOptions);
+    }
+    setJudgingRun(null);
+  }, [
+    judgingCount,
+    judgingRun,
+    predictionStatus,
+    predictionStatusIsError,
+  ]);
 
   const activeVerdict =
     activeJudgment && selectedItem && activeJudgment.traceId === selectedItem.trace_id
@@ -435,71 +487,93 @@ export function ReviewQueueView({
             />
           )}
         </EvalTabCardHeader>
-        <ReviewQueueToolbar
-          deploymentId={deploymentId}
-          account={account}
-          autoJudgeDisabled={autoJudgeDisabled}
-          judgingCount={judgingCount}
-          filter={queueFilter}
-          onFilterChange={setQueueFilter}
-        >
-          {selectedItem && (
-            selectedPrediction ? (
-              <ReviewQueuePredictionControls
-                key={selectedItem.trace_id}
-                prediction={selectedPrediction}
-                isPending={postJudgment.isPending}
-                activeVerdict={activeVerdict}
-                showError={postJudgment.isError || undoJudgment.isError}
-                explanationOpen={
-                  predictionExplanationTraceId === selectedItem.trace_id
-                }
-                onExplanationOpenChange={(open) =>
-                  setPredictionExplanationTraceId(
-                    open ? selectedItem.trace_id : null,
-                  )
-                }
-                onSelect={(verdict, trigger, agreesWithJudge) =>
-                  handleJudgeTrace(
-                    selectedItem.trace_id,
-                    verdict,
-                    trigger,
-                    agreesWithJudge && verdictHasCriteria(verdict)
-                      ? predictedCriterionKeysForVerdict(
-                          selectedPrediction.criteria,
-                          verdict,
-                        )
-                      : undefined,
-                  )
-                }
-              />
-            ) : (
-              <ReviewQueueVerdictControls
-                isPending={postJudgment.isPending}
-                activeVerdict={activeVerdict}
-                showError={postJudgment.isError || undoJudgment.isError}
-                onSelect={(verdict, trigger) =>
-                  handleJudgeTrace(selectedItem.trace_id, verdict, trigger)
-                }
-              />
-            )
-          )}
-        </ReviewQueueToolbar>
         <EvalTabCardBody className="flex-col @[760px]/review-card:flex-row">
-          <aside className="flex max-h-64 w-full flex-none flex-col overflow-y-auto border-b border-border bg-card dark:bg-surface @[760px]/review-card:max-h-none @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-b-0 @[760px]/review-card:border-r">
-            <ReviewQueueList
-              items={items}
-              selectedId={selectedItem?.trace_id ?? null}
-              onSelect={handleSelectTrace}
-              isLoading={isLoading}
-              isError={isError}
-              canLoadMore={canLoadMore}
-              isLoadingMore={isFetchingNextPage}
-              onLoadMore={handleLoadMore}
+          <div className="flex w-full flex-none flex-col bg-card dark:bg-surface @[760px]/review-card:w-[clamp(18rem,34%,24.5rem)] @[760px]/review-card:border-r @[760px]/review-card:border-border">
+            <ReviewQueueToolbar
+              deploymentId={deploymentId}
+              account={account}
+              autoJudgeDisabled={autoJudgeDisabled}
+              judgingCount={judgingCount}
+              onJudgingStarted={(predictionCount) =>
+                setJudgingRun({
+                  predictionCount,
+                  completedBeforeRun: predictionStatus?.completed ?? 0,
+                })
+              }
+              filter={queueFilter}
+              onFilterChange={setQueueFilter}
             />
-          </aside>
+            <aside className="flex max-h-64 min-h-0 flex-1 flex-col overflow-y-auto border-b border-border @[760px]/review-card:max-h-none @[760px]/review-card:border-b-0">
+              <ReviewQueueList
+                items={items}
+                selectedId={selectedItem?.trace_id ?? null}
+                onSelect={handleSelectTrace}
+                isLoading={isLoading}
+                isError={isError}
+                canLoadMore={canLoadMore}
+                isLoadingMore={isFetchingNextPage}
+                onLoadMore={handleLoadMore}
+              />
+            </aside>
+          </div>
 
-          <div className="flex min-w-0 flex-1 flex-col bg-background">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+            {selectedItem && (
+              <div
+                data-review-queue-controls
+                className={cn(
+                  "flex flex-none items-center bg-card px-4 py-3 dark:bg-surface @[520px]/review-card:px-6",
+                  !selectedPredictionFailed && "border-b border-border",
+                )}
+              >
+                {selectedPrediction ? (
+                  <ReviewQueuePredictionControls
+                    key={selectedItem.trace_id}
+                    prediction={selectedPrediction}
+                    isPending={postJudgment.isPending}
+                    activeVerdict={activeVerdict}
+                    showError={postJudgment.isError || undoJudgment.isError}
+                    explanationOpen={
+                      predictionExplanationTraceId === selectedItem.trace_id
+                    }
+                    onExplanationOpenChange={(open) =>
+                      setPredictionExplanationTraceId(
+                        open ? selectedItem.trace_id : null,
+                      )
+                    }
+                    onSelect={(verdict, trigger, agreesWithJudge) =>
+                      handleJudgeTrace(
+                        selectedItem.trace_id,
+                        verdict,
+                        trigger,
+                        agreesWithJudge && verdictHasCriteria(verdict)
+                          ? predictedCriterionKeysForVerdict(
+                              selectedPrediction.criteria,
+                              verdict,
+                            )
+                          : undefined,
+                      )
+                    }
+                  />
+                ) : (
+                  <ReviewQueueVerdictControls
+                    isPending={postJudgment.isPending}
+                    activeVerdict={activeVerdict}
+                    showError={postJudgment.isError || undoJudgment.isError}
+                    onSelect={(verdict, trigger) =>
+                      handleJudgeTrace(selectedItem.trace_id, verdict, trigger)
+                    }
+                  />
+                )}
+              </div>
+            )}
+            {selectedPredictionFailed && (
+              <div className="flex-none border-b border-border bg-card px-4 pb-3 pt-0 dark:bg-surface @[520px]/review-card:px-6">
+                <WarningPanel title="Couldn’t judge" variant="inline" size="xs">
+                  No prediction was made. It’ll re-run next time you run the judge.
+                </WarningPanel>
+              </div>
+            )}
             {isLoading ? (
               <div className="flex flex-1 items-center justify-center">
                 <Spinner delay={300} />
