@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toRepoFullName, repoBase, repoSubPath, repoLabel, repoHref, repoOwner, repoPickerLabel } from "./github-utils";
+import { commitUrl, toRepoFullName, repoBase, repoSubPath, repoLabel, repoHref, repoOwner, repoPickerLabel } from "./github-utils";
 import type { GitHubRepo } from "./api";
 
 function repo(fullName: string): GitHubRepo {
@@ -62,6 +62,25 @@ describe("repoHref", () => {
 
   it("returns base URL for root connection even when branch is provided", () => {
     expect(repoHref("owner/repo", "main")).toBe("https://github.com/owner/repo");
+  });
+});
+
+describe("commitUrl", () => {
+  it("returns a commit URL for a root connection", () => {
+    expect(commitUrl("owner/repo", "abc123")).toBe(
+      "https://github.com/owner/repo/commit/abc123",
+    );
+  });
+
+  it("strips a connected subpath from the commit URL", () => {
+    expect(commitUrl("owner/repo/services/my-agent", "abc123")).toBe(
+      "https://github.com/owner/repo/commit/abc123",
+    );
+  });
+
+  it("returns undefined when the repo or SHA is missing", () => {
+    expect(commitUrl(undefined, "abc123")).toBeUndefined();
+    expect(commitUrl("owner/repo", undefined)).toBeUndefined();
   });
 });
 

@@ -89,6 +89,30 @@ function renderPanel() {
 }
 
 describe("DeploymentHistoryPanel", () => {
+  it("resolves the branch-labeled commit link against the repository root", async () => {
+    mockEndpoints([]);
+    server.use(
+      http.get(`/api/v1/agents/${ACCOUNT}/${AGENT}/deployment/history`, () =>
+        HttpResponse.json({
+          deployments: [
+            historyRecord({
+              repo_full_name: "acme/monorepo/agents/code-reviewer",
+              commit_sha: "abc1234def",
+            }),
+          ],
+          count: 1,
+        }),
+      ),
+    );
+
+    renderPanel();
+
+    expect(await screen.findByRole("link", { name: "main" })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/monorepo/commit/abc1234def",
+    );
+  });
+
   it("shows the account member who initiated the active deployment", async () => {
     mockEndpoints([]);
     server.use(

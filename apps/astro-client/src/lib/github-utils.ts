@@ -54,7 +54,7 @@ export function repoHref(repoFullName: string, branch?: string): string {
 
 // commitUrl returns the GitHub URL for a commit, or undefined when repo or sha is missing.
 export function commitUrl(repoFullName?: string, sha?: string): string | undefined {
-  return repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : undefined;
+  return repoFullName && sha ? `https://github.com/${repoBase(repoFullName)}/commit/${sha}` : undefined;
 }
 
 // commitTitle returns the first non-empty line of a commit message, trimmed, or undefined.
