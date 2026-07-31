@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,6 +79,43 @@ func isPublicIP(ip net.IP) bool {
 	return true
 }
 
+// HumanizeHealthCheckError converts a raw CheckHealth error into a short,
+// user-facing message free of driver, SQLSTATE, and network jargon. Callers
+// should still log the raw error for debugging. Returns "" for a nil error.
+func HumanizeHealthCheckError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "28p01"),
+		strings.Contains(s, "password authentication failed"),
+		strings.Contains(s, "authentication failed"),
+		strings.Contains(s, "access denied"):
+		return "Authentication failed — check the username and password."
+	case strings.Contains(s, "ssrf guard"), strings.Contains(s, "non-public"):
+		return "The host must be a publicly reachable address."
+	case strings.Contains(s, "no such host"),
+		strings.Contains(s, "server misbehaving"),
+		strings.Contains(s, "lookup "):
+		return "Couldn't find that host — check the hostname."
+	case strings.Contains(s, "does not exist"):
+		return "That database doesn't exist — check the database name."
+	case strings.Contains(s, "certificate"), strings.Contains(s, "x509"), strings.Contains(s, "tls"):
+		return "Couldn't establish a secure connection to the database."
+	case strings.Contains(s, "network is unreachable"),
+		strings.Contains(s, "no route to host"),
+		strings.Contains(s, "connection refused"),
+		strings.Contains(s, "i/o timeout"),
+		strings.Contains(s, "timeout"),
+		strings.Contains(s, "deadline exceeded"),
+		strings.Contains(s, "refused"):
+		return "Couldn't reach the database — check the host and port, and that it accepts connections from Astro."
+	default:
+		return "Couldn't connect to the database — check the connection details."
+	}
+}
+
 // CheckHealth attempts to reach an external knowledge store using the plaintext
 // credential map. Returns nil on success, a descriptive error on failure.
 // The caller should set a timeout on ctx (recommend 5s).
@@ -108,12 +146,26 @@ func CheckHealth(ctx context.Context, provider string, creds map[string]string) 
 	}
 }
 
-func checkPostgres(ctx context.Context, creds map[string]string) error {
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=prefer",
-		creds["USERNAME"], creds["PASSWORD"],
+// postgresConfig builds a pgx config from a credential map. Credentials are set
+// on the parsed config directly rather than interpolated into the DSN: a
+// username or password containing URL-special characters (%, @, :, /, #, …)
+// would otherwise be mangled by URL parsing, a common source of spurious
+// "password authentication failed" errors.
+func postgresConfig(creds map[string]string) (*pgx.ConnConfig, error) {
+	dsn := fmt.Sprintf("postgres://%s:%s/%s?sslmode=prefer",
 		creds["HOST"], creds["PORT"], creds["DATABASE"],
 	)
 	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	config.User = creds["USERNAME"]
+	config.Password = creds["PASSWORD"]
+	return config, nil
+}
+
+func checkPostgres(ctx context.Context, creds map[string]string) error {
+	config, err := postgresConfig(creds)
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}

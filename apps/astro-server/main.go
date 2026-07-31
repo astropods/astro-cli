@@ -1479,6 +1479,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeCredentialsResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
+				api.PUT(accountMember, "/knowledge/:name/credentials", "Update connected knowledge store credentials", handlers.UpdateKnowledgeStoreCredentials(log, ksStore, pipesClient, cfg, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}),
+					oapispec.Tags("Knowledge"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Store name"),
+					oapispec.Response(200, &handlers.KnowledgeResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
+				)
 			}
 
 			// Member routes — list and self-removal are membership-only, other mutations require org:manage

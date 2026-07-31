@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { FormSection } from "@/components/deploy/FormSection";
 import { DangerZoneItem } from "@/components/settings/DangerZoneItem";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
+import { EditCredentialsDialog } from "@/components/knowledge/EditCredentialsDialog";
 import { knowledgePath } from "@/lib/routes";
 import type { KnowledgeStore } from "@/lib/api";
 import { CredentialsCard } from "./CredentialsCard";
@@ -13,6 +14,8 @@ import { CredentialsCard } from "./CredentialsCard";
 export function SettingsPanel({ store, account }: { store: KnowledgeStore; account: string }) {
   const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const isExternal = store.mode === "external";
 
   return (
     <div className="max-w-2xl mx-auto space-y-12">
@@ -56,13 +59,32 @@ export function SettingsPanel({ store, account }: { store: KnowledgeStore; accou
           Danger Zone
         </h2>
         <hr className="border-border mb-5 mt-2" />
-        <DangerZoneItem
-          title="Delete store"
-          description="Permanently removes this store and all agent bindings."
-          actionLabel="Delete store"
-          onAction={() => setDeleteOpen(true)}
-        />
+        <div className="space-y-3">
+          {isExternal && (
+            <DangerZoneItem
+              title="Update connection"
+              description="Change the host, credentials, or other connection details. New details are verified before they're saved."
+              actionLabel="Update connection"
+              onAction={() => setEditOpen(true)}
+            />
+          )}
+          <DangerZoneItem
+            title="Delete store"
+            description="Permanently removes this store and all agent bindings."
+            actionLabel="Delete store"
+            onAction={() => setDeleteOpen(true)}
+          />
+        </div>
       </section>
+
+      {isExternal && (
+        <EditCredentialsDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          store={store}
+          account={account}
+        />
+      )}
 
       <DeleteKnowledgeStoreDialog
         open={deleteOpen}

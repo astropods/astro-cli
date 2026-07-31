@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
@@ -180,14 +181,55 @@ func EncryptHostCredential(ctx context.Context, kmsClient envelope.KMSClient, st
 // It is a no-op for a store with no encrypted data key (KMS off — such stores
 // have no persisted external credentials to update).
 func (s *Store) RewriteHostCredential(ctx context.Context, kmsClient envelope.KMSClient, store *KnowledgeStore, host string) error {
-	if store == nil || len(store.EncryptedDataKey) == 0 {
+	return s.RewriteCredentials(ctx, kmsClient, store, map[string]string{HostCredentialKey: host})
+}
+
+// EncryptCredentialsForStore encrypts each value in updates under the store's
+// existing data key (no re-key) so the rows decrypt alongside the store's other
+// credentials. Keys are processed in sorted order for deterministic output.
+func EncryptCredentialsForStore(ctx context.Context, kmsClient envelope.KMSClient, store *KnowledgeStore, updates map[string]string) ([]Credential, error) {
+	plaintextKey, err := envelope.DecryptDataKey(ctx, kmsClient, store.EncryptedDataKey)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt data key: %w", err)
+	}
+	defer func() {
+		for i := range plaintextKey {
+			plaintextKey[i] = 0
+		}
+	}()
+	enc, err := envelope.NewEncryptorFromPlaintext(plaintextKey, store.EncryptedDataKey, "")
+	if err != nil {
+		return nil, fmt.Errorf("build encryptor: %w", err)
+	}
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	creds := make([]Credential, 0, len(updates))
+	for _, k := range keys {
+		ciphertext, nonce, err := enc.Encrypt([]byte(updates[k]))
+		if err != nil {
+			return nil, fmt.Errorf("encrypt %s: %w", k, err)
+		}
+		creds = append(creds, Credential{Key: k, ValueEncrypted: ciphertext, Nonce: nonce})
+	}
+	return creds, nil
+}
+
+// RewriteCredentials re-encrypts the given updates under the store's existing
+// data key and upserts only those rows, leaving other credentials untouched.
+// It is a no-op for a store with no encrypted data key (KMS off — such stores
+// have no persisted external credentials to update) or an empty update.
+func (s *Store) RewriteCredentials(ctx context.Context, kmsClient envelope.KMSClient, store *KnowledgeStore, updates map[string]string) error {
+	if store == nil || len(store.EncryptedDataKey) == 0 || len(updates) == 0 {
 		return nil
 	}
-	cred, err := EncryptHostCredential(ctx, kmsClient, store, host)
+	creds, err := EncryptCredentialsForStore(ctx, kmsClient, store, updates)
 	if err != nil {
 		return err
 	}
-	return s.SaveCredentials(store.ID, []Credential{cred})
+	return s.SaveCredentials(store.ID, creds)
 }
 
 func randomHex(n int) (string, error) {

@@ -388,6 +388,47 @@ func supabaseFetchProjectsFromURL(ctx context.Context, accessToken, baseURL stri
 	return projects, nil
 }
 
+// supabasePoolerOverlay resolves a Supabase project's session-pooler connection
+// coordinates via the Management API and returns them as a credential overlay
+// (HOST/PORT/USERNAME[/DATABASE]) to merge over a store's credentials. Session
+// mode always uses port 5432. Errors are returned raw for the caller to map;
+// use respondSupabaseResolveError for a standard HTTP response.
+func supabasePoolerOverlay(ctx context.Context, pipesClient *pipes.Client, userID, orgID, ref string) (map[string]string, error) {
+	token, err := pipesClient.GetAccessToken(ctx, pipes.GetAccessTokenInput{
+		Provider:       supabaseProvider,
+		UserID:         userID,
+		OrganizationID: orgID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pooler, err := supabaseFetchPoolerConfig(ctx, token.AccessToken, ref)
+	if err != nil {
+		return nil, err
+	}
+	overlay := map[string]string{
+		"HOST":     pooler.DBHost,
+		"PORT":     "5432",
+		"USERNAME": pooler.DBUser,
+	}
+	if pooler.DBName != "" {
+		overlay["DATABASE"] = pooler.DBName
+	}
+	return overlay, nil
+}
+
+// respondSupabaseResolveError writes a standard HTTP response for a pooler
+// resolution failure: a disconnected/expired Supabase connection reads as 422
+// supabase_not_connected; anything else is a 502.
+func respondSupabaseResolveError(c *gin.Context, log *logger.Logger, err error) {
+	if errors.Is(err, pipes.ErrNotInstalled) || errors.Is(err, pipes.ErrNeedsReauthorization) || errors.Is(err, errSupabaseUnauthorized) {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "supabase_not_connected"})
+		return
+	}
+	log.Error("supabase: resolve pooler config", "error", err)
+	c.JSON(http.StatusBadGateway, gin.H{"error": "failed to resolve Supabase connection details"})
+}
+
 // SupabasePoolerConfig holds the connection-pooler (Supavisor) coordinates for a
 // project's primary database, as reported by the Management API. We connect
 // Supabase-backed knowledge stores through this pooler instead of the direct

@@ -5,7 +5,77 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
+
+// TestEncryptCredentialsForStore_RoundTrip: values re-encrypted under a store's
+// existing data key decrypt alongside its untouched credentials, and only the
+// updated keys change.
+func TestEncryptCredentialsForStore_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	kms, err := envelope.NewLocalKMSClient()
+	if err != nil {
+		t.Fatalf("NewLocalKMSClient: %v", err)
+	}
+	enc, err := envelope.NewEncryptor(ctx, kms, "")
+	if err != nil {
+		t.Fatalf("NewEncryptor: %v", err)
+	}
+	initial, err := EncryptCredentials(enc, map[string]string{
+		"HOST": "old-host", "PORT": "5432", "DATABASE": "postgres",
+		"USERNAME": "u", "PASSWORD": "oldpw",
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentials: %v", err)
+	}
+	store := &KnowledgeStore{ID: "s1", Mode: ModeExternal, EncryptedDataKey: enc.EncryptedDataKey}
+
+	// Re-encrypt an update (password + host) under the same data key.
+	updated, err := EncryptCredentialsForStore(ctx, kms, store, map[string]string{
+		"PASSWORD": "newpw", "HOST": "new-host",
+	})
+	if err != nil {
+		t.Fatalf("EncryptCredentialsForStore: %v", err)
+	}
+
+	// Simulate the SaveCredentials upsert: updated rows overwrite initial by key.
+	byKey := map[string]Credential{}
+	for _, c := range initial {
+		byKey[c.Key] = c
+	}
+	for _, c := range updated {
+		byKey[c.Key] = c
+	}
+	all := make([]Credential, 0, len(byKey))
+	for _, c := range byKey {
+		all = append(all, c)
+	}
+
+	got, err := DecryptCredentials(ctx, kms, store.EncryptedDataKey, all)
+	if err != nil {
+		t.Fatalf("DecryptCredentials: %v", err)
+	}
+	if got["PASSWORD"] != "newpw" {
+		t.Errorf("PASSWORD = %q, want newpw", got["PASSWORD"])
+	}
+	if got["HOST"] != "new-host" {
+		t.Errorf("HOST = %q, want new-host", got["HOST"])
+	}
+	if got["USERNAME"] != "u" || got["PORT"] != "5432" || got["DATABASE"] != "postgres" {
+		t.Errorf("untouched creds changed: %+v", got)
+	}
+}
+
+// TestRewriteCredentials_NoDataKeyNoop: a store with no data key (KMS off) has
+// no persisted credentials to update, so RewriteCredentials is a no-op.
+func TestRewriteCredentials_NoDataKeyNoop(t *testing.T) {
+	s := &Store{}
+	store := &KnowledgeStore{ID: "s1"} // no EncryptedDataKey
+	if err := s.RewriteCredentials(context.Background(), nil, store, map[string]string{"PASSWORD": "x"}); err != nil {
+		t.Fatalf("expected no-op nil, got %v", err)
+	}
+}
 
 func TestValidateStorageSize(t *testing.T) {
 	valid := []string{"10Gi", "20Gi", "500Mi", "1Ti", "5G", "1024"}

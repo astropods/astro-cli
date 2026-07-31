@@ -4,6 +4,7 @@ import { allAccountKeys, knowledgeKeys } from "./keys";
 import type {
   CreateKnowledgeStoreInput,
   ConnectKnowledgeStoreInput,
+  UpdateKnowledgeCredentialsInput,
   KnowledgeStore,
 } from "@/lib/api";
 
@@ -129,6 +130,22 @@ export function useDeleteKnowledgeStore(account: string) {
     mutationFn: ({ name }) => api.deleteKnowledgeStore(account, name),
     onSuccess: () => {
       invalidateKnowledgeLists(queryClient, account);
+    },
+  });
+}
+
+// useUpdateKnowledgeCredentials updates a connected store's connection details.
+// On success the store's status/error and credentials may change, so refresh the
+// list, the store detail, and the credentials query.
+export function useUpdateKnowledgeCredentials(account: string, name: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation<KnowledgeStore, Error, UpdateKnowledgeCredentialsInput>({
+    mutationFn: (data) => api.updateKnowledgeCredentials(account, name, data),
+    onSuccess: () => {
+      invalidateKnowledgeLists(queryClient, account);
+      queryClient.invalidateQueries({ queryKey: knowledgeKeys.detail(account, name) });
+      queryClient.invalidateQueries({ queryKey: knowledgeKeys.credentials(account, name) });
     },
   });
 }

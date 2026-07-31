@@ -35,6 +35,21 @@ func externalKnowledgeRow(id, accountID, name, provider, status string) *sqlmock
 	return knowledgeRowWithMode(id, accountID, name, provider, "external", status)
 }
 
+// supabaseExternalRow is an external store carrying the source=supabase origin
+// annotation, used to exercise the Supabase-managed-field guards.
+func supabaseExternalRow(id, accountID, name string) *sqlmock.Rows {
+	now := time.Now()
+	return sqlmock.NewRows(knowledgeColumns).AddRow(
+		id, accountID, name,
+		"arn:knowledge:acme:"+name,
+		"postgres", "external", "error",
+		"10Gi", nil,
+		false, nil, nil, nil, "health check failed",
+		[]byte(`{"source":"supabase"}`),
+		now, now,
+	)
+}
+
 func knowledgeRowWithMode(id, accountID, name, provider, mode, status string) *sqlmock.Rows {
 	now := time.Now()
 	return sqlmock.NewRows(knowledgeColumns).AddRow(
@@ -838,6 +853,88 @@ func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.
 			t.Errorf("unfulfilled mock expectations: %v", err)
 		}
 	})
+}
+
+// --- UpdateKnowledgeStoreCredentials ---
+
+func updateCredsRouter() (*gin.Engine, *knowledgestore.Store, sqlmock.Sqlmock) {
+	router, ksStore, mock := setupKS()
+	log := logger.New("error", "json")
+	router.PUT("/knowledge/:name/credentials", UpdateKnowledgeStoreCredentials(log, ksStore, nil, minimalCfg(), nil))
+	return router, ksStore, mock
+}
+
+func doUpdateCreds(router *gin.Engine, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPut, "/knowledge/pg-prod/credentials", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestUpdateKnowledgeStoreCredentials_NotFound(t *testing.T) {
+	router, _, mock := updateCredsRouter()
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(sqlmock.NewRows(knowledgeColumns))
+
+	rec := doUpdateCreds(router, `{"password":"x"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateKnowledgeStoreCredentials_RejectsManaged(t *testing.T) {
+	router, _, mock := updateCredsRouter()
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(knowledgeRowWithMode("m1", testAccount().ID, "pg-prod", "postgres", "managed", "ready"))
+
+	rec := doUpdateCreds(router, `{"password":"x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for managed store, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateKnowledgeStoreCredentials_NoFields(t *testing.T) {
+	router, _, mock := updateCredsRouter()
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(externalKnowledgeRow("ext-1", testAccount().ID, "pg-prod", "postgres", "ready"))
+
+	rec := doUpdateCreds(router, `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty update, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no credential fields") {
+		t.Errorf("expected 'no credential fields' error, got %s", rec.Body.String())
+	}
+}
+
+func TestUpdateKnowledgeStoreCredentials_RejectsSupabaseManagedField(t *testing.T) {
+	router, _, mock := updateCredsRouter()
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(supabaseExternalRow("ext-sb", testAccount().ID, "pg-prod"))
+
+	rec := doUpdateCreds(router, `{"host":"evil.example.com"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for supabase host edit, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "managed by Supabase") {
+		t.Errorf("expected supabase-managed error, got %s", rec.Body.String())
+	}
+}
+
+func TestUpdateKnowledgeStoreCredentials_NoStoredCredentials(t *testing.T) {
+	router, _, mock := updateCredsRouter()
+	// externalKnowledgeRow has a nil encrypted_data_key.
+	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
+		WillReturnRows(externalKnowledgeRow("ext-1", testAccount().ID, "pg-prod", "postgres", "error"))
+
+	rec := doUpdateCreds(router, `{"password":"x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for store without data key, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no stored credentials") {
+		t.Errorf("expected 'no stored credentials' error, got %s", rec.Body.String())
+	}
 }
 
 // --- No account in context ---

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -458,38 +459,12 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
 				return
 			}
-			token, err := pipesClient.GetAccessToken(c.Request.Context(), pipes.GetAccessTokenInput{
-				Provider:       supabaseProvider,
-				UserID:         session.UserID,
-				OrganizationID: session.OrganizationID,
-			})
+			overlay, err := supabasePoolerOverlay(c.Request.Context(), pipesClient, session.UserID, session.OrganizationID, req.SupabaseProject.ID)
 			if err != nil {
-				if errors.Is(err, pipes.ErrNotInstalled) || errors.Is(err, pipes.ErrNeedsReauthorization) {
-					c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "supabase_not_connected"})
-					return
-				}
-				log.Error("supabase: get access token for pooler config", "error", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve Supabase token"})
+				respondSupabaseResolveError(c, log, err)
 				return
 			}
-			pooler, err := supabaseFetchPoolerConfig(c.Request.Context(), token.AccessToken, req.SupabaseProject.ID)
-			if err != nil {
-				if errors.Is(err, errSupabaseUnauthorized) {
-					c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "supabase_not_connected"})
-					return
-				}
-				log.Error("supabase: fetch pooler config", "error", err, "project", req.SupabaseProject.ID)
-				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to resolve Supabase connection details"})
-				return
-			}
-			// Session pooler: pooler host + user from the API, session-mode port
-			// 5432 (transaction mode would be 6543). Database stays as reported.
-			creds["HOST"] = pooler.DBHost
-			creds["PORT"] = "5432"
-			creds["USERNAME"] = pooler.DBUser
-			if pooler.DBName != "" {
-				creds["DATABASE"] = pooler.DBName
-			}
+			maps.Copy(creds, overlay)
 		}
 
 		if err := knowledgestore.ValidateExternalCredentials(req.Provider, creds); err != nil {
@@ -600,7 +575,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 			hctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 			defer cancel()
 			if hErr := knowledgestore.CheckHealth(hctx, req.Provider, creds); hErr != nil {
-				msg := fmt.Sprintf("health check failed: %v", hErr)
+				msg := knowledgestore.HumanizeHealthCheckError(hErr)
 				log.Warn("External knowledge store health check failed", "store_id", storeID, "provider", req.Provider, "error", hErr)
 				if sErr := ksStore.SetError(storeID, msg); sErr != nil {
 					log.Error("Failed to set error status after health check failure", "error", sErr, "store_id", storeID)
@@ -612,6 +587,185 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 
 		log.Info("External knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
 
+		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
+	}
+}
+
+// UpdateKnowledgeStoreCredentials updates the connection credentials of an
+// existing external (connected) store. Only the provided fields change; the
+// rest are preserved. The merged credentials are health-checked before being
+// persisted, so a bad update can't leave the store with unusable credentials.
+// For Supabase-imported stores, HOST/PORT/USERNAME are server-managed (resolved
+// from the session pooler) and cannot be edited here.
+func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, secretReader knowledgestore.SecretReader) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found in context"})
+			return
+		}
+
+		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
+		if err != nil {
+			log.Error("Failed to get knowledge store", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
+			return
+		}
+		if ks == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "store not found"})
+			return
+		}
+		if ks.Mode != knowledgestore.ModeExternal {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credentials can only be updated on connected (external) knowledge stores"})
+			return
+		}
+
+		var req struct {
+			Host            *string `json:"host"`
+			Port            *int    `json:"port"`
+			Database        *string `json:"database"`
+			Username        *string `json:"username"`
+			Password        *string `json:"password"`
+			APIKey          *string `json:"api_key"`
+			SkipHealthCheck bool    `json:"skip_health_check"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Collect the requested changes. Supabase-managed connection coordinates
+		// are rejected up front so the caller gets a clear error (validated before
+		// any decryption so these checks stay cheap and testable).
+		isSupabase := ks.Annotations["source"] == "supabase"
+		updates := map[string]string{}
+		if req.Host != nil {
+			if isSupabase {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "host is managed by Supabase and cannot be changed"})
+				return
+			}
+			updates["HOST"] = *req.Host
+		}
+		if req.Port != nil {
+			if isSupabase {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "port is managed by Supabase and cannot be changed"})
+				return
+			}
+			updates["PORT"] = strconv.Itoa(*req.Port)
+		}
+		if req.Username != nil {
+			if isSupabase {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "username is managed by Supabase and cannot be changed"})
+				return
+			}
+			updates["USERNAME"] = *req.Username
+		}
+		if req.Database != nil {
+			updates["DATABASE"] = *req.Database
+		}
+		if req.Password != nil {
+			updates["PASSWORD"] = *req.Password
+		}
+		if req.APIKey != nil {
+			updates["API_KEY"] = *req.APIKey
+		}
+
+		// Supabase stores' connection coordinates are server-managed: re-resolve
+		// them from the session pooler so an update also repairs stores created
+		// before the pooler migration (stale direct host / bare "postgres" user).
+		// This overrides the stored HOST/PORT/USERNAME regardless of which fields
+		// the caller changed.
+		if isSupabase {
+			ref := ks.Annotations["supabase_project_id"]
+			if !supabaseProjectRefPattern.MatchString(ref) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "store is missing a valid Supabase project reference"})
+				return
+			}
+			session, ok := middleware.GetSession(c)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+				return
+			}
+			overlay, err := supabasePoolerOverlay(c.Request.Context(), pipesClient, session.UserID, session.OrganizationID, ref)
+			if err != nil {
+				respondSupabaseResolveError(c, log, err)
+				return
+			}
+			// Don't clobber a user-provided database.
+			if _, ok := updates["DATABASE"]; ok {
+				delete(overlay, "DATABASE")
+			}
+			maps.Copy(updates, overlay)
+		}
+
+		if len(updates) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no credential fields provided"})
+			return
+		}
+
+		if len(ks.EncryptedDataKey) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "store has no stored credentials to update"})
+			return
+		}
+
+		// Decrypt the current credentials so we can validate and health-check the
+		// full merged set, not just the changed fields.
+		kmsClient, err := knowledgestore.KMSBackend(c.Request.Context(), cfg.Deployment.IsLocal())
+		if err != nil {
+			log.Error("Failed to initialize KMS backend", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
+			return
+		}
+		dbCreds, err := ksStore.GetCredentials(ks.ID)
+		if err != nil {
+			log.Error("Failed to get credentials", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve credentials"})
+			return
+		}
+		storeNS := k8s.KnowledgeNamespace(ks.AccountID)
+		merged, err := knowledgestore.ResolveCredentials(c.Request.Context(), ks, dbCreds, kmsClient, secretReader, storeNS)
+		if err != nil {
+			log.Error("Failed to resolve credentials", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})
+			return
+		}
+		maps.Copy(merged, updates)
+
+		if err := knowledgestore.ValidateExternalCredentials(ks.Provider, merged); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Health-check the merged credentials before persisting. PrivateLink
+		// stores are skipped: their host is only reachable in-cluster and the
+		// check would spuriously fail (mirrors the connect flow).
+		ep, _ := ksStore.GetEndpoint(ks.ID)
+		if !req.SkipHealthCheck && ep == nil {
+			hctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+			defer cancel()
+			if hErr := knowledgestore.CheckHealth(hctx, ks.Provider, merged); hErr != nil {
+				log.Warn("Knowledge store credential update health check failed", "store_id", ks.ID, "provider", ks.Provider, "error", hErr)
+				c.JSON(http.StatusBadRequest, gin.H{"error": knowledgestore.HumanizeHealthCheckError(hErr)})
+				return
+			}
+		}
+
+		// Persist only the changed keys, re-encrypted under the store's existing
+		// data key.
+		if err := ksStore.RewriteCredentials(c.Request.Context(), kmsClient, ks, updates); err != nil {
+			log.Error("Failed to update credentials", "error", err, "store_id", ks.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update credentials"})
+			return
+		}
+
+		// The credentials now work (or the check was skipped); clear any prior
+		// error and mark the store ready.
+		if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
+			log.Error("Failed to mark store ready", "error", err, "store_id", ks.ID)
+		}
+
+		ks, _ = ksStore.GetByID(ks.ID)
+		log.Info("Knowledge store credentials updated", "store_id", ks.ID, "provider", ks.Provider, "fields", len(updates))
 		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 	}
 }

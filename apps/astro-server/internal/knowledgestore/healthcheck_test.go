@@ -2,6 +2,7 @@ package knowledgestore
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -240,5 +241,72 @@ func TestCheckHealth_SSRF_BlocksMetadata(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "non-public") {
 		t.Fatalf("expected an SSRF-guard error, got %v", err)
+	}
+}
+
+func TestPostgresConfig_PreservesSpecialCharCredentials(t *testing.T) {
+	// A password with URL-special characters must survive verbatim — the old
+	// implementation interpolated it into the DSN and mangled it, causing a
+	// spurious "password authentication failed".
+	creds := map[string]string{
+		"HOST":     "aws-1-us-west-2.pooler.supabase.com",
+		"PORT":     "5432",
+		"DATABASE": "postgres",
+		"USERNAME": "postgres.fgtbceahiykecrjdtuky",
+		"PASSWORD": "p@ss:w0rd/with%20special#chars",
+	}
+	config, err := postgresConfig(creds)
+	if err != nil {
+		t.Fatalf("postgresConfig: %v", err)
+	}
+	if config.User != creds["USERNAME"] {
+		t.Errorf("User = %q, want %q", config.User, creds["USERNAME"])
+	}
+	if config.Password != creds["PASSWORD"] {
+		t.Errorf("Password = %q, want %q", config.Password, creds["PASSWORD"])
+	}
+	if config.Host != creds["HOST"] {
+		t.Errorf("Host = %q, want %q", config.Host, creds["HOST"])
+	}
+	if config.Database != creds["DATABASE"] {
+		t.Errorf("Database = %q, want %q", config.Database, creds["DATABASE"])
+	}
+}
+
+func TestHumanizeHealthCheckError(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		contains string
+	}{
+		{"nil", nil, ""},
+		{"auth", fmt.Errorf(`postgres: failed SASL auth: FATAL: password authentication failed for user "postgres" (SQLSTATE 28P01)`), "Authentication failed"},
+		{"unreachable", fmt.Errorf("postgres: dial tcp: connect: network is unreachable"), "Couldn't reach the database"},
+		{"refused", fmt.Errorf("postgres: connection refused"), "Couldn't reach the database"},
+		{"badhost", fmt.Errorf("postgres: lookup db.example: no such host"), "Couldn't find that host"},
+		{"ssrf", fmt.Errorf("ssrf guard: refusing to dial non-public address 10.0.0.1"), "publicly reachable"},
+		{"tls", fmt.Errorf("postgres: x509: certificate signed by unknown authority"), "secure connection"},
+		{"nodb", fmt.Errorf(`postgres: FATAL: database "nope" does not exist`), "database doesn't exist"},
+		{"unknown", fmt.Errorf("postgres: some weird internal failure"), "Couldn't connect to the database"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HumanizeHealthCheckError(tc.err)
+			if tc.contains == "" {
+				if got != "" {
+					t.Errorf("expected empty, got %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.contains) {
+				t.Errorf("HumanizeHealthCheckError = %q, want contains %q", got, tc.contains)
+			}
+			// No raw jargon should leak through.
+			for _, bad := range []string{"SQLSTATE", "SASL", "tcp", "x509"} {
+				if strings.Contains(got, bad) {
+					t.Errorf("humanized message leaked %q: %q", bad, got)
+				}
+			}
+		})
 	}
 }

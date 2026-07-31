@@ -1875,6 +1875,18 @@ export interface ConnectKnowledgeStoreInput {
 
 export type KnowledgeCredentials = Record<string, string>;
 
+// Fields are optional: only the provided ones are updated. For Supabase-imported
+// stores, host/port/username are server-managed and rejected if supplied.
+export interface UpdateKnowledgeCredentialsInput {
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  api_key?: string;
+  skip_health_check?: boolean;
+}
+
 // ============================================================================
 // Supabase OAuth (project auto-import for PostgreSQL knowledge stores)
 // ============================================================================
@@ -3410,6 +3422,13 @@ class ApiClient {
   async getKnowledgeCredentials(account: string, name: string): Promise<KnowledgeCredentials> {
     return this.request<KnowledgeCredentials>(
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`
+    );
+  }
+
+  async updateKnowledgeCredentials(account: string, name: string, data: UpdateKnowledgeCredentialsInput): Promise<KnowledgeStore> {
+    return this.request<KnowledgeStore>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`,
+      { method: 'PUT', body: JSON.stringify(data) }
     );
   }
 
