@@ -477,7 +477,7 @@ describe("review queue view", () => {
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: "Judging 2 items" }),
-      ).toHaveAttribute("aria-disabled", "true");
+      ).toBeDisabled();
     });
   });
 
@@ -507,13 +507,18 @@ describe("review queue view", () => {
   it("disables the judge button when the loaded queue has nothing to judge", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
 
+    const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Run AI Judge" }),
-      ).toHaveAttribute("aria-disabled", "true");
+    const judgeButton = await screen.findByRole("button", {
+      name: "Run AI Judge",
     });
+    await waitFor(() => expect(judgeButton).toBeDisabled());
+
+    await user.hover(judgeButton.parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Every trace already has a verdict, so there's nothing left to judge.",
+    );
   });
 
   it("keeps the judge button enabled for a prediction-filtered queue", async () => {
@@ -551,7 +556,7 @@ describe("review queue view", () => {
     expect(await screen.findByText("Predicted good response")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Run AI Judge" }),
-    ).toHaveAttribute("aria-disabled", "false");
+    ).toBeEnabled();
   });
 
   it("refreshes the selected queue while prediction status is active", async () => {
@@ -604,7 +609,7 @@ describe("review queue view", () => {
     const judgingButton = await screen.findByRole("button", {
       name: "Judging 1 item",
     });
-    expect(judgingButton).toHaveAttribute("aria-disabled", "true");
+    expect(judgingButton).toBeDisabled();
     expect(
       judgingButton.querySelector(".dp-judging-gavel"),
     ).toBeInTheDocument();
@@ -616,7 +621,7 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("option", { name: "Good" }));
     expect(
       screen.getByRole("button", { name: "Judging 1 item" }),
-    ).toHaveAttribute("aria-disabled", "true");
+    ).toBeDisabled();
     await waitFor(() => expect(queueRequestCount).toBe(3));
 
     predictionStatus = {
@@ -1886,15 +1891,12 @@ describe("review queue view", () => {
 });
 
 describe("dataset view", () => {
-  it("renders the grade letter, dataset name, and counts", async () => {
+  it("renders the grade letter and counts", async () => {
     setupDataset(makeDatasetResponse());
     renderDataset();
     await waitFor(() => {
       expect(screen.getAllByLabelText(/grade b/i).length).toBeGreaterThan(0);
     });
-    const datasetName = screen.getAllByText("dep-test-deployment")[0];
-    expect(datasetName).toBeInTheDocument();
-    expect(datasetName).toHaveClass("font-mono", "text-mono-xs");
     expect(screen.getByText("Baseline grade")).toBeInTheDocument();
     expect(screen.getByText("30")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();

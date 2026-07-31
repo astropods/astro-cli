@@ -48,7 +48,7 @@ function ToggleGroup({
     const rootRect = root.getBoundingClientRect();
     const activeRect = activeEl.getBoundingClientRect();
     setIndicator({
-      left: activeRect.left - rootRect.left,
+      left: activeRect.left - rootRect.left - root.clientLeft,
       width: activeRect.width,
       ready: true,
     });
@@ -81,7 +81,7 @@ function ToggleGroup({
               "absolute transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
               variant === "icon"
                 ? "rounded-sm bg-background dark:bg-background shadow-sm"
-                : "rounded-[6px] bg-surface border border-border/70",
+                : "rounded-[4px] bg-surface border border-border/70",
               indicatorClassName
             )}
             style={{
@@ -115,7 +115,7 @@ function ToggleGroupItem({
         "relative z-10 inline-flex items-center justify-center transition-colors",
         variant === "icon"
           ? "size-6 rounded-[4px] text-muted-foreground hover:text-foreground-accent"
-          : "rounded-[6px] px-3.5 py-1.5 text-body leading-none",
+          : "rounded-[4px] px-3.5 py-1.5 text-body leading-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
         variant === "icon"

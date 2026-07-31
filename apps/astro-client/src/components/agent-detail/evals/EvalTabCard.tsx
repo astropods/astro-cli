@@ -21,7 +21,6 @@ export function EvalTabCard({ className, children }: EvalTabCardProps) {
 
 export interface EvalTabCardHeaderProps {
   label: string;
-  datasetName?: string;
   description?: ReactNode;
   className?: string;
   /** Right-aligned actions (filter chips, toggles, etc.). */
@@ -30,7 +29,6 @@ export interface EvalTabCardHeaderProps {
 
 export function EvalTabCardHeader({
   label,
-  datasetName,
   description,
   className,
   children,
@@ -47,11 +45,6 @@ export function EvalTabCardHeader({
           <span className="flex-none text-body font-semibold text-foreground">
             {label}
           </span>
-          {datasetName && (
-            <span className="truncate font-mono text-mono-xs text-muted-foreground">
-              {datasetName}
-            </span>
-          )}
         </div>
         {description && (
           <div className="text-body-sm text-muted-foreground">{description}</div>

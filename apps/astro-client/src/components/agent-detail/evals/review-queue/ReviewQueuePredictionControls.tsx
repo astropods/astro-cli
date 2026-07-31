@@ -91,19 +91,6 @@ export function ReviewQueuePredictionControls({
         </div>
 
         <div className="flex flex-none items-center gap-2">
-          <Button
-            ref={agreeButtonRef}
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={locked}
-            onClick={(event) =>
-              onSelect(predictedVerdict, event.currentTarget, true)
-            }
-          >
-            <Check aria-hidden className="size-4" />
-            Agree with judge
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" size="sm" disabled={locked}>
@@ -111,7 +98,7 @@ export function ReviewQueuePredictionControls({
                 <ChevronDown aria-hidden className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel className="text-body-sm text-muted-foreground">
                 Mark as instead
               </DropdownMenuLabel>
@@ -138,6 +125,18 @@ export function ReviewQueuePredictionControls({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            ref={agreeButtonRef}
+            type="button"
+            size="sm"
+            disabled={locked}
+            onClick={(event) =>
+              onSelect(predictedVerdict, event.currentTarget, true)
+            }
+          >
+            <Check aria-hidden className="size-4" />
+            Agree with judge
+          </Button>
         </div>
       </div>
     </div>

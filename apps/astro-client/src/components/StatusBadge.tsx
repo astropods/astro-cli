@@ -1,13 +1,24 @@
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type StatusBadgeColor = 'success' | 'warning' | 'error' | 'muted' | 'primary';
+export type StatusBadgeColor =
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'destructive'
+  | 'muted'
+  | 'primary';
 export type StatusBadgeSize = 'sm' | 'md';
 
 const COLOR: Record<StatusBadgeColor, { bg: string; bdr: string; fg: string }> = {
   success: { bg: 'color-mix(in oklch, var(--success) 12%, transparent)', bdr: 'color-mix(in oklch, var(--success) 28%, transparent)', fg: 'var(--success)' },
   warning: { bg: 'color-mix(in oklch, var(--warning) 12%, transparent)', bdr: 'color-mix(in oklch, var(--warning) 28%, transparent)', fg: 'var(--warning)' },
   error:   { bg: 'color-mix(in oklch, var(--error) 12%, transparent)',   bdr: 'color-mix(in oklch, var(--error) 28%, transparent)',   fg: 'var(--error)'   },
+  destructive: {
+    bg: 'color-mix(in oklch, var(--destructive) 12%, transparent)',
+    bdr: 'color-mix(in oklch, var(--destructive) 28%, transparent)',
+    fg: 'var(--destructive)',
+  },
   muted:   { bg: 'var(--muted)',                                                   bdr: 'var(--border)',                                                  fg: 'var(--muted-foreground)' },
   // Primary uses CSS variables with fallbacks so consumers (or dark-mode
   // utility classes on the badge itself) can brighten the text/bg without

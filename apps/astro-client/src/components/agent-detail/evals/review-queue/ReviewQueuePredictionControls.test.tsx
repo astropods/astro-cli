@@ -44,6 +44,9 @@ describe("ReviewQueuePredictionControls", () => {
     render(<PredictionExplanationHarness />);
 
     expect(screen.getByText("Bad")).toBeInTheDocument();
+    expect(screen.getByText("Bad").parentElement).toHaveStyle({
+      color: "var(--destructive)",
+    });
     expect(screen.queryByText("79% confident")).not.toBeInTheDocument();
     expect(
       screen.queryByText("The response did not address the request."),
@@ -101,16 +104,22 @@ describe("ReviewQueuePredictionControls", () => {
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "Agree with judge" }),
+    const disagreeButton = screen.getByRole("button", { name: "Disagree" });
+    const agreeButton = screen.getByRole("button", { name: "Agree with judge" });
+    expect(disagreeButton.compareDocumentPosition(agreeButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(disagreeButton).toHaveAttribute("data-variant", "outline");
+    expect(agreeButton).toHaveAttribute("data-variant", "default");
+
+    await user.click(agreeButton);
     expect(onSelect).toHaveBeenLastCalledWith(
       "bad",
       expect.any(HTMLElement),
       true,
     );
 
-    await user.click(screen.getByRole("button", { name: "Disagree" }));
+    await user.click(disagreeButton);
     expect(screen.getByText("Mark as instead")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Good/ })).toBeInTheDocument();
     expect(

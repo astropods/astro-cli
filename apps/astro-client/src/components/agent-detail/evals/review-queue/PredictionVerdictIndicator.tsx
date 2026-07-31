@@ -36,7 +36,7 @@ export function predictionVerdictPresentation(verdict: PredictionVerdict) {
 
 const VERDICT_BADGE_COLOR = {
   good: "success",
-  bad: "error",
+  bad: "destructive",
   unknown: "muted",
 } as const;
 

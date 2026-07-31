@@ -31,7 +31,7 @@ export function DatasetView({
 
   return (
     <EvalTabCard className="@container/dataset-card">
-      <EvalTabCardHeader label="Dataset" datasetName={summary.dataset_name}>
+      <EvalTabCardHeader label="Dataset">
         <DatasetFilterChips
           selected={selected}
           counts={{ good: summary.good_count, bad: summary.bad_count }}
