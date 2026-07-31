@@ -440,6 +440,16 @@ export interface DeploymentTemplate {
   observability?: Record<string, unknown>;
 }
 
+/** Deploy-time gateway model choice, surfaced at the template response root.
+ *  The chosen identifier is injected server-side into the agent env var. */
+export interface ModelSelection {
+  name: string;
+  env_var: string;
+  options: string[];
+  default: string;
+  selected: string;
+}
+
 export type DeploymentSpec = Omit<DeploymentTemplate, 'spec'> & {
   spec: 'deployment/v1';
 };
@@ -452,6 +462,7 @@ export interface TemplateRequest {
   revision?: number;
   interfaces?: TemplateInterfaces;
   variables?: Record<string, { value?: string; ref?: string }>;
+  models?: Record<string, string>; // model selection name → chosen identifier
   schedules?: Record<string, string>;
   bindings?: {
     knowledge?: Record<string, string>; // entry name → store ARN
@@ -471,6 +482,7 @@ export interface TemplateResponse {
   spec: 'deployment-template/v1';
   template: DeploymentSpec;
   variables: Record<string, DeploymentVariable>;
+  models?: ModelSelection[];
   interfaces: TemplateInterfaces;
   schedules: Record<string, string>;
   bindings?: {

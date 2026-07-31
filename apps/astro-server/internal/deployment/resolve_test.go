@@ -73,6 +73,31 @@ func TestResolve_SlackVarsDoNotLeakToAgent(t *testing.T) {
 	}
 }
 
+func TestResolve_GatewayModelInjectedAsLiteralEnv(t *testing.T) {
+	// A gateway model choice lives as a literal in agent.environment (not a
+	// variable) and must surface as a plain agent env row.
+	ds := &AstroDeploymentSpec{
+		Source: DeploymentSource{Name: "myagent", Build: "build1"},
+		Agent: DeploymentAgent{
+			Image:       "agent:latest",
+			Endpoints:   httpEndpoints(8080),
+			Environment: map[string]string{"MODEL_DEFAULT": "gpt-4o"},
+		},
+	}
+
+	rs, err := Resolve(ds, ResolveOptions{Namespace: "ns"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	got := findResolution(rs, RoleAgent, "MODEL_DEFAULT")
+	if got == nil {
+		t.Fatal("agent missing MODEL_DEFAULT env row")
+	}
+	if got.Value != "gpt-4o" || got.IsSecret {
+		t.Errorf("MODEL_DEFAULT = %+v, want non-secret literal gpt-4o", got)
+	}
+}
+
 func TestResolve_MessagingHardcodedKnobs(t *testing.T) {
 	// Messaging container's hardcoded env knobs (GRPC_*, STORAGE_TYPE,
 	// DEPLOYMENT_MODE; SLACK_ENABLED / WEB_* conditionals) must appear

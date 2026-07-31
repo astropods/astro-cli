@@ -3688,22 +3688,33 @@ func TestTemplate_GatewayModel_GeneratesSelector(t *testing.T) {
 		t.Error("gateway model must not become a deployment model container")
 	}
 
-	// A select Variable is generated from the options.
-	v, ok := ds.Variables["MODEL_DEFAULT"]
-	if !ok {
-		t.Fatalf("expected generated variable MODEL_DEFAULT, got %v", ds.Variables)
+	// The choice is first-class config, not a variable: no MODEL_ variable is
+	// synthesized.
+	if _, ok := ds.Variables["MODEL_DEFAULT"]; ok {
+		t.Errorf("gateway model must not create a variable, got %v", ds.Variables)
 	}
-	if v.DisplayAs != "select" {
-		t.Errorf("MODEL_DEFAULT.DisplayAs = %q, want select", v.DisplayAs)
+
+	// The default identifier is injected into the agent env as a literal value.
+	if got := ds.Agent.Environment["MODEL_DEFAULT"]; got != "claude-sonnet-4-6" {
+		t.Errorf("agent env MODEL_DEFAULT = %q, want literal claude-sonnet-4-6", got)
 	}
-	if len(v.Options) != 2 || v.Options[0] != "claude-sonnet-4-6" {
-		t.Errorf("MODEL_DEFAULT.Options = %v", v.Options)
+
+	// The selector is exposed through the template-layer helper with options
+	// and default — never on the deployment spec.
+	selections := GatewayModelSelections(in.Spec)
+	if len(selections) != 1 {
+		t.Fatalf("GatewayModelSelections = %v, want 1 entry", selections)
 	}
-	if v.Default != "claude-sonnet-4-6" || v.Value != "claude-sonnet-4-6" {
-		t.Errorf("MODEL_DEFAULT default/value = %q/%q, want claude-sonnet-4-6", v.Default, v.Value)
+	sel := selections[0]
+	if sel.Name != "default" || sel.EnvVar != "MODEL_DEFAULT" {
+		t.Errorf("selection name/env = %q/%q, want default/MODEL_DEFAULT", sel.Name, sel.EnvVar)
 	}
-	// The selected model is wired into the agent env as MODEL_DEFAULT.
-	assertEnvRef(t, ds.Agent.Environment, "MODEL_DEFAULT", "${variables.MODEL_DEFAULT}")
+	if len(sel.Options) != 2 || sel.Options[0] != "claude-sonnet-4-6" {
+		t.Errorf("selection options = %v", sel.Options)
+	}
+	if sel.Default != "claude-sonnet-4-6" {
+		t.Errorf("selection default = %q, want claude-sonnet-4-6", sel.Default)
+	}
 }
 
 func TestTemplate_GatewayModel_EmptyOptionsNoSelector(t *testing.T) {
@@ -3718,6 +3729,71 @@ func TestTemplate_GatewayModel_EmptyOptionsNoSelector(t *testing.T) {
 	if _, ok := ds.Variables["MODEL_DEFAULT"]; ok {
 		t.Error("no selector expected when options are empty")
 	}
+	if got := GatewayModelSelections(in.Spec); len(got) != 0 {
+		t.Errorf("no model selection expected when options are empty, got %v", got)
+	}
+}
+
+// The selected model round-trips through ShapeTemplate via the models request
+// channel and is injected as a literal — never as a variable, and the selector
+// descriptor is surfaced only at the response root, not on the template spec.
+func TestTemplate_GatewayModel_SelectionRoundTrip(t *testing.T) {
+	in := baseInput()
+	in.Spec.Models = map[string]spec.Model{
+		"default": {Provider: "gateway", Models: []string{"claude-sonnet-4-6", "gpt-4o"}},
+	}
+	base := mustGenerate(t, in)
+	opts := &ShapeOptions{ModelSelections: GatewayModelSelections(in.Spec)}
+
+	// No choice → default selected (promoted to response root) + injected.
+	resp := ShapeTemplate(context.Background(), base, &TemplateRequest{}, opts)
+	if got := resp.Models[0].Selected; got != "claude-sonnet-4-6" {
+		t.Errorf("default selection = %q, want claude-sonnet-4-6", got)
+	}
+	if got := resp.Template.Agent.Environment["MODEL_DEFAULT"]; got != "claude-sonnet-4-6" {
+		t.Errorf("default env = %q, want claude-sonnet-4-6", got)
+	}
+
+	// Explicit choice → applied to selection + env.
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Models: map[string]string{"default": "gpt-4o"},
+	}, opts)
+	if got := resp.Models[0].Selected; got != "gpt-4o" {
+		t.Errorf("chosen selection = %q, want gpt-4o", got)
+	}
+	if got := resp.Template.Agent.Environment["MODEL_DEFAULT"]; got != "gpt-4o" {
+		t.Errorf("chosen env = %q, want gpt-4o", got)
+	}
+	if _, ok := resp.Template.Variables["MODEL_DEFAULT"]; ok {
+		t.Error("model choice must not appear as a variable")
+	}
+
+	// Invalid choice → ignored, default retained.
+	resp = ShapeTemplate(context.Background(), base, &TemplateRequest{
+		Models: map[string]string{"default": "not-a-model"},
+	}, opts)
+	if got := resp.Models[0].Selected; got != "claude-sonnet-4-6" {
+		t.Errorf("invalid choice selection = %q, want claude-sonnet-4-6", got)
+	}
+}
+
+// Ordinary (non-gateway) agent inputs still become variables and are injected
+// into the agent env as ${variables.X} references.
+func TestTemplate_AgentInput_CreatesVariableAndInjectsRef(t *testing.T) {
+	in := baseInput()
+	in.Spec.Agent.Inputs = []spec.Input{
+		{Name: "GREETING", Datatype: "string", Default: "hello"},
+	}
+	ds := mustGenerate(t, in)
+
+	v, ok := ds.Variables["GREETING"]
+	if !ok {
+		t.Fatalf("expected variable GREETING, got %v", ds.Variables)
+	}
+	if v.Value != "hello" || v.Default != "hello" {
+		t.Errorf("GREETING value/default = %q/%q, want hello", v.Value, v.Default)
+	}
+	assertEnvRef(t, ds.Agent.Environment, "GREETING", "${variables.GREETING}")
 }
 
 func TestTemplate_DeprecatedBooleanStillEnables(t *testing.T) {

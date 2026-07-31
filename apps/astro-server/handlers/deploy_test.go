@@ -141,11 +141,11 @@ func TestTemplateCache_DeleteByDeploymentID_RemovesMatchingEntry(t *testing.T) {
 	cache := NewTemplateCache()
 	depID := "abc-123-def"
 	key := "myorg:myorg:my-agent:build-1:" + depID + ":0"
-	cache.set(key, &deployment.AstroDeploymentSpec{})
+	cache.set(key, &deployment.AstroDeploymentSpec{}, nil)
 
 	cache.DeleteByDeploymentID(depID)
 
-	if _, ok := cache.get(key); ok {
+	if _, _, ok := cache.get(key); ok {
 		t.Error("expected cache entry to be deleted, but it still exists")
 	}
 }
@@ -156,15 +156,15 @@ func TestTemplateCache_DeleteByDeploymentID_LeavesOtherEntriesIntact(t *testing.
 	otherID := "zzz-999-qqq"
 	targetKey := "myorg:myorg:my-agent:build-1:" + targetID + ":0"
 	otherKey := "myorg:myorg:other-agent:build-2:" + otherID + ":0"
-	cache.set(targetKey, &deployment.AstroDeploymentSpec{})
-	cache.set(otherKey, &deployment.AstroDeploymentSpec{})
+	cache.set(targetKey, &deployment.AstroDeploymentSpec{}, nil)
+	cache.set(otherKey, &deployment.AstroDeploymentSpec{}, nil)
 
 	cache.DeleteByDeploymentID(targetID)
 
-	if _, ok := cache.get(targetKey); ok {
+	if _, _, ok := cache.get(targetKey); ok {
 		t.Error("expected target entry to be deleted, but it still exists")
 	}
-	if _, ok := cache.get(otherKey); !ok {
+	if _, _, ok := cache.get(otherKey); !ok {
 		t.Error("expected unrelated entry to remain in cache, but it was deleted")
 	}
 }

@@ -322,6 +322,53 @@ describe('useDeployForm vault variable readiness', () => {
   });
 });
 
+describe('useDeployForm gateway model selector', () => {
+  const gatewayResponse = {
+    ...wrapTemplateResponse(mockTemplate),
+    models: [{
+      name: 'default',
+      env_var: 'MODEL_DEFAULT',
+      options: ['claude-opus-4-8', 'gpt-4o'],
+      default: 'claude-opus-4-8',
+      selected: 'claude-opus-4-8',
+    }],
+  };
+
+  it('surfaces selectors from the response root, not as variables', async () => {
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: gatewayResponse,
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.initialValues).not.toBeNull());
+
+    expect(result.current.modelSelections.map((m) => m.name)).toEqual(['default']);
+    expect(result.current.modelSelections[0].selected).toBe('claude-opus-4-8');
+    // The model choice is not a variable — never in the credential buckets.
+    expect(result.current.requiredVariables.map(([k]) => k)).not.toContain('MODEL_DEFAULT');
+    expect(result.current.optionalVariables.map(([k]) => k)).not.toContain('MODEL_DEFAULT');
+    expect(result.current.variableValues.MODEL_DEFAULT).toBeUndefined();
+  });
+
+  it('records a user model choice for submission', async () => {
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () => useDeployForm('testuser', 'code-reviewer', {
+        initialTemplateResponse: gatewayResponse,
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.initialValues).not.toBeNull());
+    expect(result.current.modelChoices).toEqual({});
+    act(() => result.current.setModelChoice('default', 'gpt-4o'));
+    expect(result.current.modelChoices.default).toBe('gpt-4o');
+  });
+});
+
 describe('useDeployForm with pre-filled template', () => {
   it('initializes variable values from initialValues', () => {
     const prefilledTemplate: DeploymentTemplate = {

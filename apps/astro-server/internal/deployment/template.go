@@ -434,6 +434,10 @@ type ShapeOptions struct {
 	// (omitted from the client on configure prefill). Marked on the schema map
 	// before validation so required checks treat them as filled.
 	ConfiguredInlineSecrets []string
+	// ModelSelections are the gateway model selectors for this agent, carried
+	// from generation so the response can render them and req.Models choices
+	// can be applied to agent.environment.
+	ModelSelections []ModelSelection
 }
 
 func markConfiguredInlineSecrets(
@@ -570,6 +574,28 @@ func ShapeTemplate(ctx context.Context, base *AstroDeploymentSpec, req *Template
 		}
 	}
 
+	// --- Model selection ---
+	// Apply the requested choice (falling back to the default) and inject the
+	// literal into agent.environment. Selectors are a template-layer concern
+	// (from opts), surfaced to the UI via resp.Models — never part of the spec.
+	var respModels []ModelSelection
+	if opts != nil && len(opts.ModelSelections) > 0 {
+		for _, sel := range opts.ModelSelections {
+			chosen := sel.Default
+			if req.Models != nil {
+				if reqChoice, ok := req.Models[sel.Name]; ok && slices.Contains(sel.Options, reqChoice) {
+					chosen = reqChoice
+				}
+			}
+			if shaped.Agent.Environment == nil {
+				shaped.Agent.Environment = map[string]string{}
+			}
+			shaped.Agent.Environment[sel.EnvVar] = chosen
+			sel.Selected = chosen
+			respModels = append(respModels, sel)
+		}
+	}
+
 	// --- Schedule shaping ---
 	if len(req.Schedules) > 0 {
 		for name, cron := range req.Schedules {
@@ -695,6 +721,7 @@ func ShapeTemplate(ctx context.Context, base *AstroDeploymentSpec, req *Template
 		Spec:         "deployment-template/v1",
 		Template:     *shaped,
 		Variables:    schemaVars,
+		Models:       respModels,
 		Interfaces:   respInterfaces,
 		Schedules:    respSchedules,
 		Bindings:     resolvedBindings,
@@ -1251,6 +1278,49 @@ func stripScheme(url string) string {
 	return strings.TrimRight(url, "/")
 }
 
+// ModelSelection describes a deploy-time gateway model choice. It is a
+// template-layer concern only (carried in ShapeOptions and TemplateResponse):
+// the deployment spec persists just the chosen identifier, injected as a
+// literal into agent.environment under EnvVar.
+type ModelSelection struct {
+	Name     string   `json:"name"`     // gateway model entry name (e.g. "default")
+	EnvVar   string   `json:"env_var"`  // agent env var the choice is injected into
+	Options  []string `json:"options"`  // selectable model identifiers
+	Default  string   `json:"default"`  // default choice (first option)
+	Selected string   `json:"selected"` // current choice
+}
+
+// GatewayModelSelections returns the deploy-time model selectors synthesized
+// from gateway model entries (provider: gateway with a non-empty model list).
+// Each names the agent env var the chosen identifier is injected into. Empty
+// options → enable-only (no selector; the agent hard-codes the model).
+func GatewayModelSelections(s *spec.AstroSpec) []ModelSelection {
+	names := make([]string, 0, len(s.Models))
+	for name := range s.Models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var out []ModelSelection
+	for _, name := range names {
+		model := s.Models[name]
+		if !model.IsGateway() {
+			continue
+		}
+		options := model.ResolvedModels()
+		if len(options) == 0 {
+			continue
+		}
+		out = append(out, ModelSelection{
+			Name:     name,
+			EnvVar:   "MODEL_" + spec.SanitizeEnvName(name),
+			Options:  options,
+			Default:  options[0],
+			Selected: options[0],
+		})
+	}
+	return out
+}
+
 // wireInterfaceEnvironment populates interfaces.environment with ${variables.KEY}
 // references for every variable (secret or not) that targets an interface
 // adapter. The resolver routes each entry to ConfigMapData or SecretData based
@@ -1321,36 +1391,13 @@ func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *AstroDeploymentSp
 		}
 	}
 
-	// Gateway model entries → a deploy-time model selector. The declared models
-	// are selectable options; the deployer picks one and it is injected as
-	// MODEL_<name>. Endpoint/auth come from the shared ASTRO_GATEWAY_* pair
-	// (injected by the applier when AIGateway is enabled). An empty options list
-	// is enable-only (no selector; agent hard-codes the model).
-	gatewayNames := make([]string, 0, len(astroSpec.Models))
-	for name := range astroSpec.Models {
-		gatewayNames = append(gatewayNames, name)
-	}
-	sort.Strings(gatewayNames)
-	for _, name := range gatewayNames {
-		model := astroSpec.Models[name]
-		if !model.IsGateway() {
-			continue
-		}
-		options := model.ResolvedModels()
-		if len(options) == 0 {
-			continue
-		}
-		envName := "MODEL_" + spec.SanitizeEnvName(name)
-		addVariable(spec.Input{
-			Name:        envName,
-			Datatype:    "string",
-			Description: fmt.Sprintf("Model for %q (Astro AI Gateway) — chosen at deploy, injected as %s", name, envName),
-			DisplayAs:   "select",
-			Options:     options,
-			Default:     options[0],
-			Optional:    true,
-		}, []string{"agent"})
-		agentEnv[envName] = fmt.Sprintf("${variables.%s}", envName)
+	// Gateway model entries → a deploy-time model selector. The choice is
+	// first-class config (a template-layer concern), not a variable: inject the
+	// default identifier as a literal env value; options/default are surfaced to
+	// the UI via GatewayModelSelections. Endpoint/auth come from the shared
+	// ASTRO_GATEWAY_* pair (injected by the applier when AIGateway is enabled).
+	for _, sel := range GatewayModelSelections(astroSpec) {
+		agentEnv[sel.EnvVar] = sel.Default
 	}
 
 	// Model inputs — inject defaults into model environment directly (not in variables)

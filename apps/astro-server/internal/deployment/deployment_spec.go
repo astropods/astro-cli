@@ -443,6 +443,7 @@ type TemplateRequest struct {
 	Revision     int                      `json:"revision,omitempty"`
 	Interfaces   *TemplateInterfaces      `json:"interfaces,omitempty"`
 	Variables    map[string]VariableInput `json:"variables,omitempty"`
+	Models       map[string]string        `json:"models,omitempty"`    // model selection name → chosen identifier
 	Schedules    map[string]string        `json:"schedules,omitempty"` // ingestion name → cron expression
 	Bindings     *TemplateBindings        `json:"bindings,omitempty"`
 	Provisioning *TemplateProvisioning    `json:"provisioning,omitempty"` // per-component compute/volume overrides
@@ -494,6 +495,7 @@ type TemplateResponse struct {
 	Spec         string               `json:"spec"`                  // "deployment-template/v1"
 	Template     AstroDeploymentSpec  `json:"template"`              // deployment/v1 — directly postable to /deploy
 	Variables    map[string]Variable  `json:"variables,omitempty"`   // promoted variable schema for the UI
+	Models       []ModelSelection     `json:"models,omitempty"`      // promoted gateway model selectors for the UI
 	Interfaces   TemplateInterfaces   `json:"interfaces"`            // user-editable interface config (adapters + auth + grants)
 	Schedules    map[string]string    `json:"schedules"`             // ingestion name → cron expression
 	Bindings     *ResolvedBindings    `json:"bindings,omitempty"`    // resolved binding metadata for the UI

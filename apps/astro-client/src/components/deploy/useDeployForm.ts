@@ -576,6 +576,26 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const [deployName, setDeployName] = useState(() => computedDefaults.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(computedDefaults.variableValues ?? {});
+  // Gateway model choices, keyed by selection name → chosen identifier. Seeded
+  // from the template response and submitted via req.models.
+  const [modelChoices, setModelChoices] = useState<Record<string, string>>({});
+  const setModelChoice = useCallback(
+    (name: string, value: string) => setModelChoices((cur) => ({ ...cur, [name]: value })),
+    [],
+  );
+  // Gateway model selectors are first-class config surfaced at the template
+  // response root (not variables). The chosen model rides in req.models.
+  const modelSelections = useMemo(
+    () => templateResponse?.models ?? [],
+    [templateResponse],
+  );
+  // Effective choice per selection: a user edit wins, else the server's current
+  // selection (which reflects the restored/prior choice). Sent on every POST so
+  // the choice survives reshapes and finalize.
+  const modelChoicesForSubmit = useMemo(
+    () => Object.fromEntries(modelSelections.map((m) => [m.name, modelChoices[m.name] ?? m.selected])),
+    [modelSelections, modelChoices],
+  );
   // Field-level auto-fill provenance belongs to the form so temporarily
   // unmounting adapter fields cannot grant them another suggestion opportunity.
   const [vaultAutoFillState, setVaultAutoFillState] = useState<VaultAutoFillState>({});
@@ -745,6 +765,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (opts?.deploymentId) body.deployment_id = opts.deploymentId;
     if (opts?.build) body.build = opts.build;
     if (opts?.revision !== undefined) body.revision = opts.revision;
+    // Preserve model choices across reshapes — the server recomputes them from
+    // req.models, so omitting them would reset to defaults.
+    if (Object.keys(modelChoicesForSubmit).length > 0) body.models = modelChoicesForSubmit;
     setReshapeError(null);
     templateMutation.mutateAsync(body).then(
       (response) => {
@@ -760,7 +783,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       },
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- stable identity for opts
-  }, [opts?.deploymentId, opts?.build, opts?.revision]);
+  }, [opts?.deploymentId, opts?.build, opts?.revision, modelChoicesForSubmit]);
 
   // Build the interfaces payload from current form state. Web auth is always
   // OIDC when web is selected; grants are emitted only for selected adapters
@@ -1125,6 +1148,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       schedules: ingestionSchedules,
       bindings: { knowledge: nonEmptyBindings(knowledgeBindings) },
     };
+    if (Object.keys(modelChoicesForSubmit).length > 0) req.models = modelChoicesForSubmit;
     if (opts?.deploymentId) req.deployment_id = opts.deploymentId;
     if (opts?.build) req.build = opts.build;
     if (opts?.revision !== undefined) req.revision = opts.revision;
@@ -1334,6 +1358,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setVariableValues,
     requiredVariables,
     optionalVariables,
+    modelSelections,
+    modelChoices,
+    setModelChoice,
 
     scheduleIngestions,
     ingestionSchedules,

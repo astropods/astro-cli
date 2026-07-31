@@ -2,6 +2,13 @@ import { useState, type ReactNode } from "react";
 import { Camera } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { AccountPicker } from "./AccountPicker";
 import { InterfacesPicker } from "./InterfacesPicker";
 import { CustomInterfacePicker } from "./CustomInterfacePicker";
@@ -151,6 +158,34 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
           )}
         </div>
       </FormSection>
+
+      {/* Model — deploy-time model choice for gateway models */}
+      {form.modelSelections.length > 0 && (
+        <FormSection title="Model" description="Choose which model this agent uses.">
+          <div className="space-y-5">
+            {form.modelSelections.map((sel) => (
+              <div key={sel.name} className="max-w-[32rem]">
+                <Label size="md">{slugToTitle(sel.name)}</Label>
+                <Select
+                  value={form.modelChoices[sel.name] ?? sel.selected}
+                  onValueChange={(value) => form.setModelChoice(sel.name, value)}
+                >
+                  <SelectTrigger id={`model-${sel.name}`}>
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sel.options.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </FormSection>
+      )}
 
       {/* Interfaces — hidden when the agent declares only a custom frontend
           (no messaging adapters to pick from). */}

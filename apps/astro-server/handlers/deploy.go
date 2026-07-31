@@ -68,31 +68,33 @@ func NewTemplateCache() *TemplateCache {
 
 type templateCacheEntry struct {
 	template  *deployment.AstroDeploymentSpec
+	models    []deployment.ModelSelection // gateway model selectors (template-layer)
 	expiresAt time.Time
 }
 
-func (tc *TemplateCache) get(key string) (*deployment.AstroDeploymentSpec, bool) {
+func (tc *TemplateCache) get(key string) (*deployment.AstroDeploymentSpec, []deployment.ModelSelection, bool) {
 	if tc == nil {
-		return nil, false
+		return nil, nil, false
 	}
 	val, ok := tc.m.Load(key)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	entry := val.(*templateCacheEntry)
 	if time.Now().After(entry.expiresAt) {
 		tc.m.Delete(key)
-		return nil, false
+		return nil, nil, false
 	}
-	return entry.template, true
+	return entry.template, entry.models, true
 }
 
-func (tc *TemplateCache) set(key string, tmpl *deployment.AstroDeploymentSpec) {
+func (tc *TemplateCache) set(key string, tmpl *deployment.AstroDeploymentSpec, models []deployment.ModelSelection) {
 	if tc == nil {
 		return
 	}
 	tc.m.Store(key, &templateCacheEntry{
 		template:  tmpl,
+		models:    models,
 		expiresAt: time.Now().Add(tc.ttl),
 	})
 }
@@ -3652,7 +3654,7 @@ func generateTemplate(
 	acct *account.Account,
 	agent *agentindex.Agent,
 	buildIDOverride string,
-) (*deployment.AstroDeploymentSpec, bool) {
+) (*deployment.AstroDeploymentSpec, []deployment.ModelSelection, bool) {
 	accountID := acct.ID
 	name := agent.Name
 
@@ -3672,20 +3674,20 @@ func generateTemplate(
 			"error_code": "build_not_found",
 			"details":    err.Error(),
 		})
-		return nil, false
+		return nil, nil, false
 	}
 
 	specBytes, err := json.Marshal(agentVersion.Spec)
 	if err != nil {
 		log.Error("Failed to marshal stored spec", "error", err, "account", acct.Name, "agent", name)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
-		return nil, false
+		return nil, nil, false
 	}
 	var astroSpec spec.AstroSpec
 	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
 		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", acct.Name, "agent", name, "raw", string(specBytes))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
-		return nil, false
+		return nil, nil, false
 	}
 
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
@@ -3704,10 +3706,10 @@ func generateTemplate(
 			"error":   "failed to generate deployment template",
 			"details": err.Error(),
 		})
-		return nil, false
+		return nil, nil, false
 	}
 
-	return template, true
+	return template, deployment.GatewayModelSelections(&astroSpec), true
 }
 
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
@@ -3825,8 +3827,10 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			// Check cache — skips generateTemplate + merge on hit.
 			cacheKey := accountName + ":" + sourceAccountName + ":" + agentName + ":" + buildIDOverride + ":" + req.DeploymentID + ":" + strconv.Itoa(req.Revision)
-			if base, ok := cache.get(cacheKey); ok {
+			if base, models, ok := cache.get(cacheKey); ok {
 				shapeOpts = shapeOptsWithConfiguredInlineSecrets(shapeOpts, storedVars)
+				applyStoredModelChoices(&req, models, prefillExisting.DeploymentSpecJSON)
+				shapeOpts = shapeOptsWithModels(shapeOpts, models)
 				resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
 				// Display name is mutable outside the deploy flow — always
 				// apply the current value from the DB, not the cached one.
@@ -3844,7 +3848,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			if !ok {
 				return
 			}
-			template, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
+			template, models, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
 			if !ok {
 				return
 			}
@@ -3861,8 +3865,10 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				}
 			}
 
-			cache.set(cacheKey, template)
+			applyStoredModelChoices(&req, models, prefillExisting.DeploymentSpecJSON)
+			cache.set(cacheKey, template, models)
 			shapeOpts = shapeOptsWithConfiguredInlineSecrets(shapeOpts, storedVars)
+			shapeOpts = shapeOptsWithModels(shapeOpts, models)
 			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
 			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 			return
@@ -3876,8 +3882,8 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		}
 
 		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
-		if base, ok := cache.get(cacheKey); ok {
-			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOpts)
+		if base, models, ok := cache.get(cacheKey); ok {
+			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOptsWithModels(shapeOpts, models))
 			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 			return
 		}
@@ -3891,7 +3897,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		if !enforcePrivateAgentMembership(c, accountStore, acct, agent) {
 			return
 		}
-		template, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
+		template, models, ok := generateTemplate(c, log, agentIndex, cfg, acct, agent, buildIDOverride)
 		if !ok {
 			return
 		}
@@ -3904,8 +3910,8 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			seedFreshAuthGrants(template, user.ID)
 		}
 
-		cache.set(cacheKey, template)
-		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
+		cache.set(cacheKey, template, models)
+		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOptsWithModels(shapeOpts, models))
 		respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
 	}
 }
@@ -4033,6 +4039,45 @@ func mergeDeploymentPrefill(log *logger.Logger, template *deployment.AstroDeploy
 	// the exposed endpoint, not under interfaces.auth.
 	if authzStore != nil {
 		mergeAuthorizationFromStore(log, authzStore, existing.ID, template)
+	}
+}
+
+// shapeOptsWithModels attaches gateway model selectors to the shape options so
+// ShapeTemplate can render them and apply req.Models choices.
+func shapeOptsWithModels(opts *deployment.ShapeOptions, models []deployment.ModelSelection) *deployment.ShapeOptions {
+	if len(models) == 0 {
+		return opts
+	}
+	if opts == nil {
+		opts = &deployment.ShapeOptions{}
+	}
+	opts.ModelSelections = models
+	return opts
+}
+
+// applyStoredModelChoices folds the previously-chosen gateway model (persisted
+// as an agent env literal, since model selectors are template-only) into
+// req.Models so ShapeTemplate re-applies it. An explicit choice already in req
+// wins — this preserves edits typed in the configure panel.
+func applyStoredModelChoices(req *deployment.TemplateRequest, models []deployment.ModelSelection, storedSpecJSON string) {
+	if len(models) == 0 || storedSpecJSON == "" {
+		return
+	}
+	var storedSpec deployment.AstroDeploymentSpec
+	if json.Unmarshal([]byte(storedSpecJSON), &storedSpec) != nil {
+		return
+	}
+	for _, sel := range models {
+		choice, ok := storedSpec.Agent.Environment[sel.EnvVar]
+		if !ok {
+			continue
+		}
+		if req.Models == nil {
+			req.Models = map[string]string{}
+		}
+		if _, set := req.Models[sel.Name]; !set {
+			req.Models[sel.Name] = choice
+		}
 	}
 }
 
