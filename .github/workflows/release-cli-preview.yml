@@ -1,8 +1,8 @@
 name: Release CLI (Preview)
 
-# Releases the preview CLI (ast-preview) from the monorepo. Fetches the private
-# astro-cli submodule (requires the CLI_DEPLOY_KEY read-only deploy key), builds
-# and embeds astro-client's chat SPA, then publishes the binaries. Dispatch only;
+# Releases the preview CLI (ast-preview) from the monorepo. Fetches the public
+# astro-cli submodule over HTTPS (no deploy key needed), builds and embeds
+# astro-client's chat SPA, then publishes the binaries. Dispatch only;
 # add a push trigger if you want every merge to main to cut a preview.
 on:
   workflow_dispatch:
@@ -47,13 +47,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Fetch CLI submodule
-        env:
-          CLI_DEPLOY_KEY: ${{ secrets.CLI_DEPLOY_KEY }}
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$CLI_DEPLOY_KEY" > ~/.ssh/cli_deploy && chmod 600 ~/.ssh/cli_deploy
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/cli_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-          git submodule update --init modules/astro-cli
+        run: git submodule update --init modules/astro-cli
 
       - name: Set up Go
         uses: actions/setup-go@v5

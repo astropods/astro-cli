@@ -21,7 +21,7 @@
 	url = git@github.com:astropods/astro-infra.git
 [submodule "modules/astro-cli"]
 	path = modules/astro-cli
-	url = git@github.com:astropods/astro-cli.git
+	url = https://github.com/astropods/astro-cli.git
 [submodule "packages/astro-spec"]
 	path = packages/astro-spec
 	url = https://github.com/astropods/astro-spec.git
