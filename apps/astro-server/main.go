@@ -2076,6 +2076,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)
+			api.GET(protected, "/deployments/:id/dataset/predictions/status", "Get dataset prediction status", handlers.GetDatasetPredictionStatus(log, accountStore, deploymentStore, datasetStore, judgmentStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.DatasetPredictionStatusResponse{}),
+			)
 			api.POST(protected, "/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),

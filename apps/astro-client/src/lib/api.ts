@@ -1180,6 +1180,13 @@ export interface ReviewQueueItem {
   prediction: ReviewQueuePrediction | null;
 }
 
+export interface PredictionStatusCounts {
+  queued: number;
+  in_progress: number;
+  completed: number;
+  failed: number;
+}
+
 export interface ReviewQueueResponse {
   items: ReviewQueueItem[];
   /** Opaque continuation cursor; omitted when the trace snapshot is exhausted. */
@@ -3023,6 +3030,14 @@ class ApiClient {
         cursor,
         prediction,
       })}`
+    );
+  }
+
+  async getDatasetPredictionStatus(
+    deploymentId: string,
+  ): Promise<PredictionStatusCounts> {
+    return this.request<PredictionStatusCounts>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/predictions/status`,
     );
   }
 

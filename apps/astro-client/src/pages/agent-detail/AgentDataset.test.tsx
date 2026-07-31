@@ -11,6 +11,7 @@ import type {
   EvalDatasetItem,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
+  PredictionStatusCounts,
   ReviewQueueItem,
   ReviewQueueResponse,
   TraceDetailResponse,
@@ -65,6 +66,59 @@ function reviewQueueResponse(
   };
 }
 
+function predictionStatusCounts(
+  items: ReviewQueueItem[],
+): PredictionStatusCounts {
+  const counts = {
+    queued: 0,
+    in_progress: 0,
+    completed: 0,
+    failed: 0,
+  };
+  for (const item of items) {
+    if (item.prediction) {
+      counts.completed += 1;
+    } else if (item.prediction_status !== "not_requested") {
+      counts[item.prediction_status] += 1;
+    }
+  }
+  return counts;
+}
+
+function mockReviewQueueRequest(
+  resolve: (url: URL) => ReviewQueueResponse | Promise<ReviewQueueResponse>,
+) {
+  server.use(
+    http.get(
+      "/api/v1/deployments/:id/dataset/review-queue",
+      async ({ request }) =>
+        HttpResponse.json(await resolve(new URL(request.url))),
+    ),
+  );
+}
+
+function mockCreateJudgment(
+  onCreate?: (judgment: DatasetJudgmentRequest) => void,
+) {
+  server.use(
+    http.post(
+      "/api/v1/deployments/:id/dataset/judgments",
+      async ({ request }) => {
+        const judgment = (await request.json()) as DatasetJudgmentRequest;
+        onCreate?.(judgment);
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: judgment.trace_id,
+            verdict: judgment.verdict,
+          },
+          { status: 201 },
+        );
+      },
+    ),
+  );
+}
+
 const REVIEW_QUEUE_PAGE_SIZE = "50";
 
 const reviewQueueFixtures = new Map<string, ReviewQueueItem>();
@@ -101,6 +155,7 @@ function setupDataset(
   response: EvalDatasetResponse | { status: number },
   items: EvalDatasetItemsResponse = emptyItems(),
   queue: ReviewQueueResponse = reviewQueueResponse([]),
+  predictionStatus: PredictionStatusCounts = predictionStatusCounts(queue.items),
 ) {
   server.use(
     http.get("/api/v1/deployments/:id/dataset", () => {
@@ -114,6 +169,9 @@ function setupDataset(
     ),
     http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
       HttpResponse.json(queue),
+    ),
+    http.get("/api/v1/deployments/:id/dataset/predictions/status", () =>
+      HttpResponse.json(predictionStatus),
     ),
     http.get(
       "/api/v1/deployments/:id/observability/traces/:traceId",
@@ -311,6 +369,131 @@ describe("review queue view", () => {
     });
   });
 
+  it("keeps the judge button enabled for a prediction-filtered queue", async () => {
+    setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
+    mockReviewQueueRequest((url) =>
+      reviewQueueResponse(
+        url.searchParams.get("prediction") === "good"
+          ? [
+              queueItem({
+                trace_id: "trace-predicted-good",
+                input: "Predicted good prompt",
+                output: "Predicted good response",
+                prediction_status: "completed",
+                prediction: {
+                  verdict_score: 0.8,
+                  confidence: 82,
+                  explanation: "The response addressed the request.",
+                  judge_version: "1",
+                  criteria: [],
+                },
+              }),
+            ]
+          : [],
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await user.click(
+      await screen.findByRole("combobox", { name: "Filter review queue" }),
+    );
+    await user.click(screen.getByRole("option", { name: "Good" }));
+
+    expect(await screen.findByText("Predicted good response")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Run AI Judge" }),
+    ).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("refreshes the selected queue while prediction status is active", async () => {
+    let predictionStatus: PredictionStatusCounts = {
+      queued: 0,
+      in_progress: 0,
+      completed: 0,
+      failed: 0,
+    };
+    let queueRequestCount = 0;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([]),
+      predictionStatus,
+    );
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/predictions/status", () =>
+        HttpResponse.json(predictionStatus),
+      ),
+    );
+    mockReviewQueueRequest((url) => {
+      queueRequestCount += 1;
+      const prediction = url.searchParams.get("prediction");
+      return reviewQueueResponse([
+        queueItem({
+          trace_id: `trace-${prediction ?? "all"}`,
+          output: `${prediction ?? "all"} response`,
+          prediction_status: "in_progress",
+        }),
+      ]);
+    });
+
+    const user = userEvent.setup();
+    const { queryClient } = renderDataset({ tab: null });
+
+    expect(
+      await screen.findByRole("button", { name: "Run AI Judge" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(queueRequestCount).toBe(1));
+
+    predictionStatus = {
+      queued: 0,
+      in_progress: 1,
+      completed: 0,
+      failed: 0,
+    };
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: evalKeys.predictionStatus("dep-test"),
+      });
+    });
+
+    const judgingButton = await screen.findByRole("button", {
+      name: "Judging 1 item",
+    });
+    expect(judgingButton).toHaveAttribute("aria-disabled", "true");
+    expect(
+      judgingButton.querySelector(".dp-judging-gavel"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(queueRequestCount).toBe(2));
+
+    await user.click(
+      screen.getByRole("combobox", { name: "Filter review queue" }),
+    );
+    await user.click(screen.getByRole("option", { name: "Good" }));
+    expect(
+      screen.getByRole("button", { name: "Judging 1 item" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await waitFor(() => expect(queueRequestCount).toBe(3));
+
+    predictionStatus = {
+      queued: 0,
+      in_progress: 0,
+      completed: 1,
+      failed: 0,
+    };
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: evalKeys.predictionStatus("dep-test"),
+      });
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Run AI Judge" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(queueRequestCount).toBe(4));
+  });
+
   it("shows queue errors independently from the dataset summary", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
     server.use(
@@ -505,24 +688,17 @@ describe("review queue view", () => {
   it("passes the selected prediction filter to the review queue", async () => {
     const requestedFilters: Array<string | null> = [];
     setupDataset(makeDatasetResponse(), emptyItems());
-    server.use(
-      http.get(
-        "/api/v1/deployments/:id/dataset/review-queue",
-        ({ request }) => {
-          const prediction = new URL(request.url).searchParams.get("prediction");
-          requestedFilters.push(prediction);
-          return HttpResponse.json(
-            reviewQueueResponse([
-              queueItem({
-                trace_id: `trace_${prediction ?? "all"}`,
-                input: `${prediction ?? "all"} prompt`,
-                output: `${prediction ?? "all"} response`,
-              }),
-            ]),
-          );
-        },
-      ),
-    );
+    mockReviewQueueRequest((url) => {
+      const prediction = url.searchParams.get("prediction");
+      requestedFilters.push(prediction);
+      return reviewQueueResponse([
+        queueItem({
+          trace_id: `trace_${prediction ?? "all"}`,
+          input: `${prediction ?? "all"} prompt`,
+          output: `${prediction ?? "all"} response`,
+        }),
+      ]);
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
@@ -866,23 +1042,10 @@ describe("review queue view", () => {
     let queueItems = [first, second];
 
     setupDataset(makeDatasetResponse(), emptyItems());
-    server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
-        HttpResponse.json(reviewQueueResponse(queueItems)),
-      ),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [second];
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
-    );
+    mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
+    mockCreateJudgment(() => {
+      queueItems = [second];
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
@@ -913,23 +1076,10 @@ describe("review queue view", () => {
     let queueItems = [only];
 
     setupDataset(makeDatasetResponse(), emptyItems());
-    server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
-        HttpResponse.json(reviewQueueResponse(queueItems)),
-      ),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [];
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
-    );
+    mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
+    mockCreateJudgment(() => {
+      queueItems = [];
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
@@ -1347,23 +1497,10 @@ describe("review queue view", () => {
     let queueItems = [first, second];
 
     setupDataset(makeDatasetResponse(), emptyItems());
-    server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
-        HttpResponse.json(reviewQueueResponse(queueItems)),
-      ),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [second];
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
-    );
+    mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
+    mockCreateJudgment(() => {
+      queueItems = [second];
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
@@ -1390,22 +1527,11 @@ describe("review queue view", () => {
     } | null = null;
 
     setupDataset(makeDatasetResponse(), emptyItems());
+    mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
+    mockCreateJudgment(() => {
+      queueItems = [];
+    });
     server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
-        HttpResponse.json(reviewQueueResponse(queueItems)),
-      ),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [];
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
       http.put(
         "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
         async ({ request, params }) => {

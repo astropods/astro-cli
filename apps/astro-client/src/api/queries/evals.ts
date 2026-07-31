@@ -1,5 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
+  keepPreviousData,
   type InfiniteData,
   useInfiniteQuery,
   useMutation,
@@ -16,6 +17,7 @@ import type {
   EvalDatasetItemsVerdict,
   EvalDatasetResponse,
   JudgmentCriterion,
+  PredictionStatusCounts,
   ReviewQueueItem,
   ReviewQueuePredictionFilter,
   ReviewQueueResponse,
@@ -130,17 +132,66 @@ export function useDatasetReviewQueue(
       last.next_cursor || undefined,
     enabled: !!deploymentId && enabled,
     staleTime: 30_000,
-    refetchInterval: (query) => {
-      const hasJudgingItems = query.state.data?.pages.some((page) =>
-        page.items.some(
-          (item) =>
-            item.prediction_status === "queued" ||
-            item.prediction_status === "in_progress",
-        ),
-      );
-      return hasJudgingItems ? REVIEW_QUEUE_POLL_INTERVAL_MS : false;
-    },
+    placeholderData: keepPreviousData,
   });
+}
+
+function hasActivePredictions(status: PredictionStatusCounts | undefined) {
+  return status !== undefined && status.queued + status.in_progress > 0;
+}
+
+export function useDatasetPredictionStatus(
+  deploymentId: string,
+  enabled = true,
+) {
+  const api = useApiClient();
+
+  return useQuery({
+    queryKey: evalKeys.predictionStatus(deploymentId),
+    queryFn: (): Promise<PredictionStatusCounts> =>
+      api.getDatasetPredictionStatus(deploymentId),
+    enabled: !!deploymentId && enabled,
+    refetchInterval: (query) =>
+      hasActivePredictions(query.state.data)
+        ? REVIEW_QUEUE_POLL_INTERVAL_MS
+        : false,
+  });
+}
+
+export function useReviewQueuePredictionStatus(
+  deploymentId: string,
+  enabled = true,
+) {
+  const queryClient = useQueryClient();
+  const query = useDatasetPredictionStatus(deploymentId, enabled);
+  const active = hasActivePredictions(query.data);
+  const previousActivityRef = useRef<{
+    deploymentId: string;
+    active: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (query.dataUpdatedAt === 0) {
+      return;
+    }
+
+    const previous =
+      previousActivityRef.current?.deploymentId === deploymentId
+        ? previousActivityRef.current.active
+        : undefined;
+    previousActivityRef.current = { deploymentId, active };
+
+    // The initial queue request already runs alongside the first status read.
+    // Subsequent active reads refresh the selected queue, including the final
+    // transition to inactive, while leaving other filter caches merely stale.
+    if (previous !== undefined && (previous || active)) {
+      void queryClient.invalidateQueries({
+        queryKey: evalKeys.reviewQueues(deploymentId),
+      });
+    }
+  }, [active, deploymentId, query.dataUpdatedAt, queryClient]);
+
+  return query;
 }
 
 export function usePostDatasetPredictions(deploymentId: string) {
@@ -150,9 +201,14 @@ export function usePostDatasetPredictions(deploymentId: string) {
   return useMutation<DatasetPredictionsResponse, Error, void>({
     mutationFn: () => api.postDatasetPredictions(deploymentId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: evalKeys.reviewQueues(deploymentId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: evalKeys.reviewQueues(deploymentId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: evalKeys.predictionStatus(deploymentId),
+        }),
+      ]);
     },
   });
 }

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { ArrowUpRight, Gavel, Loader2, Sparkle } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import { Link } from "react-router";
 import { usePostDatasetPredictions } from "@/api/queries/evals";
 import { Button } from "@/components/ui/button";
@@ -16,29 +15,11 @@ import { accountSettingsPath } from "@/lib/settings-paths";
 const AUTO_JUDGE_CREDIT_ESTIMATE = 500;
 
 function JudgingGavel() {
-  const reduceMotion = useReducedMotion();
-
   return (
     <span aria-hidden className="relative size-4 flex-none">
-      <motion.span
-        className="absolute inset-0 origin-[25%_75%]"
-        animate={
-          reduceMotion
-            ? undefined
-            : {
-                rotate: [-12, -12, 18, 4, -12],
-                y: [0, 0, 1, 0, 0],
-              }
-        }
-        transition={{
-          duration: 1.4,
-          ease: "easeInOut",
-          repeat: Infinity,
-          times: [0, 0.45, 0.56, 0.68, 1],
-        }}
-      >
+      <span className="dp-judging-gavel absolute inset-0">
         <Gavel className="size-4" />
-      </motion.span>
+      </span>
       <span className="absolute bottom-0 left-0.5 h-px w-3 rounded-full bg-current opacity-60" />
     </span>
   );

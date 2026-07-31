@@ -21,6 +21,7 @@ import {
   useDatasetReviewQueue,
   usePostDatasetJudgment,
   useRemoveReviewQueueItem,
+  useReviewQueuePredictionStatus,
   useSetDatasetJudgmentCriteria,
   useUndoDatasetJudgment,
 } from "@/api/queries/evals";
@@ -106,6 +107,8 @@ export function ReviewQueueView({
     useState<ReviewQueueFilterValue>("all");
   const predictionFilter: ReviewQueuePredictionFilter | undefined =
     queueFilter === "all" ? undefined : queueFilter;
+  const { data: predictionStatus } =
+    useReviewQueuePredictionStatus(deploymentId);
   const {
     data,
     isLoading,
@@ -128,16 +131,16 @@ export function ReviewQueueView({
     () => data?.pages.flatMap((page) => page.items) ?? EMPTY_REVIEW_QUEUE_ITEMS,
     [data?.pages],
   );
-  const judgingCount = items.filter(
-    (item) =>
-      item.prediction_status === "queued" ||
-      item.prediction_status === "in_progress",
-  ).length;
+  const judgingCount =
+    (predictionStatus?.queued ?? 0) + (predictionStatus?.in_progress ?? 0);
   const hasActivePredictions = judgingCount > 0;
   const hasJudgeableItems = items.some((item) => !item.prediction);
   const allQueueItemsLoaded = data !== undefined && !hasNextPage;
   const autoJudgeDisabled =
-    hasActivePredictions || (allQueueItemsLoaded && !hasJudgeableItems);
+    hasActivePredictions ||
+    (predictionFilter === undefined &&
+      allQueueItemsLoaded &&
+      !hasJudgeableItems);
   const loadedPageCount = data?.pages.length ?? 0;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;

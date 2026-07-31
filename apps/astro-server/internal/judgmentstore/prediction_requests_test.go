@@ -12,6 +12,53 @@ import (
 	"github.com/lib/pq"
 )
 
+func TestGetPredictionStatusCounts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery("WITH prediction_states AS").
+		WithArgs("dataset-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"queued", "in_progress", "completed", "failed",
+		}).AddRow(2, 3, 4, 5))
+
+	counts, err := NewStore(db).GetPredictionStatusCounts(
+		context.Background(),
+		"dataset-1",
+	)
+	if err != nil {
+		t.Fatalf("GetPredictionStatusCounts: %v", err)
+	}
+	if counts != (PredictionStatusCounts{
+		Queued: 2, InProgress: 3, Completed: 4, Failed: 5,
+	}) {
+		t.Fatalf("GetPredictionStatusCounts = %+v", counts)
+	}
+}
+
+func TestGetPredictionStatusCountsReturnsError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery("WITH prediction_states AS").
+		WithArgs("dataset-1").
+		WillReturnError(errors.New("read failed"))
+
+	_, err = NewStore(db).GetPredictionStatusCounts(
+		context.Background(),
+		"dataset-1",
+	)
+	if err == nil {
+		t.Fatal("GetPredictionStatusCounts error = nil")
+	}
+}
+
 func TestGetPredictionRequests(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

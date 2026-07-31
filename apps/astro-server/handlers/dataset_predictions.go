@@ -30,6 +30,17 @@ type DatasetPredictionsResponse struct {
 	FailedTraceIDs   []string `json:"failed_trace_ids"`
 }
 
+type DatasetPredictionStatusResponse struct {
+	Queued     int `json:"queued"`
+	InProgress int `json:"in_progress"`
+	Completed  int `json:"completed"`
+	Failed     int `json:"failed"`
+}
+
+type datasetPredictionStatusStore interface {
+	GetPredictionStatusCounts(context.Context, string) (judgmentstore.PredictionStatusCounts, error)
+}
+
 type datasetPredictionLangfuseStore interface {
 	GetDecrypted(context.Context, envelope.KMSClient, string) (*langfuse.AccountLangfuse, error)
 }
@@ -48,6 +59,58 @@ type datasetPredictionStore interface {
 
 type datasetPredictionQueue interface {
 	InsertEvalJudgePredictionJobs(ctx context.Context, evalDatasetID string, traceIDs []string) error
+}
+
+// GetDatasetPredictionStatus returns deployment-wide prediction lifecycle
+// counts independently from the filtered review queue.
+func GetDatasetPredictionStatus(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	predictionStore datasetPredictionStatusStore,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		deploymentID := c.Param("id")
+		deployment, err := deploymentStore.GetDeploymentByID(deploymentID)
+		if err != nil || deployment == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(deployment.AccountID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		dataset, ok := loadDataset(c, log, datasetStore, deploymentID)
+		if !ok {
+			return
+		}
+
+		counts, err := predictionStore.GetPredictionStatusCounts(
+			c.Request.Context(),
+			dataset.ID,
+		)
+		if err != nil {
+			log.Error("Failed to load dataset prediction status", "error", err, "deployment_id", deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dataset prediction status"})
+			return
+		}
+		c.JSON(http.StatusOK, DatasetPredictionStatusResponse{
+			Queued:     counts.Queued,
+			InProgress: counts.InProgress,
+			Completed:  counts.Completed,
+			Failed:     counts.Failed,
+		})
+	}
 }
 
 // PostDatasetPredictions queues one independent prediction job for each of the

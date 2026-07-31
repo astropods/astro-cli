@@ -37,6 +37,60 @@ type PredictionRequest struct {
 	UpdatedAt    time.Time
 }
 
+// PredictionStatusCounts summarizes prediction state for traces that have
+// not yet received a human judgment. A stored prediction is authoritative over
+// a request row whose lifecycle status lagged behind it.
+type PredictionStatusCounts struct {
+	Queued     int
+	InProgress int
+	Completed  int
+	Failed     int
+}
+
+func (s *Store) GetPredictionStatusCounts(
+	ctx context.Context,
+	evalDatasetID string,
+) (PredictionStatusCounts, error) {
+	var counts PredictionStatusCounts
+	err := s.db.QueryRowContext(ctx, `
+		WITH prediction_states AS (
+			SELECT
+				COALESCE(r.trace_id, p.trace_id) AS trace_id,
+				CASE WHEN p.trace_id IS NOT NULL THEN 'completed' ELSE r.status END AS status
+			FROM (
+				SELECT trace_id, status
+				FROM eval_dataset_prediction_requests
+				WHERE eval_dataset_id = $1
+			) r
+			FULL OUTER JOIN (
+				SELECT trace_id
+				FROM eval_dataset_judgment_predictions
+				WHERE eval_dataset_id = $1
+			) p
+			  ON p.trace_id = r.trace_id
+			LEFT JOIN eval_dataset_judgments j
+			  ON j.eval_dataset_id = $1
+			 AND j.trace_id = COALESCE(r.trace_id, p.trace_id)
+			WHERE j.trace_id IS NULL
+		)
+		SELECT
+			COUNT(*) FILTER (WHERE status = 'queued'),
+			COUNT(*) FILTER (WHERE status = 'in_progress'),
+			COUNT(*) FILTER (WHERE status = 'completed'),
+			COUNT(*) FILTER (WHERE status = 'failed')
+		FROM prediction_states
+	`, evalDatasetID).Scan(
+		&counts.Queued,
+		&counts.InProgress,
+		&counts.Completed,
+		&counts.Failed,
+	)
+	if err != nil {
+		return PredictionStatusCounts{}, fmt.Errorf("judgmentstore get prediction status counts: %w", err)
+	}
+	return counts, nil
+}
+
 // GetPredictionRequests returns request state keyed by trace ID.
 func (s *Store) GetPredictionRequests(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]PredictionRequest, error) {
 	out := make(map[string]PredictionRequest, len(traceIDs))

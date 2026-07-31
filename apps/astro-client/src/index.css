@@ -119,6 +119,31 @@ body {
   animation: dp-float 2.6s ease-in-out infinite;
 }
 
+@keyframes dp-judging-gavel {
+  0%,
+  45%,
+  100% {
+    transform: translateY(0) rotate(-12deg);
+  }
+  56% {
+    transform: translateY(1px) rotate(18deg);
+  }
+  68% {
+    transform: translateY(0) rotate(4deg);
+  }
+}
+
+.dp-judging-gavel {
+  animation: dp-judging-gavel 1.4s ease-in-out infinite;
+  transform-origin: 25% 75%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-judging-gavel {
+    animation: none;
+  }
+}
+
 @keyframes astro-logo-loader-float {
   0%,
   100% {

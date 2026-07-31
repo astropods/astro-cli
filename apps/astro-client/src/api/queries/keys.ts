@@ -176,6 +176,8 @@ export const evalKeys = {
     ['evals', deploymentId, 'review-queue'] as const,
   reviewQueue: (deploymentId: string, prediction?: string) =>
     [...evalKeys.reviewQueues(deploymentId), prediction ?? 'all'] as const,
+  predictionStatus: (deploymentId: string) =>
+    ['evals', deploymentId, 'prediction-status'] as const,
 };
 
 export const auditLogKeys = {
