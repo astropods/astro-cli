@@ -19,11 +19,11 @@ import (
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
-	"github.com/astropods/astro/apps/astro-cli/internal/config"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
+	"github.com/astropods/astro-cli/internal/config"
+	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -92,10 +92,6 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
 		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
-		cmd.Flags().Bool("local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
-		cmd.Flags().Bool("local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s project start --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", buildinfo.BinaryName))
-		_ = cmd.Flags().MarkHidden("local")
-		_ = cmd.Flags().MarkHidden("local-reset")
 	}
 
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
@@ -153,8 +149,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
 	rebuild := flagBool(cmd, "rebuild")
 	noPull := flagBool(cmd, "no-pull")
-	local := flagBool(cmd, "local")
-	localReset := flagBool(cmd, "local-reset")
 	background := flagBool(cmd, "background")
 	allLogs := flagBool(cmd, "all-logs")
 
@@ -172,32 +166,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
-	}
-
-	_, statErr := os.Stat(filepath.Join(workingDir, "requirements.txt"))
-	isPython := statErr == nil
-	isTypeScript := !isPython
-
-	if localReset {
-		if isTypeScript {
-			if err := unlinkLocalPackages(workingDir); err != nil {
-				return fmt.Errorf("local-reset: %w", err)
-			}
-			fmt.Printf("%s→%s Removed local packages. Run 'bun install' to restore dependencies.\n", colorCyan, colorReset)
-		} else if isPython {
-			if err := uninstallLocalPythonPackages(workingDir); err != nil {
-				return fmt.Errorf("local-reset: %w", err)
-			}
-			fmt.Printf("%s→%s Removed local Python packages. Restored from requirements.txt.\n", colorCyan, colorReset)
-		}
-		return nil
-	}
-
-	// --local requires ASTRO_ROOT for local packages
-	if local {
-		if os.Getenv("ASTRO_ROOT") == "" {
-			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
-		}
 	}
 
 	printBanner()
@@ -266,14 +234,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	// --local: omit agent from compose and run it as a local process
-	if local {
-		delete(project.Services, "agent")
-		if verbose {
-			fmt.Println("   --local: agent will run as local process")
-		}
-	}
-
 	astDir := filepath.Join(workingDir, buildinfo.AppDirName)
 	if err := os.MkdirAll(astDir, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create %s directory: %w", buildinfo.AppDirName, err)
@@ -321,7 +281,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Start non-profiled services (already built above)
 	upProject := projectForUp(project)
-	if noPull || local {
+	if noPull {
 		for name, svc := range upProject.Services {
 			svc.PullPolicy = composeTypes.PullPolicyNever
 			upProject.Services[name] = svc
@@ -356,17 +316,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Serve astro-client's chat UI from the CLI (queen-style), proxying to the
-	// local messaging sidecar. Runs as a detached worker so it survives
-	// background mode; foreground/--local stop it on teardown.
-	// In foreground/--local the worker should die with the CLI (even on a
-	// force-quit); in background mode it must outlive the exiting CLI.
+	// Serve the chat UI from the CLI, proxying to the local messaging
+	// sidecar. Runs as a detached worker so it survives background mode;
+	// in foreground it stops on teardown, in background it outlives the CLI.
 	startChatUI(astDir, astroSpec.Name, hasWebInterface, !background)
-
-	// --local: run agent as local process and block
-	if local {
-		return runLocalAgent(cmd, astroSpec, projectName, workingDir, envVars, hasWebInterface, allLogs)
-	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
 	runStartupIngestions(astroSpec, project, verbose)
@@ -414,181 +367,6 @@ func runForeground(projectName, astDir string, allLogs bool) error {
 	stopChatUI(astDir)
 	_ = os.Remove(filepath.Join(astDir, ".running"))
 	fmt.Printf("%s→%s Stopped\n", colorCyan, colorReset)
-	return nil
-}
-
-// runLocalAgent runs the agent as a local bun process and blocks until Ctrl+C.
-// projectName is the compose project name computed by composeBuilder.ProjectName,
-// used for Logs/health/Down so they match the project name used by Up.
-// allLogs=false suppresses the background sidecar tail since the agent's own
-// stdout already streams to this terminal; pass true to surface sidecar
-// failures live alongside the agent.
-func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, projectName string, workingDir string, envVars map[string]string, hasWebInterface bool, allLogs bool) error {
-	agentCtx, agentCancel := context.WithCancel(context.Background())
-	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
-
-	// Use local @astropods/* packages from ASTRO_ROOT
-	astroRoot, err := resolveAstroSourceRoot()
-	if err != nil {
-		agentCancel()
-		return err
-	}
-
-	_, statErr := os.Stat(filepath.Join(workingDir, "requirements.txt"))
-	isPython := statErr == nil
-	isTypeScript := !isPython
-	if isTypeScript {
-		// TypeScript agent: symlink @astropods/* packages and build SDKs.
-		if err := linkLocalPackages(workingDir, astroRoot); err != nil {
-			agentCancel()
-			return fmt.Errorf("link local packages: %w", err)
-		}
-		sdksToBuild := []struct{ name, dir string }{
-			{"@astropods/messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "node")},
-			{"@astropods/adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core")},
-			{"@astropods/adapter-mastra", filepath.Join(astroRoot, "modules", "adapters", "packages", "mastra")},
-		}
-		for _, sdk := range sdksToBuild {
-			if _, err := os.Stat(filepath.Join(sdk.dir, "dist", "index.js")); err != nil {
-				fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, sdk.name)
-				installCmd := exec.Command("bun", "install")
-				installCmd.Dir = sdk.dir
-				installCmd.Stdout = os.Stdout
-				installCmd.Stderr = os.Stderr
-				if err := installCmd.Run(); err != nil {
-					agentCancel()
-					return fmt.Errorf("failed to install deps for %s: %w", sdk.name, err)
-				}
-				buildCmd := exec.Command("bun", "run", "build")
-				buildCmd.Dir = sdk.dir
-				buildCmd.Stdout = os.Stdout
-				buildCmd.Stderr = os.Stderr
-				if err := buildCmd.Run(); err != nil {
-					agentCancel()
-					return fmt.Errorf("failed to build %s: %w", sdk.name, err)
-				}
-			}
-		}
-		fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
-	} else if isPython {
-		// Python agent: pip install -e local packages so the agent uses local source.
-		fmt.Printf("%s→%s Using local Python packages from %s\n", colorCyan, colorReset, astroRoot)
-		if err := installLocalPythonPackages(workingDir, astroRoot); err != nil {
-			agentCancel()
-			return err
-		}
-	}
-
-	// Resolve start command from spec. Default differs by language.
-	startCommand := "bun --watch run start"
-	if isPython {
-		startCommand = "python3 -m agent.main"
-	}
-	if astroSpec.Dev != nil && astroSpec.Dev.Command != "" {
-		startCommand = astroSpec.Dev.Command
-	}
-
-	// Run via shell so the command string is interpreted correctly.
-	// Setpgid gives the process its own group so we can kill the entire tree
-	// (bun --watch / python3 plus any agent-spawned children) via the group pid.
-	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand) //nolint:gosec
-	agentCmd.Dir = workingDir
-	agentCmd.Env = agentEnv
-	agentCmd.Stdout = os.Stdout
-	agentCmd.Stderr = os.Stderr
-	agentCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// Override the default context-cancel kill (Process.Kill, which only targets sh)
-	// to signal the whole process group so watchers and grandchildren don't leak.
-	agentCmd.Cancel = func() error {
-		if agentCmd.Process == nil {
-			return nil
-		}
-		return syscall.Kill(-agentCmd.Process.Pid, syscall.SIGTERM)
-	}
-	if err := agentCmd.Start(); err != nil {
-		agentCancel()
-		return fmt.Errorf("failed to start agent: %w", err)
-	}
-	fmt.Printf("%s→%s Agent running as local process %s(%s)%s\n", colorCyan, colorReset, colorDim, startCommand, colorReset)
-
-	checkComposeHealth(projectName)
-
-	// Stream docker compose logs only when --all-logs is set. In the default
-	// --local flow the agent runs as a host process and already streams its
-	// own stdout/stderr to this terminal; tailing sidecars on top of that
-	// drowns the agent's own output in noise. Sidecar logs remain available
-	// via `project logs <service>`.
-	logsCtx, logsCancel := context.WithCancel(context.Background())
-	if allLogs {
-		logsSvc, err := newComposeService(false)
-		if err != nil {
-			logsCancel()
-			agentCancel()
-			return fmt.Errorf("failed to init compose service for logs: %w", err)
-		}
-		go func() { //nolint:errcheck
-			_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
-				api.LogOptions{Follow: true})
-		}()
-	}
-
-	if hasWebInterface {
-		go func() {
-			time.Sleep(2 * time.Second)
-			openBrowser(chatUIURL)
-		}()
-	}
-
-	// Handle graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	fmt.Println()
-	fmt.Printf("%s→%s %sReady! Press Ctrl+C to stop%s\n", colorCyan, colorReset, colorBold, colorReset)
-	fmt.Println()
-
-	<-sigChan
-	signal.Stop(sigChan)
-
-	fmt.Println()
-	fmt.Printf("%s→%s Shutting down (Ctrl+C again to force)...\n", colorCyan, colorReset)
-
-	logsCancel()
-	if agentCmd.Process != nil {
-		// SIGTERM the entire process group (Setpgid above) so bun --watch
-		// workers and any children the agent spawned exit too — not just sh.
-		pgid := agentCmd.Process.Pid
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
-		done := make(chan struct{})
-		go func() {
-			_ = agentCmd.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			<-done
-		}
-	}
-	agentCancel()
-
-	// Stop all services
-	localSvc, err := newComposeService(false)
-	if err != nil {
-		return fmt.Errorf("failed to init compose service: %w", err)
-	}
-	// Always stop the chat-UI worker, even if Down errors — otherwise the
-	// detached worker keeps holding :3100. Matches runForeground/runDevStop.
-	downErr := localSvc.Down(context.Background(), projectName, api.DownOptions{})
-	stopChatUI(filepath.Join(workingDir, buildinfo.AppDirName))
-	if downErr != nil {
-		return fmt.Errorf("failed to stop services: %w", downErr)
-	}
-
-	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
-	fmt.Printf("  %sTip: run '%s project start --local-reset' to remove injected local dependencies%s\n", colorDim, buildinfo.BinaryName, colorReset)
-
 	return nil
 }
 
@@ -794,193 +572,6 @@ func checkComposeHealth(projectName string) {
 	fmt.Println()
 }
 
-// resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.
-// Used in --local to link @saswatds/* from packages/.
-func resolveAstroSourceRoot() (string, error) {
-	p := os.Getenv("ASTRO_ROOT")
-	if p == "" {
-		return "", fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
-	}
-	return filepath.Clean(p), nil
-}
-
-// localPackage describes a package to link in --local mode (scope, name, path relative to astroRoot).
-type localPackage struct {
-	scope string // e.g. "@astropods"
-	name  string // e.g. "adapter-mastra"
-	path  string // relative to astroRoot, e.g. "packages/adapters/mastra"
-}
-
-// localAstroPackages are the packages we link in --local and remove in --local-reset.
-var localAstroPackages = []localPackage{
-	{"@astropods", "messaging", "modules/messaging/sdk/node"},
-	{"@astropods", "adapter-core", "modules/adapters/packages/core"},
-	{"@astropods", "adapter-mastra", "modules/adapters/packages/mastra"},
-}
-
-// linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path
-// so the agent uses local source in --local mode.
-func linkLocalPackages(workingDir, astroRoot string) error {
-	for _, pkg := range localAstroPackages {
-		scopeDir := filepath.Join(workingDir, "node_modules", pkg.scope)
-		if err := os.MkdirAll(scopeDir, 0755); err != nil { //nolint:gosec
-			return err
-		}
-		target := filepath.Join(astroRoot, pkg.path)
-		target, err := filepath.Abs(target)
-		if err != nil {
-			return err
-		}
-		if st, err := os.Stat(target); err != nil {
-			return fmt.Errorf("%s/%s: %w", pkg.scope, pkg.name, err)
-		} else if !st.IsDir() {
-			return fmt.Errorf("%s/%s is not a directory", pkg.scope, pkg.name)
-		}
-		link := filepath.Join(scopeDir, pkg.name)
-		_ = os.RemoveAll(link)
-		if err := os.Symlink(target, link); err != nil {
-			return fmt.Errorf("symlink %s/%s: %w", pkg.scope, pkg.name, err)
-		}
-	}
-	return nil
-}
-
-// unlinkLocalPackages removes the symlinks created by linkLocalPackages
-// so the user can run bun install to restore registry dependencies.
-func unlinkLocalPackages(workingDir string) error {
-	for _, pkg := range localAstroPackages {
-		path := filepath.Join(workingDir, "node_modules", pkg.scope, pkg.name)
-		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove %s/%s: %w", pkg.scope, pkg.name, err)
-		}
-	}
-	return nil
-}
-
-// localPythonPackage describes a Python package to install in --local mode.
-// Packages must be listed in dependency order (dependencies before dependents).
-type localPythonPackage struct {
-	name string // PyPI package name, e.g. "astropods-messaging"
-	path string // relative to astroRoot, e.g. "modules/messaging/sdk/python"
-}
-
-// localAstroPythonPackages are the packages installed editable in --local and removed in --local-reset.
-var localAstroPythonPackages = []localPythonPackage{
-	{"astropods-messaging", "modules/messaging/sdk/python"},
-	{"astropods-adapter-core", "modules/adapters/packages/core-py"},
-	{"astropods-adapter-langchain", "modules/adapters/packages/langchain"},
-}
-
-// installLocalPythonPackages pip-installs each package as editable from ASTRO_ROOT source
-// so the agent uses local source in --local mode.
-func installLocalPythonPackages(workingDir, astroRoot string) error {
-	for _, pkg := range localAstroPythonPackages {
-		fmt.Printf("%s→%s Installing %s...\n", colorCyan, colorReset, pkg.name)
-		pkgPath := filepath.Join(astroRoot, pkg.path)
-		pipCmd := exec.Command("python3", "-m", "pip", "install", "-e", pkgPath, "--quiet") //nolint:gosec
-		pipCmd.Dir = workingDir
-		pipCmd.Stdout = os.Stdout
-		pipCmd.Stderr = os.Stderr
-		if err := pipCmd.Run(); err != nil {
-			return fmt.Errorf("failed to install %s: %w", pkg.name, err)
-		}
-	}
-	return nil
-}
-
-// uninstallLocalPythonPackages removes the editable installs and restores PyPI versions
-// from requirements.txt so the user can work without ASTRO_ROOT.
-func uninstallLocalPythonPackages(workingDir string) error {
-	for _, pkg := range localAstroPythonPackages {
-		pipCmd := exec.Command("python3", "-m", "pip", "uninstall", "-y", pkg.name) //nolint:gosec
-		pipCmd.Dir = workingDir
-		pipCmd.Stdout = os.Stdout
-		pipCmd.Stderr = os.Stderr
-		// Ignore errors — package may not be installed.
-		_ = pipCmd.Run()
-	}
-	// Reinstall from requirements.txt to restore PyPI versions.
-	pipCmd := exec.Command("python3", "-m", "pip", "install", "-r", "requirements.txt", "--quiet") //nolint:gosec
-	pipCmd.Dir = workingDir
-	pipCmd.Stdout = os.Stdout
-	pipCmd.Stderr = os.Stderr
-	return pipCmd.Run()
-}
-
-// buildLocalAgentEnv returns env for the agent process when running with --no-container.
-// Merges OS env, .env vars, and spec-resolved variables (provider credentials, model
-// connection strings, inputs) so the local process sees the same env as the container.
-func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
-	envMap := make(map[string]string)
-	for _, e := range os.Environ() {
-		if i := strings.Index(e, "="); i > 0 {
-			envMap[e[:i]] = e[i+1:]
-		}
-	}
-	for k, v := range envVars {
-		envMap[k] = v
-	}
-
-	// Apply the same spec-resolved variables that buildEnvironment injects into
-	// the Docker agent container (provider credentials, model URLs, inputs, etc.).
-	// Container-based service names are rewritten to localhost since in --local
-	// mode ports are published to the host.
-	specEnv := composeBuilder.BuildEnvironment(s, envVars)
-	for k, v := range specEnv {
-		if v != nil {
-			envMap[k] = *v
-		}
-	}
-
-	rewriteDockerHostsToLocalhost(s, envMap)
-
-	if s.Dev.HasMessagingAdapters() {
-		// Keep this in sync with buildMessagingPorts host-published gRPC port.
-		envMap["GRPC_SERVER_ADDR"] = "localhost:19090"
-	}
-	out := make([]string, 0, len(envMap))
-	for k, v := range envMap {
-		out = append(out, k+"="+v)
-	}
-	return out
-}
-
-// rewriteDockerHostsToLocalhost rewrites Docker-internal service hostnames to
-// localhost in the agent env map. In --local mode the agent runs on the host,
-// so Docker service names (model-*, knowledge-*, tool-*) won't resolve.
-// Containers publish their ports to the host, so localhost works instead.
-func rewriteDockerHostsToLocalhost(s *spec.AstroSpec, envMap map[string]string) {
-	serviceNames := make(map[string]bool)
-	for name, m := range s.Models {
-		if m.DeploysContainer(s.Providers) {
-			serviceNames[fmt.Sprintf("model-%s", name)] = true
-		}
-	}
-	for name, k := range s.Knowledge {
-		if k.DeploysContainer(s.Providers) {
-			serviceNames[fmt.Sprintf("knowledge-%s", name)] = true
-		}
-	}
-	for name, t := range s.Integrations {
-		if t.DeploysContainer(s.Providers) {
-			serviceNames[fmt.Sprintf("tool-%s", name)] = true
-		}
-	}
-
-	for k, v := range envMap {
-		for svc := range serviceNames {
-			if v == svc {
-				envMap[k] = "localhost"
-				break
-			}
-			if replaced := strings.ReplaceAll(v, svc, "localhost"); replaced != v {
-				envMap[k] = replaced
-				break
-			}
-		}
-	}
-}
-
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
 func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verbose bool) {
 	for name, ingestion := range s.Ingestion {
@@ -1101,4 +692,3 @@ func openBrowser(url string) {
 		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
 	}
 }
-

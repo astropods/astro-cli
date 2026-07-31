@@ -16,9 +16,9 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 	"gopkg.in/yaml.v3"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui"
-	repairui "github.com/astropods/astro/apps/astro-cli/internal/tui/repair"
+	"github.com/astropods/astro-cli/internal/scaffold"
+	"github.com/astropods/astro-cli/internal/tui"
+	repairui "github.com/astropods/astro-cli/internal/tui/repair"
 	spec "github.com/astropods/astro-spec"
 )
 

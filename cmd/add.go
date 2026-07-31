@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/specwriter"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui/add"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui/credentials"
+	"github.com/astropods/astro-cli/internal/specwriter"
+	"github.com/astropods/astro-cli/internal/tui/add"
+	"github.com/astropods/astro-cli/internal/tui/credentials"
 	spec "github.com/astropods/astro-spec"
 )
 

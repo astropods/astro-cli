@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/auth"
 )
 
 // ProjectConfig holds the stored configuration for a single project.

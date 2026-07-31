@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
+	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/telemetry"
 )
 
 func fullVersion() string {

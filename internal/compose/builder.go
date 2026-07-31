@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
@@ -141,10 +141,10 @@ func ProjectName(s *spec.AstroSpec) string {
 }
 
 // postgresDevCredentials resolves the POSTGRES_USER/PASSWORD/DB triple for the
-// dev compose project. Defaults mirror prod (generateKnowledgeCredentials in
-// apps/astro-server/internal/k8s/spec_applier.go) so agent code that reads
-// these env vars works identically locally and after deploy. envVars (.env /
-// ast configure) wins so users can pin a known value when needed.
+// dev compose project. Defaults mirror the astro-server-generated prod
+// credentials so agent code that reads these env vars works identically locally
+// and after deploy. envVars (.env / ast configure) wins so users can pin a
+// known value when needed.
 //
 // The password default is intentionally stable — random-per-run would force a
 // volume wipe on every restart.
@@ -237,7 +237,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			// Healthcheck from the container's own config.
 			if healthcheck := resolved.Healthcheck; healthcheck != nil {
 				interval := types.Duration(10000000000) // 10 seconds
-				timeout := types.Duration(5000000000)    // 5 seconds
+				timeout := types.Duration(5000000000)   // 5 seconds
 				retries := uint64(3)
 				test := buildModelHealthCheckTest(healthcheck, resolved.Port)
 				if test != nil {
@@ -695,7 +695,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 }
 
 // BuildEnvironment creates environment variables for the agent container.
-// Exported so buildLocalAgentEnv can reuse it for --local mode.
 func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 

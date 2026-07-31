@@ -7,10 +7,10 @@ import (
 )
 
 // The JSON shapes below mirror the subset of astro-server responses the chat
-// shell reads. They intentionally match the TypeScript interfaces in
-// apps/astro-client/src/lib/api.ts (DeploymentsSummaryResponse,
-// DeploymentsListResponse, AgentDeploymentSummary, DeploymentStatus,
-// DeploymentRuntime) so the embedded client deserializes them unchanged.
+// shell reads. They intentionally match the chat client's TypeScript response
+// interfaces (DeploymentsSummaryResponse, DeploymentsListResponse,
+// AgentDeploymentSummary, DeploymentStatus, DeploymentRuntime) so the embedded
+// client deserializes them unchanged.
 
 type deploymentsSummaryResponse struct {
 	Accounts []accountDeploymentsSummary `json:"accounts"`

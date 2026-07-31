@@ -18,8 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/chatui"
-	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
+	"github.com/astropods/astro-cli/internal/chatui"
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 const (
@@ -49,7 +49,7 @@ func init() {
 	chatUIServeCmd.Flags().String("messaging-url", "", "Base URL of the local messaging sidecar HTTP API")
 	chatUIServeCmd.Flags().String("agent-name", "", "Agent name for the synthesized local deployment")
 	chatUIServeCmd.Flags().String("agent-display", "", "Agent display name for the synthesized local deployment")
-	chatUIServeCmd.Flags().Bool("exit-with-parent", false, "Exit when the launching CLI dies (set for foreground/--local; off in background mode)")
+	chatUIServeCmd.Flags().Bool("exit-with-parent", false, "Exit when the launching CLI dies (set in foreground mode; off in background mode)")
 }
 
 func runChatUIServe(cmd *cobra.Command, _ []string) error {
@@ -65,7 +65,7 @@ func runChatUIServe(cmd *cobra.Command, _ []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Foreground/--local pass --exit-with-parent so the worker dies with the CLI
+	// Foreground mode passes --exit-with-parent so the worker dies with the CLI
 	// even on force-quit; background mode omits it so the worker outlives the CLI.
 	if flagBool(cmd, "exit-with-parent") {
 		ctx = cancelOnParentExit(ctx)

@@ -314,7 +314,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 }
 
 // Server-side error_code values returned by /deployment-template on 404.
-// Kept in sync with apps/astro-server/handlers/deploy.go.
+// Kept in sync with the astro-server deploy handler.
 const (
 	errCodeAccountNotFound   = "account_not_found"
 	errCodeBlueprintNotFound = "blueprint_not_found"

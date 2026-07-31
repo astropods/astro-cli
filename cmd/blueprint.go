@@ -14,9 +14,9 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 

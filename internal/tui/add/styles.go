@@ -1,7 +1,7 @@
 package add
 
 import (
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/charmbracelet/lipgloss"
 )
 

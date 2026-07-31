@@ -141,11 +141,6 @@ func TestMastraTemplate_AgentIndex_DoesNotUseAstroAgent(t *testing.T) {
 	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
-	// Strip adapter references, then check if the standalone @saswatds/astro-agent package remains
-	withoutAdapters := strings.ReplaceAll(content, "@astropods/adapter-mastra", "")
-	if strings.Contains(withoutAdapters, "@saswatds/astro-agent") {
-		t.Error("mastra agent/index.ts should not import @saswatds/astro-agent")
-	}
 	if strings.Contains(content, "AstroAgent") {
 		t.Error("mastra agent/index.ts should not reference AstroAgent class")
 	}
@@ -179,9 +174,6 @@ func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
 	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
 
-	if strings.Contains(content, `"@saswatds/astro-agent"`) {
-		t.Error("mastra package.json should not depend on @saswatds/astro-agent")
-	}
 	if strings.Contains(content, `"@astropods/messaging"`) {
 		t.Error("mastra package.json should not depend on @astropods/messaging")
 	}

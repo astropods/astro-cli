@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 )
 
 // captureStderr redirects os.Stderr to a pipe for the duration of f, then

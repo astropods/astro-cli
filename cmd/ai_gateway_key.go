@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -56,9 +56,8 @@ func fetchAIGatewayDevKey(ctx context.Context, at AccountToken, s *spec.AstroSpe
 // ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY. Same env-var names the deployer
 // injects in prod — agent code reads identical names in dev and prod.
 //
-// Also sets via os.Setenv so the --local agent process (which inherits the
-// CLI's env) and composeBuilder (which reads envVars when populating the
-// compose service env) both see them.
+// They are written to the envVars map that composeBuilder reads when populating
+// the compose service env, and mirrored into the process env via os.Setenv.
 func applyAIGatewayDevKey(s *spec.AstroSpec, resp *aiGatewayDevKeyResponse, envVars map[string]string) error {
 	if resp == nil || s == nil || !s.UsesGateway() {
 		return nil

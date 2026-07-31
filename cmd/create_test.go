@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro-cli/internal/scaffold"
 )
 
 // ── applyModelOverride ────────────────────────────────────────────────────────

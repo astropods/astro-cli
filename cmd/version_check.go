@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/fatih/color"
 )
 

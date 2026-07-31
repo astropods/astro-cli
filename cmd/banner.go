@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/theme"
 )
 
 const bannerArt = `

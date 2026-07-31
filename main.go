@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/astropods/astro/apps/astro-cli/cmd"
+	"github.com/astropods/astro-cli/cmd"
 )
 
 func main() {

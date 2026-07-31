@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 )
 
 // DeviceAuthorizationResponse is returned by the device authorization endpoint

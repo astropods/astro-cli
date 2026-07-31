@@ -4,7 +4,7 @@ import "fmt"
 
 // All build-time variables are declared here and set via ldflags:
 //
-//	go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.<Var>=<value>"
+//	go build -ldflags "-X github.com/astropods/astro-cli/internal/buildinfo.<Var>=<value>"
 
 // Build type constants derived from BinaryName.
 const (

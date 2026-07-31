@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/theme"
 )
 
 // Table layout constants shared by list commands.

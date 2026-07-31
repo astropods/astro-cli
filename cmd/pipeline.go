@@ -11,9 +11,9 @@ import (
 	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 

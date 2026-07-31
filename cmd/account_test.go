@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/stretchr/testify/require"
 )
 

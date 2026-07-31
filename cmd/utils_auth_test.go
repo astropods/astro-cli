@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/auth"
 )
 
 func authTestJWT(exp time.Time) string {

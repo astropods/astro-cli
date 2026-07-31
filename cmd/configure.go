@@ -16,10 +16,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/config"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui"
-	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/config"
+	"github.com/astropods/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 

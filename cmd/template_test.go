@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro-cli/internal/scaffold"
 )
 
 // TestAstroYml_TemplatePassesValidation renders astropods.yml from each scaffold

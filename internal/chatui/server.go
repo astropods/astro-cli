@@ -27,8 +27,8 @@ import (
 
 const (
 	// LocalAccount and LocalDeploymentID name the single synthetic account and
-	// deployment the chat shell sees locally. Keep in sync with the chat-embed
-	// entry in apps/astro-client/src/chat-embed/main.tsx.
+	// deployment the chat shell sees locally. Keep in sync with the chat client's
+	// chat-embed entry point.
 	LocalAccount      = "local"
 	LocalDeploymentID = "local"
 
@@ -241,7 +241,7 @@ func (s *Server) spaHandler() http.Handler {
 	if !s.hasAssets {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w,
-				"chat UI assets are not embedded in this build (run `moon run astro-client:build-chat-embed` and rebuild the CLI)",
+				"chat UI assets are not embedded in this build (the chat UI ships only in official release binaries)",
 				http.StatusServiceUnavailable)
 		})
 	}

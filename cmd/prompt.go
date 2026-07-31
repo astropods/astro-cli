@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/tui"
 )
 
 // promptKeyMap returns the canonical huh keymap. esc and ctrl+c both abort.

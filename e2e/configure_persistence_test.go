@@ -50,7 +50,7 @@ func buildAstBinary(t *testing.T) string {
 	binPath := filepath.Join(binDir, "ast-dev")
 
 	cmd := exec.Command("go", "build",
-		"-ldflags=-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-dev",
+		"-ldflags=-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-dev",
 		"-o", binPath, ".")
 	cmd.Dir = cliDir
 	if out, err := cmd.CombinedOutput(); err != nil {

@@ -14,9 +14,9 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
-	"github.com/astropods/astro/apps/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 

@@ -1,7 +1,7 @@
 package theme
 
 import (
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 )

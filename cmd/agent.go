@@ -15,8 +15,8 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/theme"
 )
 
 // agentServerURLOverride is set in tests to redirect API calls to a test server.
@@ -298,11 +298,11 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(w, bold.Render(deploymentLabel(dep))+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))      //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID))          //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                            //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)                       //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  ID:         %s\n", dim.Render(dep.ID))                  //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))           //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID))               //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                                 //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)                            //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  ID:         %s\n", dim.Render(dep.ID))                       //nolint:errcheck,gosec
 
 	if fullErr == nil {
 		if messaging := messagingEndpoint(full.ExternalURLs); messaging != nil && messaging.URL != "" {

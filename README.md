@@ -1,125 +1,103 @@
-# Astro CLI — Internal
+# Astro CLI
 
-Internal notes for building, testing, and working on the CLI. For user-facing usage see [README.md](../README.md).
+`ast` is the command-line tool for building, running, pushing, and deploying
+agents on the Astro AI platform.
 
 ## Prerequisites
 
-- **Go** 1.24+
-- **Docker** and Docker Compose
-- **moon** — monorepo build tool
+- **Go** 1.25+
+- **Docker** and Docker Compose (for `ast dev` and container builds)
 
-### Installing moon
+## Build from source
 
-```bash
-bash <(curl -fsSL https://moonrepo.dev/install/moon.sh)
-export PATH="$HOME/.moon/bin:$PATH"
+```sh
+git clone https://github.com/astropods/astro-cli.git
+cd astro-cli
+go build -o bin/ast .
 ```
 
-Or via npm/bun: `bun add -d @moonrepo/cli` (then `bun x moon run astro-cli:build`).
+Or install straight onto your `PATH`:
 
-## Building
-
-From repo root:
-
-```bash
-moon run astro-cli:build
+```sh
+go install github.com/astropods/astro-cli@latest
 ```
 
-Output: `apps/astro-cli/bin/ast-dev`.
+The chat UI is not part of this repository, so a source build serves a 503 on the
+chat route. Official release binaries ship with the chat UI embedded.
 
-To build and symlink into `~/go/bin/ast-dev` (must be on `$PATH`):
+## Test
 
-```bash
-moon run astro-cli:link
+```sh
+go build ./...
+go vet ./...
+go test ./cmd/... ./internal/...
 ```
 
-**Config namespacing**: `ast-dev` stores credentials in `~/.ast-dev/`, separate from production `ast` (`~/.ast/`). After linking, run `ast-dev configure` in your agent project to set up API keys. To share credentials with `ast`, symlink the config: `ln -sf ~/.ast/project-configs.json ~/.ast-dev/project-configs.json`.
+End-to-end tests live under `e2e/` behind the `integration` build tag:
 
-## Testing
-
-```bash
-cd apps/astro-cli
-go test ./...
+```sh
+go test -tags integration ./e2e/...
 ```
-
-Verbose:
-
-```bash
-go test -v ./cmd/...
-```
-
-Tests include push version/auto logic, `baseVersion`, `updateSpecVersion`, and `defaultPushTag` (with temporary git repos for git-clean/git-dirty cases).
 
 ## Dependencies
 
 - **Cobra** — CLI framework
-- **Docker SDK** — Container builds and orchestration
-- **Compose Go** — Docker Compose project generation
-- **ORAS** (crane) — OCI artifact push (via auth/crane)
-- **fsnotify** — File watching for hot reload
-- **astro-spec** (internal package) — YAML spec parsing and types
+- **Docker SDK** / **Compose Go** — container builds and Docker Compose generation
+- **ORAS** (crane) — OCI artifact push
+- **fsnotify** — file watching for hot reload
+- **[astro-spec](https://github.com/astropods/astro-spec)** — the `astropods.yml` spec parser and types (a public Go module)
 
 ## Project structure
 
 ```
-apps/astro-cli/
-├── main.go                 # Entry point
-├── cmd/
-│   ├── root.go             # Root command, global flags
-│   ├── dev.go              # ast dev — local development, compose, hot reload
-│   ├── build.go             # ast build — container builds (BuildKit)
-│   ├── push.go              # ast push — version logic, registry push, register
-│   ├── push_streaming.go    # Push progress, multi-platform
-│   ├── login.go / logout.go # Auth
-│   ├── create.go            # ast create — scaffold new agent
-│   └── version.go           # version/commit (ldflags-injected)
+.
+├── main.go             # entry point
+├── cmd/                # commands: dev, build, push, create, login, ...
 ├── internal/
-│   ├── auth/               # Server/registry auth, token storage, crane
-│   ├── compose/             # Compose project generation from spec
-│   ├── scaffold/            # Templates for ast create
-│   ├── utils/               # Helpers (env, image names)
-│   └── watcher/             # File watcher for hot reload
-├── go.mod / go.sum
-├── moon.yml                 # moon build task
-└── docs/
-    └── INTERNAL.md          # This file
+│   ├── auth/           # server/registry auth, token storage
+│   ├── compose/        # Docker Compose project generation from the spec
+│   ├── scaffold/       # templates for `ast create`
+│   ├── chatui/         # local chat UI server (assets embedded at release time)
+│   └── watcher/        # file watcher for hot reload
+├── e2e/                # integration tests
+└── go.mod / go.sum
 ```
 
-Spec types and parsing live in `packages/astro-spec` (shared with server).
+Spec types and parsing come from the
+[astro-spec](https://github.com/astropods/astro-spec) module.
 
 ## Architecture
 
-1. **Spec** — `astropods.yml` is parsed by `packages/astro-spec` into structured types.
-2. **Dev** — `compose` builder turns the spec into a Docker Compose project; `dev` runs it and optionally runs the agent process locally with a watcher.
-3. **Build** — For each component with `container.build`, the CLI invokes Docker/BuildKit with the right context, Dockerfile, secrets (e.g. npm token from env or injected), and platform.
-4. **Push** — Each push generates a random 8-character build ID used as the image tag. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.
+1. **Spec** — `astropods.yml` is parsed by `astro-spec` into structured types.
+2. **Dev** — the `compose` builder turns the spec into a Docker Compose project;
+   `ast dev` runs it locally.
+3. **Build** — for each component with `container.build`, the CLI invokes
+   Docker/BuildKit with the right context, Dockerfile, secrets, and platform.
+4. **Push** — each push generates a random 8-character build ID used as the image
+   tag. Images are tagged and pushed (single or multi-platform); the spec is
+   pushed as an OCI artifact and optionally registered with an Astro server.
 
-### Local push (`--local`)
+### Local push (`ast push --local`)
 
-`ast push --local` builds images and registers the spec with a locally running astro-server (`http://localhost:8080`) instead of the remote platform. The remote registry push is skipped.
+`ast push --local` builds images and registers the spec with a locally running
+astro-server (`http://localhost:8080`) instead of the remote platform; the remote
+registry push is skipped.
 
 | Aspect | Normal | `--local` |
 |--------|--------|-----------|
-| Auth / namespace fetch | Remote registry | Skipped (uses namespace `local`) |
+| Auth / namespace fetch | Remote registry | Skipped (namespace `local`) |
 | Build | Yes | Yes |
 | Image push | Remote registry | Skipped |
-| Image retag | — | Local `docker tag` to registry path |
+| Image retag | — | Local `docker tag` to the registry path |
 | Registration server | Remote (from profile) | `http://localhost:8080` |
 
-Because the spec's image references use the full registry path (e.g. `registry.example.com/ns/agent:tag`), the CLI retags each locally-built platform image to that path so the local astro-server (which deploys with `imagePullPolicy: Never`) can resolve them from the local Docker daemon.
+Because the spec's image references use the full registry path (e.g.
+`registry.example.com/ns/agent:tag`), the CLI retags each locally built platform
+image to that path so a local astro-server (which deploys with
+`imagePullPolicy: Never`) can resolve them from the local Docker daemon.
 
-Usage:
+## Design principles
 
-```bash
-# Start local astro-server
-cd apps/astro-server && moon run astro-server:dev
-
-# Push to local server
-ast push --local
-```
-
-Design principles:
-
-- **Declarative** — Infrastructure as code in YAML.
-- **Container-native** — Builds and runs everything in Docker.
-- **OCI-compatible** — Works with any registry; ORAS for spec artifacts.
+- **Declarative** — infrastructure as code in YAML.
+- **Container-native** — builds and runs everything in Docker.
+- **OCI-compatible** — works with any registry; ORAS for spec artifacts.

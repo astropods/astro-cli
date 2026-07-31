@@ -1,4 +1,4 @@
-module github.com/astropods/astro/apps/astro-cli
+module github.com/astropods/astro-cli
 
 go 1.25.5
 

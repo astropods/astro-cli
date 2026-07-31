@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro-cli/internal/scaffold"
 )
 
 // TestCreatePython_GeneratedFiles verifies that GenerateFiles for a Python agent

@@ -7,7 +7,7 @@ import (
 
 	"github.com/amplitude/analytics-go/amplitude"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 )
 
 // noopLogger suppresses all Amplitude SDK log output.

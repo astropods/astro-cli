@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
-	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/scaffold"
+	"github.com/astropods/astro-cli/internal/theme"
 	spec "github.com/astropods/astro-spec"
 )
 
