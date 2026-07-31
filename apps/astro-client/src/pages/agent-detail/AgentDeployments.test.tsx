@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { screen, cleanup, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { Outlet } from "react-router";
@@ -15,6 +15,10 @@ import type {
 } from "@/lib/api";
 import type { LogEntry } from "@/lib/log-utils";
 import AgentDeployments from "./AgentDeployments";
+
+const { mockScrollToOffset } = vi.hoisted(() => ({
+  mockScrollToOffset: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -36,17 +40,20 @@ vi.mock("@/components/agent-detail/pods/use-tile-measurements", () => ({
 
 // Virtualizer — jsdom has no layout engine. Render all rows directly.
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: (opts: { count: number }) => ({
+  useVirtualizer: (opts: { count: number; getItemKey?: (index: number) => number | string | bigint }) => ({
     getVirtualItems: () =>
       Array.from({ length: opts.count }, (_, i) => ({
-        key: i,
+        key: opts.getItemKey?.(i) ?? i,
         index: i,
         start: i * 24,
+        end: (i + 1) * 24,
         size: 24,
       })),
     getTotalSize: () => opts.count * 24,
+    getOffsetForIndex: (index: number) => [index * 24, "start"] as const,
     measureElement: vi.fn(),
     scrollToIndex: vi.fn(),
+    scrollToOffset: mockScrollToOffset,
   }),
 }));
 
@@ -94,6 +101,7 @@ afterEach(() => {
   server.resetHandlers();
   mockStartStream.mockClear();
   mockStopStream.mockClear();
+  mockScrollToOffset.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -833,6 +841,14 @@ describe("user views and searches logs", () => {
     );
   }
 
+  function makeLogPage(messagePrefix: string, hour: number, minute = 0): LogEntry[] {
+    return Array.from({ length: 500 }, (_, i) => ({
+      timestamp: new Date(Date.UTC(2025, 3, 1, hour, minute, i)).toISOString(),
+      level: "info",
+      message: `${messagePrefix} ${i}`,
+    }));
+  }
+
   it("shows historical log lines with messages", async () => {
     setupLogs([
       { timestamp: "2025-04-01T12:00:01Z", level: "info", message: "Agent started" },
@@ -872,6 +888,95 @@ describe("user views and searches logs", () => {
     });
     // The matching line is still present (with highlighted "request" in a <mark>)
     expect(screen.getByText((_, el) => el?.textContent === "Processing request abc")).toBeInTheDocument();
+  });
+
+  it("loads older logs on request and keeps the current log anchored", async () => {
+    const firstPage = makeLogPage("line", 12);
+    const olderPage = makeLogPage("older line", 11, 50);
+    let callCount = 0;
+    let resolveOlderPage: (() => void) | undefined;
+
+    server.use(
+      http.get("/api/v1/deployments/:id/logs", () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json<LogEntry[]>(firstPage);
+        if (callCount > 2) return HttpResponse.json<LogEntry[]>([]);
+        return new Promise<Response>((resolve) => {
+          resolveOlderPage = () => resolve(HttpResponse.json<LogEntry[]>(olderPage));
+        });
+      }),
+    );
+
+    const { container, user } = renderDeployments();
+    await user.click(await screen.findByText("agent"));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+    await screen.findByText("line 99");
+
+    const scroll = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
+      .find((element) => element.textContent?.includes("line 99"));
+    expect(scroll).toBeDefined();
+
+    scroll!.scrollTop = 48;
+    fireEvent.scroll(scroll!);
+    expect(callCount).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Load older logs" }));
+    await waitFor(() => expect(resolveOlderPage).toBeDefined());
+    expect(screen.getByRole("button", { name: "Loading older logs…" })).toBeDisabled();
+
+    await act(async () => resolveOlderPage?.());
+
+    await screen.findByText("older line 0");
+    await waitFor(() => {
+      expect(mockScrollToOffset).toHaveBeenCalledWith(12048, { align: "start" });
+    });
+    await user.click(await screen.findByRole("button", { name: "Load older logs" }));
+    await waitFor(() => expect(callCount).toBe(3));
+  });
+
+  it("continues pagination when searched older logs do not match and the next page is empty", async () => {
+    const firstPage = makeLogPage("needle line", 12);
+    const nonMatchingPage = makeLogPage("older noise", 11, 50);
+    let callCount = 0;
+    let resolveNonMatchingPage: (() => void) | undefined;
+    let resolveEmptyPage: (() => void) | undefined;
+
+    server.use(
+      http.get("/api/v1/deployments/:id/logs", () => {
+        callCount++;
+        if (callCount === 1) return HttpResponse.json<LogEntry[]>(firstPage);
+        if (callCount === 2) {
+          return new Promise<Response>((resolve) => {
+            resolveNonMatchingPage = () =>
+              resolve(HttpResponse.json<LogEntry[]>(nonMatchingPage));
+          });
+        }
+        return new Promise<Response>((resolve) => {
+          resolveEmptyPage = () => resolve(HttpResponse.json<LogEntry[]>([]));
+        });
+      }),
+    );
+
+    const { user } = renderDeployments();
+    await user.click(await screen.findByText("agent"));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+    await screen.findByText("needle line 99");
+    await user.type(screen.getByPlaceholderText("Search"), "needle");
+
+    await user.click(screen.getByRole("button", { name: "Load older logs" }));
+    await waitFor(() => expect(resolveNonMatchingPage).toBeDefined());
+    await act(async () => resolveNonMatchingPage?.());
+    expect(screen.queryByText("older noise 0")).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Load older logs" }));
+    await waitFor(() => expect(resolveEmptyPage).toBeDefined());
+    expect(callCount).toBe(3);
+    expect(screen.getByRole("button", { name: "Loading older logs…" })).toBeDisabled();
+
+    await act(async () => resolveEmptyPage?.());
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Load older logs" })).not.toBeInTheDocument();
+    });
   });
 
   it("container switcher appears with multiple containers", async () => {

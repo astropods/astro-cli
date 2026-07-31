@@ -13,6 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   formatLogTimestamp,
   formatLogTimestampCompact,
@@ -32,6 +33,12 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 // ---------------------------------------------------------------------------
 
 type TimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
+
+interface PrependAnchor {
+  key: number;
+  offset: number;
+  previousCount: number;
+}
 
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: "15m", label: "15m" },
@@ -95,13 +102,11 @@ function PodLogsTabContent({ workload, deploymentId }: PodLogsTabProps) {
     useLogFiltering(logs);
 
   // Search
-  const searched = useDeferredValue(
-    deferredSearch
-      ? filtered.filter((e) =>
-          e.message.toLowerCase().includes(deferredSearch.toLowerCase()),
-        )
-      : filtered,
-  );
+  const searched = deferredSearch
+    ? filtered.filter((e) =>
+        e.message.toLowerCase().includes(deferredSearch.toLowerCase()),
+      )
+    : filtered;
 
   // Live tail controls
   const startTail = useCallback(() => {
@@ -333,11 +338,20 @@ function LogOutput({
   const isUserScrolled = useRef(false);
   const [showJump, setShowJump] = useState(false);
 
-  // Track state needed for scroll restoration after prepend.
-  const firstVisibleOnLoadMore = useRef(-1);
-  const logsLengthOnLoadMore = useRef(0);
-  const wasLoadingMoreRef = useRef(false);
-  const loadMoreInFlight = useRef(false);
+  // Capture the visible row before older pages prepend. Restoring by row
+  // identity avoids scroll-height drift while virtual rows are remeasured.
+  const prependAnchorRef = useRef<PrependAnchor | null>(null);
+
+  const seqMapRef = useRef<WeakMap<LogEntry, number>>(new WeakMap());
+  const seqCounterRef = useRef(0);
+  const getLogKey = useCallback((entry: LogEntry) => {
+    let seq = seqMapRef.current.get(entry);
+    if (seq === undefined) {
+      seq = seqCounterRef.current++;
+      seqMapRef.current.set(entry, seq);
+    }
+    return seq;
+  }, []);
 
   // useVirtualizer returns non-memoizable functions; React Compiler will
   // automatically skip memoizing this component. Disable the rule explicitly
@@ -346,6 +360,7 @@ function LogOutput({
   const virtualizer = useVirtualizer({
     count: logs.length,
     getScrollElement: () => scrollRef.current,
+    getItemKey: (index) => getLogKey(logs[index]!),
     estimateSize: () => 24,
     overscan: 15,
   });
@@ -358,19 +373,53 @@ function LogOutput({
     setShowJump(false);
   }, [logs.length, virtualizer]);
 
-  // Restore scroll position after prepend so the user sees the same logs.
-  // eslint-disable-next-line react-hooks/incompatible-library
+  const capturePrependAnchor = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) return null;
+
+    const anchorItem = virtualizer
+      .getVirtualItems()
+      .find((item) => item.end > element.scrollTop);
+    if (!anchorItem) return null;
+
+    const entry = logs[anchorItem.index];
+    if (!entry) return null;
+
+    return {
+      key: getLogKey(entry),
+      offset: anchorItem.start - element.scrollTop,
+      previousCount: logs.length,
+    };
+  }, [getLogKey, logs, virtualizer]);
+
+  // Once the query settles, restore the same visible log when matching rows
+  // were prepended. Filtered and empty pages simply clear the anchor.
   useLayoutEffect(() => {
-    const justFinished = wasLoadingMoreRef.current && !isLoadingMore;
-    wasLoadingMoreRef.current = !!isLoadingMore;
-    if (justFinished && firstVisibleOnLoadMore.current >= 0) {
-      const delta = logs.length - logsLengthOnLoadMore.current;
-      if (delta > 0) {
-        virtualizer.scrollToIndex(firstVisibleOnLoadMore.current + delta, { align: "start" });
+    const anchor = prependAnchorRef.current;
+    if (!anchor || isLoadingMore) return;
+
+    prependAnchorRef.current = null;
+    if (logs.length > anchor.previousCount) {
+      const index = logs.findIndex((entry) => getLogKey(entry) === anchor.key);
+      const offsetInfo = index >= 0
+        ? virtualizer.getOffsetForIndex(index, "start")
+        : undefined;
+      if (offsetInfo) {
+        virtualizer.scrollToOffset(
+          Math.max(0, offsetInfo[0] - anchor.offset),
+          { align: "start" },
+        );
       }
-      firstVisibleOnLoadMore.current = -1;
     }
-  }, [logs.length, isLoadingMore, virtualizer]);
+  }, [getLogKey, hasMore, isLoadingMore, logs, virtualizer]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!onLoadMore || isLoadingMore) return;
+
+    prependAnchorRef.current = capturePrependAnchor();
+    isUserScrolled.current = true;
+    void onLoadMore();
+  }, [capturePrependAnchor, isLoadingMore, onLoadMore]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -379,16 +428,7 @@ function LogOutput({
     const scrolledUp = dist > 60;
     isUserScrolled.current = scrolledUp;
     setShowJump(scrolledUp);
-
-    if (el.scrollTop < 100 && hasMore && !loadMoreInFlight.current && onLoadMore) {
-      loadMoreInFlight.current = true;
-      firstVisibleOnLoadMore.current = virtualizer.range?.startIndex ?? 0;
-      logsLengthOnLoadMore.current = logs.length;
-      void onLoadMore().finally(() => {
-        loadMoreInFlight.current = false;
-      });
-    }
-  }, [hasMore, onLoadMore, virtualizer]);
+  }, []);
 
   // Auto-scroll on new logs
   useEffect(() => {
@@ -426,68 +466,77 @@ function LogOutput({
     return <p className="py-4 text-mono-sm text-red-400">{error}</p>;
   }
 
-  if (logs.length === 0) {
-    return (
-      <p className="py-4 text-mono-sm text-muted-foreground/60 dark:text-white/20">
-        {isTailing ? "Waiting for logs…" : "No logs in this time window"}
-      </p>
-    );
-  }
+  const canLoadMore = Boolean(onLoadMore && (hasMore || isLoadingMore));
 
   return (
-    <div className="relative flex-1 min-h-0">
-      {isLoadingMore && (
-        <div className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface/90 px-3 py-1 text-mono-sm text-muted-foreground shadow backdrop-blur-sm dark:border-white/8 dark:bg-black/60 dark:text-white/50">
-          <Loader2 className="size-3 animate-spin" />
-          Loading older logs…
-        </div>
-      )}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto rounded border border-border/60 bg-black/2 py-1 dark:border-white/4 dark:bg-black/20"
-      >
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-          {virtualizer.getVirtualItems().map((vItem) => {
-            const entry = logs[vItem.index];
-            const level = normalizeLevel(entry.level);
-            const lvlClass = levelColorClass(entry.level);
-            return (
-              <div
-                key={vItem.key}
-                data-index={vItem.index}
-                ref={virtualizer.measureElement}
-                className="flex items-baseline gap-x-2 px-3 py-0.5 font-mono text-mono-sm leading-5"
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${vItem.start}px)`,
-                }}
-              >
-                <span className="w-[16ch] shrink-0 text-muted-foreground dark:text-white/20" title={formatLogTimestamp(entry.timestamp)}>
-                  {formatLogTimestampCompact(entry.timestamp)}
-                </span>
-                <span className={cn("w-[5ch] shrink-0 font-medium", lvlClass)}>
-                  {level}
-                </span>
-                <span className="text-foreground/70 dark:text-white/60">
-                  {search ? highlightSearch(entry.message, search) : entry.message}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      {showJump && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-white/80 px-3 py-1 text-mono-sm text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground dark:border-white/8 dark:bg-black/60 dark:text-white/50 dark:hover:text-white/70"
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+      {canLoadMore && (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          onClick={handleLoadMore}
+          disabled={isLoadingMore}
+          className="self-center font-mono text-mono-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowDown className="size-3" />
-          Jump to bottom
-        </button>
+          {isLoadingMore && <Loader2 className="size-3 animate-spin" />}
+          {isLoadingMore ? "Loading older logs…" : "Load older logs"}
+        </Button>
+      )}
+      {logs.length === 0 ? (
+        <p className="py-4 text-mono-sm text-muted-foreground/60 dark:text-white/20">
+          {isTailing ? "Waiting for logs…" : "No logs in this time window"}
+        </p>
+      ) : (
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="h-full overflow-y-auto rounded border border-border/60 bg-black/2 py-1 dark:border-white/4 dark:bg-black/20"
+          >
+            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              {virtualizer.getVirtualItems().map((vItem) => {
+                const entry = logs[vItem.index];
+                const level = normalizeLevel(entry.level);
+                const lvlClass = levelColorClass(entry.level);
+                return (
+                  <div
+                    key={vItem.key}
+                    data-index={vItem.index}
+                    ref={virtualizer.measureElement}
+                    className="flex items-baseline gap-x-2 px-3 py-0.5 font-mono text-mono-sm leading-5"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vItem.start}px)`,
+                    }}
+                  >
+                    <span className="w-[16ch] shrink-0 text-muted-foreground dark:text-white/20" title={formatLogTimestamp(entry.timestamp)}>
+                      {formatLogTimestampCompact(entry.timestamp)}
+                    </span>
+                    <span className={cn("w-[5ch] shrink-0 font-medium", lvlClass)}>
+                      {level}
+                    </span>
+                    <span className="text-foreground/70 dark:text-white/60">
+                      {search ? highlightSearch(entry.message, search) : entry.message}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {showJump && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-white/80 px-3 py-1 text-mono-sm text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground dark:border-white/8 dark:bg-black/60 dark:text-white/50 dark:hover:text-white/70"
+            >
+              <ArrowDown className="size-3" />
+              Jump to bottom
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
