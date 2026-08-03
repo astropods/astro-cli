@@ -29,11 +29,11 @@ cd astro-cli
 go build -o bin/ast .
 ```
 
-Or install straight onto your `PATH`:
-
-```sh
-go install github.com/astropods/astro-cli@latest
-```
+A plain source build is configured for **local development**: the binary reports
+itself as `ast-dev` and defaults to a local server at `http://localhost:8080` (the
+server URL and binary name are injected via `-ldflags` at release time). To use the
+CLI against the hosted Astro AI platform, install an official release binary - see
+[Install the CLI](https://docs.astropods.com/install-cli).
 
 The chat UI is not part of this repository, so a source build serves a 503 on the
 chat route. Official release binaries ship with the chat UI embedded.
@@ -90,24 +90,25 @@ Spec types and parsing come from the
    tag. Images are tagged and pushed (single or multi-platform); the spec is
    pushed as an OCI artifact and optionally registered with an Astro server.
 
-### Local push (`ast push --local`)
+### Local push (local astro-server)
 
-`ast push --local` builds images and registers the spec with a locally running
-astro-server (`http://localhost:8080`) instead of the remote platform; the remote
-registry push is skipped.
+When the CLI targets a local astro-server (`http://localhost:8080`, `127.0.0.1`, or
+`::1`), `push` automatically registers the spec with that server and skips the
+remote registry, retagging images locally instead. There is no separate flag - the
+behavior is inferred from the target server URL.
 
-| Aspect | Normal | `--local` |
-|--------|--------|-----------|
+| Aspect | Remote server | Local server |
+|--------|--------------|--------------|
 | Auth / namespace fetch | Remote registry | Skipped (namespace `local`) |
-| Build | Yes | Yes |
+| Build | Yes | Yes (native platform) |
 | Image push | Remote registry | Skipped |
-| Image retag | — | Local `docker tag` to the registry path |
+| Image retag | n/a | Local `docker tag` to the registry path |
 | Registration server | Remote (from profile) | `http://localhost:8080` |
 
 Because the spec's image references use the full registry path (e.g.
 `registry.example.com/ns/agent:tag`), the CLI retags each locally built platform
-image to that path so a local astro-server (which deploys with
-`imagePullPolicy: Never`) can resolve them from the local Docker daemon.
+image to that path so a local astro-server can resolve them from the local Docker
+daemon.
 
 ## Design principles
 
