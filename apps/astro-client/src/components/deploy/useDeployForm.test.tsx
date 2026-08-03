@@ -409,6 +409,61 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.selectedAdapters).toEqual(['web', 'slack']);
   });
 
+  it('sends an explicit empty value when an optional field is cleared, so the clear sticks (#1841)', async () => {
+    const prefilledTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      target: { ...mockTemplate.target, display_name: 'My Agent', deployment_id: 'dep-123' },
+      variables: {
+        OPENAI_API_KEY: { value: 'sk-test-key-123', default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key' },
+        SENTRY_DSN: { value: 'https://sentry.example.com/123', default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN' },
+      },
+    };
+
+    let finalizeVars: Record<string, { value?: string; ref?: string }> | undefined;
+    server.use(
+      http.post('/api/v1/agents/:account/:name/deployment-template', async ({ request }) => {
+        const body = (await request.json()) as {
+          finalize?: boolean;
+          variables?: Record<string, { value?: string; ref?: string }>;
+        };
+        if (body.finalize) finalizeVars = body.variables;
+        return HttpResponse.json(wrapTemplateResponse(prefilledTemplate, body));
+      }),
+      http.post('/api/v1/deploy', () =>
+        HttpResponse.json({ deployment_id: 'dep-123', status: 'deploying' }),
+      ),
+    );
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          deploymentId: 'dep-123',
+          initialTemplateResponse: wrapTemplateResponse(prefilledTemplate),
+          initialValues: {
+            deployName: 'My Agent',
+            targetAccount: 'testuser',
+            variableValues: {
+              OPENAI_API_KEY: 'sk-test-key-123',
+              SENTRY_DSN: 'https://sentry.example.com/123',
+            },
+            selectedAdapters: ['web'],
+            adapterCredentials: {},
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {});
+    act(() => result.current.setVariableValues((prev) => ({ ...prev, SENTRY_DSN: '' })));
+    await act(async () => {
+      await result.current.deploy();
+    });
+
+    expect(finalizeVars?.SENTRY_DSN).toEqual({ value: '' });
+    expect(finalizeVars?.OPENAI_API_KEY).toEqual({ value: 'sk-test-key-123' });
+  });
+
   it('preserves pre-filled values across re-renders', async () => {
     const prefilledTemplate: DeploymentTemplate = {
       ...mockTemplate,

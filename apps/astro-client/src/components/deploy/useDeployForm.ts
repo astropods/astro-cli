@@ -1127,10 +1127,13 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // Build the variables payload from form values.
     const variableInputs: Record<string, { value?: string; ref?: string }> = {};
-    for (const [key] of [...variableEntries, ...Object.values(adapterVariableDefs).flat()]) {
+    for (const [key, def] of [...variableEntries, ...Object.values(adapterVariableDefs).flat()]) {
       const raw = allFormValues[key];
       if (raw != null && raw !== "") {
         variableInputs[key] = resolveValue(raw);
+      } else if (def.optional && !def.secret) {
+        // Explicit empty so clearing an optional field sticks (blank secrets are kept).
+        variableInputs[key] = { value: "" };
       }
     }
     // Serialize object variables: re-assemble sub-field form values into JSON.
