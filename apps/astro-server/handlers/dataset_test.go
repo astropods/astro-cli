@@ -51,7 +51,7 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
 		DownloadEvalDataset(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
-		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
+		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore, nil))
 	f.router.GET("/api/v1/deployments/:id/dataset/predictions/status",
 		GetDatasetPredictionStatus(log, accountStore, deployStore, dsStore, judgmentStore))
 	f.router.POST("/api/v1/deployments/:id/dataset/judgments",
@@ -1275,6 +1275,7 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 		{
 			ID:        "trace-2",
 			SessionID: "session-1",
+			UserID:    "user_01HXX_bob",
 			CreatedAt: "2026-06-01T13:00:00Z",
 			Input:     "thanks, this helped",
 			Output:    "great",
@@ -1291,6 +1292,9 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
 	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1", "trace-3")
+	expectPersonalProfilesQuery(f.accountMock, []string{"user_01HXX_bob"}, func(rows *sqlmock.Rows) {
+		rows.AddRow("user_01HXX_bob", "bob", "Bob Smith", nil)
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?limit=3", nil)
 	rec := httptest.NewRecorder()
@@ -1308,6 +1312,12 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	}
 	if resp.Items[0].TraceID != "trace-2" {
 		t.Fatalf("first item = %+v, want trace-2", resp.Items[0])
+	}
+	if resp.Items[0].UserID != "user_01HXX_bob" || resp.Items[0].UserDetails == nil ||
+		resp.Items[0].UserDetails.Kind != UserDetailsKindAstro ||
+		resp.Items[0].UserDetails.DisplayName != "Bob Smith" ||
+		resp.Items[0].UserDetails.Username != "bob" {
+		t.Fatalf("first item user = %q/%+v, want hydrated Bob profile", resp.Items[0].UserID, resp.Items[0].UserDetails)
 	}
 	if resp.Items[1].TraceID != "trace-1" {
 		t.Fatalf("second item = %+v, want trace-1", resp.Items[1])

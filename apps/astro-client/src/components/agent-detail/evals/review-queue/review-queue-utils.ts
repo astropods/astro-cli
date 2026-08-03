@@ -50,6 +50,8 @@ export function reviewQueueItemToTraceEntry(item: ReviewQueueItem): TraceEntry {
     latency_ms: 0,
     total_cost: 0,
     timestamp: item.timestamp,
+    user_id: item.user_id,
+    user_details: item.user_details,
   };
 }
 

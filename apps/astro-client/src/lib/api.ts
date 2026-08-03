@@ -1183,6 +1183,8 @@ export interface ReviewQueuePrediction {
 export interface ReviewQueueItem {
   trace_id: string;
   timestamp: string;
+  user_id?: string;
+  user_details?: UserDetails;
   input: unknown;
   output: unknown;
   prediction_status: ReviewQueuePredictionStatus;

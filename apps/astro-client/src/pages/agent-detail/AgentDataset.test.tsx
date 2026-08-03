@@ -1141,6 +1141,31 @@ describe("review queue view", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the trace user's avatar in the review queue input", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          user_id: "user_01HXX_bob",
+          user_details: {
+            kind: "astro",
+            display_name: "Bob Smith",
+            username: "bob",
+          },
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    expect(
+      await screen.findByRole("img", { name: "Bob Smith" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bob Smith")).toBeInTheDocument();
+  });
+
   it("lets the dataset page own review detail scrolling", async () => {
     setupDataset(
       makeDatasetResponse(),

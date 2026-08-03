@@ -1,6 +1,7 @@
 import { Check, UserRound } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { ContentSection } from "@/components/agent-detail/traces/detail/ContentSection";
+import { TraceUserIdentity } from "@/components/agent-detail/traces/TraceUserIdentity";
 import type { ReviewQueueItem } from "@/lib/api";
 import { formatTimeAgo } from "@/lib/time-format";
 import { ReviewQueueLoadMoreButton } from "./ReviewQueueList";
@@ -24,6 +25,8 @@ export function ReviewQueueDetail({
   agentAvatarUrl: string;
 }) {
   const timestamp = item.timestamp ? formatTimeAgo(item.timestamp) : "";
+  const userLabel =
+    item.user_details?.display_name || item.user_details?.username || "User";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -33,9 +36,20 @@ export function ReviewQueueDetail({
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-5">
           <ContentSection
-            label="User"
+            label={
+              item.user_id ? (
+                <TraceUserIdentity
+                  userId={item.user_id}
+                  userDetails={item.user_details}
+                  account={account}
+                />
+              ) : (
+                "User"
+              )
+            }
+            ariaLabel={userLabel}
             content={item.input}
-            icon={<UserSectionIcon />}
+            icon={!item.user_id ? <UserSectionIcon /> : undefined}
             headerMeta={<TraceTime value={timestamp} />}
             mode="pretty"
             contentClassName={REVIEW_QUEUE_CONTENT_CLASS}

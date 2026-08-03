@@ -25,6 +25,35 @@ describe("ContentSection", () => {
     expect(screen.getByText("14:08")).toBeInTheDocument();
   });
 
+  it("toggles from the header without handling nested button or link clicks", () => {
+    render(
+      <ContentSection
+        label={
+          <a href="slack://user" onClick={(event) => event.preventDefault()}>
+            Carol Chen
+          </a>
+        }
+        ariaLabel="Carol Chen"
+        content="hello"
+      />,
+    );
+
+    const toggle = screen.getByRole("button", {
+      name: "Collapse Carol Chen",
+    });
+    const header = toggle.parentElement;
+    if (!header) throw new Error("Content section header not found");
+
+    fireEvent.click(header);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("link", { name: "Carol Chen" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("applies an optional content scroll class", () => {
     render(
       <ContentSection

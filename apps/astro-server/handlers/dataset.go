@@ -25,6 +25,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
 // evalDatasetSummary is the JSON shape returned by GetEvalDataset.
@@ -231,6 +232,8 @@ type DatasetReviewQueuePrediction struct {
 type DatasetReviewQueueItem struct {
 	TraceID          string                        `json:"trace_id"`
 	Timestamp        string                        `json:"timestamp"`
+	UserID           string                        `json:"user_id,omitempty"`
+	UserDetails      *UserDetails                  `json:"user_details,omitempty"`
 	Input            any                           `json:"input"`
 	Output           any                           `json:"output"`
 	PredictionStatus string                        `json:"prediction_status"`
@@ -298,6 +301,7 @@ func GetDatasetReviewQueue(
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore *langfuse.Store,
 	judgmentStore *judgmentstore.Store,
+	slackStore *slackidentity.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -346,7 +350,32 @@ func GetDatasetReviewQueue(
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch traces"})
 			return
 		}
+		hydrateDatasetReviewQueueUsers(log, slackStore, accountStore, &resp)
 		c.JSON(http.StatusOK, resp)
+	}
+}
+
+func hydrateDatasetReviewQueueUsers(
+	log *logger.Logger,
+	slackStore *slackidentity.Store,
+	accountStore *account.AccountStore,
+	resp *DatasetReviewQueueResponse,
+) {
+	if resp == nil || len(resp.Items) == 0 {
+		return
+	}
+	userIDs := make([]string, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		if item.UserID != "" {
+			userIDs = append(userIDs, item.UserID)
+		}
+	}
+	if len(userIDs) == 0 {
+		return
+	}
+	hydrator := newUserDetailsHydrator(log, slackStore, accountStore, userIDs, "dataset-review-queue")
+	for i := range resp.Items {
+		resp.Items[i].UserDetails = traceUserDetailsFromHydrator(resp.Items[i].UserID, hydrator)
 	}
 }
 
@@ -736,6 +765,7 @@ func newDatasetReviewQueueItem(
 	item := DatasetReviewQueueItem{
 		TraceID:          trace.ID,
 		Timestamp:        trace.CreatedAt,
+		UserID:           trace.UserID,
 		Input:            trace.Input,
 		Output:           trace.Output,
 		PredictionStatus: reviewQueueStatusNotRequested,

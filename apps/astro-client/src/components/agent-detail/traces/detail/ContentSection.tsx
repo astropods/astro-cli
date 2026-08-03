@@ -15,7 +15,8 @@ const RESIZE_MIN_HEIGHT = 128;
 const RESIZE_KEYBOARD_STEP = 24;
 
 export interface ContentSectionProps {
-  label: string;
+  label: ReactNode;
+  ariaLabel?: string;
   content: unknown;
   icon?: ReactNode;
   headerMeta?: ReactNode;
@@ -28,6 +29,7 @@ export interface ContentSectionProps {
 
 export function ContentSection({
   label,
+  ariaLabel,
   content,
   icon,
   headerMeta,
@@ -48,6 +50,8 @@ export function ContentSection({
     typeof window === "undefined" ? 720 : Math.max(192, window.innerHeight * 0.7);
   const resizeMinHeight = RESIZE_MIN_HEIGHT;
   const resizeMaxHeightClamped = Math.max(resizeMinHeight, resizeMaxHeight);
+  const accessibleLabel =
+    ariaLabel ?? (typeof label === "string" ? label : "content");
 
   function clampContentHeight(height: number) {
     return Math.max(
@@ -105,6 +109,11 @@ export function ContentSection({
   return (
     <section className="overflow-hidden rounded-md border border-border/70">
       <div
+        onClick={(event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest("button, a")) return;
+          setOpen((current) => !current);
+        }}
         className={cn(
           "flex items-center gap-2 transition-colors hover:bg-muted/45 dark:hover:bg-foreground/5",
           open && "bg-muted/40 dark:bg-foreground/5",
@@ -114,7 +123,8 @@ export function ContentSection({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left"
+          aria-label={`${open ? "Collapse" : "Expand"} ${accessibleLabel}`}
+          className="flex flex-none items-center py-2.5 pl-4"
         >
           <ChevronRight
             className={cn(
@@ -122,9 +132,13 @@ export function ContentSection({
               open && "rotate-90",
             )}
           />
-          {icon && <span className="flex flex-none items-center justify-center">{icon}</span>}
-          <span className="truncate text-body-sm font-medium text-foreground">{label}</span>
         </button>
+        {icon && (
+          <span className="flex flex-none items-center justify-center">{icon}</span>
+        )}
+        <div className="flex min-w-0 flex-1 items-center py-2.5 pr-2 text-body-sm font-medium text-foreground">
+          {label}
+        </div>
         {(headerMeta || !parsed.isEmpty) && (
           <div className="mr-2 flex flex-none items-center gap-2">
             {headerMeta}
@@ -189,7 +203,7 @@ export function ContentSection({
             {resizableContent && (
               <button
                 type="button"
-                aria-label={`Resize ${label} content`}
+                aria-label={`Resize ${accessibleLabel} content`}
                 onPointerDown={handleResizeStart}
                 onKeyDown={handleResizeKeyDown}
                 className="absolute bottom-0 right-0 z-10 size-3 cursor-ns-resize touch-none"
