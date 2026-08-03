@@ -521,7 +521,7 @@ describe("review queue view", () => {
     );
   });
 
-  it("keeps the judge button enabled for a prediction-filtered queue", async () => {
+  it("keeps the judge button disabled after filtering a resolved queue", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
     mockReviewQueueRequest((url) =>
       reviewQueueResponse(
@@ -556,7 +556,81 @@ describe("review queue view", () => {
     expect(await screen.findByText("Predicted good response")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Run AI Judge" }),
-    ).toBeEnabled();
+    ).toBeDisabled();
+  });
+
+  it("enables the judge button when the Not judged filter finds an unjudged trace", async () => {
+    const predictedItem = queueItem({
+      trace_id: "trace-predicted-good",
+      output: "Predicted response",
+      prediction_status: "completed",
+      prediction: {
+        verdict_score: 0.8,
+        confidence: 82,
+        explanation: "The response addressed the request.",
+        judge_version: "1",
+        criteria: [],
+      },
+    });
+    const unjudgedItem = queueItem({
+      trace_id: "trace-not-judged",
+      output: "Unjudged response",
+    });
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([predictedItem]),
+    );
+    mockReviewQueueRequest((url) =>
+      reviewQueueResponse(
+        url.searchParams.get("prediction") === "none"
+          ? [unjudgedItem]
+          : [predictedItem],
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    const judgeButton = await screen.findByRole("button", {
+      name: "Run AI Judge",
+    });
+    await waitFor(() => expect(judgeButton).toBeDisabled());
+
+    await user.click(
+      screen.getByRole("combobox", { name: "Filter review queue" }),
+    );
+    await user.click(screen.getByRole("option", { name: "Not judged" }));
+
+    expect(await screen.findByText("Unjudged response")).toBeInTheDocument();
+    expect(judgeButton).toBeEnabled();
+  });
+
+  it("disables the judge button when every queue item has a prediction", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace-predicted-good",
+          prediction_status: "completed",
+          prediction: {
+            verdict_score: 0.8,
+            confidence: 82,
+            explanation: "The response addressed the request.",
+            judge_version: "1",
+            criteria: [],
+          },
+        }),
+      ]),
+    );
+
+    renderDataset({ tab: null });
+
+    const judgeButton = await screen.findByRole("button", {
+      name: "Run AI Judge",
+    });
+    await waitFor(() => expect(judgeButton).toBeDisabled());
   });
 
   it("refreshes the selected queue while prediction status is active", async () => {

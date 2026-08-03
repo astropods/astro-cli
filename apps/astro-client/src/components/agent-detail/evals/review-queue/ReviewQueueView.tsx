@@ -113,6 +113,7 @@ export function ReviewQueueView({
 }: ReviewQueueViewProps) {
   const [queueFilter, setQueueFilter] =
     useState<ReviewQueueFilterValue>("all");
+  const [allQueueFullyJudged, setAllQueueFullyJudged] = useState(false);
   const predictionFilter: ReviewQueuePredictionFilter | undefined =
     queueFilter === "all" ? undefined : queueFilter;
   const {
@@ -145,13 +146,20 @@ export function ReviewQueueView({
   const judgingCount =
     (predictionStatus?.queued ?? 0) + (predictionStatus?.in_progress ?? 0);
   const hasActivePredictions = judgingCount > 0;
-  const hasJudgeableItems = items.some((item) => !item.prediction);
-  const allQueueItemsLoaded = data !== undefined && !hasNextPage;
+  const hasVisibleUnjudgedItems = items.some((item) => !item.prediction);
+  const currentAllQueueFullyJudged =
+    predictionFilter === undefined &&
+    data !== undefined &&
+    !hasNextPage &&
+    !hasVisibleUnjudgedItems;
+  const filteredQueueFullyJudged =
+    predictionFilter !== undefined &&
+    allQueueFullyJudged &&
+    !hasVisibleUnjudgedItems;
   const autoJudgeDisabled =
     hasActivePredictions ||
-    (predictionFilter === undefined &&
-      allQueueItemsLoaded &&
-      !hasJudgeableItems);
+    currentAllQueueFullyJudged ||
+    filteredQueueFullyJudged;
   const loadedPageCount = data?.pages.length ?? 0;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
@@ -163,6 +171,13 @@ export function ReviewQueueView({
     : -1;
   const baselineStatus = getBaselineStatus(summary);
   const canLoadMore = Boolean(hasNextPage);
+
+  useEffect(() => {
+    if (predictionFilter !== undefined || data === undefined) {
+      return;
+    }
+    setAllQueueFullyJudged(!hasNextPage && !hasVisibleUnjudgedItems);
+  }, [data, hasNextPage, hasVisibleUnjudgedItems, predictionFilter]);
 
   useEffect(() => {
     if (
