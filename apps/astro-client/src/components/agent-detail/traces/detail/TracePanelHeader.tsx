@@ -1,21 +1,6 @@
-import { Check, ChevronDown, ChevronUp, Copy, Link, Maximize2, Minimize2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Link } from "lucide-react";
 import { formatTimestamp } from "../trace-utils";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-
-export interface TracePanelHeaderProps {
-  timestamp: string;
-  traceId: string;
-  onClose: () => void;
-  canGoPrev?: boolean;
-  canGoNext?: boolean;
-  onNavigate?: (dir: "prev" | "next") => void;
-  expanded?: boolean;
-  onToggleExpanded?: () => void;
-  /** When provided, the header renders a button that copies a shareable link. */
-  onShare?: () => void;
-  /** Shows the copied confirmation on the share button. */
-  shareCopied?: boolean;
-}
 
 // The copy-id and copy-link buttons live next to the trace id (not with the
 // panel controls) and render at 12px so the id row stays compact.
@@ -40,95 +25,75 @@ function CopyIdButton({ traceId }: { traceId: string }) {
   );
 }
 
-export function TracePanelHeader({
-  timestamp,
-  traceId,
-  onClose,
-  canGoPrev,
-  canGoNext,
-  onNavigate,
-  expanded,
-  onToggleExpanded,
-  onShare,
-  shareCopied,
-}: TracePanelHeaderProps) {
-  return (
-    <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <h3 className="text-heading-4 text-foreground">
-          {formatTimestamp(timestamp, true)}
-        </h3>
-        <div className="mt-1 flex items-center gap-1.5">
-          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-            {traceId}
-          </p>
-          <CopyIdButton traceId={traceId} />
-          {onShare && (
-            <button
-              type="button"
-              onClick={onShare}
-              title="Copy link to this trace"
-              aria-label="Copy link to this trace"
-              className={ID_BUTTON_CLASS}
-            >
-              {shareCopied ? (
-                <Check className="size-3 text-foreground-accent" />
-              ) : (
-                <Link className="size-3" />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
+export interface TracePanelTitleProps {
+  timestamp: string;
+  traceId: string;
+  /** When provided, renders a button that copies a shareable link. */
+  onShare?: () => void;
+  /** Shows the copied confirmation on the share button. */
+  shareCopied?: boolean;
+}
 
-      <div className="flex shrink-0 items-center gap-1">
-        {onNavigate && (
-          <>
-            <button
-              type="button"
-              onClick={() => onNavigate("prev")}
-              disabled={!canGoPrev}
-              aria-label="Previous trace"
-              className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronUp className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate("next")}
-              disabled={!canGoNext}
-              aria-label="Next trace"
-              className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
-            >
-              <ChevronDown className="size-4" />
-            </button>
-            {/* Light divider separating trace navigation from panel controls. */}
-            <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-          </>
-        )}
-        {onToggleExpanded && (
+// Left side of the trace panel header (fed to SidePanel's `title`): the trace
+// timestamp with the id row and its copy / share buttons.
+export function TracePanelTitle({ timestamp, traceId, onShare, shareCopied }: TracePanelTitleProps) {
+  return (
+    <div className="min-w-0">
+      <h3 className="text-heading-4 text-foreground">{formatTimestamp(timestamp, true)}</h3>
+      <div className="mt-1 flex items-center gap-1.5">
+        <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{traceId}</p>
+        <CopyIdButton traceId={traceId} />
+        {onShare && (
           <button
             type="button"
-            onClick={onToggleExpanded}
-            aria-label={expanded ? "Restore panel size" : "Expand panel to full width"}
-            className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+            onClick={onShare}
+            title="Copy link to this trace"
+            aria-label="Copy link to this trace"
+            className={ID_BUTTON_CLASS}
           >
-            {expanded ? (
-              <Minimize2 className="size-4" />
+            {shareCopied ? (
+              <Check className="size-3 text-foreground-accent" />
             ) : (
-              <Maximize2 className="size-4" />
+              <Link className="size-3" />
             )}
           </button>
         )}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close trace"
-          className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
       </div>
     </div>
+  );
+}
+
+export interface TraceNavButtonsProps {
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
+  onNavigate?: (dir: "prev" | "next") => void;
+}
+
+// Prev/next trace controls (fed to SidePanel's `headerActions`), with a divider
+// separating them from the panel's expand/close controls.
+export function TraceNavButtons({ canGoPrev, canGoNext, onNavigate }: TraceNavButtonsProps) {
+  if (!onNavigate) return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onNavigate("prev")}
+        disabled={!canGoPrev}
+        aria-label="Previous trace"
+        className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+      >
+        <ChevronUp className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onNavigate("next")}
+        disabled={!canGoNext}
+        aria-label="Next trace"
+        className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+      >
+        <ChevronDown className="size-4" />
+      </button>
+      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+    </>
   );
 }

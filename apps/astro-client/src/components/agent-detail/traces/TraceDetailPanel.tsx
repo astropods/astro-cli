@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import type { TraceEntry } from "@/lib/api";
 import { useObservabilityTraceDetail } from "@/api/queries/observability";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { TracePanelHeader } from "./detail/TracePanelHeader";
+import { TracePanelTitle, TraceNavButtons } from "./detail/TracePanelHeader";
+import { SidePanel } from "@/components/ui/side-panel";
 import { TraceMetaGrid } from "./detail/TraceMetaGrid";
 import { TraceTabs, type TraceTab } from "./detail/TraceTabs";
 import { TraceOverviewTab } from "./detail/TraceOverviewTab";
@@ -97,24 +98,25 @@ export function TraceDetailPanel({
   }, [trace.total_tokens, observations]);
 
   return (
-    <div
-      role="dialog"
-      aria-label="Trace details"
-      className="flex h-full w-full flex-col overflow-hidden rounded-md border border-border bg-card"
+    <SidePanel
+      background="card"
+      ariaLabel="Trace details"
+      closeLabel="Close trace"
+      onClose={onClose}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
+      title={
+        <TracePanelTitle
+          timestamp={traceForDisplay.timestamp}
+          traceId={traceForDisplay.trace_id}
+          onShare={handleShare}
+          shareCopied={copied}
+        />
+      }
+      headerActions={
+        <TraceNavButtons canGoPrev={canGoPrev} canGoNext={canGoNext} onNavigate={onNavigate} />
+      }
     >
-      <TracePanelHeader
-        timestamp={traceForDisplay.timestamp}
-        traceId={traceForDisplay.trace_id}
-        onClose={onClose}
-        canGoPrev={canGoPrev}
-        canGoNext={canGoNext}
-        onNavigate={onNavigate}
-        expanded={expanded}
-        onToggleExpanded={onToggleExpanded}
-        onShare={handleShare}
-        shareCopied={copied}
-      />
-
       <TraceMetaGrid
         latencyMs={traceForDisplay.latency_ms}
         totalCost={traceForDisplay.total_cost}
@@ -192,6 +194,6 @@ export function TraceDetailPanel({
           </>
         )}
       </div>
-    </div>
+    </SidePanel>
   );
 }

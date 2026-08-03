@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { X, ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
+import { ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
+import { SidePanel } from "@/components/ui/side-panel";
 import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
 import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { cn } from "@/lib/utils";
@@ -63,9 +64,16 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
   const logErrorMessage = firstContainerError(byContainer, probeContainers.map((c) => c.name));
 
   return (
-    <div className="flex h-full w-full flex-col rounded-md border border-border bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4">
+    <SidePanel
+      background="card"
+      headerBorder={false}
+      headerClassName="px-5 py-4"
+      ariaLabel={`${name} pod details`}
+      closeLabel="Close pod details"
+      onClose={onClose}
+      expanded={expanded}
+      onToggleExpanded={onToggleExpanded}
+      title={
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-normal text-foreground">{name}</h2>
           <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1">
@@ -73,26 +81,8 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
             <span className="text-mono-sm text-muted-foreground">{statusLabel}</span>
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          {onToggleExpanded && (
-            <button
-              onClick={onToggleExpanded}
-              aria-label={expanded ? "Collapse pod details" : "Expand pod details"}
-              className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            aria-label="Close pod details"
-            className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
-
+      }
+    >
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border px-3">
         {TABS.map((tab) => (
@@ -156,7 +146,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
           <AlertsTab deploymentId={deploymentId} workload={workload.component || workload.name} />
         </div>
       )}
-    </div>
+    </SidePanel>
   );
 }
 
