@@ -932,16 +932,13 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			}
 
 		case "web":
-			// Enable the Web adapter for HTTP/SSE access. The chat UI is now
-			// served by the astro CLI (internal/chatui), so the sidecar's bundled
-			// playground is disabled — the sidecar is the API/persistence backend
-			// only.
+			// Enable the Web adapter for HTTP/SSE access. The chat UI is served
+			// by the astro CLI (internal/chatui); the sidecar is the
+			// API/persistence backend only.
 			enabled := "true"
 			env["WEB_ENABLED"] = &enabled
 			listenAddr := ":8080"
 			env["WEB_LISTEN_ADDR"] = &listenAddr
-			servePlayground := "false"
-			env["WEB_SERVE_PLAYGROUND"] = &servePlayground
 			// Persist chat history in the sidecar's SQLite store on the mounted
 			// volume. Without CHAT_DB_PATH the sidecar disables persistence.
 			dbPath := chatDBPath

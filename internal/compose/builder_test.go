@@ -241,14 +241,11 @@ func TestBuildProject_WebInterface(t *testing.T) {
 	}
 
 	// Messaging is the chat backend only: WEB_ENABLED stays true, but the chat
-	// UI is now served by the CLI (internal/chatui), so the sidecar's bundled
-	// playground is disabled and chat history is persisted via CHAT_DB_PATH.
+	// UI is served by the CLI (internal/chatui) and chat history is persisted
+	// via CHAT_DB_PATH.
 	messaging := project.Services["astro-messaging"]
 	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
 		t.Error("WEB_ENABLED should be true")
-	}
-	if envVal(messaging.Environment, "WEB_SERVE_PLAYGROUND") != "false" {
-		t.Error("WEB_SERVE_PLAYGROUND should be false (chat UI is served by the CLI)")
 	}
 	if envVal(messaging.Environment, "CHAT_DB_PATH") != chatDBPath {
 		t.Errorf("CHAT_DB_PATH should be %q, got %q", chatDBPath, envVal(messaging.Environment, "CHAT_DB_PATH"))
