@@ -12,7 +12,6 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/evaldataset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
@@ -227,7 +226,7 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 		return w.retryOrRecordFailure(job, fmt.Errorf("load next session trace: %w", err))
 	}
 	if nextTrace != nil {
-		nextUserText = evaldataset.TextFromAny(nextTrace.Input)
+		nextUserText = textFromAny(nextTrace.Input)
 	}
 
 	apiKey, gatewayURL, err := w.ensureJudgeKey(ctx, dataset.AccountID)
@@ -291,6 +290,36 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 		w.log.Info("eval judge prediction completed", logArgs...)
 	}
 	return nil
+}
+
+// textFromAny extracts representative user text from common structured trace
+// input shapes. Strings pass through, maps prefer content-like fields, and
+// arrays are searched newest-first.
+func textFromAny(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case map[string]any:
+		for _, key := range []string{"content", "text", "message", "input"} {
+			if val, ok := x[key]; ok {
+				if s := textFromAny(val); s != "" {
+					return s
+				}
+			}
+		}
+		return ""
+	case []any:
+		for i := len(x) - 1; i >= 0; i-- {
+			if s := textFromAny(x[i]); s != "" {
+				return s
+			}
+		}
+		return ""
+	default:
+		return ""
+	}
 }
 
 func latestThumbsFeedback(scores []langfuse.Score) string {

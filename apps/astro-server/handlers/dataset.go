@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -234,7 +233,6 @@ type DatasetReviewQueueItem struct {
 	Timestamp        string                        `json:"timestamp"`
 	Input            any                           `json:"input"`
 	Output           any                           `json:"output"`
-	Sentiment        string                        `json:"sentiment"`
 	PredictionStatus string                        `json:"prediction_status"`
 	PredictionError  *string                       `json:"prediction_error"`
 	Prediction       *DatasetReviewQueuePrediction `json:"prediction"`
@@ -638,7 +636,6 @@ func loadReviewQueueItems(
 	}
 
 	items := make([]DatasetReviewQueueItem, 0, limit)
-	sentiments := queueSentiments(traces)
 	for i := startIndex; i < len(traces); i++ {
 		trace := traces[i]
 		if judged[trace.ID] || trace.Input == nil {
@@ -648,7 +645,7 @@ func loadReviewQueueItems(
 		if !reviewQueuePredictionMatches(predictionFilter, hasPrediction) {
 			continue
 		}
-		items = append(items, newDatasetReviewQueueItem(trace, sentiments[trace.ID], requests[trace.ID], prediction, hasPrediction))
+		items = append(items, newDatasetReviewQueueItem(trace, requests[trace.ID], prediction, hasPrediction))
 		if len(items) == limit {
 			return items, i + 1, true, nil
 		}
@@ -732,7 +729,6 @@ func reviewQueuePredictionMatches(filter reviewQueuePredictionFilter, hasPredict
 
 func newDatasetReviewQueueItem(
 	trace langfuse.Trace,
-	sentiment evaldataset.Sentiment,
 	request judgmentstore.PredictionRequest,
 	prediction judgmentstore.Prediction,
 	hasPrediction bool,
@@ -742,7 +738,6 @@ func newDatasetReviewQueueItem(
 		Timestamp:        trace.CreatedAt,
 		Input:            trace.Input,
 		Output:           trace.Output,
-		Sentiment:        string(sentiment),
 		PredictionStatus: reviewQueueStatusNotRequested,
 	}
 	if hasPrediction {
@@ -776,28 +771,6 @@ func newDatasetReviewQueueItem(
 		item.PredictionError = request.ErrorMessage
 	}
 	return item
-}
-
-func queueSentiments(traces []langfuse.Trace) map[string]evaldataset.Sentiment {
-	bySession := map[string][]langfuse.Trace{}
-	for _, t := range traces {
-		key := t.SessionID
-		if key == "" {
-			key = "__none__:" + t.ID
-		}
-		bySession[key] = append(bySession[key], t)
-	}
-
-	sentiment := map[string]evaldataset.Sentiment{}
-	for _, list := range bySession {
-		sort.Slice(list, func(i, j int) bool { return list[i].CreatedAt < list[j].CreatedAt })
-		for i, t := range list {
-			if i+1 < len(list) {
-				sentiment[t.ID] = evaldataset.InferFromAny(list[i+1].Input)
-			}
-		}
-	}
-	return sentiment
 }
 
 // evalDatasetItemsResponse mirrors the Langfuse list response 1:1, narrowed to

@@ -266,14 +266,7 @@ function insertReviewQueueItem(
   restored: ReviewQueueItem,
 ) {
   return [restored, ...items.filter((item) => item.trace_id !== restored.trace_id)]
-    .sort((a, b) => {
-      const aHasSentiment = a.sentiment !== "";
-      const bHasSentiment = b.sentiment !== "";
-      if (aHasSentiment !== bHasSentiment) {
-        return aHasSentiment ? -1 : 1;
-      }
-      return b.timestamp.localeCompare(a.timestamp);
-    });
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
 function removeReviewQueueItem(

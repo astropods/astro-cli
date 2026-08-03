@@ -44,16 +44,6 @@ type Input struct {
 	TraceOutput    any
 	NextUserText   string
 	ThumbsFeedback string
-	PriorExamples  []PriorExample
-}
-
-// PriorExample is one caller-selected resolved judgment used for few-shot calibration.
-type PriorExample struct {
-	TraceID string
-	Input   any
-	Output  any
-	Verdict judgmentstore.Verdict
-	Reasons []judgmentstore.Reason
 }
 
 type Result struct {

@@ -1263,7 +1263,7 @@ func TestGetEvalDatasetItems_FilterByVerdictGoodHappyPath(t *testing.T) {
 	}
 }
 
-func TestGetDatasetReviewQueue_FiltersJudgedAndAnnotatesSentiment(t *testing.T) {
+func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	traces := []langfuse.Trace{
 		{
 			ID:        "trace-3",
@@ -1309,8 +1309,8 @@ func TestGetDatasetReviewQueue_FiltersJudgedAndAnnotatesSentiment(t *testing.T) 
 	if resp.Items[0].TraceID != "trace-2" {
 		t.Fatalf("first item = %+v, want trace-2", resp.Items[0])
 	}
-	if resp.Items[1].TraceID != "trace-1" || resp.Items[1].Sentiment != "positive" {
-		t.Fatalf("second item = %+v, want trace-1 with positive sentiment", resp.Items[1])
+	if resp.Items[1].TraceID != "trace-1" {
+		t.Fatalf("second item = %+v, want trace-1", resp.Items[1])
 	}
 	if resp.Items[0].PredictionStatus != reviewQueueStatusNotRequested ||
 		resp.Items[1].PredictionStatus != reviewQueueStatusNotRequested {
@@ -1668,7 +1668,6 @@ func TestNewDatasetReviewQueueItemIncludesFullInputOutput(t *testing.T) {
 			Input:     map[string]any{"prompt": "hello"},
 			Output:    output,
 		},
-		"",
 		judgmentstore.PredictionRequest{},
 		judgmentstore.Prediction{},
 		false,
@@ -1711,7 +1710,6 @@ func TestNewDatasetReviewQueueItemPredictionState(t *testing.T) {
 
 	failed := newDatasetReviewQueueItem(
 		trace,
-		"",
 		judgmentstore.PredictionRequest{
 			Status:       judgmentstore.PredictionRequestFailed,
 			ErrorMessage: &failure,
@@ -1728,7 +1726,6 @@ func TestNewDatasetReviewQueueItemPredictionState(t *testing.T) {
 
 	completed := newDatasetReviewQueueItem(
 		trace,
-		"",
 		judgmentstore.PredictionRequest{Status: judgmentstore.PredictionRequestInProgress},
 		judgmentstore.Prediction{
 			VerdictScore: 0.8,

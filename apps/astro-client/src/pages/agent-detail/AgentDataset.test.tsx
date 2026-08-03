@@ -156,7 +156,6 @@ function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
     timestamp: "2026-06-01T12:00:00Z",
     input: "How do I deploy?",
     output: "Run ast deploy.",
-    sentiment: "positive",
     prediction_status: "not_requested",
     prediction_error: null,
     prediction: null,
@@ -828,7 +827,6 @@ describe("review queue view", () => {
           trace_id: "trace_111111",
           input: "First prompt",
           output: "First response",
-          sentiment: "positive",
         }),
       ]),
     );
@@ -889,7 +887,6 @@ describe("review queue view", () => {
           trace_id: "trace_222222",
           input: "Second prompt",
           output: "Second response",
-          sentiment: "negative",
         }),
       ]),
     );
@@ -955,7 +952,6 @@ describe("review queue view", () => {
       trace_id: "trace_222222",
       input: "Second paged prompt",
       output: "Second paged response",
-      sentiment: "negative",
     });
     const third = queueItem({
       trace_id: "trace_333333",
@@ -1114,7 +1110,6 @@ describe("review queue view", () => {
           trace_id: "trace_111111",
           input: "plain input",
           output: "agent **answer**",
-          sentiment: "",
         }),
       ]),
     );
@@ -1155,7 +1150,6 @@ describe("review queue view", () => {
           trace_id: "trace_111111",
           input: "plain input",
           output: "agent answer",
-          sentiment: "",
         }),
       ]),
     );
@@ -1178,7 +1172,6 @@ describe("review queue view", () => {
           trace_id: "trace_111111",
           input: "Panel prompt",
           output: "Panel response",
-          sentiment: "",
         }),
       ]),
     );
@@ -1215,13 +1208,11 @@ describe("review queue view", () => {
           trace_id: "trace_111111",
           input: "First panel prompt",
           output: "First panel response",
-          sentiment: "",
         }),
         queueItem({
           trace_id: "trace_222222",
           input: "Second panel prompt",
           output: "Second panel response",
-          sentiment: "negative",
         }),
       ]),
     );
@@ -1253,13 +1244,11 @@ describe("review queue view", () => {
       trace_id: "trace_111111",
       input: "First judged panel prompt",
       output: "First judged panel response",
-      sentiment: "",
     });
     const second = queueItem({
       trace_id: "trace_222222",
       input: "Second judged panel prompt",
       output: "Second judged panel response",
-      sentiment: "negative",
     });
     let queueItems = [first, second];
 
@@ -1293,7 +1282,6 @@ describe("review queue view", () => {
       trace_id: "trace_111111",
       input: "Final panel prompt",
       output: "Final panel response",
-      sentiment: "",
     });
     let queueItems = [only];
 
@@ -1324,13 +1312,11 @@ describe("review queue view", () => {
       trace_id: "trace_111111",
       input: "Refetched first panel prompt",
       output: "Refetched first panel response",
-      sentiment: "",
     });
     const second = queueItem({
       trace_id: "trace_222222",
       input: "Refetched second panel prompt",
       output: "Refetched second panel response",
-      sentiment: "negative",
     });
 
     setupDataset(
@@ -1367,13 +1353,11 @@ describe("review queue view", () => {
       trace_id: "trace_111111",
       input: "Pinned first panel prompt",
       output: "Pinned first panel response",
-      sentiment: "",
     });
     const second = queueItem({
       trace_id: "trace_222222",
       input: "Reordered second panel prompt",
       output: "Reordered second panel response",
-      sentiment: "negative",
     });
 
     setupDataset(
@@ -1842,14 +1826,12 @@ describe("review queue view", () => {
       input: "First page prompt",
       output: "First page response",
       timestamp: "2026-06-01T13:00:00Z",
-      sentiment: "",
     });
     const secondPageTrace = queueItem({
       trace_id: "trace_222222",
       input: "Undoable prompt",
       output: "Undoable response",
       timestamp: "2026-06-01T12:00:00Z",
-      sentiment: "positive",
     });
     let deletedTraceId = "";
     let queueFetchCount = 0;

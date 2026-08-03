@@ -1155,7 +1155,6 @@ export interface EvalDatasetItemsParams {
   verdict?: EvalDatasetItemsVerdict;
 }
 
-export type ReviewQueueSentiment = "positive" | "negative" | "";
 export type ReviewQueuePredictionStatus =
   | "not_requested"
   | "queued"
@@ -1186,7 +1185,6 @@ export interface ReviewQueueItem {
   timestamp: string;
   input: unknown;
   output: unknown;
-  sentiment: ReviewQueueSentiment;
   prediction_status: ReviewQueuePredictionStatus;
   prediction_error: string | null;
   prediction: ReviewQueuePrediction | null;

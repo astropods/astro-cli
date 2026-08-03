@@ -262,8 +262,7 @@ func TestEvalJudgePredictionWorkerSuccess(t *testing.T) {
 	}
 	if predictor.input.TraceID != "trace-1" ||
 		predictor.input.NextUserText != "Thanks, one more thing." ||
-		predictor.input.ThumbsFeedback != "thumbs_up" ||
-		len(predictor.input.PriorExamples) != 0 {
+		predictor.input.ThumbsFeedback != "thumbs_up" {
 		t.Fatalf("predict input = %+v", predictor.input)
 	}
 	if traceClient.nextStartAt != "2026-07-27T12:00:00Z" {
@@ -280,6 +279,16 @@ func TestEvalJudgePredictionWorkerSuccess(t *testing.T) {
 		store.updates[0].status != judgmentstore.PredictionRequestInProgress ||
 		store.updates[1].status != judgmentstore.PredictionRequestCompleted {
 		t.Fatalf("updates = %+v", store.updates)
+	}
+}
+
+func TestEvalJudgeTextFromAny(t *testing.T) {
+	got := textFromAny([]any{
+		map[string]any{"content": "older"},
+		map[string]any{"message": map[string]any{"text": "newer"}},
+	})
+	if got != "newer" {
+		t.Fatalf("textFromAny = %q, want newer", got)
 	}
 }
 

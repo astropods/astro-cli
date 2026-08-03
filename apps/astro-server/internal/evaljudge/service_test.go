@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"strings"
 	"testing"
 
@@ -70,22 +69,6 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 		TraceOutput:    map[string]any{"answer": "5"},
 		NextUserText:   "No, that is incorrect.",
 		ThumbsFeedback: "thumbs_down",
-		PriorExamples: []PriorExample{
-			{
-				TraceID: "good-1",
-				Input:   "input",
-				Output:  "output",
-				Verdict: judgmentstore.VerdictGood,
-				Reasons: []judgmentstore.Reason{
-					{Dimension: judgmentstore.DimensionTone, Value: 0.25},
-					{Dimension: judgmentstore.DimensionAccuracy, Value: 1},
-				},
-			},
-			{TraceID: "bad-1", Verdict: judgmentstore.VerdictBad},
-			{TraceID: "good-2", Verdict: judgmentstore.VerdictGood},
-			{TraceID: "bad-2", Verdict: judgmentstore.VerdictBad},
-			{TraceID: "unknown", Verdict: judgmentstore.VerdictUnknown},
-		},
 	})
 	require.NoError(t, err)
 
@@ -100,7 +83,6 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	assert.Contains(t, invoker.request.Messages[0].Content, criterionDimensionPromptList())
 	assert.Contains(t, invoker.request.Messages[0].Content, "one complete sentence of at most 220 characters")
 	assert.Contains(t, invoker.request.Messages[0].Content, "reaction inferred from the next user message")
-	assert.Contains(t, invoker.request.Messages[0].Content, "prior examples")
 	assert.Contains(t, invoker.request.Messages[0].Content, "Do not quote or restate any user or agent message")
 	assert.Equal(t, "user", invoker.request.Messages[1].Role)
 
@@ -113,13 +95,6 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	assert.Equal(t, "No, that is incorrect.", payload.Signals.NextUserText)
 	assert.Equal(t, "thumbs_down", payload.Signals.ThumbsFeedback)
 	assert.Equal(t, criterionDimensionStrings(), payload.RubricDimensions)
-
-	require.Len(t, payload.PriorExamples, 5)
-	assert.Equal(t, []string{"good-1", "bad-1", "good-2", "bad-2", "unknown"}, priorIDs(payload.PriorExamples))
-	require.Len(t, payload.PriorExamples[0].Criteria, 2)
-	assert.Equal(t, "accuracy", payload.PriorExamples[0].Criteria[0].DimensionKey)
-	assert.Equal(t, "tone", payload.PriorExamples[0].Criteria[1].DimensionKey)
-	assert.Empty(t, payload.PriorExamples[4].Criteria)
 
 	formatJSON, err := json.Marshal(invoker.request.ResponseFormat)
 	require.NoError(t, err)
@@ -158,14 +133,6 @@ func stringSliceToAny(values []string) []any {
 	return out
 }
 
-func priorIDs(examples []priorExamplePayload) []string {
-	out := make([]string, len(examples))
-	for i, example := range examples {
-		out[i] = example.TraceID
-	}
-	return out
-}
-
 func TestPredictOmitsEmptySignalsAndAllowsMissingUsage(t *testing.T) {
 	invoker := &recordingInvoker{response: validResponse()}
 	result, err := New(invoker).Predict(context.Background(), "key", Input{
@@ -179,11 +146,9 @@ func TestPredictOmitsEmptySignalsAndAllowsMissingUsage(t *testing.T) {
 	assert.NotContains(t, invoker.request.Messages[1].Content, `"prior_examples"`)
 }
 
-func TestPredictCompactsTargetSupportingAndPriorContent(t *testing.T) {
+func TestPredictCompactsTargetAndSupportingContent(t *testing.T) {
 	targetInput := strings.Repeat("界", maxTraceInputRunes+100)
 	targetOutput := strings.Repeat("🙂", maxTraceOutputRunes+100)
-	priorInput := strings.Repeat("界", maxTraceInputRunes+100)
-	priorOutput := strings.Repeat("🙂", maxTraceOutputRunes+100)
 	supporting := strings.Repeat("é", maxSupportingTextRunes+100)
 	invoker := &recordingInvoker{response: validResponse()}
 
@@ -192,10 +157,6 @@ func TestPredictCompactsTargetSupportingAndPriorContent(t *testing.T) {
 		TraceInput:   targetInput,
 		TraceOutput:  targetOutput,
 		NextUserText: supporting,
-		PriorExamples: []PriorExample{{
-			TraceID: "prior", Input: priorInput, Output: priorOutput,
-			Verdict: judgmentstore.VerdictGood,
-		}},
 	})
 	require.NoError(t, err)
 
@@ -214,17 +175,6 @@ func TestPredictCompactsTargetSupportingAndPriorContent(t *testing.T) {
 	require.NotNil(t, payload.Signals)
 	assert.Len(t, []rune(payload.Signals.NextUserText), maxSupportingTextRunes)
 	assert.Contains(t, payload.Signals.NextUserText, truncationMarker)
-	require.Len(t, payload.PriorExamples, 1)
-	compactInput, ok := payload.PriorExamples[0].Input.(string)
-	require.True(t, ok)
-	compactOutput, ok := payload.PriorExamples[0].Output.(string)
-	require.True(t, ok)
-	assert.Len(t, []rune(compactInput), maxTraceInputRunes)
-	assert.Len(t, []rune(compactOutput), maxTraceOutputRunes)
-	assert.Contains(t, compactInput, truncationMarker)
-	assert.Contains(t, compactOutput, truncationMarker)
-	assert.True(t, strings.HasPrefix(compactInput, `"`))
-	assert.True(t, strings.HasSuffix(compactInput, `"`))
 }
 
 func TestPredictRejectsInvalidInputBeforeInvocation(t *testing.T) {
@@ -236,9 +186,6 @@ func TestPredictRejectsInvalidInputBeforeInvocation(t *testing.T) {
 		{name: "trace id", input: Input{}, want: "trace id is required"},
 		{name: "target input marshal", input: Input{TraceID: "t", TraceInput: func() {}}, want: "target trace input"},
 		{name: "target output marshal", input: Input{TraceID: "t", TraceOutput: func() {}}, want: "target trace output"},
-		{name: "prior marshal", input: Input{TraceID: "t", PriorExamples: []PriorExample{{TraceID: "p", Verdict: judgmentstore.VerdictGood, Input: math.NaN()}}}, want: "prior trace \"p\" input"},
-		{name: "prior id", input: Input{TraceID: "t", PriorExamples: []PriorExample{{Verdict: judgmentstore.VerdictGood}}}, want: "prior trace id is required"},
-		{name: "prior verdict", input: Input{TraceID: "t", PriorExamples: []PriorExample{{TraceID: "p", Verdict: "maybe"}}}, want: "invalid verdict"},
 	}
 
 	for _, tt := range tests {
@@ -268,93 +215,6 @@ func TestPredictIgnoresNonThumbsFeedback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, invoker.calls)
 	assert.NotContains(t, invoker.request.Messages[1].Content, `"signals"`)
-}
-
-func TestPredictValidatesPriorReasonsBeforeInvocation(t *testing.T) {
-	tests := []struct {
-		name    string
-		verdict judgmentstore.Verdict
-		reasons []judgmentstore.Reason
-		want    string
-	}{
-		{
-			name:    "invalid dimension",
-			verdict: judgmentstore.VerdictGood,
-			reasons: []judgmentstore.Reason{{Dimension: "speed", Value: 1}},
-			want:    "invalid criterion dimension",
-		},
-		{
-			name:    "duplicate",
-			verdict: judgmentstore.VerdictBad,
-			reasons: []judgmentstore.Reason{{Dimension: judgmentstore.DimensionTone, Value: -1}, {Dimension: judgmentstore.DimensionTone, Value: -0.5}},
-			want:    "duplicate criterion dimension",
-		},
-		{
-			name:    "out of range",
-			verdict: judgmentstore.VerdictGood,
-			reasons: []judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: 1.1}},
-			want:    "outside [-1, 1]",
-		},
-		{
-			name:    "non-finite",
-			verdict: judgmentstore.VerdictGood,
-			reasons: []judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: math.Inf(1)}},
-			want:    "outside [-1, 1]",
-		},
-		{
-			name:    "unknown with reasons",
-			verdict: judgmentstore.VerdictUnknown,
-			reasons: []judgmentstore.Reason{{Dimension: judgmentstore.DimensionAccuracy, Value: 0}},
-			want:    "unknown verdict cannot have criteria",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			invoker := &recordingInvoker{response: validResponse()}
-			_, err := New(invoker).Predict(context.Background(), "key", Input{
-				TraceID: "target",
-				PriorExamples: []PriorExample{{
-					TraceID: "prior", Verdict: tt.verdict, Reasons: tt.reasons,
-				}},
-			})
-			require.ErrorContains(t, err, tt.want)
-			assert.Zero(t, invoker.calls)
-		})
-	}
-}
-
-func TestValidatePriorExamplesPreservesSelectedOrder(t *testing.T) {
-	selected, err := validatePriorExamples("target", []PriorExample{
-		{TraceID: "g1", Verdict: judgmentstore.VerdictGood},
-		{TraceID: "b1", Verdict: judgmentstore.VerdictBad},
-		{TraceID: "g2", Verdict: judgmentstore.VerdictGood},
-	})
-	require.NoError(t, err)
-	require.Len(t, selected, 3)
-	assert.Equal(t, []string{"g1", "b1", "g2"}, []string{selected[0].TraceID, selected[1].TraceID, selected[2].TraceID})
-}
-
-func TestValidatePriorExamplesRejectsInvalidSets(t *testing.T) {
-	tests := []struct {
-		name     string
-		examples []PriorExample
-		want     string
-	}{
-		{name: "too many total", examples: []PriorExample{{}, {}, {}, {}, {}, {}}, want: "at most 5"},
-		{name: "target included", examples: []PriorExample{{TraceID: "target", Verdict: judgmentstore.VerdictGood}}, want: "is the target trace"},
-		{name: "duplicate", examples: []PriorExample{{TraceID: "same", Verdict: judgmentstore.VerdictGood}, {TraceID: "same", Verdict: judgmentstore.VerdictBad}}, want: "duplicate prior trace"},
-		{name: "too many good", examples: []PriorExample{{TraceID: "g1", Verdict: judgmentstore.VerdictGood}, {TraceID: "g2", Verdict: judgmentstore.VerdictGood}, {TraceID: "g3", Verdict: judgmentstore.VerdictGood}}, want: `too many "good"`},
-		{name: "too many bad", examples: []PriorExample{{TraceID: "b1", Verdict: judgmentstore.VerdictBad}, {TraceID: "b2", Verdict: judgmentstore.VerdictBad}, {TraceID: "b3", Verdict: judgmentstore.VerdictBad}}, want: `too many "bad"`},
-		{name: "too many unknown", examples: []PriorExample{{TraceID: "u1", Verdict: judgmentstore.VerdictUnknown}, {TraceID: "u2", Verdict: judgmentstore.VerdictUnknown}}, want: `too many "unknown"`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := validatePriorExamples("target", tt.examples)
-			require.ErrorContains(t, err, tt.want)
-		})
-	}
 }
 
 func TestPredictTruncatesExplanationByUnicodeRunes(t *testing.T) {
