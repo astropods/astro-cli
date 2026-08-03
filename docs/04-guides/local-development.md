@@ -50,47 +50,19 @@ Do not use `ast-dev` against production. Do not use `ast` against a local server
 
 ## 3. Running an agent locally
 
-### Without `--local` (default)
-
-Everything runs in Docker — agent included.
+Everything runs in Docker, agent included.
 
 ```bash
 cd my-agent
-ast-dev dev                    # start all containers in background
+ast-dev dev                    # start all containers
 ast-dev dev logs               # tail agent logs
 ast-dev dev logs --all         # tail all service logs
 ast-dev dev stop               # tear down
 ```
 
-**When to use:** You're developing your agent code and don't need to modify platform packages.
+`ast-dev dev` is an alias of `ast-dev project`; the underlying subcommands are `project start|logs|stop|trigger`. Useful flags on `dev`/`start`: `--rebuild`, `--no-pull`, `-b/--background`, `--all-logs`.
 
-### With `--local`
-
-The agent runs as a **host process** with hot-reload. Infrastructure services (messaging) still run in Docker.
-
-```bash
-export ASTRO_ROOT=$HOME/code/astro    # path to astro monorepo
-cd my-agent
-ast-dev dev --local                    # blocks until Ctrl+C
-```
-
-**What it does:**
-- Removes the agent container from Docker Compose
-- Symlinks `@astropods/*` packages from `ASTRO_ROOT` into `node_modules` (TS) or pip-installs them editable (Py)
-- Runs the agent via `bun --watch run start` (TS) or `python3 -m agent.main` (Py)
-- Rewrites Docker service hostnames to `localhost` in the agent env
-- Streams Docker Compose logs alongside the agent process
-
-**When to use:** You're modifying platform SDKs (`@astropods/messaging`, `@astropods/adapter-core`, etc.) and want changes reflected immediately in the agent.
-
-**Cleaning up** after `--local`:
-
-```bash
-ast-dev dev --local-reset      # removes symlinked packages
-bun install                    # restore normal deps (TS)
-# or
-pip install -r requirements.txt  # restore normal deps (Py)
-```
+To iterate on platform SDKs or the messaging sidecar, build the image locally and override it in your spec (see section 4).
 
 ---
 
@@ -155,7 +127,7 @@ With `ast-dev`, `push` automatically skips the remote registry and retags images
 ast-dev push                   # build + retag + register with localhost:8080
 ```
 
-This is equivalent to running `ast push --skip-push --platform <native>` — the images are tagged with registry-qualified names (`registry.localhost/<namespace>/<agent>:<tag>`) so K8s with `imagePullPolicy: IfNotPresent` can resolve them.
+Local mode is inferred from the server URL (no flag needed): images are built for your native platform and tagged with registry-qualified names (`registry.localhost/<namespace>/<agent>:<tag>`) so K8s with `imagePullPolicy: IfNotPresent` can resolve them.
 
 ### Infrastructure images for local K8s
 
@@ -259,18 +231,6 @@ ast-dev dev
 ast-dev dev logs astro-messaging       # tail just the messaging container
 ```
 
-### "I'm changing the `@astropods/messaging` SDK and testing with an agent"
-
-```bash
-export ASTRO_ROOT=$HOME/code/astro
-cd my-agent
-ast-dev dev --local                    # agent runs on host with symlinked SDK
-# ... edit modules/messaging/sdk/node/src/*, changes reflect immediately ...
-# Ctrl+C to stop
-ast-dev dev --local-reset              # clean up symlinks
-bun install                            # restore normal deps
-```
-
 ### "I want to see what compose config my spec generates without starting anything"
 
 ```bash
@@ -282,7 +242,6 @@ ast-dev explain
 
 ```bash
 ast-dev dev stop                       # stop running containers
-ast-dev dev --local-reset              # if you used --local
 moon run deployment:clean              # remove local Docker images
 moon run astro-cli:unlink              # remove ast-dev from PATH
 ```

@@ -10,7 +10,6 @@
     "start": "bun run ./server.ts",
     "lint": "eslint .",
     "typecheck": "react-router typegen && tsc -p tsconfig.app.json",
-    "setup": "./scripts/setup-local-dev.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

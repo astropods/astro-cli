@@ -567,8 +567,6 @@ func resolveMessagingRole(ds *AstroDeploymentSpec, opts ResolveOptions, lookup m
 				Value: "true", Source: EnvSourceDerived},
 			Resolution{Role: RoleMessaging, EnvName: "WEB_LISTEN_ADDR",
 				Value: fmt.Sprintf(":%d", webPort), Source: EnvSourceDerived},
-			Resolution{Role: RoleMessaging, EnvName: "WEB_SERVE_PLAYGROUND",
-				Value: "true", Source: EnvSourceDerived},
 		)
 	}
 

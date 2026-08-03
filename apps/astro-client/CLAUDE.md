@@ -69,7 +69,6 @@ All right-side panels (Configure, Trace, Chat) are rendered as children of `<Sid
 <SidePanel open={panelOpen} onWidthChange={setPanelWidth}>
   {configOpen && <ConfigurePanel ... />}
   {selectedTrace && <TraceDetailPanel ... />}
-  {playgroundOpen && <PlaygroundPanel ... />}
 </SidePanel>
 ```
 

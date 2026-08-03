@@ -4,94 +4,26 @@ Web frontend for the Astro platform.
 
 ## Quick Start
 
-### Local Backend Development
-
-If you're running the astro-server locally:
+The client runs against a locally running astro-server. Run the client on its own:
 
 ```bash
 bun install
-bun run dev
+bun run dev          # or: moon run astro-client:dev
 ```
 
-The app will be available at `http://localhost:5173`.
+The app is available at `http://localhost:5173` and talks to the backend at `VITE_API_URL` (default `http://localhost:8080`). To bring up the whole stack (client + server + Traefik) behind `http://localhost`, use the repo-root `./scripts/local-dev.sh` (see the [repo README](../../README.md)).
 
-### Remote Backend Development
+## API Communication
 
-To develop the frontend against a deployed backend (e.g., `https://astropods.com`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
-
-**One-time setup (macOS):**
-
-```bash
-bun run setup
-```
-
-This interactive script will:
-1. Add `local.astropods.ai` to your `/etc/hosts` (requires sudo)
-2. Install [mkcert](https://github.com/FiloSottile/mkcert) for local certificate generation
-3. Generate trusted HTTPS certificates
-4. Configure `.env` for the remote backend
-
-**After setup:**
-
-```bash
-bun run dev
-```
-
-Open `https://local.astropods.ai:5173` in your browser.
-
-### Manual Setup (Linux/Other)
-
-If the setup script doesn't work for your OS:
-
-1. **Add hosts entry:**
-   ```bash
-   echo "127.0.0.1 local.astropods.ai" | sudo tee -a /etc/hosts
-   ```
-
-2. **Install mkcert:**
-   - Linux: `sudo apt install mkcert` or see [mkcert docs](https://github.com/FiloSottile/mkcert#installation)
-   - Then run: `mkcert -install`
-
-3. **Generate certificates:**
-   ```bash
-   mkdir -p .certs
-   cd .certs
-   mkcert local.astropods.ai
-   ```
-
-4. **Configure environment:**
-   ```bash
-   echo "VITE_API_URL=https://astropods.com" > .env
-   ```
-
-5. **Start the dev server:**
-   ```bash
-   bun run dev
-   ```
-
-## Architecture
-
-### Authentication Flow
-
-When developing against a remote backend, authentication uses a same-site subdomain approach:
-
-1. Your local frontend runs at `https://local.astropods.ai:5173`
-2. The backend runs at `https://astropods.com`
-3. Both share the same registrable domain (`astropods.ai`)
-4. Session cookies set by the backend work on your local domain
-
-This avoids `SameSite` cookie restrictions without compromising security.
-
-### API Communication
-
-- **Auth endpoints** (`/auth/*`): Called directly to the backend URL for proper cookie handling
-- **API endpoints** (`/api/*`): Proxied through Vite dev server to the backend
+The Vite dev server proxies `/api`, `/download`, `/install`, `/auth`, and `/webhooks` to `VITE_API_URL`. Auth calls (`/auth/*`) are additionally issued directly to the backend URL so session cookies are set on the right origin.
 
 ## Environment Variables
 
 | Variable       | Description     | Default                 |
 | -------------- | --------------- | ----------------------- |
-| `VITE_API_URL` | Backend API URL | `http://localhost:8080` |
+| `VITE_API_URL` | Backend API URL (Vite proxy target) | `http://localhost:8080` |
+| `VITE_ASSETS_URL` | CDN base for static assets (icons, etc.) | `""` (served locally by Vite) |
+| `VITE_AMPLITUDE_API_KEY` | Amplitude analytics key (omit to disable telemetry) | unset |
 
 ## Project Structure
 
@@ -110,15 +42,17 @@ src/
 
 | Script                  | Description                                  |
 | ----------------------- | -------------------------------------------- |
-| `bun dev`               | Start development server                     |
-| `bun build`             | Build for production                         |
-| `bun preview`           | Preview production build                     |
-| `bun lint`              | Run ESLint                                   |
+| `bun run dev`           | Start the dev server (`react-router dev`)    |
+| `bun run build`         | Build for production                         |
+| `bun run start`         | Serve the production build (`server.ts`)     |
+| `bun run typecheck`     | Type-check (`react-router typegen` + `tsc`)  |
+| `bun run lint`          | Run ESLint                                   |
 | `bun run test`          | Run tests once                               |
 | `bun run test:watch`    | Run tests in watch mode                      |
 | `bun run test:coverage` | Run tests with coverage report               |
 | `bun run test:e2e`      | Run Playwright browser E2E tests             |
-| `bun setup`             | Set up local development environment (macOS) |
+| `bun run storybook`     | Run Storybook (port 6006)                    |
+| `bun run build-storybook` | Build the static Storybook                 |
 
 ## Testing
 
@@ -155,23 +89,3 @@ You can also run from `apps/astro-client` directly:
 ```bash
 bun run test:e2e
 ```
-
-## Troubleshooting
-
-### "State parameter mismatch" error
-
-This happens when cookies aren't being shared properly. Make sure:
-- You're accessing the app via `https://local.astropods.ai:5173` (not `localhost`)
-- The setup script completed successfully
-- Your browser trusts the local certificate (check for HTTPS errors)
-
-### Certificate not trusted
-
-Run `mkcert -install` to install the local CA in your system trust store.
-
-### "No session found" after login
-
-Ensure:
-1. The backend has `http://localhost:5173` and `https://local.astropods.ai:5173` in `ALLOWED_ORIGINS`
-2. The backend has `AUTH_COOKIE_DOMAIN=.astropods.ai` set
-3. You're using the HTTPS local domain URL

@@ -284,13 +284,12 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		)
 	}
 
-	// Enable web adapter if configured; playground UI is bundled into the
-	// messaging binary and served from / on the same port.
+	// Enable web adapter if configured. The chat UI is served by the CLI /
+	// astro-client, not the messaging sidecar, so no playground flag is set.
 	if cfg.WebEnabled {
 		container.Env = append(container.Env,
 			corev1.EnvVar{Name: "WEB_ENABLED", Value: "true"},
 			corev1.EnvVar{Name: "WEB_LISTEN_ADDR", Value: fmt.Sprintf(":%d", webPort)},
-			corev1.EnvVar{Name: "WEB_SERVE_PLAYGROUND", Value: "true"},
 		)
 		container.Ports = append(container.Ports, corev1.ContainerPort{
 			Name: "msg-http", ContainerPort: webPort, Protocol: corev1.ProtocolTCP,

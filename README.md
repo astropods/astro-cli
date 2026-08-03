@@ -5,8 +5,8 @@ A platform for deploying and running AI agents. Includes the `ast` CLI, agent ru
 ## Prerequisites
 
 - **Bun** — JavaScript runtime
-- **Go** 1.24+ — for building the CLI
-- **Docker** — for `ast dev` and `ast dev --local`
+- **Go** 1.25+ - for building the CLI and Go services
+- **Docker** - for `local-dev.sh` and `ast dev`
 
 ### Install Bun
 
@@ -43,22 +43,29 @@ The pre-commit hook runs `gofmt` on staged Go files.
 
 ```
 ├── apps/
-│   ├── astro-cli/          # ast CLI (Go)
-│   ├── astro-client/       # React frontend application
-│   ├── astro-queen/        # Bubbletea TUI admin client (Go)
-│   ├── astro-registry/     # Container registry proxy (Go)
-│   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
+│   ├── astro-client/       # React web frontend
+│   ├── astro-otel/         # OTLP ingest for local AI coding tools (traces/metrics)
+│   ├── astro-proxy/        # Local proxy helper
+│   ├── astro-queen/        # Bubbletea TUI admin console (Go)
+│   ├── astro-registry/     # Container registry proxy with auth (Go)
+│   └── astro-server/       # Platform backend: agent registry, deployments, auth (Go)
 ├── packages/
+│   ├── astro-brand-icons/  # Brand icon components
 │   ├── astro-collector/    # OpenTelemetry Collector distribution
+│   ├── astro-identity-gen/ # Identity asset generation
 │   ├── astro-proto/        # Protobuf definitions and generated gRPC code
-│   ├── astro-spec/         # YAML spec parser and types for astropods.yml
-│   └── astro-theme/        # Shared UI theme
+│   ├── astro-spec/         # YAML spec parser/types for astropods.yml (public submodule)
+│   ├── astro-theme/        # Shared UI theme
+│   ├── astro-trading-card/ # Agent trading-card UI
+│   └── blueprint-jellybean/# Shared UI package
 ├── modules/                # Git submodules
 │   ├── adapters/           # Messaging adapters (Slack, MCP, etc.)
 │   ├── agents/             # Agent examples
-│   ├── cli-public/         # Public ast CLI repo
-│   ├── messaging/          # Messaging SDK
-│   ├── playground/         # Legacy chat UI (deprecated; ast dev now serves astro-client's chat)
+│   ├── astro-cli/          # ast CLI (Go): build, push, deploy, local dev
+│   ├── astro-infra/        # Infrastructure as code
+│   ├── blog/               # Astro blog
+│   ├── cli-public/         # Public ast CLI mirror
+│   ├── messaging/          # Messaging SDK and sidecar service
 │   └── website/            # Astro marketing website
 ├── deployment/             # Dockerfiles and moon tasks for service images
 └── docs/                   # Internal documentation and guides
@@ -66,80 +73,67 @@ The pre-commit hook runs `gofmt` on staged Go files.
 
 ## Astro AI Service Development
 
-Run the full platform locally with a single command:
+There are two ways to run the platform locally. Both need `apps/astro-server/.env` (copy `apps/astro-server/.env.example` and set `DATABASE_URL` to your dev database - it's remote, nothing local starts Postgres; add stage WorkOS credentials for login, see the [astro-server README](apps/astro-server/README.md)) and a running Docker.
+
+### Option A: one command, behind Traefik
 
 ```bash
 ./scripts/local-dev.sh
 ```
 
-This starts Traefik (port 80), the server (port 8080), and the client (port 5173), then builds the `ast-dev` CLI pointed at `http://localhost`. Everything is available at http://localhost — `/api` routes to the server, everything else to the client.
+Starts Traefik, astro-server, and astro-client, and builds the `ast-dev` CLI, then fronts everything on a single origin at **http://localhost** (`/api` routes to the server, everything else to the client). This mirrors production most closely. `Ctrl+C` stops all services and tears down Traefik.
 
 | Endpoint | Service |
 |---|---|
 | http://localhost | astro-client |
 | http://localhost/api | astro-server |
-| http://localhost:8090/dashboard | Traefik dashboard |
-| `apps/astro-cli/bin/ast-dev` | local CLI |
+| http://localhost:8090/dashboard/ | Traefik dashboard |
+| `modules/astro-cli/bin/ast-dev` | local CLI |
 
-Press `Ctrl+C` to stop all services.
+### Option B: each service separately, no Traefik
 
-### Running client or server independently
-
-If you only need one service:
-
-**Client**
+Run each service in its own terminal - simpler, with no Traefik front, but the client and server sit on different ports:
 
 ```bash
-moon run astro-client:dev
+moon run astro-server:dev   # applies schema + River migrations, hot-reloads on http://localhost:8080
+moon run astro-client:dev   # http://localhost:5173
 ```
 
-Opens http://localhost:5173. Defaults to `VITE_API_URL=http://localhost:8080`; override in `.env` if needed.
-
-**Server**
-
-```bash
-moon run astro-server:dev
-```
-
-Starts Postgres, runs migrations, and the server with hot reload on http://localhost:8080.
+The client talks to the backend at `VITE_API_URL` (default `http://localhost:8080`); its Vite dev server proxies `/api`, `/auth`, `/download`, `/install`, and `/webhooks` there, so the browser stays same-origin at `:5173`. Override `VITE_API_URL` in `apps/astro-client/.env`. Build the CLI with `moon run astro-cli:link` (it targets `:8080`).
 
 ## Astro Agent Local Development
 
-Run an agent as a local process with hot-reload, using local packages and Docker images from this repo. Useful for developing agents and packages together.
+Develop and run an agent against the local platform with the `ast-dev` CLI. Agents run in Docker, and the CLI pulls `astropods/messaging:latest` automatically, so the common case needs no image builds.
 
-**Prerequisites:** Packages and Docker images must be built first.
+Build and link the CLI once:
 
 ```bash
-# 1. Build packages
-bun install
-bun run build
-
-# 2. Build SDKs required by agents
-moon run messaging:sdk-build
-moon run adapters:build
-
-# 3. Build the messaging sidecar image
-moon run deployment:messaging
-
-# 4. Build the CLI (embeds astro-client's chat UI, served by `ast dev`)
-moon run astro-cli:build
+moon run astro-cli:link           # builds ast-dev, symlinks it into ~/go/bin
+export PATH="$HOME/go/bin:$PATH"   # if ~/go/bin isn't already on PATH
 ```
 
-**Run from an agent project** (e.g. `example-agent`):
+Then, from an agent project (e.g. `example-agent`):
 
 ```bash
-export ASTRO_ROOT=/path/to/astro   # repo root
-./apps/astro-cli/bin/ast-dev dev --local
-```
-
-Or add the CLI to PATH and run:
-
-```bash
-export ASTRO_ROOT=/path/to/astro
-export PATH="$PWD/apps/astro-cli/bin:$PATH"
 cd example-agent
-ast-dev dev --local
+ast-dev dev            # start all containers
+ast-dev dev logs       # tail agent logs (--all for every service)
+ast-dev dev stop       # tear down
 ```
+
+`ast-dev` targets the local server at `http://localhost:8080` and auto-detects local mode from that URL (native-arch build, retag locally, skip registry push). If the agent enables the `web` messaging adapter, `ast-dev dev` serves the chat UI at http://localhost:3100.
+
+To iterate on the messaging image itself, build it and point the spec at your build:
+
+```bash
+moon run deployment:messaging     # builds and tags astropods/messaging:latest
+# then in astropods.yml:
+#   dev:
+#     overrides:
+#       messagingImage: "messaging:latest"
+```
+
+See [docs/04-guides/local-development.md](docs/04-guides/local-development.md) for the full runbook.
 
 ## Smoke Tests
 
@@ -147,40 +141,24 @@ End-to-end tests that run against `astropods.com` (prod) and `astropod.ai` (prev
 
 ### Setup
 
-Add credentials to `.env.local` at the repo root:
-
-```
-ASTRO_TEST_EMAIL=your@email.com
-ASTRO_TEST_PASSWORD=yourpassword
-ASTRO_TEST_HOST=https://astropods.com   # or https://astropod.ai for preview
-ASTRO_ENV=prod                          # or preview
-```
+Smoke tests use a WorkOS test account whose credentials are passed as environment variables (`ASTRO_TEST_EMAIL`, `ASTRO_TEST_PASSWORD`). The account must be on the WorkOS CAPTCHA bypass allow list. In dev mode, `ASTRO_TEST_USERNAME` (your account handle) is also required.
 
 ### Running
 
-```bash
-bun install
-bunx playwright test --config=playwright.prod.config.ts
-```
-
-Run a specific project:
+Run via the Moon target (`scripts/smoke-test.sh`). It defaults to `ASTRO_ENV=dev` (local dev server at `http://localhost`, so `local-dev.sh` must be running):
 
 ```bash
-# Blueprint pages — no login needed, runs on all envs
-bunx playwright test --config=playwright.prod.config.ts --project=blueprints
+# Against the local dev server (local-dev.sh running)
+ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke
 
-# Marketing site — prod only
-bunx playwright test --config=playwright.prod.config.ts --project=marketing-site
+# Against prod
+ASTRO_ENV=prod ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... moon run tests:smoke
 
-# CLI + deploy flow — requires credentials
-bunx playwright test --config=playwright.prod.config.ts --project=cli
-
-# Skip upstream dependencies
-bunx playwright test --config=playwright.prod.config.ts --project=app.chat --no-deps
-
-# Watch with UI
-bunx playwright test --config=playwright.prod.config.ts --ui
+# With the Playwright UI
+ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke -- --ui
 ```
+
+The suite config lives at `apps/tests/smoke/playwright.smoke.config.ts` (the authoritative project list).
 
 ### Test suites
 
@@ -193,7 +171,6 @@ bunx playwright test --config=playwright.prod.config.ts --ui
 | `app.deploy` | Deploy flow, captures deployment slug | Session from setup | all |
 | `cli.post-deploy` | `ast agent list` confirms deployment slug | None | all |
 | `app.post-deploy` | Polls `/agents` until Hello Astro is Active (14 min) | Session from setup | all |
-| `app.chat` | Opens chat popup, sends message, asserts echo | Session from setup | all |
 | `app.secrets` | Variables & secrets, verifies auto-fill on deploy page | Session from setup | all |
 
 If login fails, all projects that depend on `setup` are skipped automatically.

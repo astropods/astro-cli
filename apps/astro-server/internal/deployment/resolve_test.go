@@ -127,7 +127,6 @@ func TestResolve_MessagingHardcodedKnobs(t *testing.T) {
 		"SLACK_ENABLED":        "true",
 		"WEB_ENABLED":          "true",
 		"WEB_LISTEN_ADDR":      ":8090",
-		"WEB_SERVE_PLAYGROUND": "true",
 		"ASTRO_AUTHZ_TOKEN":    "jwt-token",
 	}
 	for k, wantVal := range want {

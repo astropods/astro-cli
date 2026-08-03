@@ -32,32 +32,10 @@ if (!resolvedConfig.build.ssr) return;
     },
   };
 }
-// Local development domain (must match what's in /etc/hosts)
-const LOCAL_DOMAIN = "local.astropods.ai";
-
-// Check for local HTTPS certificates
-function getHttpsConfig() {
-  const certDir = path.resolve(__dirname, ".certs");
-  const certPath = path.join(certDir, `${LOCAL_DOMAIN}.pem`);
-  const keyPath = path.join(certDir, `${LOCAL_DOMAIN}-key.pem`);
-
-  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-    return {
-      cert: fs.readFileSync(certPath),
-      key: fs.readFileSync(keyPath),
-    };
-  }
-  return undefined;
-}
-
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = env.VITE_API_URL || "http://localhost:8080";
-  const httpsConfig = getHttpsConfig();
-
-  // Use local domain when HTTPS is configured (for same-site cookie sharing)
-  const useLocalDomain = !!httpsConfig;
 
   return {
     plugins: [
@@ -80,13 +58,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // When certs are present, bind to the local domain for same-site cookies.
-      // Otherwise bind on all interfaces — Node 18+ resolves "localhost" as
-      // IPv6 only, which makes the dev server unreachable from local-mode k8s
-      // pods that dial via host.docker.internal (an IPv4 address from the
-      // pod's POV).
-      host: useLocalDomain ? LOCAL_DOMAIN : true,
-      https: httpsConfig,
+      // Bind on all interfaces. Node 18+ resolves "localhost" as IPv6 only,
+      // which makes the dev server unreachable from local-mode k8s pods that
+      // dial via host.docker.internal (an IPv4 address from the pod's POV).
+      host: true,
       // Allow messaging pods running in local-mode k8s to reach the dev server
       // via Docker Desktop's host alias; Vite otherwise rejects the Host header.
       allowedHosts: ["host.docker.internal"],
