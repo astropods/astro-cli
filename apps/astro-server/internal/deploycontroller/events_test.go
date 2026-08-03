@@ -70,6 +70,23 @@ func TestHumanizeEvent(t *testing.T) {
 		}
 	})
 
+	// A non-pull Failed that merely names an image must not be mislabeled as a
+	// stuck image-pull failure; only messages that mention pulling are.
+	t.Run("Failed naming an image without pull is left raw", func(t *testing.T) {
+		if _, _, _, ok := HumanizeEvent("Failed", "no such image: acme/agent:latest"); ok {
+			t.Error("expected a non-pull Failed naming an image to be left raw, got classified")
+		}
+	})
+
+	// The image-pull guidance points to platform actions the user can take, not
+	// registry/credential checks they don't manage on Astro.
+	t.Run("image-pull guidance names the platform action", func(t *testing.T) {
+		_, guidance, _, ok := HumanizeEvent("ImagePullBackOff", "")
+		if !ok || !strings.Contains(guidance, "ast push") {
+			t.Errorf("expected image-pull guidance to mention ast push, got ok=%v guidance=%q", ok, guidance)
+		}
+	})
+
 	for _, reason := range []string{"Killing", "Preempted", "SandboxChanged", ""} {
 		t.Run("unmapped "+reason, func(t *testing.T) {
 			_, _, _, ok := HumanizeEvent(reason, "")

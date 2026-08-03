@@ -127,7 +127,7 @@ func HumanizeEvent(reason, message string) (title, guidance, severity string, ok
 	msg := strings.ToLower(message)
 	imagePull := func() (string, string, string, bool) {
 		return "Action required: Image pull failed",
-			"The container image can't be pulled. Check the image name and tag, and that the registry is reachable with valid credentials, then redeploy.",
+			"The build's image couldn't be pulled from the registry. Push a new build with ast push, or trigger a rebuild if this agent deploys from GitHub, then redeploy.",
 			"stuck", true
 	}
 	crashLoop := func() (string, string, string, bool) {
@@ -171,9 +171,10 @@ func HumanizeEvent(reason, message string) (title, guidance, severity string, ok
 	case "CrashLoopBackOff":
 		return crashLoop()
 	case "Failed":
-		// Failed is generic; only surface the image-pull variant, otherwise
-		// leave it raw for the UI to show the reason/message.
-		if strings.Contains(msg, "image") || strings.Contains(msg, "pull") {
+		// Failed is generic; only surface it as an image-pull failure when the
+		// message mentions pulling. Keying off "image" alone mislabels unrelated
+		// failures that merely name an image as a stuck image-pull.
+		if strings.Contains(msg, "pull") {
 			return imagePull()
 		}
 		return "", "", "", false
