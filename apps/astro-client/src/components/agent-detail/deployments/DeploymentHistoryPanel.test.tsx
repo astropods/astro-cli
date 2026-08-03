@@ -246,22 +246,24 @@ describe("DeploymentHistoryPanel", () => {
       "/jordan",
     );
   });
+});
 
-  it("shows a Building card with the commit message while the latest build is running", async () => {
+describe("DeploymentHistoryPanel build-in-progress card", () => {
+  it("shows a live building card with the commit message while the latest build is running", async () => {
     mockEndpoints([build({ status: "building" })]);
     const { container } = renderPanel();
 
-    expect(await screen.findByText("Building")).toBeInTheDocument();
+    expect(await screen.findByText("Pushing new build")).toBeInTheDocument();
     expect(screen.getByText("Add retries with backoff")).toBeInTheDocument();
-    // The build card spins (blue), distinct from the amber Deploying card.
+    // The build card spins, distinct from the static active tile below it.
     expect(container.querySelector(".animate-spin")).toBeTruthy();
   });
 
-  it("shows a Preparing card while the latest build is queued", async () => {
+  it("shows a preparing card while the latest build is queued", async () => {
     mockEndpoints([build({ status: "pending" })]);
     const { container } = renderPanel();
 
-    expect(await screen.findByText("Preparing")).toBeInTheDocument();
+    expect(await screen.findByText("Preparing build")).toBeInTheDocument();
     expect(container.querySelector(".animate-spin")).toBeTruthy();
   });
 
@@ -279,7 +281,7 @@ describe("DeploymentHistoryPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Code Reviewer")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Building")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pushing new build")).not.toBeInTheDocument();
   });
 
   it("shows no build-in-progress card once the latest build has finished", async () => {
@@ -290,8 +292,41 @@ describe("DeploymentHistoryPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Code Reviewer")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Building")).not.toBeInTheDocument();
-    expect(screen.queryByText("Preparing")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pushing new build")).not.toBeInTheDocument();
+    expect(screen.queryByText("Preparing build")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a finished build as an available upgrade instead of letting it vanish (#1627)", async () => {
+    // Finished build newer than the deployed one, no published blueprint version
+    // yet: it must still surface as an available upgrade rather than disappear.
+    mockEndpoints([build({ status: "registered", build_id: "newbuild" })]);
+    renderPanel();
+
+    expect(await screen.findByText("New build available")).toBeInTheDocument();
+    expect(screen.getByText("Add retries with backoff")).toBeInTheDocument();
+    expect(screen.queryByText("Pushing new build")).not.toBeInTheDocument();
+  });
+
+  it("shows a Latest build badge when there is nothing newer to deploy (#1627)", async () => {
+    // GitHub-sourced, no in-flight build and no upgrade: the header reassures
+    // the user they are current instead of falling silent.
+    mockEndpoints([]);
+    renderPanel();
+
+    expect(await screen.findByText("Latest build")).toBeInTheDocument();
+    expect(screen.queryByText("New build available")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pushing new build")).not.toBeInTheDocument();
+  });
+
+  it("renders the available build's branch like the active tile (#1629)", async () => {
+    // The finished build is on "main"; the nudge must show the branch the same
+    // way the active tile does, not just a bare commit sha. So "main" now
+    // appears twice: on the active tile and on the nudge.
+    mockEndpoints([build({ status: "registered", build_id: "newbuild" })]);
+    renderPanel();
+
+    await screen.findByText("New build available");
+    expect(screen.getAllByText("main").length).toBeGreaterThanOrEqual(2);
   });
 
   it("does not request GitHub status for a cross-account private blueprint", async () => {

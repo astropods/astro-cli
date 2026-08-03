@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { ArrowUp, ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pause, Play, History, Copy, Check, Loader2 } from "lucide-react";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
@@ -16,8 +16,7 @@ import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { hasNewerBuild, isPausedState } from "@/lib/deployment-utils";
 import { commitTitle, commitUrl, shortSha } from "@/lib/github-utils";
 import type { AgentDeployment, DeploymentHistoryRecord, GitHubBuild } from "@/lib/api";
-import { INFO_COLORS } from "./DeploymentStatusBadge";
-import { DeploymentTile } from "./DeploymentTile";
+import { DeploymentTile, DeploymentSourceLine } from "./DeploymentTile";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,18 +43,31 @@ export interface DeploymentHistoryPanelContentProps {
   expanded?: boolean;
   /** Callback to toggle expanded state. */
   onToggleExpanded?: () => void;
+  /** Show a "Latest build" badge when there's nothing newer to deploy. */
+  onLatestBuild?: boolean;
   children?: ReactNode;
 }
 
 export function DeploymentHistoryPanelContent({
   expanded,
   onToggleExpanded,
+  onLatestBuild,
   children,
 }: DeploymentHistoryPanelContentProps) {
   return (
     <div className="flex h-full w-full flex-col rounded-md border border-border bg-card">
       <div className="flex items-center justify-between px-5 py-4">
-        <h2 className="text-lg font-normal text-foreground">Deployment History</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-normal text-foreground">Deployment History</h2>
+          {onLatestBuild && (
+            // Reassures the user they're current after an upgrade nudge clears,
+            // rather than the card just disappearing (issue #1627 design).
+            <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-mono-sm text-muted-foreground">
+              <Check className="size-3 text-success" />
+              Latest build
+            </span>
+          )}
+        </div>
         {onToggleExpanded && (
           <button
             onClick={onToggleExpanded}
@@ -222,46 +234,43 @@ export function UpgradeNudge({
   commitMessage,
   commitSha,
   repoFullName,
+  branch,
 }: {
   currentBuildId: string;
   latestBuildId: string;
   commitMessage?: string;
   commitSha?: string;
   repoFullName?: string;
+  branch?: string;
 }) {
   const navigate = useNavigate();
   // Prefer the target build's commit message (first line) so it's clear what the
   // upgrade brings; fall back to the build-id transition for direct CLI pushes.
   const summary = commitTitle(commitMessage);
-  const sha = shortSha(commitSha);
-  const commitLink = commitUrl(repoFullName, commitSha);
 
   return (
     <div
       className="flex w-full items-center justify-between gap-3 rounded border border-indigo-600/30 bg-indigo-500/15 px-3.5 py-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/18"
     >
       <div className="min-w-0">
-        <p className="text-mono-sm font-medium text-indigo-950 dark:text-indigo-100">New build available</p>
-        <p className="mt-0.5 truncate text-mono-sm text-indigo-950/70 dark:text-indigo-100/60">
+        {/* Eyebrow keeps the "new build available" label above the commit so it
+            isn't lost once the metadata line is shown (issue #1627 design). */}
+        <p className="text-[11px] font-semibold text-indigo-700/80 dark:text-indigo-300/80">
+          New build available
+        </p>
+        <p className="mt-0.5 truncate text-mono-sm font-medium text-indigo-950 dark:text-indigo-100">
           {summary || `${currentBuildId.slice(0, 8)} → ${latestBuildId.slice(0, 8)}`}
         </p>
-        {sha && (
-          <div className="mt-1 flex items-center gap-1.5 overflow-hidden text-mono-sm text-muted-foreground">
-            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
-            {commitLink ? (
-              <a
-                href={commitLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="truncate font-mono underline decoration-current/20 underline-offset-2 hover:text-foreground"
-              >
-                {sha}
-              </a>
-            ) : (
-              <span className="truncate font-mono">{sha}</span>
-            )}
-          </div>
-        )}
+        {/* Same source line as the active tile so branch + build id read identically (#1629). */}
+        <div className="mt-1">
+          <DeploymentSourceLine
+            source="github"
+            branch={branch}
+            buildId={latestBuildId}
+            commitSha={commitSha}
+            repoFullName={repoFullName}
+          />
+        </div>
       </div>
       <Button
         size="xs"
@@ -281,6 +290,28 @@ export function UpgradeNudge({
 // Build-in-progress nudge — shown above active tile while a build is in flight
 // ---------------------------------------------------------------------------
 
+// Rotating status text while building, so the card reads as live and distinct
+// from the static active tile below it (issue #1627 design feedback).
+const BUILD_PHASES = ["Pushing new build", "Building image", "Almost there"];
+
+function useBuildPhase(active: boolean): string {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setIndex((n) => (n + 1) % BUILD_PHASES.length), 2500);
+    return () => clearInterval(id);
+  }, [active]);
+  return BUILD_PHASES[index];
+}
+
+// Slate card with a slight indigo pulse (Taylor's build-state design): reads as
+// running without competing with the amber deploying / green active states.
+const BUILD_CARD = {
+  bg: "color-mix(in oklch, var(--color-slate-500) 10%, transparent)",
+  border: "color-mix(in oklch, var(--color-slate-500) 24%, transparent)",
+  shimmer: "color-mix(in oklch, var(--color-indigo-500) 26%, transparent)",
+};
+
 export function BuildInProgressNudge({
   build,
   repoFullName,
@@ -289,48 +320,53 @@ export function BuildInProgressNudge({
   repoFullName?: string;
 }) {
   const preparing = build.status === "pending";
-  const label = preparing ? "Preparing" : "Building";
   const title =
     commitTitle(build.commit_message) ||
     (preparing ? "Preparing build" : "Build in progress");
   const sha = shortSha(build.commit_sha);
   const commitLink = commitUrl(repoFullName, build.commit_sha);
+  const phase = useBuildPhase(!preparing);
+  const statusText = preparing ? "Preparing build" : phase;
 
   return (
     <div
-      className="flex flex-col gap-1.5 rounded border px-3.5 py-3"
-      style={{ backgroundColor: INFO_COLORS.bg, borderColor: INFO_COLORS.border }}
+      className="relative flex items-center justify-between gap-3 overflow-hidden rounded border px-3.5 py-3"
+      style={{ backgroundColor: BUILD_CARD.bg, borderColor: BUILD_CARD.border }}
     >
-      <div className="flex items-center justify-between gap-2">
+      {/* An indigo band sweeps across (slides + fades) so the card reads as
+          actively running, distinct from the static active tile below it. */}
+      <span
+        aria-hidden
+        className="dp-build-shimmer pointer-events-none absolute inset-0"
+        style={{ background: `linear-gradient(100deg, transparent 35%, ${BUILD_CARD.shimmer}, transparent 65%)` }}
+      />
+      <div className="relative flex min-w-0 flex-col gap-1.5">
         <span className="min-w-0 truncate text-body font-medium text-foreground">{title}</span>
-        <span
-          className="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-mono-sm font-medium"
-          style={{ backgroundColor: INFO_COLORS.badgeBg, color: INFO_COLORS.badgeText }}
-        >
-          <Loader2 className="size-3 animate-spin" />
-          {label}
-        </span>
+        {sha && (
+          <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
+              {build.branch && <span className="truncate">{build.branch}</span>}
+            </span>
+            {commitLink ? (
+              <a
+                href={commitLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 font-mono underline decoration-current/20 underline-offset-2 hover:text-foreground"
+              >
+                {sha}
+              </a>
+            ) : (
+              <span className="shrink-0 font-mono">{sha}</span>
+            )}
+          </div>
+        )}
       </div>
-      {sha && (
-        <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
-            {build.branch && <span className="truncate">{build.branch}</span>}
-          </span>
-          {commitLink ? (
-            <a
-              href={commitLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 font-mono underline decoration-current/20 underline-offset-2 hover:text-foreground"
-            >
-              {sha}
-            </a>
-          ) : (
-            <span className="shrink-0 font-mono">{sha}</span>
-          )}
-        </div>
-      )}
+      <span className="relative flex shrink-0 items-center gap-1.5 text-mono-sm font-medium text-indigo-600 dark:text-indigo-400">
+        {statusText}
+        <Loader2 className="size-3.5 animate-spin" />
+      </span>
     </div>
   );
 }
@@ -398,6 +434,8 @@ export function DeploymentHistoryPanel({
   // current deploy. The query self-polls while builds[0] is pending/building.
   const { data: githubStatus } = useGitHubStatus(sourceAccount, agentName, {
     enabled: currentRecord?.source === "github" && sourceReadable,
+    // Baseline poll so a newly pushed build appears without a manual refresh (#1627).
+    refetchInterval: 15_000,
   });
   const activeBuild = useMemo(() => {
     const latest = githubStatus?.builds?.[0];
@@ -410,12 +448,25 @@ export function DeploymentHistoryPanel({
   // build card to avoid stacking two in-progress indicators in this small panel.
   const { data: statusData } = useDeploymentStatus(deployment.id);
   const deploying = statusData?.value === "deploying" || statusData?.value === "undeploying";
-  const upgrade = useMemo(() => {
-    if (!hasNewerBuild(deployment)) return null;
+  // Prefer the newest finished build from the polling GitHub status so a build
+  // that just completed becomes the upgrade target without a refresh (#1627).
+  const githubUpgrade = useMemo(() => {
+    const finished = githubStatus?.builds?.find((b) => b.status === "registered");
+    if (!finished || finished.build_id === deployment.build_id) return null;
+    return {
+      buildId: finished.build_id,
+      commitMessage: finished.commit_message,
+      commitSha: finished.commit_sha,
+      repoFullName: githubStatus?.repo_full_name,
+      branch: finished.branch,
+    };
+  }, [githubStatus, deployment.build_id]);
 
-    // latest_build_id is the shared authority for upgrade availability and is
-    // omitted by the server for cross-account private blueprints. Readable
-    // blueprint versions only enrich the nudge with optional commit metadata.
+  // Fallback to the server's latest_build_id (shared authority; omitted for
+  // cross-account private blueprints), enriched with commit metadata when the
+  // blueprint versions are readable.
+  const blueprintUpgrade = useMemo(() => {
+    if (!hasNewerBuild(deployment)) return null;
     const latest = sourceBlueprint?.versions?.find(
       (version) => version.build_id === deployment.latest_build_id,
     );
@@ -424,12 +475,30 @@ export function DeploymentHistoryPanel({
       commitMessage: latest?.commit_message,
       commitSha: latest?.commit_sha,
       repoFullName: latest?.repo_full_name,
+      // Blueprint versions carry no branch; the active record's is the right
+      // proxy since the upgrade is the same lineage (#1629).
+      branch: currentRecord?.branch,
     };
-  }, [sourceBlueprint, deployment]);
+  }, [sourceBlueprint, deployment, currentRecord?.branch]);
+
+  const upgrade = githubUpgrade ?? blueprintUpgrade;
+
+  // Once the build state is known and there's nothing newer to deploy, mark the
+  // panel "on latest build" so the header doesn't just fall silent when the
+  // build / upgrade nudges clear (issue #1627 design).
+  const onLatestBuild =
+    currentRecord?.source === "github" &&
+    sourceReadable &&
+    (!!githubStatus || (sourceBlueprint?.versions?.length ?? 0) > 0) &&
+    !activeBuild &&
+    !upgrade &&
+    !deploying;
+
   return (
     <DeploymentHistoryPanelContent
       expanded={expanded}
       onToggleExpanded={allRecords.length > 1 ? onToggleExpanded : undefined}
+      onLatestBuild={onLatestBuild}
     >
       {records.map((record) => (
         <Fragment key={`${record.id}-${record.revision}`}>
@@ -443,6 +512,7 @@ export function DeploymentHistoryPanel({
               commitMessage={upgrade.commitMessage}
               commitSha={upgrade.commitSha}
               repoFullName={upgrade.repoFullName}
+              branch={upgrade.branch}
             />
           )}
           <DeploymentTile

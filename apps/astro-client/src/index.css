@@ -101,6 +101,26 @@ body {
   }
 }
 
+/* Sliding shimmer for the build-in-progress card: a light band sweeps across so
+   the card reads as actively running, not just statically tinted. */
+@keyframes dp-build-shimmer {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0.4;
+  }
+}
+
+.dp-build-shimmer {
+  animation: dp-build-shimmer 1.8s ease-in-out infinite;
+}
+
 @keyframes dp-spin {
   from {
     transform: rotate(0deg);

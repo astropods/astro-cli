@@ -17,6 +17,54 @@ export interface DeploymentActor {
   avatarUrl?: string;
 }
 
+// Shared git/source line so the active tile, the upgrade nudge, and any other
+// build row render branch + build id + time identically (issue #1629).
+export function DeploymentSourceLine({
+  source,
+  branch,
+  buildId,
+  commitSha,
+  repoFullName,
+  timestamp,
+}: {
+  source: "github" | "direct";
+  branch?: string;
+  buildId: string;
+  commitSha?: string;
+  repoFullName?: string;
+  /** When set, appends a relative time (used for deployed rows, not pending builds). */
+  timestamp?: string;
+}) {
+  const commitLink = commitUrl(repoFullName, commitSha);
+
+  return (
+    <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
+      {commitLink ? (
+        <a
+          href={commitLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
+        >
+          <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
+          <span className="truncate underline decoration-current/20 underline-offset-2">{branch || "GitHub"}</span>
+        </a>
+      ) : (
+        <span className="flex min-w-0 shrink items-center gap-1.5">
+          {source === "github" ? (
+            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
+          ) : (
+            <SquareTerminal className="size-3 shrink-0" />
+          )}
+          <span className="truncate">{source === "github" ? branch || "GitHub" : "ast push"}</span>
+        </span>
+      )}
+      <span className="shrink-0 font-mono">{shortBuildId(buildId)}</span>
+      {timestamp && <span className="shrink-0">{formatRelativeTime(timestamp)}</span>}
+    </div>
+  );
+}
+
 export interface DeploymentTileProps {
   /** Primary label — commit message (first line) for GitHub deployments, display name otherwise. */
   name: string;
@@ -61,8 +109,6 @@ export function DeploymentTile({
   const { data: statusData } = useDeploymentStatus(deployment?.id ?? "", !!active && !!deployment);
   const status: DeploymentStatusValue | null = active && deployment ? statusData?.value ?? null : null;
   const colors = getDeploymentStatusColors(status);
-  const shortBuild = shortBuildId(buildId);
-  const commitLink = commitUrl(repoFullName, commitSha);
   const errorMessage = status === "error" ? deployment?.error_message : undefined;
 
   return (
@@ -82,29 +128,14 @@ export function DeploymentTile({
           {menu}
         </div>
       </div>
-      <div className="flex items-center gap-3 overflow-hidden text-mono-sm text-muted-foreground">
-        {commitLink ? (
-          <a
-            href={commitLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-w-0 shrink items-center gap-1.5 hover:text-foreground"
-          >
-            <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
-            <span className="truncate underline decoration-current/20 underline-offset-2">{branch || "GitHub"}</span>
-          </a>
-        ) : (
-          <span className="flex min-w-0 shrink items-center gap-1.5">
-            {source === "github" ? (
-              <span className="size-3 shrink-0">{getIntegrationIcon("github")}</span>
-            ) : (
-              <SquareTerminal className="size-3 shrink-0" />
-            )}
-            <span className="truncate">{source === "github" ? branch || "GitHub" : "ast push"}</span>
-          </span>
-        )}
-        <span className="shrink-0 font-mono">{shortBuild}</span>
-      </div>
+      <DeploymentSourceLine
+        source={source}
+        branch={branch}
+        buildId={buildId}
+        commitSha={commitSha}
+        repoFullName={repoFullName}
+        timestamp={deployedAt}
+      />
       {errorMessage && (
         <p
           className="mt-1 whitespace-pre-line break-words text-mono-sm"
