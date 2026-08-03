@@ -1,20 +1,7 @@
 # astro-cli conventions
 
-## Spec
-
-The CLI command surface is defined in `docs/02-cli/cli-command-tree.md`. Keep this spec up to date whenever commands, flags, or default behavior change.
-
-### Public docs (Fern)
-
-User-facing CLI documentation lives under `docs-public/fern/docs/pages/`. Update it in the same PR as CLI changes — do not rely on the internal command tree alone.
-
-| Change type | Update |
-|-------------|--------|
-| New/removed command or subcommand | `cli-command-tree.md` + `cli-reference.mdx` (and any guide page that demonstrates the command, e.g. `managing-agents.mdx`) |
-| New/changed flags or output shape | Same pages; add examples when behavior is non-obvious (separate modes, different API/failure domain, etc.) |
-| Help text only | Optional Fern touch-up if user-visible behavior or examples are affected |
-
-Preview locally from `docs-public/`: `cd fern && fern docs dev` (see `docs-public/README.md`).
+Keep the CLI's command surface and help text accurate when you change commands,
+flags, or default behavior.
 
 ## Testing
 
