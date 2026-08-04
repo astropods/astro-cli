@@ -63,10 +63,12 @@ type agentDeployResult struct {
 }
 
 var blueprintDeployCmd = &cobra.Command{
-	Use:   "deploy <name>",
+	Use:   "deploy [name]",
 	Short: "Deploy a blueprint",
-	Args:  exactValidAgentName,
-	RunE:  runBlueprintDeploy,
+	// Name is optional: with a local astropods.yml that sets meta.agentcore, the
+	// deploy is spec-driven (AgentCore) and needs no name.
+	Args: optionalValidAgentName,
+	RunE: runBlueprintDeploy,
 }
 
 // registerDeployCommonFlags registers adapter/var/build/dry-run/json flags shared by deploy and redeploy.
@@ -88,14 +90,16 @@ func registerDeployFlags(cmd *cobra.Command) {
 func init() {
 	blueprintCmd.AddCommand(blueprintDeployCmd)
 	registerDeployFlags(blueprintDeployCmd)
+	registerAgentCoreDeployFlags(blueprintDeployCmd)
 
 	topLevelDeployCmd := &cobra.Command{
 		Use:   blueprintDeployCmd.Use,
 		Short: blueprintDeployCmd.Short,
-		Args:  exactValidAgentName,
+		Args:  optionalValidAgentName,
 		RunE:  runBlueprintDeploy,
 	}
 	registerDeployFlags(topLevelDeployCmd)
+	registerAgentCoreDeployFlags(topLevelDeployCmd)
 	rootCmd.AddCommand(topLevelDeployCmd)
 }
 
@@ -199,6 +203,16 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 }
 
 func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
+	// Spec-driven runtime routing: if the local astropods.yml sets
+	// meta.agentcore, deploy to AWS Bedrock AgentCore (client-side) instead of
+	// the default server-mediated platform deploy. The spec decides the runtime;
+	// there is no --target flag.
+	if handled, err := maybeAgentCoreDeploy(cmd, args); handled || err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got 0")
+	}
 	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
