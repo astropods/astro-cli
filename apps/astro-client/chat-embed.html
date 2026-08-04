@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat | Astro</title>
+    <!-- Declare favicons in the static shell. The full app (root.tsx) injects
+         these via React Router <Links> during SSR, but the chat-embed build is a
+         static SPA with no SSR, so without them the browser falls back to the
+         low-res /favicon.ico and upscales it (blurry on hi-DPI tabs). Mirrors
+         root.tsx's link set so the embedded chat tab matches prod. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <script>
       (function () {
         var t = localStorage.getItem("astro:theme") || "dark";
