@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
@@ -72,7 +73,7 @@ func (d *Deliverer) Deliver(ctx context.Context, ev Event) error {
 
 	d.attachNames(recipients)
 
-	return d.provider.Trigger(ctx, ev.workflowID(), recipients, d.finalizePayload(ev.Payload), ev.transactionID())
+	return d.provider.Trigger(ctx, ev.workflowID(), recipients, d.finalizePayload(ev), ev.transactionID())
 }
 
 // attachNames fills each recipient's display name for the subscriber greeting,
@@ -100,22 +101,23 @@ func (d *Deliverer) attachNames(recipients []Recipient) {
 
 // finalizePayload returns a copy of the event payload with a relative ctaUrl
 // (leading "/") made absolute against appBaseURL, so email links resolve
-// outside the app. Absolute or empty ctaUrl values pass through unchanged.
-func (d *Deliverer) finalizePayload(in map[string]any) map[string]any {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]any, len(in))
-	maps.Copy(out, in)
+// outside the app, and with the RFC 3339 timestamp every workflow receives.
+// Absolute or empty ctaUrl values pass through unchanged.
+func (d *Deliverer) finalizePayload(ev Event) map[string]any {
+	out := make(map[string]any, len(ev.Payload)+1)
+	maps.Copy(out, ev.Payload)
 	if url, ok := out[PayloadCTAURL].(string); ok && d.appBaseURL != "" && strings.HasPrefix(url, "/") {
 		out[PayloadCTAURL] = d.appBaseURL + url
 	}
+	// An event that reached delivery unstamped (built outside an emit seam) is
+	// still better served by the delivery time than by an empty field.
+	out[PayloadTimestamp] = ev.Stamped(time.Now()).OccurredAt.Format(time.RFC3339)
 	return out
 }
 
-// resolveRecipients maps the audience policy to concrete recipients, excluding
-// the actor from broadcast audiences so a user is not alerted about their own
-// action.
+// resolveRecipients maps the audience policy to concrete recipients. Every
+// audience resolves to a named user or to the account's managers; nothing
+// addresses the full member list.
 func (d *Deliverer) resolveRecipients(ctx context.Context, ev Event) ([]Recipient, error) {
 	emailByUser, err := d.emailByUser(ctx, ev.AccountID)
 	if err != nil {
@@ -147,11 +149,6 @@ func (d *Deliverer) resolveRecipients(ctx context.Context, ev Event) ([]Recipien
 		return recip(ownerID), nil
 	case AudienceManagers:
 		return d.resolveManagers(ctx, ev, recip)
-	case AudienceMembers, AudienceAdmins:
-		// TODO(notify): AudienceAdmins should filter to org admin/owner roles via
-		// the org client; until the team PR wires that, it broadcasts to all
-		// members like AudienceMembers.
-		return d.allMembers(ev, emailByUser), nil
 	default:
 		return nil, fmt.Errorf("unknown audience %q", ev.Audience)
 	}
@@ -183,18 +180,6 @@ func (d *Deliverer) resolveManagers(ctx context.Context, ev Event, recip func(st
 		out = append(out, recip(uid)...)
 	}
 	return out, nil
-}
-
-// allMembers returns every member with a mirrored email, minus the actor.
-func (d *Deliverer) allMembers(ev Event, emailByUser map[string]string) []Recipient {
-	out := make([]Recipient, 0, len(emailByUser))
-	for userID, email := range emailByUser {
-		if userID == ev.ActorUserID {
-			continue
-		}
-		out = append(out, Recipient{UserID: userID, Email: email})
-	}
-	return out
 }
 
 // emailByUser inverts the mirror's email→user_id map to user_id→email.

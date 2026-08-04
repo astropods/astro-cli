@@ -14,6 +14,12 @@ const (
 	PayloadAction  = "action" // e.g. added|role_changed|removed, created|revoked
 	PayloadKeyKind = "keyKind"
 	PayloadKeyName = "keyName"
+
+	// PayloadTimestamp is RFC 3339 UTC (e.g. 2026-08-04T21:37:02Z) marking when
+	// the event occurred, not when it was delivered — a retried job can trigger
+	// long after the fact. Every type carries it; the Deliverer renders it from
+	// Event.OccurredAt, so no builder sets it.
+	PayloadTimestamp = "timestamp"
 )
 
 // payloadProps is the per-type payload contract: the property keys each
@@ -44,8 +50,16 @@ var payloadProps = map[Type][]string{
 }
 
 // PayloadProperties returns the payload property keys a notification type
-// pushes, for building the Novu workflow's payload schema.
-func PayloadProperties(t Type) []string { return payloadProps[t] }
+// pushes, for building the Novu workflow's payload schema. PayloadTimestamp is
+// appended for every type rather than repeated in the table above, so a new
+// type gets it without a second edit.
+func PayloadProperties(t Type) []string {
+	props, ok := payloadProps[t]
+	if !ok {
+		return nil
+	}
+	return append(append(make([]string, 0, len(props)+1), props...), PayloadTimestamp)
+}
 
 // accountPath builds an account-scoped app path ("/{accountName}{suffix}"),
 // falling back to the dashboard when the handle is unknown — a caller that can't
@@ -75,13 +89,13 @@ func AccountWelcome(accountID, accountName, actorUserID string) Event {
 
 // --- Deployments ---
 
-// BuildFailed builds the build.failed event for an account's members. accountName
+// BuildFailed builds the build.failed event for an account's managers. accountName
 // is the account's URL handle; the CTA deep-links to the agent's blueprint page.
 func BuildFailed(accountID, accountName, agentName, buildID, reason string) Event {
 	return Event{
 		Type:      TypeBuildFailed,
 		AccountID: accountID,
-		Audience:  AudienceMembers,
+		Audience:  AudienceManagers,
 		EntityID:  buildID,
 		Payload: map[string]any{
 			PayloadAgent:  agentName,
@@ -203,9 +217,9 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 	})
 }
 
-// --- Observation (member-addressed) ---
+// --- Observation (manager-addressed) ---
 
-// Observation builds an observation alert for an account's members. t is the
+// Observation builds an observation alert for an account's managers. t is the
 // severity workflow (TypeObservationInfo, TypeObservationWarning, or
 // TypeObservationCritical); reason is the short human condition title (e.g. "Out
 // of memory") and details is a one-line explanation of what happened (e.g. "A
@@ -217,7 +231,7 @@ func Observation(t Type, accountID, accountName, agentName, deploymentID, reason
 	return Event{
 		Type:      t,
 		AccountID: accountID,
-		Audience:  AudienceMembers,
+		Audience:  AudienceManagers,
 		EntityID:  deploymentID,
 		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadDetails: details, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
 	}

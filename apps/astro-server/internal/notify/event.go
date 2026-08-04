@@ -5,6 +5,8 @@
 // worker imports it, not the reverse.
 package notify
 
+import "time"
+
 // Type is a stable `<domain>.<event>` identifier that maps 1:1 to a Novu
 // workflow id. Adding a Type means authoring the matching workflow in Novu.
 type Type string
@@ -49,8 +51,6 @@ const (
 	AudienceActor    Audience = "actor"    // the triggering user
 	AudienceOwner    Audience = "owner"    // account owner
 	AudienceManagers Audience = "managers" // org managers (org:manage — owner + admin)
-	AudienceAdmins   Audience = "admins"   // org admins
-	AudienceMembers  Audience = "members"  // all account members
 	AudienceSubject  Audience = "subject"  // the user the event is about
 )
 
@@ -65,6 +65,10 @@ type Event struct {
 	EntityID      string         // deployment/build/invoice id, for dedupe + copy
 	Payload       map[string]any // workflow template variables
 	DedupeKey     string         // idempotency key; defaults from Type+EntityID
+	// OccurredAt is when the event happened. Stamped at the emit seam, not at
+	// delivery: a job that exhausts its backoff can trigger long after the
+	// incident, and the template must show the incident time.
+	OccurredAt time.Time
 	// WorkflowID overrides the Novu workflow this triggers. Normally the
 	// workflow id equals the Type; this override exists for local dev, where the
 	// authored workflow may be named differently (e.g. NOVU_TEST_WORKFLOW_ID).
@@ -81,6 +85,16 @@ func (e Event) transactionID() string {
 		return string(e.Type) + ":" + e.EntityID
 	}
 	return ""
+}
+
+// Stamped returns the event with OccurredAt set to now (UTC) when a source has
+// not set it explicitly. Emit seams call this so the time is captured once, at
+// emit, and rides the queued job through any retries.
+func (e Event) Stamped(now time.Time) Event {
+	if e.OccurredAt.IsZero() {
+		e.OccurredAt = now.UTC()
+	}
+	return e
 }
 
 // workflowID is the Novu workflow identifier this event triggers: the explicit

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -245,14 +246,14 @@ func (q *Queue) Insert(ctx context.Context, args river.JobArgs, opts *river.Inse
 // EmitNotify enqueues one alert for off-request delivery. This is the emit seam
 // sources call; recipient resolution and the Novu trigger happen in NotifyWorker.
 func (q *Queue) EmitNotify(ctx context.Context, ev notify.Event) error {
-	_, err := q.Insert(ctx, NotifyArgs{Event: ev}, nil)
+	_, err := q.Insert(ctx, NotifyArgs{Event: ev.Stamped(time.Now())}, nil)
 	return err
 }
 
 // EmitNotifyTx enqueues an alert inside an existing transaction, so the alert
 // and the state change that warrants it commit atomically.
 func (q *Queue) EmitNotifyTx(ctx context.Context, tx pgx.Tx, ev notify.Event) error {
-	_, err := q.InsertTx(ctx, tx, NotifyArgs{Event: ev}, nil)
+	_, err := q.InsertTx(ctx, tx, NotifyArgs{Event: ev.Stamped(time.Now())}, nil)
 	return err
 }
 

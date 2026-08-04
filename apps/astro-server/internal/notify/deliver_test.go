@@ -3,7 +3,9 @@ package notify
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
+	"time"
 )
 
 // fakeProvider records the last trigger it received.
@@ -105,27 +107,21 @@ func TestDeliverAttachesDisplayName(t *testing.T) {
 	}
 }
 
-func TestDeliverMembersExcludesActor(t *testing.T) {
+// No audience broadcasts to the whole account; a retired one must be rejected
+// rather than silently resolving to every member.
+func TestDeliverRejectsRetiredBroadcastAudience(t *testing.T) {
 	prov := &fakeProvider{}
-	emails := fakeEmails{byEmail: map[string]string{"a@x.com": "u_actor", "b@x.com": "u_b", "c@x.com": "u_c"}}
+	emails := fakeEmails{byEmail: map[string]string{"o@x.com": "u_owner", "m@x.com": "u_member"}}
 	d := newDeliverer(prov, emails, fakeAccounts{})
 
 	err := d.Deliver(context.Background(), Event{
-		Type:        TypeBuildFailed,
-		AccountID:   "acct_1",
-		Audience:    AudienceMembers,
-		ActorUserID: "u_actor",
+		Type: TypeBuildFailed, AccountID: "acct_1", Audience: Audience("members"),
 	})
-	if err != nil {
-		t.Fatalf("Deliver: %v", err)
+	if err == nil {
+		t.Fatalf("want unknown-audience error, got nil (recipients: %+v)", prov.recipients)
 	}
-	if len(prov.recipients) != 2 {
-		t.Fatalf("expected 2 recipients (actor excluded), got %d: %+v", len(prov.recipients), prov.recipients)
-	}
-	for _, r := range prov.recipients {
-		if r.UserID == "u_actor" {
-			t.Fatalf("actor should be excluded from members broadcast")
-		}
+	if prov.calls != 0 {
+		t.Fatalf("provider must not be triggered for an unknown audience, got %d calls", prov.calls)
 	}
 }
 
@@ -143,6 +139,74 @@ func TestDeliverOwnerUsesFirstMember(t *testing.T) {
 	}
 	if len(prov.recipients) != 1 || prov.recipients[0].UserID != "u_owner" {
 		t.Fatalf("owner recipients = %+v, want single u_owner", prov.recipients)
+	}
+}
+
+func TestDeliverRendersOccurredAtAsRFC3339(t *testing.T) {
+	prov := &fakeProvider{}
+	emails := fakeEmails{byEmail: map[string]string{"a@x.com": "u_actor"}}
+	d := newDeliverer(prov, emails, fakeAccounts{})
+
+	occurred := time.Date(2026, 8, 4, 21, 37, 2, 0, time.UTC)
+	if err := d.Deliver(context.Background(), Event{
+		Type:        TypeSystemTest,
+		AccountID:   "acct_1",
+		Audience:    AudienceActor,
+		ActorUserID: "u_actor",
+		OccurredAt:  occurred,
+		Payload:     map[string]any{PayloadAccount: "acme"},
+	}); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if got := prov.payload[PayloadTimestamp]; got != "2026-08-04T21:37:02Z" {
+		t.Fatalf("timestamp = %v, want 2026-08-04T21:37:02Z", got)
+	}
+	if got := prov.payload[PayloadAccount]; got != "acme" {
+		t.Fatalf("existing payload props must survive, account = %v", got)
+	}
+}
+
+// A nil payload and an unstamped event both still carry a timestamp, so no
+// workflow template renders an empty variable.
+func TestDeliverAlwaysSendsTimestamp(t *testing.T) {
+	prov := &fakeProvider{}
+	emails := fakeEmails{byEmail: map[string]string{"a@x.com": "u_actor"}}
+	d := newDeliverer(prov, emails, fakeAccounts{})
+
+	if err := d.Deliver(context.Background(), Event{
+		Type:        TypeSystemTest,
+		AccountID:   "acct_1",
+		Audience:    AudienceActor,
+		ActorUserID: "u_actor",
+	}); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	got, _ := prov.payload[PayloadTimestamp].(string)
+	if _, err := time.Parse(time.RFC3339, got); err != nil {
+		t.Fatalf("timestamp %q is not RFC3339: %v", got, err)
+	}
+}
+
+// Stamping happens at emit, so a value a source already set is preserved.
+func TestStampedPreservesExplicitOccurredAt(t *testing.T) {
+	occurred := time.Date(2026, 8, 4, 21, 37, 2, 0, time.UTC)
+	if got := (Event{OccurredAt: occurred}).Stamped(time.Now()).OccurredAt; !got.Equal(occurred) {
+		t.Fatalf("OccurredAt = %v, want preserved %v", got, occurred)
+	}
+	if (Event{}).Stamped(time.Now()).OccurredAt.IsZero() {
+		t.Fatal("unset OccurredAt should be stamped")
+	}
+}
+
+func TestPayloadPropertiesIncludeTimestamp(t *testing.T) {
+	for _, typ := range []Type{TypeSystemTest, TypeBuildFailed, TypeObservationCritical, TypeBillingPaymentFailed} {
+		props := PayloadProperties(typ)
+		if !slices.Contains(props, PayloadTimestamp) {
+			t.Fatalf("%s properties %v missing %s", typ, props, PayloadTimestamp)
+		}
+	}
+	if got := PayloadProperties(Type("nope.unknown")); got != nil {
+		t.Fatalf("unknown type properties = %v, want nil", got)
 	}
 }
 
@@ -224,7 +288,7 @@ func TestDeliverLeavesAbsoluteCTA(t *testing.T) {
 
 func TestBuildFailedPayload(t *testing.T) {
 	ev := BuildFailed("acct_1", "acme", "my-agent", "build_9", "exit code 1")
-	if ev.Type != TypeBuildFailed || ev.Audience != AudienceMembers || ev.EntityID != "build_9" {
+	if ev.Type != TypeBuildFailed || ev.Audience != AudienceManagers || ev.EntityID != "build_9" {
 		t.Fatalf("unexpected event envelope: %+v", ev)
 	}
 	// Data only — no prose. Wording lives in the Novu template.
