@@ -190,7 +190,8 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 }
 
 // TestAstroYml_AIGateway ensures the gateway opt-in emits a models entry with
-// provider: gateway (and selectable models), not the deprecated boolean.
+// provider: gateway and no models list — the supported-model catalog drives the
+// deploy-time options — rather than the deprecated boolean.
 func TestAstroYml_AIGateway(t *testing.T) {
 	yaml := renderAstroYml(t, ScaffoldConfig{
 		Name:            "gw-agent",
@@ -214,8 +215,8 @@ func TestAstroYml_AIGateway(t *testing.T) {
 	if !ok || !m.IsGateway() {
 		t.Fatalf("expected models.default with provider: gateway\n%s", yaml)
 	}
-	if len(m.ResolvedModels()) == 0 {
-		t.Errorf("expected selectable models on the gateway entry\n%s", yaml)
+	if len(m.ResolvedModels()) != 0 {
+		t.Errorf("gateway entry should omit models so the supported-model catalog drives options\n%s", yaml)
 	}
 	if !s.UsesGateway() {
 		t.Errorf("UsesGateway() should be true\n%s", yaml)
