@@ -574,8 +574,6 @@ html.dark .sbdocs-preview {
    Dark mode: restore the per-star opacity stored in --star-o on each circle. */
 .card-v2-star { opacity: 1; }
 .dark .card-v2-star { opacity: var(--star-o); }
-/* Animations are born paused so the negative animation-delay doesn't snap
-   stars to a mid-cycle position on first paint. The card mounts the JS
-   hover effect, which flips each animation to running at playbackRate=0
-   and ramps from there. */
+/* Animations remain paused until their card is first hovered. The card's JS
+   hover effect activates only that card and pauses it again after coast-down. */
 .card-v2-star-anim { animation-play-state: paused; }

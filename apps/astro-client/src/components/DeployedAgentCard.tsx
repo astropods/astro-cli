@@ -141,23 +141,39 @@ function CardStarfield({ seed, hovered }: { seed: string; hovered: boolean }) {
   const cloudMaskId = useId();
   const seedNum = hashSeed(seed);
   const svgRef = useRef<SVGSVGElement>(null);
+  const animationGroupsRef = useRef<{
+    all: Animation[];
+    drift: Animation[];
+    twinkle: Animation[];
+  } | null>(null);
   // Ramp playbackRate 0↔1 on hover via RAF. Drift ramps in both directions for
   // the smooth spool-up / coast-down feel. Twinkles ramp UP with drift, but on
   // hover-out they snap to 0 immediately — slow-fading a mid-flash sparkle
   // makes it linger weirdly.
   useEffect(() => {
+    // Leave untouched cards in their CSS-paused state. Activating every star
+    // animation during hydration is expensive even at playbackRate=0.
+    if (!hovered && !animationGroupsRef.current) return;
+
     const svg = svgRef.current;
     if (!svg || typeof svg.getAnimations !== "function") return;
-    const animations = svg.getAnimations({ subtree: true });
-    if (animations.length === 0) return;
-    const isTwinkle = (a: Animation) =>
-      (a as CSSAnimation).animationName === "card-star-twinkle";
-    const driftAnims = animations.filter((a) => !isTwinkle(a));
-    const twinkleAnims = animations.filter(isTwinkle);
+    let animationGroups = animationGroupsRef.current;
+    if (!animationGroups) {
+      const all = svg.getAnimations({ subtree: true });
+      if (all.length === 0) return;
+      const isTwinkle = (animation: Animation) =>
+        (animation as CSSAnimation).animationName === "card-star-twinkle";
+      animationGroups = {
+        all,
+        drift: all.filter((animation) => !isTwinkle(animation)),
+        twinkle: all.filter(isTwinkle),
+      };
+      animationGroupsRef.current = animationGroups;
+    }
+    const { all: animations, drift: driftAnims, twinkle: twinkleAnims } = animationGroups;
     // CSS births these in animation-play-state:paused so they don't tick at
-    // full speed on first paint. Flip any still-paused ones to running at
-    // rate 0 so the ramp below can drive playbackRate smoothly. Imperative
-    // play() takes precedence over the CSS keyword from here on.
+    // full speed on first paint. On first hover, flip this card's animations
+    // to running at rate 0 so the ramp below can drive playbackRate smoothly.
     for (const a of animations) {
       if (a.playState === "paused") {
         a.playbackRate = 0;
@@ -170,7 +186,12 @@ function CardStarfield({ seed, hovered }: { seed: string; hovered: boolean }) {
     }
     const driftStart = driftAnims[0]?.playbackRate ?? 0;
     const twinkleStart = twinkleAnims[0]?.playbackRate ?? 0;
-    if (driftStart === target && (hovered ? twinkleStart === target : true)) return;
+    if (driftStart === target && (hovered ? twinkleStart === target : true)) {
+      if (!hovered) {
+        for (const a of animations) a.pause();
+      }
+      return;
+    }
     const duration = hovered ? RAMP_UP_MS : RAMP_DOWN_MS;
     const startTime = performance.now();
     let rafId = 0;
@@ -184,7 +205,13 @@ function CardStarfield({ seed, hovered }: { seed: string; hovered: boolean }) {
         const twinkleRate = twinkleStart + (target - twinkleStart) * eased;
         for (const a of twinkleAnims) a.playbackRate = twinkleRate;
       }
-      if (t < 1) rafId = requestAnimationFrame(tick);
+      if (t < 1) {
+        rafId = requestAnimationFrame(tick);
+      } else if (!hovered) {
+        // Preserve the final frame without leaving non-hovered cards in the
+        // browser's running animation registry.
+        for (const a of animations) a.pause();
+      }
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);

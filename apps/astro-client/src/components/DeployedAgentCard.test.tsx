@@ -1,10 +1,27 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "@/test/test-utils";
 import { DeployedAgentCard } from "./DeployedAgentCard";
 
-afterEach(cleanup);
+const originalGetAnimations = Object.getOwnPropertyDescriptor(
+  SVGSVGElement.prototype,
+  "getAnimations",
+);
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  if (originalGetAnimations) {
+    Object.defineProperty(
+      SVGSVGElement.prototype,
+      "getAnimations",
+      originalGetAnimations,
+    );
+  } else {
+    Reflect.deleteProperty(SVGSVGElement.prototype, "getAnimations");
+  }
+});
 
 function renderDeployedAgentCard(overrides: Partial<Parameters<typeof DeployedAgentCard>[0]> = {}) {
   return renderRoute(
@@ -37,6 +54,36 @@ function renderDeployedAgentCard(overrides: Partial<Parameters<typeof DeployedAg
 }
 
 describe("DeployedAgentCard", () => {
+  it("does not activate star animations until the card is hovered", async () => {
+    const user = userEvent.setup();
+    const animation = {
+      animationName: "card-star-drift",
+      pause: vi.fn(),
+      play: vi.fn(),
+      playbackRate: 0,
+      playState: "paused",
+    } as unknown as Animation;
+    const getAnimations = vi.fn(() => [animation]);
+    Object.defineProperty(SVGSVGElement.prototype, "getAnimations", {
+      configurable: true,
+      value: getAnimations,
+    });
+
+    renderDeployedAgentCard();
+    const card = screen.getByRole("link", { name: "View details for Prism" });
+
+    expect(getAnimations).not.toHaveBeenCalled();
+    expect(animation.play).not.toHaveBeenCalled();
+
+    await user.hover(card);
+    expect(getAnimations).toHaveBeenCalledTimes(1);
+    expect(animation.play).toHaveBeenCalledTimes(1);
+
+    await user.unhover(card);
+    await user.hover(card);
+    expect(getAnimations).toHaveBeenCalledTimes(1);
+  });
+
   it("navigates to the agent detail page when the card shell is clicked", async () => {
     const user = userEvent.setup();
     renderDeployedAgentCard();
