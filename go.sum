@@ -40,6 +40,8 @@ github.com/astropods/astro-spec v0.2.1-0.20260803231106-ff8598ad2b1f h1:iuDzNn7L
 github.com/astropods/astro-spec v0.2.1-0.20260803231106-ff8598ad2b1f/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
 github.com/astropods/astro-spec v0.2.1-0.20260804214338-d6122018592f h1:1I4kgfSOWZXM3VIkoALx3jXQDEGIVwbUp6OfYbEMTQc=
 github.com/astropods/astro-spec v0.2.1-0.20260804214338-d6122018592f/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
+github.com/astropods/astro-spec v0.2.1-0.20260804220232-3166f88f2e47 h1:3ffX/e1MCsGYRaqc46ehWhs/jdnOhsNQf6Cmg+JKBLg=
+github.com/astropods/astro-spec v0.2.1-0.20260804220232-3166f88f2e47/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=

@@ -829,12 +829,12 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
-	// Agent transport. Default (EKS): dial out to the messaging gRPC server.
-	// AgentCore: the agent SERVES /invocations on :8080 instead of dialing, so
-	// flip adapter-core into serving mode and omit the dial target.
-	if s.Agent.IsAgentCore() {
-		agentcore := "agentcore"
-		env["ASTRO_RUNTIME"] = &agentcore
+	// Agent transport. A declared runtime (e.g. agentcore) serves /invocations on
+	// :8080; adapter-core selects its transport from ASTRO_RUNTIME. The default
+	// runtime dials out to the messaging gRPC server instead.
+	if rt := s.Agent.Runtime(); rt != "" {
+		runtime := rt
+		env["ASTRO_RUNTIME"] = &runtime
 	} else if s.Dev.HasMessagingAdapters() {
 		grpcAddr := "astro-messaging:9090"
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
@@ -888,10 +888,11 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	grpcListenAddr := ":9090"
 	env["GRPC_LISTEN_ADDR"] = &grpcListenAddr
 
-	// Agent transport. Default (EKS): the agent dials in over gRPC (above).
-	// AgentCore: messaging INVOKES the agent per turn over HTTP instead, reaching
-	// it at the agent's compose service DNS name on :8080.
-	if s.Agent.IsAgentCore() {
+	// Agent transport per runtime. The default runtime dials in over gRPC (above);
+	// agentcore is invoked per turn over HTTP at the agent's compose service DNS
+	// name on :8080.
+	switch s.Agent.Runtime() {
+	case spec.AgentCoreRuntime:
 		transport := "agentcore"
 		env["AGENT_TRANSPORT"] = &transport
 		endpoint := "http://agent:8080"
