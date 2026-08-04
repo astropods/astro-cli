@@ -12,11 +12,11 @@ agent:
 models:
 {{- if .AIGateway}}
   # Astro AI Gateway — managed model access (injects ASTRO_GATEWAY_URL +
-  # ASTRO_GATEWAY_API_KEY at deploy). List selectable models below; the deployer
-  # picks one and it is injected as MODEL_DEFAULT.
+  # ASTRO_GATEWAY_API_KEY at deploy). With no `models` list, every supported
+  # model is offered at deploy; the choice is injected as MODEL_DEFAULT.
+  # Add `models: [claude-sonnet-4-6, gpt-4o]` to narrow the options.
   default:
     provider: gateway
-    models: [claude-sonnet-4-6]
 {{- end}}
 {{- range .Integrations}}
 {{- if eq . "anthropic"}}
