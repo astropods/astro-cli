@@ -224,17 +224,24 @@ func nativePlatform() string {
 }
 
 // resolveBuildPlatform returns the build platform and whether to skip the
-// registry push based on the target server URL. A local server (localhost /
-// 127.0.0.1 / ::1) builds for the native platform and retags images locally
-// instead of pushing to a remote registry. A remote server builds for
-// linux/amd64 and pushes normally.
-func resolveBuildPlatform(serverURL string) (platform string, skipPush bool) {
-	u, err := url.Parse(serverURL)
-	if err != nil {
-		return "linux/amd64", false
+// registry push based on the target server URL and the agent's runtime. A local
+// server (localhost / 127.0.0.1 / ::1) builds for the native platform and retags
+// images locally instead of pushing to a remote registry; a remote server builds
+// for linux/amd64 and pushes normally. AgentCore agents always build for
+// linux/arm64 because AWS Bedrock AgentCore Runtime only runs arm64 containers;
+// skipPush still follows the server (a local registry retags locally).
+func resolveBuildPlatform(serverURL string, agentCore bool) (platform string, skipPush bool) {
+	localhost := false
+	if u, err := url.Parse(serverURL); err == nil {
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+			localhost = true
+		}
 	}
-	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
+	if agentCore {
+		return "linux/arm64", localhost
+	}
+	if localhost {
 		return nativePlatform(), true
 	}
 	return "linux/amd64", false
