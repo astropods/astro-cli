@@ -12,13 +12,13 @@ import (
 // authenticated `aws` CLI. This keeps the CLI free of the AWS SDK dependency
 // tree; the `aws` CLI resolves the same credential chain (profile / env / role).
 //
-// NetworkMode note: for the no-EKS POC we deploy PUBLIC (invoke over SigV4 from
-// anywhere with creds). In a real VPC deployment the plan's VPC network config +
-// the bedrock-agentcore interface endpoint would be used instead.
+// NetworkMode note: the network mode comes from the plan (PUBLIC for the no-EKS
+// POC, invoke over SigV4 from anywhere with creds; VPC when the plan carries
+// subnets). networkJSON reads plan.NetworkMode so the emitted command always
+// matches the plan.
 type AWSCLIRuntime struct {
 	Profile string
 	Region  string
-	Public  bool // PUBLIC network mode (POC); else use the plan's VPC config
 	// DryRun prints the commands instead of executing them (for --dry-run).
 	DryRun bool
 	// SecretKeys are env var names whose values must be masked in the printed
@@ -123,7 +123,7 @@ func (a *AWSCLIRuntime) Update(id string, req CreateAgentRuntime, region string)
 }
 
 func (a *AWSCLIRuntime) networkJSON(req CreateAgentRuntime) string {
-	if a.Public {
+	if req.NetworkMode != "VPC" {
 		return `{"networkMode":"PUBLIC"}`
 	}
 	nc := map[string]any{

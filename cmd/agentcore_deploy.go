@@ -116,7 +116,7 @@ func runAgentCoreDeploy(cmd *cobra.Command, s *spec.AstroSpec, _ string) error {
 		}
 		fmt.Fprintln(w, "\n# aws CLI commands a real deploy would run (dry-run, not executed; secret values masked):")
 		rt := &agentcore.AWSCLIRuntime{
-			Profile: profile, Region: region, Public: true, DryRun: true, SecretKeys: secretKeys,
+			Profile: profile, Region: region, DryRun: true, SecretKeys: secretKeys,
 			Out: func(line string) { fmt.Fprintln(w, line) },
 		}
 		res, err := agentcore.Run(plan, agentcore.TargetAWS, rt, region, "")
@@ -137,7 +137,7 @@ func runAgentCoreDeploy(cmd *cobra.Command, s *spec.AstroSpec, _ string) error {
 	if opts.ImageURI == placeholderImage || opts.ExecutionRole == placeholderRole {
 		return fmt.Errorf("a real AgentCore deploy requires --image <ecr-uri> and --role <execution-role-arn> (use --dry-run to preview without them)")
 	}
-	rt := &agentcore.AWSCLIRuntime{Profile: profile, Region: region, Public: true, SecretKeys: secretKeys}
+	rt := &agentcore.AWSCLIRuntime{Profile: profile, Region: region, SecretKeys: secretKeys}
 	res, err := agentcore.Run(plan, agentcore.TargetAWS, rt, region, "")
 	if err != nil {
 		return err

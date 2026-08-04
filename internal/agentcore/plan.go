@@ -76,7 +76,7 @@ type CreateAgentRuntime struct {
 	AgentRuntimeName  string             `json:"agentRuntimeName"`
 	Protocol          string             `json:"protocol"` // "HTTP"
 	Container         ContainerConfig    `json:"container"`
-	NetworkMode       string             `json:"networkMode"` // "VPC"
+	NetworkMode       string             `json:"networkMode"` // "PUBLIC" or "VPC"
 	NetworkConfig     NetworkConfig      `json:"networkConfiguration"`
 	Env               map[string]string  `json:"environment"`
 	RoleArn           string             `json:"roleArn"`
@@ -200,12 +200,23 @@ func Build(s *spec.AstroSpec, opts Options) (*Plan, error) {
 	if strings.TrimSpace(opts.RuntimeName) != "" {
 		runtimeName = sanitizeName(opts.RuntimeName)
 	}
+	// Network mode follows the single source of truth: subnets given -> VPC (the
+	// runtime reaches in-cluster deps over the VPC); otherwise PUBLIC (the no-EKS
+	// POC, invoked over SigV4 from anywhere with creds). The emitted
+	// create-agent-runtime command derives its network config from this field, so
+	// the plan and the command can never disagree.
+	networkMode := "PUBLIC"
+	networkConfig := NetworkConfig{}
+	if len(opts.Subnets) > 0 {
+		networkMode = "VPC"
+		networkConfig = NetworkConfig{Subnets: opts.Subnets, SecurityGroups: opts.SecurityGroups}
+	}
 	p.AgentCore = CreateAgentRuntime{
 		AgentRuntimeName: runtimeName,
 		Protocol:         "HTTP",
 		Container:        ContainerConfig{ImageURI: opts.ImageURI, Port: 8080},
-		NetworkMode:      "VPC",
-		NetworkConfig:    NetworkConfig{Subnets: opts.Subnets, SecurityGroups: opts.SecurityGroups},
+		NetworkMode:      networkMode,
+		NetworkConfig:    networkConfig,
 		Env:              env,
 		RoleArn:          opts.ExecutionRole,
 		InboundAuth:      "SIGV4",

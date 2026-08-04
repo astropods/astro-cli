@@ -26,8 +26,9 @@ func TestBuild_CoreShape(t *testing.T) {
 	if p.AgentCore.Container.Port != 8080 {
 		t.Errorf("Container.Port = %d, want 8080", p.AgentCore.Container.Port)
 	}
-	if p.AgentCore.NetworkMode != "VPC" {
-		t.Errorf("NetworkMode = %q, want VPC", p.AgentCore.NetworkMode)
+	// No subnets in Options -> PUBLIC (the no-EKS POC default).
+	if p.AgentCore.NetworkMode != "PUBLIC" {
+		t.Errorf("NetworkMode = %q, want PUBLIC", p.AgentCore.NetworkMode)
 	}
 	if p.AgentCore.Env["ASTRO_RUNTIME"] != "agentcore" {
 		t.Errorf("ASTRO_RUNTIME = %q, want agentcore", p.AgentCore.Env["ASTRO_RUNTIME"])
@@ -45,6 +46,39 @@ func TestBuild_CoreShape(t *testing.T) {
 		p.AgentCore.FilesystemConfigs[0].MountPath != spec.DefaultAgentVolumeMount {
 		t.Errorf("FilesystemConfigs = %+v, want one s3FilesAccessPoint at %s", p.AgentCore.FilesystemConfigs, spec.DefaultAgentVolumeMount)
 	}
+}
+
+// The plan's NetworkMode is the single source of truth: no subnets -> PUBLIC,
+// subnets -> VPC, and the emitted create-agent-runtime command must match it.
+func TestBuild_NetworkMode(t *testing.T) {
+	t.Run("no subnets -> PUBLIC", func(t *testing.T) {
+		p, err := Build(baseSpec(), Options{})
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if p.AgentCore.NetworkMode != "PUBLIC" {
+			t.Errorf("NetworkMode = %q, want PUBLIC", p.AgentCore.NetworkMode)
+		}
+		rt := &AWSCLIRuntime{}
+		if got := rt.networkJSON(p.AgentCore); got != `{"networkMode":"PUBLIC"}` {
+			t.Errorf("networkJSON = %s, want PUBLIC", got)
+		}
+	})
+
+	t.Run("subnets -> VPC and command matches", func(t *testing.T) {
+		p, err := Build(baseSpec(), Options{Subnets: []string{"subnet-1"}, SecurityGroups: []string{"sg-1"}})
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if p.AgentCore.NetworkMode != "VPC" {
+			t.Errorf("NetworkMode = %q, want VPC", p.AgentCore.NetworkMode)
+		}
+		rt := &AWSCLIRuntime{}
+		got := rt.networkJSON(p.AgentCore)
+		if !strings.Contains(got, `"networkMode":"VPC"`) || !strings.Contains(got, "subnet-1") || !strings.Contains(got, "sg-1") {
+			t.Errorf("networkJSON = %s, want VPC with subnet-1 / sg-1", got)
+		}
+	})
 }
 
 func TestBuild_Rejections(t *testing.T) {
