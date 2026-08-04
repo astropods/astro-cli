@@ -106,8 +106,6 @@ openssl x509 -req -days 365 -in local-server.csr -CA ca.crt -CAkey ca.key -CAcre
   -copy_extensions copyall -out local-server.crt
 ```
 
-Or use the shortcut for local: `moon run astro-server:gen-admin-certs`
-
 ### Step 3: Generate client cert (once)
 
 One client cert works for all environments since they share the same CA.
