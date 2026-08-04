@@ -8,6 +8,7 @@ import { AccountFilter } from "@/components/AccountFilter";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { FilterInput } from "@/components/FilterInput";
 import { ListPagination } from "@/components/ListPagination";
+import { ListResultsTransition } from "@/components/ListResultsTransition";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
 import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 import {
@@ -29,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useUserResourceSearch } from "@/hooks/use-user-resource-search";
 import { firstInfinitePage, usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
@@ -38,8 +39,10 @@ import type { KnowledgeStore } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
 import { resolveUserResourceScope } from "@/lib/user-resource-scope";
+import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
+export const shouldRevalidate = shouldRevalidateUserResourceList;
 
 export async function loader({ request }: Route.LoaderArgs) {
   return loadUserResourceScoped(request, (api, scope) =>
@@ -59,7 +62,12 @@ function formatRelativeTime(dateStr: string): string {
 export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
   const { accounts, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [
+    accountFilters,
+    setAccountFilters,
+    hasExplicitAccountFilter,
+    resetAccountFilters,
+  ] = usePersistentAccountFilterParam("knowledge");
   const scope = useMemo(
     () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
     [accountFilters, accounts],
@@ -90,7 +98,7 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
   );
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
   const hasTypedSearch = search.trim().length > 0;
-  const hasAnyFilter = accountFilters.length > 0 || hasActiveSearch || hasTypedSearch;
+  const hasAnyFilter = hasExplicitAccountFilter || hasActiveSearch || hasTypedSearch;
   const showEmptyState = !query.isPending && !hasAnyFilter && stores.length === 0 && !query.isError;
   const showFilteredEmpty = !query.isPending && hasAnyFilter && stores.length === 0 && !query.isError;
   const showTotalLoadError = query.isError && stores.length === 0;
@@ -100,7 +108,7 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
 
   const clearFilters = () => {
     setSearch("");
-    setAccountFilters([]);
+    resetAccountFilters();
   };
 
   return (
@@ -135,38 +143,46 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {showTotalLoadError ? (
-        <div role="alert" className="mb-4">
-          <ActionPanel
-            tone="error"
-            title="Couldn't load knowledge stores"
-            primaryLabel="Retry"
-            onPrimary={() => void query.refetch()}
-          >
-            The knowledge store list is temporarily unavailable.
-          </ActionPanel>
-        </div>
-      ) : showEmptyState ? (
-        <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
-          <div className="mb-3 flex justify-center text-muted-foreground">
-            <CircleStackIcon className="size-6" />
+      <ListResultsTransition
+        transitionKey={JSON.stringify([
+          scope.all,
+          scope.accounts,
+          params,
+          pagination.currentPage,
+          query.isPending,
+        ])}
+      >
+        {showTotalLoadError ? (
+          <div role="alert" className="mb-4">
+            <ActionPanel
+              tone="error"
+              title="Couldn't load knowledge stores"
+              primaryLabel="Retry"
+              onPrimary={() => void query.refetch()}
+            >
+              The knowledge store list is temporarily unavailable.
+            </ActionPanel>
           </div>
-          <p className="text-sm font-medium text-foreground">No knowledge stores yet</p>
-          <p className="mt-1 mb-4 text-xs text-muted-foreground">
-            Create a store to give your agents a database for memory, vector search, or caching.
-          </p>
-          <Button onClick={() => navigate(newKnowledgePath)}>
-            <PlusIcon className="size-4" />
-            Add your first store
-          </Button>
-        </div>
-      ) : showFilteredEmpty ? (
-        <FilteredEmptyState
-          message="No knowledge stores match your filters."
-          onClear={clearFilters}
-        />
-      ) : stores.length > 0 ? (
-        <>
+        ) : showEmptyState ? (
+          <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center">
+            <div className="mb-3 flex justify-center text-muted-foreground">
+              <CircleStackIcon className="size-6" />
+            </div>
+            <p className="text-sm font-medium text-foreground">No knowledge stores yet</p>
+            <p className="mt-1 mb-4 text-xs text-muted-foreground">
+              Create a store to give your agents a database for memory, vector search, or caching.
+            </p>
+            <Button onClick={() => navigate(newKnowledgePath)}>
+              <PlusIcon className="size-4" />
+              Add your first store
+            </Button>
+          </div>
+        ) : showFilteredEmpty ? (
+          <FilteredEmptyState
+            message="No knowledge stores match your filters."
+            onClear={clearFilters}
+          />
+        ) : stores.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -231,15 +247,17 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
               })}
             </TableBody>
           </Table>
-          <ListPagination
-            currentPage={pagination.currentPage}
-            totalPages={pagination.totalPages}
-            onPageChange={pagination.onPageChange}
-            disabled={query.isFetchingNextPage}
-            ariaLabel="Knowledge store list pagination"
-          />
-        </>
-      ) : null}
+        ) : null}
+      </ListResultsTransition>
+      {stores.length > 0 && (
+        <ListPagination
+          currentPage={pagination.currentPage}
+          totalPages={pagination.totalPages}
+          onPageChange={pagination.onPageChange}
+          disabled={query.isFetchingNextPage}
+          ariaLabel="Knowledge store list pagination"
+        />
+      )}
 
       {deleteTarget?.account && (
         <DeleteKnowledgeStoreDialog

@@ -34,6 +34,7 @@ function writeFilters(
 export function usePersistentSearchParams(
   storageScope: string,
   paramNames: readonly string[],
+  options?: { atomic?: boolean },
 ): ReturnType<typeof useSearchParams> {
   const storageKey = `astro:page-filters:${storageScope}`;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -46,21 +47,27 @@ export function usePersistentSearchParams(
       searchParams.has(name),
     );
     if (explicitParamNames.length > 0) {
-      writeFilters(storageKey, searchParams, explicitParamNames);
+      writeFilters(
+        storageKey,
+        searchParams,
+        options?.atomic ? paramNames : explicitParamNames,
+      );
     }
 
-    const omittedParamNames = paramNames.filter(
-      (name) => !searchParams.has(name),
-    );
+    const omittedParamNames = options?.atomic && explicitParamNames.length > 0
+      ? []
+      : paramNames.filter((name) => !searchParams.has(name));
     if (omittedParamNames.length === 0) return;
     const storedValue = getPersistentStorageSnapshot(storageKey);
     if (!storedValue) return;
+    // A direct SSR load cannot read local storage, so restoring a non-default
+    // scope here intentionally causes one client refetch after hydration.
     const stored = new URLSearchParams(storedValue);
     setSearchParams(
       (current) => mergeParams(current, stored, omittedParamNames),
       { replace: true },
     );
-  }, [paramNames, searchParams, setSearchParams, storageKey]);
+  }, [options?.atomic, paramNames, searchParams, setSearchParams, storageKey]);
 
   useEffect(
     () =>

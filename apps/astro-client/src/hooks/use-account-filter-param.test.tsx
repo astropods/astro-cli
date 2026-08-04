@@ -3,7 +3,10 @@ import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it } from "vitest";
 import { AuthContext, type AuthContextType } from "@/lib/auth-context";
 import { mockAuthContext } from "@/test/test-utils";
-import { useAccountFilterParam } from "./use-account-filter-param";
+import {
+  useAccountFilterParam,
+  usePersistentAccountFilterParam,
+} from "./use-account-filter-param";
 
 const auth: AuthContextType = {
   ...mockAuthContext,
@@ -13,8 +16,28 @@ const auth: AuthContextType = {
   ],
 };
 
+const personalAuth: AuthContextType = {
+  ...auth,
+  accounts: [
+    { id: "acct-personal", name: "personal-user", type: "personal" },
+    ...auth.accounts,
+  ],
+};
+
 function Probe() {
-  const [value] = useAccountFilterParam();
+  const [value, , hasExplicitSelection] = useAccountFilterParam();
+  const { search } = useLocation();
+  return (
+    <>
+      <span data-testid="value">{JSON.stringify(value)}</span>
+      <span data-testid="search">{search}</span>
+      <span data-testid="explicit">{String(hasExplicitSelection)}</span>
+    </>
+  );
+}
+
+function PersistentProbe() {
+  const [value] = usePersistentAccountFilterParam("blueprints");
   const { search } = useLocation();
   return (
     <>
@@ -25,6 +48,40 @@ function Probe() {
 }
 
 describe("useAccountFilterParam", () => {
+  it("defaults a bare list URL to the personal account", async () => {
+    render(
+      <AuthContext.Provider value={personalAuth}>
+        <MemoryRouter initialEntries={["/?q=agent"]}>
+          <Probe />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    expect(await screen.findByTestId("value")).toHaveTextContent('["personal-user"]');
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=agent");
+    expect(screen.getByTestId("explicit")).toHaveTextContent("false");
+  });
+
+  it("resolves an all-stale URL to personal on the first render", () => {
+    const renderedValues: string[][] = [];
+
+    function FirstRenderProbe() {
+      const [value, , hasExplicitSelection] = useAccountFilterParam();
+      renderedValues.push([...value, String(hasExplicitSelection)]);
+      return null;
+    }
+
+    render(
+      <AuthContext.Provider value={personalAuth}>
+        <MemoryRouter initialEntries={["/?account=old-org"]}>
+          <FirstRenderProbe />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+
+    expect(renderedValues[0]).toEqual(["personal-user", "true"]);
+  });
+
   it("preserves account names containing commas", async () => {
     render(
       <AuthContext.Provider value={auth}>
@@ -63,7 +120,37 @@ describe("useAccountFilterParam", () => {
       const params = new URLSearchParams(screen.getByTestId("search").textContent ?? "");
       expect(screen.getByTestId("value")).toHaveTextContent("[]");
       expect(params.getAll("account")).toEqual([]);
+      expect(params.get("scope")).toBe("all");
       expect(params.get("q")).toBe("agent");
+    });
+  });
+});
+
+describe("usePersistentAccountFilterParam", () => {
+  it("restores the Blueprint account selection when the route mounts again", async () => {
+    localStorage.setItem("astro:page-filters:blueprints", "scope=all");
+    const first = render(
+      <AuthContext.Provider value={auth}>
+        <MemoryRouter initialEntries={["/?account=acme"]}>
+          <PersistentProbe />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+    await waitFor(() => {
+      expect(localStorage.getItem("astro:page-filters:blueprints")).toBe("account=acme");
+    });
+    first.unmount();
+
+    render(
+      <AuthContext.Provider value={auth}>
+        <MemoryRouter initialEntries={["/"]}>
+          <PersistentProbe />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("value")).toHaveTextContent('["acme"]');
+      expect(screen.getByTestId("search")).toHaveTextContent("?account=acme");
     });
   });
 });

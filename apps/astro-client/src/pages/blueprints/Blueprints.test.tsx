@@ -215,6 +215,30 @@ describe('Blueprints – search', () => {
   });
 });
 
+describe('Blueprints – empty states', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('/api/v1/me/blueprints', () => userBlueprints([])),
+    );
+  });
+
+  it('shows onboarding for an empty implicit personal scope', async () => {
+    renderBlueprintsPage();
+
+    expect(await screen.findByText('No blueprints yet')).toBeInTheDocument();
+    expect(screen.queryByText('No blueprints match your filters.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Blueprint list pagination' })).not.toBeInTheDocument();
+  });
+
+  it('shows the filtered empty state for an explicit scope', async () => {
+    renderBlueprintsPage({ initialEntries: ['/blueprints?scope=all'] });
+
+    expect(await screen.findByText('No blueprints match your filters.')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search blueprints/i)).toBeInTheDocument();
+    expect(screen.queryByText('No blueprints yet')).not.toBeInTheDocument();
+  });
+});
+
 describe('Blueprints – pagination', () => {
   function mockAccountBlueprints(total: number) {
     const requests: string[] = [];

@@ -38,6 +38,7 @@ vi.mock('@/components/ui/LiveRevealOverlay', () => ({
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.useRealTimers();
 });
 
@@ -114,7 +115,7 @@ describe('AgentDashboard page', () => {
   });
 
 
-  it('shows empty state when no agents are deployed', async () => {
+  it('shows onboarding when the implicit personal account has no deployments', async () => {
     server.use(
       http.get('/api/v1/me/deployments', () =>
         userDeployments({ deployments: [], count: 0 }),
@@ -126,7 +127,31 @@ describe('AgentDashboard page', () => {
     await waitFor(() => {
       expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
     });
+    expect(screen.queryByText('No agents match your filters.')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search agents...')).not.toBeInTheDocument();
+  });
+
+  it('keeps filtering controls when an explicit all-account scope has no deployments', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+
+    renderDashboard('/agents?scope=all');
+
+    await waitFor(() => {
+      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('All accounts');
+    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() => {
+      expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
+    });
   });
 
   it('keeps the toolbar when an account filter yields no agents', async () => {

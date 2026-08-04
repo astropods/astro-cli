@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createServerApi, getActiveAccount, loadAccountScoped } from "./api.server";
+import {
+  createServerApi,
+  getActiveAccount,
+  loadAccountScoped,
+  loadUserResourceScoped,
+} from "./api.server";
 import { ApiClient, type AuthResponse } from "./api";
 
 // AuthResponse has a lot of required fields we don't care about for these
@@ -13,8 +18,8 @@ const asAuth = (partial: Pick<AuthResponse, "accounts">) => partial as AuthRespo
 
 // Build a minimal Request the loader helpers can read cookies off. Node's
 // native Request type works in vitest's jsdom env without polyfills.
-function req(cookie?: string) {
-  return new Request("http://localhost/test", {
+function req(cookie?: string, path = "/test") {
+  return new Request(`http://localhost${path}`, {
     headers: cookie ? { cookie } : undefined,
   });
 }
@@ -122,5 +127,55 @@ describe("loadAccountScoped", () => {
     const fetcher = vi.fn().mockRejectedValue(new Error("boom"));
     const result = await loadAccountScoped(req(), fetcher);
     expect(result).toEqual({ account: "personal-user", data: null });
+  });
+});
+
+describe("loadUserResourceScoped", () => {
+  const accounts = [
+    { id: "p", name: "personal-user", type: "personal" as const },
+    { id: "a", name: "acme", type: "organization" as const },
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(ApiClient.prototype, "getCurrentUser").mockResolvedValue(asAuth({ accounts }));
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("defaults a bare resource URL to the personal account", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+
+    const result = await loadUserResourceScoped(req(undefined, "/agents"), fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(expect.any(ApiClient), {
+      accounts: ["personal-user"],
+      all: false,
+    });
+    expect(result.scope).toEqual({ accounts: ["personal-user"], all: false });
+  });
+
+  it("keeps explicit all-account and selected-account URLs distinct", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+
+    const all = await loadUserResourceScoped(req(undefined, "/blueprints?scope=all"), fetcher);
+    const selected = await loadUserResourceScoped(req(undefined, "/knowledge?account=acme"), fetcher);
+
+    expect(all.scope).toEqual({ accounts: ["acme", "personal-user"], all: true });
+    expect(selected.scope).toEqual({ accounts: ["acme"], all: false });
+  });
+
+  it("falls back to personal when every requested account is stale", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+
+    const result = await loadUserResourceScoped(
+      req(undefined, "/agents?account=old-org"),
+      fetcher,
+    );
+
+    expect(fetcher).toHaveBeenCalledWith(expect.any(ApiClient), {
+      accounts: ["personal-user"],
+      all: false,
+    });
+    expect(result.scope).toEqual({ accounts: ["personal-user"], all: false });
   });
 });

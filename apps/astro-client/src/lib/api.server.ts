@@ -75,8 +75,9 @@ export async function getPageAccount(request: Request, param = "account") {
 }
 
 /**
- * Loads the first page for a URL-backed multi-account read. The same canonical
- * scope is returned so the route can prime the matching infinite-query key.
+ * Loads the first page for a URL-backed multi-account read. Bare list URLs
+ * start on the personal account; `scope=all` opts into every membership. The
+ * same canonical scope is returned so the route can prime the matching query.
  */
 export async function loadUserResourceScoped<T>(
   request: Request,
@@ -85,10 +86,21 @@ export async function loadUserResourceScoped<T>(
   try {
     const api = createServerApi(request);
     const auth = await getCurrentUserForRequest(request);
-    const memberships = auth.accounts?.map((account) => account.name) ?? [];
+    const accounts = auth.accounts ?? [];
+    const memberships = accounts.map((account) => account.name);
     if (memberships.length === 0) return { scope: null, data: null };
-    const requested = new URL(request.url).searchParams.getAll("account");
-    const scope = resolveUserResourceScope(requested, memberships);
+    const searchParams = new URL(request.url).searchParams;
+    const requested = searchParams.getAll("account");
+    const personal = accounts.find((account) => account.type === "personal")?.name ?? memberships[0];
+    const knownRequested = requested.filter((account) => memberships.includes(account));
+    const selection = requested.length > 0
+      ? knownRequested.length > 0
+        ? knownRequested
+        : [personal]
+      : searchParams.get("scope") === "all"
+        ? []
+        : [personal];
+    const scope = resolveUserResourceScope(selection, memberships);
     const data = await fetch(api, scope).catch(() => null);
     return { scope, data };
   } catch {

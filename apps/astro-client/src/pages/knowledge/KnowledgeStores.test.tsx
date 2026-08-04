@@ -23,7 +23,7 @@ function knowledgeStore(
   };
 }
 
-function renderKnowledgeStores(stores: KnowledgeStore[]) {
+function renderKnowledgeStores(stores: KnowledgeStore[], path = "/knowledge") {
   server.use(
     http.get("/api/v1/me/knowledge", () =>
       HttpResponse.json({
@@ -41,11 +41,14 @@ function renderKnowledgeStores(stores: KnowledgeStore[]) {
         Component: KnowledgeStores as any,
       },
     ],
-    { initialEntries: ["/knowledge"] },
+    { initialEntries: [path] },
   );
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 describe("KnowledgeStores account ownership guard", () => {
   it("keeps a row without an account visible but non-interactive", async () => {
@@ -102,5 +105,22 @@ describe("KnowledgeStores search", () => {
 
     await waitFor(() => expect(screen.getByText("billing-memory")).toBeInTheDocument());
     expect(searches.some((search) => new URLSearchParams(search).get("q") === "billing")).toBe(true);
+  });
+});
+
+describe("KnowledgeStores empty states", () => {
+  it("shows onboarding for an empty implicit personal scope", async () => {
+    renderKnowledgeStores([]);
+
+    expect(await screen.findByText("No knowledge stores yet")).toBeInTheDocument();
+    expect(screen.queryByText("No knowledge stores match your filters.")).not.toBeInTheDocument();
+  });
+
+  it("shows the filtered empty state for an explicit scope", async () => {
+    renderKnowledgeStores([], "/knowledge?scope=all");
+
+    expect(await screen.findByText("No knowledge stores match your filters.")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search knowledge stores…")).toBeInTheDocument();
+    expect(screen.queryByText("No knowledge stores yet")).not.toBeInTheDocument();
   });
 });

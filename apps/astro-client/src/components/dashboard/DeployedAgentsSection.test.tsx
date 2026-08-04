@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DeployedAgentsSection } from './DeployedAgentsSection';
 import type { AgentDeploymentSummary } from '@/lib/api';
 import { renderWithProviders } from '@/test/test-utils';
@@ -148,5 +150,40 @@ describe('DeployedAgentsSection — upgrade badge from server-supplied latest_bu
     expect(screen.getAllByText(updateBadge)).toHaveLength(1);
     const stale = screen.getByText('Stale A').closest('a, div');
     expect(stale?.textContent ?? '').toMatch(updateBadge);
+  });
+
+  it('keeps pagination focus when the animated results remount', async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [page, setPage] = useState(1);
+      return (
+        <DeployedAgentsSection
+          deployments={[
+            makeDeployment({
+              id: 'dep-page',
+              name: 'paged-agent',
+              build_id: 'build-1',
+              display_name: 'Paged Agent',
+            }),
+          ]}
+          account="team"
+          isLoading={false}
+          currentPage={page}
+          totalPages={3}
+          onPageChange={setPage}
+          resultsTransitionKey={`page-${page}`}
+        />
+      );
+    }
+
+    renderWithProviders(<Harness />);
+    const nextPage = await screen.findByRole('button', { name: 'Next page' });
+
+    await user.click(nextPage);
+
+    expect(screen.getByRole('button', { name: 'Next page' })).toBe(nextPage);
+    expect(nextPage).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
   });
 });

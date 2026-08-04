@@ -10,19 +10,22 @@ import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { FilterInput } from "@/components/FilterInput";
 import { IndeterminateProgressBar } from "@/components/IndeterminateProgressBar";
 import { ListPagination } from "@/components/ListPagination";
+import { ListResultsTransition } from "@/components/ListResultsTransition";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
-import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { firstInfinitePage, usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { loadUserResourceScoped } from "@/lib/api.server";
 import { useAuth } from "@/lib/auth";
 import type { BlueprintListParams } from "@/lib/blueprint-list-params";
 import { resolveUserResourceScope } from "@/lib/user-resource-scope";
+import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 import { useBlueprintSearch } from "./use-blueprint-search";
 import type { Route } from "./+types/Blueprints";
 
 export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
+export const shouldRevalidate = shouldRevalidateUserResourceList;
 
 const FIRST_PAGE_PARAMS: BlueprintListParams = {
   limit: USER_BLUEPRINTS_PAGE_SIZE,
@@ -37,7 +40,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const { accounts, isAuthenticated } = useAuth();
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [
+    accountFilters,
+    setAccountFilters,
+    hasExplicitAccountFilter,
+    resetAccountFilters,
+  ] = usePersistentAccountFilterParam("blueprints");
   const scope = useMemo(
     () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
     [accountFilters, accounts],
@@ -63,7 +71,7 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   });
   const blueprints = pagination.page?.blueprints ?? [];
   const ownerAccounts = useMemo(() => new Set(accounts.map((account) => account.name)), [accounts]);
-  const hasAnyFilter = hasActiveFilters || accountFilters.length > 0;
+  const hasAnyFilter = hasActiveFilters || hasExplicitAccountFilter;
   const hasTypedSearch = search.trim().length > 0;
   const loadingFirstPage = query.isPending && blueprints.length === 0;
   const settled = isAuthenticated && !query.isPending && !query.isFetching;
@@ -74,8 +82,8 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
 
   const clearFilters = useCallback(() => {
     setSearch("");
-    setAccountFilters([]);
-  }, [setAccountFilters, setSearch]);
+    resetAccountFilters();
+  }, [resetAccountFilters, setSearch]);
 
   return (
     <PageContainer outerClassName="bg-background">
@@ -105,10 +113,18 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {showFilteredEmpty ? (
-        <FilteredEmptyState message="No blueprints match your filters." onClear={clearFilters} />
-      ) : (
-        <>
+      <ListResultsTransition
+        transitionKey={JSON.stringify([
+          scope.all,
+          scope.accounts,
+          params,
+          pagination.currentPage,
+          loadingFirstPage,
+        ])}
+      >
+        {showFilteredEmpty ? (
+          <FilteredEmptyState message="No blueprints match your filters." onClear={clearFilters} />
+        ) : (
           <BlueprintListView
             blueprints={blueprints}
             isLoading={loadingFirstPage}
@@ -120,14 +136,16 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
             slotCount={pagination.totalPages > 1 ? USER_BLUEPRINTS_PAGE_SIZE : undefined}
             showAuthor
           />
-          <ListPagination
-            currentPage={pagination.currentPage}
-            totalPages={pagination.totalPages}
-            onPageChange={pagination.onPageChange}
-            disabled={query.isFetchingNextPage}
-            ariaLabel="Blueprint list pagination"
-          />
-        </>
+        )}
+      </ListResultsTransition>
+      {blueprints.length > 0 && (
+        <ListPagination
+          currentPage={pagination.currentPage}
+          totalPages={pagination.totalPages}
+          onPageChange={pagination.onPageChange}
+          disabled={query.isFetchingNextPage}
+          ariaLabel="Blueprint list pagination"
+        />
       )}
     </PageContainer>
   );

@@ -33,17 +33,16 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
   await expect(page.getByText("Slack Overlap Bot")).not.toBeVisible();
 });
 
-test("dashboard account filter and search are page-local", async ({ page }) => {
+test("dashboard account filter persists while search remains page-local", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   const accountFilter = page.getByRole("button", { name: "Filter by account" });
   await expect(accountFilter).toBeVisible({ timeout: 10_000 });
   await accountFilter.click();
-  await page
-    .locator('[data-slot="multi-select-content"]')
-    .getByRole("button", { name: /Test Org/ })
-    .click();
+  const accountMenu = page.locator('[data-slot="multi-select-content"]');
+  await accountMenu.getByRole("button", { name: /testuser/ }).click();
+  await accountMenu.getByRole("button", { name: /Test Org/ }).click();
 
   await expect(page).toHaveURL(/\/agents\?account=test-org$/);
   await expect(accountFilter).toContainText("Test Org");
@@ -55,12 +54,14 @@ test("dashboard account filter and search are page-local", async ({ page }) => {
 
   await page.getByRole("link", { name: "Blueprints", exact: true }).click();
   await expect(page).toHaveURL(/\/blueprints/);
-  await page.getByRole("link", { name: "Agents", exact: true }).click();
-  await expect(page).toHaveURL(/\/agents$/);
+  const agentsLink = page.getByRole("link", { name: "Agents", exact: true });
+  await expect(agentsLink).toHaveAttribute("href", "/agents?account=test-org");
+  await agentsLink.click();
+  await expect(page).toHaveURL(/\/agents\?account=test-org$/);
 
-  await expect(page.getByRole("button", { name: "Filter by account" })).toContainText("All accounts");
+  await expect(page.getByRole("button", { name: "Filter by account" })).toContainText("Test Org");
   await expect(page.getByPlaceholder("Search agents...")).toHaveValue("");
-  await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Org Support Bot")).toBeVisible({ timeout: 10_000 });
 });
 
 test("active agent card links to deployment detail", async ({ page }) => {

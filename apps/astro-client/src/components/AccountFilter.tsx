@@ -39,7 +39,7 @@ export function AccountFilter({ value, onChange, className }: AccountFilterProps
     [sorted, value],
   );
   const accountNames = useMemo(() => sorted.map((account) => account.name), [sorted]);
-  const allSelected = value.length === 0 || value.length === sorted.length;
+  const allSelected = value.length === 0;
 
   return (
     <MultiSelect

@@ -16,6 +16,7 @@ import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
 import { useMediaBreakpoint } from "@/hooks/use-compact-layout";
+import { usePersistentPageFilterPath } from "@/hooks/use-persistent-page-filter-path";
 import { UserAvatar } from "@/components/UserAvatar";
 import { NotificationInbox } from "@/components/NotificationInbox";
 import { FeedbackModal } from "@/components/FeedbackModal";
@@ -60,8 +61,6 @@ interface NavItem {
 // Signed-out visitors reach the public explorer via the "Explore" link in the
 // header actions, so no nav tabs are shown until they authenticate.
 const publicNav: NavItem[] = [];
-
-const authenticatedBlueprintsNav: NavItem = { label: "Blueprints", to: accountBlueprintsPath };
 
 const externalNav: NavItem[] = [
   { label: "Docs", to: "https://docs.astropods.com", external: true },
@@ -129,6 +128,9 @@ export function AppHeader() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
+  const blueprintsPath = usePersistentPageFilterPath(accountBlueprintsPath, "blueprints");
+  const agentsPath = usePersistentPageFilterPath(dashboardPath, "agents");
+  const persistedKnowledgePath = usePersistentPageFilterPath(knowledgePath, "knowledge");
 
   // Close sheet on navigation
   useEffect(() => {
@@ -141,11 +143,11 @@ export function AppHeader() {
   // check succeeds; SSR-hydrated sessions still render app nav on first paint.
   const showAuthenticatedChrome = isAuthenticated;
   const authenticatedNav: NavItem[] = [
-    authenticatedBlueprintsNav,
-    { label: "Agents", to: dashboardPath },
+    { label: "Blueprints", to: blueprintsPath },
+    { label: "Agents", to: agentsPath },
     { label: "Chat", to: chatPath },
     { label: "Insights", to: insightsPath },
-    { label: "Knowledge", to: knowledgePath },
+    { label: "Knowledge", to: persistedKnowledgePath },
   ];
   const navItems: NavItem[] = showAuthenticatedChrome ? authenticatedNav : publicNav;
 

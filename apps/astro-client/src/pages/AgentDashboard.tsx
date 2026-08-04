@@ -10,15 +10,17 @@ import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { firstInfinitePage } from "@/hooks/use-prime-query-cache";
-import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useUserResourceSearch } from "@/hooks/use-user-resource-search";
 import { resolveUserResourceScope } from "@/lib/user-resource-scope";
+import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
 import type { AgentDeploymentSummary, AvatarColors } from "@/lib/api";
 
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
+export const shouldRevalidate = shouldRevalidateUserResourceList;
 
 // Inline (not loadAccountScoped) to prime the deployments cache before render.
 export async function loader({ request }: Route.LoaderArgs) {
@@ -47,7 +49,12 @@ function AgentDashboardInner() {
     } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
-  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const [
+    accountFilters,
+    setAccountFilters,
+    hasExplicitAccountFilter,
+    resetAccountFilters,
+  ] = usePersistentAccountFilterParam("agents");
   const scope = useMemo(
     () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
     [accountFilters, accounts],
@@ -86,13 +93,22 @@ function AgentDashboardInner() {
           isError={deploymentsQuery.isError}
           onRetry={() => void deploymentsQuery.refetch()}
           accountFilters={accountFilters}
+          hasExplicitAccountFilter={hasExplicitAccountFilter}
           onAccountFiltersChange={setAccountFilters}
+          onClearAccountFilters={resetAccountFilters}
           search={search}
           onSearchChange={setSearch}
           currentPage={pagination.currentPage}
           totalPages={pagination.totalPages}
           isChangingPage={deploymentsQuery.isFetchingNextPage}
           onPageChange={pagination.onPageChange}
+          resultsTransitionKey={JSON.stringify([
+            scope.all,
+            scope.accounts,
+            params,
+            pagination.currentPage,
+            deploymentsQuery.isPending,
+          ])}
           skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
         />
       </PageContainer>

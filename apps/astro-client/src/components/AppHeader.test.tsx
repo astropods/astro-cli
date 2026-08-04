@@ -28,6 +28,15 @@ const loadingSignedOutAuth: AuthContextType = {
   isLoading: true,
 };
 
+const multiAccountAuth: AuthContextType = {
+  ...mockAuthContext,
+  accounts: [
+    ...mockAuthContext.accounts,
+    { id: "acct-test-org", name: "test-org", type: "organization" },
+    { id: "acct-other-org", name: "other-org", type: "organization" },
+  ],
+};
+
 describe("AppHeader navigation", () => {
   it("does not show a Blueprints nav tab to signed-out users", () => {
     renderHeader(signedOutAuth);
@@ -53,5 +62,40 @@ describe("AppHeader navigation", () => {
     expect(screen.getByRole("link", { name: "Blueprints" })).toHaveAttribute("href", "/blueprints");
     expect(screen.getByRole("link", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Feedback" })).toBeInTheDocument();
+  });
+
+  it("links directly to each primitive's persisted account filter", () => {
+    localStorage.setItem("astro:page-filters:blueprints", "scope=all");
+    localStorage.setItem("astro:page-filters:agents", "account=test-org");
+    localStorage.setItem(
+      "astro:page-filters:knowledge",
+      "account=old-org&account=other-org",
+    );
+
+    renderHeader(multiAccountAuth);
+
+    expect(screen.getByRole("link", { name: "Blueprints" })).toHaveAttribute(
+      "href",
+      "/blueprints?scope=all",
+    );
+    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
+      "href",
+      "/agents?account=test-org",
+    );
+    expect(screen.getByRole("link", { name: "Knowledge" })).toHaveAttribute(
+      "href",
+      "/knowledge?account=other-org",
+    );
+  });
+
+  it("drops an all-stale persisted account filter from primitive links", () => {
+    localStorage.setItem("astro:page-filters:agents", "account=old-org");
+
+    renderHeader(multiAccountAuth);
+
+    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
+      "href",
+      "/agents",
+    );
   });
 });

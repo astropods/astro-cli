@@ -1,6 +1,7 @@
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { ListPagination } from "@/components/ListPagination";
+import { ListResultsTransition } from "@/components/ListResultsTransition";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
@@ -33,13 +34,16 @@ interface DeployedAgentsSectionProps {
   isError?: boolean;
   onRetry?: () => void;
   accountFilters?: string[];
+  hasExplicitAccountFilter?: boolean;
   onAccountFiltersChange?: (accounts: string[]) => void;
+  onClearAccountFilters?: () => void;
   search?: string;
   onSearchChange?: (value: string) => void;
   currentPage?: number;
   totalPages?: number;
   isChangingPage?: boolean;
   onPageChange?: (page: number) => void;
+  resultsTransitionKey?: string;
   skeletonDeploymentId?: string | null;
 }
 
@@ -50,13 +54,16 @@ export function DeployedAgentsSection({
   isError = false,
   onRetry = () => {},
   accountFilters = [],
+  hasExplicitAccountFilter = accountFilters.length > 0,
   onAccountFiltersChange = () => {},
+  onClearAccountFilters = () => onAccountFiltersChange([]),
   search = "",
   onSearchChange = () => {},
   currentPage = 1,
   totalPages = 0,
   isChangingPage = false,
   onPageChange = () => {},
+  resultsTransitionKey = "agents",
   skeletonDeploymentId,
 }: DeployedAgentsSectionProps) {
   const { requestCounts, requestSeries, tokenSeries } = useVisibleDeploymentSummaryMaps(deployments);
@@ -67,10 +74,10 @@ export function DeployedAgentsSection({
     { filter: search, onFilterChange: onSearchChange },
   );
   const hasTextFilter = toolbarProps.filter.trim().length > 0;
-  const hasActiveFilters = hasTextFilter || accountFilters.length > 0;
+  const hasActiveFilters = hasTextFilter || hasExplicitAccountFilter;
   const clearFilters = () => {
     toolbarProps.onFilterChange("");
-    onAccountFiltersChange([]);
+    onClearAccountFilters();
   };
 
   if (isError && deployments.length === 0) {
@@ -103,28 +110,30 @@ export function DeployedAgentsSection({
         </div>
       )}
 
-      {showFilteredEmpty && (
-        <FilteredEmptyState message="No agents match your filters." onClear={clearFilters} />
-      )}
-      {filtered.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
-          {filtered.map((deployment) => {
-            if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
-              return <AgentCardSkeleton key={deployment.id} />;
-            }
-            const ownerAccount = deployment.account_name || account;
-            return (
-              <DeploymentAgentCard
-                key={deployment.id}
-                deployment={deployment}
-                account={ownerAccount}
-                requestSeries={requestSeries.get(deployment.id)}
-                tokenSeries={tokenSeries.get(deployment.id)}
-              />
-            );
-          })}
-        </div>
-      )}
+      <ListResultsTransition transitionKey={resultsTransitionKey}>
+        {showFilteredEmpty && (
+          <FilteredEmptyState message="No agents match your filters." onClear={clearFilters} />
+        )}
+        {filtered.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
+            {filtered.map((deployment) => {
+              if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
+                return <AgentCardSkeleton key={deployment.id} />;
+              }
+              const ownerAccount = deployment.account_name || account;
+              return (
+                <DeploymentAgentCard
+                  key={deployment.id}
+                  deployment={deployment}
+                  account={ownerAccount}
+                  requestSeries={requestSeries.get(deployment.id)}
+                  tokenSeries={tokenSeries.get(deployment.id)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </ListResultsTransition>
       <ListPagination
         currentPage={currentPage}
         totalPages={totalPages}
