@@ -20,7 +20,7 @@ This generates a gateway model in the spec and agent code that reads the injecte
 models:
   default:
     provider: gateway
-    models: [claude-sonnet-4-6, gpt-4o]
+    models: [claude-sonnet-4-6, claude-haiku-4-5]
 ```
 
 The `models` list is a menu of **options**. At deploy time — in the web console and CLI — you pick one, and it is injected as `MODEL_<NAME>` (here `MODEL_DEFAULT`). Your agent code reads the model id from that env var.
@@ -153,6 +153,8 @@ Pass any of these strings as `model` on the SDK call:
 | `nova-micro`         | Amazon Nova; lowest-cost text tier.                     |
 | `mistral-large-3`    | Mistral flagship; strong general reasoning and coding.  |
 | `pixtral-large`      | Mistral vision-language; accepts image + text input.    |
+| `qwen3-coder`        | Qwen coding specialist; code generation and refactoring.|
+| `qwen3-vl`           | Qwen vision-language; accepts image + text input.       |
 | `titan-embed-text-v2`| Text embeddings (RAG, vector search).                   |
 
 All chat models are called the same way — swap the `model` string. `titan-embed-text-v2` is an embeddings model (use the embeddings endpoint, below).
@@ -214,7 +216,7 @@ const vector = resp.data[0].embedding; // number[], length 1024
 
 ## Images (vision)
 
-`pixtral-large` accepts image input alongside text. Pass the image as a base64 **data URI** in an `image_url` content block — the gateway forwards the image bytes to the model, so remote URLs are not fetched server-side.
+`pixtral-large` and `qwen3-vl` accept image input alongside text. Pass the image as a base64 **data URI** in an `image_url` content block — the gateway forwards the image bytes to the model, so remote URLs are not fetched server-side.
 
 ```python title="Python"
 import base64
@@ -363,7 +365,7 @@ The gateway returns standard OpenAI-style error responses. Common cases:
 
 - **Provider-native SDKs and prefixes (except Anthropic).** Call models through the OpenAI-compatible API by their gateway id (for example `claude-sonnet-4-6`), not with a provider prefix such as `anthropic/`. The one exception is the native Anthropic Messages API, served on the `/anthropic` passthrough for Claude Code / Claude Agent SDK agents — see [Native Anthropic API](#native-anthropic-api-claude-code-claude-agent-sdk).
 - **Anthropic server-side tools.** `web_search`, `web_fetch`, code execution, and computer use aren't available — models run on Amazon Bedrock, which doesn't host them. Client-defined tools work normally.
-- **Image generation.** No image-generation models are offered. Image *input* (vision) is supported by `pixtral-large`.
+- **Image generation.** No image-generation models are offered. Image *input* (vision) is supported by `pixtral-large` and `qwen3-vl`.
 - **Bring-your-own-model.** Adding new models or fine-tunes to the gateway isn't self-serve; contact support.
 
 ## Next steps
