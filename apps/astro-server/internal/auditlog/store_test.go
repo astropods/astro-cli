@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 )
 
 func TestParseCursor_Empty(t *testing.T) {
@@ -143,6 +144,71 @@ func TestLatestPerResourceByAction(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestLatestPerResourcesUsesOneCrossAccountQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	store := NewStore(db)
+	now := time.Now()
+
+	mock.ExpectQuery(`(?s)account_id = ANY.*resource_id = ANY.*ORDER BY resource_id`).
+		WithArgs(
+			pq.Array([]string{"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"}),
+			"deployment",
+			pq.Array([]string{"dep-1", "dep-2"}),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "created_at", "actor_id"}).
+			AddRow("dep-1", now, "user-1").
+			AddRow("dep-2", now.Add(-time.Minute), "user-2"))
+
+	got, err := store.LatestPerResources(
+		context.Background(),
+		[]string{"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"},
+		"deployment",
+		[]string{"dep-1", "dep-2"},
+	)
+	if err != nil {
+		t.Fatalf("LatestPerResources: %v", err)
+	}
+	if got["dep-1"].ActorID != "user-1" || got["dep-2"].ActorID != "user-2" {
+		t.Fatalf("latest entries = %#v", got)
+	}
+}
+
+func TestLatestPerResourcesByActionUsesOneCrossAccountQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	store := NewStore(db)
+
+	mock.ExpectQuery(`(?s)account_id = ANY.*resource_id = ANY.*action = \$4`).
+		WithArgs(
+			pq.Array([]string{"11111111-1111-1111-1111-111111111111"}),
+			"deployment",
+			pq.Array([]string{"dep-1"}),
+			DeploymentDeploy,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"resource_id", "created_at", "actor_id"}))
+
+	got, err := store.LatestPerResourcesByAction(
+		context.Background(),
+		[]string{"11111111-1111-1111-1111-111111111111"},
+		DeploymentDeploy,
+		"deployment",
+		[]string{"dep-1"},
+	)
+	if err != nil {
+		t.Fatalf("LatestPerResourcesByAction: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("latest entries = %#v, want none", got)
 	}
 }
 

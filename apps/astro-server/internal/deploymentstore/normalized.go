@@ -1225,6 +1225,11 @@ func (s *Store) GetSidecars(deploymentID string) ([]*Sidecar, error) {
 // scheme follows the ingress row's tls_enabled flag — local-mode deployments
 // write a synthetic non-TLS row pointing at the host NodePort.
 func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, error) {
+	return s.GetMessagingURLsContext(context.Background(), deploymentIDs)
+}
+
+// GetMessagingURLsContext is the cancellable form used by request hot paths.
+func (s *Store) GetMessagingURLsContext(ctx context.Context, deploymentIDs []string) (map[string]string, error) {
 	if len(deploymentIDs) == 0 {
 		return nil, nil
 	}
@@ -1236,7 +1241,7 @@ func (s *Store) GetMessagingURLs(deploymentIDs []string) (map[string]string, err
 	// rows out of the result until they include a port, which prevents the
 	// dashboard from surfacing a clickable http://localhost Launch button
 	// during the apply window or after a failed apply.
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT sc.deployment_id, di.hostname, di.tls_enabled
 		FROM deployment_sidecars sc
 		JOIN deployment_services ds ON ds.sidecar_id = sc.id

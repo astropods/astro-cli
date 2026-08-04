@@ -2,6 +2,7 @@ package deploycache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,12 @@ func (c *mapCache) Invalidate(_ context.Context, key string) error {
 
 var _ k8scache.Cache = (*mapCache)(nil)
 
+func isolateLocalGenerations(t *testing.T) {
+	t.Helper()
+	resetLocalGenerations()
+	t.Cleanup(resetLocalGenerations)
+}
+
 func TestKeyFor_Prefix(t *testing.T) {
 	if got := KeyFor("acct-123"); got != "dep:agent:acct-123" {
 		t.Errorf("KeyFor() = %q, want dep:agent:acct-123", got)
@@ -70,6 +77,7 @@ func TestGet_MissReturnsFalse(t *testing.T) {
 }
 
 func TestInvalidate_ClearsEntry(t *testing.T) {
+	isolateLocalGenerations(t)
 	cache := newMapCache()
 	ctx := context.Background()
 	_ = Put(ctx, cache, "acct-1", []byte("x"))
@@ -79,9 +87,60 @@ func TestInvalidate_ClearsEntry(t *testing.T) {
 	if _, ok := Get(ctx, cache, "acct-1"); ok {
 		t.Error("entry still present after Invalidate")
 	}
+	generations := Generations(ctx, cache, []string{"acct-1"})
+	if len(generations) != 1 || generations[0] == "acct-1:0" {
+		t.Fatalf("generations = %#v, want invalidation token", generations)
+	}
+}
+
+func TestGenerationsAreDeterministicAcrossAccountOrder(t *testing.T) {
+	isolateLocalGenerations(t)
+	cache := newMapCache()
+	ctx := context.Background()
+	if err := Invalidate(ctx, cache, "acct-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Invalidate(ctx, cache, "acct-a"); err != nil {
+		t.Fatal(err)
+	}
+	first := Generations(ctx, cache, []string{"acct-b", "acct-a"})
+	second := Generations(ctx, cache, []string{"acct-a", "acct-b"})
+	if len(first) != 2 || first[0] != second[0] || first[1] != second[1] {
+		t.Fatalf("generation order is not deterministic: %#v vs %#v", first, second)
+	}
+}
+
+func TestLocalGenerationsStayBounded(t *testing.T) {
+	isolateLocalGenerations(t)
+	for i := 0; i <= localGenerationMaxItems; i++ {
+		rememberLocalGeneration(fmt.Sprintf("bounded-account-%d", i), fmt.Sprintf("generation-%d", i))
+	}
+	localGenerations.Lock()
+	defer localGenerations.Unlock()
+	if len(localGenerations.entries) > localGenerationMaxItems {
+		t.Fatalf("local generations = %d, max %d", len(localGenerations.entries), localGenerationMaxItems)
+	}
+}
+
+func TestLocalGenerationEvictionRemovesEarliestExpiry(t *testing.T) {
+	now := time.Now()
+	entries := map[string]localGenerationEntry{
+		"expired": {value: "old", expiresAt: now.Add(-time.Minute)},
+		"soon":    {value: "next", expiresAt: now.Add(time.Minute)},
+		"later":   {value: "keep", expiresAt: now.Add(time.Hour)},
+	}
+
+	evictEarliestLocalGeneration(entries)
+	if _, ok := entries["expired"]; ok {
+		t.Fatal("earliest-expiring generation was not evicted")
+	}
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
 }
 
 func TestInvalidate_IdempotentOnMiss(t *testing.T) {
+	isolateLocalGenerations(t)
 	// Calling Invalidate when there's no entry must not error — write paths
 	// shouldn't have to check existence first.
 	if err := Invalidate(context.Background(), newMapCache(), "ghost"); err != nil {
@@ -90,6 +149,7 @@ func TestInvalidate_IdempotentOnMiss(t *testing.T) {
 }
 
 func TestNilCache_Safe(t *testing.T) {
+	isolateLocalGenerations(t)
 	// All entry points must tolerate a nil cache so dev environments without
 	// Redis don't NPE — they just operate as a pass-through (cache miss).
 	ctx := context.Background()

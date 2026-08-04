@@ -1622,11 +1622,6 @@ type deploymentListScope struct {
 	name string
 }
 
-type deploymentListPage struct {
-	limit  int
-	offset int
-}
-
 // enrichDeploymentsForAccount loads visible deployments for one account and
 // runs the standard enrichment pipeline (messaging URLs, audit timestamps,
 // avatars, latest build IDs). Shared between the per-account and cross-
@@ -1671,7 +1666,7 @@ func enrichDeploymentRows(
 		depIDs[i] = dbDep.ID
 	}
 
-	if messagingURLs, merr := dependencies.deployments.GetMessagingURLs(depIDs); merr != nil {
+	if messagingURLs, merr := dependencies.deployments.GetMessagingURLsContext(ctx, depIDs); merr != nil {
 		dependencies.log.Warn("Failed to load messaging URLs", "error", merr)
 	} else {
 		for i, d := range allDeployments {
@@ -1770,76 +1765,6 @@ func enrichDeploymentRows(
 		}
 	}
 	return summaries, nil
-}
-
-func enrichDeploymentPageForAccount(
-	ctx context.Context,
-	dependencies deploymentListDependencies,
-	scope deploymentListScope,
-	page deploymentListPage,
-) ([]AgentDeploymentSummary, int, error) {
-	dbDeps, total, err := dependencies.deployments.GetVisibleDeploymentsByAccountPage(
-		ctx,
-		scope.id,
-		page.limit,
-		page.offset,
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-	summaries, err := enrichDeploymentRows(
-		ctx,
-		dependencies,
-		scope,
-		dbDeps,
-	)
-	return summaries, total, err
-}
-
-func deploymentResponsePage(response ListDeploymentsResponse, limit, offset int) ListDeploymentsResponse {
-	start := min(offset, len(response.Deployments))
-	end := min(start+limit, len(response.Deployments))
-	deployments := append([]AgentDeploymentSummary{}, response.Deployments[start:end]...)
-	return ListDeploymentsResponse{
-		Deployments: deployments,
-		Count:       response.Count,
-	}
-}
-
-// loadCachedDeploymentsForAccount returns one bounded account page. It slices
-// the invalidated whole-account cache when present and otherwise performs a
-// paginated database read.
-func loadCachedDeploymentsForAccount(
-	ctx context.Context,
-	dependencies deploymentListDependencies,
-	scope deploymentListScope,
-	page deploymentListPage,
-	cache k8scache.Cache,
-) (ListDeploymentsResponse, error) {
-	if cached, ok := deploycache.Get(ctx, cache, scope.id); ok {
-		var response ListDeploymentsResponse
-		if err := json.Unmarshal(cached, &response); err == nil {
-			return deploymentResponsePage(response, page.limit, page.offset), nil
-		} else {
-			dependencies.log.Warn("Failed to decode cached deployment list", "account_id", scope.id, "error", err)
-		}
-	}
-
-	deployments, total, err := enrichDeploymentPageForAccount(
-		ctx,
-		dependencies,
-		scope,
-		page,
-	)
-	if err != nil {
-		return ListDeploymentsResponse{}, err
-	}
-
-	response := ListDeploymentsResponse{
-		Deployments: deployments,
-		Count:       total,
-	}
-	return response, nil
 }
 
 // maxBuildIDFilter caps the number of build IDs accepted in a single
@@ -2280,7 +2205,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			record.ExternalURLs = append(record.ExternalURLs, ServiceEndpointInfo{
 				Name: "messaging", Type: "messaging", URL: override, Ready: true,
 			})
-		} else if messagingURLs, merr := deployStore.GetMessagingURLs([]string{dbDep.ID}); merr != nil {
+		} else if messagingURLs, merr := deployStore.GetMessagingURLsContext(c.Request.Context(), []string{dbDep.ID}); merr != nil {
 			log.Warn("Failed to load messaging URL for deployment", "error", merr, "deployment_id", dbDep.ID)
 		} else if url, ok := messagingURLs[dbDep.ID]; ok {
 			record.ExternalURLs = append(record.ExternalURLs, ServiceEndpointInfo{

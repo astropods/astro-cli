@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/lib/pq"
 )
 
 // Store manages audit log persistence in PostgreSQL.
@@ -296,6 +297,70 @@ func (s *Store) LatestPerResourceByAction(
 			return nil, fmt.Errorf("failed to scan latest audit entry by action: %w", err)
 		}
 		result[resourceID] = ResourceLatest{UpdatedAt: ts, ActorID: actorID}
+	}
+	return result, rows.Err()
+}
+
+// LatestPerResources returns latest audit entries across a bounded set of
+// accounts and resource IDs. Resource selection is already membership-scoped
+// by the caller; retaining account IDs in this query prevents unrelated audit
+// rows from participating even if a resource identifier is malformed.
+func (s *Store) LatestPerResources(
+	ctx context.Context,
+	accountIDs []string,
+	resourceType string,
+	resourceIDs []string,
+) (map[string]ResourceLatest, error) {
+	return s.latestPerResources(ctx, accountIDs, "", resourceType, resourceIDs)
+}
+
+// LatestPerResourcesByAction is LatestPerResources restricted to one action.
+func (s *Store) LatestPerResourcesByAction(
+	ctx context.Context,
+	accountIDs []string,
+	action string,
+	resourceType string,
+	resourceIDs []string,
+) (map[string]ResourceLatest, error) {
+	return s.latestPerResources(ctx, accountIDs, action, resourceType, resourceIDs)
+}
+
+func (s *Store) latestPerResources(
+	ctx context.Context,
+	accountIDs []string,
+	action string,
+	resourceType string,
+	resourceIDs []string,
+) (map[string]ResourceLatest, error) {
+	result := make(map[string]ResourceLatest, len(resourceIDs))
+	if len(accountIDs) == 0 || len(resourceIDs) == 0 {
+		return result, nil
+	}
+
+	query := `SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
+		FROM audit_logs
+		WHERE account_id = ANY($1::uuid[])
+		  AND resource_type = $2
+		  AND resource_id = ANY($3::text[])`
+	args := []any{pq.Array(accountIDs), resourceType, pq.Array(resourceIDs)}
+	if action != "" {
+		query += ` AND action = $4`
+		args = append(args, action)
+	}
+	query += ` ORDER BY resource_id, created_at DESC, id DESC`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query latest audit entries across accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var resourceID, actorID string
+		var createdAt time.Time
+		if err := rows.Scan(&resourceID, &createdAt, &actorID); err != nil {
+			return nil, fmt.Errorf("scan latest audit entry across accounts: %w", err)
+		}
+		result[resourceID] = ResourceLatest{UpdatedAt: createdAt, ActorID: actorID}
 	}
 	return result, rows.Err()
 }

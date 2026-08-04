@@ -1,6 +1,7 @@
 package agentindex
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -406,6 +407,56 @@ func TestBatchLatestBuildIDs_AbsentAgentNotInResult(t *testing.T) {
 	}
 	if _, ok := got["acct-1/agent-z"]; ok {
 		t.Error("expected absent agent to not appear in result map")
+	}
+}
+
+func TestBatchLatestBuildInfoReturnsVisibility(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectQuery(`(?s)WITH wanted.*INNER JOIN agents.*INNER JOIN LATERAL.*ORDER BY v.published_at DESC.*LIMIT 1`).
+		WithArgs(pq.Array([]string{"acct-1", "acct-2"}), pq.Array([]string{"private-agent", "public-agent"})).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "build_id", "visibility"}).
+			AddRow("acct-1", "private-agent", "build-2", "private").
+			AddRow("acct-2", "public-agent", "build-3", "public"))
+
+	got, err := idx.BatchLatestBuildInfo(context.Background(), []AgentVersionRef{
+		{AccountID: "acct-1", Name: "private-agent"},
+		{AccountID: "acct-2", Name: "public-agent"},
+	})
+	if err != nil {
+		t.Fatalf("BatchLatestBuildInfo: %v", err)
+	}
+	if got["acct-1/private-agent"].Visibility != "private" || got["acct-2/public-agent"].BuildID != "build-3" {
+		t.Fatalf("build info = %#v", got)
+	}
+}
+
+func TestBatchLatestBuildInfoHonorsCancellation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectQuery(`(?s)WITH wanted.*INNER JOIN agents.*INNER JOIN LATERAL.*ORDER BY v.published_at DESC.*LIMIT 1`).
+		WithArgs(pq.Array([]string{"acct-1"}), pq.Array([]string{"agent"})).
+		WillDelayFor(time.Second).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "name", "build_id", "visibility"}))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	_, err = idx.BatchLatestBuildInfo(ctx, []AgentVersionRef{{AccountID: "acct-1", Name: "agent"}})
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("query ignored cancellation and took %s", elapsed)
 	}
 }
 

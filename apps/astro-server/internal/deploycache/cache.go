@@ -15,9 +15,13 @@ package deploycache
 
 import (
 	"context"
+	"errors"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/google/uuid"
 )
 
 // SafetyTTL is the upper-bound TTL on a cache entry. Primary invalidation is
@@ -27,10 +31,78 @@ const SafetyTTL = 1 * time.Hour
 
 // keyPrefix scopes the cache so other features can't accidentally collide.
 const keyPrefix = "dep:agent:"
+const generationKeyPrefix = "dep:generation:"
+const localGenerationMaxItems = 4096
+
+type localGenerationEntry struct {
+	value     string
+	expiresAt time.Time
+}
+
+// localGenerations is a process-global Redis-free fallback shared by every
+// deploycache caller in this server process.
+var localGenerations = struct {
+	sync.Mutex
+	entries map[string]localGenerationEntry
+}{entries: make(map[string]localGenerationEntry)}
+
+func resetLocalGenerations() {
+	localGenerations.Lock()
+	defer localGenerations.Unlock()
+	localGenerations.entries = make(map[string]localGenerationEntry)
+}
+
+func evictEarliestLocalGeneration(entries map[string]localGenerationEntry) {
+	var earliestID string
+	var earliestExpiry time.Time
+	for id, entry := range entries {
+		if earliestID == "" || entry.expiresAt.Before(earliestExpiry) {
+			earliestID = id
+			earliestExpiry = entry.expiresAt
+		}
+	}
+	if earliestID != "" {
+		delete(entries, earliestID)
+	}
+}
+
+func rememberLocalGeneration(accountID, generation string) {
+	now := time.Now()
+	localGenerations.Lock()
+	defer localGenerations.Unlock()
+	if _, exists := localGenerations.entries[accountID]; !exists && len(localGenerations.entries) >= localGenerationMaxItems {
+		evictEarliestLocalGeneration(localGenerations.entries)
+	}
+	localGenerations.entries[accountID] = localGenerationEntry{
+		value:     generation,
+		expiresAt: now.Add(SafetyTTL),
+	}
+}
+
+func loadLocalGeneration(accountID string) (string, bool) {
+	now := time.Now()
+	localGenerations.Lock()
+	defer localGenerations.Unlock()
+	entry, ok := localGenerations.entries[accountID]
+	if !ok {
+		return "", false
+	}
+	if !now.Before(entry.expiresAt) {
+		delete(localGenerations.entries, accountID)
+		return "", false
+	}
+	return entry.value, true
+}
 
 // KeyFor returns the cache key for an account.
 func KeyFor(accountID string) string {
 	return keyPrefix + accountID
+}
+
+// GenerationKeyFor returns the invalidation-generation key for an account's
+// deployment list projections.
+func GenerationKeyFor(accountID string) string {
+	return generationKeyPrefix + accountID
 }
 
 // Get reads the cached payload for an account. Returns (nil, false) when no
@@ -53,17 +125,47 @@ func Put(ctx context.Context, cache k8scache.Cache, accountID string, data []byt
 // Invalidate clears the cache for an account. Idempotent. Safe to call when
 // the underlying cache is nil (no-op).
 func Invalidate(ctx context.Context, cache k8scache.Cache, accountID string) error {
+	generation := uuid.NewString()
+	rememberLocalGeneration(accountID, generation)
 	if cache == nil {
 		return nil
 	}
-	return cache.Invalidate(ctx, KeyFor(accountID))
+	deleteErr := cache.Invalidate(ctx, KeyFor(accountID))
+	generationErr := cache.Set(ctx, GenerationKeyFor(accountID), []byte(generation), SafetyTTL)
+	return errors.Join(deleteErr, generationErr)
+}
+
+// Generations returns a deterministic account:generation vector suitable for
+// response-cache keys. Redis-backed caches use one MGET; Redis-free local
+// environments use the process-local values updated by Invalidate.
+func Generations(ctx context.Context, cache k8scache.Cache, accountIDs []string) []string {
+	ids := append([]string(nil), accountIDs...)
+	sort.Strings(ids)
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = GenerationKeyFor(id)
+	}
+	remote := k8scache.GetMany(ctx, cache, keys)
+
+	result := make([]string, 0, len(ids))
+	for i, id := range ids {
+		generation := "0"
+		if value, ok := remote[keys[i]]; ok && len(value) > 0 {
+			generation = string(value)
+			rememberLocalGeneration(id, generation)
+		} else if value, ok := loadLocalGeneration(id); ok {
+			generation = value
+		}
+		result = append(result, id+":"+generation)
+	}
+	return result
 }
 
 // LineageLookup is the minimal subset of deploymentstore.Store that
 // InvalidateForLineage needs. Defined as an interface so this package
 // stays independent of the store and tests can fake the lookup.
 type LineageLookup interface {
-	ListAccountIDsWithLineageAgent(accountID, agentName string) ([]string, error)
+	ListAccountIDsWithLineageAgent(ctx context.Context, accountID, agentName string) ([]string, error)
 }
 
 // InvalidateForLineage busts the cache for every account that has a
@@ -82,7 +184,7 @@ func InvalidateForLineage(
 	if cache == nil || store == nil {
 		return nil
 	}
-	accts, err := store.ListAccountIDsWithLineageAgent(accountID, agentName)
+	accts, err := store.ListAccountIDsWithLineageAgent(ctx, accountID, agentName)
 	if err != nil || len(accts) == 0 {
 		return nil
 	}

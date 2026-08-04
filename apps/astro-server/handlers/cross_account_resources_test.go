@@ -501,12 +501,11 @@ func setupCrossAccountDeploymentRouter(
 	})
 	router.GET(
 		"/api/v1/me/deployments",
-		ListCrossAccountDeployments(
+		ListUserDeployments(
 			log,
 			accountStore,
 			deployStore,
 			agentIndex,
-			nil,
 			nil,
 			cache,
 		),
@@ -516,58 +515,6 @@ func setupCrossAccountDeploymentRouter(
 		ListDeployments(log, accountStore, deployStore, agentIndex, nil, nil, cache),
 	)
 	return router, mock
-}
-
-func TestListCrossAccountDeploymentsUsesCacheAndPreservesPartialFailures(t *testing.T) {
-	cached, err := json.Marshal(ListDeploymentsResponse{
-		Deployments: []AgentDeploymentSummary{
-			{ID: "deployment-1", Name: "first"},
-			{ID: "deployment-2", Name: "second"},
-		},
-		Count: 2,
-	})
-	if err != nil {
-		t.Fatalf("marshal cache fixture: %v", err)
-	}
-	cache := &recordingCache{
-		entries: map[string][]byte{deploycache.KeyFor("acct-1"): cached},
-	}
-	router, mock := setupCrossAccountDeploymentRouter(t, cache)
-	expectCrossAccountMemberships(mock)
-	mock.ExpectQuery(`FROM deployments`).
-		WithArgs("acct-2", 1, 1).
-		WillReturnError(errors.New("database unavailable"))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me/deployments?limit=1&offset=1", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-	var response CrossAccountDeploymentsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(response.Results) != 1 || response.Results[0].Account != "alpha" {
-		t.Fatalf("results = %#v, want cached alpha result", response.Results)
-	}
-	result := response.Results[0]
-	if len(result.Data.Deployments) != 1 || result.Data.Deployments[0].ID != "deployment-2" {
-		t.Fatalf("deployments = %#v, want second cached deployment", result.Data.Deployments)
-	}
-	if result.Count != 2 || result.Data.Count != 2 || result.Limit != 1 || result.Offset != 1 || result.HasMore {
-		t.Fatalf("page metadata = %#v, want final one-item page of two deployments", result)
-	}
-	if len(response.FailedAccounts) != 1 || response.FailedAccounts[0] != "beta" {
-		t.Fatalf("failed accounts = %#v, want [beta]", response.FailedAccounts)
-	}
-
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if len(cache.gets) != 2 {
-		t.Fatalf("cache reads = %#v, want one per account", cache.gets)
-	}
 }
 
 func expectDeploymentAccountAccess(mock sqlmock.Sqlmock) {

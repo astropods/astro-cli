@@ -433,48 +433,6 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 	return deployments, nil
 }
 
-// GetVisibleDeploymentsByAccountPage returns a bounded page and the account's
-// total number of non-undeployed deployments.
-func (s *Store) GetVisibleDeploymentsByAccountPage(ctx context.Context, accountID string, limit, offset int) ([]*Deployment, int, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+deploymentColumns+`, COUNT(*) OVER()
-		FROM deployments
-		WHERE account_id = $1 AND status != 'undeployed'
-		ORDER BY deployed_at DESC, id DESC
-		LIMIT $2 OFFSET $3
-	`, accountID, limit, offset)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query visible deployment page by account: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	deployments := make([]*Deployment, 0)
-	total := 0
-	for rows.Next() {
-		var d Deployment
-		var errorDetails []byte
-		var clusterID sql.NullString
-		if err := rows.Scan(append(deploymentScanDest(&d, &errorDetails, &clusterID), &total)...); err != nil {
-			return nil, 0, fmt.Errorf("failed to scan deployment page: %w", err)
-		}
-		finishDeploymentScan(&d, errorDetails, clusterID)
-		deployments = append(deployments, &d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("error iterating deployment page rows: %w", err)
-	}
-	if len(deployments) == 0 && offset > 0 {
-		if err := s.db.QueryRowContext(ctx, `
-			SELECT COUNT(*)
-			FROM deployments
-			WHERE account_id = $1 AND status != 'undeployed'
-		`, accountID).Scan(&total); err != nil {
-			return nil, 0, fmt.Errorf("failed to count visible deployments by account: %w", err)
-		}
-	}
-	return deployments, total, nil
-}
-
 // GetVisibleDeploymentsByAccountAndBuilds is the build-filtered variant of
 // GetVisibleDeploymentsByAccount. With buildIDs non-empty, the WHERE clause
 // additionally restricts to deployments whose build_id is in the set —
@@ -591,8 +549,8 @@ type DeploymentWithAccount struct {
 // downstream consumer when a new build of an agent ships: without this, those
 // accounts' agents pages would not surface the "update available" pill until
 // SafetyTTL expires.
-func (s *Store) ListAccountIDsWithLineageAgent(lineageAccountID, agentName string) ([]string, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListAccountIDsWithLineageAgent(ctx context.Context, lineageAccountID, agentName string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT account_id
 		FROM deployments
 		WHERE agent_name = $2

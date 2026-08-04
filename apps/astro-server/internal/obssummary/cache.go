@@ -13,6 +13,7 @@ package obssummary
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -70,6 +71,35 @@ func Get(ctx context.Context, cache k8scache.Cache, deploymentID string) (*Entry
 		return nil, false, fmt.Errorf("obssummary: unmarshal: %w", err)
 	}
 	return &e, true, nil
+}
+
+// GetMany reads a bounded visible-card set in one Redis MGET when supported.
+// Malformed entries are omitted and returned as a joined error so callers can
+// serve the remaining summaries while retaining observability.
+func GetMany(ctx context.Context, cache k8scache.Cache, deploymentIDs []string) (map[string]*Entry, error) {
+	entries := make(map[string]*Entry, len(deploymentIDs))
+	if cache == nil || len(deploymentIDs) == 0 {
+		return entries, nil
+	}
+	keys := make([]string, len(deploymentIDs))
+	for i, id := range deploymentIDs {
+		keys[i] = KeyFor(id)
+	}
+	values := k8scache.GetMany(ctx, cache, keys)
+	var decodeErrors []error
+	for i, id := range deploymentIDs {
+		data, ok := values[keys[i]]
+		if !ok {
+			continue
+		}
+		var entry Entry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			decodeErrors = append(decodeErrors, fmt.Errorf("%s: %w", id, err))
+			continue
+		}
+		entries[id] = &entry
+	}
+	return entries, errors.Join(decodeErrors...)
 }
 
 // Put writes an entry for a deployment with the configured TTL.

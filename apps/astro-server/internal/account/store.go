@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -263,7 +264,12 @@ func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 
 // GetAccountsForUser returns all accounts a user is a member of
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
-	rows, err := s.db.Query(`
+	return s.GetAccountsForUserContext(context.Background(), userID)
+}
+
+// GetAccountsForUserContext is the cancellable form used by request hot paths.
+func (s *AccountStore) GetAccountsForUserContext(ctx context.Context, userID string) ([]AccountWithRole, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), COALESCE(a.cluster_id, ''), a.created_at, a.updated_at, a.display_name, a.avatar_updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id

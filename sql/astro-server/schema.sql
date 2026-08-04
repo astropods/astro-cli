@@ -263,7 +263,9 @@ CREATE TABLE public.agent_versions (
     CONSTRAINT agent_versions_account_id_name_fkey FOREIGN KEY (account_id, name) REFERENCES public.agents(account_id, name) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
-CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
+CREATE INDEX idx_versions_agent
+    ON public.agent_versions(account_id, name, published_at DESC)
+    INCLUDE (build_id);
 
 CREATE TABLE public.deployments (
     id varchar(11) NOT NULL,
@@ -298,6 +300,19 @@ CREATE TABLE public.deployments (
 );
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
+
+-- Supports membership-scoped global keyset pages without walking each account
+-- independently. The unique id is the stable deployed_at tiebreaker.
+CREATE INDEX idx_deployments_visible_account_cursor
+    ON public.deployments(account_id, deployed_at DESC, id DESC)
+    WHERE status <> 'undeployed';
+
+-- Broad membership scopes can read directly in global cursor order, while the
+-- included account ID keeps membership filtering available to the index scan.
+CREATE INDEX idx_deployments_visible_global_cursor
+    ON public.deployments(deployed_at DESC, id DESC)
+    INCLUDE (account_id)
+    WHERE status <> 'undeployed';
 
 CREATE INDEX idx_deployments_source_account_agent ON public.deployments(source_account_id, agent_name) WHERE source_account_id IS NOT NULL;
 
@@ -715,6 +730,9 @@ CREATE INDEX idx_audit_logs_account_resource ON public.audit_logs (account_id, r
 CREATE INDEX idx_audit_logs_actor ON public.audit_logs (actor_id, created_at DESC);
 CREATE INDEX idx_audit_logs_created ON public.audit_logs (created_at);
 CREATE INDEX idx_audit_logs_creator_lookup ON public.audit_logs (account_id, action, resource_type, resource_id, created_at ASC);
+CREATE INDEX idx_audit_logs_resource_latest
+    ON public.audit_logs (account_id, resource_type, resource_id, created_at DESC, id DESC)
+    INCLUDE (actor_id);
 
 CREATE TABLE public.github_connections (
     id uuid NOT NULL DEFAULT gen_random_uuid(),

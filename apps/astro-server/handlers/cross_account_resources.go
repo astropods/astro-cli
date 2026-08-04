@@ -11,7 +11,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
-	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
@@ -39,7 +38,6 @@ type CrossAccountResourceResponse[T any] struct {
 
 type CrossAccountBlueprintsResponse = CrossAccountResourceResponse[ListAgentsResponse]
 type CrossAccountKnowledgeResponse = CrossAccountResourceResponse[[]KnowledgeResponse]
-type CrossAccountDeploymentsResponse = CrossAccountResourceResponse[ListDeploymentsResponse]
 
 type crossAccountResourcePage[T any] struct {
 	data    T
@@ -276,62 +274,6 @@ func ListCrossAccountKnowledgeStores(
 					limit:   limit,
 					offset:  offset,
 					hasMore: offset+len(responses) < total,
-				}, nil
-			})
-	}
-}
-
-func ListCrossAccountDeployments(
-	log *logger.Logger,
-	accountStore *account.AccountStore,
-	deployStore *deploymentstore.Store,
-	agentIndex *agentindex.Index,
-	avatarStore *avatar.Store,
-	auditStore *auditlog.Store,
-	cache k8scache.Cache,
-) gin.HandlerFunc {
-	dependencies := deploymentListDependencies{
-		log:         log,
-		accounts:    accountStore,
-		deployments: deployStore,
-		agents:      agentIndex,
-		avatars:     avatarStore,
-		audit:       auditStore,
-	}
-	return func(c *gin.Context) {
-		limit, offset, err := parseListPagination(c)
-		if err != nil {
-			writeListFilterError(c, err)
-			return
-		}
-		serveCrossAccountResources(
-			c,
-			log,
-			accountStore,
-			"deployments",
-			func(ctx context.Context, membership account.AccountWithRole) (crossAccountResourcePage[ListDeploymentsResponse], error) {
-				response, err := loadCachedDeploymentsForAccount(
-					ctx,
-					dependencies,
-					deploymentListScope{
-						id:   membership.ID,
-						name: membership.Name,
-					},
-					deploymentListPage{
-						limit:  limit,
-						offset: offset,
-					},
-					cache,
-				)
-				if err != nil {
-					return crossAccountResourcePage[ListDeploymentsResponse]{}, err
-				}
-				return crossAccountResourcePage[ListDeploymentsResponse]{
-					data:    response,
-					count:   response.Count,
-					limit:   limit,
-					offset:  offset,
-					hasMore: offset+len(response.Deployments) < response.Count,
 				}, nil
 			})
 	}

@@ -2505,52 +2505,45 @@ func GetLangfuseSummaries(
 			return
 		}
 
-		if len(deployments) == 0 || cache == nil {
-			c.JSON(http.StatusOK, gin.H{"summaries": gin.H{}})
-			return
+		deploymentIDs := make([]string, 0, len(deployments))
+		for _, deployment := range deployments {
+			deploymentIDs = append(deploymentIDs, deployment.ID)
 		}
-
-		// Parallel Redis reads. The cache wrapper itself is small (one GET
-		// per call), so 10-way concurrency is plenty for typical accounts.
-		type result struct {
-			id    string
-			entry *obssummary.Entry
-		}
-		results := make([]result, len(deployments))
-		var g errgroup.Group
-		g.SetLimit(10)
-		for i, dep := range deployments {
-			id := dep.ID
-			g.Go(func() error {
-				entry, _, err := obssummary.Get(c.Request.Context(), cache, id)
-				if err != nil {
-					log.Warn("Obs summary cache read", "deployment_id", id, "error", err)
-					return nil
-				}
-				if entry != nil {
-					results[i] = result{id: id, entry: entry}
-				}
-				return nil
-			})
-		}
-		_ = g.Wait()
-
-		summaries := make(map[string]DeploymentTraceSummary, len(deployments))
-		for _, r := range results {
-			if r.id == "" || r.entry == nil {
-				continue
-			}
-			summaries[r.id] = DeploymentTraceSummary{
-				TotalTraces:   r.entry.TotalTraces,
-				LastTraceAt:   r.entry.LastTraceAt,
-				CostUSD:       r.entry.CostUSD,
-				RequestSeries: r.entry.RequestSeries,
-				TokenSeries:   r.entry.TokenSeries,
-				CostSeries:    r.entry.CostSeries,
-			}
+		summaries, cacheErr := deploymentSummariesFromCache(c.Request.Context(), cache, deploymentIDs)
+		if cacheErr != nil {
+			log.Warn("Obs summary cache read", "error", cacheErr)
 		}
 
 		c.JSON(http.StatusOK, DeploymentSummariesResponse{Summaries: summaries})
+	}
+}
+
+// deploymentSummariesFromCache is shared by account-scoped and user-scoped
+// handlers so both use one bounded Redis MGET and the same response mapping.
+func deploymentSummariesFromCache(
+	ctx context.Context,
+	cache k8scache.Cache,
+	deploymentIDs []string,
+) (map[string]DeploymentTraceSummary, error) {
+	summaries := make(map[string]DeploymentTraceSummary, len(deploymentIDs))
+	if len(deploymentIDs) == 0 || cache == nil {
+		return summaries, nil
+	}
+	entries, err := obssummary.GetMany(ctx, cache, deploymentIDs)
+	for id, entry := range entries {
+		summaries[id] = deploymentTraceSummary(entry)
+	}
+	return summaries, err
+}
+
+func deploymentTraceSummary(entry *obssummary.Entry) DeploymentTraceSummary {
+	return DeploymentTraceSummary{
+		TotalTraces:   entry.TotalTraces,
+		LastTraceAt:   entry.LastTraceAt,
+		CostUSD:       entry.CostUSD,
+		RequestSeries: entry.RequestSeries,
+		TokenSeries:   entry.TokenSeries,
+		CostSeries:    entry.CostSeries,
 	}
 }
 

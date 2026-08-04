@@ -1,6 +1,7 @@
 package agentindex
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -516,6 +517,13 @@ type AgentVersionRef struct {
 	Name      string
 }
 
+// LatestBuildInfo is the list-safe projection used to surface upgrade signals
+// without resolving agents one at a time.
+type LatestBuildInfo struct {
+	BuildID    string
+	Visibility string
+}
+
 // batchLatestBuildIDsQuery expands parallel account ID and name arrays via
 // unnest; corresponding pg arguments are bound as pq.Array in BatchLatestBuildIDs.
 const batchLatestBuildIDsQuery = `
@@ -530,6 +538,23 @@ ranked AS (
 	INNER JOIN wanted w ON w.account_id = v.account_id AND w.name = v.name
 )
 SELECT account_id::text, name, build_id FROM ranked WHERE rn = 1
+`
+
+const batchLatestBuildInfoQuery = `
+WITH wanted AS (
+	SELECT q.account_id::uuid AS account_id, q.name
+	FROM unnest($1::text[], $2::text[]) AS q(account_id, name)
+)
+SELECT w.account_id::text, w.name, latest.build_id, a.visibility
+FROM wanted w
+INNER JOIN agents a ON a.account_id = w.account_id AND a.name = w.name
+INNER JOIN LATERAL (
+	SELECT v.build_id
+	FROM agent_versions v
+	WHERE v.account_id = w.account_id AND v.name = w.name
+	ORDER BY v.published_at DESC
+	LIMIT 1
+) latest ON true
 `
 
 // BatchLatestBuildIDs returns the latest build_id per (account_id, name) pair,
@@ -571,6 +596,43 @@ func (idx *Index) BatchLatestBuildIDs(refs []AgentVersionRef) (map[string]string
 			return nil, fmt.Errorf("scan batch latest build: %w", err)
 		}
 		out[accountID+"/"+name] = buildID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	return out, nil
+}
+
+// BatchLatestBuildInfo returns latest build IDs and blueprint visibility for
+// a set of lineage references in one SQL round trip.
+func (idx *Index) BatchLatestBuildInfo(ctx context.Context, refs []AgentVersionRef) (map[string]LatestBuildInfo, error) {
+	out := make(map[string]LatestBuildInfo, len(refs))
+	accountIDs := make([]string, 0, len(refs))
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.AccountID == "" || ref.Name == "" {
+			continue
+		}
+		accountIDs = append(accountIDs, ref.AccountID)
+		names = append(names, ref.Name)
+	}
+	if len(accountIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := idx.db.QueryContext(ctx, batchLatestBuildInfoQuery, pq.Array(accountIDs), pq.Array(names))
+	if err != nil {
+		return nil, fmt.Errorf("batch latest build info: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var accountID, name string
+		var info LatestBuildInfo
+		if err := rows.Scan(&accountID, &name, &info.BuildID, &info.Visibility); err != nil {
+			return nil, fmt.Errorf("scan batch latest build info: %w", err)
+		}
+		out[accountID+"/"+name] = info
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows: %w", err)
