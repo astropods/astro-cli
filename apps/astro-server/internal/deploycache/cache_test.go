@@ -2,7 +2,6 @@ package deploycache
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -43,8 +42,8 @@ var _ k8scache.Cache = (*mapCache)(nil)
 
 func isolateLocalGenerations(t *testing.T) {
 	t.Helper()
-	resetLocalGenerations()
-	t.Cleanup(resetLocalGenerations)
+	resetGenerations()
+	t.Cleanup(resetGenerations)
 }
 
 func TestKeyFor_Prefix(t *testing.T) {
@@ -107,35 +106,6 @@ func TestGenerationsAreDeterministicAcrossAccountOrder(t *testing.T) {
 	second := Generations(ctx, cache, []string{"acct-a", "acct-b"})
 	if len(first) != 2 || first[0] != second[0] || first[1] != second[1] {
 		t.Fatalf("generation order is not deterministic: %#v vs %#v", first, second)
-	}
-}
-
-func TestLocalGenerationsStayBounded(t *testing.T) {
-	isolateLocalGenerations(t)
-	for i := 0; i <= localGenerationMaxItems; i++ {
-		rememberLocalGeneration(fmt.Sprintf("bounded-account-%d", i), fmt.Sprintf("generation-%d", i))
-	}
-	localGenerations.Lock()
-	defer localGenerations.Unlock()
-	if len(localGenerations.entries) > localGenerationMaxItems {
-		t.Fatalf("local generations = %d, max %d", len(localGenerations.entries), localGenerationMaxItems)
-	}
-}
-
-func TestLocalGenerationEvictionRemovesEarliestExpiry(t *testing.T) {
-	now := time.Now()
-	entries := map[string]localGenerationEntry{
-		"expired": {value: "old", expiresAt: now.Add(-time.Minute)},
-		"soon":    {value: "next", expiresAt: now.Add(time.Minute)},
-		"later":   {value: "keep", expiresAt: now.Add(time.Hour)},
-	}
-
-	evictEarliestLocalGeneration(entries)
-	if _, ok := entries["expired"]; ok {
-		t.Fatal("earliest-expiring generation was not evicted")
-	}
-	if len(entries) != 2 {
-		t.Fatalf("entries = %d, want 2", len(entries))
 	}
 }
 

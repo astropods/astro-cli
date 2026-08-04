@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
+	"github.com/astropods/astro/apps/astro-server/internal/knowledgecache"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -109,12 +111,38 @@ func ValidateStoreName(name string) error {
 
 // Store manages knowledge store record persistence in PostgreSQL.
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	cache k8scache.Cache
 }
 
 // NewStore creates a new knowledge store with the given database connection.
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewStore(db *sql.DB, caches ...k8scache.Cache) *Store {
+	store := &Store{db: db}
+	if len(caches) > 0 {
+		store.cache = caches[0]
+	}
+	return store
+}
+
+func (s *Store) invalidateAccount(accountID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	// Invalidate records the new generation locally before writing Redis. The
+	// database mutation has already committed, so returning a Redis error would
+	// report a successful write as failed. Other replicas self-heal when their
+	// cached page expires, within the 30-second remote TTL.
+	_ = knowledgecache.Invalidate(ctx, s.cache, accountID)
+}
+
+func (s *Store) invalidateMutationAccount(row *sql.Row) error {
+	var accountID string
+	if err := row.Scan(&accountID); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	s.invalidateAccount(accountID)
+	return nil
 }
 
 // KnowledgeStore represents a single knowledge store record (managed or external).
@@ -219,7 +247,11 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
 		mode, status, p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN, p.Annotations,
 	)
-	return scanStore(row)
+	store, err := scanStore(row)
+	if err == nil {
+		s.invalidateAccount(p.AccountID)
+	}
+	return store, err
 }
 
 // GetByID retrieves a store by its ID. Returns nil, nil if not found.
@@ -277,67 +309,35 @@ func (s *Store) ListByAccount(accountID string) ([]*KnowledgeStore, error) {
 	return stores, rows.Err()
 }
 
-// ListByAccountPage returns a bounded page and the account's total store count.
-func (s *Store) ListByAccountPage(ctx context.Context, accountID string, limit, offset int) ([]*KnowledgeStore, int, error) {
-	rows, err := s.db.QueryContext(
-		ctx,
-		`SELECT `+storeColumns+`, COUNT(*) OVER()
-		 FROM knowledge_stores
-		 WHERE account_id = $1
-		 ORDER BY created_at DESC, id DESC
-		 LIMIT $2 OFFSET $3`,
-		accountID,
-		limit,
-		offset,
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close() //nolint:errcheck
-
-	stores := make([]*KnowledgeStore, 0)
-	total := 0
-	for rows.Next() {
-		var store KnowledgeStore
-		if err := rows.Scan(append(storeScanDest(&store), &total)...); err != nil {
-			return nil, 0, err
-		}
-		stores = append(stores, &store)
-	}
-	return stores, total, rows.Err()
-}
-
 // SetStatus updates the store status and clears any error.
 func (s *Store) SetStatus(id, status string) error {
-	_, err := s.db.Exec(
-		`UPDATE knowledge_stores SET status = $1, error = NULL, updated_at = now() WHERE id = $2`,
+	return s.invalidateMutationAccount(s.db.QueryRow(
+		`UPDATE knowledge_stores SET status = $1, error = NULL, updated_at = now() WHERE id = $2 RETURNING account_id`,
 		status, id, // status is validated by callers using package constants
-	)
-	return err
+	))
 }
 
 // SetError sets the store status to error with the given message.
 func (s *Store) SetError(id, errMsg string) error {
-	_, err := s.db.Exec(
-		`UPDATE knowledge_stores SET status = $1, error = $2, updated_at = now() WHERE id = $3`,
+	return s.invalidateMutationAccount(s.db.QueryRow(
+		`UPDATE knowledge_stores SET status = $1, error = $2, updated_at = now() WHERE id = $3 RETURNING account_id`,
 		StatusError, errMsg, id,
-	)
-	return err
+	))
 }
 
 // SetPublicHost records the assigned public hostname once the LB is ready.
 func (s *Store) SetPublicHost(id, host string) error {
-	_, err := s.db.Exec(
-		`UPDATE knowledge_stores SET public_host = $1, updated_at = now() WHERE id = $2`,
+	return s.invalidateMutationAccount(s.db.QueryRow(
+		`UPDATE knowledge_stores SET public_host = $1, updated_at = now() WHERE id = $2 RETURNING account_id`,
 		host, id,
-	)
-	return err
+	))
 }
 
 // Delete removes a store record. Cascades to credentials.
 func (s *Store) Delete(id string) error {
-	_, err := s.db.Exec(`DELETE FROM knowledge_stores WHERE id = $1`, id)
-	return err
+	return s.invalidateMutationAccount(s.db.QueryRow(
+		`DELETE FROM knowledge_stores WHERE id = $1 RETURNING account_id`, id,
+	))
 }
 
 // ListProvisioning returns all managed stores currently in the provisioning state.

@@ -210,6 +210,7 @@ func main() {
 		}
 	}
 	k8sCache := k8scache.New(redisClient)
+	agentIndex.WithCache(k8sCache)
 
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
@@ -350,7 +351,7 @@ func runAPI(
 	accountVarsStore := accountvars.NewStore(db)
 	heartStore := heartstore.New(db)
 	agentMetricsStore := metricsstore.New(db)
-	ksStore := knowledgestore.NewStore(db)
+	ksStore := knowledgestore.NewStore(db, k8sCache)
 	log.Info("Agent index and stores initialized")
 
 	/*
@@ -1045,25 +1046,28 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.GET(protected, "/me/blueprints", "List blueprints visible to the current user", handlers.ListCrossAccountBlueprints(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore, auditStore, authHandler.GetWorkOSClient()),
+			api.GET(protected, "/me/blueprints", "List blueprints visible to the current user", handlers.ListUserBlueprints(log, agentIndex, accountStore, avatarStore, k8sCache),
 				oapispec.Tags("Accounts", "Agents"),
 				oapispec.BearerAuth(),
-				oapispec.QueryParam("account", "Optional repeated account name for targeted reads", false),
+				oapispec.QueryParam("account", "Repeated account name; required unless scope=all", false),
+				oapispec.QueryParam("scope", "Set to all for an explicit all-memberships read", false),
 				oapispec.QueryParam("q", "Search name, description, and tags", false),
 				oapispec.QueryParam("tag", "Filter by exact tag", false),
 				oapispec.QueryParam("visibility", "Filter by public or private visibility", false),
 				oapispec.QueryParam("sort", "Sort by name or newest", false),
-				oapispec.QueryParam("limit", "Per-account page size (default 50, max 100)", false),
-				oapispec.QueryParam("offset", "Per-account page offset (max 10000)", false),
-				oapispec.Response(200, &handlers.CrossAccountBlueprintsResponse{}),
+				oapispec.QueryParam("limit", "Global page size (default 50, max 100)", false),
+				oapispec.QueryParam("cursor", "Opaque keyset pagination cursor returned by the previous page", false),
+				oapispec.Response(200, &handlers.UserBlueprintsResponse{}),
 			)
-			api.GET(protected, "/me/knowledge", "List knowledge stores visible to the current user", handlers.ListCrossAccountKnowledgeStores(log, accountStore, ksStore),
+			api.GET(protected, "/me/knowledge", "List knowledge stores visible to the current user", handlers.ListUserKnowledgeStores(log, accountStore, ksStore, k8sCache),
 				oapispec.Tags("Accounts", "Knowledge"),
 				oapispec.BearerAuth(),
-				oapispec.QueryParam("account", "Optional repeated account name for targeted reads", false),
-				oapispec.QueryParam("limit", "Per-account page size (default 50, max 100)", false),
-				oapispec.QueryParam("offset", "Per-account page offset (max 10000)", false),
-				oapispec.Response(200, &handlers.CrossAccountKnowledgeResponse{}),
+				oapispec.QueryParam("account", "Repeated account name; required unless scope=all", false),
+				oapispec.QueryParam("scope", "Set to all for an explicit all-memberships read", false),
+				oapispec.QueryParam("q", "Search knowledge store name", false),
+				oapispec.QueryParam("limit", "Global page size (default 50, max 100)", false),
+				oapispec.QueryParam("cursor", "Opaque keyset pagination cursor returned by the previous page", false),
+				oapispec.Response(200, &handlers.UserKnowledgeResponse{}),
 			)
 			api.GET(protected, "/me/deployments", "List deployments visible to the current user", handlers.ListUserDeployments(log, accountStore, deploymentStore, agentIndex, auditStore, k8sCache),
 				oapispec.Tags("Accounts", "Deployments"),

@@ -241,7 +241,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			Cfg:              cfg.ServerConfig,
 			Store:            store,
 			Log:              cfg.Logger,
-			KnowledgeStore:   knowledgestore.NewStore(cfg.DB),
+			KnowledgeStore:   knowledgestore.NewStore(cfg.DB, cfg.K8sCache),
 			ImagePreflighter: cfg.ImagePreflighter,
 		}
 
@@ -338,7 +338,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{
 		deployer: dep,
 		store:    store,
-		ksStore:  knowledgestore.NewStore(cfg.DB),
+		ksStore:  knowledgestore.NewStore(cfg.DB, cfg.K8sCache),
 		log:      log,
 		cache:    cfg.K8sCache,
 		billing:  billing,
@@ -432,7 +432,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	addWorkerWithCatalogCheck(log, workers, pw)
 	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
 
-	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB)
+	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB, cfg.K8sCache)
 	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
 		ksStore:   ksStoreForWorkers,
 		registry:  cfg.K8sRegistry,

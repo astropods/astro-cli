@@ -215,4 +215,25 @@ func TestUserDeploymentsReportsRejectedAccountsWithoutExpandingScope(t *testing.
 	if len(response.RejectedAccounts) != 1 || response.RejectedAccounts[0] != "foreign" {
 		t.Fatalf("rejected = %#v, want foreign", response.RejectedAccounts)
 	}
+
+	expectCrossAccountMemberships(mock)
+	secondReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/me/deployments?account=alpha&account=other-foreign",
+		nil,
+	)
+	secondRec := httptest.NewRecorder()
+	router.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second status = %d, want 200: %s", secondRec.Code, secondRec.Body.String())
+	}
+	if got := secondRec.Header().Get("X-Astro-Cache"); got != "l1" {
+		t.Fatalf("second X-Astro-Cache = %q, want l1", got)
+	}
+	if err := json.Unmarshal(secondRec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal second response: %v", err)
+	}
+	if len(response.RejectedAccounts) != 1 || response.RejectedAccounts[0] != "other-foreign" {
+		t.Fatalf("second rejected = %#v, want other-foreign", response.RejectedAccounts)
+	}
 }

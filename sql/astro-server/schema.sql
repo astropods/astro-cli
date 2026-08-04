@@ -247,6 +247,9 @@ CREATE TABLE public.agents (
 );
 
 CREATE INDEX idx_agents_public ON public.agents(visibility) WHERE visibility = 'public' AND archived_at IS NULL;
+CREATE INDEX idx_agents_active_name_cursor
+    ON public.agents(name, account_id)
+    WHERE archived_at IS NULL;
 
 CREATE TABLE public.agent_versions (
     account_id uuid NOT NULL,
@@ -828,7 +831,11 @@ CREATE TABLE public.knowledge_stores (
     CONSTRAINT knowledge_stores_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_knowledge_stores_account ON public.knowledge_stores(account_id);
+CREATE INDEX idx_knowledge_stores_account_cursor
+    ON public.knowledge_stores(account_id, created_at DESC, id DESC);
+CREATE INDEX idx_knowledge_stores_global_cursor
+    ON public.knowledge_stores(created_at DESC, id DESC)
+    INCLUDE (account_id);
 CREATE INDEX idx_knowledge_stores_status ON public.knowledge_stores(status);
 
 CREATE TABLE public.knowledge_store_credentials (

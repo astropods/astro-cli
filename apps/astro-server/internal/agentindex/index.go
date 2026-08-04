@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/blueprintcache"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/lib/pq"
 )
 
@@ -48,12 +50,27 @@ type Agent struct {
 
 // Index manages the registry of published agents using PostgreSQL
 type Index struct {
-	db *sql.DB
+	db    *sql.DB
+	cache k8scache.Cache
 }
 
 // NewIndexWithDB creates a new agent index with a provided database connection
 func NewIndexWithDB(db *sql.DB) *Index {
 	return &Index{db: db}
+}
+
+// WithCache enables invalidation for the cross-account blueprint list.
+func (idx *Index) WithCache(cache k8scache.Cache) *Index {
+	idx.cache = cache
+	return idx
+}
+
+func (idx *Index) invalidateBlueprintLists(accountIDs ...string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for _, accountID := range accountIDs {
+		_ = blueprintcache.Invalidate(ctx, idx.cache, accountID)
+	}
 }
 
 // NewIndex creates a new agent index with PostgreSQL backend
@@ -137,7 +154,11 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 		return fmt.Errorf("failed to insert version: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	idx.invalidateBlueprintLists(accountID)
+	return nil
 }
 
 // ErrAlreadyExists is returned by Create when an active (non-archived) agent with the same name exists.
@@ -179,7 +200,11 @@ func (idx *Index) Create(accountID, name string) error {
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	idx.invalidateBlueprintLists(accountID)
+	return nil
 }
 
 // Get retrieves an agent by account ID and name
@@ -378,6 +403,7 @@ func (idx *Index) Archive(accountID, name string) error {
 		return fmt.Errorf("agent not found or already archived: %s", name)
 	}
 
+	idx.invalidateBlueprintLists(accountID)
 	return nil
 }
 
@@ -420,6 +446,7 @@ func (idx *Index) DeleteVersion(accountID, name, buildID string) error {
 		}
 	}
 
+	idx.invalidateBlueprintLists(accountID)
 	return nil
 }
 
@@ -447,6 +474,7 @@ func (idx *Index) SetVisibility(accountID, name, visibility string) error {
 		return fmt.Errorf("agent not found: %s", name)
 	}
 
+	idx.invalidateBlueprintLists(accountID)
 	return nil
 }
 
@@ -457,6 +485,9 @@ func (idx *Index) MarkNameReserved(accountID, name string) error {
 		UPDATE agents SET name_reserved = true
 		WHERE account_id = $1 AND name = $2
 	`, accountID, name)
+	if err == nil {
+		idx.invalidateBlueprintLists(accountID)
+	}
 	return err
 }
 
@@ -466,6 +497,9 @@ func (idx *Index) SetAvatarColors(accountID, name string, colorsJSON []byte) err
 		UPDATE agents SET avatar_colors = $1, updated_at = now()
 		WHERE account_id = $2 AND name = $3
 	`, colorsJSON, accountID, name)
+	if err == nil {
+		idx.invalidateBlueprintLists(accountID)
+	}
 	return err
 }
 
@@ -480,6 +514,9 @@ func (idx *Index) TouchAvatarUpdatedAt(accountID, name string) (time.Time, error
 		WHERE account_id = $1 AND name = $2
 		RETURNING avatar_updated_at
 	`, accountID, name).Scan(&ts)
+	if err == nil {
+		idx.invalidateBlueprintLists(accountID)
+	}
 	return ts, err
 }
 
@@ -699,5 +736,9 @@ func (idx *Index) Transfer(sourceAccountID, targetAccountID, agentName string) e
 		return fmt.Errorf("failed to transfer deployments source_account_id: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	idx.invalidateBlueprintLists(sourceAccountID, targetAccountID)
+	return nil
 }

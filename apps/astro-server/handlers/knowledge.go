@@ -129,6 +129,8 @@ type KnowledgeEndpointResponse struct {
 
 // KnowledgeResponse is the API representation of a knowledge store.
 type KnowledgeResponse struct {
+	AccountID    string                      `json:"account_id,omitempty"`
+	Account      string                      `json:"account,omitempty"`
 	ID           string                      `json:"id"`
 	ARN          string                      `json:"arn"`
 	Name         string                      `json:"name"`
@@ -172,6 +174,7 @@ func parseRegionFromServiceName(service string) string {
 
 func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 	return KnowledgeResponse{
+		AccountID:    ks.AccountID,
 		ID:           ks.ID,
 		ARN:          ks.ARN,
 		Name:         ks.Name,

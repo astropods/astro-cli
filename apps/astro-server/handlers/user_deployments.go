@@ -2,12 +2,9 @@ package handlers
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,29 +17,15 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/listcache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
 	userDeploymentCachePrefix  = "usr:list:deployments:v2:"
-	userDeploymentLocalTTL     = 5 * time.Second
-	userDeploymentRemoteTTL    = 30 * time.Second
-	userDeploymentLocalItems   = 1024
 	userDeploymentDefaultLimit = 50
 	userDeploymentMaxLimit     = 100
 )
-
-type UserResourcePage struct {
-	Limit      int    `json:"limit"`
-	NextCursor string `json:"next_cursor,omitempty"`
-}
-
-type UserResourceScope struct {
-	Accounts []string `json:"accounts"`
-	All      bool     `json:"all"`
-}
 
 // UserDeploymentsResponse is one globally ordered page across the explicitly
 // selected memberships.
@@ -59,33 +42,23 @@ type userDeploymentCursor struct {
 }
 
 type userDeploymentRequest struct {
-	limit             int
-	query             string
-	cursor            *deploymentstore.UserDeploymentCursor
-	selected          []account.AccountWithRole
-	rejected          []string
-	all               bool
-	canonicalAccounts []string
+	limit  int
+	query  string
+	cursor *deploymentstore.UserDeploymentCursor
+	scope  userResourceScopeRequest
 }
 
 func parseUserDeploymentRequest(
 	c *gin.Context,
 	memberships []account.AccountWithRole,
 ) (userDeploymentRequest, error) {
-	scope := strings.TrimSpace(c.Query("scope"))
 	query := strings.ToLower(strings.TrimSpace(c.Query("q")))
 	if len(query) > maxListQueryLen {
 		return userDeploymentRequest{}, fmt.Errorf("q must be at most %d characters", maxListQueryLen)
 	}
-	requested := c.QueryArray("account")
-	if scope != "" && scope != "all" {
-		return userDeploymentRequest{}, fmt.Errorf("scope must be 'all' when supplied")
-	}
-	if scope == "all" && len(requested) > 0 {
-		return userDeploymentRequest{}, fmt.Errorf("scope=all and account cannot be combined")
-	}
-	if scope == "" && len(requested) == 0 {
-		return userDeploymentRequest{}, fmt.Errorf("at least one account or scope=all is required")
+	scope, err := parseUserResourceScope(c, memberships)
+	if err != nil {
+		return userDeploymentRequest{}, err
 	}
 
 	limit := userDeploymentDefaultLimit
@@ -117,28 +90,11 @@ func parseUserDeploymentRequest(
 		cursor = &deploymentstore.UserDeploymentCursor{DeployedAt: deployedAt, ID: wire.ID}
 	}
 
-	selected, rejected := selectCrossAccountMemberships(memberships, requested)
-	if scope == "all" {
-		selected = append([]account.AccountWithRole(nil), memberships...)
-		rejected = nil
-	}
-	if scope == "" && len(selected) == 0 && len(rejected) == 0 {
-		return userDeploymentRequest{}, fmt.Errorf("at least one non-empty account is required")
-	}
-	canonicalAccounts := make([]string, 0, len(selected))
-	for _, membership := range selected {
-		canonicalAccounts = append(canonicalAccounts, membership.Name)
-	}
-	sort.Strings(canonicalAccounts)
-	sort.Strings(rejected)
 	return userDeploymentRequest{
-		limit:             limit,
-		query:             query,
-		cursor:            cursor,
-		selected:          selected,
-		rejected:          rejected,
-		all:               scope == "all",
-		canonicalAccounts: canonicalAccounts,
+		limit:  limit,
+		query:  query,
+		cursor: cursor,
+		scope:  scope,
 	}, nil
 }
 
@@ -156,40 +112,20 @@ func encodeUserDeploymentCursor(deployment *deploymentstore.Deployment) (string,
 	return base64.RawURLEncoding.EncodeToString(wire), nil
 }
 
-func userDeploymentCacheKey(
-	userID string,
-	request userDeploymentRequest,
-	generations []string,
-) (string, error) {
-	type key struct {
-		User        string   `json:"user"`
-		Accounts    []string `json:"accounts"`
-		Rejected    []string `json:"rejected"`
-		All         bool     `json:"all"`
-		Limit       int      `json:"limit"`
-		Query       string   `json:"query"`
-		Cursor      string   `json:"cursor"`
-		Generations []string `json:"generations"`
-	}
+func userDeploymentCacheIdentity(request userDeploymentRequest) any {
 	cursor := ""
 	if request.cursor != nil {
 		cursor = request.cursor.DeployedAt.Format(time.RFC3339Nano) + "/" + request.cursor.ID
 	}
-	payload, err := json.Marshal(key{
-		User:        userID,
-		Accounts:    request.canonicalAccounts,
-		Rejected:    request.rejected,
-		All:         request.all,
-		Limit:       request.limit,
-		Query:       request.query,
-		Cursor:      cursor,
-		Generations: generations,
-	})
-	if err != nil {
-		return "", fmt.Errorf("encode user deployment cache key: %w", err)
+	return struct {
+		Limit  int    `json:"limit"`
+		Query  string `json:"query"`
+		Cursor string `json:"cursor"`
+	}{
+		Limit:  request.limit,
+		Query:  request.query,
+		Cursor: cursor,
 	}
-	digest := sha256.Sum256(payload)
-	return fmt.Sprintf("%x", digest[:]), nil
 }
 
 type userDeploymentListDependencies struct {
@@ -216,125 +152,70 @@ func ListUserDeployments(
 		agents:      agentIndex,
 		audit:       auditStore,
 	}
-	responseCache := listcache.New(
-		cache,
-		userDeploymentCachePrefix,
-		userDeploymentLocalTTL,
-		userDeploymentRemoteTTL,
-		userDeploymentLocalItems,
-	)
-
-	return func(c *gin.Context) {
-		startedAt := time.Now()
-		user, ok := middleware.GetUser(c)
-		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		memberships, err := accountStore.GetAccountsForUserContext(c.Request.Context(), user.ID)
-		if err != nil {
-			log.Error("Failed to load memberships for user deployment list", "error", err, "user_id", user.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load accounts"})
-			return
-		}
-		request, err := parseUserDeploymentRequest(c, memberships)
-		if err != nil {
-			writeListFilterError(c, err)
-			return
-		}
-
-		accountIDs := make([]string, 0, len(request.selected))
-		for _, membership := range request.selected {
-			accountIDs = append(accountIDs, membership.ID)
-		}
-		// The generation vector covers the selected deployment-owner accounts.
-		// latest_build_id can be enriched from a different publisher/source
-		// account discovered only after the primary page loads; changes in that
-		// account may therefore remain visible for at most the 30-second remote
-		// cache TTL. Including it here would require loading rows before the cache
-		// lookup, defeating the hot path for the common non-cross-account case.
-		generations := deploycache.Generations(c.Request.Context(), cache, accountIDs)
-		cacheKey, err := userDeploymentCacheKey(user.ID, request, generations)
-		if err != nil {
-			log.Error("Failed to build user deployment cache key", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
-			return
-		}
-		response, cacheResult, err := responseCache.GetOrLoad(
-			c.Request.Context(),
-			cacheKey,
-			func(ctx context.Context) (listcache.LoadResult, error) {
-				rows, err := deployStore.ListVisibleDeploymentsForUserPage(
-					ctx,
-					user.ID,
-					accountIDs,
-					request.query,
-					request.limit+1,
-					request.cursor,
-				)
+	return serveUserResourceList(userResourceListConfig[userDeploymentRequest]{
+		log:           log,
+		accounts:      accountStore,
+		cache:         cache,
+		resource:      "deployments",
+		timingName:    "user-deployments",
+		cachePrefix:   userDeploymentCachePrefix,
+		parse:         parseUserDeploymentRequest,
+		scope:         func(request userDeploymentRequest) userResourceScopeRequest { return request.scope },
+		cacheIdentity: userDeploymentCacheIdentity,
+		cursorPresent: func(request userDeploymentRequest) bool { return request.cursor != nil },
+		// The generation vector covers selected deployment-owner accounts.
+		// latest_build_id may come from a publisher/source account discovered only
+		// after the page loads, so publisher-only changes can remain visible for at
+		// most the 30-second remote TTL. Preloading those IDs would bypass hot hits.
+		generations: deploycache.Generations,
+		load: func(ctx context.Context, userID string, accountIDs []string, request userDeploymentRequest) (listcache.LoadResult, error) {
+			rows, err := deployStore.ListVisibleDeploymentsForUserPage(
+				ctx,
+				userID,
+				accountIDs,
+				request.query,
+				request.limit+1,
+				request.cursor,
+			)
+			if err != nil {
+				return listcache.LoadResult{}, err
+			}
+			hasMore := len(rows) > request.limit
+			if hasMore {
+				rows = rows[:request.limit]
+			}
+			deployments, enrichmentErr := enrichUserDeploymentRows(ctx, dependencies, rows)
+			nextCursor := ""
+			if hasMore && len(rows) > 0 {
+				nextCursor, err = encodeUserDeploymentCursor(rows[len(rows)-1].Deployment)
 				if err != nil {
 					return listcache.LoadResult{}, err
 				}
-				hasMore := len(rows) > request.limit
-				if hasMore {
-					rows = rows[:request.limit]
-				}
-				deployments, enrichmentErr := enrichUserDeploymentRows(ctx, dependencies, rows)
-				nextCursor := ""
-				if hasMore && len(rows) > 0 {
-					nextCursor, err = encodeUserDeploymentCursor(rows[len(rows)-1].Deployment)
-					if err != nil {
-						return listcache.LoadResult{}, err
-					}
-				}
-				body, err := json.Marshal(UserDeploymentsResponse{
-					Deployments: deployments,
-					Page: UserResourcePage{
-						Limit:      request.limit,
-						NextCursor: nextCursor,
-					},
-					Scope: UserResourceScope{
-						Accounts: request.canonicalAccounts,
-						All:      request.all,
-					},
-					RejectedAccounts: request.rejected,
-				})
-				if err != nil {
-					return listcache.LoadResult{}, err
-				}
-				return listcache.LoadResult{
-					Response: listcache.Response{
-						Data:              body,
-						ResultCount:       len(deployments),
-						NextCursorPresent: nextCursor != "",
-					},
-					RemoteCacheable: enrichmentErr == nil,
-				}, nil
-			},
-		)
-		if err != nil {
-			log.Error("Failed to list user deployments", "error", err, "selected_account_count", len(accountIDs))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
-			return
-		}
-
-		duration := time.Since(startedAt)
-		c.Header("X-Astro-Cache", cacheResult)
-		c.Header("Cache-Control", "private, no-store")
-		c.Header("Server-Timing", fmt.Sprintf("user-deployments;dur=%.2f", float64(duration.Microseconds())/1000))
-		log.Info(
-			"Listed user deployments",
-			"selected_account_count", len(accountIDs),
-			"scope_all", request.all,
-			"search_present", request.query != "",
-			"result_count", response.ResultCount,
-			"request_cursor_present", request.cursor != nil,
-			"next_cursor_present", response.NextCursorPresent,
-			"cache", cacheResult,
-			"duration_ms", duration.Milliseconds(),
-		)
-		c.Data(http.StatusOK, "application/json", response.Data)
-	}
+			}
+			body, err := json.Marshal(UserDeploymentsResponse{
+				Deployments: deployments,
+				Page: UserResourcePage{
+					Limit:      request.limit,
+					NextCursor: nextCursor,
+				},
+				Scope: UserResourceScope{
+					Accounts: request.scope.canonicalAccounts,
+					All:      request.scope.all,
+				},
+			})
+			if err != nil {
+				return listcache.LoadResult{}, err
+			}
+			return listcache.LoadResult{
+				Response: listcache.Response{
+					Data:              body,
+					ResultCount:       len(deployments),
+					NextCursorPresent: nextCursor != "",
+				},
+				RemoteCacheable: enrichmentErr == nil,
+			}, nil
+		},
+	})
 }
 
 func enrichUserDeploymentRows(
