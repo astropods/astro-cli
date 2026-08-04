@@ -4572,6 +4572,66 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 	}
 }
 
+// CancelDeployment aborts a deployment that is still coming up (pending/
+// provisioning/deploying): the escape hatch for a deploy hung on a bad config
+// or unschedulable pod, which otherwise blocks redeploys until the K8s progress
+// deadline eventually fails it. It marks the deployment failed and leaves the
+// workloads untouched: the main process never drives K8s directly, and tearing
+// a workload down could kill a still-healthy serving pod from an earlier
+// revision. failed is drivable, not terminal: if the workloads turn out to be
+// healthy the controller drives the deployment back to active (and bills it) on
+// its next sync, so a cancelled-but-healthy rollout is never left serving
+// unbilled; a genuinely stuck deploy stays failed and surfaces the recovery
+// banner so the user can fix config and redeploy, or roll back.
+func CancelDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Compare-and-set so cancel only lands from a still-cancellable state. If
+		// the controller drove the row to active between the read above and this
+		// write, an unconditional update would clobber it back to failed, and
+		// since failed is drivable the controller would re-activate and call
+		// startBilling a second time. The guarded update matches no row instead,
+		// so a raced cancel is a no-op (400) rather than a double-bill.
+		applied, err := deployStore.UpdateStatusIfCurrent(
+			dep.ID,
+			deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "Deployment cancelled"},
+			deploymentstore.StatusPending, deploymentstore.StatusProvisioning, deploymentstore.StatusDeploying,
+		)
+		if err != nil {
+			log.Error("Failed to mark deployment failed after cancel", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
+			return
+		}
+		if !applied {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not deploying"})
+			return
+		}
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentCancel
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Cancelled deployment " + dep.AgentName
+		auditStore.LogAsync(log, evt)
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":        deploymentstore.StatusFailed,
+			"deployment_id": dep.ID,
+		})
+	}
+}
+
 // WakeUpDeployment triggers re-provisioning of a paused (stopped) deployment.
 func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

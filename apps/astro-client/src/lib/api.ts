@@ -2663,6 +2663,12 @@ class ApiClient {
     });
   }
 
+  async cancelDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/cancel`, {
+      method: "POST",
+    });
+  }
+
   async restartDeployment(data: { deploymentId: string }): Promise<{ status: string; pods: string[] }> {
     return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/restart`, {
       method: "POST",

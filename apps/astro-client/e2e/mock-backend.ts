@@ -1617,6 +1617,15 @@ Bun.serve({
       return json({ status: "stopped", deployment_id: depId });
     }
 
+    const deploymentCancelMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/cancel$/);
+    if (deploymentCancelMatch && request.method === "POST") {
+      const depId = deploymentCancelMatch[1]!;
+      deployments = deployments.map((d) =>
+        d.id === depId ? { ...d, status: "failed" } : d,
+      );
+      return json({ status: "failed", deployment_id: depId });
+    }
+
     const deploymentWakeupMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)\/wakeup$/);
     if (deploymentWakeupMatch && request.method === "POST") {
       const depId = deploymentWakeupMatch[1]!;

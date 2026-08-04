@@ -429,6 +429,34 @@ export function useStopDeployment(account: string) {
   });
 }
 
+// Cancel an in-progress deploy. The server marks the deployment failed (it does
+// not touch the workload), so the stuck-deploy banner takes over and the user
+// can fix config and redeploy, or roll back. Flip the record to the returned
+// status and seed the status query with the failed state (like stop seeds
+// paused) so the actions menu — which reads `deploying` off the status query —
+// leaves the "Cancel deployment" state immediately instead of for a beat after.
+export function useCancelDeployment(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<{ status: string; deployment_id: string }, Error, { deploymentId: string }>({
+    mutationFn: api.cancelDeployment.bind(api),
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData<{ deployment: AgentDeployment }>(
+        deploymentKeys.detail(variables.deploymentId),
+        (old) => (old ? { ...old, deployment: { ...old.deployment, status: data.status } } : old),
+      );
+      queryClient.setQueryData<DeploymentStatus>(
+        deploymentKeys.status(variables.deploymentId),
+        (old) => ({ ...old, value: "error", reason: "failed", details: "Deployment cancelled" }),
+      );
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.status(variables.deploymentId) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeployment(queryClient, variables.deploymentId);
+    },
+  });
+}
+
 export function useWakeUpDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();

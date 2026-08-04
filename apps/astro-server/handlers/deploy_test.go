@@ -4112,6 +4112,77 @@ func TestStopDeployment_Failed_Succeeds(t *testing.T) {
 	}
 }
 
+// --- CancelDeployment tests ---
+
+func setupCancelRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	router := gin.New()
+	router.Use(setAuthUser("user-1"))
+	router.POST("/api/v1/deployments/:id/cancel", CancelDeployment(log, accountStore, deployStore, nil))
+	return router, deployMock, accountMock
+}
+
+func TestCancelDeployment_Deploying_Succeeds(t *testing.T) {
+	namespace := "astro-abc123-0"
+	router, deployMock, accountMock := setupCancelRouter(t)
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace, "My Agent", `{}`, "deploying", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/cancel", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	// Cancel lands in failed (drivable): a healthy rollout is driven back to
+	// active and billed, a stuck one stays failed with the recovery banner.
+	if !strings.Contains(w.Body.String(), "failed") {
+		t.Errorf("expected failed status in response, got %s", w.Body.String())
+	}
+}
+
+func TestCancelDeployment_Active_Returns400(t *testing.T) {
+	router, deployMock, accountMock := setupCancelRouter(t)
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0", "My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// Compare-and-set: active is not a cancellable state, so the UPDATE matches
+	// no row and cancel is a no-op (400) rather than clobbering the active row.
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 0))
+	deployMock.ExpectRollback()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/cancel", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // --- GetDeployment tests ---
 
 // setupGetDeploymentTest builds a router with the DB-only GetDeployment (record)

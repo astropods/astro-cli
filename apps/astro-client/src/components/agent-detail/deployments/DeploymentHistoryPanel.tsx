@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { ArrowUp, ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pause, Play, History, Copy, Check, Loader2 } from "lucide-react";
+import { ArrowUp, Ban, ChevronUp, ChevronDown, EllipsisVertical, RotateCw, Rocket, Pause, Play, History, Copy, Check, Loader2 } from "lucide-react";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import {
+  useCancelDeployment,
   useDeploymentHistory,
   useDeploymentStatus,
   useRestartDeployment,
@@ -104,13 +105,16 @@ function ActiveTileMenu({
   const restartMutation = useRestartDeployment(account);
   const stopMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
+  const cancelMutation = useCancelDeployment(account);
+  const { data: statusData } = useDeploymentStatus(deployment.id);
+  const deploying = statusData?.value === "deploying";
 
   const { copy, copied } = useCopyToClipboard();
   const paused = isPausedState(deployment);
   // Recovery actions stay enabled even mid-deploy so a stuck deploy never leaves
   // the user without recourse (issue #1584). The stuck state is surfaced on the
   // page banner, not here.
-  const busy = restartMutation.isPending || stopMutation.isPending || wakeupMutation.isPending;
+  const busy = restartMutation.isPending || stopMutation.isPending || wakeupMutation.isPending || cancelMutation.isPending;
 
   return (
     <>
@@ -128,7 +132,15 @@ function ActiveTileMenu({
             {copied ? <Check className="size-4 text-foreground-accent" /> : <Copy className="size-4" />}
             {copied ? "Copied!" : "Copy deploy ID"}
           </DropdownMenuItem>
-          {paused ? (
+          {deploying ? (
+            <DropdownMenuItem
+              disabled={busy}
+              onClick={() => cancelMutation.mutate({ deploymentId: deployment.id })}
+            >
+              <Ban className="size-4" />
+              Cancel deployment
+            </DropdownMenuItem>
+          ) : paused ? (
             <DropdownMenuItem
               disabled={busy}
               onClick={() => wakeupMutation.mutate({ deploymentId: deployment.id })}

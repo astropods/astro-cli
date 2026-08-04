@@ -58,12 +58,14 @@ test("active deployment: Pause and Redeploy are available", async ({ page }) => 
 test("recovery actions stay enabled during a deploy (issue #1584)", async ({ page }) => {
   test.setTimeout(60_000);
   // A deploy in progress must not disable the escape actions, so the user is
-  // never left without recourse while something stalls.
+  // never left without recourse while something stalls. Mid-deploy the escape
+  // action is "Cancel deployment" (Pause is rejected by the server until the
+  // deploy settles), alongside Redeploy and Restart.
   await routeJson(page, STATUS_ROUTE, deployingStatus());
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
   await page.getByRole("button", { name: "Deployment actions" }).click();
-  await expect(page.getByRole("menuitem", { name: "Pause" })).toBeEnabled();
+  await expect(page.getByRole("menuitem", { name: "Cancel deployment" })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: "Redeploy" })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: "Restart" })).toBeEnabled();
 });

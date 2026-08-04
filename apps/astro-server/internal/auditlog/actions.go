@@ -28,6 +28,7 @@ const (
 	DeploymentDeploy           = "deployment.deploy"
 	DeploymentUndeploy         = "deployment.undeploy"
 	DeploymentStop             = "deployment.stop"
+	DeploymentCancel           = "deployment.cancel"
 	DeploymentWakeup           = "deployment.wakeup"
 	DeploymentRollback         = "deployment.rollback"
 	DeploymentRestartPod       = "deployment.restart_pod"
