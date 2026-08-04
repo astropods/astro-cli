@@ -29,7 +29,7 @@ The `models` list is a menu of **options**. At deploy time — in the web consol
 The `agent.astro_ai_gateway: true` boolean is **deprecated** in favor of a `provider: gateway` model. It still works (it enables the gateway with no deploy-time model selection), but declaring a gateway model is preferred and lets you pick the model at deploy.
 </Note>
 
-On `ast deploy` (and `ast dev`), your agent container receives:
+On `ast deploy` (and `ast project`), your agent container receives:
 
 | Env var                 | Purpose                                  |
 | ----------------------- | ---------------------------------------- |
@@ -321,11 +321,11 @@ Streaming, client-defined tool use, and adaptive thinking all work over this pat
 
 ## Local development
 
-`ast dev` handles the gateway automatically. Run:
+`ast project` handles the gateway automatically. Run:
 
 ```bash
 ast login
-ast dev
+ast project
 ```
 
 Your local agent container receives the same `ASTRO_GATEWAY_*` env vars it would have in production. Code written against those env vars works identically in dev and prod.

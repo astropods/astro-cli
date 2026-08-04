@@ -22,7 +22,7 @@ pip install astropods-messaging
 
 ## Connect to the sidecar
 
-The sidecar listens on gRPC port `9090`. Inside the same pod the address is always `localhost:9090`; locally with `ast dev` it's the same.
+The sidecar listens on gRPC port `9090`. Inside the same pod the address is always `localhost:9090`; locally with `ast project` it's the same.
 
 ```python
 import grpc
@@ -600,7 +600,7 @@ def stream_with_retry(stub, requests_factory, max_attempts=20):
 
 ## Local development
 
-`ast dev` runs the messaging sidecar locally so the SDK flow is identical to production. Enable platform adapters per project under `dev.interfaces.messaging.adapters` in `astropods.yml`:
+`ast project` runs the messaging sidecar locally so the SDK flow is identical to production. Enable platform adapters per project under `dev.interfaces.messaging.adapters` in `astropods.yml`:
 
 ```yaml
 dev:

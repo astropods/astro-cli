@@ -5,7 +5,7 @@ slug: astropods-package-spec
 ---
 
 <Versions>
-<Version version="v1.6 (Draft) - 2026-05-12" default>
+<Version version="v1.7 (Draft) - 2026-08-03" default>
 
 ## Abstract
 
@@ -15,9 +15,10 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
+| v1.7    | 2026-08-03 | **Breaking.** Removed `dev.overrides.playgroundImage`. It has had no effect since v1.4, when the playground UI moved into the messaging container. Remove it from `astropods.yml`; specs that still set it now fail validation. |
 | v1.6    | 2026-05-12 | **Breaking.** Removed `persistent` from `knowledge.<name>` and `ContainerConfig`. Persistence is derived from the mount-path signal — the provider's mount path in provider mode, or `container.volume` in container mode. |
 | v1.5    | 2026-04-24 | Deprecated `meta.visibility`. Visibility is managed via the platform UI and API, not the spec. |
-| v1.4    | 2026-04-08 | Removed `dev.overrides.playgroundImage`; playground UI is now bundled into the messaging container and served automatically when the `web` adapter is enabled. |
+| v1.4    | 2026-04-08 | Removed the standalone playground (its image and the `ast playground` command); the playground UI moved into the messaging container. |
 | v1.3    | 2026-04-05 | Added `volume` field to `ContainerConfig` for custom container persistent storage. Component `inputs` now injected into knowledge, tool, and ingestion containers during `ast dev`. |
 | v1.2    | 2026-03-13 | Deprecated `meta.description` and `meta.tags` in favor of [Agent Card](/agent-card-spec) frontmatter. |
 | v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. |

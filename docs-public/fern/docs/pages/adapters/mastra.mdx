@@ -30,7 +30,7 @@ const agent = new Agent({
 serve(agent);
 ```
 
-`serve(agent)` connects to the messaging sidecar at `localhost:9090` (or `GRPC_SERVER_ADDR`) and runs until the process exits. Under `ast dev` and in production the address is injected for you.
+`serve(agent)` connects to the messaging sidecar at `localhost:9090` (or `GRPC_SERVER_ADDR`) and runs until the process exits. Under `ast project` and in production the address is injected for you.
 
 ## API
 
@@ -132,10 +132,10 @@ Tool names and descriptions show up in the playground via `getConfig()`. When a 
 ## Local development
 
 ```bash
-ast dev
+ast project
 ```
 
-`ast dev` runs the messaging sidecar on `localhost:9090`, sets `GRPC_SERVER_ADDR`, and serves the chat interface at `http://localhost:3100`. The same `serve(agent)` code works locally and in production with no changes.
+`ast project` runs the messaging sidecar on `localhost:9090`, sets `GRPC_SERVER_ADDR`, and serves the chat interface at `http://localhost:3100`. The same `serve(agent)` code works locally and in production with no changes.
 
 ## Troubleshooting
 
