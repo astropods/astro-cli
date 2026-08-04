@@ -1,6 +1,8 @@
 # Deployment State Machine
 
-Deployments move through a fixed set of statuses. Each transition is triggered by a specific subsystem (HTTP handler, River worker, reconcile loop, or admin gRPC).
+Deployments move through a fixed set of statuses. Each transition is triggered by a specific subsystem (HTTP handler, River worker, or admin gRPC).
+
+> **Note (needs owner review):** The status set below is not exactly the enum in `internal/deploymentstore/status.go`. `scaled_down` is **not** a status constant - KEDA idle-scaling is tracked in the `scaled_namespaces` table, not the deployment status. The real enum also includes `deploying` and `suspended` (billing scale-to-zero, driven by `riverqueue/billing_suspend.go`), which this diagram omits. The worker/deadline references have been corrected against source.
 
 ## States
 
@@ -46,7 +48,7 @@ flowchart TD
     active -->|redeploy / rollback| pending
     failed -->|redeploy / reapply| pending
     provisioning -->|error| failed
-    pending -->|stale &gt; 30m| failed
+    pending -->|stale &gt; 15m| failed
     provisioning -->|stale &gt; 15m| failed
 
     style active fill:#22c55e,color:#fff
@@ -109,14 +111,14 @@ Both are woken up the same way: status resets to `pending`, then the normal depl
 | #   | From               | To       | Trigger                                     | Subsystem                         |
 | --- | ------------------ | -------- | ------------------------------------------- | --------------------------------- |
 | 13  | `provisioning`     | `failed` | Apply error or partial failure              | `DeployWorker`                    |
-| 14  | `provisioning`     | `failed` | Stuck >15 minutes                           | `ReconcileWorker.detectStaleJobs` |
-| 15  | `pending`          | `failed` | Stuck >30 minutes                           | `ReconcileWorker.detectStaleJobs` |
+| 14  | `provisioning`     | `failed` | Stuck >15 minutes                           | `DeploymentWatchdogWorker` (`FailStaleDeployments`) |
+| 15  | `pending`          | `failed` | Stuck >15 minutes                           | `DeploymentWatchdogWorker` (`FailStaleDeployments`) |
 | 16  | (orphan namespace) | `failed` | Reconcile discovers untracked K8s namespace | `RecoverOrphanedDeployment`       |
 
 ## Implementation locations
 
 - Status constants: `apps/astro-server/internal/deploymentstore/status.go`
 - Store mutations: `apps/astro-server/internal/deploymentstore/store.go` (`UpdateStatus`, `MarkScaledDown`, `SaveDeploymentPending`)
-- River workers: `apps/astro-server/internal/riverqueue/` (`deploy.go`, `undeploy.go`, `wakeup.go`, `reconcile.go`)
+- River workers: `apps/astro-server/internal/riverqueue/` (`deploy.go`, `undeploy.go`, `wakeup.go`, `deploy_watchdog.go`)
 - HTTP handlers: `apps/astro-server/handlers/deploy.go` (`DeployAgent`, `UndeployAgent`, `StopDeployment`, `WakeUpDeployment`, `RollbackDeployment`)
 - Admin gRPC: `apps/astro-server/internal/admingrpc/server.go` (`StopDeployment`, `WakeUpDeployment`, `RollbackDeployment`, `ReapplyDeployment`, `DeleteDeployment`)

@@ -2,6 +2,8 @@
 
 This document explains how organizations work in Astro, covering account types, authentication, permissions, membership sync, and agent visibility.
 
+> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `org:admin`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deploy/undeploy use the `deployment:manage` action (`internal/authz/actions.go`), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
+
 ## Account Model
 
 Astro has two account types, both stored in the `accounts` table:
@@ -42,16 +44,15 @@ Every account has members tracked in `account_members`. Personal accounts have a
   │  └────────────────────────────────────┘    │           │
   │                                            │           │
   │  ┌──────────────┐  ┌──────────────────┐    │           │
-  │  │  org.Sync    │  │ org.Events       │    │           │
-  │  │  (write path)│──│ Consumer         │◀───┼───────────┘
-  │  │  Astro→WorkOS│  │ (read path)      │    │  Events API polling
-  │  └──────────────┘  │ WorkOS→Astro     │    │
+  │  │  org.Sync    │  │ login-time       │    │           │
+  │  │  (write path)│  │ reconciliation   │◀───┼───────────┘
+  │  │  Astro→WorkOS│  │ (read path)      │    │  re-list memberships
+  │  └──────────────┘  │ WorkOS→Astro     │    │  on login / refresh
   │         │          └──────────────────┘    │
   │         ▼                    │              │
   │  ┌───────────────────────────────────┐     │
   │  │          PostgreSQL               │     │
   │  │  accounts · account_members       │     │
-  │  │  workos_event_cursor              │     │
   │  └───────────────────────────────────┘     │
   └────────────────────────────────────────────┘
 ```
@@ -165,7 +166,7 @@ Step 2: Create WorkOS Organization
   └─ On failure → DELETE local account (compensating action)
 
 Step 3: Link WorkOS org to local account
-  └─ UPDATE accounts SET workos_org_id = <workos_org_id>
+  └─ INSERT into account_organizations (account_id, workos_org_id)
   └─ On failure → DELETE WorkOS org + DELETE local account
 
 Step 4: Create WorkOS membership for creator
@@ -176,7 +177,7 @@ Step 4: Create WorkOS membership for creator
 
 ## Membership Sync Architecture
 
-Memberships are kept in sync between Astro's `account_members` table and WorkOS through three mechanisms:
+Memberships are kept in sync between Astro's `account_members` table and WorkOS through a write path and a read path:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -186,24 +187,17 @@ Memberships are kept in sync between Astro's `account_members` table and WorkOS 
          WRITE PATH (Astro → WorkOS)             READ PATH (WorkOS → Astro)
          ──────────────────────────              ──────────────────────────
 
-  Handler calls org.Sync method         org.EventsConsumer polls WorkOS
-           │                                        │
-           ▼                                        ▼
-  1. Write to WorkOS first              1. List events since cursor
-  2. On success → write locally         2. Process each event:
-  3. On local failure → compensate         - membership.created → upsert
-     (delete WorkOS membership)            - membership.updated → upsert
-                                           - membership.deleted → remove
-                                        3. Persist cursor for idempotency
-
-                      LOGIN-TIME RECONCILIATION
-                      ─────────────────────────
-
-  On login / token refresh:
-  1. List all active WorkOS memberships for user
-  2. For each membership with a known local account:
-     └─ Upsert into account_members
-  3. Catches any events missed between polls
+  Handler calls org.Sync method         SyncMembershipsForUser runs on
+           │                            login / token refresh
+           ▼                                        │
+  1. Write to WorkOS first                          ▼
+  2. On success → write locally         1. List the user's active WorkOS
+  3. On local failure → compensate         memberships
+     (delete WorkOS membership)         2. Upsert each whose org maps to a
+                                           known local account (idempotent,
+                                           no cursor)
+                                        3. Best-effort catch-up — reconciles
+                                           any drift since the last login
 ```
 
 ### Write Path: `org.Sync`
@@ -220,26 +214,15 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 - `ChangeMemberRole` prevents demoting the last owner
 - `RemoveMember` prevents removing the last owner
 
-### Read Path: `org.EventsConsumer`
+### Read Path: login-time reconciliation
 
-A dedicated worker process (`SERVER_MODE=worker`) polls the WorkOS Events API on a configurable interval, avoiding duplicate polling when multiple API replicas are running.
+There is no background events consumer. The read path is `org.Sync.SyncMembershipsForUser`, which runs on every login and token refresh: it lists the user's active WorkOS memberships and upserts each one whose org maps to a known local account.
 
-| `SERVER_MODE`           | HTTP/gRPC API | Events consumer |
-| ----------------------- | ------------- | --------------- |
-| unset / `all` (default) | Yes           | Yes             |
-| `api`                   | Yes           | No              |
-| `worker`                | No            | Yes             |
+- **Idempotent**: `INSERT ON CONFLICT` upserts, so repeated logins are safe
+- **No cursor**: nothing is persisted between runs — each login re-lists from WorkOS, which is why no `workos_event_cursor` table exists
+- **Best-effort**: reconciles any membership drift since the user's last login
 
-In production with multiple replicas, set `SERVER_MODE=api` on the main deployment and run a separate single-replica deployment with `SERVER_MODE=worker`. The worker exposes `/livez` and `/readyz` health endpoints for k8s probes.
-
-- **Events processed**: `organization_membership.created`, `.updated`, `.deleted`
-- **Cursor tracking**: A singleton `workos_event_cursor` table stores the last processed event ID
-- **Idempotent**: Uses `INSERT ON CONFLICT` for both member upserts and cursor persistence
-- **Fault tolerant**: A single event failure doesn't block processing of subsequent events
-
-### Login-Time Reconciliation
-
-`SyncMembershipsForUser` runs on every login and token refresh as a best-effort catch-up mechanism. It lists all active WorkOS memberships for the user and upserts them locally, ensuring any events missed between polls are recovered.
+> Astro does run a background worker process (`SERVER_MODE=worker`, gated by `Config.RunWorker()`), but it drives the River job queue — deployment reconciliation, insights refresh, namespace scans — not WorkOS membership sync. The `all` (default) / `api` / `worker` modes select whether a process runs the HTTP/gRPC API, the job worker, or both.
 
 ## Agent Visibility
 
@@ -290,13 +273,6 @@ account_member_workos (
   PRIMARY KEY (account_id, user_id),
   FOREIGN KEY (account_id, user_id) REFERENCES account_members ON DELETE CASCADE
 )
-
--- Events consumer cursor (singleton)
-workos_event_cursor (
-  id         int PRIMARY KEY DEFAULT 1,
-  cursor_id  text NOT NULL,
-  updated_at timestamptz NOT NULL
-)
 ```
 
 ### Key Indexes
@@ -312,8 +288,7 @@ workos_event_cursor (
 | Component        | Purpose                                                                 |
 | ---------------- | ----------------------------------------------------------------------- |
 | `Client`         | Wraps WorkOS SDK for organizations, memberships, invitations, and roles |
-| `Sync`           | Write-path logic: Astro → WorkOS, with compensating actions             |
-| `EventsConsumer` | Background goroutine polling WorkOS Events API for membership changes   |
+| `Sync`           | Write-path logic (Astro → WorkOS, with compensating actions) plus `SyncMembershipsForUser` for login-time read-path reconciliation |
 | `types.go`       | Organization, Membership, Invitation, Role domain types                 |
 
 ### `internal/account`
