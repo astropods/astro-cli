@@ -1229,8 +1229,7 @@ func TestBuildProject_AgentCoreRuntime(t *testing.T) {
 	newSpec := func() *spec.AstroSpec {
 		return &spec.AstroSpec{
 			Name:  "my-agent",
-			Meta:  spec.Meta{AgentCore: true},
-			Agent: spec.Container{Image: "agent:latest"},
+			Agent: spec.Container{Image: "agent:latest", Annotations: map[string]string{"runtime": "agentcore"}},
 			Dev: &spec.Dev{
 				Interfaces: &spec.DevInterfaces{
 					Messaging: &spec.DevMessaging{Adapters: []string{"web"}},
@@ -1265,7 +1264,7 @@ func TestBuildProject_AgentCoreRuntime(t *testing.T) {
 	// Default (eks) is unchanged: agent dials the messaging gRPC server.
 	t.Run("eks default unchanged", func(t *testing.T) {
 		s := newSpec()
-		s.Meta.AgentCore = false
+		s.Agent.Annotations = nil // no runtime annotation -> default (eks)
 		project, err := BuildProject(s, "/work", nil)
 		if err != nil {
 			t.Fatalf("BuildProject() error = %v", err)

@@ -832,7 +832,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	// Agent transport. Default (EKS): dial out to the messaging gRPC server.
 	// AgentCore: the agent SERVES /invocations on :8080 instead of dialing, so
 	// flip adapter-core into serving mode and omit the dial target.
-	if s.Meta.AgentCore {
+	if s.Agent.IsAgentCore() {
 		agentcore := "agentcore"
 		env["ASTRO_RUNTIME"] = &agentcore
 	} else if s.Dev.HasMessagingAdapters() {
@@ -891,7 +891,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	// Agent transport. Default (EKS): the agent dials in over gRPC (above).
 	// AgentCore: messaging INVOKES the agent per turn over HTTP instead, reaching
 	// it at the agent's compose service DNS name on :8080.
-	if s.Meta.AgentCore {
+	if s.Agent.IsAgentCore() {
 		transport := "agentcore"
 		env["AGENT_TRANSPORT"] = &transport
 		endpoint := "http://agent:8080"
