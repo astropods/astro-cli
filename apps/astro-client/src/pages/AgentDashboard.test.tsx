@@ -5,6 +5,18 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import AgentDashboard from './AgentDashboard';
+import type { AgentDeploymentSummary, UserResourcePage } from '@/lib/api';
+
+function userDeployments(response: {
+  deployments: Array<AgentDeploymentSummary & Record<string, unknown>>;
+  count: number;
+}, page: UserResourcePage = { limit: 50 }) {
+  return HttpResponse.json({
+    ...response,
+    page,
+    scope: { accounts: ['testuser'], all: true },
+  });
+}
 
 vi.mock('@/components/ui/LiveRevealOverlay', () => ({
   LiveRevealOverlay: ({
@@ -37,14 +49,7 @@ function renderDashboard(path = '/agents', auth = mockAuthContext) {
         path: '/agents',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AgentDashboard as any,
-        // Match the real loader's shape so usePrimeQueryCache runs against
-        // realistic data (otherwise the cache-priming code path is untested).
-        loader: () => ({
-          account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
-          deployments: { deployments: [], count: 0 },
-          summary: null,
-          usage: null,
-        }),
+        loader: () => ({ scope: null, data: null }),
       },
     ],
     { initialEntries: [path], auth },
@@ -61,8 +66,8 @@ describe('AgentDashboard page', () => {
 
   it('does not render a status filter', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({
           deployments: [
             { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
           ],
@@ -80,8 +85,8 @@ describe('AgentDashboard page', () => {
 
   it('shows deployed agent cards with display_name', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({
           deployments: [
             {
               id: 'dep-1',
@@ -111,8 +116,8 @@ describe('AgentDashboard page', () => {
 
   it('shows empty state when no agents are deployed', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({ deployments: [], count: 0 }),
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
       ),
     );
 
@@ -121,20 +126,42 @@ describe('AgentDashboard page', () => {
     await waitFor(() => {
       expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
     });
+    expect(screen.queryByPlaceholderText('Search agents...')).not.toBeInTheDocument();
+  });
+
+  it('keeps the toolbar when an account filter yields no agents', async () => {
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+    const multiAccountAuth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal' as const },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization' as const },
+      ],
+    };
+
+    renderDashboard('/agents?account=acme', multiAccountAuth);
+
+    await waitFor(() => {
+      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('Acme');
+    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
   });
 
 
   it('filters agents by search text', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
-          deployments: [
-            { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
-            { id: 'dep-2', name: 'data-analyst', display_name: 'Data Analyst', build_id: 'b2', namespace: 'ns-2', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-02T00:00:00Z', components: [] },
-          ],
-          count: 2,
-        }),
-      ),
+      http.get('/api/v1/me/deployments', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        const code = { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running' as const, replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] };
+        const data = { id: 'dep-2', name: 'data-analyst', display_name: 'Data Analyst', build_id: 'b2', namespace: 'ns-2', status: 'Running' as const, replicas: 1, ready: 1, created_at: '2025-04-02T00:00:00Z', components: [] };
+        return userDeployments({ deployments: q === 'code' ? [code] : [code, data], count: q === 'code' ? 1 : 2 });
+      }),
     );
 
     renderDashboard();
@@ -154,14 +181,15 @@ describe('AgentDashboard page', () => {
 
   it('shows "no agents match" message when filter yields no results', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
-          deployments: [
+      http.get('/api/v1/me/deployments', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        return userDeployments({
+          deployments: q ? [] : [
             { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
           ],
-          count: 1,
-        }),
-      ),
+          count: q ? 0 : 1,
+        });
+      }),
     );
 
     renderDashboard();
@@ -170,8 +198,44 @@ describe('AgentDashboard page', () => {
     fireEvent.change(screen.getByPlaceholderText('Search agents...'), { target: { value: 'zzz-no-match' } });
 
     await waitFor(() => {
-      expect(screen.getByText('No agents match your search.')).toBeInTheDocument();
+      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
     });
+    expect(screen.getByPlaceholderText('Search agents...')).toHaveValue('zzz-no-match');
+    expect(screen.getByRole('button', { name: 'Filter by account' })).toBeInTheDocument();
+  });
+
+  it('searches all deployment pages on the server and resets numbered pagination', async () => {
+    const user = userEvent.setup();
+    const searches: string[] = [];
+    server.use(
+      http.get('/api/v1/me/deployments', ({ request }) => {
+        const url = new URL(request.url);
+        searches.push(url.search);
+        if (url.searchParams.get('q') === 'data') {
+          return userDeployments({
+            deployments: [
+              { id: 'dep-2', name: 'data-analyst', display_name: 'Data Analyst', build_id: 'b2', namespace: 'ns-2', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-02T00:00:00Z', components: [] },
+            ],
+            count: 1,
+          });
+        }
+        return userDeployments({
+          deployments: [
+            { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
+          ],
+          count: 1,
+        }, { limit: 50, next_cursor: 'page-2' });
+      }),
+    );
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Code Reviewer')).toBeInTheDocument());
+    await user.type(screen.getByPlaceholderText('Search agents...'), 'data');
+
+    await waitFor(() => expect(screen.getByText('Data Analyst')).toBeInTheDocument());
+    expect(screen.queryByText('Code Reviewer')).not.toBeInTheDocument();
+    expect(searches.some((search) => new URLSearchParams(search).get('q') === 'data')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Page 2' })).not.toBeInTheDocument();
   });
 });
 
@@ -184,13 +248,7 @@ describe('reveal overlay after deploy', () => {
           path: '/agents',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Component: AgentDashboard as any,
-          // Match the real loader's shape (account + deployments + summary + usage).
-          loader: () => ({
-            account: mockAuthContext.accounts.find((a) => a.type === 'personal')?.name ?? null,
-            deployments: { deployments: [], count: 0 },
-            summary: null,
-            usage: null,
-          }),
+          loader: () => ({ scope: null, data: null }),
         },
         {
           // `deploymentPath(account, id)` with no tab now resolves directly
@@ -228,8 +286,8 @@ describe('reveal overlay after deploy', () => {
 
   it('uses display name from state as optimistic fallback before deployments load', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({ deployments: [], count: 0 }),
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
       ),
     );
 
@@ -247,8 +305,8 @@ describe('reveal overlay after deploy', () => {
 
   it('keeps location state display_name even after deployment query loads', async () => {
     server.use(
-      http.get('/api/v1/deployments', () =>
-        HttpResponse.json({
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({
           deployments: [
             {
               id: 'dep-new',

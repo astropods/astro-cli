@@ -4,8 +4,8 @@ import { ProviderIcon } from "@/components/knowledge/ProviderIcon";
 
 export function ProviderList({ onSelect }: { onSelect: (p: KnowledgeProvider) => void }) {
   return (
-    <div className="mx-auto max-w-2xl">
-      <h2 className="text-heading-1 text-foreground">Choose a provider</h2>
+    <div>
+      <h2 className="text-heading-2 text-foreground">Choose a provider</h2>
       <p className="mt-1 text-body-sm text-muted-foreground">
         Pick the database or vector store to back this knowledge store.
       </p>

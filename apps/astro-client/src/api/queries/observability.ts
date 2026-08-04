@@ -1,9 +1,17 @@
+import { useCallback } from 'react';
 import {
   keepPreviousData,
+  queryOptions,
   useInfiniteQuery,
+  useQueries,
   useQuery,
+  type UseQueryResult,
 } from '@tanstack/react-query';
-import { api, type InsightsQueryParams } from '@/lib/api';
+import {
+  api,
+  type DeploymentSummariesResponse,
+  type InsightsQueryParams,
+} from '@/lib/api';
 import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
@@ -32,6 +40,8 @@ const LIVE_QUERY_OPTS = {
   retry: false,
   refetchOnWindowFocus: false,
 } as const;
+
+const VISIBLE_DEPLOYMENT_SUMMARY_BATCH_SIZE = 100;
 
 export function useAccountInsights(
   account: string,
@@ -82,6 +92,51 @@ export function useObservabilitySummaries(account: string) {
     queryFn: () => api.getDeploymentObservabilitySummaries(account),
     enabled: !!account,
     ...ACTIVITY_QUERY_OPTS,
+  });
+}
+
+export function useVisibleDeploymentSummaries(deploymentIDs: string[]) {
+  const ids = [...new Set(deploymentIDs)].sort();
+  const batches = Array.from(
+    { length: Math.ceil(ids.length / VISIBLE_DEPLOYMENT_SUMMARY_BATCH_SIZE) },
+    (_, index) => ids.slice(
+      index * VISIBLE_DEPLOYMENT_SUMMARY_BATCH_SIZE,
+      (index + 1) * VISIBLE_DEPLOYMENT_SUMMARY_BATCH_SIZE,
+    ),
+  );
+
+  // Each batch has its own cache key. Growing or revisiting a visible page can
+  // reuse settled batches, and one rejected batch does not erase healthy data.
+  return useQueries({
+    queries: batches.map((batch) => queryOptions({
+      queryKey: observabilityKeys.visibleDeploymentSummaries(batch),
+      queryFn: async () => {
+        try {
+          return await api.getUserDeploymentSummaries(batch);
+        } catch (error) {
+          console.warn('Failed to load a deployment summary batch', {
+            deploymentCount: batch.length,
+            error,
+          });
+          throw error;
+        }
+      },
+      ...ACTIVITY_QUERY_OPTS,
+    })),
+    combine: useCallback((results: UseQueryResult<DeploymentSummariesResponse>[]) => {
+      const summaries: DeploymentSummariesResponse['summaries'] = {};
+      for (const result of results) {
+        if (result.data?.summaries) Object.assign(summaries, result.data.summaries);
+      }
+      const isPending = results.some((result) => result.isPending);
+      return {
+        data: { summaries },
+        isPending,
+        isFetching: results.some((result) => result.isFetching),
+        isError: results.length > 0 && !isPending && results.every((result) => result.isError),
+        isSuccess: results.length > 0 && !isPending && results.some((result) => result.isSuccess),
+      };
+    }, []),
   });
 }
 

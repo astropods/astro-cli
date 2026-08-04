@@ -93,7 +93,7 @@ export function ConnectKnowledgeStoreDialog({ account, open, onOpenChange }: Con
         onSuccess: (store) => {
           onOpenChange(false);
           resetForm();
-          navigate(knowledgeDetailPath(store.name));
+          navigate(knowledgeDetailPath(store.name, account));
         },
       }
     );

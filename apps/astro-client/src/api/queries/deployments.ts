@@ -9,11 +9,60 @@ import type {
   PodMetricsRange,
   UndeployResponse,
 } from '@/lib/api';
+import type { UserResourceScopeSelection } from '@/lib/user-resource-scope';
+import type { UserResourceListParams } from '@/lib/user-resource-list-params';
 import {
   coercePausedDeploymentStatus,
   PAUSED_DEPLOYMENT_STATUS_SEED,
 } from '@/lib/deployment-utils';
 import { deploymentKeys } from './keys';
+import {
+  isUserResourceQueryEnabled,
+  nextUserResourceCursor,
+  USER_RESOURCE_PAGE_SIZE,
+  USER_RESOURCE_STALE_TIME_MS,
+} from './user-resources';
+
+export const USER_DEPLOYMENTS_PAGE_SIZE = USER_RESOURCE_PAGE_SIZE;
+
+function invalidateDeploymentLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  account: string,
+) {
+  queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+  queryClient.invalidateQueries({ queryKey: deploymentKeys.visibleLists });
+}
+
+export function useUserDeployments(
+  scope: UserResourceScopeSelection,
+  params: UserResourceListParams = {},
+  enabled = true,
+) {
+  const api = useApiClient();
+  const listParams = { ...params, limit: USER_DEPLOYMENTS_PAGE_SIZE };
+  return useInfiniteQuery({
+    queryKey: deploymentKeys.visibleList(scope, listParams),
+    queryFn: ({ pageParam }) => api.listUserDeployments(scope, {
+      ...listParams,
+      cursor: pageParam,
+    }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: nextUserResourceCursor,
+    enabled: isUserResourceQueryEnabled(scope, enabled),
+    staleTime: USER_RESOURCE_STALE_TIME_MS,
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? [];
+      const transitional = pages.some((page) =>
+        page.deployments.some((deployment) =>
+          ["pending", "provisioning", "deploying", "undeploying"].includes(
+            deployment.status?.toLowerCase?.() ?? "",
+          ),
+        ),
+      );
+      return transitional ? 3000 : false;
+    },
+  });
+}
 
 // Powers the cross-account quick switcher on the agent detail page.
 // Refreshed by mutation invalidation, not polling — a mutation in another
@@ -295,7 +344,7 @@ export function useUndeployAgent(account: string) {
           return { ...old, deployments: updated };
         },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       // The summary key isn't a prefix of all(account), so it's not swept by
       // the line above. Stale it explicitly so the agent-detail quick
       // switcher refetches on its next mount.
@@ -324,7 +373,7 @@ export function useRestartDeployment(account: string) {
   return useMutation<{ status: string; pods: string[] }, Error, { deploymentId: string }>({
     mutationFn: api.restartDeployment.bind(api),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
@@ -374,7 +423,7 @@ export function useStopDeployment(account: string) {
         (old) =>
           old ? { ...old, ...PAUSED_DEPLOYMENT_STATUS_SEED } : { ...PAUSED_DEPLOYMENT_STATUS_SEED },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
@@ -410,7 +459,7 @@ export function useWakeUpDeployment(account: string) {
             ? { ...old, value: 'deploying', reason: 'provisioning' }
             : { value: 'deploying', reason: 'provisioning', details: 'Pods are being provisioned' },
       );
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
       invalidateDeployment(queryClient, variables.deploymentId);
     },
   });
@@ -450,7 +499,7 @@ export function useTriggerIngestion(account: string) {
   return useMutation({
     mutationFn: api.triggerIngestion.bind(api),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }
@@ -464,7 +513,7 @@ export function useUploadDeploymentAvatar(account: string) {
     mutationFn: ({ id, file }: { id: string; file: Blob }) =>
       api.uploadDeploymentAvatar(id, file),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }
@@ -489,7 +538,7 @@ export function useDeleteDeploymentAvatar(account: string) {
   return useMutation({
     mutationFn: (id: string) => api.deleteDeploymentAvatar(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      invalidateDeploymentLists(queryClient, account);
     },
   });
 }

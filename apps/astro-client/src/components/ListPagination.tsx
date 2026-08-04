@@ -1,37 +1,32 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import {
-  buildBlueprintPageItems,
-  totalBlueprintPages,
-  type BlueprintPageItem,
-} from '@/lib/blueprint-page-numbers';
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { buildBlueprintPageItems, type BlueprintPageItem } from "@/lib/blueprint-page-numbers";
+import { cn } from "@/lib/utils";
 
-export function BlueprintsPagination({
+export function ListPagination({
   currentPage,
-  totalCount,
-  pageSize,
+  totalPages,
   onPageChange,
-  disabled,
+  disabled = false,
+  ariaLabel,
 }: {
   currentPage: number;
-  totalCount: number;
-  pageSize: number;
+  totalPages: number;
   onPageChange: (page: number) => void;
   disabled?: boolean;
+  ariaLabel: string;
 }) {
-  const totalPages = totalBlueprintPages(totalCount, pageSize);
   const showControls = totalPages > 1;
   const items = showControls ? buildBlueprintPageItems(currentPage, totalPages) : [];
 
   return (
     <nav
       className={cn(
-        'mt-6 flex h-8 items-center justify-center gap-1',
-        !showControls && 'invisible pointer-events-none',
-        disabled && 'pointer-events-none',
+        "mt-6 flex h-8 items-center justify-center gap-1",
+        !showControls && "invisible pointer-events-none",
+        disabled && "pointer-events-none",
       )}
-      aria-label="Blueprint list pagination"
+      aria-label={ariaLabel}
       aria-hidden={!showControls}
       aria-busy={disabled}
     >
@@ -39,7 +34,7 @@ export function BlueprintsPagination({
         type="button"
         variant="outline"
         size="icon-sm"
-        disabled={currentPage <= 1}
+        disabled={disabled || currentPage <= 1}
         aria-label="Previous page"
         onClick={() => onPageChange(currentPage - 1)}
       >
@@ -47,10 +42,11 @@ export function BlueprintsPagination({
       </Button>
 
       {items.map((item, index) => (
-        <BlueprintPageControl
+        <PageControl
           key={pageItemKey(item, index)}
           item={item}
           currentPage={currentPage}
+          disabled={disabled}
           onPageChange={onPageChange}
         />
       ))}
@@ -59,7 +55,7 @@ export function BlueprintsPagination({
         type="button"
         variant="outline"
         size="icon-sm"
-        disabled={currentPage >= totalPages}
+        disabled={disabled || currentPage >= totalPages}
         aria-label="Next page"
         onClick={() => onPageChange(currentPage + 1)}
       >
@@ -69,16 +65,18 @@ export function BlueprintsPagination({
   );
 }
 
-function BlueprintPageControl({
+function PageControl({
   item,
   currentPage,
+  disabled,
   onPageChange,
 }: {
   item: BlueprintPageItem;
   currentPage: number;
+  disabled: boolean;
   onPageChange: (page: number) => void;
 }) {
-  if (item === 'ellipsis') {
+  if (item === "ellipsis") {
     return (
       <span className="px-1 text-body-sm text-muted-foreground select-none" aria-hidden>
         …
@@ -87,15 +85,15 @@ function BlueprintPageControl({
   }
 
   const isActive = item === currentPage;
-
   return (
     <Button
       type="button"
-      variant={isActive ? 'default' : 'outline'}
+      variant={isActive ? "default" : "outline"}
       size="sm"
+      disabled={disabled}
       aria-label={`Page ${item}`}
-      aria-current={isActive ? 'page' : undefined}
-      className={cn('min-w-8 px-2', isActive && 'pointer-events-none')}
+      aria-current={isActive ? "page" : undefined}
+      className={cn("min-w-8 px-2", isActive && "pointer-events-none")}
       onClick={() => onPageChange(item)}
     >
       {item}
@@ -104,6 +102,5 @@ function BlueprintPageControl({
 }
 
 function pageItemKey(item: BlueprintPageItem, index: number): string {
-  if (item === 'ellipsis') return `ellipsis-${index}`;
-  return `page-${item}`;
+  return item === "ellipsis" ? `ellipsis-${index}` : `page-${item}`;
 }

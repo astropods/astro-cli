@@ -1,268 +1,134 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useCallback, useMemo } from "react";
+import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
+import { USER_BLUEPRINTS_PAGE_SIZE, useUserBlueprints } from "@/api/queries/blueprints";
 import { blueprintKeys } from "@/api/queries/keys";
+import { AccountFilter } from "@/components/AccountFilter";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
+import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { FilterInput } from "@/components/FilterInput";
 import { IndeterminateProgressBar } from "@/components/IndeterminateProgressBar";
-import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { ListPagination } from "@/components/ListPagination";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
-import {
-  BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
-  hasBlueprintListFilters,
-  type BlueprintListParams,
-} from "@/lib/blueprint-list-params";
-import { useActiveAccount } from "@/hooks/use-active-account";
-import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { useAuth } from "@/lib/auth";
-import type { Blueprint } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { loadAccountScoped } from "@/lib/api.server";
-import { blueprintGridSlotCount } from "@/lib/blueprint-page-numbers";
-import { useAccountBlueprintsList } from "./use-account-blueprints-list";
+import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { firstInfinitePage, usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
+import { loadUserResourceScoped } from "@/lib/api.server";
+import { useAuth } from "@/lib/auth";
+import type { BlueprintListParams } from "@/lib/blueprint-list-params";
+import { resolveUserResourceScope } from "@/lib/user-resource-scope";
 import { useBlueprintSearch } from "./use-blueprint-search";
-import { BlueprintsPagination } from "./BlueprintsPagination";
 import type { Route } from "./+types/Blueprints";
 
 export const meta: Route.MetaFunction = () => [{ title: "Blueprints | Astro" }];
 
 const FIRST_PAGE_PARAMS: BlueprintListParams = {
-  limit: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
-  offset: 0,
+  limit: USER_BLUEPRINTS_PAGE_SIZE,
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const scoped = await loadAccountScoped(request, (api, account) =>
-    api.listAccountBlueprints(account, FIRST_PAGE_PARAMS),
+  const scoped = await loadUserResourceScoped(request, (api, scope) =>
+    api.listUserBlueprints(scope, FIRST_PAGE_PARAMS),
   );
   return { ...scoped, firstPageParams: FIRST_PAGE_PARAMS };
 }
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
-  const { activeAccount, setActiveAccount } = useActiveAccount();
   const { accounts, isAuthenticated } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const scope = useMemo(
+    () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
+    [accountFilters, accounts],
+  );
   const { search, setSearch, params, hasActiveFilters } = useBlueprintSearch();
-  const [page, setPage] = useState(1);
-  usePrimeQueryCache(loaderData, (qc, ld) => {
-    if (ld?.account && ld?.data && ld?.firstPageParams) {
-      qc.setQueryData(blueprintKeys.list(ld.account, ld.firstPageParams), ld.data);
-    }
+
+  usePrimeQueryCache(loaderData, (queryClient, data) => {
+    if (!data?.scope || !data.data) return;
+    queryClient.setQueryData(
+      blueprintKeys.visibleList(data.scope, data.firstPageParams),
+      firstInfinitePage(data.data),
+    );
   });
 
-  // Consume ?account= param once accounts have loaded so deep-links and
-  // org-switcher redirects land on the right scope without a flash.
-  useEffect(() => {
-    const accountParam = searchParams.get("account");
-    if (!accountParam || accounts.length === 0) return;
-    if (accounts.some((a) => a.name === accountParam)) {
-      setActiveAccount(accountParam);
-    }
-    setSearchParams({}, { replace: true });
-  }, [accounts, searchParams, setActiveAccount, setSearchParams]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [activeAccount, params]);
-
-  const handlePageChange = useCallback((nextPage: number) => {
-    setPage(nextPage);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
-  const isReady = isAuthenticated && !!activeAccount;
-  const {
-    data,
-    isPending,
-    isFetching,
-    isError,
-    error,
-    refetch,
-  } = useAccountBlueprintsList(activeAccount, {
-    enabled: isReady,
-    params: { ...params, limit: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE },
-    page,
+  const query = useUserBlueprints(scope, params, isAuthenticated);
+  const blueprintPages = query.data?.pages ?? [];
+  const pagination = useCursorPagination({
+    pages: blueprintPages,
+    hasNextPage: !!query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+    resetKey: JSON.stringify([scope.all, scope.accounts, params]),
   });
-
-  const blueprints = data?.agents ?? [];
-  const totalCount = data?.count ?? 0;
-  const ownerAccounts = new Set(accounts.map((a) => a.name));
-
-  const waitingForAccount = !isReady;
-  const loadingFirstPage = isPending;
-  const loadingAfterFilterChange = hasActiveFilters && isFetching;
-
-  const listLoading = waitingForAccount || loadingFirstPage || loadingAfterFilterChange;
-  const listRefetching = isReady && isFetching && blueprints.length > 0;
-  const fetchSettled = isReady && !isPending && !isFetching;
-  const isEmpty = blueprints.length === 0;
+  const blueprints = pagination.page?.blueprints ?? [];
+  const ownerAccounts = useMemo(() => new Set(accounts.map((account) => account.name)), [accounts]);
+  const hasAnyFilter = hasActiveFilters || accountFilters.length > 0;
   const hasTypedSearch = search.trim().length > 0;
+  const loadingFirstPage = query.isPending && blueprints.length === 0;
+  const settled = isAuthenticated && !query.isPending && !query.isFetching;
+  const showToolbar = loadingFirstPage || blueprints.length > 0 || hasAnyFilter || hasTypedSearch;
+  const showFilteredEmpty = settled && blueprints.length === 0 && hasAnyFilter;
+  const showRegistryEmpty = settled && blueprints.length === 0 && !hasAnyFilter && !query.isError;
+  const listError = query.isError && blueprints.length === 0;
 
-  const showToolbar =
-    listLoading ||
-    isFetching ||
-    !isEmpty ||
-    hasActiveFilters ||
-    hasTypedSearch;
-
-  const showFilteredEmpty = fetchSettled && isEmpty && hasActiveFilters;
-  const showRegistryEmpty = fetchSettled && isEmpty && !hasBlueprintListFilters(params);
-
-  const gridSlotCount = blueprintGridSlotCount({
-    showFilteredEmpty,
-    totalCount,
-    pageSize: BLUEPRINT_LIST_DEFAULT_PAGE_SIZE,
-  });
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    setAccountFilters([]);
+  }, [setAccountFilters, setSearch]);
 
   return (
     <PageContainer outerClassName="bg-background">
-      <IndeterminateProgressBar active={listRefetching} />
+      <IndeterminateProgressBar active={query.isFetching && blueprints.length > 0} />
       <PageHeader
         title="Blueprints"
-        description="Agent configurations available to deploy in your account."
-        action={<BlueprintsHeaderActions visible={isAuthenticated} />}
+        description="Agent configurations available to deploy across your accounts."
+        action={isAuthenticated ? (
+          <Button asChild size="sm">
+            <Link to="/new/custom">
+              <PlusIcon className="size-4" />
+              Create blueprint
+            </Link>
+          </Button>
+        ) : undefined}
       />
 
-      <BlueprintsToolbar
-        visible={showToolbar}
-        search={search}
-        onSearchChange={setSearch}
-      />
+      {showToolbar && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <FilterInput
+            placeholder="Search blueprints…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
+          />
+          <AccountFilter value={accountFilters} onChange={setAccountFilters} />
+        </div>
+      )}
 
-      <BlueprintsListArea
-        showFilteredEmpty={showFilteredEmpty}
-        showRegistryEmpty={showRegistryEmpty}
-        blueprints={blueprints}
-        totalCount={totalCount}
-        page={page}
-        pageSize={BLUEPRINT_LIST_DEFAULT_PAGE_SIZE}
-        gridSlotCount={gridSlotCount}
-        listLoading={listLoading}
-        paginationDisabled={isFetching}
-        isError={isError}
-        error={error}
-        refetch={refetch}
-        ownerAccounts={ownerAccounts}
-        onPageChange={handlePageChange}
-      />
+      {showFilteredEmpty ? (
+        <FilteredEmptyState message="No blueprints match your filters." onClear={clearFilters} />
+      ) : (
+        <>
+          <BlueprintListView
+            blueprints={blueprints}
+            isLoading={loadingFirstPage}
+            isError={listError}
+            error={query.error}
+            refetch={() => void query.refetch()}
+            emptyContent={showRegistryEmpty ? <BlueprintsEmptyState /> : null}
+            ownerAccounts={ownerAccounts}
+            slotCount={pagination.totalPages > 1 ? USER_BLUEPRINTS_PAGE_SIZE : undefined}
+            showAuthor
+          />
+          <ListPagination
+            currentPage={pagination.currentPage}
+            totalPages={pagination.totalPages}
+            onPageChange={pagination.onPageChange}
+            disabled={query.isFetchingNextPage}
+            ariaLabel="Blueprint list pagination"
+          />
+        </>
+      )}
     </PageContainer>
-  );
-}
-
-function BlueprintsHeaderActions({ visible }: { visible: boolean }) {
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
-      <PageScopeSwitcher />
-      <Button asChild size="sm">
-        <Link to="/new/custom">
-          <PlusIcon className="size-4" />
-          Create blueprint
-        </Link>
-      </Button>
-    </div>
-  );
-}
-
-function BlueprintsToolbar({
-  visible,
-  search,
-  onSearchChange,
-}: {
-  visible: boolean;
-  search: string;
-  onSearchChange: (value: string) => void;
-}) {
-  if (!visible) {
-    return null;
-  }
-
-  return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-      <FilterInput
-        placeholder="Search blueprints…"
-        value={search}
-        onChange={(e) => onSearchChange(e.target.value)}
-        containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
-      />
-    </div>
-  );
-}
-
-function BlueprintsListArea({
-  showFilteredEmpty,
-  showRegistryEmpty,
-  blueprints,
-  totalCount,
-  page,
-  pageSize,
-  gridSlotCount,
-  listLoading,
-  paginationDisabled,
-  isError,
-  error,
-  refetch,
-  ownerAccounts,
-  onPageChange,
-}: {
-  showFilteredEmpty: boolean;
-  showRegistryEmpty: boolean;
-  blueprints: Blueprint[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  gridSlotCount?: number;
-  listLoading: boolean;
-  paginationDisabled: boolean;
-  isError: boolean;
-  error: unknown;
-  refetch: () => void;
-  ownerAccounts: Set<string>;
-  onPageChange: (page: number) => void;
-}) {
-  if (showFilteredEmpty) {
-    return <BlueprintsFilteredEmptyMessage />;
-  }
-
-  return (
-    <>
-      <BlueprintListView
-        blueprints={blueprints}
-        isLoading={listLoading}
-        isError={isError}
-        error={error}
-        refetch={refetch}
-        emptyContent={<BlueprintsRegistryEmpty visible={showRegistryEmpty} />}
-        ownerAccounts={ownerAccounts}
-        slotCount={gridSlotCount}
-        showAuthor
-      />
-      <BlueprintsPagination
-        currentPage={page}
-        totalCount={totalCount}
-        pageSize={pageSize}
-        onPageChange={onPageChange}
-        disabled={paginationDisabled}
-      />
-    </>
-  );
-}
-
-function BlueprintsRegistryEmpty({ visible }: { visible: boolean }) {
-  if (!visible) {
-    return null;
-  }
-  return <BlueprintsEmptyState />;
-}
-
-function BlueprintsFilteredEmptyMessage() {
-  return (
-    <div className="rounded-lg border border-border p-8 text-center">
-      <p className="text-body-sm text-muted-foreground">No blueprints match your filters.</p>
-    </div>
   );
 }

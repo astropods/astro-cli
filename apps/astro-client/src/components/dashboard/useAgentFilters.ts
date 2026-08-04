@@ -6,14 +6,23 @@ export type SortOption = "recent" | "name" | "requests";
 export function useAgentFilters(
   deployments: AgentDeploymentSummary[],
   requestCounts: Map<string, number> = new Map(),
+  controlledFilter?: {
+    filter: string;
+    onFilterChange: (value: string) => void;
+  },
 ) {
-  const [filter, setFilter] = useState("");
+  const [localFilter, setLocalFilter] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const filter = controlledFilter?.filter ?? localFilter;
+  const setFilter = controlledFilter?.onFilterChange ?? setLocalFilter;
+  const filterLocally = controlledFilter == null;
 
   const filtered = useMemo(() => {
     let list = deployments;
 
-    if (filter) {
+    // The dashboard supplies a controlled filter because its query searches the
+    // full server-side scope. Local filtering remains for standalone consumers.
+    if (filter && filterLocally) {
       const lower = filter.toLowerCase();
       list = list.filter(
         (d) =>
@@ -39,7 +48,7 @@ export function useAgentFilters(
     }
 
     return list;
-  }, [deployments, filter, sortBy, requestCounts]);
+  }, [deployments, filter, filterLocally, sortBy, requestCounts]);
 
   return {
     filtered,

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { UserAvatar } from "@/components/UserAvatar";
+import { CreateInAccountPicker } from "@/components/CreateInAccountPicker";
 import { PROVIDER_LABELS, ALL_PROVIDERS } from "@/components/knowledge/knowledge-utils";
 import type { KnowledgeProvider } from "@/lib/api";
 import { ProviderList } from "./ProviderList";
@@ -14,19 +15,31 @@ import { ConfigureForm } from "./ConfigureForm";
 export const meta: Route.MetaFunction = () => [{ title: "Add Store | Knowledge Stores | Astro" }];
 
 function NewKnowledgeStoreContent() {
-  const { activeAccount: account } = useActiveAccount();
+  const { activeAccount } = useActiveAccount();
   const { accounts } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedAccount = searchParams.get("account");
+  const account = requestedAccount && accounts.some((item) => item.name === requestedAccount)
+    ? requestedAccount
+    : activeAccount;
   const avatarUrl = accounts.find((a) => a.name === account)?.avatar_url;
   // Pre-select a provider from ?provider=… so the Supabase OAuth round-trip
   // (which redirects back here) returns straight to the configure form.
-  const [searchParams] = useSearchParams();
   const providerParam = searchParams.get("provider") as KnowledgeProvider | null;
   const initialProvider = providerParam && ALL_PROVIDERS.includes(providerParam) ? providerParam : null;
   const [provider, setProvider] = useState<KnowledgeProvider | null>(initialProvider);
 
+  const setAccount = (next: string) => {
+    setSearchParams((current) => {
+      if (next === activeAccount) current.delete("account");
+      else current.set("account", next);
+      return current;
+    }, { replace: true });
+  };
+
   return (
     <div className="flex-1 bg-background">
-      <PageBreadcrumb
+      {provider !== null && <PageBreadcrumb
         items={[
           { label: "Knowledge Stores", to: knowledgePath },
           { label: account, to: accountProfilePath(account) },
@@ -43,11 +56,17 @@ function NewKnowledgeStoreContent() {
             to: accountProfilePath(account),
           },
         ]}
-      />
+      />}
 
       <div className="px-6 py-8">
         {provider === null ? (
-          <ProviderList onSelect={setProvider} />
+          <div className="mx-auto max-w-2xl">
+            <h1 className="text-heading-1 text-foreground">Add new knowledge store</h1>
+            <div className="mt-6 space-y-8">
+              <CreateInAccountPicker value={account} onChange={setAccount} />
+              <ProviderList onSelect={setProvider} />
+            </div>
+          </div>
         ) : (
           <ConfigureForm provider={provider} account={account} />
         )}

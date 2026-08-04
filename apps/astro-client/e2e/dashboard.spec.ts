@@ -22,34 +22,45 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Slack Overlap Bot")).toBeVisible({ timeout: 10_000 });
 
+  const filteredResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/v1/me/deployments" && url.searchParams.get("q") === "full";
+  });
   await page.getByPlaceholder("Search agents...").fill("full");
+  await filteredResponse;
 
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText("Slack Overlap Bot")).not.toBeVisible();
 });
 
-test("dashboard account scope persists while search resets after navigation", async ({ page }) => {
+test("dashboard account filter and search are page-local", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
+  const accountFilter = page.getByRole("button", { name: "Filter by account" });
+  await expect(accountFilter).toBeVisible({ timeout: 10_000 });
+  await accountFilter.click();
+  await page
+    .locator('[data-slot="multi-select-content"]')
+    .getByRole("button", { name: /Test Org/ })
+    .click();
+
+  await expect(page).toHaveURL(/\/agents\?account=test-org$/);
+  await expect(accountFilter).toContainText("Test Org");
+  await expect(page.getByText("Org Support Bot")).toBeVisible({ timeout: 10_000 });
+
   const search = page.getByPlaceholder("Search agents...");
-  await expect(search).toBeVisible({ timeout: 10_000 });
-  await search.fill("full");
-  const scopeSwitcher = page.getByRole("button", { name: "Switch account" });
-  await scopeSwitcher.click();
-  await page.getByRole("menuitem").filter({ hasText: "Test Org" }).click();
-  await expect(scopeSwitcher).toContainText("Test Org");
+  await search.fill("support");
+  await expect(page.getByText("Org Support Bot")).toBeVisible();
 
   await page.getByRole("link", { name: "Blueprints", exact: true }).click();
   await expect(page).toHaveURL(/\/blueprints/);
   await page.getByRole("link", { name: "Agents", exact: true }).click();
-  await expect(page).toHaveURL(/\/agents/);
+  await expect(page).toHaveURL(/\/agents$/);
 
-  const persistedScopeSwitcher = page.getByRole("button", { name: "Switch account" });
-  await expect(persistedScopeSwitcher).toContainText("Test Org");
-  await persistedScopeSwitcher.click();
-  await page.getByRole("menuitem").filter({ hasText: "testuser" }).click();
+  await expect(page.getByRole("button", { name: "Filter by account" })).toContainText("All accounts");
   await expect(page.getByPlaceholder("Search agents...")).toHaveValue("");
+  await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
 });
 
 test("active agent card links to deployment detail", async ({ page }) => {

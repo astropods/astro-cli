@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useSearchParams } from "react-router";
 import { BookOpen, ChevronRight } from "lucide-react";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/knowledge/knowledge-utils";
 import { knowledgePath, accountProfilePath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { resolvePageAccount } from "@/lib/user-resource-scope";
 import { Chip } from "./Chip";
 import { OverviewTab } from "./OverviewTab";
 import { LogsTab } from "./LogsTab";
@@ -33,8 +34,14 @@ type Tab = "overview" | "logs" | "settings";
 
 function KnowledgeStoreDetailContent() {
   const { storeName } = useParams();
-  const { isAuthenticated } = useAuth();
-  const { activeAccount: account } = useActiveAccount();
+  const { accounts, isAuthenticated } = useAuth();
+  const { activeAccount } = useActiveAccount();
+  const [searchParams] = useSearchParams();
+  const account = resolvePageAccount(
+    searchParams.get("account"),
+    accounts.map((membership) => membership.name),
+    activeAccount,
+  );
 
   const { data: store, isLoading } = useKnowledgeStore(account, storeName ?? "", isAuthenticated && !!storeName);
   const [tab, setTab] = useState<Tab>("overview");

@@ -24,7 +24,7 @@ import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/sla
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
 import { SettledContentReveal } from "@/components/ui/content-reveal";
-import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
+import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -33,12 +33,16 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuChe
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import { useResolvedTheme } from "@/lib/theme";
-import { getActiveAccount } from "@/lib/api.server";
+import { getPageAccount } from "@/lib/api.server";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
+import {
+  removeStaleInsightsAccountParam,
+  resolveInsightsScopeAccount,
+} from "./insights-account-param";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -157,7 +161,7 @@ function insightsTableParamsSignature(params: InsightsQueryParams): string {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const ctx = await getActiveAccount(request);
+  const ctx = await getPageAccount(request);
   if (!ctx) {
     return { account: null, insights: null, insightsParams: buildInsightsQueryParams({}) };
   }
@@ -171,11 +175,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { account: ctx.accountName, insights, insightsParams };
 }
 
-// Range / view / search-query toggles change search params client-side, so
-// they skip the loader. The consolidated Insights response contains every
-// supported range; view + q are pure client-side display choices. The only
-// loader re-run is the programmatic revalidate signal used for org-switching
-// (currentUrl === nextUrl).
+// Range, view, and search changes stay client-side. A page-local account
+// change re-runs the loader so that account's first Insights response is
+// server-rendered and primes the exact TanStack key used below.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -186,7 +188,9 @@ export function shouldRevalidate({
   defaultShouldRevalidate: boolean;
 }) {
   if (currentUrl.toString() === nextUrl.toString()) return true;
-  if (currentUrl.pathname === nextUrl.pathname) return false;
+  if (currentUrl.pathname === nextUrl.pathname) {
+    return currentUrl.searchParams.get("account") !== nextUrl.searchParams.get("account");
+  }
   return defaultShouldRevalidate;
 }
 
@@ -226,23 +230,37 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     ],
     [devtoolSources, resolvedTheme],
   );
+  const paramAccount = searchParams.get("account");
+  const accountNames = useMemo(() => accounts.map((account) => account.name), [accounts]);
+  const scopeAccount = resolveInsightsScopeAccount(paramAccount, accountNames, activeAccount);
+  useEffect(() => {
+    const next = removeStaleInsightsAccountParam(searchParams, accountNames);
+    if (next) setSearchParams(next, { replace: true });
+  }, [accountNames, paramAccount, searchParams, setSearchParams]);
+  const setScopeAccount = useCallback((next: string) => {
+    setSearchParams((previous) => {
+      if (next === activeAccount) previous.delete("account");
+      else previous.set("account", next);
+      return previous;
+    }, { replace: true });
+  }, [activeAccount, setSearchParams]);
   // "Add a source" links to this account's Data Sources settings and hotlinks
   // the create modal open (see ApiKeysSettings' ?new= handling).
   const dataSourcesHref = useMemo(
-    () => `${accountSettingsPath(accounts, activeAccount, "api-keys")}?new=1`,
-    [accounts, activeAccount],
+    () => `${accountSettingsPath(accounts, scopeAccount, "api-keys")}?new=1`,
+    [accounts, scopeAccount],
   );
   // Only offer "Add a source" when the user could actually create one — the
   // ingest-key create endpoint requires account manage rights (personal
   // accounts, or org admins/owners). Mirrors the Vault "+ New" gating.
   const canAddDataSource = useMemo(() => {
-    const acct = accounts.find((a) => a.name === activeAccount);
+    const acct = accounts.find((a) => a.name === scopeAccount);
     return !acct || acct.type === "personal" || acct.role === "admin" || acct.role === "owner";
-  }, [accounts, activeAccount]);
+  }, [accounts, scopeAccount]);
   const slackConnected = searchParams.get("slack_connected") === "true";
   const slackError = searchParams.get("slack_error");
   const hasSlackOAuthParam = SLACK_OAUTH_PARAMS.some((key) => searchParams.has(key));
-  const accountForSlackResync = activeAccount || loaderData.account || "";
+  const accountForSlackResync = scopeAccount || loaderData.account || "";
   const [slackRefreshStatus, setSlackRefreshStatus] = useState<SlackRefreshStatus>("idle");
 
   useEffect(() => {
@@ -378,20 +396,26 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         value={range}
         onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}
       />
-      <PageScopeSwitcher />
     </div>
   );
 
   return (
     <PageContainer outerClassName="bg-background">
       <PageHeader
-        title="Insights"
-        description="Track usage, cost, and reliability across your organization."
+        title="Insights for"
+        adornment={
+          <AccountScopeFilter
+            value={scopeAccount}
+            onChange={setScopeAccount}
+            className="-ml-1"
+          />
+        }
+        description="Track usage, cost, and reliability for this account."
         action={headerAction}
       />
 
       <InsightsView
-        account={activeAccount}
+        account={scopeAccount}
         range={range}
         view={view}
         onViewChange={setView}

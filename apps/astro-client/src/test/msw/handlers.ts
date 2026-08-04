@@ -294,6 +294,55 @@ export const mockSearchAccounts: AccountSearchResult[] = [
 ];
 
 export const handlers = [
+  // Cross-account list endpoints used by the SSR + TanStack pages.
+  http.get('/api/v1/me/blueprints', ({ request }) => {
+    const url = new URL(request.url);
+    const selected = url.searchParams.get('scope') === 'all'
+      ? new Set(mockBlueprints.map((blueprint) => blueprint.account))
+      : new Set(url.searchParams.getAll('account'));
+    const q = url.searchParams.get('q')?.trim().toLowerCase();
+    const blueprints = mockBlueprints.filter((blueprint) =>
+      selected.has(blueprint.account) && (!q || blueprint.name.toLowerCase().includes(q)),
+    );
+    return HttpResponse.json({
+      blueprints,
+      page: { limit: 50 },
+      scope: { accounts: [...selected], all: url.searchParams.get('scope') === 'all' },
+    });
+  }),
+
+  http.get('/api/v1/me/deployments', ({ request }) => {
+    const url = new URL(request.url);
+    const accounts = url.searchParams.get('scope') === 'all'
+      ? ['testuser']
+      : url.searchParams.getAll('account');
+    return HttpResponse.json({
+      deployments: mockDeployments.deployments.map((deployment) => ({
+        ...deployment,
+        account_id: 'acct-1',
+        account_name: 'testuser',
+      })),
+      page: { limit: 50 },
+      scope: { accounts, all: url.searchParams.get('scope') === 'all' },
+    });
+  }),
+
+  http.get('/api/v1/me/knowledge', ({ request }) => {
+    const url = new URL(request.url);
+    const accounts = url.searchParams.get('scope') === 'all'
+      ? ['testuser']
+      : url.searchParams.getAll('account');
+    return HttpResponse.json({
+      stores: [],
+      page: { limit: 50 },
+      scope: { accounts, all: url.searchParams.get('scope') === 'all' },
+    });
+  }),
+
+  http.get('/api/v1/me/deployment-summaries', () => {
+    return HttpResponse.json({ summaries: {} });
+  }),
+
   // GET /api/v1/agents
   http.get('/api/v1/agents', ({ request }) => {
     return HttpResponse.json<BlueprintsListResponse>(

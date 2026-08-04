@@ -1,7 +1,37 @@
-import { keepPreviousData, useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query';
 import { api, type BlueprintsListResponse, type Blueprint, type DeploymentSpec, type DeployResponse, type DeploymentsListResponse, type TemplateRequest } from '../../lib/api';
 import { useApiClient } from '../../lib/api-context';
 import { blueprintKeys, deploymentKeys, githubKeys } from './keys';
+import type { BlueprintListParams } from '@/lib/blueprint-list-params';
+import type { UserResourceScopeSelection } from '@/lib/user-resource-scope';
+import {
+  isUserResourceQueryEnabled,
+  nextUserResourceCursor,
+  USER_RESOURCE_PAGE_SIZE,
+  USER_RESOURCE_STALE_TIME_MS,
+} from './user-resources';
+
+export const USER_BLUEPRINTS_PAGE_SIZE = USER_RESOURCE_PAGE_SIZE;
+
+export function useUserBlueprints(
+  scope: UserResourceScopeSelection,
+  params: BlueprintListParams = {},
+  enabled = true,
+) {
+  const api = useApiClient();
+  const listParams = { ...params, limit: USER_BLUEPRINTS_PAGE_SIZE };
+  return useInfiniteQuery({
+    queryKey: blueprintKeys.visibleList(scope, listParams),
+    queryFn: ({ pageParam }) => api.listUserBlueprints(scope, {
+      ...listParams,
+      cursor: pageParam,
+    }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: nextUserResourceCursor,
+    enabled: isUserResourceQueryEnabled(scope, enabled),
+    staleTime: USER_RESOURCE_STALE_TIME_MS,
+  });
+}
 
 interface BlueprintQueryOptions {
   initialData?: Blueprint;
@@ -115,6 +145,7 @@ export function useDeployAgent(account: string, agentName: string) {
 
       // Always refresh after optimistic patch so server truth wins quickly.
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.visibleLists });
       if (data.deployment_id) {
         queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(data.deployment_id) });
       }
@@ -176,6 +207,7 @@ export function useUploadBlueprintAvatar() {
       queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
       queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.visibleLists });
     },
   });
 }

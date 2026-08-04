@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { screen, waitFor, cleanup } from '@testing-library/react';
 import { DeployedAgentsSection } from './DeployedAgentsSection';
 import type { AgentDeploymentSummary } from '@/lib/api';
+import { renderWithProviders } from '@/test/test-utils';
 
 // The dashboard derives the "Update available" badge purely from
 // `deployment.latest_build_id` vs `deployment.build_id`. Both values are
@@ -13,18 +12,8 @@ import type { AgentDeploymentSummary } from '@/lib/api';
 // fan-out path can't regress back in.
 
 function renderSection(deployments: AgentDeploymentSummary[], account: string) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity, staleTime: 0 },
-      mutations: { retry: false },
-    },
-  });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <DeployedAgentsSection deployments={deployments} account={account} isLoading={false} />
-      </MemoryRouter>
-    </QueryClientProvider>,
+  return renderWithProviders(
+    <DeployedAgentsSection deployments={deployments} account={account} isLoading={false} />,
   );
 }
 

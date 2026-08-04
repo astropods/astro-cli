@@ -6,6 +6,18 @@ import { server } from '@/test/msw/server';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
 import Blueprints from './Blueprints';
+import type { Blueprint, UserResourcePage } from '@/lib/api';
+
+function userBlueprints(
+  blueprints: Blueprint[],
+  page: UserResourcePage = { limit: 50 },
+) {
+  return HttpResponse.json({
+    blueprints,
+    page,
+    scope: { accounts: ['testuser'], all: true },
+  });
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -31,7 +43,7 @@ function renderBlueprintsPage({
 }
 
 describe('Blueprints – ?account= param handling', () => {
-  it('sets active account from ?account param once accounts have loaded', async () => {
+  it('keeps ?account page-local instead of changing the active account', async () => {
     const auth = {
       ...mockAuthContext,
       accounts: [
@@ -45,9 +57,8 @@ describe('Blueprints – ?account= param handling', () => {
       auth,
     });
 
-    await waitFor(() => {
-      expect(localStorage.getItem('astro:default-account')).toBe('orgaccount');
-    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('orgaccount'));
+    expect(localStorage.getItem('astro:default-account')).toBeNull();
   });
 
   it('does not consume ?account param before accounts have loaded (no-flicker)', async () => {
@@ -82,17 +93,14 @@ describe('Blueprints – search', () => {
     const user = userEvent.setup();
 
     server.use(
-      http.get('/api/v1/agents/:account', ({ request }) => {
+      http.get('/api/v1/me/blueprints', ({ request }) => {
         const url = new URL(request.url);
         const q = url.searchParams.get('q');
         const accountBlueprints = mockBlueprints.filter((b) => b.account === 'testuser');
         if (q?.toLowerCase() === 'development') {
-          return HttpResponse.json({
-            agents: accountBlueprints.filter((b) => b.name === 'code-reviewer'),
-            count: 1,
-          });
+          return userBlueprints(accountBlueprints.filter((b) => b.name === 'code-reviewer'));
         }
-        return HttpResponse.json({ agents: accountBlueprints, count: accountBlueprints.length });
+        return userBlueprints(accountBlueprints);
       }),
     );
 
@@ -116,10 +124,10 @@ describe('Blueprints – search', () => {
     let lastUrl = '';
 
     server.use(
-      http.get('/api/v1/agents/:account', ({ request }) => {
+      http.get('/api/v1/me/blueprints', ({ request }) => {
         lastUrl = request.url;
         const accountBlueprints = mockBlueprints.filter((b) => b.account === 'testuser');
-        return HttpResponse.json({ agents: accountBlueprints, count: accountBlueprints.length });
+        return userBlueprints(accountBlueprints);
       }),
     );
 
@@ -144,17 +152,17 @@ describe('Blueprints – search', () => {
     let requestCount = 0;
 
     server.use(
-      http.get('/api/v1/agents/:account', async ({ request }) => {
+      http.get('/api/v1/me/blueprints', async ({ request }) => {
         requestCount += 1;
         const url = new URL(request.url);
         const q = url.searchParams.get('q');
         const accountBlueprints = mockBlueprints.filter((b) => b.account === 'testuser');
         if (q) {
           await new Promise((resolve) => setTimeout(resolve, 100));
-          return HttpResponse.json({ agents: [], count: 0 });
+          return userBlueprints([]);
         }
         await new Promise((resolve) => setTimeout(resolve, 50));
-        return HttpResponse.json({ agents: accountBlueprints, count: accountBlueprints.length });
+        return userBlueprints(accountBlueprints);
       }),
     );
 
@@ -183,13 +191,13 @@ describe('Blueprints – search', () => {
     const user = userEvent.setup();
 
     server.use(
-      http.get('/api/v1/agents/:account', ({ request }) => {
+      http.get('/api/v1/me/blueprints', ({ request }) => {
         const url = new URL(request.url);
         if (url.searchParams.get('q') === 'nomatch') {
-          return HttpResponse.json({ agents: [], count: 0 });
+          return userBlueprints([]);
         }
         const accountBlueprints = mockBlueprints.filter((b) => b.account === 'testuser');
-        return HttpResponse.json({ agents: accountBlueprints, count: accountBlueprints.length });
+        return userBlueprints(accountBlueprints);
       }),
     );
 
@@ -209,26 +217,26 @@ describe('Blueprints – search', () => {
 
 describe('Blueprints – pagination', () => {
   function mockAccountBlueprints(total: number) {
+    const requests: string[] = [];
     const blueprints = Array.from({ length: total }, (_, index) => ({
       ...mockBlueprints[0],
       name: `agent-${index + 1}`,
     }));
     server.use(
-      http.get('/api/v1/agents/:account', ({ request }) => {
+      http.get('/api/v1/me/blueprints', ({ request }) => {
         const url = new URL(request.url);
+        requests.push(url.search);
         const limit = Number(url.searchParams.get('limit') ?? 50);
-        const offset = Number(url.searchParams.get('offset') ?? 0);
+        const offset = Number(url.searchParams.get('cursor') ?? 0);
         const page = blueprints.slice(offset, offset + limit);
-        return HttpResponse.json({
-          agents: page,
-          count: blueprints.length,
+        const hasMore = offset + page.length < blueprints.length;
+        return userBlueprints(page, {
           limit,
-          offset,
-          has_more: offset + page.length < blueprints.length,
+          ...(hasMore ? { next_cursor: String(offset + page.length) } : {}),
         });
       }),
     );
-    return blueprints;
+    return { blueprints, requests };
   }
 
   it('hides pagination controls when total count fits in one page (≤ 50)', async () => {
@@ -240,29 +248,30 @@ describe('Blueprints – pagination', () => {
       expect(screen.getByRole('heading', { name: /^agent-1$/i })).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('button', { name: 'Page 1' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Previous page/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Next page/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Blueprint list pagination' })).not.toBeInTheDocument();
   });
 
-  it('shows page controls and fetches the selected offset when count exceeds page size', async () => {
+  it('uses numbered controls and reuses a previously loaded keyset page', async () => {
     const user = userEvent.setup();
-    mockAccountBlueprints(120);
+    const { requests } = mockAccountBlueprints(120);
 
     renderBlueprintsPage();
 
-    await waitFor(() => {
-      expect(screen.getByRole('navigation', { name: /blueprint list pagination/i })).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole('button', { name: 'Page 1' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Page 2' })).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /^agent-1$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^agent-51$/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Page 2' }));
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^agent-51$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.queryByRole('heading', { name: /^agent-1$/i })).not.toBeInTheDocument();
     });
+    expect(requests).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: 'Page 1' }));
+    expect(screen.getByRole('heading', { name: /^agent-1$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^agent-51$/i })).not.toBeInTheDocument();
+    expect(requests).toHaveLength(2);
   });
 });

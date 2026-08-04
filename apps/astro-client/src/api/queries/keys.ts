@@ -2,6 +2,11 @@
 // Every key used with useQuery/invalidateQueries should originate here
 // so invalidation is predictable and typo-proof.
 import { blueprintListParamsKey, type BlueprintListParams } from '@/lib/blueprint-list-params';
+import { userResourceListParamsKey, type UserResourceListParams } from '@/lib/user-resource-list-params';
+import type { UserResourceScopeSelection } from '@/lib/user-resource-scope';
+
+const userResourceScopeKey = (scope: UserResourceScopeSelection) =>
+  [scope.all ? 'all' : 'selected', scope.accounts] as const;
 
 export const accountKeys = {
   profile: ['profile'] as const,
@@ -17,6 +22,9 @@ const blueprintAccountPrefix = (account: string) => ['agents', 'account', accoun
 
 export const blueprintKeys = {
   all: ['agents'] as const,
+  visibleLists: ['agents', 'me'] as const,
+  visibleList: (scope: UserResourceScopeSelection, params?: BlueprintListParams) =>
+    ['agents', 'me', ...userResourceScopeKey(scope), blueprintListParamsKey(params), 'infinite'] as const,
   list: (account: string, params?: BlueprintListParams) =>
     [...blueprintAccountPrefix(account), blueprintListParamsKey(params)] as const,
   infiniteList: (account: string, params?: BlueprintListParams) =>
@@ -76,6 +84,8 @@ export const observabilityKeys = {
     ['observability', 'account-summary', account, window] as const,
   deploymentSummaries: (account: string) =>
     ['observability', 'deployment-summaries', account] as const,
+  visibleDeploymentSummaries: (deploymentIDs: string[]) =>
+    ['observability', 'deployment-summaries', 'visible', deploymentIDs] as const,
   insights: (account: string, params?: Record<string, string | undefined>) =>
     params
       ? ['observability', 'insights', account, params] as const
@@ -142,6 +152,9 @@ export const fileKeys = {
 
 export const deploymentKeys = {
   summary: ['deployments', 'summary'] as const,
+  visibleLists: ['deployments', 'me'] as const,
+  visibleList: (scope: UserResourceScopeSelection, params?: UserResourceListParams) =>
+    ['deployments', 'me', ...userResourceScopeKey(scope), userResourceListParamsKey(params), 'infinite'] as const,
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,
   runtime: (id: string) => ['deployments', 'detail', id, 'runtime'] as const,
@@ -186,6 +199,9 @@ export const auditLogKeys = {
 };
 
 export const knowledgeKeys = {
+  visibleLists: ['knowledge', 'me'] as const,
+  visibleList: (scope: UserResourceScopeSelection, params?: UserResourceListParams) =>
+    ['knowledge', 'me', ...userResourceScopeKey(scope), userResourceListParamsKey(params), 'infinite'] as const,
   all: (account: string) => ['knowledge', account] as const,
   detail: (account: string, name: string) => ['knowledge', account, name] as const,
   credentials: (account: string, name: string) => ['knowledge', account, name, 'credentials'] as const,

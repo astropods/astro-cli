@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getActiveAccount, loadAccountScoped } from "./api.server";
+import { createServerApi, getActiveAccount, loadAccountScoped } from "./api.server";
 import { ApiClient, type AuthResponse } from "./api";
 
 // AuthResponse has a lot of required fields we don't care about for these
@@ -68,6 +68,28 @@ describe("getActiveAccount", () => {
   it("returns null when the user has no accounts at all", async () => {
     vi.spyOn(ApiClient.prototype, "getCurrentUser").mockResolvedValue(asAuth({ accounts: [] }));
     expect(await getActiveAccount(req())).toBeNull();
+  });
+});
+
+describe("createServerApi", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("aborts the upstream fetch when the SSR request is cancelled", async () => {
+    const controller = new AbortController();
+    const request = new Request("http://localhost/agents", { signal: controller.signal });
+    let upstreamSignal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+      upstreamSignal = init?.signal;
+      return new Promise<Response>((_, reject) => {
+        upstreamSignal?.addEventListener("abort", () => reject(upstreamSignal?.reason), { once: true });
+      });
+    });
+
+    const pending = createServerApi(request).getCurrentUser();
+    controller.abort(new DOMException("navigation cancelled", "AbortError"));
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(upstreamSignal?.aborted).toBe(true);
   });
 });
 

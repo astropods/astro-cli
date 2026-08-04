@@ -91,7 +91,9 @@ export function ConfigureForm({
   }, [searchParams, setSearchParams]);
 
   function handleSupabaseConnect() {
-    supabaseConnect.mutate("/knowledge/new?provider=supabase", {
+    const returnParams = new URLSearchParams({ provider: "supabase" });
+    returnParams.set("account", account);
+    supabaseConnect.mutate(`/knowledge/new?${returnParams}`, {
       onSuccess: (data) => {
         // A redirect_url starts the OAuth dance; otherwise the account is already
         // connected server-side and we just need to (re)load the project list.
@@ -147,7 +149,7 @@ export function ConfigureForm({
 
   function onMutationSuccess(store: KnowledgeStore) {
     if (store.status === "ready") {
-      navigate(knowledgeDetailPath(store.name), { replace: true });
+      navigate(knowledgeDetailPath(store.name, account), { replace: true });
     } else {
       dispatch({ step: "provisioning", submittedName: store.name });
     }
@@ -271,7 +273,7 @@ export function ConfigureForm({
             <Link to={knowledgePath}>Back to stores</Link>
           </Button>
           <Button asChild>
-            <Link to={knowledgeDetailPath(formState.submittedName)}>View store →</Link>
+            <Link to={knowledgeDetailPath(formState.submittedName, account)}>View store →</Link>
           </Button>
         </div>
       </div>
@@ -291,7 +293,7 @@ export function ConfigureForm({
             <Link to={knowledgePath}>Back to Knowledge Stores</Link>
           </Button>
           <Button asChild>
-            <Link to={knowledgeDetailPath(formState.submittedName)}>View store details</Link>
+            <Link to={knowledgeDetailPath(formState.submittedName, account)}>View store details</Link>
           </Button>
         </div>
       </div>

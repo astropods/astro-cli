@@ -1,15 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
-import { getActiveAccount } from "@/lib/api.server";
+import { loadUserResourceScoped } from "@/lib/api.server";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
-import { PageScopeSwitcher } from "@/components/PageScopeSwitcher";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
-import { useDeployments } from "@/api/queries/deployments";
+import { USER_DEPLOYMENTS_PAGE_SIZE, useUserDeployments } from "@/api/queries/deployments";
 import { deploymentKeys } from "@/api/queries/keys";
 import { useAuth } from "@/lib/auth";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
+import { firstInfinitePage } from "@/hooks/use-prime-query-cache";
+import { useAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useUserResourceSearch } from "@/hooks/use-user-resource-search";
+import { resolveUserResourceScope } from "@/lib/user-resource-scope";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
 import type { AgentDeploymentSummary, AvatarColors } from "@/lib/api";
@@ -18,17 +22,14 @@ export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 
 // Inline (not loadAccountScoped) to prime the deployments cache before render.
 export async function loader({ request }: Route.LoaderArgs) {
-  const ctx = await getActiveAccount(request);
-  if (!ctx) {
-    return { account: null, deployments: null };
-  }
-  const deployments = await ctx.api.listDeployments(ctx.accountName).catch(() => null);
-  return { account: ctx.accountName, deployments };
+  return loadUserResourceScoped(request, (api, scope) =>
+    api.listUserDeployments(scope, { limit: USER_DEPLOYMENTS_PAGE_SIZE }),
+  );
 }
 
 
 function AgentDashboardInner() {
-  const { isAuthenticated } = useAuth();
+  const { accounts, isAuthenticated } = useAuth();
   const { activeAccount: userAccount } = useActiveAccount();
   const location = useLocation();
   const navigate = useNavigate();
@@ -46,9 +47,22 @@ function AgentDashboardInner() {
     } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
-  const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
-
-  const deployments = data?.deployments ?? [];
+  const [accountFilters, setAccountFilters] = useAccountFilterParam();
+  const scope = useMemo(
+    () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
+    [accountFilters, accounts],
+  );
+  const { search, setSearch, params } = useUserResourceSearch();
+  const deploymentsQuery = useUserDeployments(scope, params, isAuthenticated);
+  const deploymentPages = deploymentsQuery.data?.pages ?? [];
+  const pagination = useCursorPagination({
+    pages: deploymentPages,
+    hasNextPage: !!deploymentsQuery.hasNextPage,
+    isFetchingNextPage: deploymentsQuery.isFetchingNextPage,
+    fetchNextPage: deploymentsQuery.fetchNextPage,
+    resetKey: JSON.stringify([scope.all, scope.accounts, params]),
+  });
+  const deployments = pagination.page?.deployments ?? [];
 
 
   const clearRevealState = () => {
@@ -62,14 +76,23 @@ function AgentDashboardInner() {
       >
         <PageHeader
           title="Agents"
-          description="Deployed agents running in your account."
-          action={<PageScopeSwitcher />}
+          description="Deployed agents running across your accounts."
         />
 
         <DeployedAgentsSection
           deployments={deployments}
           account={userAccount}
-          isLoading={isLoading}
+          isLoading={deploymentsQuery.isPending}
+          isError={deploymentsQuery.isError}
+          onRetry={() => void deploymentsQuery.refetch()}
+          accountFilters={accountFilters}
+          onAccountFiltersChange={setAccountFilters}
+          search={search}
+          onSearchChange={setSearch}
+          currentPage={pagination.currentPage}
+          totalPages={pagination.totalPages}
+          isChangingPage={deploymentsQuery.isFetchingNextPage}
+          onPageChange={pagination.onPageChange}
           skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
         />
       </PageContainer>
@@ -96,8 +119,11 @@ function AgentDashboardInner() {
 
 export default function AgentDashboard({ loaderData }: Route.ComponentProps) {
   usePrimeQueryCache(loaderData, (qc, ld) => {
-    if (!ld?.account) return;
-    if (ld.deployments) qc.setQueryData(deploymentKeys.all(ld.account), ld.deployments);
+    if (!ld?.scope || !ld.data) return;
+    qc.setQueryData(
+      deploymentKeys.visibleList(ld.scope, { limit: USER_DEPLOYMENTS_PAGE_SIZE }),
+      firstInfinitePage(ld.data),
+    );
   });
 
   return <AgentDashboardInner />;

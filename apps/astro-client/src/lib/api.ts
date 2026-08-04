@@ -19,6 +19,10 @@ import type {
   InteractionResponseAck,
   InteractionResponseBody,
 } from "./chat/interaction";
+import type { UserResourceScopeSelection } from "./user-resource-scope";
+import type { UserResourceListParams } from "./user-resource-list-params";
+
+type UserResourceListOptions = UserResourceListParams & { cursor?: string };
 
 function buildQS(params?: Record<string, string | undefined>): string {
   if (!params) return '';
@@ -28,6 +32,22 @@ function buildQS(params?: Record<string, string | undefined>): string {
   }
   const encoded = qs.toString();
   return encoded ? `?${encoded}` : '';
+}
+
+function buildUserResourceQuery(
+  scope: UserResourceScopeSelection,
+  options?: UserResourceListOptions,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (scope.all) {
+    params.set("scope", "all");
+  } else {
+    scope.accounts.forEach((account) => params.append("account", account));
+  }
+  if (options?.q?.trim()) params.set("q", options.q.trim());
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.cursor) params.set("cursor", options.cursor);
+  return params;
 }
 
 // ============================================================================
@@ -231,6 +251,22 @@ export interface AccountMembersResponse {
   members: AccountMember[];
 }
 
+export interface UserResourcePage {
+  limit: number;
+  next_cursor?: string;
+}
+
+export interface UserResourceScope {
+  accounts: string[];
+  all: boolean;
+}
+
+export interface UserResourceResponse {
+  page: UserResourcePage;
+  scope: UserResourceScope;
+  rejected_accounts?: string[];
+}
+
 export interface InviteEntry {
   value: string;
   kind: 'email' | 'account';
@@ -348,6 +384,14 @@ export interface BlueprintsListResponse {
   offset?: number;
   has_more?: boolean;
 }
+
+export interface UserBlueprintsResponse extends UserResourceResponse {
+  blueprints: Blueprint[];
+}
+
+export type UserBlueprintListParams = Omit<BlueprintListParams, "offset"> & {
+  cursor?: string;
+};
 
 export interface HeartedAgent {
   account: string;
@@ -866,6 +910,8 @@ export interface AgentDeploymentSummary {
   messaging_web_configured?: boolean;
   created_at: string;
   updated_at?: string;
+  account_id?: string;
+  account_name?: string;
 }
 
 // ============================================================================
@@ -994,6 +1040,10 @@ export interface CreateDeploymentFileResponse {
 export interface DeploymentsListResponse {
   deployments: AgentDeploymentSummary[];
   count: number;
+}
+
+export interface UserDeploymentsResponse extends UserResourceResponse {
+  deployments: AgentDeploymentSummary[];
 }
 
 export interface DeploymentSummaryItem {
@@ -1842,9 +1892,15 @@ export interface KnowledgeStore {
   updated_at: string;
   events?: KnowledgeEvent[];
   bound_agents?: BoundAgent[];
+  account_id?: string;
+  account?: string;
 }
 
 export type KnowledgeStoreListResponse = KnowledgeStore[];
+
+export interface UserKnowledgeStoresResponse extends UserResourceResponse {
+  stores: KnowledgeStore[];
+}
 
 export interface KnowledgeMetrics {
   cpu_cores: number | null;
@@ -2252,11 +2308,18 @@ class ApiClient {
   private baseUrl: string;
   private authUrl: string;
   private defaultHeaders: Record<string, string>;
+  private defaultSignal?: AbortSignal;
 
-  constructor(baseUrl: string = '', authUrl: string = '', defaultHeaders: Record<string, string> = {}) {
+  constructor(
+    baseUrl: string = '',
+    authUrl: string = '',
+    defaultHeaders: Record<string, string> = {},
+    defaultSignal?: AbortSignal,
+  ) {
     this.baseUrl = baseUrl;
     this.authUrl = authUrl;
     this.defaultHeaders = defaultHeaders;
+    this.defaultSignal = defaultSignal;
   }
 
   // --------------------------------------------------------------------------
@@ -2289,6 +2352,7 @@ class ApiClient {
       ...init,
       credentials: 'include',
       headers,
+      signal: init.signal ?? this.defaultSignal,
     });
 
     if (!response.ok) {
@@ -2512,6 +2576,21 @@ class ApiClient {
     return this.request<BlueprintsListResponse>(`${base}?${qs}`);
   }
 
+  async listUserBlueprints(
+    scope: UserResourceScopeSelection,
+    params?: UserBlueprintListParams,
+  ): Promise<UserBlueprintsResponse> {
+    const query = buildUserResourceQuery(scope, {
+      q: params?.q,
+      limit: params?.limit,
+      cursor: params?.cursor,
+    });
+    if (params?.tag?.trim()) query.set("tag", params.tag.trim());
+    if (params?.visibility) query.set("visibility", params.visibility);
+    if (params?.sort) query.set("sort", params.sort);
+    return this.request<UserBlueprintsResponse>(`/api/v1/me/blueprints?${query}`);
+  }
+
   async getBlueprint(account: string, name: string): Promise<Blueprint> {
     return this.request<Blueprint>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`
@@ -2628,6 +2707,22 @@ class ApiClient {
     return this.request<DeploymentsListResponse>(
       `/api/v1/deployments?account=${encodeURIComponent(account)}`
     );
+  }
+
+  async listUserDeployments(
+    scope: UserResourceScopeSelection,
+    options?: UserResourceListOptions,
+  ): Promise<UserDeploymentsResponse> {
+    const query = buildUserResourceQuery(scope, options);
+    return this.request<UserDeploymentsResponse>(`/api/v1/me/deployments?${query}`);
+  }
+
+  async getUserDeploymentSummaries(
+    deploymentIDs: string[],
+  ): Promise<DeploymentSummariesResponse> {
+    const query = new URLSearchParams();
+    deploymentIDs.forEach((id) => query.append("deployment", id));
+    return this.request<DeploymentSummariesResponse>(`/api/v1/me/deployment-summaries?${query}`);
   }
 
   async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
@@ -3334,6 +3429,14 @@ class ApiClient {
     return this.request<KnowledgeStoreListResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`
     );
+  }
+
+  async listUserKnowledgeStores(
+    scope: UserResourceScopeSelection,
+    options?: UserResourceListOptions,
+  ): Promise<UserKnowledgeStoresResponse> {
+    const query = buildUserResourceQuery(scope, options);
+    return this.request<UserKnowledgeStoresResponse>(`/api/v1/me/knowledge?${query}`);
   }
 
   async getKnowledgeStore(account: string, name: string): Promise<KnowledgeStore> {

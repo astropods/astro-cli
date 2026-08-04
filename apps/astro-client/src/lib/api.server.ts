@@ -1,12 +1,17 @@
 import { ApiClient, type AuthResponse } from "./api";
 import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./active-account";
+import {
+  resolvePageAccount,
+  resolveUserResourceScope,
+  type UserResourceScopeSelection,
+} from "./user-resource-scope";
 
 export { ACTIVE_ACCOUNT_COOKIE };
 
 export function createServerApi(request: Request): ApiClient {
   const apiUrl = process.env.API_URL || "http://localhost:8080";
   const cookie = request.headers.get("cookie") || "";
-  return new ApiClient(apiUrl, apiUrl, { cookie });
+  return new ApiClient(apiUrl, apiUrl, { cookie }, request.signal);
 }
 
 // Per-request memo of `/me`: React Router runs root + page loaders in
@@ -49,6 +54,45 @@ export async function getActiveAccount(request: Request) {
     return account ? { api, accountName: account.name } : null;
   } catch {
     return null;
+  }
+}
+
+/** Resolves a page-local single account without changing the active-account cookie. */
+export async function getPageAccount(request: Request, param = "account") {
+  const active = await getActiveAccount(request);
+  if (!active) return null;
+  try {
+    const auth = await getCurrentUserForRequest(request);
+    const memberships = auth.accounts?.map((account) => account.name) ?? [];
+    const requested = new URL(request.url).searchParams.get(param);
+    return {
+      api: active.api,
+      accountName: resolvePageAccount(requested, memberships, active.accountName),
+    };
+  } catch {
+    return active;
+  }
+}
+
+/**
+ * Loads the first page for a URL-backed multi-account read. The same canonical
+ * scope is returned so the route can prime the matching infinite-query key.
+ */
+export async function loadUserResourceScoped<T>(
+  request: Request,
+  fetch: (api: ApiClient, scope: UserResourceScopeSelection) => Promise<T>,
+): Promise<{ scope: UserResourceScopeSelection | null; data: T | null }> {
+  try {
+    const api = createServerApi(request);
+    const auth = await getCurrentUserForRequest(request);
+    const memberships = auth.accounts?.map((account) => account.name) ?? [];
+    if (memberships.length === 0) return { scope: null, data: null };
+    const requested = new URL(request.url).searchParams.getAll("account");
+    const scope = resolveUserResourceScope(requested, memberships);
+    const data = await fetch(api, scope).catch(() => null);
+    return { scope, data };
+  } catch {
+    return { scope: null, data: null };
   }
 }
 

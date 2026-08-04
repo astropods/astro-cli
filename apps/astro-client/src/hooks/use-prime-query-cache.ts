@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 
 /**
  * Synchronously primes the React Query cache from SSR loader data so the
@@ -16,4 +16,8 @@ export function usePrimeQueryCache<T>(
   // defeat the loaderData-keyed memoization.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useMemo(() => setup(queryClient, loaderData), [queryClient, loaderData]);
+}
+
+export function firstInfinitePage<T>(page: T): InfiniteData<T, string | undefined> {
+  return { pages: [page], pageParams: [undefined] };
 }

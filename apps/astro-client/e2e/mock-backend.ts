@@ -15,9 +15,11 @@ const AGENT_KNOWLEDGE_BINDINGS = "knowledge-bindings";
 const AGENT_XACCT_UPGRADE = "xacct-upgrade-bot";
 const AGENT_XACCT_COLLISION = "xacct-collision-bot";
 const AGENT_XACCT_PRIVATE = "xacct-private-bot";
+const AGENT_ORG_SUPPORT = "org-support-bot";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
+const DEPLOYMENT_ORG_SUPPORT_ID = "dep-org-support-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
 const DEPLOYMENT_KNOWLEDGE_BINDINGS_ID = "dep-knowledge-bindings-1";
@@ -653,6 +655,22 @@ const makeInitialDeployments = () => [
     workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
+  {
+    id: DEPLOYMENT_ORG_SUPPORT_ID,
+    name: AGENT_ORG_SUPPORT,
+    display_name: "Org Support Bot",
+    build_id: "build-org-support-1",
+    latest_build_id: "build-org-support-1",
+    namespace: "astro-org-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
+    jobs: [],
+  },
 ];
 
 let deployments = makeInitialDeployments();
@@ -690,6 +708,21 @@ const knowledgeStores = [
     provider: "postgres",
     mode: "external",
     status: "ready",
+    public: false,
+    created_at: nowIso,
+    updated_at: nowIso,
+  },
+];
+
+const orgKnowledgeStores = [
+  {
+    id: "ks-org-postgres",
+    arn: `arn:astro:knowledge:${ORG_ACCOUNT}:org-postgres`,
+    name: "org-postgres",
+    provider: "postgres",
+    mode: "managed",
+    status: "ready",
+    storage: "10Gi",
     public: false,
     created_at: nowIso,
     updated_at: nowIso,
@@ -789,6 +822,11 @@ const publisherAgents = {
   count: 3,
 };
 
+const orgAgents = {
+  agents: [buildAgent(ORG_ACCOUNT, AGENT_ORG_SUPPORT, ["build-org-support-1"], "private")],
+  count: 1,
+};
+
 const corsHeaders = (origin?: string | null) => ({
   "access-control-allow-origin": origin || "http://127.0.0.1:44317",
   "access-control-allow-credentials": "true",
@@ -802,6 +840,28 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { "content-type": "application/json", ...corsHeaders(_currentOrigin) },
   });
+
+function selectedAccounts(url: URL): string[] {
+  return url.searchParams.get("scope") === "all"
+    ? [ACCOUNT, ORG_ACCOUNT]
+    : url.searchParams.getAll("account");
+}
+
+function cursorPage<T>(items: T[], url: URL) {
+  const limit = Math.max(1, Number(url.searchParams.get("limit")) || 50);
+  const offset = Math.max(0, Number(url.searchParams.get("cursor")) || 0);
+  const pageItems = items.slice(offset, offset + limit);
+  const nextOffset = offset + pageItems.length;
+  const hasMore = nextOffset < items.length;
+  return {
+    items: pageItems,
+    page: {
+      limit,
+      has_more: hasMore,
+      ...(hasMore ? { next_cursor: String(nextOffset) } : {}),
+    },
+  };
+}
 
 Bun.serve({
   hostname: "127.0.0.1",
@@ -858,6 +918,77 @@ Bun.serve({
     if (pathname === "/auth/switch-org") return json(makeAuthResponse());
     if (pathname === "/auth/login") return new Response("ok");
     if (pathname.startsWith("/auth/logout")) return new Response("ok");
+
+    if (pathname === "/api/v1/me/blueprints" && request.method === "GET") {
+      const selected = selectedAccounts(url);
+      const query = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+      const candidates = [
+        ...accountAgents.agents,
+        ...orgAgents.agents,
+      ].filter((agent) => selected.includes(agent.account));
+      const filtered = query
+        ? candidates.filter((agent) => agent.name.toLowerCase().includes(query))
+        : candidates;
+      const ordered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+      const result = cursorPage(ordered, url);
+      return json({
+        blueprints: result.items,
+        page: result.page,
+        scope: { accounts: selected, all: url.searchParams.get("scope") === "all" },
+      });
+    }
+
+    if (pathname === "/api/v1/me/deployments" && request.method === "GET") {
+      const selected = selectedAccounts(url);
+      const query = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+      const candidates = deployments
+        .map((deployment) => ({
+          ...deployment,
+          messaging_web_configured: true,
+          account_id: deployment.id === DEPLOYMENT_ORG_SUPPORT_ID ? ORG_ACCOUNT_ID : "acct-1",
+          account_name: deployment.id === DEPLOYMENT_ORG_SUPPORT_ID ? ORG_ACCOUNT : ACCOUNT,
+        }))
+        .filter((deployment) => selected.includes(deployment.account_name))
+        .filter(
+          (deployment) =>
+            !query ||
+            deployment.name.toLowerCase().includes(query) ||
+            deployment.display_name.toLowerCase().includes(query),
+        );
+      const result = cursorPage(candidates, url);
+      return json({
+        deployments: result.items,
+        page: result.page,
+        scope: { accounts: selected, all: url.searchParams.get("scope") === "all" },
+      });
+    }
+
+    if (pathname === "/api/v1/me/knowledge" && request.method === "GET") {
+      const selected = selectedAccounts(url);
+      const candidates = [
+        ...knowledgeStores.map((store) => ({ ...store, account_id: "acct-1", account: ACCOUNT })),
+        ...orgKnowledgeStores.map((store) => ({ ...store, account_id: ORG_ACCOUNT_ID, account: ORG_ACCOUNT })),
+      ].filter((store) => selected.includes(store.account));
+      const result = cursorPage(candidates, url);
+      return json({
+        stores: result.items,
+        page: result.page,
+        scope: { accounts: selected, all: url.searchParams.get("scope") === "all" },
+      });
+    }
+
+    if (pathname === "/api/v1/me/deployment-summaries" && request.method === "GET") {
+      const summaries = Object.fromEntries(
+        url.searchParams.getAll("deployment").map((id, index) => [id, {
+          total_traces: index + 1,
+          last_trace_at: nowIso,
+          request_series: [0, index + 1],
+          token_series: [0, (index + 1) * 100],
+          cost_series: [0, (index + 1) / 100],
+        }]),
+      );
+      return json({ summaries });
+    }
 
     const templateMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)\/([^/]+)\/deployment-template$/);
     if (templateMatch) {
@@ -1169,6 +1300,9 @@ Bun.serve({
       }
       if (accountName === CROSS_ACCOUNT_PUBLISHER) {
         return json(publisherAgents);
+      }
+      if (accountName === ORG_ACCOUNT) {
+        return json(orgAgents);
       }
       return json({ agents: [], count: 0 });
     }

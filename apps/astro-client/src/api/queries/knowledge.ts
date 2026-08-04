@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { knowledgeKeys } from "./keys";
 import type {
@@ -7,6 +7,53 @@ import type {
   UpdateKnowledgeCredentialsInput,
   KnowledgeStore,
 } from "@/lib/api";
+import type { UserResourceScopeSelection } from "@/lib/user-resource-scope";
+import type { UserResourceListParams } from "@/lib/user-resource-list-params";
+import {
+  isUserResourceQueryEnabled,
+  nextUserResourceCursor,
+  USER_RESOURCE_PAGE_SIZE,
+  USER_RESOURCE_STALE_TIME_MS,
+} from "./user-resources";
+
+export const USER_KNOWLEDGE_PAGE_SIZE = USER_RESOURCE_PAGE_SIZE;
+
+function invalidateKnowledgeLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  account: string,
+) {
+  queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+  queryClient.invalidateQueries({ queryKey: knowledgeKeys.visibleLists });
+}
+
+export function useUserKnowledgeStores(
+  scope: UserResourceScopeSelection,
+  params: UserResourceListParams = {},
+  enabled = true,
+) {
+  const api = useApiClient();
+  const listParams = { ...params, limit: USER_KNOWLEDGE_PAGE_SIZE };
+  return useInfiniteQuery({
+    queryKey: knowledgeKeys.visibleList(scope, listParams),
+    queryFn: ({ pageParam }) => api.listUserKnowledgeStores(scope, {
+      ...listParams,
+      cursor: pageParam,
+    }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: nextUserResourceCursor,
+    enabled: isUserResourceQueryEnabled(scope, enabled),
+    staleTime: USER_RESOURCE_STALE_TIME_MS,
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? [];
+      const transitional = pages.some((page) =>
+        page.stores.some((store) =>
+          ["provisioning", "connecting", "pending-acceptance"].includes(store.status),
+        ),
+      );
+      return transitional ? 3000 : false;
+    },
+  });
+}
 
 export function useKnowledgeStores(account: string, enabled = true) {
   const api = useApiClient();
@@ -99,7 +146,7 @@ export function useCreateKnowledgeStore(account: string) {
   return useMutation<KnowledgeStore, Error, CreateKnowledgeStoreInput>({
     mutationFn: (data) => api.createKnowledgeStore(account, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      invalidateKnowledgeLists(queryClient, account);
     },
   });
 }
@@ -110,7 +157,7 @@ export function useConnectKnowledgeStore(account: string) {
   return useMutation<KnowledgeStore, Error, ConnectKnowledgeStoreInput>({
     mutationFn: (data) => api.connectKnowledgeStore(account, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      invalidateKnowledgeLists(queryClient, account);
     },
   });
 }
@@ -121,7 +168,7 @@ export function useDeleteKnowledgeStore(account: string) {
   return useMutation<{ message: string }, Error, { name: string }>({
     mutationFn: ({ name }) => api.deleteKnowledgeStore(account, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      invalidateKnowledgeLists(queryClient, account);
     },
   });
 }
@@ -135,7 +182,7 @@ export function useUpdateKnowledgeCredentials(account: string, name: string) {
   return useMutation<KnowledgeStore, Error, UpdateKnowledgeCredentialsInput>({
     mutationFn: (data) => api.updateKnowledgeCredentials(account, name, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      invalidateKnowledgeLists(queryClient, account);
       queryClient.invalidateQueries({ queryKey: knowledgeKeys.detail(account, name) });
       queryClient.invalidateQueries({ queryKey: knowledgeKeys.credentials(account, name) });
     },
@@ -150,7 +197,7 @@ export function useRecheckKnowledgeStore(account: string) {
   return useMutation<KnowledgeStore, Error, { name: string }>({
     mutationFn: ({ name }) => api.recheckKnowledgeStore(account, name),
     onSuccess: (store) => {
-      queryClient.invalidateQueries({ queryKey: knowledgeKeys.all(account) });
+      invalidateKnowledgeLists(queryClient, account);
       queryClient.invalidateQueries({ queryKey: knowledgeKeys.detail(account, store.name) });
     },
   });

@@ -1,8 +1,11 @@
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
+import { FilteredEmptyState } from "@/components/FilteredEmptyState";
+import { ListPagination } from "@/components/ListPagination";
+import { ActionPanel } from "@/components/ui/status-panel";
 import { DashboardAgentsEmptyState } from "./DashboardAgentsEmptyState";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
-import { useDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
+import { useVisibleDeploymentSummaryMaps } from "./useDeploymentSummaryMaps";
 import type { AgentDeploymentSummary } from "@/lib/api";
 
 // Kept for the LiveReveal flow only: when a newly-deployed agent is revealing
@@ -27,6 +30,16 @@ interface DeployedAgentsSectionProps {
   deployments: AgentDeploymentSummary[];
   account: string;
   isLoading: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
+  accountFilters?: string[];
+  onAccountFiltersChange?: (accounts: string[]) => void;
+  search?: string;
+  onSearchChange?: (value: string) => void;
+  currentPage?: number;
+  totalPages?: number;
+  isChangingPage?: boolean;
+  onPageChange?: (page: number) => void;
   skeletonDeploymentId?: string | null;
 }
 
@@ -34,32 +47,64 @@ export function DeployedAgentsSection({
   deployments,
   account,
   isLoading,
+  isError = false,
+  onRetry = () => {},
+  accountFilters = [],
+  onAccountFiltersChange = () => {},
+  search = "",
+  onSearchChange = () => {},
+  currentPage = 1,
+  totalPages = 0,
+  isChangingPage = false,
+  onPageChange = () => {},
   skeletonDeploymentId,
 }: DeployedAgentsSectionProps) {
-  const { requestCounts, requestSeries, tokenSeries } = useDeploymentSummaryMaps(
-    account,
+  const { requestCounts, requestSeries, tokenSeries } = useVisibleDeploymentSummaryMaps(deployments);
+
+  const { filtered, toolbarProps } = useAgentFilters(
     deployments,
+    requestCounts,
+    { filter: search, onFilterChange: onSearchChange },
   );
+  const hasTextFilter = toolbarProps.filter.trim().length > 0;
+  const hasActiveFilters = hasTextFilter || accountFilters.length > 0;
+  const clearFilters = () => {
+    toolbarProps.onFilterChange("");
+    onAccountFiltersChange([]);
+  };
 
-  const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
-  const isEmpty = !isLoading && deployments.length === 0;
+  if (isError && deployments.length === 0) {
+    return (
+      <div role="alert">
+        <ActionPanel tone="error" title="Couldn't load agents" primaryLabel="Retry" onPrimary={onRetry}>
+          The agents list is temporarily unavailable.
+        </ActionPanel>
+      </div>
+    );
+  }
 
-  if (isEmpty) {
+  const showToolbar = isLoading || deployments.length > 0 || hasActiveFilters;
+  const showFilteredEmpty = !isLoading && filtered.length === 0 && hasActiveFilters;
+  const showDashboardEmpty = !isLoading && deployments.length === 0 && !hasActiveFilters;
+
+  if (showDashboardEmpty) {
     return <DashboardAgentsEmptyState account={account} />;
   }
 
   return (
     <>
-      <div className="mb-4">
-        <DashboardToolbar {...toolbarProps} />
-      </div>
-
-      {filtered.length === 0 && (
-        <div className="flex items-center justify-center py-16">
-          <p className="text-body-sm text-muted-foreground">
-            No agents match your search.
-          </p>
+      {showToolbar && (
+        <div className="mb-4">
+          <DashboardToolbar
+            {...toolbarProps}
+            accountFilters={accountFilters}
+            onAccountFiltersChange={onAccountFiltersChange}
+          />
         </div>
+      )}
+
+      {showFilteredEmpty && (
+        <FilteredEmptyState message="No agents match your filters." onClear={clearFilters} />
       )}
       {filtered.length > 0 && (
         <div className="grid grid-cols-1 gap-3 @[440px]:grid-cols-2 @[680px]:grid-cols-3 @[920px]:grid-cols-4 @[920px]:gap-4 @[1180px]:grid-cols-5 @[1180px]:gap-5">
@@ -67,11 +112,12 @@ export function DeployedAgentsSection({
             if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
               return <AgentCardSkeleton key={deployment.id} />;
             }
+            const ownerAccount = deployment.account_name || account;
             return (
               <DeploymentAgentCard
                 key={deployment.id}
                 deployment={deployment}
-                account={account}
+                account={ownerAccount}
                 requestSeries={requestSeries.get(deployment.id)}
                 tokenSeries={tokenSeries.get(deployment.id)}
               />
@@ -79,6 +125,13 @@ export function DeployedAgentsSection({
           })}
         </div>
       )}
+      <ListPagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        disabled={isChangingPage}
+        ariaLabel="Agent list pagination"
+      />
     </>
   );
 }
