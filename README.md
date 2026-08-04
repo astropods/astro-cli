@@ -64,7 +64,6 @@ The pre-commit hook runs `gofmt` on staged Go files.
 │   ├── astro-cli/          # ast CLI (Go): build, push, deploy, local dev
 │   ├── astro-infra/        # Infrastructure as code
 │   ├── blog/               # Astro blog
-│   ├── cli-public/         # Public ast CLI mirror
 │   ├── messaging/          # Messaging SDK and sidecar service
 │   └── website/            # Astro marketing website
 ├── deployment/             # Dockerfiles and moon tasks for service images

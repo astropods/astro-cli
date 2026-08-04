@@ -1,9 +1,6 @@
 [submodule "modules/agents"]
 	path = modules/agents
 	url = git@github.com:astropods/agents.git
-[submodule "modules/cli-public"]
-	path = modules/cli-public
-	url = git@github.com:astropods/ast-cli.git
 [submodule "modules/adapters"]
 	path = modules/adapters
 	url = git@github.com:astropods/adapters.git
