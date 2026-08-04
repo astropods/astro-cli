@@ -50,7 +50,7 @@ Manages agent blueprints — the registered, versioned definitions of an agent o
 
 Top-level aliases: `ast build <name>`, `ast push <name>`, `ast deploy <name>`.
 
-**Deploy / redeploy flags** (shared by `blueprint deploy`, `deploy`, and `agent redeploy`): `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, `--json`. Blueprint deploy also supports `--name` / `-n` for display name.
+**Deploy / redeploy flags** (shared by `blueprint deploy`, `deploy`, and `agent redeploy`): `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, `--json`. Deploy also supports `--wait` (block until the public Launch URL is ready). Blueprint deploy also supports `--name` / `-n` for display name.
 
 ---
 
@@ -143,7 +143,6 @@ Manage CLI settings and shell completions.
 | `upgrade` | Upgrade the CLI to the latest version |
 | `docs [category]` | Display Astropods documentation in the terminal |
 | `knowledge` | Manage managed knowledge stores |
-| `connect` | Connect this device to Astropods (hidden) |
 
 ---
 
@@ -152,6 +151,7 @@ Manage CLI settings and shell completions.
 | Flag | Description |
 |---|---|
 | `--verbose, -v` | Verbose HTTP and operation output |
+| `--quiet, -q` | Minimal output |
 
 `-f/--file <path>` is not a global flag. It is a persistent flag on `spec` (inherited by its subcommands) and registered independently on `blueprint build` and `blueprint push`.
 

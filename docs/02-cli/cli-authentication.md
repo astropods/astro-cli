@@ -66,10 +66,10 @@ When keyring is unavailable, credentials are stored in `~/.ast/credentials.json`
 
 ```
 ~/.ast/
-└── credentials.json    # Profile metadata and server/registry URLs (tokens in keyring if available)
+└── credentials.json    # Profile metadata + accounts (tokens stored here only when the keyring is unavailable)
 ```
 
-Server and registry URLs are stored per profile. Registry is derived as `registry.<hostname>` from the host set at login (`ast login --host <url>`).
+The server URL is not stored per profile; it is fixed at build time (`buildinfo.DefaultServerURL`). The registry URL is derived from it at runtime as `registry.<hostname>` (via `RegistryURLFromServerURL`), unless a build overrides it with `buildinfo.DefaultRegistryURL`.
 
 ### Profile Structure
 
@@ -77,15 +77,17 @@ Server and registry URLs are stored per profile. Registry is derived as `registr
 {
   "profiles": {
     "default": {
-      "server_url": "https://api.astro.example.com",
-      "registry_url": "https://registry.astro.example.com",
-      "expires_at": "2025-01-15T10:00:00Z",
+      "expires_at": "2026-01-15T10:00:00Z",
       "user": {
         "id": "user_123",
         "email": "user@example.com",
         "first_name": "Jane",
         "last_name": "Doe"
       },
+      "accounts": [
+        { "id": "acct_1", "name": "jane", "type": "personal" },
+        { "id": "org_1", "name": "my-org", "type": "organization", "role": "admin", "workos_org_id": "org_..." }
+      ],
       "current_account": "my-org",
       "previous_account": "jane"
     }
@@ -93,6 +95,8 @@ Server and registry URLs are stored per profile. Registry is derived as `registr
   "current_profile": "default"
 }
 ```
+
+(`access_token`/`refresh_token` fields also appear here when the keyring is unavailable; otherwise they live in the keyring.)
 
 ### Active account on re-login
 
