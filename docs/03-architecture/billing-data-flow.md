@@ -31,7 +31,7 @@ rather than panicking. `BillingBackend()` defaults to `noop` when
 
 ## The interface
 
-`internal/billing/provider.go` — a single `BillingProvider` interface (all backends): `CreateCustomer`, `DeleteCustomer`, `IngestUsage`, `CheckBalance`, `GetUsage`.
+`internal/billing/provider.go` defines one `BillingProvider` interface (all backends): `CreateCustomer`, `DeleteCustomer`, `IngestUsage`, `SetIngestAliases`, `GetIngestAliases`, `UsageData`, `Invoices`, `InvoicePDF`, `Balances`.
 
 There is no hosted-only provisioning surface. Packaging/contracts, credit grants, and commits are **not** server operations — they are provisioned out-of-band (Metronome admin / Terraform). `noop` returns zero values (and is the default backend); `metronome` implements the real calls.
 
@@ -121,7 +121,7 @@ Key properties:
 Metered-consumption gating (compute, knowledge_storage) has no balance source
 wired, so the `middleware.Entitlements` gate is a **no-op**: `Wrap` passes through
 and `Check` never blocks. DB-backed resource quotas (`internal/quota`) still
-enforce counts and still return 402s. `CheckBalance` is implemented on every
+enforce counts and still return 402s. `Balances` is implemented on every
 provider but has no request-path caller; the seam is retained so it can be wired
 later.
 
@@ -131,7 +131,7 @@ flowchart TD
     QUOTA["quota.Wrap / quota.Check<br/>internal/quota"] --> Q402{"over DB limit?"}
     Q402 -->|yes| R402["402 (resource-count limit)"]
     Q402 -->|no| PASS
-    CB["provider.CheckBalance(...)<br/>implemented, no request-path caller"]:::todo
+    CB["provider.Balances(...)<br/>implemented, no request-path caller"]:::todo
     classDef todo stroke-dasharray: 5 5;
 ```
 
@@ -227,11 +227,11 @@ Notes:
 | Customer create / delete | ✅ | `handlers/accounts.go`, purge worker |
 | Usage metering (compute CU-hours) | ✅ | `BillingStateManager.RunBillingCycle` → `IngestUsage` |
 | Customer-id persistence | ✅ (backend-aware) | `account/store.go` |
-| Consumption gating (compute / knowledge_storage 402) | ➖ no-op | `middleware.Entitlements` passes through; `CheckBalance` unwired |
+| Consumption gating (compute / knowledge_storage 402) | ➖ no-op | `middleware.Entitlements` passes through; `Balances` unwired |
 | Resource-count limits (agents, deployments, …) | ✅ DB-backed | `internal/quota` (`quota.Wrap`/`Check`) |
-| Usage readback | ➖ quota counts only | `/usage` returns DB counts; `/usage/infrastructure` returns empty; `metronome.GetUsage` returns empty |
+| Usage readback | ➖ quota counts only | `/usage` returns DB counts; `/usage/infrastructure` returns empty; `metronome.UsageData` returns empty |
 | Packaging / contracts / credit grants | ➖ not a server concern | provisioned out-of-band (Metronome admin / Terraform) |
 | Payment method (card collection) | ➖ separate `payment.Provider` (Stripe) | `handlers/payment_methods.go`; linked to Metronome via `LinkStripeCustomer` |
 | AI-token metering | ❌ not yet emitted at the billing layer | — |
 
-Re-enabling consumption gating and usage readback (on `CheckBalance`/provider usage APIs) is the remaining hosted-cutover work.
+Re-enabling consumption gating and usage readback (on `Balances`/provider usage APIs) is the remaining hosted-cutover work.

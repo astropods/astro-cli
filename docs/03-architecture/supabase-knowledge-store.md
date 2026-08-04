@@ -96,7 +96,7 @@ flowchart TB
 | Client data | `api/queries/supabase.ts` | `useSupabaseStatus/Connect/Projects/Disconnect` hooks |
 | Client data | `api/queries/keys.ts`, `lib/api.ts` | `supabaseKeys` factory + `ApiClient` methods + `SupabaseProject` |
 | Client meta | `components/knowledge/knowledge-utils.ts`, `ProviderIcon.tsx` | Provider maps + Supabase logo |
-| Server | `handlers/supabase.go` | 5 handlers wrapping `pipes.Client`, plus the project fetch |
+| Server | `handlers/supabase.go` | 6 handlers wrapping `pipes.Client` (connect, status, projects, project health, disconnect, callback) |
 | Server | `internal/pipes/client.go` | WorkOS Pipes API (`GetAuthorizationURL`, `GetAccessToken`, `DeleteConnection`) |
 | Server | `main.go` | Route registration with the shared `pipesClient` |
 
@@ -178,6 +178,7 @@ public route.
 | POST | `/api/v1/accounts/:account/supabase/connect` | `SupabaseConnect` | `GetAccessToken` (short-circuit) then `GetAuthorizationURL` |
 | GET | `/api/v1/accounts/:account/supabase/status` | `SupabaseStatus` | `GetAccessToken` |
 | GET | `/api/v1/accounts/:account/supabase/projects` | `SupabaseListProjects` | `GetAccessToken` + `GET /v1/projects` |
+| GET | `/api/v1/accounts/:account/supabase/projects/:ref/health` | `SupabaseProjectHealth` | `GetAccessToken` + project health fetch |
 | DELETE | `/api/v1/accounts/:account/supabase` | `SupabaseDisconnect` | `DeleteConnection` |
 | GET | `/api/v1/accounts/:account/supabase/callback` | `SupabaseCallback` | `GetAccessToken` (confirm) |
 

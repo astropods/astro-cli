@@ -75,7 +75,7 @@ skopeo, crane, and the major cloud registries (ECR/GCR/GHCR) all speak it.
 | `internal/auth/registry_token.go` | Mint + verify registry-scope JWT. HS256 with `REGISTRY_TOKEN_SECRET`. |
 | `handlers/token.go` | `GET /token` — IdP-authenticated scope grant endpoint. |
 | `internal/middleware/auth.go` | `RequireAuth` accepts WorkOS *or* registry tokens; emits `WWW-Authenticate` on 401. |
-| `apps/astro-cli/cmd/push_streaming.go` | Sends `Username`/`Password` (not `RegistryToken`) so the daemon honors the realm flow. |
+| `modules/astro-cli/cmd/push_streaming.go` | Sends `Username`/`Password` (not `RegistryToken`) so the daemon honors the realm flow. |
 
 ### Token format
 

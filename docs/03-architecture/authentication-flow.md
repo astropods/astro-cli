@@ -217,9 +217,8 @@ For API clients, authentication can also be done via Bearer token in the Authori
 | `AUTH_COOKIE_DOMAIN` | No | - | Cookie domain |
 | `AUTH_COOKIE_SECURE` | No | `false` | Require HTTPS |
 | `AUTH_COOKIE_SAMESITE` | No | `Lax` | SameSite attribute |
-| `AUTH_COOKIE_MAX_AGE` | No | `168h` (7 days) | Cookie lifetime |
-| `AUTH_SESSION_MAX_AGE` | No | `24h` | Session lifetime |
-| `AUTH_ENABLED` | No | `true` | Enable/disable auth |
+| `AUTH_COOKIE_MAX_AGE` | No | `720h` (30 days) | Cookie lifetime |
+| `AUTH_SESSION_MAX_AGE` | No | `720h` (30 days) | Session lifetime |
 
 ## Endpoints
 
