@@ -184,9 +184,10 @@ func init() {
 	registerPushFlags(topLevelPushCmd)
 }
 
-// resolveSpecAndName resolves the spec path, validates it, and returns the agent name.
-// The name comes from args[0] if provided, otherwise from the spec's name field.
-func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name string, err error) {
+// resolveSpecAndName resolves the spec path, validates it, and returns the agent
+// name and the agent's declared runtime. The name comes from args[0] if
+// provided, otherwise from the spec's name field.
+func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name, runtime string, err error) {
 	specPath, err = resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return
@@ -199,16 +200,17 @@ func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name strin
 	if len(args) > 0 {
 		name = args[0]
 	}
+	runtime = astroSpec.Agent.Runtime()
 	return
 }
 
 func runBlueprintBuild(cmd *cobra.Command, args []string) error {
-	specPath, name, err := resolveSpecAndName(cmd, args)
+	specPath, name, runtime, err := resolveSpecAndName(cmd, args)
 	if err != nil {
 		return err
 	}
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-	platform, _ := resolveBuildPlatform(buildinfo.DefaultServerURL)
+	platform, _ := resolveBuildPlatform(buildinfo.DefaultServerURL, runtime)
 	return runBuild(cmd.Context(), specPath, name, generateBuildID(), []string{platform}, false, verbose, false)
 }
 
@@ -250,7 +252,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
-	platform, skipPush := resolveBuildPlatform(pushBaseURL())
+	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
 	return runPush(cmd.Context(), cmd.OutOrStdout(), at, PushPipelineConfig{
 		SpecPath:   specPath,
 		AgentName:  agentName,
