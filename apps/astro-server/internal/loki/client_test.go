@@ -463,6 +463,67 @@ func TestQueryLogs_LevelFromDetectedLevel(t *testing.T) {
 	}
 }
 
+func TestQueryLogs_LevelFromDetectedLevelMetadata(t *testing.T) {
+	// On query_range, detected_level rides in per-entry structured metadata
+	// unless the query promotes it with `| keep`. Without reading it here every
+	// entry came back level-less and the UI rendered errors as INFO.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "streams",
+				"result": [{
+					"stream": {"pod": "my-pod"},
+					"values": [
+						["1000000000", "boom", {"detected_level": "error"}],
+						["2000000000", "meh",  {"detected_level": "unknown"}]
+					]
+				}]
+			}
+		}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	lines, err := c.QueryLogs(context.Background(), QueryParams{Namespace: "astro-abc-0"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	if lines[0].Level != "error" {
+		t.Errorf("lines[0].Level = %q, want \"error\" (from detected_level metadata)", lines[0].Level)
+	}
+	if lines[1].Level != "" {
+		t.Errorf("lines[1].Level = %q, want empty (detected_level unknown)", lines[1].Level)
+	}
+}
+
+func TestQueryLogs_LevelFilterUsesDetectedLevel(t *testing.T) {
+	// `| level = "error"` matched nothing: the Alloy pipeline sets no `level`
+	// label, so the last-error probes always came back empty.
+	var gotQuery string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`)) //nolint:errcheck
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL)
+	if _, err := c.QueryLogs(context.Background(), QueryParams{
+		Namespace:   "astro-abc-0",
+		LevelFilter: "ERROR",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := `| detected_level = "error"`; !strings.Contains(gotQuery, want) {
+		t.Errorf("query = %q, want it to contain %q", gotQuery, want)
+	}
+}
+
 func TestQueryLogs_DetectedLevelUnknown_DiscardedAsEmpty(t *testing.T) {
 	// Loki sets detected_level to "unknown" when it can't parse a level from
 	// the log line. We discard it so the API returns an empty level instead.

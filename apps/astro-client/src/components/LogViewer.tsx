@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatLogTimestamp, levelColorClass, normalizeLevel, type LogEntry } from "@/lib/log-utils";
+import { entryLevel, formatLogTimestamp, levelColorClass, levelLabel, type LogEntry } from "@/lib/log-utils";
 import { useLogTimezone } from "@/lib/timezone";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
 
@@ -151,8 +151,8 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
       <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((vItem) => {
           const entry = filtered[vItem.index];
-          const level = normalizeLevel(entry.level);
-          const lvlClass = levelColorClass(entry.level);
+          const level = entryLevel(entry);
+          const lvlClass = levelColorClass(level);
           return (
             <div
               key={vItem.key}
@@ -165,7 +165,7 @@ export function LogViewer({ logs, isLoading = false, isCompact = false, timeRang
                 {formatLogTimestamp(entry.timestamp)}
               </span>
               <span className={cn("font-medium w-[5ch] shrink-0", lvlClass)}>
-                {level}
+                {levelLabel(level)}
               </span>
               <span className="text-foreground whitespace-nowrap">
                 {deferredSearch ? highlightText(entry.message, deferredSearch) : entry.message}

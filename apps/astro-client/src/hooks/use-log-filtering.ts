@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { normalizeLevel, type LogEntry } from "@/lib/log-utils";
+import { entryLevel, type LogEntry } from "@/lib/log-utils";
 
 export type LogFilter = "errors" | "warnings";
 
@@ -20,7 +20,7 @@ export function useLogFiltering(logs: LogEntry[]) {
     const result: LogEntry[] = [];
 
     for (const entry of logs) {
-      const level = normalizeLevel(entry.level);
+      const level = entryLevel(entry);
       const isErr = level === "ERROR" || level === "FATAL";
       const isWarn = level === "WARN";
       if (isErr) errs++;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeLevel, levelColorClass, formatLogTimestamp } from "./log-utils";
+import { normalizeLevel, entryLevel, levelLabel, levelColorClass, formatLogTimestamp } from "./log-utils";
 
 describe("normalizeLevel", () => {
   it("maps lowercase level strings", () => {
@@ -36,6 +36,29 @@ describe("normalizeLevel", () => {
   it("defaults to INFO for unknown values", () => {
     expect(normalizeLevel("verbose")).toBe("INFO");
     expect(normalizeLevel("notice")).toBe("INFO");
+  });
+});
+
+describe("entryLevel", () => {
+  it("uses the reported level when present", () => {
+    expect(entryLevel({ timestamp: null, level: "warn", message: "an error happened" })).toBe("WARN");
+  });
+
+  it("infers a level from the message when the backend reported none", () => {
+    expect(entryLevel({ timestamp: null, level: null, message: `{"level":"ERROR","msg":"boom"}` })).toBe("ERROR");
+    expect(entryLevel({ timestamp: null, level: "", message: "panic: nil map" })).toBe("ERROR");
+    expect(entryLevel({ timestamp: null, level: null, message: "WARN retrying" })).toBe("WARN");
+  });
+
+  it("is UNKNOWN, not INFO, when there is no level and no keyword", () => {
+    expect(entryLevel({ timestamp: null, level: null, message: "listening on :8080" })).toBe("UNKNOWN");
+  });
+});
+
+describe("levelLabel", () => {
+  it("renders UNKNOWN as a blank badge", () => {
+    expect(levelLabel("UNKNOWN")).toBe("");
+    expect(levelLabel("ERROR")).toBe("ERROR");
   });
 });
 

@@ -40,7 +40,7 @@ type QueryParams struct {
 	Start       time.Time
 	End         time.Time
 	Direction   string // "forward" (oldest first) or "backward"; default "forward"
-	LevelFilter string // optional — appends `| level = "<value>"` LogQL pipeline filter (e.g. "error")
+	LevelFilter string // optional — appends `| detected_level = "<value>"` LogQL pipeline filter (e.g. "error")
 }
 
 // LogLine is a single log entry returned from Loki.
@@ -73,7 +73,10 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	params := url.Values{}
 	query := buildSelector(p.Namespace, p.Cluster, p.Pod, p.Workload, p.Container)
 	if p.LevelFilter != "" {
-		query += ` | level = "` + p.LevelFilter + `"`
+		// Filter on detected_level, the structured-metadata label Loki 3.x
+		// attaches at ingest. Our Alloy pipeline sets no `level` label, so
+		// filtering on `level` matched nothing and hid every error.
+		query += ` | detected_level = "` + strings.ToLower(p.LevelFilter) + `"`
 	}
 	params.Set("query", query)
 	params.Set("limit", strconv.FormatInt(p.Limit, 10))
@@ -114,6 +117,10 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 				continue
 			}
 			// Prefer: structured metadata > explicit stream label > Loki auto-detected level.
+			// detected_level rides in per-entry structured metadata on query_range
+			// (it is only promoted to a stream label by an explicit `| keep`, which
+			// TailLogs does), so read it from both places or every entry here comes
+			// back level-less and renders as INFO.
 			// Loki sets detected_level to "unknown" when it can't parse a level
 			// from the log line — discard it so consumers see an empty string
 			// rather than a misleading value.
@@ -121,8 +128,8 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 			if level == "" {
 				level = streamLevel
 			}
-			if level == "" && detectedLevel != "unknown" {
-				level = detectedLevel
+			if level == "" {
+				level = firstKnownLevel(entry.Metadata["detected_level"], detectedLevel)
 			}
 			lines = append(lines, LogLine{
 				Timestamp: time.Unix(0, tsNano),
@@ -140,6 +147,17 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	})
 
 	return lines, nil
+}
+
+// firstKnownLevel returns the first candidate that names an actual level.
+// Loki writes "unknown" when it cannot parse one from the line.
+func firstKnownLevel(candidates ...string) string {
+	for _, c := range candidates {
+		if c != "" && c != "unknown" {
+			return c
+		}
+	}
+	return ""
 }
 
 // buildSelector constructs a LogQL stream selector from the given labels.

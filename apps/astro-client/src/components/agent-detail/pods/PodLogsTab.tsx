@@ -15,10 +15,11 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
+  entryLevel,
   formatLogTimestamp,
   formatLogTimestampCompact,
   levelColorClass,
-  normalizeLevel,
+  levelLabel,
   type LogEntry,
 } from "@/lib/log-utils";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
@@ -497,8 +498,8 @@ function LogOutput({
             <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
               {virtualizer.getVirtualItems().map((vItem) => {
                 const entry = logs[vItem.index];
-                const level = normalizeLevel(entry.level);
-                const lvlClass = levelColorClass(entry.level);
+                const level = entryLevel(entry);
+                const lvlClass = levelColorClass(level);
                 return (
                   <div
                     key={vItem.key}
@@ -517,7 +518,7 @@ function LogOutput({
                       {formatLogTimestampCompact(entry.timestamp)}
                     </span>
                     <span className={cn("w-[5ch] shrink-0 font-medium", lvlClass)}>
-                      {level}
+                      {levelLabel(level)}
                     </span>
                     <span className="text-foreground/70 dark:text-white/60">
                       {search ? highlightSearch(entry.message, search) : entry.message}

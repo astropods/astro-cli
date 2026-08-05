@@ -139,12 +139,8 @@ func streamLogs(
 		entries = filtered
 	}
 
-	// Reverse for backward direction (K8s returns oldest-first).
-	if lokiParams.Direction == "backward" {
-		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-			entries[i], entries[j] = entries[j], entries[i]
-		}
-	}
-
+	// Direction selects *which* lines a window returns (backward = the most
+	// recent), not their order: every page is oldest-first, matching the Loki
+	// path above and the client's cursor, which pages off entries[0].
 	c.JSON(http.StatusOK, entries)
 }
