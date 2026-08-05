@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
@@ -62,7 +63,7 @@ var (
 		"requests":         {},
 		"cost_per_request": {},
 		"tok_per_request":  {},
-		"p95_latency_ms":   {},
+		"last_seen":        {},
 	}
 	insightsPeopleSortKeys = map[string]struct{}{
 		"cost_usd":  {},
@@ -244,10 +245,38 @@ func ComputeInsightsWithParams(
 	if err := g.Wait(); err != nil {
 		return InsightsResponse{}, err
 	}
+	enrichDeploymentLastSeen(ctx, log, cache, &deployments)
 
 	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, devtoolFoldAll(devtoolRanges), now, params)
 	resp.MetricsUnavailable = summary.MetricsUnavailable || deployments.MetricsUnavailable || users.MetricsUnavailable
 	return resp, nil
+}
+
+// enrichDeploymentLastSeen overlays the precise latest trace timestamp from
+// the observability summary cache. The deployments summary is daily-grained,
+// so its existing LastSeen value remains the fallback for a missing cache row.
+func enrichDeploymentLastSeen(
+	ctx context.Context,
+	log *logger.Logger,
+	cache k8scache.Cache,
+	deployments *AccountDeploymentsSummaryResponse,
+) {
+	ids := make([]string, 0, len(deployments.Deployments))
+	for _, deployment := range deployments.Deployments {
+		if deployment.DeploymentID != "" {
+			ids = append(ids, deployment.DeploymentID)
+		}
+	}
+	entries, err := obssummary.GetMany(ctx, cache, ids)
+	if err != nil {
+		log.Warn("Insights last-used cache read", "error", err)
+	}
+	for i := range deployments.Deployments {
+		entry := entries[deployments.Deployments[i].DeploymentID]
+		if entry != nil && entry.LastTraceAt != "" {
+			deployments.Deployments[i].LastSeen = entry.LastTraceAt
+		}
+	}
 }
 
 func defaultInsightsRequestParams() insightsRequestParams {
@@ -850,6 +879,7 @@ func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryE
 				CostPerRequest: dep.CostPerRequest,
 				TokPerRequest:  dep.TokPerRequest,
 				P95LatencyMs:   dep.P95LatencyMs,
+				LastSeen:       dep.LastSeen,
 			},
 			NotInstrumented: dep.Requests == 0 && dep.DevtoolSourceKey == "" && !dep.IsUnattributed,
 		})
@@ -993,8 +1023,8 @@ func insightAgentSortValue(row InsightsAgentRow, key string) float64 {
 		return row.Metrics.CostPerRequest
 	case "tok_per_request":
 		return row.Metrics.TokPerRequest
-	case "p95_latency_ms":
-		return float64(row.Metrics.P95LatencyMs)
+	case "last_seen":
+		return insightLastSeenSortValue(row.Metrics.LastSeen)
 	default:
 		return row.Metrics.CostUSD
 	}
@@ -1007,19 +1037,20 @@ func insightPeopleSortValue(row InsightsPersonRow, key string) float64 {
 	case "tokens":
 		return float64(row.Metrics.Tokens)
 	case "last_seen":
-		if row.Metrics.LastSeen == "" {
-			return 0
-		}
-		if parsed, err := time.Parse(time.RFC3339, row.Metrics.LastSeen); err == nil {
-			return float64(parsed.Unix())
-		}
-		if parsed, err := time.Parse("2006-01-02", row.Metrics.LastSeen); err == nil {
-			return float64(parsed.Unix())
-		}
-		return 0
+		return insightLastSeenSortValue(row.Metrics.LastSeen)
 	default:
 		return row.Metrics.CostUSD
 	}
+}
+
+func insightLastSeenSortValue(lastSeen string) float64 {
+	if parsed, err := time.Parse(time.RFC3339, lastSeen); err == nil {
+		return float64(parsed.Unix())
+	}
+	if parsed, err := time.Parse(time.DateOnly, lastSeen); err == nil {
+		return float64(parsed.Unix())
+	}
+	return 0
 }
 
 func paginateInsightsRows[Row any](rows []Row, params insightsTableParams, totalCount int) ([]Row, InsightsTablePagination) {

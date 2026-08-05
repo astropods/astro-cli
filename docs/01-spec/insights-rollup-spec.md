@@ -310,7 +310,7 @@ Nor can buckets be counted by hand: Langfuse filters resolve only to dimensions 
 
 **The unblock is a `spanmetrics` connector in the collector**: a standard OTel component that turns spans into duration histograms with explicitly configured boundaries. Once those land, p95 becomes a plain `SUM` over `latency_buckets` — correct at every aggregation, and Langfuse leaves the latency path entirely.
 
-Until then `latency_buckets` stays empty and **v2 does not serve p95**; the column renders `-`. The Models view keeps its p50/p95 from the summary endpoint, and per-agent latency is still on the Monitor tab, so it is absent from this table rather than from the product. Replacing the column with something the table can answer — `MAX(last_seen_at)`, or spend trend against the prior window — is an open option.
+Until then `latency_buckets` stays empty and v2 keeps p95 zero-valued for wire compatibility. The Agents and Models tables show last-used activity instead; per-agent latency remains available on the Monitor tab.
 
 ### Two deliberate behavior changes
 

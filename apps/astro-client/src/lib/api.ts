@@ -1441,10 +1441,11 @@ export interface AccountObservabilitySummaryResponse {
     /** Token volume for this model and its share of total tokens. */
     total_tokens: number;
     token_pct: number;
-    /** Request count and latency percentiles (ms) for this model over the period. */
+    /** Request count, latency percentiles, and latest activity for this model over the period. */
     requests: number;
     p50_latency_ms: number;
     p95_latency_ms: number;
+    last_seen?: string;
   }>;
   sparklines?: { cost: number[]; requests: number[]; tokens: number[] };
   /** Present only when the endpoint was called with ?group_by=user. */
@@ -1604,6 +1605,7 @@ export interface InsightsAgentRow {
     cost_per_request: number;
     tok_per_request: number;
     p95_latency_ms: number;
+    last_seen?: string;
   };
   not_instrumented?: boolean;
 }

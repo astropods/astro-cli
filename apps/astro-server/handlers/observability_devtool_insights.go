@@ -176,12 +176,18 @@ func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery
 	spend = applyTodayBucket(spend, now, todayCost)
 
 	totals := DevtoolTotals{CostUSD: round2(totalCost), Requests: 0, TotalTokens: totalTokens}
+	agentRow := devtoolAgentRow(ad, totals)
+	for _, point := range spend {
+		if point.Date > agentRow.Metrics.LastSeen {
+			agentRow.Metrics.LastSeen = point.Date
+		}
+	}
 	return DevtoolSource{
 		Label:      ad.Label,
 		SpendByDay: spend,
 		Totals:     totals,
 		ByUser:     computeDevtoolByUser(ctx, log, pc, ad, accountID, days, emailToUserID),
-		AgentRow:   devtoolAgentRow(ad, totals),
+		AgentRow:   agentRow,
 	}, true
 }
 

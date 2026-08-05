@@ -330,10 +330,9 @@ type AccountModelCost struct {
 }
 
 // AccountCostByModelEntry is one row in the aggregate per-model breakdown:
-// spend, token volume, request count, and latency percentiles. Powers the
-// model-optimization view (see #1374). Latency and request count come from a
-// model-grouped observations query; cost and tokens are rolled up from the
-// daily metrics.
+// spend, token volume, request count, latency percentiles, and last activity.
+// Request count and latency come from a model-grouped observations query;
+// cost, tokens, and last activity are rolled up from the daily metrics.
 type AccountCostByModelEntry struct {
 	Model        string  `json:"model"`
 	CostUSD      float64 `json:"cost_usd"`
@@ -343,6 +342,7 @@ type AccountCostByModelEntry struct {
 	Requests     int     `json:"requests"`
 	P50LatencyMs float64 `json:"p50_latency_ms"`
 	P95LatencyMs float64 `json:"p95_latency_ms"`
+	LastSeen     string  `json:"last_seen,omitempty"`
 }
 
 // AccountSparklines holds per-day value arrays (date-ascending) for frontend sparklines.
@@ -527,6 +527,7 @@ type DeploymentSummaryEntry struct {
 	TotalTokens      int                       `json:"total_tokens"`
 	TokPerRequest    float64                   `json:"tok_per_request"`
 	P95LatencyMs     int                       `json:"p95_latency_ms"`
+	LastSeen         string                    `json:"last_seen,omitempty"`
 	TopModel         string                    `json:"top_model"`
 	CostOverTime     []DeploymentDailyCost     `json:"cost_over_time"`
 	RequestsOverTime []DeploymentDailyRequests `json:"requests_over_time"`
@@ -675,6 +676,7 @@ type InsightsAgentMetrics struct {
 	CostPerRequest float64 `json:"cost_per_request"`
 	TokPerRequest  float64 `json:"tok_per_request"`
 	P95LatencyMs   int     `json:"p95_latency_ms"`
+	LastSeen       string  `json:"last_seen,omitempty"`
 }
 
 type InsightsPersonMetrics struct {

@@ -24,8 +24,8 @@ import {
   TableShowMore,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatTimeAgo } from "@/lib/time-format";
-import { formatCompact, formatCost, formatLatency } from "@/lib/format-utils";
+import { formatLongTimeAgo, formatTimeAgo } from "@/lib/time-format";
+import { formatCompact, formatCost } from "@/lib/format-utils";
 import type {
   InsightsAgentChip,
   InsightsAgentRow,
@@ -35,7 +35,7 @@ import type {
 import { OverflowPopover } from "./OverflowPopover";
 import { useAccountObservabilitySummary } from "@/api/queries/observability";
 
-export type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "p95_latency_ms";
+export type AgentSortKey = "cost_usd" | "requests" | "cost_per_request" | "tok_per_request" | "last_seen";
 export type UserSortKey = "cost_usd" | "requests" | "tokens" | "last_seen";
 export type TopSpendersSortDirection = "asc" | "desc";
 
@@ -198,6 +198,16 @@ function formatShare(percent: number): string {
 function formatLastSeen(ts: string | undefined): string {
   if (!ts) return "-";
   return formatTimeAgo(ts);
+}
+
+function formatLastUsed(ts: string | undefined): string {
+  if (!ts) return "Never";
+  return formatLongTimeAgo(ts);
+}
+
+function lastSeenSortValue(ts: string | undefined): number {
+  const value = ts ? new Date(ts).getTime() : 0;
+  return Number.isFinite(value) ? value : 0;
 }
 
 function identityKey(identity: InsightsIdentityRef, index = 0) {
@@ -584,8 +594,8 @@ function agentSortValue(row: InsightsAgentRow, key: AgentSortKey): number {
       return row.metrics.cost_per_request;
     case "tok_per_request":
       return row.metrics.tok_per_request;
-    case "p95_latency_ms":
-      return row.metrics.p95_latency_ms;
+    case "last_seen":
+      return lastSeenSortValue(row.metrics.last_seen);
   }
 }
 
@@ -598,7 +608,7 @@ function userSortValue(row: InsightsPersonRow, key: UserSortKey): number {
     case "tokens":
       return row.metrics.tokens;
     case "last_seen":
-      return row.metrics.last_seen ? new Date(row.metrics.last_seen).getTime() : 0;
+      return lastSeenSortValue(row.metrics.last_seen);
   }
 }
 
@@ -697,7 +707,7 @@ function AgentsTopSpenders({
           <TableHead className="text-right">% Total</TableHead>
           <TableHead sortable sortDirection={dir("cost_per_request")} onSort={() => handleSort("cost_per_request")} className="text-right">Spend/Req</TableHead>
           <TableHead sortable sortDirection={dir("tok_per_request")} onSort={() => handleSort("tok_per_request")} className="text-right">Tok/Req</TableHead>
-          <TableHead sortable sortDirection={dir("p95_latency_ms")} onSort={() => handleSort("p95_latency_ms")} className="text-right">P95</TableHead>
+          <TableHead sortable sortDirection={dir("last_seen")} onSort={() => handleSort("last_seen")} className="text-right">Last Used</TableHead>
         </>
       }
     >
@@ -727,8 +737,8 @@ function AgentsTopSpenders({
             <TableCell className="text-right text-foreground">{formatShare(row.metrics.cost_pct)}</TableCell>
             <TableCell className="text-right text-foreground">{formatCost(row.metrics.cost_per_request)}</TableCell>
             <TableCell className="text-right text-foreground">{formatCompact(row.metrics.tok_per_request)}</TableCell>
-            <TableCell className="text-right text-foreground">
-              {row.metrics.p95_latency_ms > 0 ? formatLatency(row.metrics.p95_latency_ms) : "-"}
+            <TableCell className="whitespace-nowrap text-right text-foreground">
+              {formatLastUsed(row.metrics.last_seen)}
             </TableCell>
           </TableRow>
         ))
@@ -825,7 +835,7 @@ function UsersTopSpenders({
   );
 }
 
-// Per-model cost / tokens / requests / tail latency for the account. Self-fetches
+// Per-model cost / tokens / requests / latest activity for the account. Self-fetches
 // the observability summary (a different endpoint than the agents/people rows).
 function ModelsTopSpenders({ account, days, panelHeader }: Extract<TopSpendersTableProps, { mode: "models" }>) {
   const params = useMemo(() => rangeParams(days), [days]);
@@ -845,7 +855,7 @@ function ModelsTopSpenders({ account, days, panelHeader }: Extract<TopSpendersTa
           <TableHead className="text-right">Spend</TableHead>
           <TableHead className="text-right">% Total</TableHead>
           <TableHead className="text-right">Tokens</TableHead>
-          <TableHead className="pr-4 text-right">p95</TableHead>
+          <TableHead className="pr-4 text-right">Last Used</TableHead>
         </>
       }
     >
@@ -865,8 +875,8 @@ function ModelsTopSpenders({ account, days, panelHeader }: Extract<TopSpendersTa
             <TableCell className="text-right text-foreground">{formatCost(m.cost_usd)}</TableCell>
             <TableCell className="text-right text-foreground">{formatShare(m.cost_pct)}</TableCell>
             <TableCell className="text-right text-foreground">{formatCompact(m.total_tokens)}</TableCell>
-            <TableCell className="pr-4 text-right text-foreground">
-              {m.p95_latency_ms > 0 ? formatLatency(m.p95_latency_ms) : "-"}
+            <TableCell className="whitespace-nowrap pr-4 text-right text-foreground">
+              {formatLastUsed(m.last_seen)}
             </TableCell>
           </TableRow>
         ))

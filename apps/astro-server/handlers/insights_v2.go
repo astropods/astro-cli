@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
+	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
@@ -38,6 +39,7 @@ func GetAccountInsightsV2(
 	deploymentStore *deploymentstore.Store,
 	slackStore *slackidentity.Store,
 	rollups *insightsrollup.Store,
+	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -71,7 +73,7 @@ func GetAccountInsightsV2(
 
 		resp, err := ComputeInsightsFromRollups(c.Request.Context(), log,
 			accountStore, deploymentStore, slackStore, rollups, acct,
-			time.Now().UTC(), params)
+			cache, time.Now().UTC(), params)
 		if err != nil {
 			log.Error("Failed to compute insights from rollups", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute insights"})
@@ -96,6 +98,7 @@ func ComputeInsightsFromRollups(
 	slackStore *slackidentity.Store,
 	rollups *insightsrollup.Store,
 	acct *account.Account,
+	cache k8scache.Cache,
 	now time.Time,
 	params insightsRequestParams,
 ) (InsightsResponse, error) {
@@ -123,6 +126,7 @@ func ComputeInsightsFromRollups(
 	if err != nil {
 		return InsightsResponse{}, err
 	}
+	enrichDeploymentLastSeen(ctx, log, cache, &deployments)
 	users, err := rollupUserEntries(ctx, accountStore, rollups, deploymentStore, acct, tableWindow, filter)
 	if err != nil {
 		return InsightsResponse{}, err
@@ -172,8 +176,8 @@ func ComputeInsightsFromRollups(
 // agent must still appear, with requests == 0 driving the not_instrumented
 // marker, and a fact table only has rows where something happened.
 //
-// P95LatencyMs is deliberately left at 0, which the client renders as "-". It is
-// not an oversight and not fixable here: the table stores no latency, because
+// P95LatencyMs is deliberately left at 0 for wire compatibility. The Agents
+// table now shows LastSeen instead; the table stores no mergeable latency, because
 // nothing can supply an additive one. Langfuse's histogram aggregation is
 // ClickHouse's adaptive variant (per-query bin boundaries, so days can't be
 // merged), its filters resolve only to dimensions with no HAVING (so buckets
@@ -240,6 +244,9 @@ func rollupDeploymentEntries(
 			DeploymentDailyRequests{Date: date, Requests: int(p.Requests)})
 		a.entry.TokensOverTime = append(a.entry.TokensOverTime,
 			DeploymentDailyTokens{Date: date, TotalTokens: int(p.Tokens)})
+		if p.Requests > 0 && date > a.entry.LastSeen {
+			a.entry.LastSeen = date
+		}
 	}
 
 	// Everything with no deployment id, split by source: dev-tool spend, which
@@ -279,6 +286,9 @@ func rollupDeploymentEntries(
 			DeploymentDailyRequests{Date: date, Requests: int(p.Requests)})
 		a.entry.TokensOverTime = append(a.entry.TokensOverTime,
 			DeploymentDailyTokens{Date: date, TotalTokens: int(p.Tokens)})
+		if (p.Requests > 0 || p.CostUSD > 0 || p.Tokens > 0) && date > a.entry.LastSeen {
+			a.entry.LastSeen = date
+		}
 	}
 
 	// Deployments that only appear in the facts are archived or deleted. Their

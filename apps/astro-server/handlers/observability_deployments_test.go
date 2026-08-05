@@ -80,6 +80,9 @@ func TestBuildDeploymentSummary_SingleDeployment(t *testing.T) {
 	if e.P95LatencyMs != 800 {
 		t.Errorf("p95_latency_ms = %d, want 800", e.P95LatencyMs)
 	}
+	if e.LastSeen != "2026-05-01" {
+		t.Errorf("last_seen = %q, want 2026-05-01", e.LastSeen)
+	}
 }
 
 func TestBuildDeploymentSummary_MultipleDeploymentsSameAgentName(t *testing.T) {

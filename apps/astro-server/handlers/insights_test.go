@@ -27,6 +27,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 				TotalTokens:    400,
 				TokPerRequest:  100,
 				P95LatencyMs:   250,
+				LastSeen:       "2026-06-09T11:30:00Z",
 				CostOverTime: []DeploymentDailyCost{
 					{Date: "2026-06-01", CostUSD: 10},
 					{Date: "2026-06-08", CostUSD: 1},
@@ -139,6 +140,9 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 	agent := view.Tables.Agents.Rows[0]
 	if got, want := agent.Identity.Href, "/acme/agents/dep-alpha/monitor"; got != want {
 		t.Fatalf("agent href = %q, want %q", got, want)
+	}
+	if got, want := agent.Metrics.LastSeen, "2026-06-09T11:30:00Z"; got != want {
+		t.Fatalf("agent last_seen = %q, want %q", got, want)
 	}
 	if got, want := len(agent.UsedBy), 2; got != want {
 		t.Fatalf("agent used_by len = %d, want %d", got, want)
@@ -276,9 +280,9 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 	t.Run("table params filter sort and page rows without changing total counts", func(t *testing.T) {
 		deployments := AccountDeploymentsSummaryResponse{
 			Deployments: []DeploymentSummaryEntry{
-				{DeploymentID: "dep-alpha", AgentName: "alpha", DisplayName: "Alpha Agent", Requests: 5, CostUSD: 5},
-				{DeploymentID: "dep-beta", AgentName: "beta", DisplayName: "Beta Agent", Requests: 10, CostUSD: 10},
-				{DeploymentID: "dep-gamma", AgentName: "gamma", DisplayName: "Gamma Agent", Requests: 1, CostUSD: 1},
+				{DeploymentID: "dep-alpha", AgentName: "alpha", DisplayName: "Alpha Agent", Requests: 5, CostUSD: 5, LastSeen: "2026-06-08T10:00:00Z"},
+				{DeploymentID: "dep-beta", AgentName: "beta", DisplayName: "Beta Agent", Requests: 10, CostUSD: 10, LastSeen: "2026-06-09T10:00:00Z"},
+				{DeploymentID: "dep-gamma", AgentName: "gamma", DisplayName: "Gamma Agent", Requests: 1, CostUSD: 1, LastSeen: "2026-06-07T10:00:00Z"},
 			},
 		}
 		users := AccountUsersSummaryResponse{
@@ -323,6 +327,22 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 		}
 		if !view.Tables.Agents.Pagination.HasMore {
 			t.Fatalf("agents pagination should have more rows")
+		}
+
+		lastSeenView := buildInsightsViewWithParams(
+			"acme",
+			AccountObservabilitySummaryResponse{},
+			deployments,
+			users,
+			members,
+			devtoolFold{},
+			now,
+			normalizeInsightsRequestParams(insightsRequestParams{
+				Agents: insightsTableParams{Limit: 3, Sort: "last_seen", Direction: "desc"},
+			}),
+		)
+		if got, want := lastSeenView.Tables.Agents.Rows[0].Key, "dep-beta"; got != want {
+			t.Fatalf("first agent row by last_seen = %q, want %q", got, want)
 		}
 
 		if got, want := view.Tables.People.Count, 3; got != want {

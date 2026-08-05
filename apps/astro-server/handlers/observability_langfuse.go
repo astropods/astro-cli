@@ -701,6 +701,7 @@ func buildAccountSummary(
 	costByDay := make(map[string][]AccountModelCost)
 	costByModel := make(map[string]float64)
 	tokensByModel := make(map[string]int)
+	lastSeenByModel := make(map[string]string)
 
 	for _, m := range current {
 		totalRequests += m.CountTraces
@@ -712,6 +713,9 @@ func buildAccountSummary(
 			models := make([]AccountModelCost, 0, len(m.Usage))
 			for _, u := range m.Usage {
 				tokensByModel[u.Model] += u.InputUsage + u.OutputUsage
+				if (u.InputUsage > 0 || u.OutputUsage > 0 || u.TotalCost > 0) && m.Date > lastSeenByModel[u.Model] {
+					lastSeenByModel[u.Model] = m.Date
+				}
 				if u.TotalCost > 0 {
 					models = append(models, AccountModelCost{Model: u.Model, CostUSD: u.TotalCost})
 					costByModel[u.Model] += u.TotalCost
@@ -774,6 +778,7 @@ func buildAccountSummary(
 		}
 		model := modelEntries[i].Model
 		modelEntries[i].TotalTokens = tokensByModel[model]
+		modelEntries[i].LastSeen = lastSeenByModel[model]
 		if totalModelTokens > 0 {
 			modelEntries[i].TokenPct = math.Round(float64(tokensByModel[model])/float64(totalModelTokens)*1000) / 10
 		}
@@ -1389,6 +1394,7 @@ func buildDeploymentSummaryWithUsers(
 
 		var requests, inputTokens, outputTokens int
 		var costUSD float64
+		var lastSeen string
 		for _, d := range m.DailyMetrics {
 			requests += d.CountTraces
 			costUSD += d.TotalCost
@@ -1400,6 +1406,9 @@ func buildDeploymentSummaryWithUsers(
 			dayTokens[d.Date] = [2]int{prev[0] + d.InputTokens(), prev[1] + d.OutputTokens()}
 			for _, u := range d.Usage {
 				modelCosts[u.Model] += u.TotalCost
+			}
+			if d.CountTraces > 0 && d.Date > lastSeen {
+				lastSeen = d.Date
 			}
 		}
 
@@ -1491,6 +1500,7 @@ func buildDeploymentSummaryWithUsers(
 			TotalTokens:      inputTokens + outputTokens,
 			TokPerRequest:    tokPerRequest,
 			P95LatencyMs:     int(math.Round(m.P95LatencyMs)),
+			LastSeen:         lastSeen,
 			TopModel:         topModel,
 			CostOverTime:     costOverTime,
 			RequestsOverTime: requestsOverTime,

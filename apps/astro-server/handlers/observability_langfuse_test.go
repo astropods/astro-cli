@@ -706,6 +706,9 @@ func TestBuildAccountSummary_PerModelBreakdown(t *testing.T) {
 	if sonnet.P95LatencyMs != 1900 {
 		t.Errorf("sonnet p95_latency_ms = %v, want 1900", sonnet.P95LatencyMs)
 	}
+	if sonnet.LastSeen != "2026-04-02" {
+		t.Errorf("sonnet last_seen = %q, want 2026-04-02", sonnet.LastSeen)
+	}
 	// token_pct: 2250/2550 ≈ 88.2
 	if sonnet.TokenPct < 88 || sonnet.TokenPct > 89 {
 		t.Errorf("sonnet token_pct = %v, want ~88.2", sonnet.TokenPct)

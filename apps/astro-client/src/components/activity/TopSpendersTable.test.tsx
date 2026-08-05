@@ -127,6 +127,35 @@ describe("TopSpendersTable agents mode", () => {
     expect(screen.queryByText("Slack User")).not.toBeInTheDocument();
   });
 
+  it("replaces p95 with a relative last-used value", () => {
+    const twelveMinutesAgo = new Date(Date.now() - 12 * 60_000 - 1_000).toISOString();
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={[
+          agentRow({
+            key: "dep-alpha",
+            label: "Alpha Agent",
+            metrics: {
+              requests: 5,
+              cost_usd: 10,
+              cost_pct: 10,
+              cost_per_request: 2,
+              tok_per_request: 100,
+              p95_latency_ms: 300,
+              last_seen: twelveMinutesAgo,
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Last Used" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "P95" })).not.toBeInTheDocument();
+    expect(screen.getByText("12 minutes ago")).toBeInTheDocument();
+  });
+
   it("renders rank inside the agent identity cell", () => {
     renderWithProviders(
       <TopSpendersTable
@@ -653,17 +682,17 @@ describe("TopSpendersTable models mode", () => {
     );
   }
 
-  it("renders a per-model row with requests, spend share, and a single p95 column", async () => {
+  it("renders a per-model row with requests, spend share, and last used", async () => {
     mockSummary([
-      { model: "gpt-4o", cost_usd: 1.5, cost_pct: 100, total_tokens: 12000, token_pct: 100, requests: 340, p50_latency_ms: 320, p95_latency_ms: 900 },
+      { model: "gpt-4o", cost_usd: 1.5, cost_pct: 100, total_tokens: 12000, token_pct: 100, requests: 340, p50_latency_ms: 320, p95_latency_ms: 900, last_seen: "2026-06-01" },
     ]);
     renderWithProviders(<TopSpendersTable mode="models" account={ACCOUNT} days={7} />);
 
     expect(await screen.findByText("gpt-4o")).toBeInTheDocument();
     expect(screen.getByText(/340/)).toBeInTheDocument();
     expect(screen.getByText("% Total")).toBeInTheDocument();
-    // Only p95 latency is shown; p50 was dropped per review.
-    expect(screen.getByText("p95")).toBeInTheDocument();
+    expect(screen.getByText("Last Used")).toBeInTheDocument();
+    expect(screen.queryByText("p95")).toBeNull();
     expect(screen.queryByText("p50")).toBeNull();
     // No suggested-model callout.
     expect(screen.queryByText(/of spend/)).toBeNull();

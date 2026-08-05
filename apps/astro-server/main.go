@@ -2502,7 +2502,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		protectedV2.Use(authMw.RequireAuth())
 
 		api.GET(protectedV2, "/accounts/:account/insights", "Get account Insights page model (rollup-backed)",
-			handlers.GetAccountInsightsV2(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db)),
+			handlers.GetAccountInsightsV2(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache),
 			oapispec.Tags("Observability"),
 			oapispec.BearerAuth(),
 			oapispec.PathParam("account", "Account name"),
