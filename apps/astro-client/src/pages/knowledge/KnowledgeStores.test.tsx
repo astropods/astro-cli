@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import type { KnowledgeStore } from "@/lib/api";
 import { server } from "@/test/msw/server";
-import { renderRoute } from "@/test/test-utils";
+import { mockAuthContext, renderRoute } from "@/test/test-utils";
 import KnowledgeStores from "./KnowledgeStores";
 
 function knowledgeStore(
@@ -23,7 +23,11 @@ function knowledgeStore(
   };
 }
 
-function renderKnowledgeStores(stores: KnowledgeStore[], path = "/knowledge") {
+function renderKnowledgeStores(
+  stores: KnowledgeStore[],
+  path = "/knowledge",
+  auth = mockAuthContext,
+) {
   server.use(
     http.get("/api/v1/me/knowledge", () =>
       HttpResponse.json({
@@ -41,7 +45,7 @@ function renderKnowledgeStores(stores: KnowledgeStore[], path = "/knowledge") {
         Component: KnowledgeStores as any,
       },
     ],
-    { initialEntries: [path] },
+    { initialEntries: [path], auth },
   );
 }
 
@@ -109,11 +113,25 @@ describe("KnowledgeStores search", () => {
 });
 
 describe("KnowledgeStores empty states", () => {
-  it("shows onboarding for an empty implicit personal scope", async () => {
-    renderKnowledgeStores([]);
+  it("keeps every account in the switcher when the implicit personal account has no knowledge stores", async () => {
+    const user = userEvent.setup();
+    const auth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: "acct-1", name: "testuser", display_name: "Test User", type: "personal" },
+        { id: "acct-2", name: "acme", display_name: "Acme", type: "organization" },
+      ],
+    };
+    renderKnowledgeStores([], "/knowledge", auth);
 
     expect(await screen.findByText("No knowledge stores yet")).toBeInTheDocument();
     expect(screen.queryByText("No knowledge stores match your filters.")).not.toBeInTheDocument();
+
+    const accountSwitcher = screen.getByRole("button", { name: "Filter by account" });
+    expect(accountSwitcher).toHaveTextContent("Test User");
+    await user.click(accountSwitcher);
+    expect(screen.getByRole("button", { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Acme/ })).toBeInTheDocument();
   });
 
   it("shows the filtered empty state for an explicit scope", async () => {

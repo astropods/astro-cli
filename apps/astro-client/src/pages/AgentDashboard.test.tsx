@@ -115,20 +115,34 @@ describe('AgentDashboard page', () => {
   });
 
 
-  it('shows onboarding when the implicit personal account has no deployments', async () => {
+  it('keeps every account in the switcher when the implicit personal account has no agents', async () => {
+    const user = userEvent.setup();
+    const multiAccountAuth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal' as const },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization' as const },
+      ],
+    };
     server.use(
       http.get('/api/v1/me/deployments', () =>
         userDeployments({ deployments: [], count: 0 }),
       ),
     );
 
-    renderDashboard();
+    renderDashboard('/agents', multiAccountAuth);
 
     await waitFor(() => {
       expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
     });
     expect(screen.queryByText('No agents match your filters.')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search agents...')).not.toBeInTheDocument();
+
+    const accountSwitcher = screen.getByRole('button', { name: 'Filter by account' });
+    expect(accountSwitcher).toHaveTextContent('Test User');
+    await user.click(accountSwitcher);
+    expect(screen.getByRole('button', { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Acme/ })).toBeInTheDocument();
   });
 
   it('keeps filtering controls when an explicit all-account scope has no deployments', async () => {

@@ -222,12 +222,26 @@ describe('Blueprints – empty states', () => {
     );
   });
 
-  it('shows onboarding for an empty implicit personal scope', async () => {
-    renderBlueprintsPage();
+  it('keeps every account in the switcher when the implicit personal account has no blueprints', async () => {
+    const user = userEvent.setup();
+    const auth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal' },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization' },
+      ],
+    };
+    renderBlueprintsPage({ auth });
 
     expect(await screen.findByText('No blueprints yet')).toBeInTheDocument();
     expect(screen.queryByText('No blueprints match your filters.')).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Blueprint list pagination' })).not.toBeInTheDocument();
+
+    const accountSwitcher = screen.getByRole('button', { name: 'Filter by account' });
+    expect(accountSwitcher).toHaveTextContent('Test User');
+    await user.click(accountSwitcher);
+    expect(screen.getByRole('button', { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Acme/ })).toBeInTheDocument();
   });
 
   it('shows the filtered empty state for an explicit scope', async () => {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AccountFilter } from "@/components/AccountFilter";
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { ListPagination } from "@/components/ListPagination";
@@ -98,7 +99,18 @@ export function DeployedAgentsSection({
   const showDashboardEmpty = !isLoading && deployments.length === 0 && !hasActiveFilters;
 
   if (showDashboardEmpty) {
-    return <DashboardAgentsEmptyState account={account} />;
+    return (
+      <>
+        <div className="mb-4 flex justify-end">
+          <AccountFilter
+            className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
+            value={accountFilters}
+            onChange={onAccountFiltersChange}
+          />
+        </div>
+        <DashboardAgentsEmptyState account={account} />
+      </>
+    );
   }
 
   return (

@@ -144,6 +144,15 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
           <AccountFilter value={accountFilters} onChange={setAccountFilters} />
         </div>
       )}
+      {showEmptyState && (
+        <div className="mb-4 flex justify-end">
+          <AccountFilter
+            className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
+            value={accountFilters}
+            onChange={setAccountFilters}
+          />
+        </div>
+      )}
 
       <ListResultsTransition
         transitionKey={JSON.stringify([
