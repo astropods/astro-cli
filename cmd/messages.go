@@ -136,3 +136,33 @@ func errLoginAccountsLoadEmpty() error {
 		"could not load your accounts from the server (empty response). Try again in a moment",
 	)
 }
+
+func errAgentCoreRejected(name, reason string) error {
+	return fmt.Errorf("cannot deploy %q to AgentCore Runtime: %s", name, reason)
+}
+
+func errAgentCoreMissingSecrets(names []string) error {
+	return fmt.Errorf(
+		"missing secret value(s) %s: supply them with --secret NAME=VALUE or --secrets-file",
+		strings.Join(names, ", "),
+	)
+}
+
+func errAgentCoreMissingImage() error {
+	return fmt.Errorf("an agentcore deploy needs --image <ecr-uri> (use --dry-run to preview without it)")
+}
+
+func errAgentCoreMissingExecRole() error {
+	return fmt.Errorf(
+		"an agentcore deploy needs %s set to the execution role ARN (use --dry-run to preview without it)",
+		execRoleEnv,
+	)
+}
+
+func errAgentCoreInvalidSecret(pair string) error {
+	return fmt.Errorf("invalid --secret %q: expected NAME=VALUE", pair)
+}
+
+func errAgentCoreSecretsFileLine(line int) error {
+	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
