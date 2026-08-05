@@ -132,7 +132,7 @@ func HumanizeEvent(reason, message string) (title, guidance, severity string, ok
 	}
 	crashLoop := func() (string, string, string, bool) {
 		return "Action required: Container crash looping",
-			"The container keeps starting and exiting. This is usually a bad start command or a missing secret or environment variable. Check the pod logs for the crash reason, fix it, then redeploy.",
+			"The container keeps starting and exiting, usually because of an invalid start command, missing secret, or environment variable. Check the pod logs for the cause.",
 			"stuck", true
 	}
 

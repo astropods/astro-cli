@@ -91,7 +91,7 @@ test("a failed deploy with no earlier good version offers Pause as the primary a
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Why deploys get stuck" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "docs", exact: true })).toBeVisible();
 
   // With no earlier good version (the default fixture has one revision), the
   // primary action pauses the failed deploy directly.
@@ -114,9 +114,10 @@ test("a failed deploy with an earlier good version offers a rollback", async ({ 
   });
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
-  const rollback = page.getByRole("button", { name: "Roll back", exact: true });
+  const rollback = page.getByRole("button", { name: "Rollback", exact: true });
   await expect(rollback).toBeVisible();
-  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  // Only two banner buttons now: Rollback (primary) + Copy fix prompt (secondary).
+  await expect(page.getByRole("button", { name: "Copy fix prompt" })).toBeVisible();
   await rollback.click();
   await expect(page).toHaveURL(/configure\?revision=2&build=build-124/);
 });

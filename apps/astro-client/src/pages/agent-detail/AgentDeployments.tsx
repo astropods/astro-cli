@@ -241,37 +241,27 @@ export default function AgentDeployments() {
           <ActionPanel
             tone="warning"
             title={failure?.title ?? "Deployment failed"}
-            primaryLabel={lastGood ? "Roll back" : "Pause"}
+            primaryLabel={lastGood ? "Rollback" : "Pause"}
             onPrimary={lastGood ? rollBack : pauseDeploy}
-            secondaryLabel={lastGood ? "Pause" : undefined}
-            onSecondary={lastGood ? pauseDeploy : undefined}
+            secondaryLabel={failure ? "Copy fix prompt" : undefined}
+            onSecondary={failure ? copyFixPrompt : undefined}
           >
             <p>
               {failure?.guidance
                 ? `${failure.guidance} `
                 : lastGood
-                  ? "Rolling back to the last clean version is usually the fastest fix, or pause to investigate. "
+                  ? "Rolling back to the last clean version is usually the fastest fix. "
                   : "Pause to investigate, or check the pod logs below for what went wrong. "}
+              For more help, see the{" "}
               <a
                 href={STUCK_DEPLOY_DOCS_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline underline-offset-2 hover:opacity-80"
               >
-                Why deploys get stuck
+                docs
               </a>
-              {failure && (
-                <>
-                  <span aria-hidden className="mx-1.5 opacity-50">&middot;</span>
-                  <button
-                    type="button"
-                    onClick={copyFixPrompt}
-                    className="underline underline-offset-2 hover:opacity-80"
-                  >
-                    Copy fix prompt
-                  </button>
-                </>
-              )}
+              .
             </p>
           </ActionPanel>
         </div>
