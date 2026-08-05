@@ -1,16 +1,12 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -23,31 +19,17 @@ import (
 // knowledgeServerURLOverride is set in tests to redirect API calls to a test server.
 var knowledgeServerURLOverride string
 
-func displayMode(mode string) string {
-	if mode == "" {
-		return "managed"
-	}
-	return mode
-}
-
 var knowledgeCmd = &cobra.Command{
 	Use:   "knowledge",
-	Short: "Manage managed knowledge stores",
-	Long:  `Create, inspect, and delete managed knowledge stores.`,
+	Short: "Manage knowledge stores",
+	Long:  `Connect, inspect, and delete knowledge stores.`,
 	Args:  cobra.NoArgs,
 	RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
-var knowledgeCreateCmd = &cobra.Command{
-	Use:   "create --provider <provider> --name <name>",
-	Short: "Create a managed knowledge store",
-	Args:  cobra.NoArgs,
-	RunE:  runKnowledgeCreate,
-}
-
 var knowledgeListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List managed knowledge stores",
+	Short: "List knowledge stores",
 	Args:  cobra.NoArgs,
 	RunE:  runKnowledgeList,
 }
@@ -57,13 +39,6 @@ var knowledgeStatusCmd = &cobra.Command{
 	Short: "Get status of a knowledge store",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runKnowledgeStatus,
-}
-
-var knowledgeLogsCmd = &cobra.Command{
-	Use:   "logs <name>",
-	Short: "Stream container logs from a knowledge store",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runKnowledgeLogs,
 }
 
 var knowledgeCredentialsCmd = &cobra.Command{
@@ -82,7 +57,7 @@ var knowledgeDeleteCmd = &cobra.Command{
 
 var knowledgeConnectCmd = &cobra.Command{
 	Use:   "connect --provider <provider> --name <name> --host <host> --port <port>",
-	Short: "Connect an external knowledge store",
+	Short: "Connect a knowledge store",
 	Long:  `Onboard an existing database by providing connection details. The platform stores credentials encrypted under an ARN.`,
 	Args:  cobra.NoArgs,
 	RunE:  runKnowledgeConnect,
@@ -90,11 +65,9 @@ var knowledgeConnectCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(knowledgeCmd)
-	knowledgeCmd.AddCommand(knowledgeCreateCmd)
 	knowledgeCmd.AddCommand(knowledgeConnectCmd)
 	knowledgeCmd.AddCommand(knowledgeListCmd)
 	knowledgeCmd.AddCommand(knowledgeStatusCmd)
-	knowledgeCmd.AddCommand(knowledgeLogsCmd)
 	knowledgeCmd.AddCommand(knowledgeCredentialsCmd)
 	knowledgeCmd.AddCommand(knowledgeDeleteCmd)
 
@@ -103,16 +76,6 @@ func init() {
 	} {
 		c.Flags().Bool("json", false, "Output as JSON")
 	}
-
-	knowledgeLogsCmd.Flags().Bool("tail", false, "Follow logs in real time")
-
-	knowledgeCreateCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j")
-	knowledgeCreateCmd.Flags().String("name", "", "Store name")
-	knowledgeCreateCmd.Flags().String("storage", "10Gi", "Storage size (e.g. 20Gi)")
-	knowledgeCreateCmd.Flags().String("storage-class", "", "Kubernetes StorageClass name (default: cluster default)")
-	knowledgeCreateCmd.Flags().Bool("public", false, "Expose the store publicly with a DNS hostname")
-	_ = knowledgeCreateCmd.MarkFlagRequired("provider")
-	_ = knowledgeCreateCmd.MarkFlagRequired("name")
 
 	knowledgeConnectCmd.Flags().String("provider", "", "Database provider: postgres, qdrant, redis, neo4j, pinecone")
 	knowledgeConnectCmd.Flags().String("name", "", "Store name")
@@ -144,58 +107,6 @@ func knowledgePath(account, name string, parts ...string) string {
 }
 
 // --- handlers ---
-
-func runKnowledgeCreate(cmd *cobra.Command, _ []string) error {
-	at, verbose, err := cmdAuth(cmd)
-	if err != nil {
-		return err
-	}
-
-	name, _ := cmd.Flags().GetString("name")
-	provider, _ := cmd.Flags().GetString("provider")
-	storage, _ := cmd.Flags().GetString("storage")
-	storageClass, _ := cmd.Flags().GetString("storage-class")
-	public, _ := cmd.Flags().GetBool("public")
-
-	fmt.Printf("%s→%s Creating knowledge store %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset)
-
-	reqBody := map[string]any{
-		"name":     name,
-		"provider": provider,
-		"storage":  storage,
-		"public":   public,
-	}
-	if storageClass != "" {
-		reqBody["storage_class"] = storageClass
-	}
-
-	var created knowledgeStoreResponse
-	status, err := apiCall(cmd.Context(), http.MethodPost,
-		apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge"),
-		reqBody, at.Token, verbose, &created)
-	if err != nil {
-		if status == http.StatusConflict {
-			return fmt.Errorf("a knowledge store named %q already exists in account %q", name, at.Account)
-		}
-		return err
-	}
-
-	fmt.Printf("  %sARN:%s      %s\n", colorDim, colorReset, created.ARN)
-	fmt.Printf("  %sProvider:%s %s\n", colorDim, colorReset, created.Provider)
-	if created.PublicHost != nil && *created.PublicHost != "" {
-		fmt.Printf("  %sHost:%s     %s\n", colorDim, colorReset, *created.PublicHost)
-	}
-	fmt.Println()
-	fmt.Printf("%s→%s Provisioning", colorCyan, colorReset)
-
-	if err := pollKnowledgeReady(cmd.Context(), at.Account, created.Name, at.Token); err != nil {
-		fmt.Println()
-		return err
-	}
-
-	fmt.Printf("\n%s✓%s Store %s%s%s is ready\n", colorGreen, colorReset, colorBold, name, colorReset)
-	return nil
-}
 
 func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	at, verbose, err := cmdAuth(cmd)
@@ -310,7 +221,7 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tMODE\tSTATUS\tSTORAGE\tARN")
+	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tSTATUS\tARN")
 	for _, s := range stores {
 		var statusStr string
 		switch s.Status {
@@ -321,7 +232,7 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 		default:
 			statusStr = s.Status
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.Provider, displayMode(s.Mode), statusStr, s.Storage, s.ARN)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Provider, statusStr, s.ARN)
 	}
 	return w.Flush()
 }
@@ -354,132 +265,20 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 		statusColor = colorGreen
 	case "error":
 		statusColor = colorRed
-	case "provisioning", "connecting", "pending-acceptance":
+	case "connecting", "pending-acceptance":
 		statusColor = colorYellow
 	}
 
 	fmt.Printf("%sName:%s     %s\n", colorDim, colorReset, s.Name)
 	fmt.Printf("%sARN:%s      %s\n", colorDim, colorReset, s.ARN)
 	fmt.Printf("%sProvider:%s %s\n", colorDim, colorReset, s.Provider)
-	fmt.Printf("%sMode:%s     %s\n", colorDim, colorReset, displayMode(s.Mode))
 	fmt.Printf("%sStatus:%s   %s%s%s\n", colorDim, colorReset, statusColor, s.Status, colorReset)
-	fmt.Printf("%sStorage:%s  %s\n", colorDim, colorReset, s.Storage)
-	if s.PublicHost != nil && *s.PublicHost != "" {
-		fmt.Printf("%sHost:%s     %s\n", colorDim, colorReset, *s.PublicHost)
-	}
 	if s.Error != nil && *s.Error != "" {
 		fmt.Printf("%sError:%s    %s%s%s\n", colorDim, colorReset, colorRed, *s.Error, colorReset)
 	}
 	fmt.Printf("%sCreated:%s  %s\n", colorDim, colorReset, s.CreatedAt.Format("2006-01-02 15:04:05 UTC"))
 
-	if len(s.Events) > 0 {
-		e := s.Events[0]
-		icon := "·"
-		if e.Type == "Warning" {
-			icon = colorRed + "!" + colorReset
-		}
-		countStr := ""
-		if e.Count > 1 {
-			countStr = fmt.Sprintf(" %s(×%d)%s", colorDim, e.Count, colorReset)
-		}
-		fmt.Printf("%sEvent:%s    %s %s%s:%s %s%s\n", colorDim, colorReset, icon, colorDim, e.Reason, colorReset, e.Message, countStr)
-	}
-
 	return nil
-}
-
-func runKnowledgeLogs(cmd *cobra.Command, args []string) error {
-	at, verbose, err := cmdAuth(cmd)
-	if err != nil {
-		return err
-	}
-
-	tail, _ := cmd.Flags().GetBool("tail")
-	if tail {
-		return runKnowledgeLogsTail(cmd.Context(), at.Account, args[0], at.Token)
-	}
-
-	// Historical logs — one-shot JSON fetch.
-	status, body, err := apiStream(cmd.Context(), knowledgePath(at.Account, args[0], "logs"), at.Token, verbose)
-	if err != nil {
-		if status == http.StatusNotFound {
-			return fmt.Errorf("knowledge store %q not found", args[0])
-		}
-		return err
-	}
-	defer body.Close() //nolint:errcheck
-
-	return printLogs(cmd.OutOrStdout(), body)
-}
-
-func runKnowledgeLogsTail(parentCtx context.Context, account, name, token string) error {
-	ctx, cancel := context.WithCancel(parentCtx)
-	defer cancel()
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		cancel()
-	}()
-
-	streamURL := knowledgePath(account, name, "logs", "stream")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("X-Cli-Version", buildinfo.Version)
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req) //nolint:gosec
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// SSE fields: "data: ...", "event: ...", "id: ...", or blank line.
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-
-		var entry logEntry
-		if err := json.Unmarshal([]byte(data), &entry); err != nil {
-			continue // skip non-log events (ready, status, heartbeat, error)
-		}
-		if entry.Message == "" {
-			continue
-		}
-
-		level := entry.Level
-		if level == "" {
-			level = "INFO"
-		}
-		if entry.Timestamp != "" {
-			fmt.Printf("%s %s %s\n", entry.Timestamp, level, entry.Message)
-		} else {
-			fmt.Printf("%s %s\n", level, entry.Message)
-		}
-	}
-
-	if ctx.Err() != nil {
-		return nil
-	}
-	return scanner.Err()
 }
 
 func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
@@ -604,58 +403,6 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) 
 	return fmt.Errorf("timed out waiting for PrivateLink to become ready")
 }
 
-// pollKnowledgeReady polls the status endpoint every 3 seconds until the store
-// reaches a terminal state. Avoids long-lived SSE connections that proxies drop.
-func pollKnowledgeReady(ctx context.Context, account, name, token string) error {
-	const (
-		pollInterval = 3 * time.Second
-		timeout      = 15 * time.Minute
-	)
-	deadline := time.Now().Add(timeout)
-	lastEvent := ""
-
-	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(pollInterval):
-		}
-
-		var s knowledgeStoreResponse
-		_, _ = apiCall(ctx, http.MethodGet, knowledgePath(account, name), nil, token, false, &s)
-
-		if len(s.Events) > 0 {
-			e := s.Events[0]
-			key := e.Reason + ":" + e.Message
-			if key != lastEvent {
-				lastEvent = key
-				fmt.Printf("\n  %s%s:%s %s", colorDim, e.Reason, colorReset, e.Message)
-			}
-		} else {
-			fmt.Print(".")
-		}
-
-		switch s.Status {
-		case "ready":
-			return nil
-		case "error":
-			if s.Error != nil && *s.Error != "" {
-				return fmt.Errorf("provisioning failed: %s", *s.Error)
-			}
-			return fmt.Errorf("provisioning failed")
-		}
-	}
-	return fmt.Errorf("timed out waiting for store to become ready")
-}
-
-// knowledgeStoreResponse mirrors the server's knowledge response shape.
-type knowledgeStoreEvent struct {
-	Type    string `json:"type"`
-	Reason  string `json:"reason"`
-	Message string `json:"message"`
-	Count   int32  `json:"count"`
-}
-
 type knowledgeStoreEndpointResponse struct {
 	CloudProvider   string  `json:"cloud_provider"`
 	EndpointService string  `json:"endpoint_service"`
@@ -666,18 +413,15 @@ type knowledgeStoreEndpointResponse struct {
 	Error           *string `json:"error,omitempty"`
 }
 
+// knowledgeStoreResponse mirrors the server's knowledge response shape.
 type knowledgeStoreResponse struct {
-	ID         string                          `json:"id"`
-	ARN        string                          `json:"arn"`
-	Name       string                          `json:"name"`
-	Provider   string                          `json:"provider"`
-	Mode       string                          `json:"mode"`
-	Status     string                          `json:"status"`
-	Storage    string                          `json:"storage"`
-	Public     bool                            `json:"public"`
-	PublicHost *string                         `json:"public_host,omitempty"`
-	Endpoint   *knowledgeStoreEndpointResponse `json:"endpoint,omitempty"`
-	Error      *string                         `json:"error,omitempty"`
-	Events     []knowledgeStoreEvent           `json:"events,omitempty"`
-	CreatedAt  time.Time                       `json:"created_at"`
+	ID        string                          `json:"id"`
+	ARN       string                          `json:"arn"`
+	Name      string                          `json:"name"`
+	Provider  string                          `json:"provider"`
+	Mode      string                          `json:"mode"`
+	Status    string                          `json:"status"`
+	Endpoint  *knowledgeStoreEndpointResponse `json:"endpoint,omitempty"`
+	Error     *string                         `json:"error,omitempty"`
+	CreatedAt time.Time                       `json:"created_at"`
 }
