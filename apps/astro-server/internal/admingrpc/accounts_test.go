@@ -37,12 +37,12 @@ func expectEnabledClusterGet(mock sqlmock.Sqlmock, clusterID string) {
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow(
 			clusterID, "eu-west-1", "eks-"+clusterID, "https://eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.example:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 			now, now,
 		))

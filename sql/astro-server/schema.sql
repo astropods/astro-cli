@@ -28,13 +28,12 @@ CREATE TABLE public.clusters (
     -- '' so the schema diff applies cleanly to existing rows; operators must
     -- backfill values via UpdateCluster before deploys targeting those rows
     -- will succeed. The primary cluster has no row here; it reads env vars
-    -- (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN, KNOWLEDGE_DOMAIN, ...)
+    -- (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN, ...)
     -- directly. TLS termination and DNS for the tenant-router data plane are
     -- owned by the front-door ALB in astro-infra, so per-cluster ACM cert
     -- ARNs and per-tenant ALB group names are no longer stored here.
     agent_ingress_domain     varchar(253) NOT NULL DEFAULT '',
     ingestion_ingress_domain varchar(253) NOT NULL DEFAULT '',
-    knowledge_domain         varchar(253) NOT NULL DEFAULT '',
     -- Per-cluster Langfuse PrivateLink + netpol inputs (required for additional
     -- clusters; primary reads LANGFUSE_* / POD_SUBNET_CIDRS env vars).
     langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',
@@ -1051,21 +1050,6 @@ CREATE TABLE public.eval_dataset_prediction_requests (
     CONSTRAINT eval_dataset_prediction_requests_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
     CONSTRAINT eval_dataset_prediction_requests_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed'))
 );
-
--- No ON DELETE CASCADE: billing rows must outlive the store so the heartbeat
--- can emit the final period after deletion without losing data.
-CREATE TABLE public.knowledge_billing_state (
-    knowledge_store_id varchar(11) NOT NULL,
-    billing_active     boolean     NOT NULL DEFAULT false,
-    last_emitted_at    timestamptz NOT NULL DEFAULT now(),
-    stopped_at         timestamptz NULL,
-    account_id         varchar     NOT NULL DEFAULT '',
-    name               varchar     NOT NULL DEFAULT '',
-    provider           varchar     NOT NULL,
-    CONSTRAINT knowledge_billing_state_pkey PRIMARY KEY (knowledge_store_id)
-);
-
-CREATE INDEX idx_knowledge_billing_state_active ON public.knowledge_billing_state(billing_active) WHERE billing_active = true;
 
 -- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
 -- when the user connects their Slack account via WorkOS Pipes — the link

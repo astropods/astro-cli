@@ -12,7 +12,6 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
-	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
@@ -183,7 +182,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	// here; see docs/plans/tenant-router-migration.md.
 
 	// Resolve bound knowledge entries: look up store info and decrypt credentials.
-	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, dep, &ds, k8sForDep)
+	boundKnowledge, boundCredentials, boundErr := d.resolveBoundKnowledge(ctx, dep, &ds)
 	if boundErr != nil {
 		return nil, fmt.Errorf("resolve bound knowledge: %w", boundErr)
 	}
@@ -368,7 +367,7 @@ func (d *Deployer) encryptorForDeployment(
 // store or credentials cannot be resolved — deploying without credentials would
 // produce a running agent that silently fails to connect.
 func (d *Deployer) resolveBoundKnowledge(
-	ctx context.Context, dep *deploymentstore.Deployment, ds *deployment.AstroDeploymentSpec, k8sForDep k8s.ClusterClient,
+	ctx context.Context, dep *deploymentstore.Deployment, ds *deployment.AstroDeploymentSpec,
 ) (map[string]deployment.BoundKnowledgeInfo, map[string]string, error) {
 	if d.KnowledgeStore == nil {
 		return nil, nil, nil
@@ -392,31 +391,22 @@ func (d *Deployer) resolveBoundKnowledge(
 			boundKnowledge = make(map[string]deployment.BoundKnowledgeInfo)
 			boundCredentials = make(map[string]string)
 		}
-		storeNS := k8s.KnowledgeNamespace(store.AccountID)
-
-		// Resolve store credentials via unified resolver (KMS or k8s Secret fallback).
 		creds, credErr := d.KnowledgeStore.GetCredentials(store.ID)
 		if credErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to get credentials for store %q: %w", name, store.ID, credErr)
 		}
-		plainCreds, resolveErr := knowledgestore.ResolveCredentials(
-			ctx, store, creds, d.kmsClient(ctx),
-			&k8s.KnowledgeSecretReader{Clientset: k8sForDep.Clientset()}, storeNS,
-		)
+		plainCreds, resolveErr := knowledgestore.ResolveCredentials(ctx, store, creds, d.kmsClient(ctx))
 		if resolveErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to resolve credentials for store %q: %w", name, store.ID, resolveErr)
 		}
 
-		// External stores reached over PrivateLink must dial the provisioned VPC
+		// Stores reached over PrivateLink must dial the provisioned VPC
 		// endpoint's DNS — the user-supplied host is a vpce-svc service name that
 		// isn't itself connectable. Fetch the endpoint record so the host
 		// resolver can pick it up.
-		var ep *knowledgestore.Endpoint
-		if store.Mode == knowledgestore.ModeExternal {
-			ep, err = d.KnowledgeStore.GetEndpoint(store.ID)
-			if err != nil {
-				return nil, nil, fmt.Errorf("knowledge %q: failed to look up endpoint for store %q: %w", name, store.ID, err)
-			}
+		ep, err := d.KnowledgeStore.GetEndpoint(store.ID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("knowledge %q: failed to look up endpoint for store %q: %w", name, store.ID, err)
 		}
 
 		host, hostErr := boundKnowledgeHost(store, ep, plainCreds)
@@ -428,7 +418,7 @@ func (d *Deployer) resolveBoundKnowledge(
 			Provider: store.Provider,
 		}
 
-		for attr, val := range mapBoundCredentials(store.Provider, plainCreds) {
+		for attr, val := range mapBoundCredentials(plainCreds) {
 			boundCredentials[name+"."+attr] = val
 		}
 	}
@@ -439,31 +429,23 @@ func (d *Deployer) resolveBoundKnowledge(
 // boundKnowledgeHost returns the host the agent should use to reach a bound
 // knowledge store.
 //
-//   - Managed stores: their in-cluster StatefulSet service DNS.
-//   - External stores over PrivateLink: the provisioned VPC endpoint DNS. The
+//   - Stores reached over PrivateLink: the provisioned VPC endpoint DNS. The
 //     user-supplied host is a "com.amazonaws.vpce.*" service name that is not
 //     itself connectable, so the endpoint's resolved DNS is the only usable host.
-//   - Plain external stores: the user-supplied HOST credential (directly reachable).
+//   - Directly reachable stores: the user-supplied HOST credential.
 func boundKnowledgeHost(store *knowledgestore.KnowledgeStore, ep *knowledgestore.Endpoint, creds map[string]string) (string, error) {
-	if store.Mode == knowledgestore.ModeExternal {
-		if ep != nil && ep.EndpointDNS != nil && *ep.EndpointDNS != "" {
-			return *ep.EndpointDNS, nil
-		}
-		if host := creds["HOST"]; host != "" {
-			return host, nil
-		}
-		return "", fmt.Errorf("external store %q has no resolvable host: no PrivateLink endpoint DNS and no HOST credential", store.Name)
+	if ep != nil && ep.EndpointDNS != nil && *ep.EndpointDNS != "" {
+		return *ep.EndpointDNS, nil
 	}
-	return deployment.GenerateServiceDNS(
-		k8s.KnowledgeResourceName(store.ID), k8s.KnowledgeNamespace(store.AccountID),
-	), nil
+	if host := creds["HOST"]; host != "" {
+		return host, nil
+	}
+	return "", fmt.Errorf("store %q has no resolvable host: no PrivateLink endpoint DNS and no HOST credential", store.Name)
 }
 
-// externalCredKeyToAttr maps the generic credential keys external stores are
-// stored under (set at connect time) to bind attribute names. Managed stores
-// instead use provider-specific storage keys (POSTGRES_USER, ...), handled by
-// spec.CredentialStorageKeyMap.
-var externalCredKeyToAttr = map[string]string{
+// credKeyToAttr maps the generic credential keys stores are stored under (set
+// at connect time) to bind attribute names.
+var credKeyToAttr = map[string]string{
 	"USERNAME": "user",
 	"PASSWORD": "password",
 	"DATABASE": "database",
@@ -471,19 +453,12 @@ var externalCredKeyToAttr = map[string]string{
 }
 
 // mapBoundCredentials translates a store's plaintext credentials into the
-// attr→value form the resolver consumes ("name.attr"). It handles both
-// credential key shapes: managed stores' provider-specific storage keys and
-// external stores' generic keys. HOST/PORT are connection coords, not
-// credentials, and are intentionally dropped here.
-func mapBoundCredentials(provider string, plainCreds map[string]string) map[string]string {
-	storageKeyMap := spec.CredentialStorageKeyMap(provider)
+// attr→value form the resolver consumes ("name.attr"). HOST/PORT are connection
+// coords, not credentials, and are intentionally dropped here.
+func mapBoundCredentials(plainCreds map[string]string) map[string]string {
 	out := make(map[string]string, len(plainCreds))
 	for key, val := range plainCreds {
-		if attr, ok := storageKeyMap[key]; ok {
-			out[attr] = val
-			continue
-		}
-		if attr, ok := externalCredKeyToAttr[key]; ok {
+		if attr, ok := credKeyToAttr[key]; ok {
 			out[attr] = val
 		}
 	}

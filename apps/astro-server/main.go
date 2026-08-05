@@ -845,8 +845,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	webhookStore := deps.Stores.Webhook
 	slackIdentityStore := deps.Stores.SlackID
 
-	billingState := metering.NewBillingStateManager(billingProvider, db, log)
-
 	// AI Gateway wiring for handler-side use (dev-key issuance). Worker side
 	// constructs its own provisioner via the deployer; both read the same URL +
 	// master key from config. Nil when AI_GATEWAY_URL is unset — the dev-key
@@ -1423,17 +1421,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge", "Create a managed knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.CreateKnowledgeStore(log, ksStore, k8sClient, k8sReg, cfg, billingProvider, db), "knowledge_stores")),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(202, &handlers.KnowledgeResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-					oapispec.Response(402, &handlers.ErrorResponse{}),
-					oapispec.Response(403, &handlers.ErrorResponse{}),
-					oapispec.Response(409, &handlers.ErrorResponse{}),
-				)
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, pipesClient, cfg, queue, db, quotaChecker), "knowledge_stores"),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, pipesClient, cfg, queue, db, quotaChecker), "knowledge_stores")),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1448,7 +1436,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &[]handlers.KnowledgeResponse{}),
 				)
-				api.GET(accountMember, "/knowledge/:name", "Get a knowledge store", handlers.GetKnowledgeStore(log, ksStore, k8sClient),
+				api.GET(accountMember, "/knowledge/:name", "Get a knowledge store", handlers.GetKnowledgeStore(log, ksStore),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1464,7 +1452,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, k8sClient, queue, billingProvider, db, billingState),
+				api.DELETE(accountMember, "/knowledge/:name", "Delete a knowledge store", handlers.DeleteKnowledgeStore(log, ksStore, queue),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1472,35 +1460,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/knowledge/:name/logs", "Stream knowledge store logs", handlers.GetKnowledgeStoreLogs(log, ksStore, k8sClient, lokiClient),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, nil),
-				)
-				api.GET(accountMember, "/knowledge/:name/logs/stream", "Stream knowledge store logs (SSE)", handlers.StreamKnowledgeStoreLogs(log, ksStore, k8sClient, lokiClient),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, nil),
-				)
-				api.GET(accountMember, "/knowledge/:name/metrics", "Knowledge store infrastructure metrics", handlers.GetKnowledgeStoreMetrics(log, ksStore, promClient),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, &handlers.KnowledgeMetricsResponse{}),
-				)
-				api.GET(accountMember, "/knowledge/:name/events", "Stream knowledge store provisioning events", handlers.GetKnowledgeStoreEvents(log, ksStore, k8sClient),
-					oapispec.Tags("Knowledge"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("name", "Store name"),
-					oapispec.Response(200, nil),
-				)
-				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}, cfg.Deployment.IsLocal()),
+				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, cfg.Deployment.IsLocal()),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1508,7 +1468,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeCredentialsResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.PUT(accountMember, "/knowledge/:name/credentials", "Update connected knowledge store credentials", handlers.UpdateKnowledgeStoreCredentials(log, ksStore, pipesClient, cfg, &k8s.KnowledgeSecretReader{Clientset: k8sClient.Clientset()}),
+				api.PUT(accountMember, "/knowledge/:name/credentials", "Update connected knowledge store credentials", handlers.UpdateKnowledgeStoreCredentials(log, ksStore, pipesClient, cfg),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

@@ -5893,11 +5893,11 @@ func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
 		WithArgs("staging").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
@@ -5934,11 +5934,11 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
@@ -5977,11 +5977,11 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 			WithArgs("eu-west-1-managed").
 			WillReturnRows(sqlmock.NewRows([]string{
 				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-				"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+				"agent_ingress_domain", "ingestion_ingress_domain",
 				"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 				"created_at", "updated_at",
 			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-				"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+				"agents.example.com", "ingestion.example.com",
 				"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 				now, now))
 	}

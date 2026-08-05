@@ -66,7 +66,6 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 		Enabled:                true,
 		AgentIngressDomain:     "agents.e2e.example.com",
 		IngestionIngressDomain: "ingestion.e2e.example.com",
-		KnowledgeDomain:        "knowledge.e2e.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
 		LangfuseVPCEIPs:        "10.0.0.10",
 		PodSubnetCIDRs:         "10.0.0.0/24",

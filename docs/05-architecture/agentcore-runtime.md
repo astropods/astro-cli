@@ -73,7 +73,7 @@ This confines the runtime choice to the single component that executes agent cod
 Two consequences follow:
 
 - **Messaging must move out of the agent.** Today our messaging component is co-located with the agent. If only the agent relocates, messaging becomes a standalone service the agent connects to — or that invokes the agent.
-- **The agent must reach a private VPC from outside it.** This is the crux, and the subject of the questions below. Managed/external dependencies (managed knowledge, the model gateway) already work because they're addressed by a public or PrivateLink URL; the self-hosted in-namespace dependencies are the problem.
+- **The agent must reach a private VPC from outside it.** This is the crux, and the subject of the questions below. External dependencies (connected knowledge stores, the model gateway) already work because they're addressed by a public or PrivateLink URL; the self-hosted in-namespace dependencies are the problem.
 
 ---
 

@@ -135,11 +135,11 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 		WithArgs("cl-1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 
@@ -169,11 +169,11 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
 			now, now))
 

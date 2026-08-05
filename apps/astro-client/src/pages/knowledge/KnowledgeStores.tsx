@@ -197,7 +197,7 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                {["Name", "Account", "Status", "Provider", "Mode", "Storage", "Created"].map((header) => (
+                {["Name", "Account", "Status", "Provider", "Mode", "Created"].map((header) => (
                   <TableHead key={header}>{header}</TableHead>
                 ))}
                 <TableHead className="w-10" />
@@ -231,9 +231,6 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
                       <Tag color={store.mode === "managed" ? "blue" : "default"}>
                         {store.mode === "managed" ? "Managed" : "External"}
                       </Tag>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {store.mode === "managed" ? (store.storage ?? "—") : "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatRelativeTime(store.created_at)}</TableCell>
                     <TableCell onClick={(event) => event.stopPropagation()}>

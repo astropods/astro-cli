@@ -129,12 +129,12 @@ type wiredWorkers struct {
 	insights       *InsightsRefreshWorker
 	insightsRollup *InsightsRollupWorker
 	migrate        *MigrateDeploymentClusterWorker
-	dunning       *DunningSweepWorker
-	billingResume *BillingResumeWorker
-	metronomeHook *MetronomeWebhookWorker
-	stripeHook    *StripeWebhookWorker
-	ghBuild       *GitHubBuildWorker
-	observation   *ObservationSweepWorker
+	dunning        *DunningSweepWorker
+	billingResume  *BillingResumeWorker
+	metronomeHook  *MetronomeWebhookWorker
+	stripeHook     *StripeWebhookWorker
+	ghBuild        *GitHubBuildWorker
+	observation    *ObservationSweepWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -460,9 +460,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB, cfg.K8sCache)
 	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
 		ksStore:   ksStoreForWorkers,
-		registry:  cfg.K8sRegistry,
 		log:       cfg.Logger,
-		billing:   billing,
 		localMode: cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.IsLocal(),
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
@@ -506,13 +504,13 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 
 	return wiredWorkers{
-		purge:         pw,
-		insights:      insightsDiscovery,
-		migrate:       migrateWorker,
-		dunning:       dunningWorker,
-		billingResume: billingResumeWorker,
-		metronomeHook: metronomeHook,
-		stripeHook:    stripeHook,
+		purge:          pw,
+		insights:       insightsDiscovery,
+		migrate:        migrateWorker,
+		dunning:        dunningWorker,
+		billingResume:  billingResumeWorker,
+		metronomeHook:  metronomeHook,
+		stripeHook:     stripeHook,
 		ghBuild:        ghBuildWorker,
 		observation:    observationSweep,
 		insightsRollup: insightsRollupDiscovery,

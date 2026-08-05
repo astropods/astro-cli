@@ -104,12 +104,12 @@ func TestListUserKnowledgeStoresUsesOneGlobalKeysetPage(t *testing.T) {
 	mock.ExpectQuery(`FROM knowledge_stores ks`).
 		WithArgs("user-1", sqlmock.AnyArg(), 2).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "name", "arn", "provider", "mode", "status", "storage",
-			"storage_class", "public", "public_host", "error", "annotations",
+			"id", "account_id", "name", "arn", "provider", "mode", "status",
+			"error", "annotations",
 			"created_at", "updated_at", "account_name",
 		}).
-			AddRow("store-2", "acct-2", "second", "arn:2", "postgres", "managed", "ready", "10Gi", nil, false, nil, nil, nil, now, now, "beta").
-			AddRow("store-1", "acct-1", "first", "arn:1", "postgres", "managed", "ready", "10Gi", nil, false, nil, nil, nil, now.Add(-time.Minute), now, "alpha"))
+			AddRow("store-2", "acct-2", "second", "arn:2", "postgres", "external", "ready", nil, nil, now, now, "beta").
+			AddRow("store-1", "acct-1", "first", "arn:1", "postgres", "external", "ready", nil, nil, now.Add(-time.Minute), now, "alpha"))
 
 	req := httptest.NewRequest(http.MethodGet, "/me/knowledge?scope=all&limit=1", nil)
 	rec := httptest.NewRecorder()
@@ -135,8 +135,8 @@ func TestListUserKnowledgeStoresSearchesBeforePagination(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM knowledge_stores ks.*strpos\(lower\(ks.name\), lower\(\$3\)\).*ORDER BY ks.created_at DESC, ks.id DESC.*LIMIT \$4`).
 		WithArgs("user-1", sqlmock.AnyArg(), "second", 51).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "name", "arn", "provider", "mode", "status", "storage",
-			"storage_class", "public", "public_host", "error", "annotations",
+			"id", "account_id", "name", "arn", "provider", "mode", "status",
+			"error", "annotations",
 			"created_at", "updated_at", "account_name",
 		}))
 
@@ -162,8 +162,8 @@ func TestListUserKnowledgeStoresSearchCursorUsesDistinctPlaceholders(t *testing.
 	mock.ExpectQuery(`(?s)FROM knowledge_stores ks.*strpos\(lower\(ks.name\), lower\(\$3\)\).*\(ks.created_at, ks.id\) < \(\$4, \$5\).*LIMIT \$6`).
 		WithArgs("user-1", sqlmock.AnyArg(), "memory", cursorTime, "store-1", 51).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "name", "arn", "provider", "mode", "status", "storage",
-			"storage_class", "public", "public_host", "error", "annotations",
+			"id", "account_id", "name", "arn", "provider", "mode", "status",
+			"error", "annotations",
 			"created_at", "updated_at", "account_name",
 		}))
 

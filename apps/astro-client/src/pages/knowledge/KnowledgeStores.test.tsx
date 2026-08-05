@@ -15,7 +15,7 @@ function knowledgeStore(
     arn: "arn:astro:knowledge:store-1",
     name: "review-memory",
     provider: "postgres",
-    mode: "managed",
+    mode: "external",
     status: "ready",
     created_at: "2026-08-03T00:00:00Z",
     updated_at: "2026-08-03T00:00:00Z",

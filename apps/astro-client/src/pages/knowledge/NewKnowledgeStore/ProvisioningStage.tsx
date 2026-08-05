@@ -46,7 +46,10 @@ export function ProvisioningStage({
     return <PendingAcceptanceStage store={store} />;
   }
 
-  const completedCount = Math.min(store?.events?.length ?? 0, STEPS.length);
+  // Connecting a store is a single synchronous server call, so there is no
+  // per-step signal to read — show the checklist as in-flight until the store
+  // resolves, at which point the parent swaps this stage out.
+  const completedCount = 0;
 
   return (
     <div className="mx-auto max-w-lg">

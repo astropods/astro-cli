@@ -1,10 +1,10 @@
-import { ArrowPathIcon, CheckIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, CheckIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { useRecheckKnowledgeStore } from "@/api/queries/knowledge";
 import { cn } from "@/lib/utils";
-import type { KnowledgeStore, KnowledgeEvent } from "@/lib/api";
+import type { KnowledgeStore } from "@/lib/api";
 
 const CLOUD_CONSOLE: Record<string, {
   stepTitle: string;
@@ -48,7 +48,6 @@ export function PrivateLinkSection({
 
   const cloud = CLOUD_CONSOLE[store.endpoint.cloud_provider] ?? CLOUD_CONSOLE.aws;
   const consoleUrl = cloud.url(store.endpoint.region, store.endpoint.endpoint_id);
-  const events: KnowledgeEvent[] = store.events ?? [];
   const status = store.endpoint.status;
   const isPending = status === "pending-acceptance";
   const isReady = status === "ready";
@@ -153,27 +152,6 @@ export function PrivateLinkSection({
         </div>
       )}
 
-      {/* Event cards */}
-      {events.length > 0 && (
-        <div className="space-y-2">
-          {events.map((event, i) => (
-            <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface px-4 py-3">
-              {event.type === "Warning" ? (
-                <ExclamationTriangleIcon className="size-4 shrink-0 mt-0.5 text-warning" />
-              ) : (
-                <InformationCircleIcon className="size-4 shrink-0 mt-0.5 text-blue-500 dark:text-blue-400" />
-              )}
-              <div className="flex-1 min-w-0">
-                <span className="font-medium text-body-sm text-foreground">{event.reason}</span>
-                {event.message && <span className="text-body-sm text-muted-foreground">: {event.message}</span>}
-              </div>
-              {event.count > 1 && (
-                <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 font-mono text-mono-sm text-muted-foreground">×{event.count}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

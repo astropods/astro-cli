@@ -1857,8 +1857,10 @@ export interface NetworkTimeseriesResponse {
 // ============================================================================
 
 export type KnowledgeProvider = 'postgres' | 'qdrant' | 'redis' | 'neo4j' | 'pinecone' | 'mysql' | 'supabase';
+// Every store created now is 'external'. Rows predating the removal of
+// platform-provisioned stores still report 'managed'.
 export type KnowledgeMode = 'managed' | 'external';
-export type KnowledgeStatus = 'provisioning' | 'connecting' | 'pending-acceptance' | 'ready' | 'error';
+export type KnowledgeStatus = 'connecting' | 'pending-acceptance' | 'ready' | 'error';
 
 export interface KnowledgeEndpoint {
   cloud_provider: string;
@@ -1868,14 +1870,6 @@ export interface KnowledgeEndpoint {
   endpoint_dns?: string;
   status: string;
   error?: string | null;
-}
-
-export interface KnowledgeEvent {
-  type: 'Normal' | 'Warning';
-  reason: string;
-  message: string;
-  count: number;
-  timestamp?: string;
 }
 
 export interface BoundAgent {
@@ -1892,15 +1886,11 @@ export interface KnowledgeStore {
   provider: KnowledgeProvider;
   mode: KnowledgeMode;
   status: KnowledgeStatus;
-  storage?: string;
-  public?: boolean;
-  public_host?: string;
   endpoint?: KnowledgeEndpoint;
   error?: string | null;
   annotations?: Record<string, string>;
   created_at: string;
   updated_at: string;
-  events?: KnowledgeEvent[];
   bound_agents?: BoundAgent[];
   account_id?: string;
   account?: string;
@@ -1910,21 +1900,6 @@ export type KnowledgeStoreListResponse = KnowledgeStore[];
 
 export interface UserKnowledgeStoresResponse extends UserResourceResponse {
   stores: KnowledgeStore[];
-}
-
-export interface KnowledgeMetrics {
-  cpu_cores: number | null;
-  memory_bytes: number | null;
-  storage_used: number | null;
-  storage_total: number | null;
-  uptime_seconds: number;
-}
-
-export interface CreateKnowledgeStoreInput {
-  name: string;
-  provider: KnowledgeProvider;
-  storage?: string;
-  public?: boolean;
 }
 
 export interface ConnectKnowledgeStoreInput {
@@ -3472,13 +3447,6 @@ class ApiClient {
     );
   }
 
-  async createKnowledgeStore(account: string, data: CreateKnowledgeStoreInput): Promise<KnowledgeStore> {
-    return this.request<KnowledgeStore>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge`,
-      { method: 'POST', body: JSON.stringify(data) }
-    );
-  }
-
   async connectKnowledgeStore(account: string, data: ConnectKnowledgeStoreInput): Promise<KnowledgeStore> {
     return this.request<KnowledgeStore>(
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/connect`,
@@ -3545,33 +3513,6 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/credentials`,
       { method: 'PUT', body: JSON.stringify(data) }
     );
-  }
-
-  async getKnowledgeLogs(
-    account: string,
-    name: string,
-    since?: string,
-  ): Promise<LogEntry[]> {
-    const params = new URLSearchParams();
-    if (since) params.set('since', since);
-    const qs = params.toString();
-    return this.request<LogEntry[]>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs${qs ? `?${qs}` : ''}`
-    );
-  }
-
-  getKnowledgeLogsStreamUrl(account: string, name: string): string {
-    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/logs/stream`;
-  }
-
-  async getKnowledgeMetrics(account: string, name: string): Promise<KnowledgeMetrics> {
-    return this.request<KnowledgeMetrics>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/metrics`
-    );
-  }
-
-  getKnowledgeEventsStreamUrl(account: string, name: string): string {
-    return `${this.baseUrl}/api/v1/accounts/${encodeURIComponent(account)}/knowledge/${encodeURIComponent(name)}/events`;
   }
 
   // --------------------------------------------------------------------------

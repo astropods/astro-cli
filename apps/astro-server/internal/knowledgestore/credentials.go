@@ -2,61 +2,11 @@ package knowledgestore
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sort"
 
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
-
-// GenerateCredentials returns a map of env-var key → plaintext value for the given provider.
-// These are injected into the K8s Secret and used to initialize the database process.
-func GenerateCredentials(provider string) (map[string]string, error) {
-	switch provider {
-	case "postgres":
-		pass, err := randomHex(16)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{
-			"POSTGRES_USER":     "astro",
-			"POSTGRES_PASSWORD": pass,
-			"POSTGRES_DB":       "astro",
-		}, nil
-
-	case "qdrant":
-		key, err := randomHex(24)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{
-			"QDRANT__SERVICE__API_KEY": key,
-		}, nil
-
-	case "redis":
-		pass, err := randomHex(16)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{
-			"REDIS_PASSWORD": pass,
-		}, nil
-
-	case "neo4j":
-		pass, err := randomHex(16)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{
-			// neo4j uses NEO4J_AUTH=username/password to set credentials on first boot
-			"NEO4J_AUTH": "neo4j/" + pass,
-		}, nil
-
-	default:
-		return map[string]string{}, nil
-	}
-}
 
 // EncryptCredentials encrypts each key-value pair using the given encryptor and returns
 // the results ready for DB storage.
@@ -95,56 +45,22 @@ func DecryptCredentials(ctx context.Context, kmsClient envelope.KMSClient, encry
 	return result, nil
 }
 
-// SecretReader reads plaintext credentials from an external source (e.g. a k8s Secret).
-// Used as the fallback when KMS is not configured.
-type SecretReader interface {
-	ReadCredentials(ctx context.Context, storeID, namespace string) (map[string]string, error)
-}
-
-// ResolveCredentials returns plaintext credentials for a knowledge store.
-// Three resolution paths, tried in order:
-//  1. KMS decryption — credentials stored encrypted in the DB (production with KMS).
-//  2. K8s Secret fallback — read from the store's credential Secret (local/no-KMS managed stores).
-//  3. Error — no credentials available (external stores without KMS have no fallback).
-//
-// When KMS is required (EncryptedDataKey + dbCreds present) but no KMS client is
-// available, managed stores fall through to the k8s Secret which holds plaintext
-// credentials provisioned alongside the StatefulSet. External stores have no
-// such Secret and surface the KMS error directly.
+// ResolveCredentials returns plaintext credentials for a knowledge store by
+// decrypting the rows held in the DB. Connected stores are credential-only: the
+// platform never holds a plaintext copy anywhere else, so KMS is the sole path.
 func ResolveCredentials(
 	ctx context.Context,
 	store *KnowledgeStore,
 	dbCreds []Credential,
 	kmsClient envelope.KMSClient,
-	secretReader SecretReader,
-	namespace string,
 ) (map[string]string, error) {
-	// Path 1: KMS decryption — credentials stored encrypted in the DB.
-	if len(store.EncryptedDataKey) > 0 && len(dbCreds) > 0 {
-		if kmsClient != nil {
-			return DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, dbCreds)
-		}
-		// No KMS available. External stores have nothing else to read from.
-		if store.Mode == ModeExternal || secretReader == nil {
-			return nil, fmt.Errorf("store %q requires KMS decryption but no KMS client is available", store.Name)
-		}
-		// Managed store: fall through to k8s Secret (path 2).
+	if len(store.EncryptedDataKey) == 0 || len(dbCreds) == 0 {
+		return nil, fmt.Errorf("store %q has no stored credentials", store.Name)
 	}
-
-	// Path 2: k8s Secret fallback — for managed stores without KMS (local dev).
-	// External stores have no k8s Secret; this path will fail for them.
-	if secretReader != nil {
-		creds, err := secretReader.ReadCredentials(ctx, store.ID, namespace)
-		if err != nil {
-			if store.Mode == ModeExternal {
-				return nil, fmt.Errorf("external store %q: credentials require KMS (not configured when store was created)", store.Name)
-			}
-			return nil, fmt.Errorf("store %q: %w", store.Name, err)
-		}
-		return creds, nil
+	if kmsClient == nil {
+		return nil, fmt.Errorf("store %q requires KMS decryption but no KMS client is available", store.Name)
 	}
-
-	return nil, fmt.Errorf("store %q: no credentials available (no KMS and no k8s Secret reader configured)", store.Name)
+	return DecryptCredentials(ctx, kmsClient, store.EncryptedDataKey, dbCreds)
 }
 
 // HostCredentialKey is the credential key holding an external store's
@@ -230,12 +146,4 @@ func (s *Store) RewriteCredentials(ctx context.Context, kmsClient envelope.KMSCl
 		return err
 	}
 	return s.SaveCredentials(store.ID, creds)
-}
-
-func randomHex(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("rand.Read: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }

@@ -59,7 +59,6 @@ func seedExternalStore(t *testing.T, db *sql.DB, s *knowledgestore.Store, creds 
 		Name:             "kr-" + storeID,
 		ARN:              "arn:knowledge:test-kr-account:kr-" + storeID,
 		Provider:         "postgres",
-		Mode:             knowledgestore.ModeExternal,
 		Status:           knowledgestore.StatusReady,
 		EncryptedDataKey: key,
 	}); err != nil {
@@ -158,8 +157,8 @@ func TestPersistResolvedHost_Integration_NoDataKey(t *testing.T) {
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM knowledge_stores WHERE id = $1`, storeID) })
 	if _, err := store.Create(knowledgestore.CreateParams{
 		ID: storeID, AccountID: accountID, Name: "kr-nodk-" + storeID,
-		ARN: "arn:knowledge:test-kr-account:kr-nodk-" + storeID,
-		Provider: "postgres", Mode: knowledgestore.ModeExternal, Status: knowledgestore.StatusReady,
+		ARN:      "arn:knowledge:test-kr-account:kr-nodk-" + storeID,
+		Provider: "postgres", Status: knowledgestore.StatusReady,
 	}); err != nil {
 		t.Fatalf("create store: %v", err)
 	}

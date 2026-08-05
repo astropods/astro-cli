@@ -39,7 +39,6 @@ func ensureTestKnowledgeStore(t *testing.T, s *Store, accountID, name string) st
 		Name:      name,
 		ARN:       "arn:knowledge:test-ks-account:" + name,
 		Provider:  "postgres",
-		Storage:   "10Gi",
 	}); err != nil {
 		t.Fatalf("create store %q: %v", name, err)
 	}

@@ -8,14 +8,14 @@ import (
 	"github.com/lib/pq"
 )
 
-const userStoreColumns = `ks.id, ks.account_id, ks.name, ks.arn, ks.provider, ks.mode, ks.status, ks.storage, ks.storage_class,
-       ks.public, ks.public_host, ks.error, ks.annotations, ks.created_at, ks.updated_at`
+const userStoreColumns = `ks.id, ks.account_id, ks.name, ks.arn, ks.provider, ks.mode, ks.status,
+       ks.error, ks.annotations, ks.created_at, ks.updated_at`
 
 func userStoreScanDest(store *KnowledgeStore) []any {
 	return []any{
 		&store.ID, &store.AccountID, &store.Name, &store.ARN, &store.Provider,
-		&store.Mode, &store.Status, &store.Storage, &store.StorageClass, &store.Public,
-		&store.PublicHost, &store.Error, &store.Annotations, &store.CreatedAt, &store.UpdatedAt,
+		&store.Mode, &store.Status,
+		&store.Error, &store.Annotations, &store.CreatedAt, &store.UpdatedAt,
 	}
 }
 

@@ -19,10 +19,10 @@ function credentialLabel(key: string): string {
 
 // Mirrors the server's credential shape per provider+mode so the locked-state
 // placeholder renders the same row count as the real data, avoiding a layout
-// jump on reveal. Managed: GenerateCredentials in
-// internal/knowledgestore/credentials.go (only the providers in
-// MANAGED_PROVIDERS are reachable). External: ExternalCredentialKeys in
-// internal/knowledgestore/store.go.
+// jump on reveal. External keys come from ExternalCredentialKeys in
+// internal/knowledgestore/store.go. The managed shapes are kept only for stores
+// predating the removal of platform-provisioned knowledge stores — those
+// credentials still decrypt, but no new store uses these keys.
 const PLACEHOLDER_KEYS: Record<KnowledgeMode, Partial<Record<KnowledgeProvider, string[]>>> = {
   managed: {
     postgres: ["postgres_user", "postgres_password", "postgres_db"],

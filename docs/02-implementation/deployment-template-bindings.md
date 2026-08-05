@@ -1,6 +1,6 @@
 # Deployment Template — Knowledge Store Bindings
 
-Scope: adding knowledge store binding support to the interactive POST template endpoint. Depends on the POST endpoint (deployment-template-post.md) and managed knowledge stores (knowledge-store-managed.md Phase 1) being in place.
+Scope: adding knowledge store binding support to the interactive POST template endpoint. Depends on the POST endpoint (deployment-template-post.md) being in place.
 
 ---
 

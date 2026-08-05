@@ -276,9 +276,6 @@ func TestDefaultK8sClientMode(t *testing.T) {
 func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 	// When KnowledgeStore is nil (not configured), bound entries are silently skipped.
 	d := &Deployer{Log: logger.New("error", "json")}
-	noopK8s := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
 	dep := &deploymentstore.Deployment{ID: "d1"}
 
 	ds := &deployment.AstroDeploymentSpec{
@@ -287,7 +284,7 @@ func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 		},
 	}
 
-	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds, noopK8s)
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -298,9 +295,6 @@ func TestResolveBoundKnowledge_NilKnowledgeStore(t *testing.T) {
 
 func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 	d := &Deployer{Log: logger.New("error", "json")}
-	noopK8s := newFakeClusterClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
 	dep := &deploymentstore.Deployment{ID: "d1"}
 
 	ds := &deployment.AstroDeploymentSpec{
@@ -309,7 +303,7 @@ func TestResolveBoundKnowledge_NoBoundEntries(t *testing.T) {
 		},
 	}
 
-	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds, noopK8s)
+	bk, bc, err := d.resolveBoundKnowledge(context.Background(), dep, ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -376,59 +370,28 @@ func TestBoundKnowledgeHost_ExternalNoHost(t *testing.T) {
 	}
 }
 
-// TestBoundKnowledgeHost_Managed: a managed store resolves to its in-cluster
-// StatefulSet service DNS (endpoint/creds are irrelevant).
-func TestBoundKnowledgeHost_Managed(t *testing.T) {
-	store := &knowledgestore.KnowledgeStore{
-		ID: "store1", AccountID: "acct1", Provider: "postgres", Mode: knowledgestore.ModeManaged,
-	}
-	want := deployment.GenerateServiceDNS(
-		k8s.KnowledgeResourceName("store1"), k8s.KnowledgeNamespace("acct1"),
-	)
-
-	host, err := boundKnowledgeHost(store, nil, nil)
-	if err != nil {
-		t.Fatalf("boundKnowledgeHost: %v", err)
-	}
-	if host != want {
-		t.Errorf("host: got %q, want in-cluster DNS %q", host, want)
-	}
-}
-
-// TestMapBoundCredentials covers both credential key shapes: external stores
-// store generic keys (USERNAME/PASSWORD/DATABASE) while managed stores store
-// provider-specific keys (POSTGRES_USER/...). Both must map to the same bind
-// attrs, and connection coords (HOST/PORT) must be dropped.
+// TestMapBoundCredentials: stores keep generic credential keys
+// (USERNAME/PASSWORD/DATABASE), which must map to bind attrs while connection
+// coords (HOST/PORT) are dropped.
 func TestMapBoundCredentials(t *testing.T) {
-	external := mapBoundCredentials("postgres", map[string]string{
+	got := mapBoundCredentials(map[string]string{
 		"HOST":     "db.example.com",
 		"PORT":     "5432",
 		"USERNAME": "astro",
 		"PASSWORD": "secret123",
 		"DATABASE": "mydb",
 	})
-	wantExternal := map[string]string{"user": "astro", "password": "secret123", "database": "mydb"}
-	for attr, want := range wantExternal {
-		if external[attr] != want {
-			t.Errorf("external %q: got %q, want %q", attr, external[attr], want)
+	want := map[string]string{"user": "astro", "password": "secret123", "database": "mydb"}
+	for attr, w := range want {
+		if got[attr] != w {
+			t.Errorf("%q: got %q, want %q", attr, got[attr], w)
 		}
 	}
-	if _, ok := external["HOST"]; ok {
+	if _, ok := got["HOST"]; ok {
 		t.Error("HOST must not be mapped as a credential")
 	}
-	if len(external) != len(wantExternal) {
-		t.Errorf("external: got %d creds, want %d (%v)", len(external), len(wantExternal), external)
-	}
-
-	managed := mapBoundCredentials("postgres", map[string]string{
-		"POSTGRES_USER":     "astro",
-		"POSTGRES_PASSWORD": "secret123",
-		"POSTGRES_DB":       "mydb",
-	})
-	for attr, want := range wantExternal {
-		if managed[attr] != want {
-			t.Errorf("managed %q: got %q, want %q", attr, managed[attr], want)
-		}
+	if len(got) != len(want) {
+		t.Errorf("got %d creds, want %d (%v)", len(got), len(want), got)
 	}
 }
 

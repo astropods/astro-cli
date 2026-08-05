@@ -638,12 +638,11 @@ message StopDeploymentResponse {
 // RegisteredCluster describes the primary cluster (synthesized, is_primary=true)
 // or an additional cluster row from public.clusters.
 //
-// The ingress / knowledge / observability fields are required for additional
-// clusters — RegisterCluster and UpdateCluster reject empty values, and
-// deploys targeting a row with any empty field fail at submit time. The
-// primary cluster reads env vars (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN,
-// KNOWLEDGE_DOMAIN, ...) instead; these fields are returned empty for
-// is_primary=true entries.
+// The ingress / observability fields are required for additional clusters —
+// RegisterCluster and UpdateCluster reject empty values, and deploys targeting
+// a row with any empty field fail at submit time. The primary cluster reads env
+// vars (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN, ...) instead; these fields are
+// returned empty for is_primary=true entries.
 message RegisteredCluster {
   string id = 1;
   string region = 2;
@@ -656,11 +655,11 @@ message RegisteredCluster {
   bool healthy = 9;
   string health_error = 10;
   string agent_ingress_domain = 11;
-  reserved 12, 13, 15, 16;
+  reserved 12, 13, 15, 16, 17;
   reserved "agent_acm_certificate_arn", "agent_alb_group_name",
-           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+           "knowledge_domain";
   string ingestion_ingress_domain = 14;
-  string knowledge_domain = 17;
   string langfuse_base_url_ext = 18;
   string langfuse_vpce_ips = 19; // comma-separated ENI IPs
   string pod_subnet_cidrs = 20;  // comma-separated CIDRs
@@ -679,11 +678,11 @@ message RegisterClusterRequest {
   string eks_cluster_endpoint = 4;
   bool enabled = 5;
   string agent_ingress_domain = 6;
-  reserved 7, 8, 10, 11;
+  reserved 7, 8, 10, 11, 12;
   reserved "agent_acm_certificate_arn", "agent_alb_group_name",
-           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+           "knowledge_domain";
   string ingestion_ingress_domain = 9;
-  string knowledge_domain = 12;
   string langfuse_base_url_ext = 13;
   string langfuse_vpce_ips = 14;
   string pod_subnet_cidrs = 15;
@@ -858,11 +857,11 @@ message UpdateClusterRequest {
   string eks_cluster_name = 3;
   string eks_cluster_endpoint = 4;
   string agent_ingress_domain = 5;
-  reserved 6, 7, 9, 10;
+  reserved 6, 7, 9, 10, 11;
   reserved "agent_acm_certificate_arn", "agent_alb_group_name",
-           "ingestion_acm_certificate_arn", "ingestion_alb_group_name";
+           "ingestion_acm_certificate_arn", "ingestion_alb_group_name",
+           "knowledge_domain";
   string ingestion_ingress_domain = 8;
-  string knowledge_domain = 11;
   string langfuse_base_url_ext = 12;
   string langfuse_vpce_ips = 13;
   string pod_subnet_cidrs = 14;

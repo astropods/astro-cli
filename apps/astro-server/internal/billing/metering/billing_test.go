@@ -46,7 +46,7 @@ func failingServer(t *testing.T) *httptest.Server {
 }
 
 // setupSQLiteDB creates an in-memory SQLite DB with the billing state tables
-// and supporting deployment/knowledge tables needed for JOIN queries.
+// and supporting deployment tables needed for JOIN queries.
 func setupSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -90,26 +90,6 @@ func setupSQLiteDB(t *testing.T) *sql.DB {
 			cpu_request     TEXT NOT NULL DEFAULT '',
 			memory_request  TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (deployment_id) REFERENCES deployments(id) ON DELETE CASCADE
-		);
-
-		CREATE TABLE knowledge_stores (
-			id         TEXT PRIMARY KEY,
-			account_id TEXT NOT NULL,
-			name       TEXT NOT NULL,
-			provider   TEXT NOT NULL,
-			mode       TEXT NOT NULL DEFAULT 'managed',
-			status     TEXT NOT NULL DEFAULT 'provisioning',
-			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
-		);
-
-		CREATE TABLE knowledge_billing_state (
-			knowledge_store_id TEXT PRIMARY KEY,
-			billing_active     INTEGER NOT NULL DEFAULT 0,
-			last_emitted_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-			stopped_at         DATETIME NULL,
-			account_id         TEXT NOT NULL DEFAULT '',
-			name               TEXT NOT NULL DEFAULT '',
-			provider           TEXT NOT NULL
 		);
 	`)
 	if err != nil {
@@ -527,198 +507,6 @@ func TestReconcileStale_Stopped(t *testing.T) {
 	}
 }
 
-// --- Knowledge Store Billing ---
-
-func TestStartKnowledgeBilling_InsertsRow(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, _, _ := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
-
-	m.StartKnowledgeBilling(context.Background(), "ks-1", "acct-1", "my-pg", "postgres")
-
-	var active int
-	var provider, accountID, name string
-	db.QueryRow("SELECT billing_active, provider, account_id, name FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&active, &provider, &accountID, &name)
-	if active != 1 {
-		t.Error("expected billing_active=true")
-	}
-	if provider != "postgres" {
-		t.Errorf("expected provider='postgres', got %q", provider)
-	}
-	if accountID != "acct-1" {
-		t.Errorf("expected account_id='acct-1', got %q", accountID)
-	}
-	if name != "my-pg" {
-		t.Errorf("expected name='my-pg', got %q", name)
-	}
-}
-
-func TestStopKnowledgeBilling_RecordsStoppedAt(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, received, mu := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
-
-	thirtyMinAgo := time.Now().Add(-30 * time.Minute)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
-		VALUES ('ks-1', 1, ?, 'acct-1', 'my-pg', 'postgres')`, thirtyMinAgo)
-
-	err := m.StopKnowledgeBilling(context.Background(), "ks-1", time.Now())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// No events emitted — heartbeat handles this
-	mu.Lock()
-	n := len(*received)
-	mu.Unlock()
-	if n != 0 {
-		t.Errorf("expected 0 events from StopKnowledgeBilling, got %d", n)
-	}
-
-	var active int
-	var stoppedAt time.Time
-	db.QueryRow("SELECT billing_active, stopped_at FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&active, &stoppedAt)
-	if active != 0 {
-		t.Error("expected billing_active=false after stop")
-	}
-	if stoppedAt.IsZero() {
-		t.Error("expected stopped_at to be set")
-	}
-}
-
-func TestStopKnowledgeBilling_NotActive(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, received, mu := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'error')`)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
-		VALUES ('ks-1', 0, datetime('now'), 'acct-1', 'my-pg', 'postgres')`)
-
-	m.StopKnowledgeBilling(context.Background(), "ks-1", time.Now())
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(*received) != 0 {
-		t.Errorf("expected 0 events for inactive billing, got %d", len(*received))
-	}
-}
-
-func TestReconcileStoppedKnowledge_EmitsFinalPeriodAfterDeletion(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, received, mu := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	// Store exists, billing started
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
-	thirtyMinAgo := time.Now().Add(-30 * time.Minute)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
-		VALUES ('ks-1', 1, ?, 'acct-1', 'my-pg', 'postgres')`, thirtyMinAgo)
-
-	// Stop is recorded
-	m.StopKnowledgeBilling(context.Background(), "ks-1", time.Now())
-
-	// Store is deleted — billing row persists (no CASCADE)
-	db.Exec(`DELETE FROM knowledge_stores WHERE id = 'ks-1'`)
-
-	// Heartbeat emits the final period using stored account_id/name
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if len(*received) != 1 {
-		t.Fatalf("expected 1 event after heartbeat, got %d", len(*received))
-	}
-	ev := (*received)[0]
-	if ev.Type != "knowledge_compute_usage" {
-		t.Errorf("expected type 'knowledge_compute_usage', got %q", ev.Type)
-	}
-	data := eventData(ev)
-	cuHours := data["cu_hours"].(float64)
-	// postgres CU = 0.25, elapsed ≈ 0.5h
-	expectedCUH := 0.25 * 0.5
-	if math.Abs(cuHours-expectedCUH) > 0.02 {
-		t.Errorf("knowledge CU-hours: expected ≈ %f, got %f", expectedCUH, cuHours)
-	}
-	if data["store_name"] != "my-pg" {
-		t.Errorf("expected store_name='my-pg', got %v", data["store_name"])
-	}
-
-	// Row deleted after emission
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&count)
-	if count != 0 {
-		t.Error("expected billing row deleted after emission")
-	}
-}
-
-func TestRunKnowledgeBillingCycle_EmitsDelta(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, received, mu := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'ready')`)
-
-	fiveMinAgo := time.Now().Add(-5 * time.Minute)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
-		VALUES ('ks-1', 1, ?, 'acct-1', 'my-pg', 'postgres')`, fiveMinAgo)
-
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if len(*received) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(*received))
-	}
-
-	cuHours := eventData((*received)[0])["cu_hours"].(float64)
-	expectedCUH := 0.25 * (5.0 / 60.0)
-	if math.Abs(cuHours-expectedCUH) > 0.005 {
-		t.Errorf("knowledge reconcile CU-hours: expected ≈ %f, got %f", expectedCUH, cuHours)
-	}
-}
-
-func TestReconcileStaleKnowledge_ErrorStore(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, received, mu := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	updatedAt := time.Now().Add(-2 * time.Minute)
-	lastEmitted := time.Now().Add(-10 * time.Minute)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, status, updated_at)
-		VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'error', ?)`, updatedAt)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, account_id, name, provider)
-		VALUES ('ks-1', 1, ?, 'acct-1', 'my-pg', 'postgres')`, lastEmitted)
-
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if len(*received) == 0 {
-		t.Fatal("expected events from stale knowledge reconciliation")
-	}
-
-	var active int
-	db.QueryRow("SELECT billing_active FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&active)
-	if active != 0 {
-		t.Error("expected billing_active=false after error store reconciliation")
-	}
-}
-
 // --- Edge Cases ---
 
 func TestStartBilling_UpsertOnRedeploy(t *testing.T) {
@@ -850,42 +638,6 @@ func TestHealMissingBillingRows_IdempotentOnSubsequentTicks(t *testing.T) {
 	// last_emitted_at should have been advanced by RunBillingCycle (not reset to now by heal)
 	if lastEmitted.Before(time.Now().Add(-5 * time.Second)) {
 		t.Error("existing billing row's last_emitted_at was overwritten by heal")
-	}
-}
-
-func TestHealMissingKnowledgeBillingRows_SeededOnFirstTick(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, _, _ := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-1', 'acct-1', 'my-pg', 'postgres', 'managed', 'ready')`)
-
-	// No billing row exists — RunKnowledgeBillingCycle should heal it
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	var active int
-	db.QueryRow("SELECT billing_active FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&active)
-	if active != 1 {
-		t.Error("expected knowledge billing row to be healed with billing_active=true")
-	}
-}
-
-func TestHealMissingKnowledgeBillingRows_SkipsExternalAndNonReady(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv, _, _ := collectEvents(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-ext', 'acct-1', 'ext-pg', 'postgres', 'external', 'ready')`)
-	db.Exec(`INSERT INTO knowledge_stores (id, account_id, name, provider, mode, status) VALUES ('ks-prov', 'acct-1', 'prov-pg', 'postgres', 'managed', 'provisioning')`)
-
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM knowledge_billing_state").Scan(&count)
-	if count != 0 {
-		t.Errorf("expected no billing rows for external/non-ready stores, got %d", count)
 	}
 }
 
@@ -1024,25 +776,5 @@ func TestStartBilling_RapidRedeploy_ClearsStoppedAt(t *testing.T) {
 	}
 	if gotStoppedAt != nil {
 		t.Error("expected stopped_at=NULL after redeploy, row is in corrupt state")
-	}
-}
-
-func TestReconcileStoppedKnowledge_FailingServer_DoesNotDeleteRow(t *testing.T) {
-	db := setupSQLiteDB(t)
-	srv := failingServer(t)
-	log := logger.New("error", "json")
-	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
-
-	oneHourAgo := time.Now().Add(-time.Hour)
-	stoppedAt := time.Now().Add(-30 * time.Minute)
-	db.Exec(`INSERT INTO knowledge_billing_state (knowledge_store_id, billing_active, last_emitted_at, stopped_at, account_id, name, provider)
-		VALUES ('ks-1', 0, ?, ?, 'acct-1', 'my-pg', 'postgres')`, oneHourAgo, stoppedAt)
-
-	m.RunKnowledgeBillingCycle(context.Background())
-
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM knowledge_billing_state WHERE knowledge_store_id = 'ks-1'").Scan(&count)
-	if count != 1 {
-		t.Error("knowledge billing row was deleted despite emission failure")
 	}
 }

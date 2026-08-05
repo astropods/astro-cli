@@ -9,9 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
-	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
@@ -29,18 +27,13 @@ func init() {
 	registerJobKind[KnowledgeReconcileArgs]()
 }
 
-// KnowledgeReconcileWorker reconciles knowledge store state.
-//
-// It runs periodically and does three things:
-//  1. Advances provisioning managed stores to ready/error once their StatefulSet is healthy.
-//  2. Recreates missing K8s credentials secrets for ready managed stores (cluster migration recovery).
-//  3. Polls PrivateLink endpoints (connecting/pending-acceptance) and advances them.
+// KnowledgeReconcileWorker reconciles knowledge store state. It runs
+// periodically and polls PrivateLink endpoints (connecting/pending-acceptance),
+// advancing them as their VPC endpoint status changes in AWS.
 type KnowledgeReconcileWorker struct {
 	river.WorkerDefaults[KnowledgeReconcileArgs]
-	ksStore  *knowledgestore.Store
-	registry *k8s.Registry
-	log      *logger.Logger
-	billing  *metering.BillingStateManager
+	ksStore *knowledgestore.Store
+	log     *logger.Logger
 
 	// localMode selects the credential KMS backend: the local dev backend when
 	// ENVIRONMENT == "local", real AWS KMS otherwise. Same choice as the handlers.
@@ -61,135 +54,10 @@ func (w *KnowledgeReconcileWorker) kmsClientFor(ctx context.Context) (envelope.K
 	return knowledgestore.KMSBackend(ctx, w.localMode)
 }
 
-// Knowledge rows do not yet carry per-cluster routing; StatefulSet, LB, and
-// secret recovery use the primary cluster only until that metadata exists.
-func (w *KnowledgeReconcileWorker) primaryK8s() k8s.ClusterClient {
-	if w.registry == nil {
-		return nil
-	}
-	return w.registry.Default()
-}
-
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
-	if pk := w.primaryK8s(); pk != nil {
-		w.reconcileProvisioning(ctx, pk)
-		w.ensureSecrets(ctx, pk)
-	}
 	w.reconcilePrivateLink(ctx)
 
 	return nil
-}
-
-// reconcileProvisioning checks stores in provisioning state and advances them.
-func (w *KnowledgeReconcileWorker) reconcileProvisioning(ctx context.Context, k8sClient k8s.ClusterClient) {
-	stores, err := w.ksStore.ListProvisioning()
-	if err != nil {
-		w.log.Error("KnowledgeReconcile: failed to list provisioning stores", "error", err)
-		return
-	}
-
-	for _, ks := range stores {
-		ready, err := k8s.IsStatefulSetReady(ctx, k8sClient, ks.AccountID, ks.ID)
-		if err != nil {
-			w.log.Error("KnowledgeReconcile: failed to check StatefulSet readiness",
-				"error", err, "store_id", ks.ID)
-			continue
-		}
-
-		if !ready {
-			continue
-		}
-
-		// For public stores: wait for LB hostname before marking ready.
-		if ks.Public {
-			host, err := k8s.GetLoadBalancerHostname(ctx, k8sClient, ks.AccountID, ks.ID)
-			if err != nil {
-				w.log.Error("KnowledgeReconcile: failed to get LB hostname",
-					"error", err, "store_id", ks.ID)
-				continue
-			}
-			if host == "" {
-				// LB not yet assigned — check again next cycle.
-				continue
-			}
-			// LB is assigned — the friendly CNAME (name.account.knowledge.domain)
-			// was already recorded by the create handler. External-dns handles
-			// the CNAME → NLB mapping; we only needed the LB check as a
-			// readiness gate.
-		}
-
-		if err := w.ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
-			w.log.Error("KnowledgeReconcile: failed to mark store ready",
-				"error", err, "store_id", ks.ID)
-			continue
-		}
-
-		// Start event-driven knowledge compute billing.
-		if w.billing != nil && ks.Mode == knowledgestore.ModeManaged {
-			go w.billing.StartKnowledgeBilling(context.Background(), ks.ID, ks.AccountID, ks.Name, ks.Provider) //nolint:gosec // intentional: context.Background() avoids cancellation on job completion
-		}
-
-		w.log.Info("KnowledgeReconcile: store ready", "store_id", ks.ID, "provider", ks.Provider)
-	}
-}
-
-// ensureSecrets checks ready stores and recreates missing K8s credentials secrets.
-// This is the recovery path for cluster migrations and accidental secret deletions.
-// Decryption requires the KMS data key stored in the DB — if KMS is unavailable or
-// the store has no encrypted credentials, the secret cannot be recreated.
-func (w *KnowledgeReconcileWorker) ensureSecrets(ctx context.Context, k8sClient k8s.ClusterClient) {
-	stores, err := w.ksStore.ListReady()
-	if err != nil {
-		w.log.Error("KnowledgeReconcile: failed to list ready stores", "error", err)
-		return
-	}
-
-	for _, ks := range stores {
-		secretName := k8s.KnowledgeSecretName(ks.ID)
-		exists, err := k8s.SecretExists(ctx, k8sClient, ks.AccountID, secretName)
-		if err != nil {
-			w.log.Error("KnowledgeReconcile: failed to check secret existence",
-				"error", err, "store_id", ks.ID)
-			continue
-		}
-		if exists {
-			continue
-		}
-
-		if len(ks.EncryptedDataKey) == 0 || ks.KMSKeyARN == nil {
-			w.log.Warn("KnowledgeReconcile: missing secret but no encrypted credentials to recover from",
-				"store_id", ks.ID)
-			continue
-		}
-
-		creds, err := w.ksStore.GetCredentials(ks.ID)
-		if err != nil || len(creds) == 0 {
-			w.log.Warn("KnowledgeReconcile: missing secret and no credentials in DB",
-				"store_id", ks.ID, "error", err)
-			continue
-		}
-
-		kmsClient, err := w.kmsClientFor(ctx)
-		if err != nil {
-			w.log.Error("KnowledgeReconcile: failed to init KMS backend", "error", err)
-			return
-		}
-
-		plainCreds, decErr := knowledgestore.DecryptCredentials(ctx, kmsClient, ks.EncryptedDataKey, creds)
-		if decErr != nil {
-			w.log.Error("KnowledgeReconcile: failed to decrypt credentials",
-				"error", decErr, "store_id", ks.ID)
-			continue
-		}
-
-		if err := k8s.ApplyKnowledgeSecret(ctx, k8sClient, ks.AccountID, ks.ID, secretName, plainCreds); err != nil {
-			w.log.Error("KnowledgeReconcile: failed to recreate secret",
-				"error", err, "store_id", ks.ID)
-			continue
-		}
-
-		w.log.Info("KnowledgeReconcile: recreated missing credentials secret", "store_id", ks.ID)
-	}
 }
 
 // reconcilePrivateLink checks PrivateLink endpoints in connecting/pending-acceptance

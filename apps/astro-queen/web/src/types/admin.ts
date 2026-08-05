@@ -470,7 +470,6 @@ export interface RegisteredCluster {
   health_error: string;
   agent_ingress_domain: string;
   ingestion_ingress_domain: string;
-  knowledge_domain: string;
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
@@ -492,7 +491,6 @@ export interface RegisterClusterRequest {
   enabled?: boolean;
   agent_ingress_domain: string;
   ingestion_ingress_domain: string;
-  knowledge_domain: string;
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
@@ -518,7 +516,6 @@ export interface UpdateClusterRequest {
   eks_cluster_ca: string;
   agent_ingress_domain: string;
   ingestion_ingress_domain: string;
-  knowledge_domain: string;
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;

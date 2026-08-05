@@ -3,7 +3,6 @@ import { useParams, Link, useSearchParams } from "react-router";
 import { BookOpen, ChevronRight } from "lucide-react";
 import type { Route } from "./+types/KnowledgeStoreDetail";
 import {
-  QueueListIcon,
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -25,12 +24,11 @@ import { cn } from "@/lib/utils";
 import { resolvePageAccount } from "@/lib/user-resource-scope";
 import { Chip } from "./Chip";
 import { OverviewTab } from "./OverviewTab";
-import { LogsTab } from "./LogsTab";
 import { SettingsPanel } from "./SettingsPanel";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Store | Astro" }];
 
-type Tab = "overview" | "logs" | "settings";
+type Tab = "overview" | "settings";
 
 function KnowledgeStoreDetailContent() {
   const { storeName } = useParams();
@@ -48,7 +46,6 @@ function KnowledgeStoreDetailContent() {
 
   const tabs: { key: Tab; label: string; hidden?: boolean; icon: React.ReactNode }[] = [
     { key: "overview", label: "Overview", icon: <BookOpen className="size-3.5 shrink-0" /> },
-    { key: "logs", label: "Logs", hidden: store?.mode !== "managed", icon: <QueueListIcon className="size-3.5 shrink-0" /> },
     { key: "settings", label: "Settings", icon: <Cog6ToothIcon className="size-3.5 shrink-0" /> },
   ];
 
@@ -69,8 +66,8 @@ function KnowledgeStoreDetailContent() {
     );
   }
 
-  const fullValue = store.public_host || store.arn;
-  const isArn = !store.public_host;
+  const fullValue = store.arn;
+  const isArn = true;
   const display = isArn && fullValue ? `…${fullValue.split(":").pop() ?? fullValue}` : fullValue;
 
   return (
@@ -143,8 +140,7 @@ function KnowledgeStoreDetailContent() {
         </div>
 
         <div className="dp-scroll flex-1 min-h-0 overflow-y-auto py-6 px-8">
-          {tab === "overview" && <OverviewTab store={store} account={account} onViewLogs={() => setTab("logs")} />}
-          {tab === "logs" && store.mode === "managed" && <LogsTab account={account} storeName={store.name} />}
+          {tab === "overview" && <OverviewTab store={store} account={account} />}
           {tab === "settings" && <SettingsPanel store={store} account={account} />}
         </div>
 

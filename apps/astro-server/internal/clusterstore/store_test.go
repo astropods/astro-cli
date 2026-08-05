@@ -47,7 +47,6 @@ func fullCluster() *Cluster {
 		Enabled:                true,
 		AgentIngressDomain:     "agents.example.com",
 		IngestionIngressDomain: "ingestion.example.com",
-		KnowledgeDomain:        "knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
 		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
@@ -69,7 +68,7 @@ func TestRegister_Success(t *testing.T) {
 			"us-east-1-managed", "us-east-1",
 			"prod-managed-eks", "https://eks.example", fakeCA(),
 			true,
-			"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -110,13 +109,12 @@ func TestRegister_RejectsMissingRequiredFields(t *testing.T) {
 	store := New(db)
 
 	mutate := map[string]func(*Cluster){
-		"missing region":                    func(c *Cluster) { c.Region = "" },
-		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
-		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing region":                   func(c *Cluster) { c.Region = "" },
+		"missing eks name":                 func(c *Cluster) { c.EKSClusterName = "" },
+		"missing endpoint":                 func(c *Cluster) { c.EKSClusterEndpoint = "" },
 		"missing eks_cluster_ca":           func(c *Cluster) { c.EKSClusterCA = nil },
 		"missing agent_ingress_domain":     func(c *Cluster) { c.AgentIngressDomain = "" },
 		"missing ingestion_ingress_domain": func(c *Cluster) { c.IngestionIngressDomain = "" },
-		"missing knowledge_domain":         func(c *Cluster) { c.KnowledgeDomain = "" },
 		"missing langfuse_base_url_ext":    func(c *Cluster) { c.LangfuseBaseURLExt = "" },
 		"missing langfuse_vpce_ips":        func(c *Cluster) { c.LangfuseVPCEIPs = "" },
 		"missing pod_subnet_cidrs":         func(c *Cluster) { c.PodSubnetCIDRs = "" },
@@ -312,7 +310,7 @@ func TestUpdate_Success(t *testing.T) {
 	mock.ExpectExec("UPDATE clusters SET").
 		WithArgs(
 			c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
-			c.AgentIngressDomain, c.IngestionIngressDomain, c.KnowledgeDomain,
+			c.AgentIngressDomain, c.IngestionIngressDomain,
 			c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
 			c.ID,
 		).
@@ -342,13 +340,12 @@ func TestUpdate_RejectsMissingRequiredFields(t *testing.T) {
 	store := New(db)
 
 	mutate := map[string]func(*Cluster){
-		"missing region":                    func(c *Cluster) { c.Region = "" },
-		"missing eks name":                  func(c *Cluster) { c.EKSClusterName = "" },
-		"missing endpoint":                  func(c *Cluster) { c.EKSClusterEndpoint = "" },
+		"missing region":                   func(c *Cluster) { c.Region = "" },
+		"missing eks name":                 func(c *Cluster) { c.EKSClusterName = "" },
+		"missing endpoint":                 func(c *Cluster) { c.EKSClusterEndpoint = "" },
 		"missing eks_cluster_ca":           func(c *Cluster) { c.EKSClusterCA = nil },
 		"missing agent_ingress_domain":     func(c *Cluster) { c.AgentIngressDomain = "" },
 		"missing ingestion_ingress_domain": func(c *Cluster) { c.IngestionIngressDomain = "" },
-		"missing knowledge_domain":         func(c *Cluster) { c.KnowledgeDomain = "" },
 		"missing langfuse_base_url_ext":    func(c *Cluster) { c.LangfuseBaseURLExt = "" },
 		"missing langfuse_vpce_ips":        func(c *Cluster) { c.LangfuseVPCEIPs = "" },
 		"missing pod_subnet_cidrs":         func(c *Cluster) { c.PodSubnetCIDRs = "" },
@@ -406,7 +403,7 @@ func TestDeregister_InUse(t *testing.T) {
 func clusterRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-		"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+		"agent_ingress_domain", "ingestion_ingress_domain",
 		"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 		"created_at", "updated_at",
 	})
@@ -418,7 +415,7 @@ func clusterRows() *sqlmock.Rows {
 func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string, enabled bool, now time.Time) *sqlmock.Rows {
 	return rows.AddRow(
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
-		"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		now, now,
 	)

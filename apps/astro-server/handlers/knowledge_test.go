@@ -22,8 +22,8 @@ import (
 )
 
 var knowledgeColumns = []string{
-	"id", "account_id", "name", "arn", "provider", "mode", "status", "storage", "storage_class",
-	"public", "public_host", "encrypted_data_key", "kms_key_arn", "error", "annotations",
+	"id", "account_id", "name", "arn", "provider", "mode", "status",
+	"encrypted_data_key", "kms_key_arn", "error", "annotations",
 	"created_at", "updated_at",
 }
 
@@ -43,8 +43,7 @@ func supabaseExternalRow(id, accountID, name string) *sqlmock.Rows {
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
 		"postgres", "external", "error",
-		"10Gi", nil,
-		false, nil, nil, nil, "health check failed",
+		nil, nil, "health check failed",
 		[]byte(`{"source":"supabase"}`),
 		now, now,
 	)
@@ -56,11 +55,14 @@ func knowledgeRowWithMode(id, accountID, name, provider, mode, status string) *s
 		id, accountID, name,
 		"arn:knowledge:acme:"+name,
 		provider, mode, status,
-		"10Gi", nil, // storage, storage_class
-		false, nil, nil, nil, nil, // public, public_host, encrypted_data_key, kms_key_arn, error
+		nil, nil, nil, // encrypted_data_key, kms_key_arn, error
 		nil,      // annotations
 		now, now, // created_at, updated_at
 	)
+}
+
+func minimalCfg() *config.Config {
+	return &config.Config{Deployment: config.DeploymentConfig{}}
 }
 
 // injectAccount sets the resolved account on the gin context, simulating the
@@ -87,148 +89,6 @@ func setupKS() (*gin.Engine, *knowledgestore.Store, sqlmock.Sqlmock) {
 	router := gin.New()
 	router.Use(injectAccount(testAccount()))
 	return router, ksStore, mock
-}
-
-func minimalCfg() *config.Config {
-	return &config.Config{
-		Deployment: config.DeploymentConfig{
-			// Handler tests exercise managed provisioning paths; production defaults to false via config.Load().
-			KnowledgeAllowManagedCreate: true,
-		},
-	}
-}
-
-// --- CreateKnowledgeStore ---
-
-func TestCreateKnowledgeStore_ManagedProvisioningDisabled(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	log := logger.New("error", "json")
-
-	cfg := &config.Config{} // KnowledgeAllowManagedCreate defaults false
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, cfg, nil, nil))
-
-	body := `{"name":"pg-main","provider":"postgres"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled mock expectations: %v", err)
-	}
-}
-
-func TestCreateKnowledgeStore_InvalidProvider(t *testing.T) {
-	router, ksStore, _ := setupKS()
-	log := logger.New("error", "json")
-
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	body := `{"name":"mystore","provider":"nonexistent"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateKnowledgeStore_MissingName(t *testing.T) {
-	router, ksStore, _ := setupKS()
-	log := logger.New("error", "json")
-
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	body := `{"provider":"postgres"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateKnowledgeStore_Conflict(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	log := logger.New("error", "json")
-
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	mock.ExpectQuery("INSERT INTO knowledge_stores").
-		WillReturnError(&pq.Error{Code: "23505", Message: "duplicate key"})
-
-	body := `{"name":"pg-main","provider":"postgres"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusConflict {
-		t.Errorf("expected 409, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateKnowledgeStore_DBError(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	log := logger.New("error", "json")
-
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	mock.ExpectQuery("INSERT INTO knowledge_stores").
-		WillReturnError(sqlmock.ErrCancelled)
-
-	body := `{"name":"pg-main","provider":"postgres"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateKnowledgeStore_Success_NoKMS(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	log := logger.New("error", "json")
-
-	// No k8sClient (nil) and no KMS — provisioning skipped, store created.
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	mock.ExpectQuery("INSERT INTO knowledge_stores").
-		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "provisioning"))
-
-	body := `{"name":"pg-main","provider":"postgres","storage":"20Gi"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Errorf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	var resp KnowledgeResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if resp.Provider != "postgres" {
-		t.Errorf("expected provider 'postgres', got %q", resp.Provider)
-	}
-	if resp.Status != knowledgestore.StatusProvisioning {
-		t.Errorf("expected status %q, got %q", knowledgestore.StatusProvisioning, resp.Status)
-	}
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled mock expectations: %v", err)
-	}
 }
 
 // --- ListKnowledgeStores ---
@@ -271,8 +131,7 @@ func TestListKnowledgeStores_WithItems(t *testing.T) {
 		rows.AddRow(
 			"id-"+name, testAccount().ID, name,
 			"arn:knowledge:acme:"+name, "qdrant", "managed", "ready",
-			"10Gi", nil, // storage, storage_class
-			false, nil, nil, nil, nil, nil, now, now,
+			nil, nil, nil, nil, now, now,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").WillReturnRows(rows)
@@ -298,7 +157,7 @@ func TestGetKnowledgeStore_Found(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore, nil))
+	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -325,7 +184,7 @@ func TestGetKnowledgeStore_NotFound(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore, nil))
+	router.GET("/knowledge/:name", GetKnowledgeStore(log, ksStore))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(sqlmock.NewRows(knowledgeColumns))
@@ -345,7 +204,7 @@ func TestDeleteKnowledgeStore_NotFound(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(sqlmock.NewRows(knowledgeColumns))
@@ -363,7 +222,7 @@ func TestDeleteKnowledgeStore_NoK8s(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -391,8 +250,7 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
 
-	// No secret reader — simulates no k8s client available.
-	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore, nil, false))
+	router.GET("/knowledge/:name/credentials", GetKnowledgeStoreCredentials(log, ksStore, false))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(knowledgeRow("abc-def-ghi", testAccount().ID, "pg-main", "postgres", "ready"))
@@ -410,95 +268,6 @@ func TestGetKnowledgeStoreCredentials_NoKMS(t *testing.T) {
 }
 
 // --- Name / storage validation ---
-
-func TestCreateKnowledgeStore_InvalidName(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"starts with hyphen", `{"name":"-bad","provider":"postgres"}`},
-		{"ends with hyphen", `{"name":"bad-","provider":"postgres"}`},
-		{"uppercase", `{"name":"MyStore","provider":"postgres"}`},
-		{"too long", `{"name":"` + strings.Repeat("a", 64) + `","provider":"postgres"}`},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			router, ksStore, _ := setupKS()
-			log := logger.New("error", "json")
-			router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-			req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(tc.body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusBadRequest {
-				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-			}
-		})
-	}
-}
-
-func TestCreateKnowledgeStore_InvalidStorage(t *testing.T) {
-	router, ksStore, _ := setupKS()
-	log := logger.New("error", "json")
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	body := `{"name":"my-db","provider":"postgres","storage":"notasize"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestCreateKnowledgeStore_ARN_UsesAccountID is a regression test: ARNs must
-// use the short account ID (FNV-64a hash), not the account name which can change.
-func TestCreateKnowledgeStore_ARN_UsesAccountID(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	log := logger.New("error", "json")
-	router.POST("/knowledge", CreateKnowledgeStore(log, ksStore, nil, nil, minimalCfg(), nil, nil))
-
-	acct := testAccount()
-	expectedARN := arn.KnowledgeStore(acct.ID, "pg-main")
-
-	// WithArgs verifies the ARN passed to INSERT uses the short account ID (arg $4), not the name.
-	mock.ExpectQuery("INSERT INTO knowledge_stores").
-		WithArgs(
-			sqlmock.AnyArg(), // $1: store ID
-			acct.ID,          // $2: account ID
-			"pg-main",        // $3: name
-			expectedARN,      // $4: ARN — must use short account ID, not name
-			"postgres",       // $5: provider
-			"managed",        // $6: mode
-			"provisioning",   // $7: status
-			"10Gi",           // $8: storage
-			sqlmock.AnyArg(), // $9: storage_class (nil)
-			false,            // $10: public
-			sqlmock.AnyArg(), // $11: public_host
-			sqlmock.AnyArg(), // $12: encrypted_data_key
-			sqlmock.AnyArg(), // $13: kms_key_arn
-			sqlmock.AnyArg(), // $14: annotations
-		).
-		WillReturnRows(knowledgeRow(acct.ID, acct.ID, "pg-main", "postgres", "provisioning"))
-
-	body := `{"name":"pg-main","provider":"postgres"}`
-	req := httptest.NewRequest(http.MethodPost, "/knowledge", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled mock expectations (ARN arg check failed): %v", err)
-	}
-}
 
 // --- ConnectKnowledgeStore ---
 
@@ -680,13 +449,9 @@ func TestConnectKnowledgeStore_ARNUsesAccountID(t *testing.T) {
 			"postgres",       // $5: provider
 			"external",       // $6: mode
 			"ready",          // $7: status
-			"",               // $8: storage (empty for external — DB default applies)
-			sqlmock.AnyArg(), // $9: storage_class (nil)
-			false,            // $10: public
-			sqlmock.AnyArg(), // $11: public_host
-			sqlmock.AnyArg(), // $12: encrypted_data_key
-			sqlmock.AnyArg(), // $13: kms_key_arn
-			sqlmock.AnyArg(), // $14: annotations
+			sqlmock.AnyArg(), // $8: encrypted_data_key
+			sqlmock.AnyArg(), // $9: kms_key_arn
+			sqlmock.AnyArg(), // $10: annotations
 		).
 		WillReturnRows(externalKnowledgeRow(acct.ID, acct.ID, "pg-prod", "postgres", "ready"))
 	// No KMS configured in minimalCfg() — SaveCredentials is skipped.
@@ -712,7 +477,7 @@ func TestDeleteKnowledgeStore_ExternalSkipsK8s(t *testing.T) {
 	log := logger.New("error", "json")
 
 	// Pass nil for k8sClient — if the handler tried to use it for an external store, it would panic.
-	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil, nil, nil, nil, nil))
+	router.DELETE("/knowledge/:name", DeleteKnowledgeStore(log, ksStore, nil))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(externalKnowledgeRow("ext-abc-def", testAccount().ID, "pg-prod", "postgres", "ready"))
@@ -746,12 +511,12 @@ func TestListKnowledgeStores_MixedModes(t *testing.T) {
 	rows.AddRow(
 		"id-managed", testAccount().ID, "pg-main",
 		"arn:knowledge:acme:pg-main", "postgres", "managed", "ready",
-		"20Gi", nil, false, nil, nil, nil, nil, nil, now, now,
+		nil, nil, nil, nil, now, now,
 	)
 	rows.AddRow(
 		"id-external", testAccount().ID, "pg-prod",
 		"arn:knowledge:acme:pg-prod", "postgres", "external", "ready",
-		"10Gi", nil, false, nil, nil, nil, nil, nil, now, now,
+		nil, nil, nil, nil, now, now,
 	)
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").WillReturnRows(rows)
 
@@ -862,7 +627,7 @@ func TestConnectKnowledgeStore_EntitlementBlocked_KnowledgeEndpoints(t *testing.
 func updateCredsRouter() (*gin.Engine, *knowledgestore.Store, sqlmock.Sqlmock) {
 	router, ksStore, mock := setupKS()
 	log := logger.New("error", "json")
-	router.PUT("/knowledge/:name/credentials", UpdateKnowledgeStoreCredentials(log, ksStore, nil, minimalCfg(), nil))
+	router.PUT("/knowledge/:name/credentials", UpdateKnowledgeStoreCredentials(log, ksStore, nil, minimalCfg()))
 	return router, ksStore, mock
 }
 
@@ -882,17 +647,6 @@ func TestUpdateKnowledgeStoreCredentials_NotFound(t *testing.T) {
 	rec := doUpdateCreds(router, `{"password":"x"}`)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestUpdateKnowledgeStoreCredentials_RejectsManaged(t *testing.T) {
-	router, _, mock := updateCredsRouter()
-	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
-		WillReturnRows(knowledgeRowWithMode("m1", testAccount().ID, "pg-prod", "postgres", "managed", "ready"))
-
-	rec := doUpdateCreds(router, `{"password":"x"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for managed store, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

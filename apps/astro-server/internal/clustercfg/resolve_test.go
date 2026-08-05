@@ -13,7 +13,6 @@ func envDefaults() config.DeploymentConfig {
 	return config.DeploymentConfig{
 		IngressDomain:          "primary.agents.example.com",
 		IngestionIngressDomain: "primary.ingestion.example.com",
-		KnowledgeDomain:        "primary.knowledge.example.com",
 	}
 }
 
@@ -75,7 +74,7 @@ func TestResolve_PrimaryIDUsesEnvDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.KnowledgeDomain != "primary.knowledge.example.com" {
+	if got.IngestionIngressDomain != "primary.ingestion.example.com" {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -87,7 +86,6 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
-		KnowledgeDomain:        "eu.knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
 		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
@@ -100,9 +98,6 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 	}
 	if got.AgentIngressDomain != "eu.agents.example.com" {
 		t.Errorf("ingress: %s", got.AgentIngressDomain)
-	}
-	if got.KnowledgeDomain != "eu.knowledge.example.com" {
-		t.Errorf("knowledge: %s", got.KnowledgeDomain)
 	}
 	if got.LangfuseBaseURL != "http://langfuse.platform.astroids.ai:3000" {
 		t.Errorf("langfuse url: %s", got.LangfuseBaseURL)
@@ -122,7 +117,6 @@ func TestResolve_AdditionalClusterWhitespaceOnlyVPCEIPsErrors(t *testing.T) {
 		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
-		KnowledgeDomain:        "eu.knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        " , ",
 		PodSubnetCIDRs:         "10.0.0.0/24",

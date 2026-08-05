@@ -1,5 +1,4 @@
 import { Bot } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { MetricCard } from "@/components/MetricCard";
 import { PrivateLinkSection } from "@/components/knowledge/PrivateLinkSection";
@@ -10,10 +9,9 @@ import { formatUptime } from "@/lib/format-utils";
 import { Tag } from "@/components/Tag";
 import type { KnowledgeStore } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { EventTimeline } from "./EventTimeline";
 import { BindingsGraph } from "./BindingsGraph";
 
-export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeStore; account: string; onViewLogs: () => void }) {
+export function OverviewTab({ store, account }: { store: KnowledgeStore; account: string }) {
   // Live Supabase project health for Supabase-origin stores (Tier-1 metric).
   const supabaseRef = store.annotations?.source === "supabase" ? (store.annotations.supabase_project_id ?? "") : "";
   const { data: supabaseHealthData } = useSupabaseProjectHealth(account, supabaseRef, { enabled: !!supabaseRef });
@@ -67,7 +65,7 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
           {supabaseRegion && <MetricCard label="Region" value={supabaseRegion} showTrend={false} />}
         </div>
 
-        <div className={cn("grid gap-3", store.mode === "managed" && "lg:grid-cols-[1fr_420px]")}>
+        <div className="grid gap-3">
           <div className="overflow-hidden rounded-md border border-border bg-card">
             <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
               <h3 className="text-heading-4 text-foreground">Agent bindings</h3>
@@ -89,18 +87,6 @@ export function OverviewTab({ store, account, onViewLogs }: { store: KnowledgeSt
               </div>
             )}
           </div>
-
-          {store.mode === "managed" && (
-            <div className="flex flex-col">
-              <div className="overflow-hidden rounded-md border border-border bg-card">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-                  <h3 className="text-heading-4 text-foreground">Event log</h3>
-                  <Button variant="ghost" size="sm" onClick={onViewLogs}>View logs</Button>
-                </div>
-                <EventTimeline store={store} />
-              </div>
-            </div>
-          )}
         </div>
       </>}
     </div>

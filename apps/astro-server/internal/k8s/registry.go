@@ -65,7 +65,6 @@ type ClusterEntry struct {
 	Enabled                bool
 	AgentIngressDomain     string
 	IngestionIngressDomain string
-	KnowledgeDomain        string
 	LangfuseBaseURLExt     string
 	LangfuseVPCEIPs        string
 	PodSubnetCIDRs         string
@@ -258,7 +257,6 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		Enabled:                row.Enabled,
 		AgentIngressDomain:     row.AgentIngressDomain,
 		IngestionIngressDomain: row.IngestionIngressDomain,
-		KnowledgeDomain:        row.KnowledgeDomain,
 		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         row.PodSubnetCIDRs,
@@ -314,7 +312,6 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 			Enabled:                row.Enabled,
 			AgentIngressDomain:     row.AgentIngressDomain,
 			IngestionIngressDomain: row.IngestionIngressDomain,
-			KnowledgeDomain:        row.KnowledgeDomain,
 			LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 			LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 			PodSubnetCIDRs:         row.PodSubnetCIDRs,

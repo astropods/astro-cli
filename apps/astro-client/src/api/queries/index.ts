@@ -11,4 +11,4 @@ export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariabl
 export { useOtelIngestKeys, useCreateOtelIngestKey, useRevokeOtelIngestKey, useUpdateOtelIngestKeyExclusions } from './otel-ingest-keys';
 export { useNotificationPreferences, useUpdateNotificationPreference, useSendTestNotification, useNotificationInboxConfig } from './notifications';
 export { useAuditLog, useAuditLogFilters } from './auditlog';
-export { useKnowledgeStores, useKnowledgeStore, useKnowledgeLogs, useKnowledgeMetrics, useKnowledgeCredentials, useCreateKnowledgeStore, useConnectKnowledgeStore, useUpdateKnowledgeCredentials, useDeleteKnowledgeStore } from './knowledge';
+export { useKnowledgeStores, useKnowledgeStore, useKnowledgeCredentials, useConnectKnowledgeStore, useUpdateKnowledgeCredentials, useDeleteKnowledgeStore } from './knowledge';

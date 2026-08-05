@@ -60,7 +60,6 @@ function normalizeEksClusterCA(raw: string): string {
 type ClusterDeployFields = {
   agent_ingress_domain: string;
   ingestion_ingress_domain: string;
-  knowledge_domain: string;
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
@@ -69,7 +68,6 @@ type ClusterDeployFields = {
 const emptyClusterDeploy: ClusterDeployFields = {
   agent_ingress_domain: "",
   ingestion_ingress_domain: "",
-  knowledge_domain: "",
   langfuse_base_url_ext: "",
   langfuse_vpce_ips: "",
   pod_subnet_cidrs: "",
@@ -80,7 +78,6 @@ function clusterDeployFromCluster(cluster: Pick<RegisteredCluster, keyof Cluster
   return {
     agent_ingress_domain: cluster.agent_ingress_domain ?? "",
     ingestion_ingress_domain: cluster.ingestion_ingress_domain ?? "",
-    knowledge_domain: cluster.knowledge_domain ?? "",
     langfuse_base_url_ext: cluster.langfuse_base_url_ext ?? "",
     langfuse_vpce_ips: cluster.langfuse_vpce_ips ?? "",
     pod_subnet_cidrs: cluster.pod_subnet_cidrs ?? "",
@@ -92,7 +89,6 @@ function trimClusterDeploy(f: ClusterDeployFields): ClusterDeployFields {
   return {
     agent_ingress_domain: normalized.agent_ingress_domain.trim(),
     ingestion_ingress_domain: normalized.ingestion_ingress_domain.trim(),
-    knowledge_domain: normalized.knowledge_domain.trim(),
     langfuse_base_url_ext: normalized.langfuse_base_url_ext.trim(),
     langfuse_vpce_ips: normalized.langfuse_vpce_ips.trim(),
     pod_subnet_cidrs: normalized.pod_subnet_cidrs.trim(),
@@ -104,7 +100,6 @@ function clusterDeployComplete(f: ClusterDeployFields): boolean {
   return (
     normalized.agent_ingress_domain.trim() !== "" &&
     normalized.ingestion_ingress_domain.trim() !== "" &&
-    normalized.knowledge_domain.trim() !== "" &&
     normalized.langfuse_base_url_ext.trim() !== "" &&
     normalized.langfuse_vpce_ips.trim() !== "" &&
     normalized.pod_subnet_cidrs.trim() !== ""
@@ -285,7 +280,7 @@ function ClusterDeployFieldset({
   return (
     <div className="space-y-2 rounded-md border border-glass-border-honey/60 p-2">
       <div className="text-xs font-medium text-muted-foreground">
-        Ingress / knowledge
+        Ingress
       </div>
       <p className="text-[10px] text-muted-foreground">
         Per-cluster overrides. All fields are required — astro-server rejects empty values for
@@ -304,12 +299,6 @@ function ClusterDeployFieldset({
           value={value.ingestion_ingress_domain}
           onChange={(v) => set({ ingestion_ingress_domain: v })}
           placeholder="ingestion.example.com"
-        />
-        <Field
-          label="Knowledge domain"
-          value={value.knowledge_domain}
-          onChange={(v) => set({ knowledge_domain: v })}
-          placeholder="knowledge.example.com"
         />
       </div>
       <div className="text-xs font-medium text-muted-foreground pt-1">
@@ -500,7 +489,7 @@ function ClusterRow({
           <button
             type="button"
             className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 hover:bg-amber-500/25"
-            title="Ingress / cert / knowledge fields incomplete — edit cluster to fix"
+            title="Ingress / cert fields incomplete — edit cluster to fix"
             onClick={() => setEditOpen(true)}
           >
             Incomplete
@@ -572,8 +561,8 @@ function ClusterRow({
                 <DialogHeader>
                   <DialogTitle>Edit cluster {cluster.id}</DialogTitle>
                   <DialogDescription>
-                    Update EKS coordinates and the per-cluster ingress / cert / knowledge
-                    config. The cluster id cannot be changed.
+                    Update EKS coordinates and the per-cluster ingress / cert config.
+                    The cluster id cannot be changed.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2 sm:grid-cols-2">

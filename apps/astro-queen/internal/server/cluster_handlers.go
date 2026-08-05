@@ -34,7 +34,6 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 type clusterDeployBody struct {
 	AgentIngressDomain     string `json:"agent_ingress_domain"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain"`
-	KnowledgeDomain        string `json:"knowledge_domain"`
 	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext"`
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs"`
@@ -63,7 +62,6 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		EKSClusterCA:           body.EKSClusterCA,
 		AgentIngressDomain:     body.AgentIngressDomain,
 		IngestionIngressDomain: body.IngestionIngressDomain,
-		KnowledgeDomain:        body.KnowledgeDomain,
 		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,
@@ -102,7 +100,6 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		EKSClusterCA:           body.EKSClusterCA,
 		AgentIngressDomain:     body.AgentIngressDomain,
 		IngestionIngressDomain: body.IngestionIngressDomain,
-		KnowledgeDomain:        body.KnowledgeDomain,
 		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,

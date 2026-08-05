@@ -55,7 +55,6 @@ func TestStore_CreateAndGet(t *testing.T) {
 		Name:      "pg-main",
 		ARN:       "arn:knowledge:test-ks-account:pg-main",
 		Provider:  "postgres",
-		Storage:   "10Gi",
 	}
 
 	ks, err := s.Create(p)
@@ -66,8 +65,11 @@ func TestStore_CreateAndGet(t *testing.T) {
 	if ks.ID != p.ID {
 		t.Errorf("ID: want %q, got %q", p.ID, ks.ID)
 	}
-	if ks.Status != StatusProvisioning {
-		t.Errorf("Status: want %q, got %q", StatusProvisioning, ks.Status)
+	if ks.Status != StatusReady {
+		t.Errorf("Status: want %q, got %q", StatusReady, ks.Status)
+	}
+	if ks.Mode != ModeExternal {
+		t.Errorf("Mode: want %q, got %q", ModeExternal, ks.Mode)
 	}
 
 	byID, err := s.GetByID(ks.ID)
@@ -119,7 +121,6 @@ func TestStore_Create_UniqueConflict(t *testing.T) {
 		Name:      "dup-store",
 		ARN:       "arn:knowledge:test-ks-account:dup-store",
 		Provider:  "postgres",
-		Storage:   "10Gi",
 	}
 	if _, err := s.Create(p); err != nil {
 		t.Fatalf("first Create: %v", err)
@@ -145,7 +146,6 @@ func TestStore_ListByAccount(t *testing.T) {
 			Name:      name,
 			ARN:       "arn:knowledge:test-ks-account:" + name,
 			Provider:  "qdrant",
-			Storage:   "5Gi",
 		})
 		if err != nil {
 			t.Fatalf("Create[%d]: %v", i, err)
@@ -170,7 +170,6 @@ func TestStore_SetStatus(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "status-store",
 		ARN: "arn:knowledge:test-ks-account:status-store", Provider: "redis",
-		Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -197,7 +196,6 @@ func TestStore_SetError(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "error-store",
 		ARN: "arn:knowledge:test-ks-account:error-store", Provider: "redis",
-		Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -215,30 +213,6 @@ func TestStore_SetError(t *testing.T) {
 	}
 }
 
-func TestStore_SetPublicHost(t *testing.T) {
-	db := testDB(t)
-	s := NewStore(db)
-	accountID := ensureTestKSAccount(t, db)
-
-	id := deployid.New()
-	if _, err := s.Create(CreateParams{
-		ID: id, AccountID: accountID, Name: "pub-store",
-		ARN: "arn:knowledge:test-ks-account:pub-store", Provider: "postgres",
-		Storage: "10Gi", Public: true,
-	}); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	if err := s.SetPublicHost(id, "pub-store.acme.knowledge.astropods.ai"); err != nil {
-		t.Fatalf("SetPublicHost: %v", err)
-	}
-
-	ks, _ := s.GetByID(id)
-	if ks.PublicHost == nil || *ks.PublicHost != "pub-store.acme.knowledge.astropods.ai" {
-		t.Errorf("unexpected public_host: %v", ks.PublicHost)
-	}
-}
-
 func TestStore_Delete(t *testing.T) {
 	db := testDB(t)
 	s := NewStore(db)
@@ -248,7 +222,6 @@ func TestStore_Delete(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "delete-me",
 		ARN: "arn:knowledge:test-ks-account:delete-me", Provider: "redis",
-		Storage: "1Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -272,7 +245,6 @@ func TestStore_SaveAndGetCredentials(t *testing.T) {
 	if _, err := s.Create(CreateParams{
 		ID: id, AccountID: accountID, Name: "cred-store",
 		ARN: "arn:knowledge:test-ks-account:cred-store", Provider: "postgres",
-		Storage: "10Gi",
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -299,44 +271,5 @@ func TestStore_SaveAndGetCredentials(t *testing.T) {
 	}
 	if string(byKey["POSTGRES_USER"].ValueEncrypted) != "enc-user" {
 		t.Errorf("unexpected value for POSTGRES_USER")
-	}
-}
-
-func TestStore_ListProvisioning(t *testing.T) {
-	db := testDB(t)
-	s := NewStore(db)
-	accountID := ensureTestKSAccount(t, db)
-
-	id := deployid.New()
-	if _, err := s.Create(CreateParams{
-		ID: id, AccountID: accountID, Name: "prov-store",
-		ARN: "arn:knowledge:test-ks-account:prov-store", Provider: "postgres",
-		Storage: "10Gi",
-	}); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	stores, err := s.ListProvisioning()
-	if err != nil {
-		t.Fatalf("ListProvisioning: %v", err)
-	}
-	found := false
-	for _, ks := range stores {
-		if ks.ID == id {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("new store not found in ListProvisioning")
-	}
-
-	// After marking ready, should no longer appear.
-	_ = s.SetStatus(id, StatusReady)
-	stores, _ = s.ListProvisioning()
-	for _, ks := range stores {
-		if ks.ID == id {
-			t.Error("ready store should not appear in ListProvisioning")
-		}
 	}
 }

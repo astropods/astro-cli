@@ -26,7 +26,6 @@ type Resolved struct {
 	// clusters need a per-cluster column before they can serve public surfaces.
 	AgentPublicIngressDomain string
 	IngestionIngressDomain   string
-	KnowledgeDomain          string
 	LangfuseBaseURL          string   // collector LANGFUSE_BASE_URL
 	LangfuseVPCEIPs          []string // VPCE ENI IPs for netpol :3000 egress
 	PodSubnetCIDRs           []string // pod subnet CIDRs for netpol except list
@@ -48,7 +47,6 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 			AgentIngressDomain:       dep.IngressDomain,
 			AgentPublicIngressDomain: dep.AgentPublicIngressDomain,
 			IngestionIngressDomain:   dep.IngestionIngressDomain,
-			KnowledgeDomain:          dep.KnowledgeDomain,
 			LangfuseBaseURL:          langfuseURL,
 			LangfuseVPCEIPs:          dep.LangfuseVPCEIPs,
 			PodSubnetCIDRs:           dep.PodSubnetCIDRs,
@@ -71,7 +69,6 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 	return Resolved{
 		AgentIngressDomain:     entry.AgentIngressDomain,
 		IngestionIngressDomain: entry.IngestionIngressDomain,
-		KnowledgeDomain:        entry.KnowledgeDomain,
 		LangfuseBaseURL:        entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        commalist.Parse(entry.LangfuseVPCEIPs),
 		PodSubnetCIDRs:         commalist.Parse(entry.PodSubnetCIDRs),
@@ -82,7 +79,6 @@ func deployConfigFromEntry(entry k8s.ClusterEntry) clusterfields.DeployConfig {
 	return clusterfields.DeployConfig{
 		AgentIngressDomain:     entry.AgentIngressDomain,
 		IngestionIngressDomain: entry.IngestionIngressDomain,
-		KnowledgeDomain:        entry.KnowledgeDomain,
 		LangfuseBaseURLExt:     entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        entry.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         entry.PodSubnetCIDRs,

@@ -142,7 +142,7 @@ Manage CLI settings and shell completions.
 | `whoami` | Show the currently authenticated user |
 | `upgrade` | Upgrade the CLI to the latest version |
 | `docs [category]` | Display Astropods documentation in the terminal |
-| `knowledge` | Manage managed knowledge stores |
+| `knowledge` | Manage knowledge stores (`connect`, `list`, `status`, `credentials`, `delete`) |
 
 ---
 

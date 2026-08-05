@@ -1,16 +1,17 @@
-# Knowledge Store — External Implementation
+# Knowledge Store — Implementation
 
-Scope: external (bring-your-own) knowledge stores and PrivateLink automation. Managed stores and the connector agent are out of scope here.
+Scope: connected (bring-your-own) knowledge stores and PrivateLink automation. The connector agent is out of scope here.
+
+> Platform-provisioned ("managed") stores were removed. Every knowledge store is
+> now a database the account already operates; Astro is a credential broker and
+> provisions no database infrastructure of its own. Rows predating the removal
+> still carry `mode = 'managed'` and are inert.
 
 ---
 
 ## What Changes
 
-Today, all knowledge stores are managed — the platform provisions and operates the database. Users with existing databases cannot onboard them. The only PrivateLink in the system is Langfuse, which is a static Terraform resource.
-
-After this change, a user can onboard an existing database under an ARN. The platform stores encrypted credentials and injects them into bound agents at deploy time. No infrastructure is created for the database itself. For private databases unreachable from Astro's network, PrivateLink is automated at runtime via the AWS SDK — no Terraform apply per store.
-
-Managed stores continue to work unchanged. External stores share the same `knowledge_stores` table, ARN scheme, binding mechanism, and credential encryption. The difference is mode: managed stores have K8s resources; external stores have only credentials (and optionally a VPC endpoint).
+A user onboards an existing database under an ARN. The platform stores encrypted credentials and injects them into bound agents at deploy time. No infrastructure is created for the database itself. For private databases unreachable from Astro's network, PrivateLink is automated at runtime via the AWS SDK — no Terraform apply per store.
 
 ---
 
@@ -20,41 +21,32 @@ Onboard an existing database, store encrypted credentials, and expose it under a
 
 ### Data Model
 
-#### Schema changes to `knowledge_stores`
+#### `knowledge_stores`
 
-Add a `mode` column to distinguish managed from external:
+Every insert sets `mode = 'external'`. The `storage`, `storage_class`, `public`, and `public_host` columns are legacy: they remain on the table for pre-existing rows but are never written or read.
 
-```sql
-ALTER TABLE knowledge_stores
-  ADD COLUMN mode varchar NOT NULL DEFAULT 'managed';
-```
+Status lifecycle: `pending` → `ready` | `error`, plus the PrivateLink states in Phase 2.
 
-For external stores, the `storage` column is irrelevant (defaults to `'10Gi'`, ignored). The `status` column gains new values for the PrivateLink flow (Phase 2). The `public` and `public_host` columns are unused for external stores.
+No provisioning state — there is nothing to provision. A publicly reachable store goes directly to `ready` after credential storage succeeds.
 
-Status lifecycle for external stores: `pending` → `ready` | `error`
-
-No provisioning state — there is nothing to provision. A publicly reachable external store goes directly to `ready` after credential storage succeeds.
-
-#### New status constants
+#### Status constants
 
 ```go
 const (
-    StatusPending          = "pending"            // external: created, connectivity not yet verified
+    StatusPending           = "pending"            // created, connectivity not yet verified
     StatusPendingAcceptance = "pending-acceptance" // PrivateLink: VPCE awaiting user approval
-    StatusConnecting       = "connecting"          // PrivateLink: VPCE creation in progress
-    StatusDegraded         = "degraded"            // connectivity lost but recoverable
+    StatusConnecting        = "connecting"          // PrivateLink: VPCE creation in progress
+    StatusDegraded          = "degraded"            // connectivity lost but recoverable
 )
 ```
 
-These are added alongside the existing `provisioning`, `ready`, `error`.
+These sit alongside `ready` and `error`.
 
 ### Credential Storage
 
-External stores reuse the existing `knowledge_store_credentials` table and KMS envelope encryption. The only difference is the source of the credential values.
+Credentials live in the `knowledge_store_credentials` table under KMS envelope encryption. The values come from the user — host, port, database, username, password, and any provider-specific extras.
 
-For managed stores, `GenerateCredentials()` in `credentials.go` creates random secrets. For external stores, the values come from the user — host, port, database, username, password, and any provider-specific extras.
-
-External credential keys per provider:
+Credential keys per provider:
 
 | Provider | Keys |
 |----------|------|
@@ -67,17 +59,15 @@ External credential keys per provider:
 
 The key names are unprefixed. The env var prefix is determined at inject time by the binding entry name and provider, matching the existing convention in `envresolver.go`.
 
-No K8s Secret is created for external stores. There is no StatefulSet to consume it. Credentials are decrypted from the DB at deploy time and injected directly into the agent pod spec as env vars (or as a K8s Secret in the agent's namespace, depending on the binding implementation in Phase 2 of the managed doc).
+No K8s Secret is created for the store itself — there is no workload to consume it. Credentials are decrypted from the DB at deploy time and injected into the agent pod spec. KMS is the only resolution path; there is no plaintext fallback.
 
 ### API
 
-New endpoint for onboarding external stores, alongside the existing create endpoint for managed stores.
-
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/accounts/{account}/knowledge/connect` | Onboard external store |
+| `POST` | `/v1/accounts/{account}/knowledge/connect` | Onboard a store |
 
-Existing endpoints work unchanged for external stores: list, get, delete, credentials.
+The remaining endpoints are list, get, delete, and credentials. There is no create, logs, metrics, or events endpoint — those served the provisioned StatefulSet and were removed with it.
 
 **POST `/connect` body:**
 
@@ -93,7 +83,7 @@ Existing endpoints work unchanged for external stores: list, get, delete, creden
 }
 ```
 
-**Response** (same shape as managed):
+**Response:**
 
 ```json
 {
@@ -104,7 +94,7 @@ Existing endpoints work unchanged for external stores: list, get, delete, creden
 }
 ```
 
-The response includes the new `mode` field. Existing list/get responses also gain this field — `"managed"` for existing stores.
+The `mode` field is read-only and reports `"external"` for every store created now.
 
 **Handler implementation** (`handlers/knowledge.go`):
 
@@ -120,7 +110,7 @@ No async provisioning, no background goroutine, no K8s resources. The handler is
 
 ### CLI
 
-New subcommand under the existing `ast knowledge` group:
+Under the `ast knowledge` group:
 
 ```
 ast knowledge connect \
@@ -135,9 +125,9 @@ ast knowledge connect \
 
 If `--password` is omitted, the CLI prompts interactively (same pattern as existing credential prompts). The CLI posts to `/connect` and prints the ARN on success. No event streaming — the operation is synchronous.
 
-The existing `ast knowledge list` shows both managed and external stores. The `mode` column is displayed. `ast knowledge credentials` works for external stores — decrypts from DB as it does for managed.
+`ast knowledge list` shows all stores. `ast knowledge credentials` decrypts from the DB.
 
-`ast knowledge delete` for external stores skips K8s cleanup (no resources to delete) and removes only the DB rows and any PrivateLink resources (Phase 2).
+`ast knowledge delete` removes the DB rows and any PrivateLink resources (Phase 2). There is no K8s cleanup — the platform owns no resources for the database.
 
 ### Connect Flow
 
@@ -158,29 +148,15 @@ POST /v1/accounts/acme/knowledge/connect
 
 ### Binding
 
-External stores use the same binding mechanism as managed stores (Phase 2 of the managed doc). The difference is in env var resolution at deploy time:
+At deploy time the host and port are decrypted from the store's credentials and injected directly. A store reached over PrivateLink instead resolves to its VPC endpoint DNS (see Phase 2) — the user-supplied `com.amazonaws.vpce.*` service name is not itself connectable.
 
-- **Managed**: construct service DNS `{id}.knowledge-{accountShortID}.svc.cluster.local` for the host.
-- **External**: decrypt `HOST` and `PORT` from the DB and inject directly.
-
-The `template.go` resolution path branches on `mode`:
-
-```
-if store.Mode == "managed":
-    host = "{store.ID}.knowledge-{accountShortID}.svc.cluster.local"
-    port = provider default port
-else:
-    host = decrypt(store credentials, "HOST")
-    port = decrypt(store credentials, "PORT")
-```
-
-Provider mismatch validation is identical — the spec entry declares a provider, the store has a provider, mismatch is a hard error.
+Provider mismatch is a hard error: the spec entry declares a provider, the store has a provider, and they must agree.
 
 ---
 
 ## Phase 2 — PrivateLink Automation
 
-Automate VPC endpoint creation for external stores on private networks. AWS first; GCP and Azure follow the same pattern with different API calls.
+Automate VPC endpoint creation for stores on private networks. AWS first; GCP and Azure follow the same pattern with different API calls.
 
 ### Why not Terraform
 
@@ -293,7 +269,7 @@ PrivateLink is disabled when `PRIVATELINK_VPC_ID` is empty (local dev, environme
 
 **Handler:**
 
-1. Verify the store exists, is external, and has no existing endpoint.
+1. Verify the store exists and has no existing endpoint.
 2. Verify PrivateLink config is present (`PRIVATELINK_VPC_ID` non-empty).
 3. Insert `knowledge_store_endpoints` row with `status='connecting'`.
 4. Update `knowledge_stores.status` to `connecting`.
@@ -320,7 +296,7 @@ ast knowledge privatelink attach \
 ast knowledge privatelink detach --store <name-or-arn>
 ```
 
-After `attach`, the CLI polls `GET /v1/accounts/{account}/knowledge/{name}` until status changes from `connecting` to `pending-acceptance`, `ready`, or `error`. Same 3-second poll pattern as `ast knowledge create`.
+After `attach`, the CLI polls `GET /v1/accounts/{account}/knowledge/{name}` until status changes from `connecting` to `pending-acceptance`, `ready`, or `error`. Poll interval is 3 seconds.
 
 ### PrivateLink Provision Worker
 
@@ -355,13 +331,11 @@ If `CreateVpcEndpoint` fails (invalid service name, account not allowlisted), re
 
 ### Reconciliation
 
-The existing `KnowledgeReconcileWorker` (30-second periodic job) gains a third stage: `reconcilePrivateLink`.
+`KnowledgeReconcileWorker` (30-second periodic job) has a single stage:
 
 ```
 func (w *KnowledgeReconcileWorker) Work(ctx, job):
-    w.reconcileProvisioning(ctx)    // existing — managed stores
-    w.ensureSecrets(ctx)            // existing — managed credential recovery
-    w.reconcilePrivateLink(ctx)     // new — external PrivateLink endpoints
+    w.reconcilePrivateLink(ctx)     // PrivateLink endpoints
 ```
 
 **`reconcilePrivateLink` logic:**
@@ -519,16 +493,15 @@ POSTGRES_PORT = 5432
 
 The original `HOST` credential in the DB (`db.example.com`) is the user's private host — unreachable from Astro's VPC. The VPCE DNS resolves to ENI private IPs within Astro's VPC that route to the user's NLB via the cloud backbone.
 
-The `template.go` resolution path for external + PrivateLink:
+Host resolution:
 
 ```
-if store.Mode == "external":
-    endpoint = lookup knowledge_store_endpoints for store
-    if endpoint exists and endpoint.Status == "ready":
-        host = endpoint.EndpointDNS
-    else:
-        host = decrypt(store credentials, "HOST")  // public external, or PrivateLink not yet ready
-    port = decrypt(store credentials, "PORT")
+endpoint = lookup knowledge_store_endpoints for store
+if endpoint exists and endpoint.Status == "ready":
+    host = endpoint.EndpointDNS
+else:
+    host = decrypt(store credentials, "HOST")  // publicly reachable, or PrivateLink not yet ready
+port = decrypt(store credentials, "PORT")
 ```
 
 ---
@@ -553,7 +526,7 @@ This limits blast radius — even if the server is compromised, SG mutations are
 
 **Security group rule limits.** The shared PrivateLink SG accumulates egress rules as stores are added. AWS SGs have a default limit of 60 rules (inbound + outbound combined). With many external stores, this will be hit. Mitigations: request a limit increase, or switch to a prefix list strategy.
 
-**VPC endpoint limits.** AWS default is 50 interface VPC endpoints per VPC per region. Request a limit increase proactively if expecting more than ~40 external PrivateLink stores per environment.
+**VPC endpoint limits.** AWS default is 50 interface VPC endpoints per VPC per region. Request a limit increase proactively if expecting more than ~40 PrivateLink stores per environment.
 
 **No connection health checks.** A store can be `status=ready` but actually unreachable (wrong credentials, firewall changed, endpoint service deregistered). Users discover this at agent deploy time or when queries fail. Health checks are out of scope for this phase.
 

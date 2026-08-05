@@ -884,7 +884,6 @@ type RegisteredCluster struct {
 	HealthError            string `json:"health_error,omitempty"`
 	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
-	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
 	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
@@ -901,7 +900,6 @@ type RegisterClusterRequest struct {
 	Enabled                *bool  `json:"enabled,omitempty"` // omitted defaults to true in handler
 	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
-	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
 	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
@@ -961,7 +959,6 @@ type UpdateClusterRequest struct {
 	EKSClusterEndpoint     string `json:"eks_cluster_endpoint,omitempty"`
 	AgentIngressDomain     string `json:"agent_ingress_domain,omitempty"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain,omitempty"`
-	KnowledgeDomain        string `json:"knowledge_domain,omitempty"`
 	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext,omitempty"`
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`

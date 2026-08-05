@@ -18,7 +18,6 @@ func deployFields(d DeployConfig) []namedValue {
 	return []namedValue{
 		{"agent_ingress_domain", d.AgentIngressDomain},
 		{"ingestion_ingress_domain", d.IngestionIngressDomain},
-		{"knowledge_domain", d.KnowledgeDomain},
 		{"langfuse_base_url_ext", d.LangfuseBaseURLExt},
 		{"langfuse_vpce_ips", d.LangfuseVPCEIPs},
 		{"pod_subnet_cidrs", d.PodSubnetCIDRs},

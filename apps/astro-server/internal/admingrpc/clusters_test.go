@@ -32,7 +32,7 @@ func (s *stubClusterClient) DiagnoseConnection() map[string]string { return nil 
 // clusterColumns is the full clusters table projection used by clusterstore.baseSelect.
 var clusterColumns = []string{
 	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-	"agent_ingress_domain", "ingestion_ingress_domain", "knowledge_domain",
+	"agent_ingress_domain", "ingestion_ingress_domain",
 	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
 	"created_at", "updated_at",
 }
@@ -47,7 +47,7 @@ func fakeCA() []byte {
 func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.Time) []driver.Value {
 	return []driver.Value{
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
-		"agents.example.com", "ingestion.example.com", "knowledge.example.com",
+		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
 		now, now,
 	}
@@ -64,7 +64,6 @@ func fullRegisterRequest(id string) *adminv1.RegisterClusterRequest {
 		EKSClusterCA:           fakeCA(),
 		AgentIngressDomain:     "agents.example.com",
 		IngestionIngressDomain: "ingestion.example.com",
-		KnowledgeDomain:        "knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
 		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",
@@ -81,7 +80,6 @@ func fullUpdateRequest(id string) *adminv1.UpdateClusterRequest {
 		EKSClusterCA:           fakeCA(),
 		AgentIngressDomain:     "agents.example.com",
 		IngestionIngressDomain: "ingestion.example.com",
-		KnowledgeDomain:        "knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
 		LangfuseVPCEIPs:        "10.0.1.10,10.0.2.10",
 		PodSubnetCIDRs:         "10.0.0.0/24,10.1.0.0/24",

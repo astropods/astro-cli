@@ -12,7 +12,6 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgecache"
-	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // Annotations is a free-form string→string map attached to a store, modeled on
@@ -54,23 +53,6 @@ func (a *Annotations) Scan(src any) error {
 		return nil
 	}
 	return json.Unmarshal(b, (*map[string]string)(a))
-}
-
-// ValidateStorageSize checks that a storage size string is a valid Kubernetes
-// resource quantity (e.g. "10Gi", "20Gi", "500Mi"). Uses the same parser K8s
-// uses internally, so any value that passes here will work in a PVC spec.
-func ValidateStorageSize(size string) error {
-	if size == "" {
-		return fmt.Errorf("storage size must not be empty")
-	}
-	q, err := resource.ParseQuantity(size)
-	if err != nil {
-		return fmt.Errorf("invalid storage size %q: must be a valid Kubernetes quantity (e.g. 10Gi, 500Mi)", size)
-	}
-	if q.Sign() <= 0 {
-		return fmt.Errorf("storage size must be greater than zero")
-	}
-	return nil
 }
 
 // ValidateStoreName checks that a knowledge store name is safe for use in ARNs
@@ -145,19 +127,17 @@ func (s *Store) invalidateMutationAccount(row *sql.Row) error {
 	return nil
 }
 
-// KnowledgeStore represents a single knowledge store record (managed or external).
+// KnowledgeStore represents a single connected (external) knowledge store record.
 type KnowledgeStore struct {
-	ID               string
-	AccountID        string
-	Name             string
-	ARN              string
-	Provider         string
-	Mode             string // "managed" or "external"
+	ID        string
+	AccountID string
+	Name      string
+	ARN       string
+	Provider  string
+	// Mode is read-only. Every store created now is ModeExternal; rows left over
+	// from the withdrawn platform-provisioned path still read back as "managed".
+	Mode             string
 	Status           string
-	Storage          string
-	StorageClass     *string
-	Public           bool
-	PublicHost       *string
 	EncryptedDataKey []byte
 	KMSKeyARN        *string
 	Error            *string
@@ -168,23 +148,21 @@ type KnowledgeStore struct {
 }
 
 const (
-	ModeManaged  = "managed"
 	ModeExternal = "external"
 
-	StatusProvisioning      = "provisioning"
 	StatusConnecting        = "connecting"
 	StatusPendingAcceptance = "pending-acceptance"
 	StatusReady             = "ready"
 	StatusError             = "error"
 )
 
-const storeColumns = `id, account_id, name, arn, provider, mode, status, storage, storage_class,
-       public, public_host, encrypted_data_key, kms_key_arn, error, annotations, created_at, updated_at`
+const storeColumns = `id, account_id, name, arn, provider, mode, status,
+       encrypted_data_key, kms_key_arn, error, annotations, created_at, updated_at`
 
 func storeScanDest(s *KnowledgeStore) []any {
 	return []any{
 		&s.ID, &s.AccountID, &s.Name, &s.ARN, &s.Provider,
-		&s.Mode, &s.Status, &s.Storage, &s.StorageClass, &s.Public, &s.PublicHost,
+		&s.Mode, &s.Status,
 		&s.EncryptedDataKey, &s.KMSKeyARN, &s.Error, &s.Annotations,
 		&s.CreatedAt, &s.UpdatedAt,
 	}
@@ -199,30 +177,23 @@ func scanStore(row interface{ Scan(dest ...any) error }) (*KnowledgeStore, error
 	return &s, nil
 }
 
-// CreateParams holds the parameters for creating a new knowledge store.
+// CreateParams holds the parameters for connecting a new knowledge store.
 type CreateParams struct {
 	ID               string
 	AccountID        string
 	Name             string
 	ARN              string
 	Provider         string
-	Mode             string // "managed" (default) or "external"
-	Status           string // initial status — "provisioning" for managed, "ready" for external
-	Storage          string
-	StorageClass     string // optional — empty means cluster default
-	Public           bool
-	PublicHost       string
+	Status           string // initial status — defaults to "ready"
 	EncryptedDataKey []byte
 	KMSKeyARN        string
 	Annotations      Annotations // optional origin annotations or nil
 }
 
-// Create inserts a new knowledge store record and returns it.
+// Create inserts a new knowledge store record and returns it. Stores are always
+// external — the platform brokers credentials for a database the account already
+// operates and provisions no infrastructure of its own.
 func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
-	var publicHost *string
-	if p.PublicHost != "" {
-		publicHost = &p.PublicHost
-	}
 	var encKey []byte
 	var kmsARN *string
 	if len(p.EncryptedDataKey) > 0 {
@@ -230,22 +201,18 @@ func (s *Store) Create(p CreateParams) (*KnowledgeStore, error) {
 		kmsARN = &p.KMSKeyARN
 	}
 
-	mode := p.Mode
-	if mode == "" {
-		mode = ModeManaged
-	}
 	status := p.Status
 	if status == "" {
-		status = StatusProvisioning
+		status = StatusReady
 	}
 
 	row := s.db.QueryRow(`
 		INSERT INTO knowledge_stores
-		  (id, account_id, name, arn, provider, mode, status, storage, storage_class, public, public_host, encrypted_data_key, kms_key_arn, annotations)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		  (id, account_id, name, arn, provider, mode, status, encrypted_data_key, kms_key_arn, annotations)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING `+storeColumns,
 		p.ID, p.AccountID, p.Name, p.ARN, p.Provider,
-		mode, status, p.Storage, nullableString(p.StorageClass), p.Public, publicHost, encKey, kmsARN, p.Annotations,
+		ModeExternal, status, encKey, kmsARN, p.Annotations,
 	)
 	store, err := scanStore(row)
 	if err == nil {
@@ -325,61 +292,11 @@ func (s *Store) SetError(id, errMsg string) error {
 	))
 }
 
-// SetPublicHost records the assigned public hostname once the LB is ready.
-func (s *Store) SetPublicHost(id, host string) error {
-	return s.invalidateMutationAccount(s.db.QueryRow(
-		`UPDATE knowledge_stores SET public_host = $1, updated_at = now() WHERE id = $2 RETURNING account_id`,
-		host, id,
-	))
-}
-
 // Delete removes a store record. Cascades to credentials.
 func (s *Store) Delete(id string) error {
 	return s.invalidateMutationAccount(s.db.QueryRow(
 		`DELETE FROM knowledge_stores WHERE id = $1 RETURNING account_id`, id,
 	))
-}
-
-// ListProvisioning returns all managed stores currently in the provisioning state.
-// Used by the reconciler to check for readiness. External stores are excluded
-// because they have no K8s resources to reconcile.
-func (s *Store) ListProvisioning() ([]*KnowledgeStore, error) {
-	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1 AND mode = $2`, StatusProvisioning, ModeManaged)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var stores []*KnowledgeStore
-	for rows.Next() {
-		ks, err := scanStore(rows)
-		if err != nil {
-			return nil, err
-		}
-		stores = append(stores, ks)
-	}
-	return stores, rows.Err()
-}
-
-// ListReady returns all managed ready stores. Used by the reconciler to ensure
-// K8s secrets exist (recreate after cluster migration or accidental deletion).
-// External stores are excluded — they have no K8s namespace or secrets.
-func (s *Store) ListReady() ([]*KnowledgeStore, error) {
-	rows, err := s.db.Query(`SELECT `+storeColumns+` FROM knowledge_stores WHERE status = $1 AND mode = $2`, StatusReady, ModeManaged)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var stores []*KnowledgeStore
-	for rows.Next() {
-		ks, err := scanStore(rows)
-		if err != nil {
-			return nil, err
-		}
-		stores = append(stores, ks)
-	}
-	return stores, rows.Err()
 }
 
 // Credential is a single encrypted key-value pair for a knowledge store.
@@ -465,11 +382,4 @@ func ValidateExternalCredentials(provider string, creds map[string]string) error
 		}
 	}
 	return nil
-}
-
-func nullableString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

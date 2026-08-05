@@ -258,12 +258,6 @@ type DeploymentConfig struct {
 	AgentPublicIngressDomain string // AGENT_INGRESS_PUBLIC_DOMAIN
 	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
-	// Knowledge store public host domain (e.g., knowledge.astropods.ai)
-	// Public stores get a hostname: {name}.{account}.{KnowledgeDomain}
-	KnowledgeDomain string // KNOWLEDGE_DOMAIN
-	// KnowledgeAllowManagedCreate enables POST /api/v1/accounts/:account/knowledge (platform-provisioned stores).
-	// When false (default), only POST .../knowledge/connect is accepted.
-	KnowledgeAllowManagedCreate bool // KNOWLEDGE_ALLOW_MANAGED_CREATE — set to "true" to enable
 	// NetworkPolicy isolation: secondary-private subnet CIDRs where pods run (comma-separated).
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// EKS apiserver ENI subnets (primary VPC private subnets). Service proxy traffic
@@ -336,39 +330,37 @@ func Load() (*Config, error) {
 			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", DevDeployTokenSecret),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:                 getEnv("REGISTRY_URL", ""),
-			ProxyRegistryHost:           getEnv("PROXY_REGISTRY_HOST", ""),
-			Environment:                 getEnv("ENVIRONMENT", ""),
-			MessagingImage:              getEnv("MESSAGING_IMAGE", ""),
-			EKSClusterName:              getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:                getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:                   getEnv("AWS_REGION", ""),
-			K8sClientMode:               getEnv("K8S_CLIENT_MODE", "eks"),
-			KubeconfigPath:              getEnv("KUBECONFIG", ""),
-			KubeContext:                 getEnv("KUBE_CONTEXT", ""),
-			IngressDomain:               getEnv("INGRESS_DOMAIN", ""),
-			AgentPublicIngressDomain:    getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
-			IngestionIngressDomain:      getEnv("INGESTION_INGRESS_DOMAIN", ""),
-			KnowledgeDomain:             getEnv("KNOWLEDGE_DOMAIN", ""),
-			KnowledgeAllowManagedCreate: getEnv("KNOWLEDGE_ALLOW_MANAGED_CREATE", "") == "true",
-			PodSubnetCIDRs:              getEnvSlice("POD_SUBNET_CIDRS", nil),
-			CPSubnetCIDRs:               getEnvSlice("CP_SUBNET_CIDRS", nil),
-			KMSKeyARN:                   getEnv("KMS_KEY_ARN", ""),
-			AIGatewayURL:                getEnv("AI_GATEWAY_URL", ""),
-			AIGatewayAdminURL:           getEnv("AI_GATEWAY_ADMIN_URL", ""),
-			AIGatewayAdminAuth:          getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
-			MessagingURLOverride:        getEnv("MESSAGING_URL_OVERRIDE", ""),
-			LangfuseDBURL:               getEnv("LANGFUSE_DB_URL", ""),
-			LangfuseSalt:                getEnv("LANGFUSE_SALT", ""),
-			LangfuseOrgID:               getEnv("LANGFUSE_ORG_ID", "astro"),
-			LangfuseBaseURL:             getEnv("LANGFUSE_BASE_URL", ""),
-			LangfuseBaseURLExt:          getEnv("LANGFUSE_BASE_URL_EXT", ""),
-			LangfuseVPCEIPs:             getEnvSlice("LANGFUSE_VPCE_IPS", nil),
-			PrivateLinkVpcID:            getEnv("PRIVATELINK_VPC_ID", ""),
-			PrivateLinkSubnetIDs:        getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
-			PrivateLinkSGID:             getEnv("PRIVATELINK_SG_ID", ""),
-			TemplateSigningKey:          loadSigningKey(),
-			RegistryPullCredential:      getEnv("REGISTRY_PULL_CREDENTIAL", ""),
+			RegistryURL:              getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost:        getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:              getEnv("ENVIRONMENT", ""),
+			MessagingImage:           getEnv("MESSAGING_IMAGE", ""),
+			EKSClusterName:           getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:             getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:                getEnv("AWS_REGION", ""),
+			K8sClientMode:            getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:           getEnv("KUBECONFIG", ""),
+			KubeContext:              getEnv("KUBE_CONTEXT", ""),
+			IngressDomain:            getEnv("INGRESS_DOMAIN", ""),
+			AgentPublicIngressDomain: getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
+			IngestionIngressDomain:   getEnv("INGESTION_INGRESS_DOMAIN", ""),
+			PodSubnetCIDRs:           getEnvSlice("POD_SUBNET_CIDRS", nil),
+			CPSubnetCIDRs:            getEnvSlice("CP_SUBNET_CIDRS", nil),
+			KMSKeyARN:                getEnv("KMS_KEY_ARN", ""),
+			AIGatewayURL:             getEnv("AI_GATEWAY_URL", ""),
+			AIGatewayAdminURL:        getEnv("AI_GATEWAY_ADMIN_URL", ""),
+			AIGatewayAdminAuth:       getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
+			MessagingURLOverride:     getEnv("MESSAGING_URL_OVERRIDE", ""),
+			LangfuseDBURL:            getEnv("LANGFUSE_DB_URL", ""),
+			LangfuseSalt:             getEnv("LANGFUSE_SALT", ""),
+			LangfuseOrgID:            getEnv("LANGFUSE_ORG_ID", "astro"),
+			LangfuseBaseURL:          getEnv("LANGFUSE_BASE_URL", ""),
+			LangfuseBaseURLExt:       getEnv("LANGFUSE_BASE_URL_EXT", ""),
+			LangfuseVPCEIPs:          getEnvSlice("LANGFUSE_VPCE_IPS", nil),
+			PrivateLinkVpcID:         getEnv("PRIVATELINK_VPC_ID", ""),
+			PrivateLinkSubnetIDs:     getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
+			PrivateLinkSGID:          getEnv("PRIVATELINK_SG_ID", ""),
+			TemplateSigningKey:       loadSigningKey(),
+			RegistryPullCredential:   getEnv("REGISTRY_PULL_CREDENTIAL", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

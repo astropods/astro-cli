@@ -64,26 +64,14 @@ func externalStoreRowWithKey(id, name string, key []byte) *sqlmock.Rows {
 	now := time.Now()
 	return sqlmock.NewRows(knowledgeColumns).AddRow(
 		id, testAccount().ID, name, "arn:knowledge:acme:"+name,
-		"postgres", "external", "ready", "10Gi", nil,
-		false, nil, key, nil, nil, nil, now, now,
+		"postgres", "external", "ready",
+		key, nil, nil, nil, now, now,
 	)
 }
 
-func TestRecheckKnowledgeStore_NotExternal(t *testing.T) {
-	router, ksStore, mock := setupKS()
-	router.POST("/knowledge/:name/recheck", RecheckKnowledgeStore(logger.New("error", "json"), ksStore, nil, &recheckKMS{}))
-
-	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
-		WillReturnRows(knowledgeRow("id1", testAccount().ID, "pg-main", "postgres", "ready")) // managed
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/knowledge/pg-main/recheck", nil))
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for managed store, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
+// A store with no PrivateLink endpoint has nothing to recheck. This also covers
+// rows left over from the withdrawn platform-provisioned path, which never have
+// an endpoint.
 func TestRecheckKnowledgeStore_NoEndpoint(t *testing.T) {
 	router, ksStore, mock := setupKS()
 	router.POST("/knowledge/:name/recheck", RecheckKnowledgeStore(logger.New("error", "json"), ksStore, nil, &recheckKMS{}))

@@ -2,7 +2,6 @@ package knowledgestore
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -77,31 +76,6 @@ func TestRewriteCredentials_NoDataKeyNoop(t *testing.T) {
 	}
 }
 
-func TestValidateStorageSize(t *testing.T) {
-	valid := []string{"10Gi", "20Gi", "500Mi", "1Ti", "5G", "1024"}
-	for _, s := range valid {
-		if err := ValidateStorageSize(s); err != nil {
-			t.Errorf("ValidateStorageSize(%q) unexpected error: %v", s, err)
-		}
-	}
-
-	invalid := []struct {
-		size string
-		msg  string
-	}{
-		{"", "empty"},
-		{"0Gi", "zero"},
-		{"-10Gi", "negative"},
-		{"10gigabytes", "invalid unit"},
-		{"abc", "not a quantity"},
-	}
-	for _, tt := range invalid {
-		if err := ValidateStorageSize(tt.size); err == nil {
-			t.Errorf("ValidateStorageSize(%q) expected error for %s, got nil", tt.size, tt.msg)
-		}
-	}
-}
-
 func TestValidateStoreName(t *testing.T) {
 	valid := []string{
 		"db", "pg-main", "my-store", "postgres-prod", "a", "db1",
@@ -132,84 +106,6 @@ func TestValidateStoreName(t *testing.T) {
 		if err := ValidateStoreName(tt.name); err == nil {
 			t.Errorf("ValidateStoreName(%q) expected error for %s, got nil", tt.name, tt.msg)
 		}
-	}
-}
-
-func TestGenerateCredentials_Postgres(t *testing.T) {
-	creds, err := GenerateCredentials("postgres")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, key := range []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} {
-		if creds[key] == "" {
-			t.Errorf("expected non-empty %s", key)
-		}
-	}
-	if creds["POSTGRES_USER"] != "astro" {
-		t.Errorf("expected POSTGRES_USER=astro, got %q", creds["POSTGRES_USER"])
-	}
-	if creds["POSTGRES_DB"] != "astro" {
-		t.Errorf("expected POSTGRES_DB=astro, got %q", creds["POSTGRES_DB"])
-	}
-	// Password should be random hex — 32 chars (16 bytes)
-	if len(creds["POSTGRES_PASSWORD"]) != 32 {
-		t.Errorf("expected 32-char password, got %d", len(creds["POSTGRES_PASSWORD"]))
-	}
-}
-
-func TestGenerateCredentials_Qdrant(t *testing.T) {
-	creds, err := GenerateCredentials("qdrant")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if creds["QDRANT__SERVICE__API_KEY"] == "" {
-		t.Error("expected non-empty QDRANT__SERVICE__API_KEY")
-	}
-	// 24 bytes → 48 hex chars
-	if len(creds["QDRANT__SERVICE__API_KEY"]) != 48 {
-		t.Errorf("expected 48-char key, got %d", len(creds["QDRANT__SERVICE__API_KEY"]))
-	}
-}
-
-func TestGenerateCredentials_Redis(t *testing.T) {
-	creds, err := GenerateCredentials("redis")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if creds["REDIS_PASSWORD"] == "" {
-		t.Error("expected non-empty REDIS_PASSWORD")
-	}
-}
-
-func TestGenerateCredentials_Neo4j(t *testing.T) {
-	creds, err := GenerateCredentials("neo4j")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	auth := creds["NEO4J_AUTH"]
-	if !strings.HasPrefix(auth, "neo4j/") {
-		t.Errorf("expected NEO4J_AUTH to start with 'neo4j/', got %q", auth)
-	}
-	if len(auth) <= len("neo4j/") {
-		t.Error("expected non-empty password in NEO4J_AUTH")
-	}
-}
-
-func TestGenerateCredentials_Unknown(t *testing.T) {
-	creds, err := GenerateCredentials("pinecone")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(creds) != 0 {
-		t.Errorf("expected empty creds for unknown provider, got %v", creds)
-	}
-}
-
-func TestGenerateCredentials_RandomEachCall(t *testing.T) {
-	a, _ := GenerateCredentials("postgres")
-	b, _ := GenerateCredentials("postgres")
-	if a["POSTGRES_PASSWORD"] == b["POSTGRES_PASSWORD"] {
-		t.Error("expected different passwords on each call")
 	}
 }
 
@@ -303,62 +199,15 @@ func TestValidateExternalCredentials_EmptyValueTreatedAsMissing(t *testing.T) {
 
 // --- ResolveCredentials ---
 
-type fakeSecretReader struct {
-	creds map[string]string
-	err   error
-}
-
-func (f *fakeSecretReader) ReadCredentials(_ context.Context, _, _ string) (map[string]string, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.creds, nil
-}
-
 func TestResolveCredentials_KMSRequired(t *testing.T) {
 	store := &KnowledgeStore{Name: "my-db", EncryptedDataKey: []byte("key")}
 	dbCreds := []Credential{{Key: "POSTGRES_USER", ValueEncrypted: []byte("enc"), Nonce: []byte("n")}}
 
-	_, err := ResolveCredentials(context.Background(), store, dbCreds, nil, nil, "ns")
+	_, err := ResolveCredentials(context.Background(), store, dbCreds, nil)
 	if err == nil {
 		t.Fatal("expected error when KMS required but nil")
 	}
 	if !strings.Contains(err.Error(), "KMS") {
 		t.Errorf("error should mention KMS, got: %v", err)
-	}
-}
-
-func TestResolveCredentials_K8sFallback(t *testing.T) {
-	store := &KnowledgeStore{ID: "store-1", Name: "my-db"} // no EncryptedDataKey
-	reader := &fakeSecretReader{creds: map[string]string{"POSTGRES_USER": "astro", "POSTGRES_PASSWORD": "pw"}}
-
-	creds, err := ResolveCredentials(context.Background(), store, nil, nil, reader, "ns")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if creds["POSTGRES_USER"] != "astro" {
-		t.Errorf("POSTGRES_USER: expected 'astro', got %q", creds["POSTGRES_USER"])
-	}
-}
-
-func TestResolveCredentials_ExternalStoreNoKMS(t *testing.T) {
-	store := &KnowledgeStore{ID: "ext-1", Name: "prod-db", Mode: ModeExternal}
-	reader := &fakeSecretReader{err: fmt.Errorf("secret not found")}
-
-	_, err := ResolveCredentials(context.Background(), store, nil, nil, reader, "ns")
-	if err == nil {
-		t.Fatal("expected error for external store without KMS")
-	}
-	if !strings.Contains(err.Error(), "external") {
-		t.Errorf("error should mention 'external', got: %v", err)
-	}
-}
-
-func TestResolveCredentials_NoReaderNoKMS(t *testing.T) {
-	store := &KnowledgeStore{ID: "s1", Name: "db"}
-
-	_, err := ResolveCredentials(context.Background(), store, nil, nil, nil, "ns")
-	if err == nil {
-		t.Fatal("expected error when no KMS and no secret reader")
 	}
 }

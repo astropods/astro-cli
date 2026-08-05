@@ -35,9 +35,8 @@ func NewHeartbeat(provider billing.BillingProvider, db *sql.DB, log *logger.Logg
 }
 
 // Tick runs a single heartbeat iteration. It emits metered-consumption usage
-// only. Resource counts are served from the quota DB and no longer metered.
-// Knowledge compute/storage metering is disabled for now — only deployment_compute_usage
-// is emitted; emitKnowledgeStorage/emitKnowledgeCompute remain dormant.
+// only: deployment compute. Resource counts are served from the quota DB and
+// are no longer metered.
 func (h *Heartbeat) Tick(ctx context.Context) {
 	h.log.Debug("metering: tick starting")
 	h.emitComputeUsage(ctx)
@@ -308,113 +307,4 @@ func parseMemory(s string) float64 {
 		return 0
 	}
 	return v / (1024 * 1024 * 1024)
-}
-
-// emitKnowledgeStorage emits knowledge_storage_provisioned events per managed store,
-// with provisioned storage parsed from K8s quantity to GB.
-func (h *Heartbeat) emitKnowledgeStorage(ctx context.Context) {
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, name, provider, storage
-		FROM knowledge_stores
-		WHERE mode = 'managed' AND status != 'error'
-	`)
-	if err != nil {
-		h.log.Error("metering: failed to query knowledge storage", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []billing.UsageEvent
-	for rows.Next() {
-		var accountID, name, provider, storage string
-		if err := rows.Scan(&accountID, &name, &provider, &storage); err != nil {
-			h.log.Error("metering: failed to scan knowledge storage row", "error", err)
-			continue
-		}
-		gb := parseMemory(storage)
-		if gb <= 0 {
-			continue
-		}
-		events = append(events, usageEvent("knowledge_storage_provisioned", accountID, map[string]any{
-			"storage_gb": gb,
-			"store_name": name,
-			"provider":   provider,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.provider.IngestUsage(ctx, events); err != nil {
-			h.log.Error("metering: failed to emit knowledge_storage_provisioned events", "error", err)
-		} else {
-			h.log.Info("metering: emitted knowledge_storage_provisioned", "events", len(events))
-		}
-	}
-}
-
-// emitKnowledgeCompute emits knowledge_compute_usage events per managed+ready store.
-// When a BillingStateManager is attached, delegates to delta-based reconciliation. Otherwise
-// uses the legacy full-interval approach with per-provider default resource requests.
-func (h *Heartbeat) emitKnowledgeCompute(ctx context.Context) {
-	if h.billing != nil {
-		h.billing.RunKnowledgeBillingCycle(ctx)
-		return
-	}
-	intervalHours := heartbeatInterval.Hours()
-	rows, err := h.db.QueryContext(ctx, `
-		SELECT account_id, name, provider
-		FROM knowledge_stores
-		WHERE mode = 'managed' AND status = 'ready'
-	`)
-	if err != nil {
-		h.log.Error("metering: failed to query knowledge stores for compute", "error", err)
-		return
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var events []billing.UsageEvent
-	for rows.Next() {
-		var accountID, name, provider string
-		if err := rows.Scan(&accountID, &name, &provider); err != nil {
-			h.log.Error("metering: failed to scan knowledge compute row", "error", err)
-			continue
-		}
-		cu := knowledgeCU(provider)
-		if cu <= 0 {
-			continue
-		}
-		res := knowledgeProviderResourceStrings(provider)
-		events = append(events, usageEvent("knowledge_compute_usage", accountID, map[string]any{
-			"cu_hours":   cu * intervalHours,
-			"store_name": name,
-			"provider":   provider,
-			"cpu":        res.cpu,
-			"memory":     res.memory,
-		}))
-	}
-
-	if len(events) > 0 {
-		if err := h.provider.IngestUsage(ctx, events); err != nil {
-			h.log.Error("metering: failed to emit knowledge_compute_usage events", "error", err)
-		} else {
-			h.log.Info("metering: emitted knowledge_compute_usage", "events", len(events))
-		}
-	}
-}
-
-// knowledgeProviderResourceStrings returns the default CPU and memory request strings
-// for a knowledge store provider. Used to populate event payloads.
-type providerResources struct{ cpu, memory string }
-
-func knowledgeProviderResourceStrings(provider string) providerResources {
-	defaults := map[string]providerResources{
-		"postgres": {"250m", "256Mi"},
-		"redis":    {"50m", "64Mi"},
-		"qdrant":   {"250m", "512Mi"},
-		"neo4j":    {"500m", "512Mi"},
-	}
-	r, ok := defaults[provider]
-	if !ok {
-		return providerResources{"100m", "128Mi"}
-	}
-	return r
 }

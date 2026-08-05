@@ -60,11 +60,7 @@ export const PROVIDER_PORTS: Record<KnowledgeProvider, number | null> = {
   supabase: 5432, // Supabase is PostgreSQL
 };
 
-// Only providers available for new store creation.
-// Pinecone is SaaS-only (Cloud provider) so it's not offered in managed mode.
-// MySQL is external-only for now — managed provisioning is not yet wired up.
 // Qdrant is disabled for now — will be re-enabled later.
-export const MANAGED_PROVIDERS: KnowledgeProvider[] = ["postgres", "redis", "neo4j"];
 export const EXTERNAL_PROVIDERS: KnowledgeProvider[] = ["postgres", "supabase", "mysql", "redis", "neo4j", "pinecone"];
 
 /** Which credential fields to show for each provider in the connect dialog. */
@@ -84,7 +80,6 @@ export function statusToColor(status: KnowledgeStatus): StatusBadgeColor {
   switch (status) {
     case "ready":
       return "success";
-    case "provisioning":
     case "connecting":
     case "pending-acceptance":
       return "warning";
@@ -96,13 +91,11 @@ export function statusToColor(status: KnowledgeStatus): StatusBadgeColor {
 }
 
 export function isTransitionalStatus(status: KnowledgeStatus): boolean {
-  return ["provisioning", "connecting", "pending-acceptance"].includes(status);
+  return ["connecting", "pending-acceptance"].includes(status);
 }
 
 export function statusLabel(status: KnowledgeStatus): string {
   switch (status) {
-    case "provisioning":
-      return "Provisioning";
     case "connecting":
       return "Connecting";
     case "pending-acceptance":
@@ -140,11 +133,3 @@ export const PROVIDER_CATEGORIES: Record<KnowledgeProvider, string> = {
 
 /** Providers available for new store creation. To enable a provider, add it here. */
 export const ALL_PROVIDERS: KnowledgeProvider[] = ["postgres", "supabase", "mysql", "redis", "neo4j", "pinecone"];
-export const MANAGED_SET = new Set<KnowledgeProvider>(MANAGED_PROVIDERS);
-
-export const STORAGE_OPTIONS: { value: string; label: string }[] = [
-  { value: "10Gi", label: "10 GB" },
-  { value: "20Gi", label: "20 GB" },
-  { value: "50Gi", label: "50 GB" },
-  { value: "100Gi", label: "100 GB" },
-];

@@ -9,7 +9,6 @@ func fullDeploy() DeployConfig {
 	return DeployConfig{
 		AgentIngressDomain:     "agents.example.com",
 		IngestionIngressDomain: "ingest.example.com",
-		KnowledgeDomain:        "knowledge.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.example:3000",
 		LangfuseVPCEIPs:        "10.0.0.1",
 		PodSubnetCIDRs:         "10.0.0.0/24",
