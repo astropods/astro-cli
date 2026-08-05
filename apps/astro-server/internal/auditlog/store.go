@@ -13,14 +13,33 @@ import (
 	"github.com/lib/pq"
 )
 
+// Observer is notified after an audit event is durably written. It exists so
+// features that key off "a member acted on a resource" (deployment watchers)
+// derive from the audit trail instead of re-instrumenting every handler, which
+// is how call sites get missed. Observers are advisory: the audit write is the
+// contract, and an observer failure must not fail or undo it.
+type Observer interface {
+	OnAudit(ctx context.Context, e Event)
+}
+
 // Store manages audit log persistence in PostgreSQL.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	observers []Observer
 }
 
 // NewStore creates a new audit log store.
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// Observe registers an observer to run after each successful write. Not
+// goroutine-safe against concurrent Log calls; wire observers at startup.
+func (s *Store) Observe(o Observer) *Store {
+	if o != nil {
+		s.observers = append(s.observers, o)
+	}
+	return s
 }
 
 // Log synchronously inserts an audit log entry.
@@ -52,6 +71,9 @@ func (s *Store) Log(ctx context.Context, e Event) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert audit log: %w", err)
+	}
+	for _, o := range s.observers {
+		o.OnAudit(ctx, e)
 	}
 	return nil
 }

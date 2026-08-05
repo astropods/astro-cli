@@ -52,6 +52,11 @@ const (
 	AudienceOwner    Audience = "owner"    // account owner
 	AudienceManagers Audience = "managers" // org managers (org:manage — owner + admin)
 	AudienceSubject  Audience = "subject"  // the user the event is about
+	// AudienceWatchers is the members subscribed to Event.DeploymentID by having
+	// acted on it. Falls back to managers when a deployment has no watchers, so
+	// an agent nobody has touched (or one deployed only by automation) still
+	// alerts someone.
+	AudienceWatchers Audience = "watchers"
 )
 
 // Event is one alert to deliver. Recipients are derived from Audience +
@@ -64,7 +69,11 @@ type Event struct {
 	SubjectUserID string         // set for AudienceSubject
 	EntityID      string         // deployment/build/invoice id, for dedupe + copy
 	Payload       map[string]any // workflow template variables
-	DedupeKey     string         // idempotency key; defaults from Type+EntityID
+	// DeploymentID scopes AudienceWatchers. Kept separate from EntityID, which
+	// is a dedupe key that is not always a deployment (build.failed carries a
+	// build id), so routing never has to guess what EntityID currently means.
+	DeploymentID string
+	DedupeKey    string // idempotency key; defaults from Type+EntityID
 	// OccurredAt is when the event happened. Stamped at the emit seam, not at
 	// delivery: a job that exhausts its backoff can trigger long after the
 	// incident, and the template must show the incident time.

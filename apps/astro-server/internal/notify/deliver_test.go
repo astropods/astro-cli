@@ -375,6 +375,76 @@ func TestDeliverManagersFallsBackToOwner(t *testing.T) {
 	}
 }
 
+type fakeWatchers struct {
+	ids []string
+	err error
+}
+
+func (f fakeWatchers) ActiveUserIDs(context.Context, string) ([]string, error) { return f.ids, f.err }
+
+func watcherEvent() Event {
+	return Event{
+		Type: TypeObservationCritical, AccountID: "acct_1",
+		Audience: AudienceWatchers, EntityID: "dep_9", DeploymentID: "dep_9",
+	}
+}
+
+func TestDeliverWatchersResolvesSubscribers(t *testing.T) {
+	prov := &fakeProvider{}
+	emails := fakeEmails{byEmail: map[string]string{"w@x.com": "u_watcher", "o@x.com": "u_owner", "a@x.com": "u_admin"}}
+	d := NewDeliverer(prov, emails, fakeAccounts{}, fakeManagers{ids: []string{"u_owner", "u_admin"}}, "", nil).
+		WithWatchers(fakeWatchers{ids: []string{"u_watcher"}})
+
+	if err := d.Deliver(context.Background(), watcherEvent()); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if len(prov.recipients) != 1 || prov.recipients[0].UserID != "u_watcher" {
+		t.Fatalf("want only the watcher, got %+v", prov.recipients)
+	}
+}
+
+// Every path that yields no usable watcher must land on managers rather than
+// dropping the alert.
+func TestDeliverWatchersFallsBackToManagers(t *testing.T) {
+	emails := fakeEmails{byEmail: map[string]string{"o@x.com": "u_owner", "a@x.com": "u_admin"}}
+	mgrs := fakeManagers{ids: []string{"u_owner", "u_admin"}}
+
+	cases := map[string]struct {
+		lookup watcherLookup
+		event  Event
+	}{
+		"no lookup wired":  {nil, watcherEvent()},
+		"nobody watching":  {fakeWatchers{}, watcherEvent()},
+		"lookup failed":    {fakeWatchers{err: errors.New("boom")}, watcherEvent()},
+		"no deployment id": {fakeWatchers{ids: []string{"u_watcher"}}, Event{Type: TypeObservationCritical, AccountID: "acct_1", Audience: AudienceWatchers}},
+		// A watcher with no mirrored email resolves to zero recipients; managers
+		// are the same backstop as having no watchers at all.
+		"watcher unreachable": {fakeWatchers{ids: []string{"u_ghost"}}, watcherEvent()},
+	}
+
+	for name, tc := range cases {
+		prov := &fakeProvider{}
+		d := NewDeliverer(prov, emails, fakeAccounts{ownerID: "u_owner"}, mgrs, "", nil).WithWatchers(tc.lookup)
+
+		if err := d.Deliver(context.Background(), tc.event); err != nil {
+			t.Fatalf("[%s] Deliver: %v", name, err)
+		}
+		if len(prov.recipients) != 2 {
+			t.Fatalf("[%s] want 2 manager recipients, got %+v", name, prov.recipients)
+		}
+	}
+}
+
+func TestObservationAddressesWatchers(t *testing.T) {
+	ev := Observation(TypeObservationCritical, "acct_1", "acme", "my-agent", "dep_9", "Out of memory", "details")
+	if ev.Audience != AudienceWatchers {
+		t.Fatalf("audience = %s, want %s", ev.Audience, AudienceWatchers)
+	}
+	if ev.DeploymentID != "dep_9" {
+		t.Fatalf("DeploymentID = %q, want dep_9 so watchers can resolve", ev.DeploymentID)
+	}
+}
+
 func TestDeliverPropagatesProviderError(t *testing.T) {
 	prov := &fakeProvider{err: errors.New("boom")}
 	emails := fakeEmails{byEmail: map[string]string{"a@x.com": "u_actor"}}

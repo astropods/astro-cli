@@ -217,9 +217,10 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 	})
 }
 
-// --- Observation (manager-addressed) ---
+// --- Observation (watcher-addressed) ---
 
-// Observation builds an observation alert for an account's managers. t is the
+// Observation builds an observation alert for the deployment's watchers,
+// falling back to managers when nobody watches it yet. t is the
 // severity workflow (TypeObservationInfo, TypeObservationWarning, or
 // TypeObservationCritical); reason is the short human condition title (e.g. "Out
 // of memory") and details is a one-line explanation of what happened (e.g. "A
@@ -229,10 +230,11 @@ func SecurityKeyRevoked(accountID, keyKind, keyName string) Event {
 // the prior episode at Novu.
 func Observation(t Type, accountID, accountName, agentName, deploymentID, reason, details string) Event {
 	return Event{
-		Type:      t,
-		AccountID: accountID,
-		Audience:  AudienceManagers,
-		EntityID:  deploymentID,
-		Payload:   map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadDetails: details, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
+		Type:         t,
+		AccountID:    accountID,
+		Audience:     AudienceWatchers,
+		EntityID:     deploymentID,
+		DeploymentID: deploymentID,
+		Payload:      map[string]any{PayloadAgent: agentName, PayloadReason: reason, PayloadDetails: details, PayloadCTAURL: accountPath(accountName, "/agents/"+deploymentID+"/deployments")},
 	}
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
+	"github.com/astropods/astro/apps/astro-server/internal/watcher"
 )
 
 // Deps bundles every shared dependency that route handlers need. Built once in
@@ -66,6 +67,7 @@ type Stores struct {
 	GH           *githubconnection.Store
 	Webhook      *githubwebhook.Store
 	SlackID      *slackidentity.Store
+	Watcher      *watcher.Store
 }
 
 type Clients struct {

@@ -24,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
+	"github.com/astropods/astro/apps/astro-server/internal/watcher"
 )
 
 type kindEntry struct {
@@ -219,6 +220,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		notifyDeliverer = notify.NewDeliverer(notifyProvider, memberEmailStore, cfg.AccountStore, mgr, appBaseURL, log)
 	} else {
 		notifyDeliverer = notify.NewDeliverer(notifyProvider, memberEmailStore, cfg.AccountStore, nil, appBaseURL, log)
+	}
+	// Deployment alerts resolve to that deployment's watchers, falling back to
+	// managers above when nobody watches it.
+	if cfg.DB != nil {
+		notifyDeliverer = notifyDeliverer.WithWatchers(watcher.NewStore(cfg.DB))
 	}
 	addWorkerWithCatalogCheck(log, workers, &NotifyWorker{
 		deliverer: notifyDeliverer,

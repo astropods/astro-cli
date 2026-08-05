@@ -77,6 +77,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
+	"github.com/astropods/astro/apps/astro-server/internal/watcher"
 )
 
 func main() {
@@ -472,8 +473,11 @@ func runAPI(
 		os.Exit(1)
 	}
 
-	// Create audit log store
-	auditStore := auditlog.NewStore(db)
+	// Create audit log store. The watcher observer rides the audit trail so that
+	// any handler auditing a deployment mutation enrolls its actor as a watcher
+	// without a second call site to keep in sync.
+	watcherStore := watcher.NewStore(db)
+	auditStore := auditlog.NewStore(db).Observe(watcher.NewAuditObserver(watcherStore, log))
 
 	// Initialize GitHub connection store, webhook store, and WorkOS Pipes client.
 	ghStore := githubconnection.New(db)
@@ -512,6 +516,7 @@ func runAPI(
 			GH:           ghStore,
 			Webhook:      webhookStore,
 			SlackID:      slackIdentityStore,
+			Watcher:      watcherStore,
 		},
 		Clients: Clients{
 			AgentIndex: agentIndex,
@@ -821,6 +826,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	agentMetricsStore := deps.Stores.AgentMetrics
 	clusterStore := deps.Stores.Cluster
 	auditStore := deps.Stores.Audit
+	watcherStore := deps.Stores.Watcher
 	avatarStore := deps.Stores.Avatar
 	readmeAssetStore := deps.Stores.ReadmeAssets
 	ksStore := deps.Stores.Knowledge
@@ -1758,6 +1764,24 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
+			)
+			api.GET(protected, "/deployments/:id/watchers", "List deployment alert watchers", handlers.ListDeploymentWatchers(log, accountStore, deploymentStore, watcherStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, nil),
+			)
+			api.POST(protected, "/deployments/:id/watchers/me", "Watch a deployment's alerts", handlers.WatchDeployment(log, accountStore, deploymentStore, watcherStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, nil),
+			)
+			api.DELETE(protected, "/deployments/:id/watchers/me", "Stop watching a deployment's alerts", handlers.UnwatchDeployment(log, accountStore, deploymentStore, watcherStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, nil),
 			)
 			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),

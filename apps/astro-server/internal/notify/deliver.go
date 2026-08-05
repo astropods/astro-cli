@@ -32,6 +32,13 @@ type managerLookup interface {
 	ManagerUserIDs(ctx context.Context, accountID string) ([]string, error)
 }
 
+// watcherLookup resolves the members subscribed to a deployment's alerts.
+// *watcher.Store satisfies it. Optional: a nil lookup makes AudienceWatchers
+// behave as AudienceManagers.
+type watcherLookup interface {
+	ActiveUserIDs(ctx context.Context, deploymentID string) ([]string, error)
+}
+
 // Deliverer resolves an event's audience to recipients and hands off to the
 // Provider. It reads recipient emails from the member-email mirror and
 // owner/membership from the account store. Per-channel preferences are owned by
@@ -42,8 +49,17 @@ type Deliverer struct {
 	emails     memberEmails
 	accounts   accountLookup
 	managers   managerLookup
+	watchers   watcherLookup
 	appBaseURL string // trimmed of trailing slash; used to absolutize relative ctaUrl
 	log        *logger.Logger
+}
+
+// WithWatchers attaches the watcher lookup that backs AudienceWatchers. It is a
+// setter rather than a constructor parameter because it is optional and the
+// constructor already carries every required collaborator.
+func (d *Deliverer) WithWatchers(w watcherLookup) *Deliverer {
+	d.watchers = w
+	return d
 }
 
 // NewDeliverer builds a Deliverer. provider must be non-nil (use the no-op
@@ -149,9 +165,39 @@ func (d *Deliverer) resolveRecipients(ctx context.Context, ev Event) ([]Recipien
 		return recip(ownerID), nil
 	case AudienceManagers:
 		return d.resolveManagers(ctx, ev, recip)
+	case AudienceWatchers:
+		return d.resolveWatchers(ctx, ev, recip)
 	default:
 		return nil, fmt.Errorf("unknown audience %q", ev.Audience)
 	}
+}
+
+// resolveWatchers returns the members subscribed to the event's deployment. It
+// falls back to managers when there is no watcher lookup (unconfigured), no
+// deployment scope on the event, nobody watching yet, or the lookup fails — an
+// alert with no watchers is a routing gap, not a reason to stay silent.
+func (d *Deliverer) resolveWatchers(ctx context.Context, ev Event, recip func(string) []Recipient) ([]Recipient, error) {
+	if d.watchers == nil || ev.DeploymentID == "" {
+		return d.resolveManagers(ctx, ev, recip)
+	}
+	ids, err := d.watchers.ActiveUserIDs(ctx, ev.DeploymentID)
+	if err != nil && d.log != nil {
+		d.log.Warn("notify: watcher lookup failed, falling back to managers",
+			"error", err, "type", ev.Type, "deployment_id", ev.DeploymentID)
+	}
+	if len(ids) == 0 {
+		return d.resolveManagers(ctx, ev, recip)
+	}
+	out := make([]Recipient, 0, len(ids))
+	for _, uid := range ids {
+		out = append(out, recip(uid)...)
+	}
+	// Every watcher resolving to an unmirrored email would otherwise drop the
+	// alert entirely; managers are the same backstop as having no watchers.
+	if len(out) == 0 {
+		return d.resolveManagers(ctx, ev, recip)
+	}
+	return out, nil
 }
 
 // resolveManagers returns the account's org managers (owner + admin), resolved

@@ -323,6 +323,37 @@ CREATE UNIQUE INDEX idx_deployments_live_display_name ON public.deployments(acco
 
 CREATE INDEX idx_deployments_cluster_id ON public.deployments(cluster_id) WHERE cluster_id IS NOT NULL;
 
+-- Who gets alerted about a deployment. A member becomes a watcher implicitly by
+-- acting on it (deploying, changing config, rolling back, …); registration is
+-- driven off the audit-log seam, so any action recorded there enrolls its actor.
+--   muted: the member's sticky opt-out. Registration never clears it, so a later
+--     deploy does not silently resubscribe someone who unwatched. This is why an
+--     opt-out keeps the row instead of deleting it.
+--   reason: the audit action that first enrolled them, for explaining "why am I
+--     getting this?" — not used in routing.
+-- Alerts resolve to unmuted watchers; a deployment with none falls back to the
+-- account's managers. See internal/watcher and internal/notify.
+CREATE TABLE public.deployment_watchers (
+    deployment_id  varchar(11) NOT NULL,
+    user_id        text        NOT NULL,
+    account_id     uuid        NOT NULL,
+    reason         text        NOT NULL DEFAULT '',
+    muted          boolean     NOT NULL DEFAULT false,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    last_active_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_watchers_pkey PRIMARY KEY (deployment_id, user_id),
+    CONSTRAINT deployment_watchers_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_watchers_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+-- Recipient resolution reads unmuted watchers for one deployment on every alert.
+CREATE INDEX idx_deployment_watchers_active
+    ON public.deployment_watchers(deployment_id)
+    WHERE NOT muted;
+
+-- "What am I watching?" for the per-user API.
+CREATE INDEX idx_deployment_watchers_user ON public.deployment_watchers(user_id, created_at DESC);
+
 -- Normalized deployment spec tables (Phase 1: dual-write alongside deployment_spec_json)
 
 CREATE TABLE public.deployment_workloads (
