@@ -1,3 +1,8 @@
+import {
+  useId,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -14,6 +19,7 @@ interface ReviewQueueListProps {
   canLoadMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
+  listRef?: RefObject<HTMLUListElement | null>;
 }
 
 export function ReviewQueueList({
@@ -25,6 +31,7 @@ export function ReviewQueueList({
   canLoadMore,
   isLoadingMore,
   onLoadMore,
+  listRef,
 }: ReviewQueueListProps) {
   if (isLoading) {
     return (
@@ -77,6 +84,7 @@ export function ReviewQueueList({
       canLoadMore={canLoadMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}
+      listRef={listRef}
     />
   );
 }
@@ -88,6 +96,7 @@ function ReviewQueueListBody({
   canLoadMore,
   isLoadingMore,
   onLoadMore,
+  listRef,
 }: {
   items: ReviewQueueItem[];
   selectedId: string | null;
@@ -95,18 +104,50 @@ function ReviewQueueListBody({
   canLoadMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
+  listRef?: RefObject<HTMLUListElement | null>;
 }) {
+  const optionIdPrefix = useId();
+  const optionId = (traceId: string) => `${optionIdPrefix}${traceId}`;
+  const selectedIndex = items.findIndex((item) => item.trace_id === selectedId);
+
+  // Keep DOM focus on the list while aria-activedescendant tracks selection.
+  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    const step =
+      event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (step === 0 || selectedIndex < 0) {
+      return;
+    }
+    event.preventDefault();
+
+    const next = items[selectedIndex + step];
+    if (!next) {
+      return;
+    }
+
+    onSelect(next.trace_id);
+  };
+
   return (
     <div className="flex min-h-full flex-col">
-      <ul className="flex flex-col">
+      <ul
+        ref={listRef}
+        role="listbox"
+        aria-label="Review queue"
+        aria-activedescendant={
+          selectedId && selectedIndex >= 0 ? optionId(selectedId) : undefined
+        }
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+        className="flex flex-col focus:outline-none"
+      >
         {items.map((item) => (
-          <li key={item.trace_id}>
-            <ReviewQueueRow
-              item={item}
-              selected={selectedId === item.trace_id}
-              onSelect={() => onSelect(item.trace_id)}
-            />
-          </li>
+          <ReviewQueueRow
+            key={item.trace_id}
+            id={optionId(item.trace_id)}
+            item={item}
+            selected={selectedId === item.trace_id}
+            onSelect={() => onSelect(item.trace_id)}
+          />
         ))}
       </ul>
       {canLoadMore && (
@@ -122,10 +163,12 @@ function ReviewQueueListBody({
 }
 
 function ReviewQueueRow({
+  id,
   item,
   selected,
   onSelect,
 }: {
+  id: string;
   item: ReviewQueueItem;
   selected: boolean;
   onSelect: () => void;
@@ -133,12 +176,13 @@ function ReviewQueueRow({
   const title = summarize(item.input);
 
   return (
-    <button
-      type="button"
+    <li
+      id={id}
+      role="option"
+      aria-selected={selected}
       onClick={onSelect}
-      aria-pressed={selected}
       className={cn(
-        "flex min-h-13 w-full items-center gap-3 border-b border-l-2 border-border px-4 py-2.5 text-left transition-colors",
+        "flex min-h-13 w-full cursor-pointer items-center gap-3 border-b border-l-2 border-border px-4 py-2.5 transition-colors",
         selected
           ? "border-l-primary bg-primary/10"
           : "border-l-transparent hover:bg-muted/40",
@@ -153,7 +197,7 @@ function ReviewQueueRow({
         prediction={item.prediction}
         status={item.prediction_status}
       />
-    </button>
+    </li>
   );
 }
 

@@ -873,7 +873,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("navigates between traces from the detail header", async () => {
+  it("navigates between traces from the detail header and arrow keys", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -898,10 +898,148 @@ describe("review queue view", () => {
     expect(screen.getByLabelText("Trace 1 of 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous trace" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Next trace" }));
+    const queue = screen.getByRole("listbox", { name: "Review queue" });
+    const firstQueueItem = screen.getByRole("option", {
+      name: /First prompt/,
+    });
+    await user.click(firstQueueItem);
+    expect(queue).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}");
     expect(screen.getByText("Second response")).toBeInTheDocument();
     expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next trace" })).toBeDisabled();
+    expect(firstQueueItem).toHaveAttribute("aria-selected", "false");
+    expect(
+      screen.getByRole("option", { name: /Second prompt/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(queue).toHaveFocus();
+
+    const boundaryArrow = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    queue.dispatchEvent(boundaryArrow);
+    expect(boundaryArrow.defaultPrevented).toBe(true);
+
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getByText("First response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 1 of 2")).toBeInTheDocument();
+
+    const nextTrace = screen.getByRole("button", { name: "Next trace" });
+    await user.click(nextTrace);
+    expect(screen.getByText("Second response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
+    expect(nextTrace).toBeDisabled();
+  });
+
+  it("keeps navigating by arrow key after the header buttons take focus", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "First prompt",
+          output: "First response",
+        }),
+        queueItem({
+          trace_id: "trace_222222",
+          input: "Second prompt",
+          output: "Second response",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    const nextTrace = screen.getByRole("button", { name: "Next trace" });
+    await user.click(nextTrace);
+    expect(nextTrace).toHaveFocus();
+    expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowUp}");
+
+    expect(screen.getByText("First response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 1 of 2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("listbox", { name: "Review queue" }),
+    ).toHaveFocus();
+  });
+
+  it("hands ArrowDown from the review queue tab to queue navigation", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "First prompt",
+          output: "First response",
+        }),
+        queueItem({
+          trace_id: "trace_222222",
+          input: "Second prompt",
+          output: "Second response",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: "dataset" });
+
+    const reviewQueueTab = await screen.findByRole("button", {
+      name: /^review queue$/i,
+    });
+    await user.click(reviewQueueTab);
+    expect(reviewQueueTab).toHaveFocus();
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}");
+
+    expect(screen.getByText("Second response")).toBeInTheDocument();
+    expect(
+      screen.getByRole("listbox", { name: "Review queue" }),
+    ).toHaveFocus();
+  });
+
+  it("hands boundary arrows to the queue without scrolling the page", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_111111",
+          input: "Only prompt",
+          output: "Only response",
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: "dataset" });
+
+    const reviewQueueTab = await screen.findByRole("button", {
+      name: /^review queue$/i,
+    });
+    await user.click(reviewQueueTab);
+    expect(await screen.findByText("Only response")).toBeInTheDocument();
+    const queue = screen.getByRole("listbox", { name: "Review queue" });
+    const focusQueue = vi.spyOn(queue, "focus");
+
+    const boundaryArrow = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    reviewQueueTab.dispatchEvent(boundaryArrow);
+
+    expect(boundaryArrow.defaultPrevented).toBe(true);
+    expect(queue).toHaveFocus();
+    expect(focusQueue).toHaveBeenCalledWith({ preventScroll: true });
+    expect(screen.getByText("Only response")).toBeInTheDocument();
   });
 
   it("passes the selected prediction filter to the review queue", async () => {
@@ -1001,7 +1139,7 @@ describe("review queue view", () => {
       screen.getAllByRole("button", { name: /load more items/i })[0],
     );
     await user.click(
-      await screen.findByRole("button", { name: /second paged prompt/i }),
+      await screen.findByRole("option", { name: /second paged prompt/i }),
     );
 
     expect(screen.getByText("Second paged response")).toBeInTheDocument();
@@ -1010,7 +1148,7 @@ describe("review queue view", () => {
       screen.getByRole("button", { name: /load more items/i }),
     );
     await user.click(
-      await screen.findByRole("button", { name: /third paged prompt/i }),
+      await screen.findByRole("option", { name: /third paged prompt/i }),
     );
 
     expect(screen.getByText("Third paged response")).toBeInTheDocument();
@@ -1252,7 +1390,7 @@ describe("review queue view", () => {
     expect(within(panel).getByText("First panel prompt")).toBeInTheDocument();
     expect(within(panel).getByText("First panel response")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /second panel prompt/i }));
+    await user.click(screen.getByRole("option", { name: /second panel prompt/i }));
 
     await waitFor(() => {
       expect(within(panel).getByText("Second panel prompt")).toBeInTheDocument();
@@ -1520,6 +1658,61 @@ describe("review queue view", () => {
     expect(
       screen.getByRole("button", { name: /incomplete/i }),
     ).not.toHaveAttribute("data-active");
+
+    await waitFor(() => {
+      expect(posted).toEqual({
+        trace_id: "trace_predicted",
+        verdict: "bad",
+      });
+    });
+  });
+
+  it("agrees with the selected prediction on Enter", async () => {
+    let posted: DatasetJudgmentRequest | null = null;
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace_predicted",
+          input: "Predicted prompt",
+          output: "Predicted response",
+          prediction_status: "completed",
+          prediction: {
+            verdict_score: -0.8,
+            confidence: 79,
+            explanation: "The response did not address the request.",
+            judge_version: "1",
+            criteria: [],
+          },
+        }),
+      ]),
+    );
+    server.use(
+      http.post(
+        "/api/v1/deployments/:id/dataset/judgments",
+        async ({ request }) => {
+          posted = (await request.json()) as DatasetJudgmentRequest;
+          return HttpResponse.json(
+            {
+              eval_dataset_id: "dataset-1",
+              trace_id: posted.trace_id,
+              verdict: posted.verdict,
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    await screen.findByText("Predicted response");
+    await user.click(
+      screen.getByRole("option", { name: /Predicted prompt/ }),
+    );
+    await user.keyboard("{Enter}");
 
     await waitFor(() => {
       expect(posted).toEqual({
@@ -1904,7 +2097,7 @@ describe("review queue view", () => {
     expect(await screen.findByText("First page response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /load more items/i }));
     await user.click(
-      await screen.findByRole("button", { name: /undoable prompt/i }),
+      await screen.findByRole("option", { name: /undoable prompt/i }),
     );
 
     expect(screen.getByText("Undoable response")).toBeInTheDocument();
@@ -1924,7 +2117,7 @@ describe("review queue view", () => {
     expect(queueFetchCount).toBe(2);
   });
 
-  it("clears quick undo when selecting another queue trace", async () => {
+  it("dismisses the criteria dialog when another queue item is selected", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First prompt",
@@ -1963,11 +2156,17 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("button", { name: "Good" }));
     expect(await screen.findByText("Marked as good")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /second prompt/i }));
+    const secondQueueItem = screen.getByRole("option", {
+      name: /second prompt/i,
+    });
+    expect(secondQueueItem).toHaveAttribute("aria-selected", "false");
+    await user.click(secondQueueItem);
 
     await waitFor(() => {
       expect(screen.queryByText("Marked as good")).not.toBeInTheDocument();
     });
+    expect(screen.getByText("Second response")).toBeInTheDocument();
+    expect(secondQueueItem).toHaveAttribute("aria-selected", "true");
   });
 });
 
@@ -2111,7 +2310,7 @@ describe("dataset view", () => {
 
       expect(await screen.findByText("Undo response")).toBeInTheDocument();
       expect(
-        await screen.findByRole("button", { name: /undo prompt bad/i }),
+        await screen.findByRole("option", { name: /undo prompt bad/i }),
       ).toBeInTheDocument();
     } finally {
       if (hadAnimate) {

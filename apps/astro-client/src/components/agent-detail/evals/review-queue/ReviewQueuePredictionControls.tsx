@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { ArrowTurnDownLeftIcon } from "@heroicons/react/24/outline";
 import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,11 +18,9 @@ import {
   PredictionVerdictBadge,
   predictionVerdict,
 } from "./PredictionVerdictIndicator";
-import {
-  REVIEW_QUEUE_VERDICT_OPTIONS,
-  ShortcutKey,
-  useReviewQueueVerdictShortcuts,
-} from "./ReviewQueueVerdictControls";
+import { REVIEW_QUEUE_VERDICT_OPTIONS } from "./review-queue-verdict-options";
+import { useReviewQueueShortcuts } from "./review-queue-shortcuts";
+import { ReviewQueueShortcutKey } from "./ReviewQueueShortcutKey";
 
 export function ReviewQueuePredictionControls({
   prediction,
@@ -51,7 +50,7 @@ export function ReviewQueuePredictionControls({
     ({ verdict }) => verdict !== predictedVerdict,
   );
 
-  useReviewQueueVerdictShortcuts({
+  useReviewQueueShortcuts({
     disabled: locked,
     onSelect: (verdict) =>
       onSelect(
@@ -59,6 +58,8 @@ export function ReviewQueuePredictionControls({
         verdict === predictedVerdict ? agreeButtonRef.current : null,
         false,
       ),
+    onAgree: () =>
+      onSelect(predictedVerdict, agreeButtonRef.current, true),
   });
 
   return (
@@ -117,9 +118,9 @@ export function ReviewQueuePredictionControls({
                   >
                     <Icon aria-hidden className={iconClassName} />
                     {label}
-                    <ShortcutKey ariaHidden className="ml-auto">
+                    <ReviewQueueShortcutKey ariaHidden className="ml-auto">
                       {shortcut}
-                    </ShortcutKey>
+                    </ReviewQueueShortcutKey>
                   </DropdownMenuItem>
                 ),
               )}
@@ -136,6 +137,7 @@ export function ReviewQueuePredictionControls({
           >
             <Check aria-hidden className="size-4" />
             Agree with judge
+            <ArrowTurnDownLeftIcon aria-hidden className="size-4" />
           </Button>
         </div>
       </div>

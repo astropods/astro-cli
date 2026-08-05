@@ -1,4 +1,4 @@
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
 
@@ -71,6 +71,15 @@ describe("JudgmentCriteriaPanel", () => {
     expect(chip).toHaveAttribute("data-active");
     fireEvent.click(chip);
     expect(chip).not.toHaveAttribute("data-active");
+  });
+
+  it("focuses the first criterion when opened", async () => {
+    renderPanel("good");
+    const firstCriterion = screen.getByRole("button", {
+      name: /correct info/i,
+    });
+
+    await waitFor(() => expect(firstCriterion).toHaveFocus());
   });
 
   it("Save emits selected criteria with value 1 for good, in display order", () => {

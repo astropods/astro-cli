@@ -53,10 +53,9 @@ import {
   ReviewQueueToolbar,
   type ReviewQueueFilterValue,
 } from "./ReviewQueueToolbar";
-import {
-  markedLabel,
-  ReviewQueueVerdictControls,
-} from "./ReviewQueueVerdictControls";
+import { ReviewQueueVerdictControls } from "./ReviewQueueVerdictControls";
+import { predictionVerdictPresentation } from "./PredictionVerdictIndicator";
+import { useReviewQueueNavigationShortcuts } from "./review-queue-shortcuts";
 import {
   getAdjacentTraceIds,
   getBaselineStatus,
@@ -68,6 +67,11 @@ import {
 
 const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
+
+function markedLabel(verdict: DatasetJudgmentVerdict) {
+  const { label } = predictionVerdictPresentation(verdict);
+  return `Marked as ${label.toLowerCase()}`;
+}
 
 type ActiveJudgment = {
   traceId: string;
@@ -138,6 +142,7 @@ export function ReviewQueueView({
   const selectedIdRef = useRef<string | null>(null);
   // Tracks the trace currently shown in the open detail panel.
   const syncedPanelTraceIdRef = useRef<string | null>(null);
+  const queueListRef = useRef<HTMLUListElement | null>(null);
   const emptyQueueAutoLoadCountRef = useRef(0);
   const items = useMemo(
     () => data?.pages.flatMap((page) => page.items) ?? EMPTY_REVIEW_QUEUE_ITEMS,
@@ -475,6 +480,23 @@ export function ReviewQueueView({
       handleSelectTrace(item.trace_id);
     }
   };
+  const canGoPrevious = selectedIndex > 0;
+  const canGoNext = selectedIndex >= 0 && selectedIndex < items.length - 1;
+  const goPrevious = () => handleNavigate(selectedIndex - 1);
+  const goNext = () => handleNavigate(selectedIndex + 1);
+
+  const navigateFromOutsideList = (navigate: () => void) => () => {
+    navigate();
+    queueListRef.current?.focus({ preventScroll: true });
+  };
+
+  useReviewQueueNavigationShortcuts({
+    disabled: Boolean(
+      activeJudgment && verdictHasCriteria(activeJudgment.verdict),
+    ),
+    onPrevious: navigateFromOutsideList(goPrevious),
+    onNext: navigateFromOutsideList(goNext),
+  });
 
   return (
     <>
@@ -489,10 +511,10 @@ export function ReviewQueueView({
             <ReviewQueueHeaderActions
               position={selectedIndex + 1}
               total={items.length}
-              canGoPrevious={selectedIndex > 0}
-              canGoNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
-              onPrevious={() => handleNavigate(selectedIndex - 1)}
-              onNext={() => handleNavigate(selectedIndex + 1)}
+              canGoPrevious={canGoPrevious}
+              canGoNext={canGoNext}
+              onPrevious={goPrevious}
+              onNext={goNext}
               traceLabel={truncateTraceId(selectedItem.trace_id)}
               onOpenTrace={
                 onOpenTrace
@@ -520,6 +542,7 @@ export function ReviewQueueView({
             />
             <aside className="flex max-h-64 min-h-0 flex-1 flex-col overflow-y-auto border-b border-border @[760px]/review-card:max-h-none @[760px]/review-card:border-b-0">
               <ReviewQueueList
+                listRef={queueListRef}
                 items={items}
                 selectedId={selectedItem?.trace_id ?? null}
                 onSelect={handleSelectTrace}
