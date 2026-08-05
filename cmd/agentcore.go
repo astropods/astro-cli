@@ -15,20 +15,23 @@ import (
 	"github.com/astropods/astro-cli/internal/agentcore"
 )
 
-// AgentCore operator deploy.
+// AgentCore deploy, selected by the spec.
 //
-// `ast deploy` is server-mediated: astro-server resolves vault secret
-// references, mints the AI Gateway key, and holds the AWS credentials. None of
-// that is available client-side, so this command is not that path and does not
-// try to be. It exists to stand a runtime up from a workstation or the ops
-// bastion in order to validate AgentCore itself, and it reaches AWS through the
-// authenticated `aws` CLI. That means it needs credentials in the Astro AWS
-// account, which is why it is hidden rather than part of the tenant surface.
+// The runtime is read from astropods.yml (agent.annotations.runtime), so there
+// is no target flag and no runtime-specific command: `ast deploy` dispatches on
+// what the spec declares. A default (kubernetes) spec takes the server-mediated
+// path; an agentcore spec is created here, client-side, through the
+// authenticated `aws` CLI.
 //
-// Everything describing the agent comes from astropods.yml, including the
-// choice to come here at all (agent.annotations.runtime). Environment values
-// come from the standard AWS environment rather than flags, because an IAM role
-// ARN or a region is not blueprint data:
+// This path is not equivalent to a server-mediated deploy and cannot be. Vault
+// secret references are write-only and resolve server-side, and the AI Gateway
+// key is minted server-side, so secrets are supplied literally instead
+// (--secret / --secrets-file), matching AWS's reference wrapper. It also needs
+// AWS credentials for the account that owns the runtime, so in practice it runs
+// from a workstation or the ops bastion rather than by a tenant.
+//
+// Environment values come from the AWS environment rather than flags, because
+// an IAM role ARN or a region is not blueprint data:
 //
 //	AGENTCORE_EXEC_ROLE_ARN  execution role the runtime assumes (same name astro-server uses)
 //	AWS_REGION, AWS_DEFAULT_REGION
@@ -36,41 +39,41 @@ import (
 //
 // The image URI stays a flag because it identifies the artifact being deployed:
 // it changes per build and belongs to neither the blueprint nor the environment.
-var agentcoreCmd = &cobra.Command{
-	Use:    "agentcore",
-	Short:  "Operator commands for the AWS Bedrock AgentCore runtime",
-	Hidden: true,
-}
 
-var agentcoreDeployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Create or update the AgentCore runtime for a local agentcore spec",
-	Long: `Create or update an AWS Bedrock AgentCore runtime from the local spec.
-
-Requires AWS credentials in the Astro AWS account, so this is an operator tool,
-not the tenant deploy path. Secret values are passed literally (--secret /
---secrets-file); vault references only resolve in a server-mediated deploy.
-
-Reads AGENTCORE_EXEC_ROLE_ARN, AWS_REGION (or AWS_DEFAULT_REGION), and
-AWS_PROFILE from the environment. Use --dry-run to render the plan and the aws
-commands without calling AWS.`,
-	Args: cobra.NoArgs,
-	RunE: runAgentCoreOpsDeploy,
-}
-
-func init() {
-	rootCmd.AddCommand(agentcoreCmd)
-	agentcoreCmd.AddCommand(agentcoreDeployCmd)
-	registerAgentCoreDeployFlags(agentcoreDeployCmd)
-}
-
+// registerAgentCoreDeployFlags adds the flags the agentcore path needs to a
+// deploy command. All are inert on a default spec, which never reads them.
 func registerAgentCoreDeployFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-	f.String("image", "", "ARM64 ECR image URI to deploy")
-	f.Bool("dry-run", false, "Print the plan and the aws commands without calling AWS")
-	f.StringArray("secret", nil, "Secret NAME=VALUE resolving an @SECRET: placeholder (repeatable; never logged)")
-	f.String("secrets-file", "", "Load secrets from a .env file (KEY=VALUE lines)")
+	f.String("image", "", "ECR image URI (agentcore runtime)")
+	f.StringArray("secret", nil, "Secret NAME=VALUE resolving an @SECRET: placeholder (agentcore runtime; repeatable, never logged)")
+	f.String("secrets-file", "", "Load agentcore secrets from a .env file (KEY=VALUE lines)")
+}
+
+// maybeAgentCoreDeploy runs the agentcore deploy when the local spec selects
+// that runtime. It reports handled=false with no error when there is no local
+// spec or the spec uses the default runtime, so `ast deploy <name>` keeps
+// working against the server without a local checkout.
+func maybeAgentCoreDeploy(cmd *cobra.Command) (handled bool, err error) {
+	specFile, _ := cmd.Flags().GetString("file")
+	specPath, _, err := resolveSpecPathAndCwd(specFile)
+	if err != nil {
+		// No local spec: this is a name-based server deploy.
+		return false, nil
+	}
+	astroSpec, err := spec.ParseSpec(specPath)
+	if err != nil {
+		// An explicit --file that will not parse is a real error; otherwise fall
+		// through rather than failing a server deploy over a stray file.
+		if specFile != "" {
+			return true, err
+		}
+		return false, nil
+	}
+	if astroSpec.Agent.Runtime() != spec.AgentCoreRuntime {
+		return false, nil
+	}
+	return true, runAgentCoreDeploy(cmd, astroSpec, specPath)
 }
 
 // execRoleEnv names the execution role the runtime assumes. Deliberately the
@@ -85,18 +88,12 @@ const (
 	placeholderRole  = "<EXECUTION-ROLE-ARN>"
 )
 
-func runAgentCoreOpsDeploy(cmd *cobra.Command, _ []string) error {
+func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath string) error {
 	w := cmd.OutOrStdout()
-	specFile, _ := cmd.Flags().GetString("file")
 	image, _ := cmd.Flags().GetString("image")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	secretFlags, _ := cmd.Flags().GetStringArray("secret")
 	secretsFile, _ := cmd.Flags().GetString("secrets-file")
-
-	astroSpec, specPath, err := loadAgentCoreSpec(specFile)
-	if err != nil {
-		return err
-	}
 
 	opts := agentcore.Options{
 		Region:        awsRegionFromEnv(),
@@ -107,7 +104,7 @@ func runAgentCoreOpsDeploy(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		var rej *agentcore.RejectionError
 		if errors.As(err, &rej) {
-			return fmt.Errorf("cannot deploy %q to AgentCore Runtime: %s", astroSpec.Name, rej.Reason)
+			return errAgentCoreRejected(astroSpec.Name, rej.Reason)
 		}
 		return err
 	}
@@ -128,14 +125,13 @@ func runAgentCoreOpsDeploy(cmd *cobra.Command, _ []string) error {
 	// A real deploy resolves secrets first and fails closed, so an unresolved
 	// @SECRET: placeholder can never be written to the runtime as a literal.
 	if unresolved := agentcore.ResolveSecrets(plan, secrets); len(unresolved) > 0 {
-		return fmt.Errorf("missing secret value(s) %s: supply them with --secret NAME=VALUE or --secrets-file",
-			strings.Join(unresolved, ", "))
+		return errAgentCoreMissingSecrets(unresolved)
 	}
 	if opts.ImageURI == placeholderImage {
-		return fmt.Errorf("a real deploy needs --image <ecr-uri> (use --dry-run to preview without it)")
+		return errAgentCoreMissingImage()
 	}
 	if opts.ExecutionRole == placeholderRole {
-		return fmt.Errorf("a real deploy needs %s set to the execution role ARN (use --dry-run to preview without it)", execRoleEnv)
+		return errAgentCoreMissingExecRole()
 	}
 
 	rt := &agentcore.AWSCLIRuntime{Region: opts.Region, SecretKeys: secretKeys}
@@ -151,29 +147,6 @@ func runAgentCoreOpsDeploy(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(w, "\n# messaging sidecar env for this runtime (from %s):\n", specPath)
 	fmt.Fprint(w, res.EnvExports())
 	return nil
-}
-
-// loadAgentCoreSpec resolves and parses the local spec, rejecting one that does
-// not select the agentcore runtime. Unlike `ast deploy` there is nothing to fall
-// through to here, so a mismatch is an error rather than a different code path.
-func loadAgentCoreSpec(specFile string) (*spec.AstroSpec, string, error) {
-	specPath, _, err := resolveSpecPathAndCwd(specFile)
-	if err != nil {
-		return nil, "", fmt.Errorf("this command needs a local spec: %w", err)
-	}
-	astroSpec, err := spec.ParseSpec(specPath)
-	if err != nil {
-		return nil, "", err
-	}
-	switch rt := astroSpec.Agent.Runtime(); rt {
-	case spec.AgentCoreRuntime:
-		return astroSpec, specPath, nil
-	case "":
-		return nil, "", fmt.Errorf("%s does not select the agentcore runtime: set agent.annotations.runtime: %s",
-			specPath, spec.AgentCoreRuntime)
-	default:
-		return nil, "", fmt.Errorf("%s selects the %q runtime, not %s", specPath, rt, spec.AgentCoreRuntime)
-	}
 }
 
 // renderAgentCorePlan prints the plan, then the aws commands a real deploy would
@@ -240,7 +213,7 @@ func collectAgentCoreSecrets(pairs []string, file string) (map[string]string, er
 			line = strings.TrimPrefix(line, "export ")
 			k, v, ok := strings.Cut(line, "=")
 			if !ok {
-				return nil, fmt.Errorf("secrets-file line %d: expected KEY=VALUE", i+1)
+				return nil, errAgentCoreSecretsFileLine(i + 1)
 			}
 			out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
 		}
@@ -248,7 +221,7 @@ func collectAgentCoreSecrets(pairs []string, file string) (map[string]string, er
 	for _, p := range pairs {
 		k, v, ok := strings.Cut(p, "=")
 		if !ok || strings.TrimSpace(k) == "" {
-			return nil, fmt.Errorf("invalid --secret %q: expected NAME=VALUE", p)
+			return nil, errAgentCoreInvalidSecret(p)
 		}
 		out[strings.TrimSpace(k)] = v
 	}

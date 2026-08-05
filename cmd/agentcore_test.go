@@ -4,21 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-// writeSpec drops an astropods.yml in a temp dir and returns its path.
-func writeSpec(t *testing.T, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "astropods.yml")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 const agentCoreSpecYAML = `spec: package/v1
 name: hello-astro
@@ -28,168 +19,188 @@ agent:
     runtime: agentcore
 `
 
-// newAgentCoreDeployCmd builds the same command init() registers, so tests
-// exercise the real flag set rather than a hand-rolled copy.
-func newAgentCoreDeployCmd(out *bytes.Buffer) *cobra.Command {
-	c := &cobra.Command{Use: "deploy", Args: cobra.NoArgs, RunE: runAgentCoreOpsDeploy}
-	registerAgentCoreDeployFlags(c)
-	c.SetOut(out)
-	c.SetErr(out)
-	return c
-}
-
-func TestLoadAgentCoreSpec_RequiresAgentCoreRuntime(t *testing.T) {
-	tests := []struct {
-		name    string
-		body    string
-		wantErr string // substring; empty means success expected
-	}{
-		{
-			name: "agentcore runtime is accepted",
-			body: agentCoreSpecYAML,
-		},
-		{
-			name: "no runtime annotation is rejected with the field to set",
-			body: "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n",
-			// The operator needs to be told what to add, not just that it is absent.
-			wantErr: "set agent.annotations.runtime: agentcore",
-		},
-		{
-			name:    "a different runtime is rejected by name",
-			body:    "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n  annotations:\n    runtime: kubernetes\n",
-			wantErr: `selects the "kubernetes" runtime`,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s, path, err := loadAgentCoreSpec(writeSpec(t, tt.body))
-			if tt.wantErr != "" {
-				if err == nil {
-					t.Fatalf("loadAgentCoreSpec() = %v, want error containing %q", s, tt.wantErr)
-				}
-				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("error = %q, want it to contain %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("loadAgentCoreSpec() error = %v", err)
-			}
-			if s.Name != "hello-astro" {
-				t.Errorf("Name = %q, want hello-astro", s.Name)
-			}
-			if path == "" {
-				t.Error("expected the resolved spec path to be returned")
-			}
-		})
-	}
-}
-
-func TestAWSRegionFromEnv(t *testing.T) {
-	t.Run("AWS_REGION wins", func(t *testing.T) {
-		t.Setenv("AWS_REGION", "us-east-1")
-		t.Setenv("AWS_DEFAULT_REGION", "eu-west-1")
-		if got := awsRegionFromEnv(); got != "us-east-1" {
-			t.Errorf("awsRegionFromEnv() = %q, want us-east-1", got)
-		}
-	})
-	t.Run("falls back to AWS_DEFAULT_REGION", func(t *testing.T) {
-		t.Setenv("AWS_REGION", "")
-		t.Setenv("AWS_DEFAULT_REGION", "eu-west-1")
-		if got := awsRegionFromEnv(); got != "eu-west-1" {
-			t.Errorf("awsRegionFromEnv() = %q, want eu-west-1", got)
-		}
-	})
-	t.Run("empty when neither is set", func(t *testing.T) {
-		t.Setenv("AWS_REGION", "")
-		t.Setenv("AWS_DEFAULT_REGION", "")
-		if got := awsRegionFromEnv(); got != "" {
-			t.Errorf("awsRegionFromEnv() = %q, want empty", got)
-		}
-	})
-}
-
-// Secret values must never reach stdout: the plan is printed with @SECRET:
-// placeholders and the rendered aws commands mask the resolved value.
-func TestAgentCoreOpsDeploy_DryRunNeverPrintsSecretValues(t *testing.T) {
-	specPath := writeSpec(t, agentCoreSpecYAML+`inputs:
-  API_TOKEN:
-    name: API_TOKEN
-    datatype: string
-    secret: true
-`)
-	var out bytes.Buffer
-	c := newAgentCoreDeployCmd(&out)
-	c.SetArgs([]string{"-f", specPath, "--dry-run", "--secret", "API_TOKEN=super-secret-value"})
-	if err := c.Execute(); err != nil {
-		t.Fatalf("dry-run deploy error = %v", err)
-	}
-
-	got := out.String()
-	if strings.Contains(got, "super-secret-value") {
-		t.Errorf("dry-run output leaked the secret value:\n%s", got)
-	}
-	if !strings.Contains(got, "@SECRET:API_TOKEN") {
-		t.Errorf("expected the plan to show the @SECRET: placeholder, got:\n%s", got)
-	}
-	// Dry-run must render the command it would have run, not silently do nothing.
-	if !strings.Contains(got, "create-agent-runtime") {
-		t.Errorf("expected the rendered aws command, got:\n%s", got)
-	}
-}
-
-// A real deploy has to fail before it can write a placeholder or an incomplete
-// runtime to AWS. Each guard is asserted separately so a reordering that skips
-// one is caught.
-func TestAgentCoreOpsDeploy_RealDeployFailsClosed(t *testing.T) {
-	specWithSecret := agentCoreSpecYAML + `inputs:
+const agentCoreSecretInput = `inputs:
   API_TOKEN:
     name: API_TOKEN
     datatype: string
     secret: true
 `
+
+// writeAgentCoreSpec drops an astropods.yml in a temp dir and returns its path.
+func writeAgentCoreSpec(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "astropods.yml")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	return path
+}
+
+// newDeployTestCmd builds a deploy command with the real flag set, so tests
+// exercise registered flags rather than a hand-rolled copy.
+func newDeployTestCmd(out *bytes.Buffer) *cobra.Command {
+	c := &cobra.Command{Use: "deploy", Args: optionalValidAgentName, RunE: runBlueprintDeploy}
+	registerDeployFlags(c)
+	c.SetOut(out)
+	c.SetErr(out)
+	return c
+}
+
+func TestMaybeAgentCoreDeploy_RoutesOnTheSpecRuntime(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantHandled bool
+	}{
+		{
+			name:        "agentcore runtime is handled here",
+			body:        agentCoreSpecYAML,
+			wantHandled: true,
+		},
+		{
+			name:        "no runtime annotation falls through to the server path",
+			body:        "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n",
+			wantHandled: false,
+		},
+		{
+			name:        "an explicit default runtime falls through to the server path",
+			body:        "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n  annotations:\n    runtime: kubernetes\n",
+			wantHandled: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			c := newDeployTestCmd(&out)
+			require.NoError(t, c.Flags().Set("file", writeAgentCoreSpec(t, tt.body)))
+			require.NoError(t, c.Flags().Set("dry-run", "true"))
+
+			handled, err := maybeAgentCoreDeploy(c)
+
+			assert.Equal(t, tt.wantHandled, handled)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// Without a local spec, `ast deploy <name>` must still reach the server path
+// rather than being captured by the agentcore branch.
+func TestMaybeAgentCoreDeploy_NoLocalSpecFallsThrough(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	var out bytes.Buffer
+	handled, err := maybeAgentCoreDeploy(newDeployTestCmd(&out))
+
+	assert.False(t, handled)
+	assert.NoError(t, err)
+}
+
+func TestAWSRegionFromEnv(t *testing.T) {
+	tests := []struct {
+		name          string
+		region        string
+		defaultRegion string
+		want          string
+	}{
+		{name: "AWS_REGION wins", region: "us-east-1", defaultRegion: "eu-west-1", want: "us-east-1"},
+		{name: "falls back to AWS_DEFAULT_REGION", region: "", defaultRegion: "eu-west-1", want: "eu-west-1"},
+		{name: "empty when neither is set", region: "", defaultRegion: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AWS_REGION", tt.region)
+			t.Setenv("AWS_DEFAULT_REGION", tt.defaultRegion)
+			assert.Equal(t, tt.want, awsRegionFromEnv())
+		})
+	}
+}
+
+// Secret values must never reach stdout: the plan is printed with @SECRET:
+// placeholders and the rendered aws commands mask the resolved value.
+func TestAgentCoreDeploy_DryRunNeverPrintsSecretValues(t *testing.T) {
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{
+		"-f", writeAgentCoreSpec(t, agentCoreSpecYAML+agentCoreSecretInput),
+		"--dry-run",
+		"--secret", "API_TOKEN=super-secret-value",
+	})
+	require.NoError(t, c.Execute())
+
+	got := out.String()
+	assert.NotContains(t, got, "super-secret-value", "dry-run output leaked the secret value")
+	assert.Contains(t, got, "@SECRET:API_TOKEN", "plan should show the @SECRET: placeholder")
+	// Dry-run must render the command it would have run, not silently do nothing.
+	assert.Contains(t, got, "create-agent-runtime")
+	assert.Contains(t, got, `"API_TOKEN":"***"`, "the rendered command must mask the value")
+}
+
+// A real deploy has to fail before it can write a placeholder or an incomplete
+// runtime to AWS. Each guard is asserted separately so a reordering that skips
+// one is caught.
+func TestAgentCoreDeploy_FailsClosed(t *testing.T) {
+	const image = "123.dkr.ecr.us-east-1.amazonaws.com/x:1"
+	const role = "arn:aws:iam::123456789012:role/agentcore-exec"
+
 	tests := []struct {
 		name    string
 		body    string
 		args    []string
 		role    string
-		wantErr string
+		wantErr error
 	}{
 		{
 			name:    "unresolved secret",
-			body:    specWithSecret,
-			args:    []string{"--image", "123.dkr.ecr.us-east-1.amazonaws.com/x:1"},
-			role:    "arn:aws:iam::123456789012:role/preview-agentcore-exec",
-			wantErr: "missing secret value(s) API_TOKEN",
+			body:    agentCoreSpecYAML + agentCoreSecretInput,
+			args:    []string{"--image", image},
+			role:    role,
+			wantErr: errAgentCoreMissingSecrets([]string{"API_TOKEN"}),
 		},
 		{
 			name:    "missing image",
 			body:    agentCoreSpecYAML,
-			args:    nil,
-			role:    "arn:aws:iam::123456789012:role/preview-agentcore-exec",
-			wantErr: "needs --image",
+			role:    role,
+			wantErr: errAgentCoreMissingImage(),
 		},
 		{
 			name:    "missing execution role",
 			body:    agentCoreSpecYAML,
-			args:    []string{"--image", "123.dkr.ecr.us-east-1.amazonaws.com/x:1"},
+			args:    []string{"--image", image},
 			role:    "",
-			wantErr: "needs AGENTCORE_EXEC_ROLE_ARN",
+			wantErr: errAgentCoreMissingExecRole(),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(execRoleEnv, tt.role)
 			var out bytes.Buffer
-			c := newAgentCoreDeployCmd(&out)
-			c.SetArgs(append([]string{"-f", writeSpec(t, tt.body)}, tt.args...))
+			c := newDeployTestCmd(&out)
+			c.SetArgs(append([]string{"-f", writeAgentCoreSpec(t, tt.body)}, tt.args...))
+
 			err := c.Execute()
-			if err == nil {
-				t.Fatalf("expected an error containing %q, got nil and output:\n%s", tt.wantErr, out.String())
-			}
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("error = %q, want it to contain %q", err, tt.wantErr)
-			}
+
+			require.Error(t, err)
+			assert.Equal(t, tt.wantErr.Error(), err.Error())
 		})
 	}
+}
+
+// A frontend agent cannot run on AgentCore, and the rejection has to name the
+// agent so the operator knows which spec to change.
+func TestAgentCoreDeploy_RejectsUnsupportedCapability(t *testing.T) {
+	body := `spec: package/v1
+name: hello-astro
+agent:
+  image: hello:latest
+  annotations:
+    runtime: agentcore
+  interfaces:
+    frontend: true
+`
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, body), "--dry-run"})
+
+	err := c.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `cannot deploy "hello-astro" to AgentCore Runtime:`)
 }
