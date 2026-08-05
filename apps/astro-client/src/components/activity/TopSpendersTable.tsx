@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useMemo, useState, type ComponentPropsWithoutRef, type ReactNode, type Ref } from "react";
 import { Link } from "react-router";
-import { Info, Server, TriangleAlert, User } from "lucide-react";
+import { Archive, Info, Server, TriangleAlert, User } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { UserAvatar } from "@/components/UserAvatar";
 import { InlineBadge } from "@/components/InlineBadge";
@@ -537,6 +537,26 @@ function AgentChips({ agents }: { agents: InsightsAgentChip[] }) {
   );
 }
 
+// A deleted agent keeps its row because its past spend still counts toward
+// account totals. Marked with an icon rather than a badge so it costs no
+// horizontal space in an already-wide table, matching NotInstrumentedMarker.
+function DeletedMarker() {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-faint-foreground" aria-label="Deleted" tabIndex={0}>
+            <Archive className="size-3.5" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[240px] [text-wrap:initial]">
+          This agent was deleted. Its past spend is kept so historical totals stay accurate.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function NotInstrumentedMarker() {
   return (
     <TooltipProvider delayDuration={200}>
@@ -695,6 +715,7 @@ function AgentsTopSpenders({
             <IdentityTableCell rank={index + 1}>
               <span className="inline-flex min-w-0 items-center gap-1.5">
                 <AgentRowIdentity identity={row.identity} />
+                {row.identity.is_deleted && <DeletedMarker />}
                 {row.not_instrumented && <NotInstrumentedMarker />}
               </span>
             </IdentityTableCell>

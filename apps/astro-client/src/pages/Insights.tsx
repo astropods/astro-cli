@@ -5,6 +5,7 @@ import { ArrowUpRight, Bot, Check, ChevronDown, Plus, RefreshCw, TriangleAlert }
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { accountSettingsPath } from "@/lib/settings-paths";
 import { useAuth } from "@/lib/auth";
+import { useExperiments } from "@/lib/experiments";
 import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
@@ -116,6 +117,7 @@ export function buildInsightsQueryParams({
   peopleSortDirection = "desc",
   skipRanges = false,
   hideSources = [],
+  days,
 }: {
   query?: string;
   agentsLimit?: number;
@@ -126,6 +128,7 @@ export function buildInsightsQueryParams({
   peopleSortDirection?: TopSpendersSortDirection;
   skipRanges?: boolean;
   hideSources?: string[];
+  days?: number;
 }): InsightsQueryParams {
   const trimmedQuery = query.trim();
   return {
@@ -140,12 +143,18 @@ export function buildInsightsQueryParams({
     people_direction: peopleSortDirection,
     skip_ranges: skipRanges ? "true" : undefined,
     hide_sources: hideSources.length ? [...hideSources].sort().join(",") : undefined,
+    days: days ? String(days) : undefined,
   };
 }
 
-// Identifies a table-only param set. hide_sources is intentionally EXCLUDED: it
-// changes the ranges (chart/stat cards), so toggling a source must trigger a
-// full-ranges refetch, not a skip_ranges (table-only) one. Do not add it here.
+// Identifies a table-only param set: a change to any of these refetches with
+// skip_ranges, leaving the charts on the cached ranges.
+//
+// hide_sources is intentionally EXCLUDED — it changes the ranges (chart/stat
+// cards), so toggling a source must trigger a full-ranges refetch. `days` IS
+// included, and the distinction is the point: one response carries every range,
+// so changing the range never invalidates the charts, only which window the
+// tables cover. Add a param here only if it leaves the ranges untouched.
 function insightsTableParamsSignature(params: InsightsQueryParams): string {
   return [
     params.q ?? "",
@@ -157,6 +166,7 @@ function insightsTableParamsSignature(params: InsightsQueryParams): string {
     params.people_offset ?? "",
     params.people_sort ?? "",
     params.people_direction ?? "",
+    params.days ?? "",
   ].join("\u0000");
 }
 
@@ -450,6 +460,7 @@ interface InsightsBodyProps {
 }
 
 function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, metricsUnavailable }: InsightsBodyProps) {
+  const { experiments } = useExperiments();
   return (
     <>
       {/* Banner deliberately surfaces upstream-metric unavailability instead
@@ -474,12 +485,15 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
         </div>
         {table}
       </div>
-      {/* Insights data is served from a 6-hourly refresh — the server's
-          cache holds last-known-good metrics so a Langfuse outage
-          doesn't blank the page. Keep the note muted; it's a
-          disclaimer, not a status. */}
+      {/* The two read paths go stale in different ways, so the note has to say
+          which one applies or it is simply wrong on one of them: the default
+          path refreshes on a 6-hourly cycle, while the stored-usage path is
+          built from completed days and doesn't include today at all. Keep it
+          muted — it's a disclaimer, not a status. */}
       <p className="mt-6 text-center text-body-sm text-faint-foreground">
-        Updated results may take up to 6 hours to reflect on this page.
+        {experiments.insightsRollups
+          ? "Usage is totalled once a day, so today's activity may not appear yet."
+          : "Updated results may take up to 6 hours to reflect on this page."}
       </p>
     </>
   );
@@ -510,6 +524,7 @@ function InsightsView({
   hiddenSources,
   slackRefreshStatus,
 }: InsightsViewProps) {
+  const { experiments } = useExperiments();
   const [agentsLimit, setAgentsLimit] = useState(DEFAULT_TABLE_LIMIT);
   const [peopleLimit, setPeopleLimit] = useState(DEFAULT_TABLE_LIMIT);
   const [agentSortKey, setAgentSortKey] = useState<AgentSortKey>(DEFAULT_AGENT_SORT);
@@ -548,8 +563,11 @@ function InsightsView({
       peopleSortKey,
       peopleSortDirection,
       hideSources: [...hiddenSources],
+      // Only the rollup path scopes tables by range. Sending it on the default
+      // path would split its cache four ways for a response that ignores it.
+      days: experiments.insightsRollups ? RANGE_DAYS[range] : undefined,
     }),
-    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query, hiddenSources],
+    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query, hiddenSources, experiments.insightsRollups, range],
   );
   const baseInsightsParamsKey = useMemo(() => insightsTableParamsSignature(baseInsightsParams), [baseInsightsParams]);
   const cachedRangeState = rangeCache?.account === account ? rangeCache : null;

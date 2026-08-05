@@ -1571,6 +1571,10 @@ export interface InsightsIdentityRef {
   user_details?: UserDetails;
   tooltip?: string;
   icon?: string; // integration-icon key (e.g. "anthropic") resolved to a themed brand logo
+  // Set when the underlying resource no longer exists — a deleted agent whose
+  // past spend is still reported. The server also clears `href`, so the row is
+  // not a link.
+  is_deleted?: boolean;
 }
 
 export interface InsightsAgentChip {
@@ -1631,6 +1635,10 @@ export interface InsightsQueryParams {
   people_direction?: string;
   skip_ranges?: string;
   hide_sources?: string; // comma-separated source keys (or "agents") to exclude from the fold-in
+  // Scopes the tables to the selected range. Only the v2 path honours it — v1's
+  // people rows come from a cached aggregate with no daily breakdown, so its
+  // tables are account-wide by necessity.
+  days?: string;
 }
 
 export interface InsightsTablePagination {
@@ -3285,9 +3293,20 @@ class ApiClient {
     );
   }
 
-  async getAccountInsights(account: string, params?: InsightsQueryParams): Promise<InsightsResponse> {
+  /**
+   * `version` selects the read path: "v1" is the Langfuse-plus-Redis endpoint,
+   * "v2" is served from the Postgres rollup store. The response shape is
+   * identical by design, so callers need no branching — but the version must be
+   * part of the caller's cache key, or a toggle would serve the other path's
+   * cached response.
+   */
+  async getAccountInsights(
+    account: string,
+    params?: InsightsQueryParams,
+    version: "v1" | "v2" = "v1"
+  ): Promise<InsightsResponse> {
     return this.request<InsightsResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
+      `/api/${version}/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
     );
   }
 

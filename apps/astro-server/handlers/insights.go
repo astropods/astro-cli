@@ -90,6 +90,12 @@ type insightsRequestParams struct {
 	// key's own dev-tool spend is folded in (members see only themselves). Set
 	// from the caller's role, not a query param.
 	RestrictDevtoolToKey string
+	// TableDays scopes the tables to the selected range instead of the whole
+	// window. Zero means account-wide, which is what v1 must use: its People rows
+	// come from a cached aggregate with no daily breakdown, so there is nothing to
+	// slice and scoping only the agents table would leave the two disagreeing.
+	// Only the rollup-backed path sets it, because only it has daily facts.
+	TableDays int
 }
 
 type insightsMemberProfile struct {
@@ -239,7 +245,7 @@ func ComputeInsightsWithParams(
 		return InsightsResponse{}, err
 	}
 
-	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, devtoolRanges, now, params)
+	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, devtoolFoldAll(devtoolRanges), now, params)
 	resp.MetricsUnavailable = summary.MetricsUnavailable || deployments.MetricsUnavailable || users.MetricsUnavailable
 	return resp, nil
 }
@@ -460,7 +466,7 @@ func buildInsightsView(
 	members map[string]insightsMemberProfile,
 	now time.Time,
 ) InsightsResponse {
-	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, nil, now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, devtoolFold{}, now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
 }
 
 func buildInsightsViewWithParams(
@@ -469,7 +475,7 @@ func buildInsightsViewWithParams(
 	deployments AccountDeploymentsSummaryResponse,
 	users AccountUsersSummaryResponse,
 	members map[string]insightsMemberProfile,
-	devtoolRanges map[string]DevtoolRange,
+	fold devtoolFold,
 	now time.Time,
 	params insightsRequestParams,
 ) InsightsResponse {
@@ -478,7 +484,6 @@ func buildInsightsViewWithParams(
 	identityByUser := insightsIdentityLookup(userRows)
 	hidden := params.HideSources
 	agentsHidden := hidden["agents"]
-	tableSources := devtoolRanges[widestInsightsRange().key].Sources
 
 	ranges := map[string]InsightsRange{}
 	if !params.SkipRanges {
@@ -496,17 +501,25 @@ func buildInsightsViewWithParams(
 				PeopleSpendChart: buildInsightsPeopleSpendChart(summary, period),
 				SeriesLabels:     buildInsightsSeriesLabels(sliced),
 			}
-			ranges[spec.key] = foldDevtoolRange(r, devtoolRanges[spec.key].Sources, hidden, agentsHidden)
+			ranges[spec.key] = foldDevtoolRange(r, fold.Ranges[spec.key].Sources, hidden, agentsHidden)
 		}
 	}
 
 	// Tables intentionally use the full account aggregates, not the active chart
 	// range. Dev-tool sources fold in before sort/paginate/percentage so they run
 	// through the one table pipeline; their contribution reflects the widest range.
-	agentRows, agentTotal := buildInsightsAgentRows(accountName, depRows, members, identityByUser)
-	agentRows, agentTotal = foldDevtoolAgentRows(agentRows, agentTotal, tableSources, hidden, agentsHidden)
+	// Tables are account-wide unless the caller scoped them. When scoped, the
+	// agents table slices to the same window the caller used for its people
+	// query, so the two halves of the page agree.
+	tableDeps := depRows
+	if params.TableDays > 0 {
+		_, tableFrom, tableTo := insightsPeriod(now, params.TableDays)
+		tableDeps = sliceInsightsDeployments(depRows, tableFrom, tableTo)
+	}
+	agentRows, agentTotal := buildInsightsAgentRows(accountName, tableDeps, members, identityByUser)
+	agentRows, agentTotal = foldDevtoolAgentRows(agentRows, agentTotal, fold.AgentRows, hidden, agentsHidden)
 	peopleRows, peopleTotal := buildInsightsPeopleRows(accountName, userRows, depRows, members)
-	peopleRows, peopleTotal = foldDevtoolPeopleRows(peopleRows, peopleTotal, tableSources, hidden, agentsHidden, members, params.RestrictDevtoolToKey)
+	peopleRows, peopleTotal = foldDevtoolPeopleRows(peopleRows, peopleTotal, fold.PeopleRows, hidden, agentsHidden, members, params.RestrictDevtoolToKey)
 
 	return InsightsResponse{
 		Ranges: ranges,
@@ -514,7 +527,7 @@ func buildInsightsViewWithParams(
 			Agents: paginateInsightsAgentsTable(agentRows, agentTotal, params.Query, params.Agents),
 			People: paginateInsightsPeopleTable(peopleRows, peopleTotal, params.Query, params.People),
 		},
-		DevtoolSources: devtoolSourceRefs(tableSources),
+		DevtoolSources: devtoolSourceRefs(fold.Present),
 	}
 }
 
@@ -639,17 +652,23 @@ func sumDeploymentWindow(rows []DeploymentSummaryEntry, fromDate, toDate string)
 
 func buildInsightsStatCards(rows []DeploymentSummaryEntry, prior insightTotals) InsightsStatCards {
 	var totals insightTotals
+	var activeAgents int
 	for _, row := range rows {
 		totals.cost += row.CostUSD
 		totals.requests += row.Requests
 		totals.tokens += row.TotalTokens
+		// A dev-tool source contributes spend but is not a deployed agent, so it
+		// must not inflate the agent count.
+		if row.DevtoolSourceKey == "" && !row.IsUnattributed {
+			activeAgents++
+		}
 	}
 	return InsightsStatCards{
 		Totals: AccountSummaryTotals{
 			CostUSD:      math.Round(totals.cost*100) / 100,
 			Requests:     totals.requests,
 			TotalTokens:  totals.tokens,
-			ActiveAgents: len(rows),
+			ActiveAgents: activeAgents,
 		},
 		Change: insightsChange(totals, prior),
 	}
@@ -747,8 +766,14 @@ func buildInsightsSeriesLabels(rows []DeploymentSummaryEntry) map[string]string 
 		if base == "" {
 			base = row.AgentName
 		}
-		if counts[base] > 1 && row.Namespace != "" {
-			labels[row.DeploymentID] = base + " (" + row.Namespace + ")"
+		// Disambiguate duplicates with the deployment id, not the namespace.
+		// Several deployments of one agent share a display name, and the
+		// namespace ("astro-y3nso9vce-0") is an infra detail that reads as noise
+		// in a chart legend — while carrying the id in a mangled form anyway. The
+		// id is shorter and is what identifies the deployment everywhere else on
+		// the page, so a legend entry can be matched to a table row.
+		if counts[base] > 1 {
+			labels[row.DeploymentID] = base + " (" + row.DeploymentID + ")"
 		} else {
 			labels[row.DeploymentID] = base
 		}
@@ -789,18 +814,35 @@ func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryE
 		for _, identity := range usedBy {
 			searchParts = append(searchParts, insightIdentitySearchParts(identity)...)
 		}
+		identity := InsightsIdentityRef{
+			Kind:          "agent",
+			ID:            dep.DeploymentID,
+			Label:         label,
+			Href:          insightDeploymentHref(accountName, dep.DeploymentID),
+			AvatarAccount: accountName,
+			AvatarName:    dep.AgentName,
+		}
+		if ad, ok := devtoolAdapterByKey(dep.DevtoolSourceKey); ok {
+			// Aggregated local dev-tool usage: system-kind, brand icon, no link.
+			identity = devtoolIdentity(ad)
+		}
+		if dep.IsUnattributed {
+			identity = unattributedIdentity()
+		}
+		if dep.IsArchived && dep.DevtoolSourceKey == "" {
+			// No monitor page survives an undeploy, so the row must not link —
+			// the client renders any href starting with "/" as a link, and this
+			// one would be a dead end. Clearing it makes the row plain text, the
+			// same treatment the system-spend row gets.
+			identity.Href = ""
+			identity.IsDeleted = true
+			identity.Tooltip = "This agent was deleted. Its past spend is kept so historical totals stay accurate."
+		}
 		rows = append(rows, InsightsAgentRow{
 			Key:        dep.DeploymentID,
 			SearchText: strings.ToLower(strings.Join(searchParts, " ")),
-			Identity: InsightsIdentityRef{
-				Kind:          "agent",
-				ID:            dep.DeploymentID,
-				Label:         label,
-				Href:          insightDeploymentHref(accountName, dep.DeploymentID),
-				AvatarAccount: accountName,
-				AvatarName:    dep.AgentName,
-			},
-			UsedBy: usedBy,
+			Identity:   identity,
+			UsedBy:     usedBy,
 			Metrics: InsightsAgentMetrics{
 				Requests:       dep.Requests,
 				CostUSD:        dep.CostUSD,
@@ -809,7 +851,7 @@ func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryE
 				TokPerRequest:  dep.TokPerRequest,
 				P95LatencyMs:   dep.P95LatencyMs,
 			},
-			NotInstrumented: dep.Requests == 0,
+			NotInstrumented: dep.Requests == 0 && dep.DevtoolSourceKey == "" && !dep.IsUnattributed,
 		})
 	}
 	return rows, math.Round(totalCost*10000) / 10000
@@ -840,6 +882,7 @@ func buildInsightsPeopleRows(accountName string, users []UserSummaryEntry, deplo
 					system.LastSeen = u.LastSeen
 				}
 				system.AgentsUsed = append(system.AgentsUsed, u.AgentsUsed...)
+				system.DevtoolSourceKeys = append(system.DevtoolSourceKeys, u.DevtoolSourceKeys...)
 			}
 			continue
 		}
@@ -1024,6 +1067,15 @@ func insightPersonRow(
 ) InsightsPersonRow {
 	identity := insightUserIdentity(user.UserIdentity, members)
 	agents := insightAgentChips(user.AgentsUsed, depByID)
+	// Dev-tool chips carry no Href, which is what makes the client tag them
+	// "External" rather than linking them.
+	for _, key := range user.DevtoolSourceKeys {
+		if ad, ok := devtoolAdapterByKey(key); ok {
+			agents = append(agents, InsightsAgentChip{
+				Key: "devtool:" + ad.Key, Label: ad.Label, Icon: ad.Icon,
+			})
+		}
+	}
 	searchParts := insightIdentitySearchParts(identity)
 	for _, agent := range agents {
 		searchParts = append(searchParts, agent.Label, agent.AvatarName)
@@ -1174,8 +1226,17 @@ func insightAgentChips(agents []UserAgentRef, depByID map[string]DeploymentSumma
 				label = dep.AgentName
 			}
 		}
+		// Absent from the deployments list, or present but archived — both mean
+		// the deployment is gone. The archived case only arises now that
+		// archived agents are carried in the list so their spend still counts;
+		// keying deletion off absence alone would render those chips as live
+		// while the agents table shows the same agent with an archive marker.
+		deleted := !ok || dep.IsArchived
 		href := insightDeploymentHref(agent.Account, agent.DeploymentID)
-		if !ok {
+		if deleted {
+			// The monitor page dies with the deployment, so point at the agent
+			// instead. Href is never cleared: the client reads an empty href on
+			// a chip as "external" and would mislabel it.
 			href = "/" + agent.Account + "/" + agent.Name
 		}
 		out = append(out, InsightsAgentChip{
@@ -1184,10 +1245,25 @@ func insightAgentChips(agents []UserAgentRef, depByID map[string]DeploymentSumma
 			Href:          href,
 			AvatarAccount: agent.Account,
 			AvatarName:    agent.Name,
-			IsDeleted:     !ok,
+			IsDeleted:     deleted,
 		})
 	}
 	return out
+}
+
+// unattributedAgentKey is the row key for agent usage with no agent attached.
+// Mirrors __system_spend__ on the People side: a stable sentinel, not an id.
+const unattributedAgentKey = "__unattributed__"
+
+// unattributedIdentity renders agent usage that never reported which agent it
+// came from. Not clickable, because there is no agent to open.
+func unattributedIdentity() InsightsIdentityRef {
+	return InsightsIdentityRef{
+		Kind:    "system",
+		ID:      unattributedAgentKey,
+		Label:   "Unattributed usage",
+		Tooltip: "Usage that didn't record which agent it came from, so it can't be shown against one. It still counts toward your totals.",
+	}
 }
 
 func insightDeploymentHref(accountName, deploymentID string) string {
@@ -1228,4 +1304,24 @@ func insightPeriodDates(period AccountSummaryPeriod) (string, string) {
 		to = to[:10]
 	}
 	return from, to
+}
+
+// parseInsightsTableDays reads the range the tables should cover. Whitelisted
+// against the ranges the page offers, so an arbitrary value can't widen the
+// window; absent or unrecognized means account-wide, matching v1.
+func parseInsightsTableDays(c *gin.Context) int {
+	raw := strings.TrimSpace(c.Query("days"))
+	if raw == "" {
+		return 0
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	for _, spec := range insightsRangeSpecs {
+		if spec.days == days {
+			return days
+		}
+	}
+	return 0
 }

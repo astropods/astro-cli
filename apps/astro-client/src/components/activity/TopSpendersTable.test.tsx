@@ -166,6 +166,43 @@ describe("TopSpendersTable agents mode", () => {
     expect(await screen.findAllByText(/Instrumentation not available/)).not.toHaveLength(0);
   });
 
+  // A deleted agent's past spend is still reported, so its row stays in the
+  // table. Without a marker it is indistinguishable from a live agent, and the
+  // server clears href so there is no link to hint at it either.
+  it("marks deleted agent rows and does not link them", async () => {
+    renderWithProviders(
+      <TopSpendersTable
+        mode="agents"
+        loading={false}
+        rows={[
+          agentRow({
+            key: "dep-gone",
+            label: "Retired Agent",
+            identity: {
+              kind: "agent",
+              id: "dep-gone",
+              label: "Retired Agent",
+              is_deleted: true,
+              avatar_account: "acme",
+            },
+          }),
+          agentRow({ key: "dep-live", label: "Live Agent" }),
+        ]}
+      />,
+    );
+
+    // Exactly one marker: the live row must not pick it up.
+    const markers = screen.getAllByLabelText("Deleted");
+    expect(markers).toHaveLength(1);
+
+    fireEvent.focus(markers[0]);
+    expect(await screen.findAllByText(/past spend is kept/)).not.toHaveLength(0);
+
+    // Deleted rows render as plain text; the live one keeps its monitor link.
+    expect(screen.getByText("Retired Agent").closest("a")).toBeNull();
+    expect(screen.getByText("Live Agent").closest("a")).not.toBeNull();
+  });
+
   it("renders used-by overflow behind a +N popover", async () => {
     renderWithProviders(
       <TopSpendersTable

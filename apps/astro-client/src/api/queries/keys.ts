@@ -86,10 +86,19 @@ export const observabilityKeys = {
     ['observability', 'deployment-summaries', account] as const,
   visibleDeploymentSummaries: (deploymentIDs: string[]) =>
     ['observability', 'deployment-summaries', 'visible', deploymentIDs] as const,
-  insights: (account: string, params?: Record<string, string | undefined>) =>
-    params
-      ? ['observability', 'insights', account, params] as const
-      : ['observability', 'insights', account] as const,
+  // `version` is appended only for v2, so v1 keys stay byte-identical to what
+  // the SSR loader primes. Without the version in the key, flipping the
+  // insightsRollups experiment would re-render the other path's cached response.
+  insights: (
+    account: string,
+    params?: Record<string, string | undefined>,
+    version?: 'v1' | 'v2',
+  ) => {
+    const base = params
+      ? (['observability', 'insights', account, params] as const)
+      : (['observability', 'insights', account] as const);
+    return version === 'v2' ? ([...base, 'v2'] as const) : base;
+  },
 };
 
 export const usageKeys = {

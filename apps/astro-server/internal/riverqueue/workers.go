@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
+	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -124,9 +125,10 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // River client exists (the Queue wraps the client). New() sets .queue on each
 // non-nil field once the client is built.
 type wiredWorkers struct {
-	purge         *AccountPurgeWorker
-	insights      *InsightsRefreshWorker
-	migrate       *MigrateDeploymentClusterWorker
+	purge          *AccountPurgeWorker
+	insights       *InsightsRefreshWorker
+	insightsRollup *InsightsRollupWorker
+	migrate        *MigrateDeploymentClusterWorker
 	dunning       *DunningSweepWorker
 	billingResume *BillingResumeWorker
 	metronomeHook *MetronomeWebhookWorker
@@ -397,6 +399,23 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "InsightsRefreshAccountWorker")
 
+	// Rollup pipeline — builds the durable daily fact table alongside the v1
+	// cache. Runs whether or not the v2 read path is enabled, so the flag can be
+	// flipped against already-populated history rather than a cold table.
+	insightsRollupDiscovery := &InsightsRollupWorker{
+		langfuseStore: langfuse.NewStore(cfg.DB),
+		log:           log,
+	}
+	addWorkerWithCatalogCheck(log, workers, insightsRollupDiscovery)
+	log.Info("river: registered worker", "worker", "InsightsRollupWorker", "period", insightsrollup.RollupInterval.String())
+
+	addWorkerWithCatalogCheck(log, workers, &InsightsRollupAccountWorker{
+		producer: cfg.InsightsRollupProducer,
+		rollups:  insightsrollup.NewStore(cfg.DB),
+		log:      log,
+	})
+	log.Info("river: registered worker", "worker", "InsightsRollupAccountWorker")
+
 	addWorkerWithCatalogCheck(log, workers, &AvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
 		db:          cfg.DB,
@@ -494,7 +513,8 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		billingResume: billingResumeWorker,
 		metronomeHook: metronomeHook,
 		stripeHook:    stripeHook,
-		ghBuild:       ghBuildWorker,
-		observation:   observationSweep,
+		ghBuild:        ghBuildWorker,
+		observation:    observationSweep,
+		insightsRollup: insightsRollupDiscovery,
 	}
 }

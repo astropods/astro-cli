@@ -69,6 +69,10 @@ type Config struct {
 	// dragging the handlers package into the riverqueue import graph
 	// (handlers→riverqueue already exists for the GitHub-build worker).
 	InsightsSummaryComputer InsightsSummaryComputer
+	// InsightsRollupProducer is injected by main so the roll-up workers can
+	// build the durable fact table using the same Langfuse helpers the handlers
+	// own. nil → the roll-up workers no-op.
+	InsightsRollupProducer InsightsRollupProducer
 	// ReconcileDeployment, when set, is called with a namespace right after the
 	// DeployWorker marks a deployment "deploying", so the controller reconciles
 	// it immediately instead of waiting for the next resync. Optional.
@@ -145,6 +149,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	// This is safe because workers don't run until Start() is called.
 	if wired.insights != nil {
 		wired.insights.queue = q
+	}
+	if wired.insightsRollup != nil {
+		wired.insightsRollup.queue = q
 	}
 	if wired.purge != nil {
 		purgeWorker := wired.purge

@@ -250,3 +250,37 @@ func devtoolSourceRefs(sources map[string]DevtoolSource) []DevtoolSourceRef {
 	}
 	return refs
 }
+
+// devtoolFold selects which surfaces the dev-tool fold applies to.
+//
+// v1 folds everywhere, because dev-tool spend arrives from a separate pipeline
+// (VictoriaMetrics) and is absent from the Langfuse-derived base data.
+//
+// v2 stores dev-tool spend in the fact table, so the ranges and the People rows
+// already include it — folding those again would double-count. Only the
+// synthetic agents row is missing there, because dev-tool facts carry no
+// deployment id and so never become an agent row. Splitting the inputs makes
+// that difference explicit instead of leaving it to a shared variable.
+type devtoolFold struct {
+	// Ranges folds stat cards and chart series, keyed by range.
+	Ranges map[string]DevtoolRange
+	// AgentRows supplies the synthetic per-source row in the agents table.
+	AgentRows map[string]DevtoolSource
+	// PeopleRows rolls per-developer spend into person rows.
+	PeopleRows map[string]DevtoolSource
+	// Present drives the Sources filter and lists every source with usage,
+	// regardless of what is currently folded or hidden.
+	Present map[string]DevtoolSource
+}
+
+// devtoolFoldAll folds every surface from one set of per-range sources — v1's
+// behavior, where nothing in the base data includes dev-tool spend.
+func devtoolFoldAll(ranges map[string]DevtoolRange) devtoolFold {
+	sources := ranges[widestInsightsRange().key].Sources
+	return devtoolFold{
+		Ranges:     ranges,
+		AgentRows:  sources,
+		PeopleRows: sources,
+		Present:    sources,
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
+	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -190,6 +191,21 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			return InsightsRefreshArgs{}, &river.InsertOpts{
 				UniqueOpts: river.UniqueOpts{
 					ByPeriod: insightscache.RefreshInterval,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
+	// Roll up completed days into the durable fact table. RunOnStart so a fresh
+	// deployment begins backfilling immediately rather than a day later; the
+	// watermark makes a restart cheap, since already-rolled days are skipped.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(insightsrollup.RollupInterval),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return InsightsRollupArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: insightsrollup.RollupInterval,
 				},
 			}
 		},

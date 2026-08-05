@@ -256,17 +256,34 @@ func computeDevtoolByUser(ctx context.Context, log *logger.Logger, pc *promquery
 }
 
 // devtoolAgentRow is the synthetic agents-table row for one dev-tool source.
+// devtoolIdentity is the row identity for a dev-tool source: system-kind, brand
+// icon, and not clickable, because it aggregates local usage across developers
+// rather than pointing at a deployed agent.
+func devtoolIdentity(ad devtoolAdapter) InsightsIdentityRef {
+	return InsightsIdentityRef{
+		Kind:    "system",
+		Label:   ad.Label,
+		Icon:    ad.Icon,
+		Tooltip: "Aggregated local dev-tool usage (" + ad.Label + ") across developers, not a deployed agent.",
+	}
+}
+
+// devtoolAdapterByKey resolves a registered source key.
+func devtoolAdapterByKey(key string) (devtoolAdapter, bool) {
+	for _, ad := range devtoolAdapters {
+		if ad.Key == key {
+			return ad, true
+		}
+	}
+	return devtoolAdapter{}, false
+}
+
 func devtoolAgentRow(ad devtoolAdapter, totals DevtoolTotals) InsightsAgentRow {
 	return InsightsAgentRow{
 		Key:        ad.Key,
 		SearchText: strings.ToLower(ad.Label),
-		Identity: InsightsIdentityRef{
-			Kind:    "system",
-			Label:   ad.Label,
-			Icon:    ad.Icon,
-			Tooltip: "Aggregated local dev-tool usage (" + ad.Label + ") across developers, not a deployed agent.",
-		},
-		UsedBy: []InsightsIdentityRef{},
+		Identity:   devtoolIdentity(ad),
+		UsedBy:     []InsightsIdentityRef{},
 		Metrics: InsightsAgentMetrics{
 			// No request-count metric is emitted, so request-derived fields stay 0;
 			// the client rescales cost_pct against the combined total.

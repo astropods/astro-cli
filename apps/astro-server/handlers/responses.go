@@ -455,6 +455,11 @@ type UserSummaryEntry struct {
 	Tokens     int            `json:"tokens"`
 	LastSeen   string         `json:"last_seen,omitempty"` // RFC3339, omitted when no activity bucket
 	AgentsUsed []UserAgentRef `json:"agents_used"`
+	// DevtoolSourceKeys lists the dev-tool sources this person used. Dev-tool
+	// usage has no deployment, so it can't be expressed as a UserAgentRef and
+	// would otherwise leave the person's chips empty. Internal: the chips
+	// themselves are what reach the wire.
+	DevtoolSourceKeys []string `json:"-"`
 }
 
 // AccountUsersSummaryResponse is returned by the users-summary endpoint.
@@ -495,6 +500,18 @@ type DeploymentDailyTokens struct {
 // (legacy per-deployment endpoint), but are 0 when the batched traces-view
 // path supplies tokens (combined-only).
 type DeploymentSummaryEntry struct {
+	// IsUnattributed marks the synthetic entry holding agent usage that didn't
+	// report which agent it came from. Like DevtoolSourceKey it has no real
+	// deployment behind it, so it renders as a source rather than as an agent.
+	// Internal: never serialized.
+	IsUnattributed bool `json:"-"`
+	// DevtoolSourceKey marks a synthetic entry standing for a dev-tool source
+	// (Claude Code, …) rather than a real deployment. Dev-tool spend carries no
+	// deployment id, so routing it through the deployment entries is what lets
+	// the stat cards, chart and agents table pick it up from one lineage instead
+	// of each needing a separate fold. Internal: never serialized.
+	DevtoolSourceKey string `json:"-"`
+
 	// Deployment identity — DeploymentID is the canonical row key and the
 	// target of the Insights row's deep-link to the Monitor tab.
 	DeploymentID string `json:"deployment_id"`
@@ -633,6 +650,12 @@ type InsightsIdentityRef struct {
 	UserDetails   *UserDetails `json:"user_details,omitempty"`
 	Tooltip       string       `json:"tooltip,omitempty"`
 	Icon          string       `json:"icon,omitempty"` // integration-icon key (dev-tool sources) → themed logo
+	// IsDeleted marks a row whose underlying resource no longer exists — an
+	// archived deployment whose spend is still reported so historical totals
+	// stay accurate. Mirrors the flag on InsightsAgentChip. The client swaps the
+	// kind badge to "Deleted"; Href is also cleared, since there is no page left
+	// to link to.
+	IsDeleted bool `json:"is_deleted,omitempty"`
 }
 
 type InsightsAgentChip struct {

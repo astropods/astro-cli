@@ -1137,3 +1137,111 @@ CREATE TABLE public.slack_observed_users (
     last_seen_at         timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT slack_observed_users_pkey PRIMARY KEY (team_id, slack_user_id)
 );
+
+-- insights_usage_daily is the durable daily-grain fact table behind the
+-- account Insights page. It replaces re-aggregating 90 days of Langfuse data
+-- from scratch every 6h and caching the rendered page in Redis: a day is
+-- rolled up once and never recomputed, so serving is a SQL aggregate and
+-- freshness stops being a function of recompute cost. Design doc:
+-- docs/01-spec/insights-rollup-spec.md.
+--
+-- `grain` discriminates two descriptions of the SAME spend, so summing across
+-- grains double-counts:
+--   'usage' — (deployment_id, actor_kind, actor_key). The measure grain; every
+--             surface on the page is a GROUP BY over it. Sourced from one
+--             Langfuse traces-view query grouped by [tags, userId], which is
+--             safe to sum because `tags` is not an explodeArray dimension and
+--             so groups by the whole tag array rather than fanning out per tag.
+--   'model'  — (model). Exists only for the Models view. Necessarily read from
+--             the observations view, whose cost does not reconcile with the
+--             traces view, which is why it is never mixed with 'usage'.
+-- Every query against this table must filter on `grain`; the store's query
+-- builders take it as a required argument so there is no default to forget.
+--
+-- Sentinels are '' rather than NULL because these are primary-key columns, and
+-- some of the absences are meaningful: deployment_id = '' is a trace with no
+-- deployment tag (or a dev-tool source, which has no deployment), and
+-- actor_kind = 'system' with an empty actor_key is a trace with no user —
+-- exactly the pinned system row the page renders today.
+--
+-- No FK on deployment_id, deliberately: usage history must outlive the
+-- deployment it describes, so deleted agents keep their spend. The read path
+-- LEFT JOINs deployments and treats a missing row as deleted.
+CREATE TABLE public.insights_usage_daily (
+    account_id      uuid          NOT NULL,
+    -- grain precedes day in the PK so the index prefix matches the serving
+    -- predicate: two equality columns, then a range scan on day.
+    grain           varchar(16)   NOT NULL,
+    day             date          NOT NULL,
+    source          varchar(64)   NOT NULL,           -- 'agents' | 'claude-code' | …
+    -- Wider than deployments.id (varchar(11)) on purpose: this value is parsed
+    -- out of an upstream tag string, and a malformed tag must not abort the
+    -- whole day's transaction with a value-too-long error.
+    deployment_id   varchar(64)   NOT NULL DEFAULT '',
+    actor_kind      varchar(16)   NOT NULL DEFAULT '',
+    -- Full stable identity key, not a raw user id: 'member:<user_id>',
+    -- 'slack:<team_id>:<user_id>'. Mirrors insightIdentityRowKey, which is what
+    -- lets dev-tool spend merge into the same member's row as agent spend. The
+    -- Slack team is part of the key because one Slack user id in two workspaces
+    -- is two different people.
+    actor_key       varchar(256)  NOT NULL DEFAULT '',
+    model           varchar(128)  NOT NULL DEFAULT '',
+
+    -- requests is permanently 0 for dev-tool sources: no such metric is
+    -- emitted. That is real data, not a pending value, so per-request derived
+    -- columns must guard the denominator.
+    requests        bigint        NOT NULL DEFAULT 0,
+    input_tokens    bigint        NOT NULL DEFAULT 0,
+    output_tokens   bigint        NOT NULL DEFAULT 0,
+    total_tokens    bigint        NOT NULL DEFAULT 0,
+    -- numeric, not float: summing millions of float rows accumulates drift and
+    -- these are money-shaped values.
+    cost_usd        numeric(18,6) NOT NULL DEFAULT 0,
+    -- Forward-declared for the future ingest-side producer and left empty by
+    -- the ETL. Langfuse does expose a `histogram` aggregation, but it compiles
+    -- to ClickHouse's adaptive histogram(bins)(x), whose bin boundaries are
+    -- derived from each query's own data — so stored bins cannot be merged
+    -- across days, which is the same defect as storing a scalar p95. Until an
+    -- ingest producer can emit fixed boundaries, p95 stays on the existing
+    -- whole-period Langfuse query.
+    latency_buckets bigint[]      NOT NULL DEFAULT '{}',
+    last_seen_at    timestamptz,
+
+    computed_at     timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT insights_usage_daily_pkey
+        PRIMARY KEY (account_id, grain, day, source, deployment_id, actor_kind, actor_key, model),
+    CONSTRAINT insights_usage_daily_account_id_fkey
+        FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT insights_usage_daily_grain_check
+        CHECK (grain IN ('usage', 'model')),
+    CONSTRAINT insights_usage_daily_actor_kind_check
+        CHECK (actor_kind IN ('', 'member', 'slack', 'system', 'unidentified')),
+    -- Enforce which dimensions each grain may populate, so a producer bug fails
+    -- at insert rather than silently double-counting at read time.
+    CONSTRAINT insights_usage_daily_shape_check CHECK (
+        (grain = 'usage' AND model = '')
+        OR (grain = 'model' AND model <> '' AND deployment_id = ''
+            AND actor_kind = '' AND actor_key = '')
+    )
+);
+
+-- insights_rollup_state is the per-(account, source) watermark driving the
+-- incremental roll-up. rolled_up_through is the last day considered complete;
+-- each tick re-rolls from there minus a small trailing window, because traces
+-- arrive late (agents buffer, collectors retry, laptops go offline).
+--
+-- Scoped to (account_id, source) and not grain: one producer run emits every
+-- grain for its source, so a per-grain watermark could only ever disagree with
+-- itself. A stalled watermark is a first-class visible state — it surfaces to
+-- the page as `as_of` rather than silently serving a stale cache entry.
+CREATE TABLE public.insights_rollup_state (
+    account_id         uuid        NOT NULL,
+    source             varchar(64) NOT NULL,
+    rolled_up_through  date,
+    last_run_at        timestamptz,
+    last_error         text        NOT NULL DEFAULT '',
+    consecutive_errors int         NOT NULL DEFAULT 0,
+    CONSTRAINT insights_rollup_state_pkey PRIMARY KEY (account_id, source),
+    CONSTRAINT insights_rollup_state_account_id_fkey
+        FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);

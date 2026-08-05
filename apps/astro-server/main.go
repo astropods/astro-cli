@@ -53,6 +53,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/ingesttoken"
+	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -760,8 +761,18 @@ func runWorker(
 		GitHubStore:             ghStore,
 		ImagePreflighter:        imagePreflighter,
 		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore, workerSlackStore),
-		ReconcileDeployment:     reconcileDeployment,
-		KMSClient:               workerKMSClient,
+		InsightsRollupProducer: &handlers.InsightsRollupProducer{
+			Log:           log,
+			Cfg:           cfg,
+			AccountStore:  accountStore,
+			LangfuseStore: workerLangfuseStore,
+			SlackStore:    workerSlackStore,
+			MemberEmails:  memberemails.NewStore(db),
+			PromClient:    promClient,
+			Rollups:       insightsrollup.NewStore(db),
+		},
+		ReconcileDeployment: reconcileDeployment,
+		KMSClient:           workerKMSClient,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -2479,6 +2490,24 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, queue))
 			router.POST("/webhooks/stripe", handlers.StripeWebhook(log, cfg.StripeWebhookSecret, queue))
 		}
+	}
+
+	// API v2 — the rollup-backed Insights read path. Registered alongside v1
+	// rather than replacing it, so both can be called for the same account and
+	// params and their responses diffed by hand. The client is repointed here
+	// once that comparison looks right; rollback is repointing it back.
+	v2 := router.Group("/api/v2")
+	{
+		protectedV2 := v2.Group("")
+		protectedV2.Use(authMw.RequireAuth())
+
+		api.GET(protectedV2, "/accounts/:account/insights", "Get account Insights page model (rollup-backed)",
+			handlers.GetAccountInsightsV2(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db)),
+			oapispec.Tags("Observability"),
+			oapispec.BearerAuth(),
+			oapispec.PathParam("account", "Account name"),
+			oapispec.Response(200, &handlers.InsightsResponse{}),
+		)
 	}
 
 }
