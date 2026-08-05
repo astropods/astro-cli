@@ -1,28 +1,23 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { UserResourceListParams } from "@/lib/user-resource-list-params";
 
-const DEFAULT_DEBOUNCE_MS = 300;
-
-/** Shared debounced search state for server-paginated user resource lists. */
-export function useUserResourceSearch(debounceMs = DEFAULT_DEBOUNCE_MS) {
+/**
+ * Settled search term for server-paginated user resource lists.
+ *
+ * The in-flight text belongs to the search box itself (see
+ * DebouncedFilterInput), which reports the term only once the user stops
+ * typing. Pages therefore re-render when the term settles rather than on every
+ * keystroke, which keeps their result grids off the typing path.
+ */
+export function useUserResourceSearch() {
   const [search, setSearch] = useState("");
-  const [params, setParams] = useState<UserResourceListParams>({});
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const q = search.trim();
-      setParams((previous) => {
-        if (previous.q === (q || undefined)) return previous;
-        return q ? { q } : {};
-      });
-    }, debounceMs);
-    return () => window.clearTimeout(timer);
-  }, [debounceMs, search]);
+  const q = search.trim();
+  const params: UserResourceListParams = q ? { q } : {};
 
   return {
     search,
     setSearch,
     params,
-    hasActiveSearch: !!params.q,
+    hasActiveSearch: !!q,
   };
 }

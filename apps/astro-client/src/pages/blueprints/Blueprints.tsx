@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { USER_BLUEPRINTS_PAGE_SIZE, useUserBlueprints } from "@/api/queries/blueprints";
@@ -7,7 +7,7 @@ import { AccountFilter } from "@/components/AccountFilter";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
-import { FilterInput } from "@/components/FilterInput";
+import { DebouncedFilterInput } from "@/components/DebouncedFilterInput";
 import { IndeterminateProgressBar } from "@/components/IndeterminateProgressBar";
 import { ListPagination } from "@/components/ListPagination";
 import { ListResultsTransition } from "@/components/ListResultsTransition";
@@ -72,17 +72,18 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const blueprints = pagination.page?.blueprints ?? [];
   const ownerAccounts = useMemo(() => new Set(accounts.map((account) => account.name)), [accounts]);
   const hasAnyFilter = hasActiveFilters || hasExplicitAccountFilter;
-  const hasTypedSearch = search.trim().length > 0;
   const loadingFirstPage = query.isPending && blueprints.length === 0;
   const settled = isAuthenticated && !query.isPending && !query.isFetching;
-  const showToolbar = loadingFirstPage || blueprints.length > 0 || hasAnyFilter || hasTypedSearch;
+  const showToolbar = loadingFirstPage || blueprints.length > 0 || hasAnyFilter;
   const showFilteredEmpty = settled && blueprints.length === 0 && hasAnyFilter;
   const showRegistryEmpty = settled && blueprints.length === 0 && !hasAnyFilter && !query.isError;
   const listError = query.isError && blueprints.length === 0;
 
+  const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = useCallback(() => {
     setSearch("");
     resetAccountFilters();
+    setFilterResetKey((key) => key + 1);
   }, [resetAccountFilters, setSearch]);
 
   return (
@@ -103,10 +104,11 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
 
       {showToolbar && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <FilterInput
+          <DebouncedFilterInput
             placeholder="Search blueprints…"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            resetKey={filterResetKey}
+            onDebouncedChange={setSearch}
             containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
           />
           <AccountFilter value={accountFilters} onChange={setAccountFilters} />

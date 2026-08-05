@@ -6,7 +6,7 @@ import { USER_KNOWLEDGE_PAGE_SIZE, useUserKnowledgeStores } from "@/api/queries/
 import { knowledgeKeys } from "@/api/queries/keys";
 import { AccountFilter } from "@/components/AccountFilter";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
-import { FilterInput } from "@/components/FilterInput";
+import { DebouncedFilterInput } from "@/components/DebouncedFilterInput";
 import { ListPagination } from "@/components/ListPagination";
 import { ListResultsTransition } from "@/components/ListResultsTransition";
 import { DeleteKnowledgeStoreDialog } from "@/components/knowledge/DeleteKnowledgeStoreDialog";
@@ -97,8 +97,7 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
     [accounts],
   );
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
-  const hasTypedSearch = search.trim().length > 0;
-  const hasAnyFilter = hasExplicitAccountFilter || hasActiveSearch || hasTypedSearch;
+  const hasAnyFilter = hasExplicitAccountFilter || hasActiveSearch;
   const showEmptyState = !query.isPending && !hasAnyFilter && stores.length === 0 && !query.isError;
   const showFilteredEmpty = !query.isPending && hasAnyFilter && stores.length === 0 && !query.isError;
   const showTotalLoadError = query.isError && stores.length === 0;
@@ -106,9 +105,11 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
     stores.length > 0 || hasAnyFilter || query.isPending
   );
 
+  const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = () => {
     setSearch("");
     resetAccountFilters();
+    setFilterResetKey((key) => key + 1);
   };
 
   return (
@@ -133,10 +134,11 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
 
       {showToolbar && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <FilterInput
+          <DebouncedFilterInput
             placeholder="Search knowledge stores…"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            resetKey={filterResetKey}
+            onDebouncedChange={setSearch}
             containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
           />
           <AccountFilter value={accountFilters} onChange={setAccountFilters} />

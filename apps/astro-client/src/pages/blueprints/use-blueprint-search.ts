@@ -4,9 +4,10 @@ import {
 } from '@/lib/blueprint-list-params';
 import { useUserResourceSearch } from '@/hooks/use-user-resource-search';
 
-/** Debounced search input for the /blueprints page. */
-export function useBlueprintSearch(debounceMs = 300) {
-  const { search, setSearch, params: searchParams } = useUserResourceSearch(debounceMs);
+/** Settled search term for the /blueprints page. Typing is debounced by the
+ *  search box itself (see DebouncedFilterInput). */
+export function useBlueprintSearch() {
+  const { search, setSearch, params: searchParams } = useUserResourceSearch();
   const params: BlueprintListParams = searchParams;
   const hasActiveFilters = hasBlueprintListFilters(params);
 

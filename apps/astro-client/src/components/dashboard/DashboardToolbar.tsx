@@ -1,5 +1,5 @@
 import { AccountFilter } from "@/components/AccountFilter";
-import { FilterInput } from "@/components/FilterInput";
+import { DebouncedFilterInput } from "@/components/DebouncedFilterInput";
 import {
   Select,
   SelectContent,
@@ -26,6 +26,7 @@ interface DashboardToolbarProps {
   disabled?: boolean;
   accountFilters: string[];
   onAccountFiltersChange: (accounts: string[]) => void;
+  filterResetKey?: number;
 }
 
 export function DashboardToolbar({
@@ -36,6 +37,7 @@ export function DashboardToolbar({
   disabled,
   accountFilters,
   onAccountFiltersChange,
+  filterResetKey,
 }: DashboardToolbarProps) {
   return (
     <div
@@ -44,10 +46,11 @@ export function DashboardToolbar({
         disabled && "pointer-events-none opacity-40",
       )}
     >
-      <FilterInput
+      <DebouncedFilterInput
         placeholder="Search agents..."
         value={filter}
-        onChange={(e) => onFilterChange(e.target.value)}
+        resetKey={filterResetKey}
+        onDebouncedChange={onFilterChange}
         containerClassName="w-full @[480px]:w-auto @[480px]:flex-1 @[480px]:max-w-lg h-8 bg-card dark:bg-background"
       />
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { ListPagination } from "@/components/ListPagination";
@@ -75,9 +76,11 @@ export function DeployedAgentsSection({
   );
   const hasTextFilter = toolbarProps.filter.trim().length > 0;
   const hasActiveFilters = hasTextFilter || hasExplicitAccountFilter;
+  const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = () => {
     toolbarProps.onFilterChange("");
     onClearAccountFilters();
+    setFilterResetKey((key) => key + 1);
   };
 
   if (isError && deployments.length === 0) {
@@ -106,6 +109,7 @@ export function DeployedAgentsSection({
             {...toolbarProps}
             accountFilters={accountFilters}
             onAccountFiltersChange={onAccountFiltersChange}
+            filterResetKey={filterResetKey}
           />
         </div>
       )}
