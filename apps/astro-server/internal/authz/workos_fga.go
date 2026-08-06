@@ -1,0 +1,211 @@
+package authz
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	workos "github.com/workos/workos-go/v10"
+)
+
+// WorkOSFGA delegates Astro's small FGA contract to the official WorkOS SDK.
+type WorkOSFGA struct {
+	authorization *workos.AuthorizationService
+}
+
+var (
+	// ErrResourceExists means WorkOS already has the resource being registered.
+	ErrResourceExists = errors.New("resource already exists")
+	// ErrResourceNotFound means WorkOS does not have the resource being deleted.
+	ErrResourceNotFound = errors.New("resource not found")
+)
+
+var _ FGA = (*WorkOSFGA)(nil)
+
+// NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
+// Server wiring should construct this once and share it with consumers.
+func NewWorkOSFGA(apiKey string) *WorkOSFGA {
+	return newWorkOSFGA(workos.NewClient(apiKey))
+}
+
+func newWorkOSFGA(client *workos.Client) *WorkOSFGA {
+	return &WorkOSFGA{authorization: client.Authorization()}
+}
+
+func (f *WorkOSFGA) RegisterResource(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
+	if organizationID == "" {
+		return errors.New("organization id is required")
+	}
+	if name == "" {
+		return errors.New("resource name is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return err
+	}
+
+	_, err := f.authorization.CreateResource(ctx, &workos.AuthorizationCreateResourceParams{
+		OrganizationID:   organizationID,
+		ResourceTypeSlug: string(resource.Type),
+		ExternalID:       resource.ExternalID,
+		Name:             name,
+	})
+	if err != nil {
+		return fmt.Errorf("register WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyResourceError(err, http.StatusConflict, ErrResourceExists))
+	}
+	return nil
+}
+
+func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error {
+	if organizationID == "" {
+		return errors.New("organization id is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return err
+	}
+
+	cascade := true
+	if err := f.authorization.DeleteResourceByExternalID(
+		ctx,
+		organizationID,
+		string(resource.Type),
+		resource.ExternalID,
+		&workos.AuthorizationDeleteResourceByExternalIDParams{CascadeDelete: &cascade},
+	); err != nil {
+		return fmt.Errorf("delete WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyResourceError(err, http.StatusNotFound, ErrResourceNotFound))
+	}
+	return nil
+}
+
+func (f *WorkOSFGA) AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error {
+	if err := validateAssignment(subject, role, resource); err != nil {
+		return err
+	}
+
+	switch subject.Type {
+	case AssignmentSubjectMembership:
+		_, err := f.authorization.AssignRole(ctx, subject.ID, &workos.AuthorizationAssignRoleParams{
+			RoleSlug:       string(role),
+			ResourceTarget: workOSResourceTarget(resource),
+		})
+		if err != nil {
+			return fmt.Errorf("assign WorkOS role %q to membership on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+		}
+	case AssignmentSubjectGroup:
+		externalID := resource.ExternalID
+		resourceType := string(resource.Type)
+		_, err := f.authorization.CreateGroupRoleAssignment(ctx, subject.ID, &workos.AuthorizationCreateGroupRoleAssignmentParams{
+			RoleSlug:           string(role),
+			ResourceExternalID: &externalID,
+			ResourceTypeSlug:   &resourceType,
+		})
+		if err != nil {
+			return fmt.Errorf("assign WorkOS role %q to group on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+		}
+	default:
+		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
+	}
+	return nil
+}
+
+func (f *WorkOSFGA) RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error {
+	if err := validateAssignment(subject, role, resource); err != nil {
+		return err
+	}
+
+	switch subject.Type {
+	case AssignmentSubjectMembership:
+		if err := f.authorization.RemoveRole(ctx, subject.ID, &workos.AuthorizationRemoveRoleParams{
+			RoleSlug:       string(role),
+			ResourceTarget: workOSResourceTarget(resource),
+		}); err != nil {
+			return fmt.Errorf("remove WorkOS role %q from membership on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+		}
+	case AssignmentSubjectGroup:
+		externalID := resource.ExternalID
+		resourceType := string(resource.Type)
+		if err := f.authorization.DeleteGroupRoleAssignments(ctx, subject.ID, &workos.AuthorizationDeleteGroupRoleAssignmentsParams{
+			RoleSlug:           string(role),
+			ResourceExternalID: &externalID,
+			ResourceTypeSlug:   &resourceType,
+		}); err != nil {
+			return fmt.Errorf("remove WorkOS role %q from group on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+		}
+	default:
+		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
+	}
+	return nil
+}
+
+func (f *WorkOSFGA) Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error) {
+	if membershipID == "" {
+		return false, errors.New("membership id is required")
+	}
+	if action == "" {
+		return false, errors.New("action is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return false, err
+	}
+
+	result, err := f.authorization.Check(ctx, membershipID, &workos.AuthorizationCheckParams{
+		PermissionSlug: string(action),
+		ResourceTarget: workOSResourceTarget(resource),
+	})
+	if err != nil {
+		return false, fmt.Errorf("check WorkOS permission %q on %s:%s: %w", action, resource.Type, resource.ExternalID, err)
+	}
+	return result.Authorized, nil
+}
+
+func validateResource(resource ResourceRef) error {
+	if resource.Type == "" || resource.ExternalID == "" {
+		return errors.New("resource type and external id are required")
+	}
+	return nil
+}
+
+func validateAssignment(subject AssignmentSubject, role RoleSlug, resource ResourceRef) error {
+	if subject.ID == "" {
+		return errors.New("assignment subject id is required")
+	}
+	if subject.Type != AssignmentSubjectMembership && subject.Type != AssignmentSubjectGroup {
+		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
+	}
+	if role == "" {
+		return errors.New("role is required")
+	}
+	return validateResource(resource)
+}
+
+func workOSResourceTarget(resource ResourceRef) workos.AuthorizationResourceTarget {
+	return workos.AuthorizationResourceTargetByExternalID{
+		ResourceExternalID: resource.ExternalID,
+		ResourceTypeSlug:   string(resource.Type),
+	}
+}
+
+type classifiedResourceError struct {
+	kind  error
+	cause error
+}
+
+func (e *classifiedResourceError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *classifiedResourceError) Unwrap() error {
+	return e.cause
+}
+
+func (e *classifiedResourceError) Is(target error) bool {
+	return target == e.kind
+}
+
+func classifyResourceError(err error, statusCode int, kind error) error {
+	var apiErr *workos.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == statusCode {
+		return &classifiedResourceError{kind: kind, cause: err}
+	}
+	return err
+}
