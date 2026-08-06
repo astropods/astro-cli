@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -179,5 +180,232 @@ func TestRollupSummaryKeepsSystemSpend(t *testing.T) {
 	}
 	if summary.Totals.CostUSD != 0.75 {
 		t.Errorf("total = %v, want 0.75", summary.Totals.CostUSD)
+	}
+}
+
+// The rollup facts hold complete days only, so the reported window must end on
+// the watermark. Anchoring it on today appended a day the facts can never fill.
+func TestInsightsAsOfDayAnchorsOnWatermark(t *testing.T) {
+	now := time.Date(2026, 8, 6, 9, 30, 0, 0, time.UTC)
+	lastComplete := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		state insightsrollup.State
+		want  time.Time
+	}{
+		{
+			name: "healthy watermark",
+			state: insightsrollup.State{
+				RolledUpThrough: lastComplete,
+			},
+			want: lastComplete,
+		},
+		{
+			// A held watermark is the whole point of the design: the page reports
+			// the coverage it has rather than claiming days that never rolled up.
+			name: "stalled watermark reports the older day",
+			state: insightsrollup.State{
+				RolledUpThrough: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+			},
+			want: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "cold account falls back to the last complete day",
+			state: insightsrollup.State{},
+			want:  lastComplete,
+		},
+		{
+			// Defensive: a watermark at today would mean a partial day was written.
+			name: "watermark ahead of the clock is clamped",
+			state: insightsrollup.State{
+				RolledUpThrough: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC),
+			},
+			want: lastComplete,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := insightsAsOfDay(tc.state, now); !got.Equal(tc.want) {
+				t.Errorf("insightsAsOfDay = %s, want %s",
+					got.Format(time.DateOnly), tc.want.Format(time.DateOnly))
+			}
+		})
+	}
+}
+
+// insightsAsOfDay decides the horizon; this pins that ComputeInsightsFromRollups
+// actually reads with it. The regression it guards is the caller, not the
+// arithmetic: the window derivation was correct all along and was simply handed
+// time.Now(), which on this path is always a day the facts cannot cover.
+//
+// The read is cut short deliberately. The window reaches the database as bind
+// parameters $3/$4 on the first aggregate, so matching those args is the whole
+// assertion — letting the rest of the pipeline run would add a dozen unrelated
+// expectations without strengthening it. A WithArgs mismatch surfaces as
+// sqlmock's own error instead of the sentinel, so the errors.Is check below is
+// what proves the dates matched.
+func TestComputeInsightsFromRollupsReadsThroughTheWatermark(t *testing.T) {
+	now := time.Date(2026, 8, 6, 9, 30, 0, 0, time.UTC)
+	errStopAfterWindow := errors.New("stop: window asserted")
+
+	tests := []struct {
+		name      string
+		watermark any
+		wantFrom  string
+		wantTo    string
+	}{
+		{
+			// 90 days ending on the watermark, not on 2026-08-06.
+			name:      "healthy watermark",
+			watermark: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC),
+			wantFrom:  "2026-05-08",
+			wantTo:    "2026-08-05",
+		},
+		{
+			// A held watermark shortens the window rather than padding it with
+			// days the roll-up never wrote.
+			name:      "stalled watermark",
+			watermark: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+			wantFrom:  "2026-05-02",
+			wantTo:    "2026-07-30",
+		},
+		{
+			name:      "no watermark falls back to the last complete day",
+			watermark: nil,
+			wantFrom:  "2026-05-08",
+			wantTo:    "2026-08-05",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer db.Close()
+
+			mock.ExpectQuery("SELECT rolled_up_through").
+				WithArgs("acct_1", insightsrollup.SourceAgents).
+				WillReturnRows(sqlmock.NewRows(
+					[]string{"rolled_up_through", "last_run_at", "last_error", "consecutive_errors"}).
+					AddRow(tc.watermark, nil, "", 0))
+			mock.ExpectQuery("SELECT day, deployment_id").
+				WithArgs("acct_1", string(insightsrollup.GrainUsage), tc.wantFrom, tc.wantTo).
+				WillReturnError(errStopAfterWindow)
+
+			_, err = ComputeInsightsFromRollups(context.Background(), logger.New("error", "json"),
+				nil, nil, nil, insightsrollup.NewStore(db),
+				&account.Account{ID: "acct_1", Name: "acme"}, nil, now,
+				insightsRequestParams{})
+			if !errors.Is(err, errStopAfterWindow) {
+				t.Fatalf("read window did not match %s..%s: %v", tc.wantFrom, tc.wantTo, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("expectations: %v", err)
+			}
+		})
+	}
+}
+
+// expectEmptyRollupRead queues the rest of the read after the watermark, all
+// empty. Ordered rather than by-args, because several of these aggregates share
+// a SELECT prefix and the call order is what tells them apart.
+func expectEmptyRollupRead(mock sqlmock.Sqlmock) {
+	empty := func(cols ...string) *sqlmock.Rows { return sqlmock.NewRows(cols) }
+	dayCols := []string{"day", "key", "cost_usd", "requests", "tokens", "actors"}
+
+	mock.ExpectQuery("SELECT day, deployment_id").WillReturnRows(empty(dayCols...))
+	mock.ExpectQuery("SELECT day, source").WillReturnRows(empty(dayCols...))
+	mock.ExpectQuery("SELECT DISTINCT deployment_id").
+		WillReturnRows(empty("deployment_id", "actor_kind", "actor_key"))
+	mock.ExpectQuery("WITH agg AS").
+		WillReturnRows(empty("actor_kind", "actor_key", "requests", "cost_usd", "tokens", "last_seen_at", "cost_pct"))
+	mock.ExpectQuery("SELECT DISTINCT deployment_id").
+		WillReturnRows(empty("deployment_id", "actor_kind", "actor_key"))
+	mock.ExpectQuery("SELECT DISTINCT actor_key").WillReturnRows(empty("actor_key", "source"))
+	mock.ExpectQuery("SELECT day, actor_key").WillReturnRows(empty(dayCols...))
+	mock.ExpectQuery("SELECT am.account_id, am.user_id").
+		WillReturnRows(empty("account_id", "user_id", "workos_membership_id", "created_at"))
+	// One Totals probe per dev-tool adapter, for the Sources filter.
+	for range devtoolAdapters {
+		mock.ExpectQuery("COALESCE\\(SUM\\(cost_usd\\)").
+			WillReturnRows(sqlmock.NewRows([]string{"cost_usd", "requests", "tokens"}).AddRow(0.0, 0, 0))
+	}
+}
+
+// as_of is the client's cue that "nothing today" means coverage rather than an
+// outage, so when it is reported and when it is withheld are both contract.
+//
+// Withholding it on a cold account is the case worth pinning: the window still
+// has to end somewhere, and it ends on the last complete day — but stamping
+// as_of from that would claim coverage through a day the roll-up has never run.
+func TestComputeInsightsFromRollupsReportsAsOf(t *testing.T) {
+	now := time.Date(2026, 8, 6, 9, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		watermark any
+		wantAsOf  string
+		wantEnd   string
+	}{
+		{
+			name:      "watermark is reported as the coverage day",
+			watermark: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC),
+			wantAsOf:  "2026-08-05",
+			wantEnd:   "2026-08-05T23:59:59.999Z",
+		},
+		{
+			name:      "stalled watermark reports the day it actually reached",
+			watermark: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+			wantAsOf:  "2026-07-30",
+			wantEnd:   "2026-07-30T23:59:59.999Z",
+		},
+		{
+			name:      "cold account claims no coverage",
+			watermark: nil,
+			wantAsOf:  "",
+			wantEnd:   "2026-08-05T23:59:59.999Z",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer db.Close()
+
+			mock.ExpectQuery("SELECT rolled_up_through").
+				WillReturnRows(sqlmock.NewRows(
+					[]string{"rolled_up_through", "last_run_at", "last_error", "consecutive_errors"}).
+					AddRow(tc.watermark, nil, "", 0))
+			expectEmptyRollupRead(mock)
+
+			resp, err := ComputeInsightsFromRollups(context.Background(), logger.New("error", "json"),
+				account.NewAccountStore(db), nil, nil, insightsrollup.NewStore(db),
+				&account.Account{ID: "acct_1", Name: "acme"}, nil, now,
+				normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+			if err != nil {
+				t.Fatalf("ComputeInsightsFromRollups: %v", err)
+			}
+
+			if resp.AsOf != tc.wantAsOf {
+				t.Errorf("as_of = %q, want %q", resp.AsOf, tc.wantAsOf)
+			}
+			// Every range ends on the horizon whether or not as_of is reported —
+			// the two are the same day, and only the claim of coverage differs.
+			for _, key := range []string{"7d", "14d", "30d", "90d"} {
+				if got := resp.Ranges[key].Period.End; got != tc.wantEnd {
+					t.Errorf("%s period end = %q, want %q", key, got, tc.wantEnd)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("expectations: %v", err)
+			}
+		})
 	}
 }

@@ -102,8 +102,23 @@ func ComputeInsightsFromRollups(
 	now time.Time,
 	params insightsRequestParams,
 ) (InsightsResponse, error) {
+	// Every window ends on the watermark, not on today. The facts hold complete
+	// days only (insightsrollup.DaysToRoll), so a window ending today always had
+	// an empty trailing day: the chart drew a bar that could never fill, and the
+	// stat cards compared N-1 days of spend against N prior days. Reporting the
+	// horizon we actually have makes both honest, and as_of tells the client which
+	// day that is.
+	state, serr := rollups.State(ctx, acct.ID, insightsrollup.SourceAgents)
+	if serr != nil {
+		// Non-fatal: without the watermark we still know the facts stop at the last
+		// complete day, which is where the watermark sits on a healthy account.
+		log.Warn("Insights rollup: failed to read watermark, falling back to last complete day",
+			"account_id", acct.ID, "error", serr)
+	}
+	asOf := insightsAsOfDay(state, now)
+
 	widest := widestInsightsRange()
-	_, fromDate, toDate := insightsPeriod(now, widest.days)
+	_, fromDate, toDate := insightsPeriod(asOf, widest.days)
 
 	window := insightsrollup.Window{
 		From: parseInsightsDate(fromDate),
@@ -118,7 +133,7 @@ func ComputeInsightsFromRollups(
 	// slice afterwards.
 	tableWindow := window
 	if params.TableDays > 0 {
-		_, tFrom, tTo := insightsPeriod(now, params.TableDays)
+		_, tFrom, tTo := insightsPeriod(asOf, params.TableDays)
 		tableWindow = insightsrollup.Window{From: parseInsightsDate(tFrom), To: parseInsightsDate(tTo)}
 	}
 
@@ -165,8 +180,28 @@ func ComputeInsightsFromRollups(
 	buildParams.HideSources = nil
 
 	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users,
-		members, devtoolFold{Present: present}, now, buildParams)
+		members, devtoolFold{Present: present}, asOf, buildParams)
+	// Only reported when a watermark exists. On a cold account the window still
+	// ends at the last complete day, but claiming coverage through it would be a
+	// lie — the rollup has never run.
+	if !state.RolledUpThrough.IsZero() {
+		resp.AsOf = asOf.Format(time.DateOnly)
+	}
 	return resp, nil
+}
+
+// insightsAsOfDay resolves the day every reported window should end on: the
+// rollup watermark, or the last complete UTC day when there is none.
+//
+// Clamped to the last complete day because that is the most the facts can hold
+// — a watermark ahead of it would mean a partial day had been written, and the
+// page must not report a window it has only part of.
+func insightsAsOfDay(state insightsrollup.State, now time.Time) time.Time {
+	lastComplete := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
+	if state.RolledUpThrough.IsZero() || state.RolledUpThrough.UTC().After(lastComplete) {
+		return lastComplete
+	}
+	return state.RolledUpThrough.UTC().Truncate(24 * time.Hour)
 }
 
 // rollupDeploymentEntries builds the per-deployment rows the view model expects,

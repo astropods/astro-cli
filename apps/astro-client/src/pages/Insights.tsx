@@ -24,6 +24,7 @@ import { useAccountInsights } from "@/api/queries/observability";
 import { useSlackAccountConnect, useSlackAccountStatus } from "@/api/queries/slack";
 import { type ActivityRange, buildPeriodParams } from "@/components/activity/ranges";
 import { formatDateShort } from "@/lib/format-utils";
+import { dayKeyFromISO } from "@/lib/date-utils";
 import { SettledContentReveal } from "@/components/ui/content-reveal";
 import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
@@ -76,6 +77,44 @@ function stripSlackOAuthParams(params: URLSearchParams) {
   return params;
 }
 
+// The window the server reported, once a response exists. Tagged with the range
+// it belongs to so a range switch falls back to the local estimate for one frame
+// instead of briefly labelling the new range with the old range's dates.
+export interface ResolvedWindow {
+  range: ActivityRange;
+  from: string;
+  to: string;
+}
+
+// The header label prefers the window the server reported and falls back to a
+// locally-inferred one. The range check is the point: the reported window
+// arrives an effect after the range chip flips, and labelling the new range
+// with the old range's dates is worse than briefly showing an estimate.
+export function resolveInsightsDateLabel(
+  resolved: ResolvedWindow | null,
+  range: ActivityRange,
+): string {
+  if (resolved?.range !== range) return buildDateLabel(range);
+  return `${formatDateShort(resolved.from)} – ${formatDateShort(resolved.to)}`;
+}
+
+// The two read paths go stale in different ways, so the note has to say which
+// one applies or it is simply wrong on one of them: the default path refreshes
+// on a 6-hourly cycle, while the stored-usage path is built from completed days
+// and ends at the last of them. On that path the page shows the window it
+// actually covers rather than implying today is included-but-empty, so name the
+// day when the server told us which one it is.
+export function insightsFreshnessNote(rollups: boolean, asOf?: string): string {
+  if (!rollups) return "Updated results may take up to 6 hours to reflect on this page.";
+  if (!asOf) return "Usage is totalled once a day, so today's activity may not appear yet.";
+  return `Usage is totalled once a day. Showing everything through ${formatDateShort(asOf)}.`;
+}
+
+// Fallback only, for the first paint before any response has arrived: a window
+// ending today, which is what the client can infer on its own. The real label
+// comes from the response — see ResolvedWindow — because the reported window
+// ends where the data ends, and on the rollup-backed path that is the last
+// complete day rather than today.
 function buildDateLabel(range: ActivityRange): string {
   const { from, to } = buildPeriodParams(range);
   return `${formatDateShort(from)} – ${formatDateShort(to)}`;
@@ -226,6 +265,8 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
   const hiddenSources = useMemo(() => parseHiddenSources(searchParams.get("hide_sources")), [searchParams]);
   const [devtoolSources, setDevtoolSources] = useState<InsightsDevtoolSource[]>([]);
   const handleDevtoolSources = useCallback((sources: InsightsDevtoolSource[]) => setDevtoolSources(sources), []);
+  const [resolvedWindow, setResolvedWindow] = useState<ResolvedWindow | null>(null);
+  const handleResolvedWindow = useCallback((w: ResolvedWindow | null) => setResolvedWindow(w), []);
   const resolvedTheme = useResolvedTheme();
   const sourceOptions = useMemo(
     () => [
@@ -339,7 +380,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     }, { replace: true });
   }, [setSearchParams]);
 
-  const dateLabel = buildDateLabel(range);
+  const dateLabel = resolveInsightsDateLabel(resolvedWindow, range);
 
   // Header right side packs three controls onto one row: date label (left),
   // range chips (middle), scope switcher (right). The date label tracks the
@@ -432,6 +473,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
         query={q}
         onQueryChange={setQuery}
         onDevtoolSources={handleDevtoolSources}
+        onResolvedWindow={handleResolvedWindow}
         hiddenSources={hiddenSources}
         slackRefreshStatus={slackRefreshStatus}
       />
@@ -457,9 +499,11 @@ interface InsightsBodyProps {
   // True when the upstream metrics backend is unreachable; the page still
   // renders the zero-state KPIs and charts under a banner instead of erroring.
   metricsUnavailable?: boolean;
+  // Last day the data is complete through, when the server reported one.
+  asOf?: string;
 }
 
-function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, metricsUnavailable }: InsightsBodyProps) {
+function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, metricsUnavailable, asOf }: InsightsBodyProps) {
   const { experiments } = useExperiments();
   return (
     <>
@@ -485,15 +529,9 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
         </div>
         {table}
       </div>
-      {/* The two read paths go stale in different ways, so the note has to say
-          which one applies or it is simply wrong on one of them: the default
-          path refreshes on a 6-hourly cycle, while the stored-usage path is
-          built from completed days and doesn't include today at all. Keep it
-          muted — it's a disclaimer, not a status. */}
+      {/* Keep it muted — it's a disclaimer, not a status. */}
       <p className="mt-6 text-center text-body-sm text-faint-foreground">
-        {experiments.insightsRollups
-          ? "Usage is totalled once a day, so today's activity may not appear yet."
-          : "Updated results may take up to 6 hours to reflect on this page."}
+        {insightsFreshnessNote(experiments.insightsRollups, asOf)}
       </p>
     </>
   );
@@ -509,6 +547,7 @@ interface InsightsViewProps {
   query: string;
   onQueryChange: (q: string) => void;
   onDevtoolSources: (sources: InsightsDevtoolSource[]) => void;
+  onResolvedWindow: (w: ResolvedWindow | null) => void;
   hiddenSources: Set<string>;
   slackRefreshStatus: SlackRefreshStatus;
 }
@@ -521,6 +560,7 @@ function InsightsView({
   query,
   onQueryChange,
   onDevtoolSources,
+  onResolvedWindow,
   hiddenSources,
   slackRefreshStatus,
 }: InsightsViewProps) {
@@ -591,6 +631,18 @@ function InsightsView({
     : cachedRangeState?.ranges;
   const rangeData = ranges?.[range];
   const days = rangeData?.days ?? RANGE_DAYS[range];
+
+  // Both charts and the header label anchor to the window the server reported
+  // rather than to the clock. On the rollup-backed path that window ends at the
+  // last complete day, so anchoring on today appended a bucket the facts can
+  // never fill — an empty trailing bar that read as "we lost your data".
+  const windowStart = dayKeyFromISO(rangeData?.period?.start);
+  const windowEnd = dayKeyFromISO(rangeData?.period?.end);
+  useEffect(() => {
+    onResolvedWindow(
+      windowStart && windowEnd ? { range, from: windowStart, to: windowEnd } : null,
+    );
+  }, [onResolvedWindow, range, windowStart, windowEnd]);
   const agentRows = insights?.tables.agents.rows ?? [];
   const peopleRows = insights?.tables.people.rows ?? [];
 
@@ -763,16 +815,24 @@ function InsightsView({
         range={range}
         displaySummary={displaySummary}
         metricsUnavailable={metricsUnavailable}
+        asOf={insights?.as_of}
         chartLeft={
           <CostOverTimeChart
             data={rangeData?.agent_spend_chart ?? []}
             days={days}
+            endDate={windowEnd}
             colorMap={chartColorMap}
             seriesLabels={rangeData?.series_labels}
             variant={days > 60 ? "line" : "bar"}
           />
         }
-        chartRight={<ActiveUsersSpendChart data={rangeData?.people_spend_chart ?? []} days={days} />}
+        chartRight={
+          <ActiveUsersSpendChart
+            data={rangeData?.people_spend_chart ?? []}
+            days={days}
+            endDate={windowEnd}
+          />
+        }
         table={
           isModelView ? (
             <TopSpendersTable mode="models" account={account} days={days} panelHeader={panelHeader} />

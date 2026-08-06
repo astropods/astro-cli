@@ -1000,3 +1000,78 @@ func TestTableDaysScopesTheAgentsTable(t *testing.T) {
 		t.Errorf("7d stat card %v disagrees with table %v", card, table)
 	}
 }
+
+// A window anchored on the wall clock rather than on the caller's data horizon
+// silently shortens itself: on the rollup path today never has facts, so a "7d"
+// window carried six days of spend while priorWindow — which shifts by the
+// window's own span — compared it against seven complete prior days. Every
+// stat-card delta came out biased negative by roughly a day's spend, and the
+// chart drew a trailing bucket that could never fill.
+//
+// The fixture is deliberately flat: $1 on each of fourteen consecutive days, so
+// a like-for-like comparison is exactly 0% and any off-by-one day shows up as a
+// non-zero delta rather than as an arithmetic near-miss.
+func TestInsightsWindowEndsOnAsOfDayNotToday(t *testing.T) {
+	asOf := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
+
+	var (
+		costs    []DeploymentDailyCost
+		requests []DeploymentDailyRequests
+		tokens   []DeploymentDailyTokens
+	)
+	for i := 13; i >= 0; i-- {
+		date := asOf.AddDate(0, 0, -i).Format(time.DateOnly)
+		costs = append(costs, DeploymentDailyCost{Date: date, CostUSD: 1})
+		requests = append(requests, DeploymentDailyRequests{Date: date, Requests: 10})
+		tokens = append(tokens, DeploymentDailyTokens{Date: date, TotalTokens: 100})
+	}
+	deployments := AccountDeploymentsSummaryResponse{
+		Deployments: []DeploymentSummaryEntry{{
+			DeploymentID:     "dep-alpha",
+			AgentName:        "alpha",
+			CostOverTime:     costs,
+			RequestsOverTime: requests,
+			TokensOverTime:   tokens,
+		}},
+	}
+
+	view := buildInsightsView("acme", AccountObservabilitySummaryResponse{},
+		deployments, AccountUsersSummaryResponse{}, nil, asOf)
+
+	range7 := view.Ranges["7d"]
+	if got, want := range7.Period.End, "2026-06-08T23:59:59.999Z"; got != want {
+		t.Errorf("7d period end = %q, want %q", got, want)
+	}
+	if got, want := range7.Period.Start, "2026-06-02T00:00:00Z"; got != want {
+		t.Errorf("7d period start = %q, want %q", got, want)
+	}
+
+	// Seven days of spend, not six: the window no longer gives up a day to a
+	// bucket the caller has no facts for.
+	if got, want := range7.StatCards.Totals.CostUSD, 7.0; got != want {
+		t.Errorf("7d cost = %v, want %v", got, want)
+	}
+
+	// Flat spend across both windows, so a like-for-like comparison is 0%.
+	change := range7.StatCards.Change
+	if change == nil || change.CostPct == nil {
+		t.Fatalf("7d change missing: %+v", change)
+	}
+	if got := *change.CostPct; got != 0 {
+		t.Errorf("7d cost change = %v%%, want 0%% (current window is short a day)", got)
+	}
+
+	// The chart axis must end where the data does — the last bucket carries
+	// spend rather than being the permanently empty "today".
+	chart := range7.AgentSpendChart
+	if got, want := len(chart), 7; got != want {
+		t.Fatalf("7d chart points = %d, want %d", got, want)
+	}
+	last := chart[len(chart)-1]
+	if last.Date != "2026-06-08" {
+		t.Errorf("last chart point = %q, want 2026-06-08", last.Date)
+	}
+	if len(last.Models) == 0 || last.Models[0].CostUSD != 1 {
+		t.Errorf("last chart point cost = %+v, want 1", last.Models)
+	}
+}

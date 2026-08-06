@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildInsightsQueryParams, shouldRevalidate } from "./Insights";
+import {
+  buildInsightsQueryParams,
+  insightsFreshnessNote,
+  resolveInsightsDateLabel,
+  shouldRevalidate,
+} from "./Insights";
 
 // Insights opts most search-param changes out of loader revalidation
 // (range/agent toggles handle the new query key client-side). Only
@@ -55,5 +60,53 @@ describe("buildInsightsQueryParams", () => {
     const params = buildInsightsQueryParams({ query: "  alpha  ", skipRanges: true });
     expect(params.q).toBe("alpha");
     expect(params.skip_ranges).toBe("true");
+  });
+});
+
+// The window the charts and header describe comes from the server, because the
+// rollup-backed path reports windows ending at the last complete day rather
+// than at today. Recomputing it locally drew a trailing bucket the data could
+// never fill.
+describe("resolveInsightsDateLabel", () => {
+  it("labels the window the server reported", () => {
+    expect(
+      resolveInsightsDateLabel({ range: "7d", from: "2026-06-02", to: "2026-06-08" }, "7d"),
+    ).toBe("Jun 2 – Jun 8");
+  });
+
+  // The reported window lands an effect after the chip flips. Showing the old
+  // range's dates under the new chip would be actively wrong; the locally
+  // inferred window is merely a day off on the rollup path.
+  it("falls back to the local estimate when the reported window is for another range", () => {
+    const stale = { range: "7d" as const, from: "2026-06-02", to: "2026-06-08" };
+    expect(resolveInsightsDateLabel(stale, "30d")).not.toBe("Jun 2 – Jun 8");
+  });
+
+  it("falls back before any response has arrived", () => {
+    expect(resolveInsightsDateLabel(null, "7d")).toMatch(/^\w{3} \d+ – \w{3} \d+$/);
+  });
+});
+
+describe("insightsFreshnessNote", () => {
+  it("names the coverage day when the server reported one", () => {
+    expect(insightsFreshnessNote(true, "2026-08-05")).toBe(
+      "Usage is totalled once a day. Showing everything through Aug 5.",
+    );
+  });
+
+  // A cold account has a window but no coverage claim, so the note can't name a
+  // day — it explains the lag instead.
+  it("explains the daily lag when no coverage day was reported", () => {
+    expect(insightsFreshnessNote(true)).toBe(
+      "Usage is totalled once a day, so today's activity may not appear yet.",
+    );
+  });
+
+  // The Langfuse path does include today; its staleness is the refresh cycle,
+  // so the rollup wording would be wrong there even if an as_of leaked through.
+  it("describes the refresh cycle on the Langfuse path", () => {
+    expect(insightsFreshnessNote(false, "2026-08-05")).toBe(
+      "Updated results may take up to 6 hours to reflect on this page.",
+    );
   });
 });

@@ -505,7 +505,9 @@ func buildInsightsViewWithParams(
 	users AccountUsersSummaryResponse,
 	members map[string]insightsMemberProfile,
 	fold devtoolFold,
-	now time.Time,
+	// asOf is the last day every reported window ends on — the caller's data
+	// horizon, not the wall clock. See insightsPeriod.
+	asOf time.Time,
 	params insightsRequestParams,
 ) InsightsResponse {
 	depRows := deployments.Deployments
@@ -518,7 +520,7 @@ func buildInsightsViewWithParams(
 	if !params.SkipRanges {
 		ranges = make(map[string]InsightsRange, len(insightsRangeSpecs))
 		for _, spec := range insightsRangeSpecs {
-			period, fromDate, toDate := insightsPeriod(now, spec.days)
+			period, fromDate, toDate := insightsPeriod(asOf, spec.days)
 			sliced := sliceInsightsDeployments(depRows, fromDate, toDate)
 			priorFrom, priorTo := priorWindow(fromDate, toDate)
 			prior := sumDeploymentWindow(depRows, priorFrom, priorTo)
@@ -542,7 +544,7 @@ func buildInsightsViewWithParams(
 	// query, so the two halves of the page agree.
 	tableDeps := depRows
 	if params.TableDays > 0 {
-		_, tableFrom, tableTo := insightsPeriod(now, params.TableDays)
+		_, tableFrom, tableTo := insightsPeriod(asOf, params.TableDays)
 		tableDeps = sliceInsightsDeployments(depRows, tableFrom, tableTo)
 	}
 	agentRows, agentTotal := buildInsightsAgentRows(accountName, tableDeps, members, identityByUser)
@@ -560,10 +562,20 @@ func buildInsightsViewWithParams(
 	}
 }
 
-func insightsPeriod(now time.Time, days int) (AccountSummaryPeriod, string, string) {
-	now = now.UTC()
-	to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, int(time.Millisecond*999), time.UTC)
-	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(days - 1))
+// insightsPeriod returns the reported window: the trailing `days` UTC days
+// ending on asOf, inclusive.
+//
+// asOf is the last day the window covers, NOT the wall clock. The two differ by
+// design: the rollup path anchors on its watermark (the last day the facts are
+// complete through), because including a day with no facts in it would shorten
+// every window by a day — understating the totals and, since priorWindow shifts
+// by the window's own span, biasing every stat-card delta negative against a
+// prior window made entirely of complete days. The Langfuse path still passes
+// today, which it does have data for.
+func insightsPeriod(asOf time.Time, days int) (AccountSummaryPeriod, string, string) {
+	asOf = asOf.UTC()
+	to := time.Date(asOf.Year(), asOf.Month(), asOf.Day(), 23, 59, 59, int(time.Millisecond*999), time.UTC)
+	from := time.Date(asOf.Year(), asOf.Month(), asOf.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(days - 1))
 	return AccountSummaryPeriod{
 		Start: from.Format(time.RFC3339Nano),
 		End:   to.Format(time.RFC3339Nano),
@@ -571,6 +583,13 @@ func insightsPeriod(now time.Time, days int) (AccountSummaryPeriod, string, stri
 	}, from.Format("2006-01-02"), to.Format("2006-01-02")
 }
 
+// priorWindow returns the window immediately preceding [fromDate, toDate], of
+// the same span, for the stat-card deltas.
+//
+// The comparison is only like-for-like if the current window is itself made of
+// days that carry data — see insightsPeriod. This function deliberately derives
+// the span from its input rather than from the range's nominal length, so it
+// stays correct if a caller ever reports a short window.
 func priorWindow(fromDate, toDate string) (string, string) {
 	from, err1 := time.Parse("2006-01-02", fromDate)
 	to, err2 := time.Parse("2006-01-02", toDate)

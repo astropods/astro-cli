@@ -1653,6 +1653,10 @@ export interface InsightsTablePagination {
 
 export interface InsightsResponse {
   metrics_unavailable?: boolean;
+  /** Last day ("YYYY-MM-DD", UTC) the data is complete through, and the day
+   *  every window in `ranges` ends on. Absent when the server has no watermark
+   *  to report, in which case the windows end today. */
+  as_of?: string;
   ranges: Record<string, {
     days: number;
     period: { start: string; end: string; days: number };

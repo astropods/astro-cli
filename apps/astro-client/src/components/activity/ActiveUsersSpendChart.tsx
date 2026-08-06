@@ -25,6 +25,9 @@ interface ActiveUsersSpendChartProps {
    *  day in the range (zero-filled on inactive days) so the chart grows and
    *  shrinks with the date-range chip the same way the agent-spend chart does. */
   days?: number;
+  /** Last day the axis covers ("YYYY-MM-DD", UTC), from the server's reported
+   *  window. Defaults to today, which is only right when the data does too. */
+  endDate?: string;
 }
 
 
@@ -81,7 +84,7 @@ function CustomTooltip({
   );
 }
 
-export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps) {
+export function ActiveUsersSpendChart({ data, days, endDate }: ActiveUsersSpendChartProps) {
   // Clickable legend: toggle either series off to compare scales on a
   // single axis. One series always stays visible — hiding both leaves an
   // empty chart, which is silly.
@@ -104,7 +107,7 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
 
   const chartData = useMemo(() => {
     const byDate = new Map(data.map((p) => [p.date, p]));
-    const keys = days ? dayKeysForRange(days) : data.map((p) => p.date);
+    const keys = days ? dayKeysForRange(days, endDate) : data.map((p) => p.date);
     return keys.map((key) => {
       const point = byDate.get(key);
       return {
@@ -113,7 +116,7 @@ export function ActiveUsersSpendChart({ data, days }: ActiveUsersSpendChartProps
         cost:  point?.cost  ?? 0,
       };
     });
-  }, [data, days]);
+  }, [data, days, endDate]);
   // Empty when there's no data OR when every day has zero users + zero spend
   // — matches the agent chart's behavior so both panels render the same
   // placeholder for a brand-new account.

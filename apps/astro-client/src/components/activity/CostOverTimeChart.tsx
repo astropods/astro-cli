@@ -19,6 +19,9 @@ import { buildModelColorMap } from "./model-colors";
 interface CostOverTimeProps {
   data: Array<{ date: string; models: Array<{ model: string; cost_usd: number }> }>;
   days?: number;
+  /** Last day the axis covers ("YYYY-MM-DD", UTC), from the server's reported
+   *  window. Defaults to today, which is only right when the data does too. */
+  endDate?: string;
   colorMap?: Record<string, string>;
   seriesLabels?: Record<string, string>;
   variant?: "bar" | "line";
@@ -64,12 +67,12 @@ function CustomTooltip({
   );
 }
 
-export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
+export function CostOverTimeChart({ data, days, endDate, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
   const { chartData, allModels, colorMap } = useMemo(() => {
     const models = [...new Set(data.flatMap((d) => d.models.map((m) => m.model)))];
     const cMap = externalColorMap ?? buildModelColorMap(models);
     const byDate = new Map(data.map((d) => [d.date, d]));
-    const keys = days ? dayKeysForRange(days) : data.map((d) => d.date);
+    const keys = days ? dayKeysForRange(days, endDate) : data.map((d) => d.date);
     const rows = keys.map((key) => {
       const costByModel = byDate.get(key)?.models.reduce<Record<string, number>>(
         (acc, m) => { acc[m.model] = m.cost_usd; return acc; }, {},
@@ -79,7 +82,7 @@ export function CostOverTimeChart({ data, days, colorMap: externalColorMap, seri
       return row;
     });
     return { chartData: rows, allModels: models, colorMap: cMap };
-  }, [data, days, externalColorMap]);
+  }, [data, days, endDate, externalColorMap]);
 
   // Clickable legend: a series in `hidden` is omitted from the chart so
   // the user can isolate or compare remaining series. Toggling an entry
