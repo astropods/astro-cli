@@ -30,6 +30,19 @@ func TestExtractTokenClaims_RoleAndPermissions(t *testing.T) {
 	}
 }
 
+func TestExtractTokenClaims_OrganizationMembershipID(t *testing.T) {
+	token := createTestJWT(map[string]any{
+		"sid":                        "session_abc",
+		"organization_membership_id": "om_01KRC3M3HC3T700J1SZ173FWHH",
+	})
+
+	claims := ExtractTokenClaims(token)
+
+	if claims.OrganizationMembershipID != "om_01KRC3M3HC3T700J1SZ173FWHH" {
+		t.Errorf("OrganizationMembershipID = %q, want om_01KRC3M3HC3T700J1SZ173FWHH", claims.OrganizationMembershipID)
+	}
+}
+
 func TestExtractTokenClaims_NoRoleOrPermissions(t *testing.T) {
 	token := createTestJWT(map[string]any{
 		"sid": "session_xyz",

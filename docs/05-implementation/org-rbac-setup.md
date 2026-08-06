@@ -36,6 +36,23 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
    - `WORKOS_API_KEY` — your WorkOS API key
    - `WORKOS_CLIENT_ID` — your WorkOS client ID
 
+### JWT template (org membership id for FGA)
+
+WorkOS FGA checks use the caller's **organization membership id** (`om_*`), not the user id. Add it to the access token template so astro-server can populate `Session.WorkOSMembershipID` without a DB lookup on every Bearer request.
+
+1. In **WorkOS Dashboard**, select the target environment (preview first, then prod before FGA enforce).
+2. Go to **Authentication** → **Features** → **JWT Template**.
+3. Add a top-level claim (merge into your existing template JSON):
+
+```json
+"organization_membership_id": "{{ organization_membership.id }}"
+```
+
+4. Validate/preview in the dashboard, then save. The claim only resolves when the session is **org-scoped** (after `POST /auth/switch-org`); unscoped login sessions legitimately omit it until the user picks an org.
+5. Existing sessions pick up the claim on the next token refresh, org switch, or re-login.
+
+astro-server also falls back to `account_member_workos` when the claim is absent (cookie session build paths only).
+
 ## 2. Permission Enforcement
 
 ### `RequireAccountPermission` Middleware

@@ -108,7 +108,7 @@ func TestMembershipChecker_Authorize(t *testing.T) {
 				},
 			)
 
-			got, err := checker.Authorize(context.Background(), sub, authz.ActionDeploymentManage, res)
+			got, err := checker.Authorize(context.Background(), sub, authz.ActionDeploymentEdit, res)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) && err.Error() != tt.wantErr.Error() {
 					t.Fatalf("Authorize() error = %v, want %v", err, tt.wantErr)
@@ -146,7 +146,7 @@ func TestMembershipChecker_resolverErrorSkipsIsMember(t *testing.T) {
 	got, err := checker.Authorize(
 		context.Background(),
 		authz.Subject{UserID: "user-1"},
-		authz.ActionDeploymentManage,
+		authz.ActionDeploymentEdit,
 		authz.DeploymentResource("missing"),
 	)
 	if !errors.Is(err, resolverErr) {
@@ -188,7 +188,7 @@ func TestMembershipChecker_crossAccountMembershipDenied(t *testing.T) {
 	sub := authz.Subject{UserID: "user-1"}
 
 	allowedOnA, err := checker.Authorize(
-		context.Background(), sub, authz.ActionDeploymentManage, authz.DeploymentResource("dep-on-a"),
+		context.Background(), sub, authz.ActionDeploymentEdit, authz.DeploymentResource("dep-on-a"),
 	)
 	if err != nil {
 		t.Fatalf("Authorize(dep-on-a) error: %v", err)
@@ -198,7 +198,7 @@ func TestMembershipChecker_crossAccountMembershipDenied(t *testing.T) {
 	}
 
 	allowedOnB, err := checker.Authorize(
-		context.Background(), sub, authz.ActionDeploymentManage, authz.DeploymentResource("dep-on-b"),
+		context.Background(), sub, authz.ActionDeploymentEdit, authz.DeploymentResource("dep-on-b"),
 	)
 	if err != nil {
 		t.Fatalf("Authorize(dep-on-b) error: %v", err)
@@ -230,7 +230,7 @@ func TestMembershipChecker_emptyUserIDDenied(t *testing.T) {
 	got, err := checker.Authorize(
 		context.Background(),
 		authz.Subject{},
-		authz.ActionDeploymentManage,
+		authz.ActionDeploymentEdit,
 		authz.DeploymentResource("dep-1"),
 	)
 	if err != nil {

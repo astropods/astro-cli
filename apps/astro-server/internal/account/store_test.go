@@ -176,6 +176,9 @@ func TestGetByWorkOSOrganizationID_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for not found")
 	}
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("error = %v, want ErrAccountNotFound", err)
+	}
 }
 
 func TestSetWorkOSOrganizationID(t *testing.T) {

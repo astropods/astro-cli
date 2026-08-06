@@ -124,6 +124,43 @@ func TestJWTValidator_ValidToken(t *testing.T) {
 	}
 }
 
+func TestJWTValidator_OrganizationMembershipID(t *testing.T) {
+	t.Parallel()
+	kp, err := generateTestKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+
+	server := createMockJWKSServer(kp)
+	defer server.Close()
+
+	validator := NewJWTValidator(server.URL, "https://test-issuer.com", "correct-audience")
+
+	claims := jwt.MapClaims{
+		"iss":                        "https://test-issuer.com",
+		"aud":                        "correct-audience",
+		"sub":                        "user_123",
+		"exp":                        time.Now().Add(1 * time.Hour).Unix(),
+		"iat":                        time.Now().Unix(),
+		"sid":                        "session_456",
+		"organization_membership_id": "om_01KRC3M3HC3T700J1SZ173FWHH",
+	}
+
+	tokenString, err := createTestToken(kp, claims)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	result, err := validator.ValidateToken(context.Background(), tokenString)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+
+	if result.OrganizationMembershipID != "om_01KRC3M3HC3T700J1SZ173FWHH" {
+		t.Errorf("OrganizationMembershipID = %q, want om_01KRC3M3HC3T700J1SZ173FWHH", result.OrganizationMembershipID)
+	}
+}
+
 func TestJWTValidator_WrongAudience(t *testing.T) {
 	t.Parallel()
 	kp, err := generateTestKeyPair()

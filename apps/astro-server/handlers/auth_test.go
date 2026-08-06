@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,13 +27,20 @@ import (
 // ─── stubs for fetchAccounts unit tests ──────────────────────────────────────
 
 type stubOrgSyncer struct {
-	roles map[string]string
+	roles      map[string]string
+	syncCalls  int
+	syncUserID string
 }
 
 func (s *stubOrgSyncer) GetMembershipRoles(_ context.Context, _ string) map[string]string {
 	return s.roles
 }
-func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, _ string) error { return nil }
+
+func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, userID string) error {
+	s.syncCalls++
+	s.syncUserID = userID
+	return nil
+}
 
 type stubAccountGetter struct {
 	accounts []account.AccountWithRole
@@ -380,6 +391,58 @@ func TestMe_ReturnsPermissions(t *testing.T) {
 	}
 }
 
+func TestMe_HydratesLegacyWorkOSMembershipIDFromJWTWithoutDBFallback(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	resolver := &stubMembershipIDResolver{membershipID: "om_from_db"}
+	handler.membershipResolver = resolver
+	accessToken := testAccessTokenWithClaims(t, map[string]any{
+		"organization_membership_id": "om_from_jwt",
+	})
+
+	router := gin.New()
+	router.GET("/auth/me", handler.Me())
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  handler.cfg.Auth.CookieName,
+		Value: sealedSessionCookieWithAccessToken(t, handler, accessToken),
+	})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	setCookies := rec.Result().Cookies()
+	require.NotEmpty(t, setCookies)
+
+	sessionData, err := handler.sessionManager.UnsealSession(setCookies[0].Value)
+	require.NoError(t, err)
+	assert.Equal(t, "om_from_jwt", sessionData.Session.WorkOSMembershipID)
+	assert.Zero(t, resolver.calls)
+}
+
+func TestMe_DoesNotQueryDBWhenJWTMembershipClaimMissing(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	resolver := &stubMembershipIDResolver{membershipID: "om_from_db"}
+	handler.membershipResolver = resolver
+
+	router := gin.New()
+	router.GET("/auth/me", handler.Me())
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  handler.cfg.Auth.CookieName,
+		Value: sealedSessionCookie(t, handler),
+	})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, rec.Result().Cookies())
+	assert.Zero(t, resolver.calls)
+}
+
 // TestFetchAccounts covers the fetchAccounts helper in isolation.
 func TestFetchAccounts(t *testing.T) {
 	orgAcct := account.AccountWithRole{
@@ -498,6 +561,10 @@ func (s *stubOrgRefresher) AuthenticateWithRefreshTokenForOrg(_ context.Context,
 }
 
 func sealedSessionCookie(t *testing.T, h *AuthHandler) string {
+	return sealedSessionCookieWithAccessToken(t, h, "access-token")
+}
+
+func sealedSessionCookieWithAccessToken(t *testing.T, h *AuthHandler, accessToken string) string {
 	t.Helper()
 	sessionData := &auth.SessionData{
 		Session: &auth.Session{
@@ -505,7 +572,7 @@ func sealedSessionCookie(t *testing.T, h *AuthHandler) string {
 			UserID:         "user-1",
 			OrganizationID: "org-1",
 			RefreshToken:   "refresh-token",
-			AccessToken:    "access-token",
+			AccessToken:    accessToken,
 			ExpiresAt:      time.Now().Add(1 * time.Hour),
 			CreatedAt:      time.Now(),
 		},
@@ -564,4 +631,202 @@ func TestSwitchOrg_OtherError_Returns400(t *testing.T) {
 	var resp map[string]string
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	assert.Equal(t, "switch_failed", resp["error"])
+}
+
+type stubMembershipIDResolver struct {
+	membershipID string
+	orgErr       error
+	calls        int
+}
+
+func (s *stubMembershipIDResolver) GetByWorkOSOrganizationID(orgID string) (*account.Account, error) {
+	s.calls++
+	if s.orgErr != nil {
+		return nil, s.orgErr
+	}
+	return &account.Account{ID: "acct-1", WorkOSOrganizationID: orgID}, nil
+}
+
+func (s *stubMembershipIDResolver) GetMember(_, _ string) (*account.AccountMember, error) {
+	s.calls++
+	return &account.AccountMember{WorkOSMembershipID: s.membershipID}, nil
+}
+
+func testAccessTokenWithClaims(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	payload, err := json.Marshal(claims)
+	require.NoError(t, err)
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
+	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
+	return header + "." + encodedPayload + "." + signature
+}
+
+func TestSwitchOrg_PopulatesWorkOSMembershipIDFromJWT(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.orgRefresher = &stubOrgRefresher{
+		result: &auth.RefreshResult{
+			AccessToken: testAccessTokenWithClaims(t, map[string]any{
+				"sid":                        "session_1",
+				"role":                       "admin",
+				"permissions":                []string{"org:manage"},
+				"organization_membership_id": "om_from_jwt",
+			}),
+			RefreshToken: "refresh-token-new",
+		},
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	setCookies := rec.Result().Cookies()
+	require.NotEmpty(t, setCookies)
+	sessionData, err := handler.sessionManager.UnsealSession(setCookies[0].Value)
+	require.NoError(t, err)
+	assert.Equal(t, "om_from_jwt", sessionData.Session.WorkOSMembershipID)
+	assert.Equal(t, "org-2", sessionData.Session.OrganizationID)
+}
+
+func TestPopulateSessionMembership_DBFallbackWhenClaimMissing(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.membershipResolver = &stubMembershipIDResolver{membershipID: "om_from_db"}
+
+	session := &auth.Session{
+		UserID:         "user-1",
+		OrganizationID: "org-2",
+	}
+	handler.populateSessionMembership(session, auth.TokenClaims{})
+
+	assert.Equal(t, "om_from_db", session.WorkOSMembershipID)
+}
+
+func TestPopulateSessionMembership_OverwritesStaleMembershipOnOrgSwitch(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.membershipResolver = &stubMembershipIDResolver{membershipID: "om_for_org_2"}
+
+	session := &auth.Session{
+		UserID:             "user-1",
+		OrganizationID:     "org-2",
+		WorkOSMembershipID: "om_stale_from_org_1",
+	}
+	handler.populateSessionMembership(session, auth.TokenClaims{})
+
+	assert.Equal(t, "om_for_org_2", session.WorkOSMembershipID)
+}
+
+func TestPopulateSessionMembership_LogsExpectedFailuresAtDebug(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolver auth.MembershipIDResolver
+	}{
+		{
+			name:     "member has no WorkOS membership link",
+			resolver: &stubMembershipIDResolver{},
+		},
+		{
+			name: "organization has no local account yet",
+			resolver: &stubMembershipIDResolver{
+				orgErr: fmt.Errorf("account not found for workos org: %w", account.ErrAccountNotFound),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			handler := createTestAuthHandler("Lax")
+			handler.log = &logger.Logger{Logger: slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+			handler.membershipResolver = tt.resolver
+			session := &auth.Session{UserID: "user-1", OrganizationID: "org-1"}
+
+			handler.populateSessionMembership(session, auth.TokenClaims{})
+
+			assert.Empty(t, session.WorkOSMembershipID)
+			assert.Contains(t, output.String(), "level=DEBUG")
+			assert.NotContains(t, output.String(), "level=WARN")
+		})
+	}
+}
+
+func TestPopulateSessionMembership_LogsQueryFailuresAtWarn(t *testing.T) {
+	var output bytes.Buffer
+	handler := createTestAuthHandler("Lax")
+	handler.log = &logger.Logger{Logger: slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+	handler.membershipResolver = &stubMembershipIDResolver{orgErr: errors.New("database unavailable")}
+	session := &auth.Session{UserID: "user-1", OrganizationID: "org-1"}
+
+	handler.populateSessionMembership(session, auth.TokenClaims{})
+
+	assert.Empty(t, session.WorkOSMembershipID)
+	assert.Contains(t, output.String(), "level=WARN")
+}
+
+func TestSwitchOrg_SyncsMembershipsBeforePopulate(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	orgSync := &stubOrgSyncer{}
+	handler.orgSync = orgSync
+	handler.orgRefresher = &stubOrgRefresher{
+		result: &auth.RefreshResult{
+			AccessToken: testAccessTokenWithClaims(t, map[string]any{
+				"sid":  "session_1",
+				"role": "member",
+			}),
+			RefreshToken: "refresh-token-new",
+		},
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, orgSync.syncCalls)
+	assert.Equal(t, "user-1", orgSync.syncUserID)
+}
+
+func TestSwitchOrg_PopulatesWorkOSMembershipIDFromDBWhenClaimMissing(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.membershipResolver = &stubMembershipIDResolver{membershipID: "om_from_db"}
+	handler.orgRefresher = &stubOrgRefresher{
+		result: &auth.RefreshResult{
+			AccessToken: testAccessTokenWithClaims(t, map[string]any{
+				"sid":  "session_1",
+				"role": "admin",
+			}),
+			RefreshToken: "refresh-token-new",
+		},
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	sessionData, err := handler.sessionManager.UnsealSession(rec.Result().Cookies()[0].Value)
+	require.NoError(t, err)
+	assert.Equal(t, "om_from_db", sessionData.Session.WorkOSMembershipID)
 }

@@ -93,7 +93,7 @@ func TestMembershipChecker_allowsMemberDespiteOrgScopeMismatch(t *testing.T) {
 	allowed, err := checker.Authorize(
 		context.Background(),
 		sub,
-		authz.ActionDeploymentManage,
+		authz.ActionDeploymentEdit,
 		authz.DeploymentResource("dep-1"),
 	)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestMembershipChecker_personalFlagDoesNotChangeAuthorizeOutcome(t *testing.
 			},
 		)
 
-		allowed, err := checker.Authorize(context.Background(), sub, authz.ActionDeploymentManage, res)
+		allowed, err := checker.Authorize(context.Background(), sub, authz.ActionDeploymentEdit, res)
 		if err != nil {
 			t.Fatalf("personal=%v: Authorize() error: %v", personal, err)
 		}

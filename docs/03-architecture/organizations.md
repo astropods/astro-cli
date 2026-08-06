@@ -2,7 +2,7 @@
 
 This document explains how organizations work in Astro, covering account types, authentication, permissions, membership sync, and agent visibility.
 
-> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `org:admin`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deploy/undeploy use the `deployment:manage` action (`internal/authz/actions.go`), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
+> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `org:admin`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deployment access is represented by the `deployment:view` and `deployment:edit` actions (`internal/authz/actions.go`), but `MembershipChecker` still ignores the action today (behavior unchanged), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
 
 ## Account Model
 

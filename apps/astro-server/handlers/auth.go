@@ -45,17 +45,18 @@ type memberEmailUpserter interface {
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
-	log            *logger.Logger
-	cfg            *config.Config
-	workos         *auth.WorkOSClient
-	orgRefresher   orgTokenRefresher
-	sessionManager *auth.SessionManager
-	jwtValidator   *auth.JWTValidator
-	allowedOrigins map[string]bool
-	accountStore   accountGetter
-	orgSync        orgSyncer
-	avatarStore    *avatarpkg.Store
-	memberEmails   memberEmailUpserter
+	log                *logger.Logger
+	cfg                *config.Config
+	workos             *auth.WorkOSClient
+	orgRefresher       orgTokenRefresher
+	sessionManager     *auth.SessionManager
+	jwtValidator       *auth.JWTValidator
+	allowedOrigins     map[string]bool
+	accountStore       accountGetter
+	membershipResolver auth.MembershipIDResolver
+	orgSync            orgSyncer
+	avatarStore        *avatarpkg.Store
+	memberEmails       memberEmailUpserter
 }
 
 // SetOrgSync sets the org sync service on the auth handler.
@@ -108,14 +109,15 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config, accountStore *accoun
 	}
 
 	return &AuthHandler{
-		log:            log,
-		cfg:            cfg,
-		workos:         workos,
-		orgRefresher:   workos,
-		sessionManager: sessionManager,
-		jwtValidator:   jwtValidator,
-		allowedOrigins: allowedOrigins,
-		accountStore:   accountStore,
+		log:                log,
+		cfg:                cfg,
+		workos:             workos,
+		orgRefresher:       workos,
+		sessionManager:     sessionManager,
+		jwtValidator:       jwtValidator,
+		allowedOrigins:     allowedOrigins,
+		accountStore:       accountStore,
+		membershipResolver: accountStore,
 	}
 }
 
@@ -333,6 +335,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		claims := auth.ExtractTokenClaims(result.AccessToken)
 		session.Role = claims.Role
 		session.Permissions = claims.Permissions
+		h.populateSessionMembership(session, claims)
 
 		sessionData := &auth.SessionData{
 			Session: session,
@@ -492,6 +495,31 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 			sessionData = refreshed
 		}
 
+		// Existing cookies can predate WorkOSMembershipID. Hydrate and reseal them
+		// from the embedded JWT claim so this hot read path never queries the DB.
+		if sessionData.Session.OrganizationID != "" && sessionData.Session.WorkOSMembershipID == "" {
+			claims := auth.ExtractTokenClaims(sessionData.Session.AccessToken)
+			if claims.OrganizationMembershipID != "" {
+				sessionData.Session.WorkOSMembershipID = claims.OrganizationMembershipID
+				sealed, sealErr := h.sessionManager.SealSession(sessionData)
+				if sealErr != nil {
+					h.log.Warn("Failed to reseal session with WorkOS membership", "error", sealErr, "user_id", sessionData.Session.UserID, "org_id", sessionData.Session.OrganizationID)
+				} else {
+					maxAge := int(h.cfg.Auth.CookieMaxAge.Seconds())
+					h.setSameSiteMode(c)
+					c.SetCookie(
+						h.cfg.Auth.CookieName,
+						sealed,
+						maxAge,
+						"/",
+						h.cfg.Auth.CookieDomain,
+						h.cfg.Auth.CookieSecure,
+						true,
+					)
+				}
+			}
+		}
+
 		// Return user info with accounts
 		permissions := sessionData.Session.Permissions
 		if permissions == nil {
@@ -620,6 +648,13 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 			return
 		}
 
+		// Best-effort: sync org memberships so DB fallback can resolve membership id
+		if h.orgSync != nil {
+			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+				h.log.Warn("Failed to sync memberships on org switch", "error", err, "user_id", sessionData.Session.UserID)
+			}
+		}
+
 		// Build new session with the org-scoped token
 		newSession := h.sessionManager.CreateSession(
 			sessionData.Session.ID,
@@ -633,6 +668,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		claims := auth.ExtractTokenClaims(result.AccessToken)
 		newSession.Role = claims.Role
 		newSession.Permissions = claims.Permissions
+		h.populateSessionMembership(newSession, claims)
 
 		newSessionData := &auth.SessionData{
 			Session: newSession,
@@ -763,6 +799,7 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	claims := auth.ExtractTokenClaims(result.AccessToken)
 	newSession.Role = claims.Role
 	newSession.Permissions = claims.Permissions
+	h.populateSessionMembership(newSession, claims)
 
 	newSessionData := &auth.SessionData{
 		Session: newSession,
@@ -891,4 +928,22 @@ func (h *AuthHandler) getRedirectURLFromRequest(c *gin.Context) string {
 		return origin
 	}
 	return h.cfg.Auth.FrontendURL
+}
+
+func (h *AuthHandler) populateSessionMembership(session *auth.Session, claims auth.TokenClaims) {
+	membershipID, err := auth.ResolveWorkOSMembershipID(
+		h.membershipResolver,
+		session.UserID,
+		session.OrganizationID,
+		claims.OrganizationMembershipID,
+	)
+	if err != nil {
+		if errors.Is(err, auth.ErrWorkOSMembershipIDNotFound) || errors.Is(err, account.ErrAccountNotFound) {
+			h.log.Debug("Failed to resolve WorkOS membership for session", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
+		} else {
+			h.log.Warn("Failed to resolve WorkOS membership for session", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
+		}
+		return
+	}
+	session.WorkOSMembershipID = membershipID
 }

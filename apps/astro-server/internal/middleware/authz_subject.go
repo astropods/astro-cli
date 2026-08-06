@@ -18,6 +18,7 @@ func SubjectFromContext(c *gin.Context) (authz.Subject, bool) {
 			sub.UserID = session.UserID
 		}
 		sub.OrgID = session.OrganizationID
+		sub.MembershipID = session.WorkOSMembershipID
 	}
 	return sub, true
 }

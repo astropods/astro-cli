@@ -201,9 +201,10 @@ type RefreshResult struct {
 
 // TokenClaims represents the JWT claims we extract from access tokens
 type TokenClaims struct {
-	SessionID   string   `json:"sid"`
-	Role        string   `json:"role"`
-	Permissions []string `json:"permissions"`
+	SessionID                string   `json:"sid"`
+	OrganizationMembershipID string   `json:"organization_membership_id,omitempty"`
+	Role                     string   `json:"role"`
+	Permissions              []string `json:"permissions"`
 }
 
 // ExtractTokenClaims decodes JWT payload claims without signature validation.

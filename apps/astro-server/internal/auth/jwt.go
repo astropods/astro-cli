@@ -26,13 +26,14 @@ var (
 // JWTClaims represents the claims in a WorkOS access token
 type JWTClaims struct {
 	jwt.RegisteredClaims
-	OrganizationID string   `json:"org_id,omitempty"`
-	Role           string   `json:"role,omitempty"`
-	Roles          []string `json:"roles,omitempty"`
-	Permissions    []string `json:"permissions,omitempty"`
-	Entitlements   []string `json:"entitlements,omitempty"`
-	SessionID      string   `json:"sid,omitempty"`
-	Actor          *Actor   `json:"act,omitempty"`
+	OrganizationID           string   `json:"org_id,omitempty"`
+	OrganizationMembershipID string   `json:"organization_membership_id,omitempty"`
+	Role                     string   `json:"role,omitempty"`
+	Roles                    []string `json:"roles,omitempty"`
+	Permissions              []string `json:"permissions,omitempty"`
+	Entitlements             []string `json:"entitlements,omitempty"`
+	SessionID                string   `json:"sid,omitempty"`
+	Actor                    *Actor   `json:"act,omitempty"`
 }
 
 // Actor represents an impersonator in the access token

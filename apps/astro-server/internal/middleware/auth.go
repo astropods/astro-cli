@@ -174,12 +174,13 @@ func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) boo
 
 	// Create session from claims
 	session := &auth.Session{
-		ID:             claims.SessionID,
-		UserID:         claims.Subject,
-		OrganizationID: claims.OrganizationID,
-		Role:           claims.Role,
-		Permissions:    claims.Permissions,
-		AccessToken:    token,
+		ID:                 claims.SessionID,
+		UserID:             claims.Subject,
+		OrganizationID:     claims.OrganizationID,
+		WorkOSMembershipID: claims.OrganizationMembershipID,
+		Role:               claims.Role,
+		Permissions:        claims.Permissions,
+		AccessToken:        token,
 	}
 
 	// Create minimal user from claims

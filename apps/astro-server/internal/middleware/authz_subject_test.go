@@ -46,8 +46,9 @@ func TestSubjectFromContext_userAndSession(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set(string(auth.UserContextKey), &auth.User{ID: "user-from-context"})
 	c.Set(string(auth.SessionContextKey), &auth.Session{
-		UserID:         "user-from-session",
-		OrganizationID: "org_01HXYZ",
+		UserID:             "user-from-session",
+		OrganizationID:     "org_01HXYZ",
+		WorkOSMembershipID: "om_01KRC3M3HC3T700J1SZ173FWHH",
 	})
 
 	sub, ok := SubjectFromContext(c)
@@ -59,6 +60,9 @@ func TestSubjectFromContext_userAndSession(t *testing.T) {
 	}
 	if sub.OrgID != "org_01HXYZ" {
 		t.Fatalf("OrgID = %q, want %q", sub.OrgID, "org_01HXYZ")
+	}
+	if sub.MembershipID != "om_01KRC3M3HC3T700J1SZ173FWHH" {
+		t.Fatalf("MembershipID = %q, want om_01KRC3M3HC3T700J1SZ173FWHH", sub.MembershipID)
 	}
 }
 

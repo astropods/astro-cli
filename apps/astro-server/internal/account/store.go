@@ -15,9 +15,8 @@ import (
 // already soft-deleted (or does not exist).
 var ErrAlreadyDeleted = errors.New("account not found or already deleted")
 
-// ErrAccountNotFound is returned by the provider-customer reverse lookups when
-// no account is linked to the given customer ID. Callers use errors.Is to tell
-// a genuine "unknown customer" (permanent) apart from a transient DB error.
+// ErrAccountNotFound is returned by provider-ID reverse lookups when no account
+// is linked. Callers use errors.Is to distinguish it from transient DB errors.
 var ErrAccountNotFound = errors.New("account not found")
 
 // AccountStore manages account persistence in PostgreSQL
@@ -217,7 +216,7 @@ func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error)
 		WHERE ao.workos_org_id = $1
 	`, orgID))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("account not found for workos org: %s", orgID)
+		return nil, fmt.Errorf("account not found for workos org %q: %w", orgID, ErrAccountNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query account: %w", err)

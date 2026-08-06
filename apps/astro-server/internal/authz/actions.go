@@ -1,10 +1,11 @@
 package authz
 
-// Action is a verb the caller wants to perform on a resource.
+// Action values are WorkOS permission slugs; changes require matching WorkOS configuration.
 type Action string
 
 const (
-	// ActionDeploymentManage covers all mutating operations on a single deployment
-	// (redeploy, restart, stop, rollback, wakeup, undeploy, ingestion trigger, rename, avatar).
-	ActionDeploymentManage Action = "deployment:manage"
+	// Deployment actions cover Astro's control plane. They do not grant access to
+	// invoke or chat with the running agent.
+	ActionDeploymentView Action = "deployment:view"
+	ActionDeploymentEdit Action = "deployment:edit"
 )

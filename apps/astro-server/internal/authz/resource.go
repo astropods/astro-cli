@@ -1,6 +1,6 @@
 package authz
 
-// ResourceType mirrors a WorkOS FGA resource type slug.
+// ResourceType values are WorkOS resource type slugs; changes require matching WorkOS configuration.
 type ResourceType string
 
 const ResourceDeployment ResourceType = "deployment"

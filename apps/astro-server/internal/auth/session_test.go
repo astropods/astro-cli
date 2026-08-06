@@ -72,6 +72,42 @@ func TestSealAndUnsealSession(t *testing.T) {
 	}
 }
 
+func TestSealAndUnsealSession_WithWorkOSMembershipID(t *testing.T) {
+	sm := NewSessionManager("test-password-that-is-32-chars!!", 24*time.Hour)
+
+	originalData := &SessionData{
+		Session: &Session{
+			ID:                 "session_123",
+			UserID:             "user_456",
+			OrganizationID:     "org_789",
+			WorkOSMembershipID: "om_01KRC3M3HC3T700J1SZ173FWHH",
+			AccessToken:        "access_token_abc",
+			RefreshToken:       "refresh_token_xyz",
+			ExpiresAt:          time.Now().Add(1 * time.Hour),
+			CreatedAt:          time.Now(),
+		},
+		User: &User{
+			ID:    "user_456",
+			Email: "test@example.com",
+		},
+	}
+
+	sealed, err := sm.SealSession(originalData)
+	if err != nil {
+		t.Fatalf("SealSession failed: %v", err)
+	}
+
+	unsealed, err := sm.UnsealSession(sealed)
+	if err != nil {
+		t.Fatalf("UnsealSession failed: %v", err)
+	}
+
+	if unsealed.Session.WorkOSMembershipID != originalData.Session.WorkOSMembershipID {
+		t.Errorf("WorkOSMembershipID mismatch: got %q, want %q",
+			unsealed.Session.WorkOSMembershipID, originalData.Session.WorkOSMembershipID)
+	}
+}
+
 func TestSealAndUnsealSession_WithPermissions(t *testing.T) {
 	sm := NewSessionManager("test-password-that-is-32-chars!!", 24*time.Hour)
 
