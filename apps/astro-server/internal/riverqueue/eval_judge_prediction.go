@@ -21,6 +21,7 @@ import (
 
 const (
 	evalJudgePredictionTimeout = 2 * time.Minute
+	evalJudgePreviousTurnLimit = 3
 	predictionFailureMessage   = "Prediction generation failed. Try again."
 	predictionQuotaMessage     = "AI usage quota exceeded. Try again after the quota resets or is increased."
 )
@@ -72,6 +73,7 @@ type evalJudgePredictionStore interface {
 
 type evalJudgeTraceClient interface {
 	GetTrace(context.Context, string) (*langfuse.TraceDetail, error)
+	GetPreviousSessionTraces(context.Context, string, string, string, string, string, int) ([]langfuse.Trace, error)
 	GetNextSessionTrace(context.Context, string, string, string, string, string) (*langfuse.Trace, error)
 }
 
@@ -208,6 +210,29 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 		return w.failPermanent(job, fmt.Errorf("target trace has invalid timestamp %q", trace.Timestamp), predictionFailureMessage)
 	}
 
+	previousTraces, err := traceClient.GetPreviousSessionTraces(
+		ctx,
+		dataset.DeploymentID,
+		trace.UserID,
+		trace.SessionID,
+		trace.ID,
+		trace.Timestamp,
+		evalJudgePreviousTurnLimit,
+	)
+	if err != nil {
+		if isPermanentLangfuseError(err) {
+			return w.failPermanent(job, fmt.Errorf("load previous session traces: %w", err), predictionFailureMessage)
+		}
+		return w.retryOrRecordFailure(job, fmt.Errorf("load previous session traces: %w", err))
+	}
+	previousTurns := make([]evaljudge.SessionTurn, 0, len(previousTraces))
+	for _, previousTrace := range previousTraces {
+		previousTurns = append(previousTurns, evaljudge.SessionTurn{
+			Input:  previousTrace.Input,
+			Output: previousTrace.Output,
+		})
+	}
+
 	// A later message is optional reaction context, not a requirement for a
 	// prediction.
 	nextUserText := ""
@@ -244,6 +269,7 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 		TraceID:        trace.ID,
 		TraceInput:     trace.Input,
 		TraceOutput:    trace.Output,
+		PreviousTurns:  previousTurns,
 		NextUserText:   nextUserText,
 		ThumbsFeedback: latestThumbsFeedback(trace.Scores),
 	})

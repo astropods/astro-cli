@@ -28,7 +28,10 @@ func responseFormat() map[string]any {
 				"properties": map[string]any{
 					"verdict_score": map[string]any{"type": "number"},
 					"confidence":    map[string]any{"type": "integer"},
-					"explanation":   map[string]any{"type": "string"},
+					"explanation": map[string]any{
+						"type":        "string",
+						"description": "One complete sentence of at most 220 characters; aim for 120 to 180 characters.",
+					},
 					"criteria": map[string]any{
 						"type": "array",
 						"items": map[string]any{
@@ -124,6 +127,10 @@ func validatePrediction(model modelPrediction) (validatedPrediction, error) {
 	if *model.Confidence < 0 || *model.Confidence > 100 {
 		return validatedPrediction{}, invalidOutput("confidence %d is outside [0, 100]", *model.Confidence)
 	}
+	explanation := strings.TrimSpace(*model.Explanation)
+	if explanation == "" {
+		return validatedPrediction{}, invalidOutput("explanation is empty")
+	}
 	if len(*model.Criteria) != len(judgmentstore.CriterionDimensions) {
 		return validatedPrediction{}, invalidOutput("expected %d criteria, got %d", len(judgmentstore.CriterionDimensions), len(*model.Criteria))
 	}
@@ -155,7 +162,7 @@ func validatePrediction(model modelPrediction) (validatedPrediction, error) {
 	return validatedPrediction{
 		verdictScore:    *model.VerdictScore,
 		confidence:      *model.Confidence,
-		explanation:     *model.Explanation,
+		explanation:     explanation,
 		criterionValues: values,
 	}, nil
 }
@@ -171,7 +178,7 @@ func toStoredPrediction(validated validatedPrediction) judgmentstore.Prediction 
 	return judgmentstore.Prediction{
 		VerdictScore: validated.verdictScore,
 		Confidence:   validated.confidence,
-		Explanation:  truncatePrefixRunes(strings.TrimSpace(validated.explanation), maxExplanationRunes),
+		Explanation:  truncatePrefixRunes(validated.explanation, maxExplanationRunes),
 		JudgeVersion: EvalDatasetJudgeVersion,
 		Criteria:     criteria,
 	}
@@ -182,7 +189,12 @@ func truncatePrefixRunes(value string, limit int) string {
 	if len(runes) <= limit {
 		return value
 	}
-	return string(runes[:limit])
+	const marker = "..."
+	markerRunes := []rune(marker)
+	if limit <= len(markerRunes) {
+		return string(markerRunes[:limit])
+	}
+	return string(runes[:limit-len(markerRunes)]) + marker
 }
 
 func invalidOutput(format string, args ...any) error {

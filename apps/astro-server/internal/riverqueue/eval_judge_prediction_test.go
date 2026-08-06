@@ -95,13 +95,27 @@ func (f *fakeEvalJudgeDatasetStore) GetByID(context.Context, string) (*evaldatas
 }
 
 type fakeEvalJudgeTraceClient struct {
-	trace       *langfuse.TraceDetail
-	next        *langfuse.Trace
-	traceErr    error
-	nextErr     error
-	nextCalls   int
-	nextStartAt string
-	getTraceCtx context.Context
+	trace         *langfuse.TraceDetail
+	previous      []langfuse.Trace
+	next          *langfuse.Trace
+	traceErr      error
+	previousErr   error
+	nextErr       error
+	previousCalls int
+	previousEndAt string
+	nextCalls     int
+	nextStartAt   string
+	getTraceCtx   context.Context
+}
+
+func (f *fakeEvalJudgeTraceClient) GetPreviousSessionTraces(
+	_ context.Context,
+	_, _, _, _, targetTimestamp string,
+	_ int,
+) ([]langfuse.Trace, error) {
+	f.previousCalls++
+	f.previousEndAt = targetTimestamp
+	return f.previous, f.previousErr
 }
 
 func (f *fakeEvalJudgeTraceClient) GetTrace(ctx context.Context, _ string) (*langfuse.TraceDetail, error) {
@@ -158,6 +172,11 @@ func newEvalJudgeWorkerFixture() (*EvalJudgePredictionWorker, *fakeEvalJudgePred
 				{ID: "new", Name: "user_feedback", StringValue: "thumbs_up", CreatedAt: "2026-07-27T12:03:00Z"},
 			},
 		},
+		previous: []langfuse.Trace{{
+			ID:     "trace-0",
+			Input:  map[string]any{"question": "What should I call you?"},
+			Output: map[string]any{"answer": "Call me Astro."},
+		}},
 		next: &langfuse.Trace{ID: "trace-2", Input: map[string]any{"message": map[string]any{"content": "Thanks, one more thing."}}},
 	}
 	prediction := judgmentstore.Prediction{
@@ -262,8 +281,12 @@ func TestEvalJudgePredictionWorkerSuccess(t *testing.T) {
 	}
 	if predictor.input.TraceID != "trace-1" ||
 		predictor.input.NextUserText != "Thanks, one more thing." ||
-		predictor.input.ThumbsFeedback != "thumbs_up" {
+		predictor.input.ThumbsFeedback != "thumbs_up" ||
+		len(predictor.input.PreviousTurns) != 1 {
 		t.Fatalf("predict input = %+v", predictor.input)
+	}
+	if traceClient.previousCalls != 1 || traceClient.previousEndAt != "2026-07-27T12:00:00Z" {
+		t.Fatalf("previous trace calls=%d end=%q", traceClient.previousCalls, traceClient.previousEndAt)
 	}
 	if traceClient.nextStartAt != "2026-07-27T12:00:00Z" {
 		t.Fatalf("next trace start = %q", traceClient.nextStartAt)

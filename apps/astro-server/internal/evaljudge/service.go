@@ -42,8 +42,15 @@ type Input struct {
 	TraceID        string
 	TraceInput     any
 	TraceOutput    any
+	PreviousTurns  []SessionTurn
 	NextUserText   string
 	ThumbsFeedback string
+}
+
+// SessionTurn is one completed trace from before the prediction target.
+type SessionTurn struct {
+	Input  any
+	Output any
 }
 
 type Result struct {

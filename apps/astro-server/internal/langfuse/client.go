@@ -306,6 +306,56 @@ func (c *Client) GetSessionTraces(
 	})
 }
 
+// GetPreviousSessionTraces returns the traces immediately before the target in
+// the same deployment, user, and session. Results are ordered oldest-first so
+// callers can present them as conversational context without exposing later
+// turns to the consumer.
+func (c *Client) GetPreviousSessionTraces(
+	ctx context.Context,
+	deploymentID, userID, sessionID, targetTraceID, targetTimestamp string,
+	limit int,
+) ([]Trace, error) {
+	if userID == "" || sessionID == "" || targetTimestamp == "" || limit <= 0 {
+		return nil, nil
+	}
+	targetTime, err := time.Parse(time.RFC3339Nano, targetTimestamp)
+	if err != nil {
+		return nil, fmt.Errorf("langfuse: invalid target timestamp %q: %w", targetTimestamp, err)
+	}
+
+	response, err := c.getTraces(ctx, traceFilter{
+		deploymentID: deploymentID,
+		userID:       userID,
+		sessionID:    sessionID,
+		endTime:      targetTimestamp,
+		limit:        limit + 1, // The inclusive time window normally includes the target.
+		fields:       "core,io",
+		orderBy:      "timestamp.desc",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	previous := make([]Trace, 0, limit)
+	for _, trace := range response.Data {
+		if trace.ID == targetTraceID {
+			continue
+		}
+		traceTime, parseErr := time.Parse(time.RFC3339Nano, trace.Timestamp)
+		if parseErr != nil || !traceTime.Before(targetTime) {
+			continue
+		}
+		previous = append(previous, trace)
+		if len(previous) == limit {
+			break
+		}
+	}
+	for left, right := 0, len(previous)-1; left < right; left, right = left+1, right-1 {
+		previous[left], previous[right] = previous[right], previous[left]
+	}
+	return previous, nil
+}
+
 // GetNextSessionTrace returns the trace immediately after the target in the
 // same deployment, user, and session. Langfuse's fromTimestamp filters the
 // trace event timestamp (not createdAt), so a small ascending window is scanned

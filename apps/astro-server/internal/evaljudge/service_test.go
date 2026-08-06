@@ -64,9 +64,13 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	invoker := &recordingInvoker{response: response}
 
 	result, err := New(invoker).Predict(context.Background(), "judge-key", Input{
-		TraceID:        "target",
-		TraceInput:     map[string]any{"question": "What is 2+2?"},
-		TraceOutput:    map[string]any{"answer": "5"},
+		TraceID:     "target",
+		TraceInput:  map[string]any{"question": "What is 2+2?"},
+		TraceOutput: map[string]any{"answer": "5"},
+		PreviousTurns: []SessionTurn{{
+			Input:  map[string]any{"question": "Use base three."},
+			Output: map[string]any{"answer": "Understood."},
+		}},
 		NextUserText:   "No, that is incorrect.",
 		ThumbsFeedback: "thumbs_down",
 	})
@@ -81,8 +85,9 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	assert.Equal(t, "system", invoker.request.Messages[0].Role)
 	assert.Contains(t, invoker.request.Messages[0].Content, "dataset")
 	assert.Contains(t, invoker.request.Messages[0].Content, criterionDimensionPromptList())
-	assert.Contains(t, invoker.request.Messages[0].Content, "one complete sentence of at most 220 characters")
+	assert.Contains(t, invoker.request.Messages[0].Content, "never exceed 220 characters")
 	assert.Contains(t, invoker.request.Messages[0].Content, "reaction inferred from the next user message")
+	assert.Contains(t, invoker.request.Messages[0].Content, "previous session turns")
 	assert.Contains(t, invoker.request.Messages[0].Content, "Do not quote or restate any user or agent message")
 	assert.Equal(t, "user", invoker.request.Messages[1].Role)
 
@@ -91,6 +96,9 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	assert.Equal(t, "target", payload.Trace.TraceID)
 	assert.Equal(t, map[string]any{"question": "What is 2+2?"}, payload.Trace.Input)
 	assert.Equal(t, map[string]any{"answer": "5"}, payload.Trace.Output)
+	require.Len(t, payload.PreviousTurns, 1)
+	assert.Equal(t, map[string]any{"question": "Use base three."}, payload.PreviousTurns[0].Input)
+	assert.Equal(t, map[string]any{"answer": "Understood."}, payload.PreviousTurns[0].Output)
 	require.NotNil(t, payload.Signals)
 	assert.Equal(t, "No, that is incorrect.", payload.Signals.NextUserText)
 	assert.Equal(t, "thumbs_down", payload.Signals.ThumbsFeedback)
@@ -108,6 +116,8 @@ func TestPredictBuildsStructuredRequestAndReturnsCanonicalPrediction(t *testing.
 	assert.Equal(t, false, schema["additionalProperties"])
 	assert.ElementsMatch(t, []any{"verdict_score", "confidence", "explanation", "criteria"}, schema["required"])
 	properties := schema["properties"].(map[string]any)
+	explanationSchema := properties["explanation"].(map[string]any)
+	assert.Contains(t, explanationSchema["description"], "at most 220 characters")
 	criteriaSchema := properties["criteria"].(map[string]any)
 	criterionSchema := criteriaSchema["items"].(map[string]any)
 	assert.Equal(t, false, criterionSchema["additionalProperties"])
@@ -146,34 +156,38 @@ func TestPredictOmitsEmptySignalsAndAllowsMissingUsage(t *testing.T) {
 	assert.NotContains(t, invoker.request.Messages[1].Content, `"prior_examples"`)
 }
 
-func TestPredictCompactsTargetAndSupportingContent(t *testing.T) {
-	targetInput := strings.Repeat("界", maxTraceInputRunes+100)
-	targetOutput := strings.Repeat("🙂", maxTraceOutputRunes+100)
-	supporting := strings.Repeat("é", maxSupportingTextRunes+100)
+func TestPredictBoundsTargetPriorTurnAndSupportingContent(t *testing.T) {
+	oversized := strings.Repeat("界", maxJudgeValueRunes+100)
 	invoker := &recordingInvoker{response: validResponse()}
 
 	_, err := New(invoker).Predict(context.Background(), "key", Input{
-		TraceID:      "target",
-		TraceInput:   targetInput,
-		TraceOutput:  targetOutput,
-		NextUserText: supporting,
+		TraceID:     "target",
+		TraceInput:  oversized,
+		TraceOutput: map[string]any{"content": oversized},
+		PreviousTurns: []SessionTurn{{
+			Input:  "normal prior input",
+			Output: oversized,
+		}},
+		NextUserText: oversized,
 	})
 	require.NoError(t, err)
 
 	var payload userPayload
 	require.NoError(t, json.Unmarshal([]byte(invoker.request.Messages[1].Content), &payload))
-	compactTargetInput, ok := payload.Trace.Input.(string)
-	require.True(t, ok)
-	compactTargetOutput, ok := payload.Trace.Output.(string)
-	require.True(t, ok)
-	assert.Len(t, []rune(compactTargetInput), maxTraceInputRunes)
-	assert.Len(t, []rune(compactTargetOutput), maxTraceOutputRunes)
-	assert.Contains(t, compactTargetInput, truncationMarker)
-	assert.Contains(t, compactTargetOutput, truncationMarker)
-	assert.True(t, strings.HasPrefix(compactTargetInput, `"`))
-	assert.True(t, strings.HasSuffix(compactTargetInput, `"`))
+	boundedValues := []any{
+		payload.Trace.Input,
+		payload.Trace.Output,
+		payload.PreviousTurns[0].Output,
+	}
+	for _, bounded := range boundedValues {
+		value, ok := bounded.(string)
+		require.True(t, ok)
+		assert.Len(t, []rune(value), maxJudgeValueRunes)
+		assert.Contains(t, value, truncationMarker)
+	}
+	assert.Equal(t, "normal prior input", payload.PreviousTurns[0].Input)
 	require.NotNil(t, payload.Signals)
-	assert.Len(t, []rune(payload.Signals.NextUserText), maxSupportingTextRunes)
+	assert.Len(t, []rune(payload.Signals.NextUserText), maxJudgeValueRunes)
 	assert.Contains(t, payload.Signals.NextUserText, truncationMarker)
 }
 
@@ -217,7 +231,7 @@ func TestPredictIgnoresNonThumbsFeedback(t *testing.T) {
 	assert.NotContains(t, invoker.request.Messages[1].Content, `"signals"`)
 }
 
-func TestPredictTruncatesExplanationByUnicodeRunes(t *testing.T) {
+func TestPredictTruncatesOverlongExplanationByUnicodeRunes(t *testing.T) {
 	long := strings.Repeat("🙂", maxExplanationRunes+20)
 	content := strings.Replace(validResponse().Choices[0].Message.Content, "The response misses a required constraint.", long, 1)
 	invoker := &recordingInvoker{response: responseWithContent(content)}
@@ -225,7 +239,7 @@ func TestPredictTruncatesExplanationByUnicodeRunes(t *testing.T) {
 	result, err := New(invoker).Predict(context.Background(), "key", Input{TraceID: "trace"})
 	require.NoError(t, err)
 	assert.Len(t, []rune(result.Prediction.Explanation), maxExplanationRunes)
-	assert.Equal(t, strings.Repeat("🙂", maxExplanationRunes), result.Prediction.Explanation)
+	assert.Equal(t, strings.Repeat("🙂", maxExplanationRunes-3)+"...", result.Prediction.Explanation)
 }
 
 func TestPredictRejectsInvalidModelOutput(t *testing.T) {
