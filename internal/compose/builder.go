@@ -829,8 +829,13 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
-	// Add GRPC_SERVER_ADDR if messaging is configured
-	if s.Dev.HasMessagingAdapters() {
+	// Agent transport. A declared runtime (e.g. agentcore) serves /invocations on
+	// :8080; adapter-core selects its transport from ASTRO_RUNTIME. The default
+	// runtime dials out to the messaging gRPC server instead.
+	if rt := s.Agent.Runtime(); rt != "" {
+		runtime := rt
+		env["ASTRO_RUNTIME"] = &runtime
+	} else if s.Dev.HasMessagingAdapters() {
 		grpcAddr := "astro-messaging:9090"
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
@@ -882,6 +887,17 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	env["GRPC_ENABLED"] = &grpcEnabled
 	grpcListenAddr := ":9090"
 	env["GRPC_LISTEN_ADDR"] = &grpcListenAddr
+
+	// Agent transport per runtime. The default runtime dials in over gRPC (above);
+	// agentcore is invoked per turn over HTTP at the agent's compose service DNS
+	// name on :8080.
+	switch s.Agent.Runtime() {
+	case spec.AgentCoreRuntime:
+		transport := "agentcore"
+		env["AGENT_TRANSPORT"] = &transport
+		endpoint := "http://agent:8080"
+		env["AGENT_RUNTIME_ENDPOINT"] = &endpoint
+	}
 
 	// Storage configuration (use memory for dev, redis in production)
 	storageType := "memory"
