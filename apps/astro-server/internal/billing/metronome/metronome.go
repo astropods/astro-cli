@@ -169,7 +169,7 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	// A contract made outside this path (by hand in the dashboard) carries no
 	// uniqueness key, so Contracts.New would not 409 against it. covering_date
 	// filters to contracts effective now.
-	existing, err := p.mc.V1.Contracts.List(ctx, metronome.V1ContractListParams{
+	existing, err := p.mc.V2.Contracts.List(ctx, metronome.V2ContractListParams{
 		CustomerID:   customerID,
 		CoveringDate: param.NewOpt(now),
 	})
@@ -178,7 +178,7 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	}
 
 	contractKey := "contract:" + accountID
-	switch cov, foreign := classifyCoverage(existing.Data, p.cfg.PackageID, contractKey); cov {
+	switch cov, foreign := classifyCoverage(existing.Data, contractKey); cov {
 	case coverageOurs:
 		// Already on the right package; the grant below is separately keyed.
 	case coverageNone:
@@ -196,12 +196,12 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 		}
 	case coverageForeign:
 		// Adding ours would stack a second contract; skipping would silently
-		// bill the account on someone else's rates. Neither is ours to choose,
-		// so archive the stray contract in Metronome. Not retryable, so the
-		// caller cancels and the hourly sweep re-checks once rather than the
-		// job burning its whole backoff schedule every tick.
-		return false, fmt.Errorf("%w: customer %s is covered by a contract on package %q, want %s",
-			billing.ErrProvisionBlocked, customerID, foreign, p.cfg.PackageID)
+		// bill the account on whatever rates that one carries. Neither is ours
+		// to choose, so archive the stray contract in Metronome. Not retryable,
+		// so the caller cancels and the hourly sweep re-checks once rather than
+		// the job burning its whole backoff schedule every tick.
+		return false, fmt.Errorf("%w: customer %s is already covered by contract %s",
+			billing.ErrProvisionBlocked, customerID, foreign)
 	}
 
 	if p.cfg.SignupCredit <= 0 {
@@ -228,35 +228,28 @@ type coverage int
 
 const (
 	coverageNone    coverage = iota // nothing covers the customer; create ours
-	coverageOurs                    // already on our package; leave it alone
-	coverageForeign                 // on someone else's package
+	coverageOurs                    // we created it; leave it alone
+	coverageForeign                 // covered by a contract we did not create
 )
 
 // classifyCoverage scans every covering contract rather than trusting list
-// order. Ours anywhere wins, since a second contract on the same package would
-// double-bill; otherwise any foreign package is reported so the caller can
-// refuse. foreignPkg is set only for coverageForeign.
+// order. Ours anywhere wins, since a second contract would double-bill;
+// otherwise the first stray is reported so the caller can refuse. foreignID is
+// set only for coverageForeign.
 //
-// A contract is ours by package or by the uniqueness key we created it with.
-// The key matters because it does not depend on the list response populating
-// package_id: without it, a contract we made would read as foreign on any
-// re-check — say a retry after the credit grant failed — and provisioning for
-// that account would be cancelled for good.
-func classifyCoverage(contracts []shared.Contract, wantPackage, wantKey string) (cov coverage, foreignPkg string) {
+// A contract is ours only by the uniqueness key we created it with. The list
+// response carries no package, so a hand-made contract on our own package is
+// indistinguishable from one on any other and is treated as foreign: the safe
+// direction, since the alternative is stacking a second contract on a customer
+// already being billed.
+func classifyCoverage(contracts []shared.ContractV2, wantKey string) (cov coverage, foreignID string) {
 	for _, c := range contracts {
-		if c.PackageID == wantPackage || (wantKey != "" && c.UniquenessKey == wantKey) {
+		if wantKey != "" && c.UniquenessKey == wantKey {
 			return coverageOurs, ""
 		}
 	}
-	for _, c := range contracts {
-		if c.PackageID != "" {
-			return coverageForeign, c.PackageID
-		}
-	}
-	// A packageless contract still covers the customer, so creating ours would
-	// stack a second one. Treat it as foreign rather than as absent.
 	if len(contracts) > 0 {
-		return coverageForeign, ""
+		return coverageForeign, contracts[0].ID
 	}
 	return coverageNone, ""
 }
