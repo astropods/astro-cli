@@ -29,6 +29,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/payment"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
@@ -58,6 +59,10 @@ type Config struct {
 	// Langfuse datasets at deploy time. Optional — when nil, dataset
 	// provisioning is skipped.
 	LangfuseStore *langfuse.Store
+	// PaymentProvider lets the Stripe webhook worker re-read a customer's cards,
+	// so a payment_method.detached during a card replacement isn't mistaken for
+	// a removal. nil → card events are ignored rather than guessed at.
+	PaymentProvider payment.Provider
 	// GitHub build worker deps (optional — worker skipped if PipesClient is nil)
 	PipesClient *pipes.Client
 	GitHubStore *githubconnection.Store
@@ -187,6 +192,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 	if wired.stripeHook != nil {
 		wired.stripeHook.queue = q
+	}
+	if wired.provisionWorker != nil {
+		wired.provisionWorker.queue = q
 	}
 	if wired.provisionSweep != nil {
 		wired.provisionSweep.queue = q

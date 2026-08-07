@@ -25,8 +25,12 @@ const (
 	TypeBillingPaymentFailed  Type = "billing.payment_failed"
 	TypeBillingActionRequired Type = "billing.action_required"
 	TypeBillingSpendThreshold Type = "billing.spend_threshold"
-	TypeBillingSuspended      Type = "billing.dunning_suspended"
-	TypeBillingRecovered      Type = "billing.recovered"
+	// TypeBillingCreditsExhausted is the free signup credit running out. Only
+	// reached without a card on file; with one the account rolls to
+	// pay-as-you-go silently.
+	TypeBillingCreditsExhausted Type = "billing.credits_exhausted"
+	TypeBillingSuspended        Type = "billing.dunning_suspended"
+	TypeBillingRecovered        Type = "billing.recovered"
 
 	TypeTeamMemberChanged    Type = "team.member_changed"
 	TypeOwnershipTransferred Type = "account.ownership_transferred"

@@ -39,6 +39,20 @@ export function useBillingBalances(account: string) {
   });
 }
 
+/** Cached gating status — a plain DB read server-side, so a short staleTime is
+ *  cheap and keeps the banner from lingering after a card is added. */
+// Mounted once in the app shell, so without an interval a webhook-driven
+// suspension would not surface until the window regained focus.
+export function useBillingStatus(account: string) {
+  return useQuery({
+    queryKey: billingKeys.status(account),
+    queryFn: () => api.getBillingStatus(account),
+    enabled: !!account,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function usePaymentMethod(account: string) {
   return useQuery({
     queryKey: billingKeys.paymentMethod(account),
@@ -56,6 +70,8 @@ export function useConfirmPaymentMethod(account: string) {
       api.confirmPaymentMethod(account, setupIntentId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: billingKeys.paymentMethod(account) });
+      // A card change flips credits_exhausted gating, so the banner must refetch.
+      qc.invalidateQueries({ queryKey: billingKeys.status(account) });
     },
   });
 }
@@ -66,6 +82,8 @@ export function useDeletePaymentMethod(account: string) {
     mutationFn: () => api.deletePaymentMethod(account),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: billingKeys.paymentMethod(account) });
+      // A card change flips credits_exhausted gating, so the banner must refetch.
+      qc.invalidateQueries({ queryKey: billingKeys.status(account) });
     },
   });
 }

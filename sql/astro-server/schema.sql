@@ -142,13 +142,19 @@ CREATE TABLE public.account_limits (
 CREATE TABLE public.account_billing_status (
     account_id     uuid        NOT NULL,
     status         text        NOT NULL DEFAULT 'active', -- active | past_due | suspended
-    reason         text,                                  -- dunning | payment_failed | balance_alert | uncollectible
+    reason         text,                                  -- dunning | payment_failed | balance_alert | credits_exhausted | uncollectible
     dunning_since  timestamptz,                           -- set on payment failure, cleared on recovery
     alert_active   boolean     NOT NULL DEFAULT false,    -- last Metronome hard alert, uncleared
     -- Terminal write-off flag: Stripe marked an invoice uncollectible after
     -- exhausting retries. Forces 'suspended' immediately (bypasses the dunning
     -- grace); cleared only on recovery or when the invoice is voided.
     force_suspended boolean    NOT NULL DEFAULT false,
+    -- Signup credit is spent. Gates only while has_payment_method is false;
+    -- adding a card is what turns the account into pay-as-you-go. Metronome
+    -- fires no recovery event, so this clears on our own credit grant.
+    credits_exhausted  boolean NOT NULL DEFAULT false,
+    -- A card is vaulted in Stripe and linked to the billing provider.
+    has_payment_method boolean NOT NULL DEFAULT false,
     updated_at     timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT account_billing_status_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_billing_status_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE

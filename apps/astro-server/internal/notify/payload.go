@@ -33,11 +33,12 @@ var payloadProps = map[Type][]string{
 
 	TypeBuildFailed: {PayloadAgent, PayloadReason, PayloadCTAURL},
 
-	TypeBillingPaymentFailed:  {PayloadAccount, PayloadCTAURL},
-	TypeBillingActionRequired: {PayloadAccount, PayloadCTAURL},
-	TypeBillingSpendThreshold: {PayloadAccount, PayloadCTAURL},
-	TypeBillingRecovered:      {PayloadAccount},
-	TypeBillingSuspended:      {PayloadAccount, PayloadCTAURL},
+	TypeBillingPaymentFailed:    {PayloadAccount, PayloadCTAURL},
+	TypeBillingActionRequired:   {PayloadAccount, PayloadCTAURL},
+	TypeBillingSpendThreshold:   {PayloadAccount, PayloadCTAURL},
+	TypeBillingCreditsExhausted: {PayloadAccount, PayloadCTAURL},
+	TypeBillingRecovered:        {PayloadAccount},
+	TypeBillingSuspended:        {PayloadAccount, PayloadCTAURL},
 
 	TypeTeamMemberChanged:    {PayloadAccount, PayloadRole, PayloadAction, PayloadCTAURL},
 	TypeOwnershipTransferred: {PayloadAccount, PayloadAgent, PayloadCTAURL},
@@ -129,6 +130,14 @@ func BillingActionRequired(accountID, accountName, hostedInvoiceURL string) Even
 // BillingSpendThreshold builds the billing.spend_threshold event.
 func BillingSpendThreshold(accountID, accountName string) Event {
 	return billingEvent(TypeBillingSpendThreshold, accountID, map[string]any{
+		PayloadAccount: accountName, PayloadCTAURL: "/settings/billing",
+	})
+}
+
+// BillingCreditsExhausted builds the billing.credits_exhausted event, CTA'd at
+// the billing page so adding a card is the one-click fix.
+func BillingCreditsExhausted(accountID, accountName string) Event {
+	return billingEvent(TypeBillingCreditsExhausted, accountID, map[string]any{
 		PayloadAccount: accountName, PayloadCTAURL: "/settings/billing",
 	})
 }

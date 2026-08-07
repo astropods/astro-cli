@@ -235,12 +235,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, deploymentFGA)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, deploymentFGA)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -328,6 +328,7 @@ func runAPI(
 	billingProvider billing.BillingProvider,
 	paymentProvider payment.Provider,
 	ent *middleware.Entitlements,
+	billingStatus *billing.StatusStore,
 	quotaChecker *quota.DBChecker,
 	avatarStore *avatar.Store,
 	readmeAssetStore *readmeassets.Store,
@@ -530,6 +531,7 @@ func runAPI(
 			SlackID:           slackIdentityStore,
 			Watcher:           watcherStore,
 			DeploymentFGASync: deploymentFGASync,
+			BillingStatus:     billingStatus,
 		},
 		Clients: Clients{
 			AgentIndex: agentIndex,
@@ -644,6 +646,7 @@ func runWorker(
 	agentIndex *agentindex.Index,
 	db *sql.DB,
 	billingProvider billing.BillingProvider,
+	paymentProvider payment.Provider,
 	orgClient *org.Client,
 	avatarStore *avatar.Store,
 	readmeAssetStore *readmeassets.Store,
@@ -758,6 +761,7 @@ func runWorker(
 		NotifyProvider:          notifyProvider,
 		Billing:                 billingProvider,
 		BillingBackend:          cfg.BillingBackend(),
+		PaymentProvider:         paymentProvider,
 		AccountStore:            accountStore,
 		AgentIndex:              agentIndex,
 		AvatarStore:             avatarStore,
@@ -1295,6 +1299,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
+				api.GET(accountManage, "/billing/status", "Get billing gating status", handlers.GetBillingStatus(log, deps.Stores.BillingStatus),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingStatusResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
+				)
+
 				// Payment method (Stripe card vault). A SetupIntent collects the
 				// card client-side; the confirm endpoint saves it and links the
 				// Stripe customer to the billing provider for charging.
@@ -1306,7 +1318,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.POST(accountManage, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend()),
+				api.POST(accountManage, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1322,7 +1334,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider),
+				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider, deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

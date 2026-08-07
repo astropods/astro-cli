@@ -125,19 +125,20 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // River client exists (the Queue wraps the client). New() sets .queue on each
 // non-nil field once the client is built.
 type wiredWorkers struct {
-	purge          *AccountPurgeWorker
-	insights       *InsightsRefreshWorker
-	insightsRollup *InsightsRollupWorker
-	migrate        *MigrateDeploymentClusterWorker
-	dunning        *DunningSweepWorker
-	billingResume  *BillingResumeWorker
-	metronomeHook  *MetronomeWebhookWorker
-	stripeHook     *StripeWebhookWorker
-	provisionSweep *BillingProvisionSweepWorker
-	ghBuild        *GitHubBuildWorker
-	observation    *ObservationSweepWorker
-	undeploy       *UndeployWorker
-	deploymentFGA  *DeploymentFGAReconcileWorker
+	purge           *AccountPurgeWorker
+	insights        *InsightsRefreshWorker
+	insightsRollup  *InsightsRollupWorker
+	migrate         *MigrateDeploymentClusterWorker
+	dunning         *DunningSweepWorker
+	billingResume   *BillingResumeWorker
+	metronomeHook   *MetronomeWebhookWorker
+	stripeHook      *StripeWebhookWorker
+	provisionSweep  *BillingProvisionSweepWorker
+	provisionWorker *BillingProvisionWorker
+	ghBuild         *GitHubBuildWorker
+	observation     *ObservationSweepWorker
+	undeploy        *UndeployWorker
+	deploymentFGA   *DeploymentFGAReconcileWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -165,6 +166,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var metronomeHook *MetronomeWebhookWorker
 	var stripeHook *StripeWebhookWorker
 	var provisionSweep *BillingProvisionSweepWorker
+	var provisionWorker *BillingProvisionWorker
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
 		if cfg.ServerConfig != nil {
@@ -189,18 +191,20 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)
 		log.Info("river: registered worker", "worker", "BillingSuspend/ResumeWorker")
 
-		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, log: log}
+		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), log: log}
 		addWorkerWithCatalogCheck(log, workers, metronomeHook)
-		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, log: log}
+		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), log: log}
 		addWorkerWithCatalogCheck(log, workers, stripeHook)
 		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
 
-		addWorkerWithCatalogCheck(log, workers, &BillingProvisionWorker{
+		provisionWorker = &BillingProvisionWorker{
 			accounts: cfg.AccountStore,
 			provider: cfg.Billing,
 			backend:  cfg.BillingBackend,
+			status:   statusStore,
 			log:      log,
-		})
+		}
+		addWorkerWithCatalogCheck(log, workers, provisionWorker)
 		provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}
 		addWorkerWithCatalogCheck(log, workers, provisionSweep)
 		log.Info("river: registered worker", "worker", "BillingProvision/SweepWorker")
@@ -529,18 +533,19 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 
 	return wiredWorkers{
-		purge:          pw,
-		insights:       insightsDiscovery,
-		migrate:        migrateWorker,
-		dunning:        dunningWorker,
-		billingResume:  billingResumeWorker,
-		metronomeHook:  metronomeHook,
-		stripeHook:     stripeHook,
-		provisionSweep: provisionSweep,
-		ghBuild:        ghBuildWorker,
-		observation:    observationSweep,
-		insightsRollup: insightsRollupDiscovery,
-		undeploy:       undeployWorker,
-		deploymentFGA:  deploymentFGAWorker,
+		purge:           pw,
+		insights:        insightsDiscovery,
+		migrate:         migrateWorker,
+		dunning:         dunningWorker,
+		billingResume:   billingResumeWorker,
+		metronomeHook:   metronomeHook,
+		stripeHook:      stripeHook,
+		provisionSweep:  provisionSweep,
+		provisionWorker: provisionWorker,
+		ghBuild:         ghBuildWorker,
+		observation:     observationSweep,
+		insightsRollup:  insightsRollupDiscovery,
+		undeploy:        undeployWorker,
+		deploymentFGA:   deploymentFGAWorker,
 	}
 }

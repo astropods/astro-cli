@@ -70,6 +70,9 @@ type Stores struct {
 	SlackID           *slackidentity.Store
 	Watcher           *watcher.Store
 	DeploymentFGASync *authz.DeploymentFGASyncStore
+	// BillingStatus is nil for non-metronome backends; handlers treat that as
+	// "every account active".
+	BillingStatus *billing.StatusStore
 }
 
 type Clients struct {

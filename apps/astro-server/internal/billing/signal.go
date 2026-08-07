@@ -19,6 +19,11 @@ const (
 	SignalVoided         Signal = "voided"          // invoice voided → debt gone, clear all collection flags
 	SignalRecovery       Signal = "recovery"        // payment succeeded → clear dunning + alert
 	SignalCardUpdated    Signal = "card_updated"    // card network auto-updated an expired card → clear dunning
+
+	SignalCreditsExhausted Signal = "credits_exhausted" // Metronome low-remaining-credit alert → gate a card-less account
+	SignalCreditsGranted   Signal = "credits_granted"   // we granted credit → lift the exhaustion latch
+	SignalCardAdded        Signal = "card_added"        // card vaulted → pay-as-you-go, exhaustion stops gating
+	SignalCardRemoved      Signal = "card_removed"      // card removed → back to the free-tier floor
 )
 
 // ApplySignal writes the collection flags for a signal and recomputes the cached
@@ -56,6 +61,16 @@ func ApplySignal(ctx context.Context, store *StatusStore, accountID string, sig 
 		// dunning so the next Stripe/Metronome retry starts clean; leave any
 		// balance alert intact.
 		err = store.ClearDunning(ctx, accountID)
+	case SignalCreditsExhausted:
+		err = store.SetCreditsExhausted(ctx, accountID)
+	case SignalCreditsGranted:
+		err = store.ClearCreditsExhausted(ctx, accountID)
+	case SignalCardAdded:
+		// The exhaustion latch stays set — credits really are spent. It just
+		// stops gating, which is the whole of the pay-as-you-go transition.
+		err = store.SetPaymentMethod(ctx, accountID, true)
+	case SignalCardRemoved:
+		err = store.SetPaymentMethod(ctx, accountID, false)
 	default:
 		return StatusActive, false, fmt.Errorf("unknown billing signal: %q", sig)
 	}

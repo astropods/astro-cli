@@ -2257,6 +2257,16 @@ export interface PaymentMethodResponse {
   card?: SavedCard;
 }
 
+/** Gating state for the account. `credits_exhausted` + `has_payment_method`
+ *  are reported alongside the status so the banner can distinguish "free
+ *  credits spent" from a declined card without parsing `reason`. */
+export interface BillingStatusResponse {
+  status: 'active' | 'past_due' | 'suspended';
+  reason?: string;
+  credits_exhausted: boolean;
+  has_payment_method: boolean;
+}
+
 export interface SetupIntentResponse {
   client_secret: string;
   publishable_key: string;
@@ -3857,6 +3867,12 @@ class ApiClient {
     return this.request<PaymentMethodResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/billing/payment-method`,
       { method: 'POST', body: JSON.stringify({ setup_intent_id: setupIntentId }) }
+    );
+  }
+
+  async getBillingStatus(account: string): Promise<BillingStatusResponse> {
+    return this.request<BillingStatusResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/status`
     );
   }
 

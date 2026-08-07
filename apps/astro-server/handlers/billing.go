@@ -23,6 +23,46 @@ type BillingDataResponse struct {
 	Data      any  `json:"data,omitempty"`
 }
 
+// BillingStatusResponse is the account's gating state, for the client's banner.
+// It reports the cached status plus the two facts that explain it, so the UI can
+// distinguish "free credits spent, add a card" from "your card was declined"
+// without interpreting the reason string.
+type BillingStatusResponse struct {
+	Status           string `json:"status"` // active | past_due | suspended
+	Reason           string `json:"reason,omitempty"`
+	CreditsExhausted bool   `json:"credits_exhausted"`
+	HasPaymentMethod bool   `json:"has_payment_method"`
+}
+
+// GetBillingStatus handles GET /api/v1/accounts/:account/billing/status. It
+// reads the cached status only — no provider call — so it is cheap enough to
+// poll on every page. Without a status store (OSS) every account is active.
+func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+		if billingStatus == nil {
+			c.JSON(http.StatusOK, BillingStatusResponse{Status: string(billing.StatusActive)})
+			return
+		}
+		rec, err := billingStatus.Record(c.Request.Context(), acct.ID)
+		if err != nil {
+			log.Error("Failed to load billing status", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load billing status"})
+			return
+		}
+		c.JSON(http.StatusOK, BillingStatusResponse{
+			Status:           string(rec.Status),
+			Reason:           rec.Reason,
+			CreditsExhausted: rec.CreditsExhausted,
+			HasPaymentMethod: rec.HasPaymentMethod,
+		})
+	}
+}
+
 // resolveBillingCustomer resolves the account's billing customer, lazily
 // creating one on first access. Returns ("", false) when billing is not
 // available for this environment (OSS/noop) or the customer can't be

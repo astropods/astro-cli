@@ -24,15 +24,31 @@ const (
 	ReasonPaymentFailed = "payment_failed" // grace expired
 	ReasonBalanceAlert  = "balance_alert"  // Metronome hard threshold/spend alert
 	ReasonUncollectible = "uncollectible"  // Stripe marked an invoice uncollectible (write-off)
+	// ReasonCreditsExhausted is the free tier running dry with no card on file.
+	// An account with a card never reaches it — it bills pay-as-you-go instead.
+	ReasonCreditsExhausted = "credits_exhausted"
 )
 
 // StatusRecord is the gating-relevant state for one account.
 type StatusRecord struct {
-	Status         Status
-	Reason         string
-	DunningSince   *time.Time
-	AlertActive    bool
-	ForceSuspended bool
+	Status           Status
+	Reason           string
+	DunningSince     *time.Time
+	AlertActive      bool
+	ForceSuspended   bool
+	CreditsExhausted bool
+	HasPaymentMethod bool
+}
+
+// signals projects the record onto the state machine's inputs.
+func (r StatusRecord) signals() signals {
+	return signals{
+		dunningSince:     r.DunningSince,
+		alertActive:      r.AlertActive,
+		forceSuspended:   r.ForceSuspended,
+		creditsExhausted: r.CreditsExhausted,
+		hasPaymentMethod: r.HasPaymentMethod,
+	}
 }
 
 // StatusStore persists account_billing_status and owns the pure state machine.
@@ -52,21 +68,44 @@ func NewStatusStore(db *sql.DB, graceDays int) *StatusStore {
 	return &StatusStore{db: db, grace: time.Duration(graceDays) * 24 * time.Hour}
 }
 
+// signals is the raw per-account state the status machine reads.
+type signals struct {
+	dunningSince     *time.Time
+	alertActive      bool
+	forceSuspended   bool
+	creditsExhausted bool
+	hasPaymentMethod bool
+}
+
+// anyFlagSet reports whether any collection flag is raised. hasPaymentMethod is
+// excluded: it is a fact about the account, not a reason to gate it.
+func (s signals) anyFlagSet() bool {
+	return s.dunningSince != nil || s.alertActive || s.forceSuspended || s.creditsExhausted
+}
+
 // computeStatus is the pure state machine. First match wins:
-//  1. a terminal write-off      → suspended (uncollectible)
-//  2. an uncleared hard alert   → suspended (balance_alert)
-//  3. dunning past the grace    → suspended (payment_failed)
-//  4. dunning within grace      → past_due  (dunning)
-//  5. otherwise                 → active
-func computeStatus(dunningSince *time.Time, alertActive, forceSuspended bool, grace time.Duration, now time.Time) (Status, string) {
-	if forceSuspended {
+//  1. a terminal write-off       → suspended (uncollectible)
+//  2. an uncleared hard alert    → suspended (balance_alert)
+//  3. credits gone, no card      → suspended (credits_exhausted)
+//  4. dunning past the grace     → suspended (payment_failed)
+//  5. dunning within grace       → past_due  (dunning)
+//  6. otherwise                  → active
+//
+// Case 3 is the free tier's floor and is deliberately conditional on the card:
+// with one on file the account bills pay-as-you-go, so a spent balance is
+// expected rather than a reason to stop it.
+func computeStatus(s signals, grace time.Duration, now time.Time) (Status, string) {
+	if s.forceSuspended {
 		return StatusSuspended, ReasonUncollectible
 	}
-	if alertActive {
+	if s.alertActive {
 		return StatusSuspended, ReasonBalanceAlert
 	}
-	if dunningSince != nil {
-		if now.Sub(*dunningSince) > grace {
+	if s.creditsExhausted && !s.hasPaymentMethod {
+		return StatusSuspended, ReasonCreditsExhausted
+	}
+	if s.dunningSince != nil {
+		if now.Sub(*s.dunningSince) > grace {
 			return StatusSuspended, ReasonPaymentFailed
 		}
 		return StatusPastDue, ReasonDunning
@@ -93,28 +132,43 @@ func (s *StatusStore) Get(ctx context.Context, accountID string) (Status, string
 	return st, reason.String, nil
 }
 
-// inputs reads the raw signal columns (missing row ⇒ zero values ⇒ active).
-func (s *StatusStore) inputs(ctx context.Context, accountID string) (dunningSince *time.Time, alertActive, forceSuspended bool, curStatus Status, err error) {
+// rowQuerier is satisfied by both *sql.DB and *sql.Tx, so Record can be read
+// inside Recompute's transaction or standalone.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+const recordSelect = `
+	SELECT status, reason, dunning_since, alert_active, force_suspended, credits_exhausted, has_payment_method
+	FROM account_billing_status WHERE account_id = $1`
+
+// Record returns the full gating state for one account: the status machine's
+// inputs plus the status and reason it last produced. A missing row means
+// active with no flags set.
+func (s *StatusStore) Record(ctx context.Context, accountID string) (StatusRecord, error) {
+	return readRecord(ctx, s.db, accountID, recordSelect)
+}
+
+func readRecord(ctx context.Context, q rowQuerier, accountID, query string) (StatusRecord, error) {
 	var ds sql.NullTime
-	var alert, force sql.NullBool
-	var status sql.NullString
-	scanErr := s.db.QueryRowContext(ctx,
-		`SELECT dunning_since, alert_active, force_suspended, status FROM account_billing_status WHERE account_id = $1`, accountID,
-	).Scan(&ds, &alert, &force, &status)
-	if scanErr == sql.ErrNoRows {
-		return nil, false, false, StatusActive, nil
+	var status, reason sql.NullString
+	rec := StatusRecord{Status: StatusActive}
+	err := q.QueryRowContext(ctx, query, accountID).
+		Scan(&status, &reason, &ds, &rec.AlertActive, &rec.ForceSuspended, &rec.CreditsExhausted, &rec.HasPaymentMethod)
+	if err == sql.ErrNoRows {
+		return StatusRecord{Status: StatusActive}, nil
 	}
-	if scanErr != nil {
-		return nil, false, false, StatusActive, fmt.Errorf("read billing status inputs: %w", scanErr)
+	if err != nil {
+		return StatusRecord{}, fmt.Errorf("read billing status record: %w", err)
 	}
-	if ds.Valid {
-		dunningSince = &ds.Time
-	}
-	curStatus = StatusActive
 	if status.String != "" {
-		curStatus = Status(status.String)
+		rec.Status = Status(status.String)
 	}
-	return dunningSince, alert.Bool, force.Bool, curStatus, nil
+	rec.Reason = reason.String
+	if ds.Valid {
+		rec.DunningSince = &ds.Time
+	}
+	return rec, nil
 }
 
 // SetDunningSince marks the start of dunning (idempotent — keeps the earliest
@@ -189,6 +243,45 @@ func (s *StatusStore) ClearForceSuspend(ctx context.Context, accountID string) e
 	return nil
 }
 
+// SetCreditsExhausted latches the signup balance as spent. We don't depend on
+// Metronome signalling a recovery, so the latch is cleared by whoever grants
+// the next credit (ClearCreditsExhausted), not by the provider.
+func (s *StatusStore) SetCreditsExhausted(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, credits_exhausted, updated_at)
+		VALUES ($1, true, now())
+		ON CONFLICT (account_id) DO UPDATE SET credits_exhausted = true, updated_at = now()`, accountID)
+	if err != nil {
+		return fmt.Errorf("set credits_exhausted: %w", err)
+	}
+	return nil
+}
+
+// ClearCreditsExhausted lifts the latch after a fresh credit grant.
+func (s *StatusStore) ClearCreditsExhausted(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE account_billing_status SET credits_exhausted = false, updated_at = now() WHERE account_id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("clear credits_exhausted: %w", err)
+	}
+	return nil
+}
+
+// SetPaymentMethod records whether a card is on file. This is the fact that
+// turns an exhausted free account into a pay-as-you-go one, so it is written
+// synchronously by the card save/remove handlers rather than by a webhook.
+func (s *StatusStore) SetPaymentMethod(ctx context.Context, accountID string, present bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, has_payment_method, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (account_id) DO UPDATE SET has_payment_method = EXCLUDED.has_payment_method, updated_at = now()`,
+		accountID, present)
+	if err != nil {
+		return fmt.Errorf("set has_payment_method: %w", err)
+	}
+	return nil
+}
+
 // ListInDunning returns account IDs currently in past_due (the timer's work set).
 func (s *StatusStore) ListInDunning(ctx context.Context, limit int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
@@ -209,34 +302,50 @@ func (s *StatusStore) ListInDunning(ctx context.Context, limit int) ([]string, e
 	return ids, rows.Err()
 }
 
-// Recompute reads the account's signals, applies the state machine, and persists
-// the status when it changes. Returns the new status and whether it transitioned.
+// Recompute reads the account's signals, applies the state machine, and
+// persists status and reason when either changes. The read takes a row lock and
+// the write shares its transaction, so concurrent signals for one account
+// serialize instead of racing to write a status computed from stale flags.
+//
+// The returned bool means the *status* transitioned; a reason-only change
+// persists without reporting one, so callers that notify on a transition
+// (the dunning sweep) don't re-fire.
 func (s *StatusStore) Recompute(ctx context.Context, accountID string, now time.Time) (Status, bool, error) {
-	dunningSince, alertActive, forceSuspended, cur, err := s.inputs(ctx, accountID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return StatusActive, false, fmt.Errorf("begin recompute: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	rec, err := readRecord(ctx, tx, accountID, recordSelect+" FOR UPDATE")
 	if err != nil {
 		return StatusActive, false, err
 	}
-	next, reason := computeStatus(dunningSince, alertActive, forceSuspended, s.grace, now)
-	if next == cur {
+	sig := rec.signals()
+	next, reason := computeStatus(sig, s.grace, now)
+	if next == rec.Status && reason == rec.Reason {
 		return next, false, nil
 	}
-	// active + no existing row ⇒ nothing to write (absence already means active).
-	if next == StatusActive && dunningSince == nil && !alertActive && !forceSuspended {
-		if _, err := s.db.ExecContext(ctx,
+	changed := next != rec.Status
+
+	// active + no flags ⇒ never insert a row; absence already means active.
+	if next == StatusActive && !sig.anyFlagSet() {
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE account_billing_status SET status = $1, reason = NULL, updated_at = now() WHERE account_id = $2`,
 			string(StatusActive), accountID); err != nil {
 			return StatusActive, false, fmt.Errorf("persist active: %w", err)
 		}
-		return StatusActive, true, nil
-	}
-	if _, err := s.db.ExecContext(ctx, `
+	} else if _, err := tx.ExecContext(ctx, `
 		INSERT INTO account_billing_status (account_id, status, reason, updated_at)
 		VALUES ($1, $2, $3, now())
 		ON CONFLICT (account_id) DO UPDATE SET status = EXCLUDED.status, reason = EXCLUDED.reason, updated_at = now()`,
 		accountID, string(next), nullIfEmpty(reason)); err != nil {
 		return next, false, fmt.Errorf("persist billing status: %w", err)
 	}
-	return next, true, nil
+	if err := tx.Commit(); err != nil {
+		return next, false, fmt.Errorf("commit recompute: %w", err)
+	}
+	return next, changed, nil
 }
 
 func nullIfEmpty(s string) any {

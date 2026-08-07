@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -67,6 +68,8 @@ type BillingProvisionWorker struct {
 	accounts *account.AccountStore
 	provider billing.BillingProvider
 	backend  string
+	status   *billing.StatusStore
+	queue    *Queue // set post-construction in New(); enqueues resume
 	log      *logger.Logger
 }
 
@@ -132,6 +135,24 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 	if err := w.accounts.MarkBillingProvisioned(acct.ID); err != nil {
 		return err
 	}
+
+	// The account now holds credit, so lift any exhaustion latch and reconcile.
+	// We don't rely on Metronome signalling a recovery, so besides adding a card
+	// this is the only automatic way out of a credits_exhausted suspension; a
+	// grant issued from the dashboard needs the latch cleared by hand.
+	if w.status != nil {
+		newStatus, changed, err := billing.ApplySignal(ctx, w.status, acct.ID, billing.SignalCreditsGranted, time.Now())
+		if err != nil {
+			return err
+		}
+		if changed {
+			w.log.Info("billing status changed", "source", "provision", "account_id", acct.ID, "status", string(newStatus))
+		}
+		if err := reconcileWorkloads(ctx, w.queue, acct.ID, newStatus); err != nil {
+			return err
+		}
+	}
+
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
 	return nil
 }

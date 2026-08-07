@@ -14,26 +14,62 @@ func TestComputeStatus(t *testing.T) {
 	ptr := func(t time.Time) *time.Time { return &t }
 
 	cases := []struct {
-		name           string
-		dunningSince   *time.Time
-		alertActive    bool
-		forceSuspended bool
-		wantStatus     Status
-		wantReason     string
+		name       string
+		sig        signals
+		wantStatus Status
+		wantReason string
 	}{
-		{"clean", nil, false, false, StatusActive, ""},
-		{"dunning within grace", ptr(within), false, false, StatusPastDue, ReasonDunning},
-		{"dunning past grace", ptr(expired), false, false, StatusSuspended, ReasonPaymentFailed},
-		{"alert overrides clean", nil, true, false, StatusSuspended, ReasonBalanceAlert},
-		{"alert overrides dunning", ptr(within), true, false, StatusSuspended, ReasonBalanceAlert},
-		{"force suspend overrides clean", nil, false, true, StatusSuspended, ReasonUncollectible},
-		{"force suspend overrides alert", ptr(within), true, true, StatusSuspended, ReasonUncollectible},
+		{"clean", signals{}, StatusActive, ""},
+		{"dunning within grace", signals{dunningSince: ptr(within)}, StatusPastDue, ReasonDunning},
+		{"dunning past grace", signals{dunningSince: ptr(expired)}, StatusSuspended, ReasonPaymentFailed},
+		{"alert overrides clean", signals{alertActive: true}, StatusSuspended, ReasonBalanceAlert},
+		{"alert overrides dunning", signals{dunningSince: ptr(within), alertActive: true}, StatusSuspended, ReasonBalanceAlert},
+		{"force suspend overrides clean", signals{forceSuspended: true}, StatusSuspended, ReasonUncollectible},
+		{"force suspend overrides alert", signals{dunningSince: ptr(within), alertActive: true, forceSuspended: true}, StatusSuspended, ReasonUncollectible},
+
+		// Credit exhaustion gates the free tier only. A card is what turns the
+		// account into pay-as-you-go, so the same latch stops mattering.
+		{"credits exhausted, no card", signals{creditsExhausted: true}, StatusSuspended, ReasonCreditsExhausted},
+		{"credits exhausted, card on file", signals{creditsExhausted: true, hasPaymentMethod: true}, StatusActive, ""},
+		{"card alone changes nothing", signals{hasPaymentMethod: true}, StatusActive, ""},
+		// A paying customer still gates on payment collection, just not on balance.
+		{"card on file, payment failed past grace", signals{creditsExhausted: true, hasPaymentMethod: true, dunningSince: ptr(expired)}, StatusSuspended, ReasonPaymentFailed},
+		{"card on file, dunning within grace", signals{creditsExhausted: true, hasPaymentMethod: true, dunningSince: ptr(within)}, StatusPastDue, ReasonDunning},
+		// Exhaustion outranks dunning: "add a card" is the actionable message.
+		{"exhausted outranks dunning", signals{creditsExhausted: true, dunningSince: ptr(within)}, StatusSuspended, ReasonCreditsExhausted},
+		{"hard alert outranks exhaustion", signals{creditsExhausted: true, hasPaymentMethod: true, alertActive: true}, StatusSuspended, ReasonBalanceAlert},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotStatus, gotReason := computeStatus(tc.dunningSince, tc.alertActive, tc.forceSuspended, grace, now)
+			gotStatus, gotReason := computeStatus(tc.sig, grace, now)
 			if gotStatus != tc.wantStatus || gotReason != tc.wantReason {
 				t.Fatalf("computeStatus = (%s, %q), want (%s, %q)", gotStatus, gotReason, tc.wantStatus, tc.wantReason)
+			}
+		})
+	}
+}
+
+// anyFlagSet drives whether Recompute may skip writing a row at all, so a new
+// flag that gates must be counted and has_payment_method must not be.
+func TestSignalsAnyFlagSet(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name string
+		sig  signals
+		want bool
+	}{
+		{"empty", signals{}, false},
+		{"card only", signals{hasPaymentMethod: true}, false},
+		{"dunning", signals{dunningSince: &now}, true},
+		{"alert", signals{alertActive: true}, true},
+		{"force", signals{forceSuspended: true}, true},
+		{"exhausted", signals{creditsExhausted: true}, true},
+		{"exhausted with card", signals{creditsExhausted: true, hasPaymentMethod: true}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.sig.anyFlagSet(); got != tc.want {
+				t.Fatalf("anyFlagSet() = %v, want %v", got, tc.want)
 			}
 		})
 	}
