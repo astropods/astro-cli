@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -36,6 +37,38 @@ func TestNormalizeEmails(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeTokenName(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{name: "trims", in: "  Engineering laptops \n", want: "Engineering laptops"},
+		{name: "empty", in: "", wantErr: true},
+		{name: "whitespace only", in: "   ", wantErr: true},
+		{name: "at cap", in: strings.Repeat("a", maxTokenNameLen), want: strings.Repeat("a", maxTokenNameLen)},
+		{name: "over cap", in: strings.Repeat("a", maxTokenNameLen+1), wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeTokenName(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
 	}

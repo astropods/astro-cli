@@ -126,6 +126,39 @@ describe('IngestKeysPanel exclusions', () => {
     await waitFor(() => expect(patchBody).toEqual({ excluded_emails: ['excluded@x.com'] }));
   });
 
+  it('renames a source from the menu without revealing the key', async () => {
+    listReturns([key]);
+    let patchBody: { name: string } | null = null;
+    server.use(
+      http.patch('/api/v1/accounts/:account/otel-keys/:id/name', async ({ request }) => {
+        patchBody = (await request.json()) as { name: string };
+        return HttpResponse.json({ name: patchBody.name });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<IngestKeysPanel account="myorg" />);
+
+    const row = (await screen.findByText('Engineering laptops')).closest('tr')!;
+    await user.click(within(row).getByRole('button'));
+    await user.click(await screen.findByText('Rename'));
+
+    // Current name is prefilled; the secret key is never shown here.
+    const dialog = await screen.findByRole('dialog');
+    const input = within(dialog).getByLabelText('Name');
+    expect(input).toHaveValue('Engineering laptops');
+    expect(within(dialog).queryByText(/astotel_/)).toBeNull();
+
+    // Save is inert until the name actually changes.
+    expect(within(dialog).getByRole('button', { name: /^save$/i })).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, 'Contractor laptops');
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(patchBody).toEqual({ name: 'Contractor laptops' }));
+  });
+
   it('opens the create dialog when hotlinked with ?new=1', async () => {
     listReturns([]);
     renderWithProviders(<IngestKeysPanel account="myorg" />, { initialEntries: ['/settings/api-keys?new=1'] });

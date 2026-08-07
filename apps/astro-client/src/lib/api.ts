@@ -3709,6 +3709,18 @@ class ApiClient {
     );
   }
 
+  // Rename a source in place — no key rotation, key never revealed.
+  async renameOtelIngestKey(
+    account: string,
+    keyId: string,
+    name: string,
+  ): Promise<{ name: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/otel-keys/${encodeURIComponent(keyId)}/name`,
+      { method: 'PATCH', body: JSON.stringify({ name }) }
+    );
+  }
+
   // Edit a key's exclusion list in place — no key rotation, key never revealed.
   async updateOtelIngestKeyExclusions(
     account: string,

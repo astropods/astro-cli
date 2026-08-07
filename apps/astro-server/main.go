@@ -1240,6 +1240,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
+				api.PATCH(accountManage, "/otel-keys/:tokenID/name", "Rename an OTel ingest key", handlers.RenameOtelIngestToken(log, ingestTokenStore),
+					oapispec.Tags("Observability"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("tokenID", "Ingest key ID"),
+					oapispec.Body(&handlers.RenameOtelIngestTokenRequest{}),
+					oapispec.Response(200, &handlers.RenameOtelIngestTokenResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(404, &handlers.ErrorResponse{}),
+				)
 				api.PATCH(accountManage, "/otel-keys/:tokenID/exclusions", "Update an OTel ingest key's exclusion list", handlers.UpdateOtelIngestTokenExclusions(log, ingestTokenStore),
 					oapispec.Tags("Observability"),
 					oapispec.BearerAuth(),

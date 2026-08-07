@@ -47,6 +47,32 @@ func TestUpdateExclusionsNoActiveKeyReturnsErrNoRows(t *testing.T) {
 	}
 }
 
+func TestRenameUpdatesName(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectExec("UPDATE otel_ingest_tokens\\s+SET name").
+		WithArgs("Contractor laptops", "key-1", "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.Rename("acct-1", "key-1", "Contractor laptops"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestRenameNoActiveKeyReturnsErrNoRows(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectExec("UPDATE otel_ingest_tokens").
+		WithArgs("whatever", "missing", "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := store.Rename("acct-1", "missing", "whatever")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("want sql.ErrNoRows, got %v", err)
+	}
+}
+
 func TestCreateStoresExclusions(t *testing.T) {
 	store, mock := newMockStore(t)
 	emails := []string{"dev@x.com"}

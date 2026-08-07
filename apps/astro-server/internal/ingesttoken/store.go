@@ -109,6 +109,28 @@ func (s *Store) UpdateExclusions(accountID, id string, emails []string) error {
 	return nil
 }
 
+// Rename changes an active key's display name. Scoped to the account so one
+// account cannot rename another's key. Returns sql.ErrNoRows if no active key
+// matches. name is stored as given (callers normalize first).
+func (s *Store) Rename(accountID, id, name string) error {
+	res, err := s.db.Exec(`
+		UPDATE otel_ingest_tokens
+		SET name = $1
+		WHERE id = $2 AND account_id = $3 AND revoked_at IS NULL
+	`, name, id, accountID)
+	if err != nil {
+		return fmt.Errorf("ingesttoken rename: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("ingesttoken rename rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // ListByAccount returns the account's active (non-revoked) keys, newest first.
 func (s *Store) ListByAccount(accountID string) ([]*Token, error) {
 	rows, err := s.db.Query(`

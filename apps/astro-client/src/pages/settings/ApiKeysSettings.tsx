@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useSearchParams, type MetaFunction } from 'react-router'
-import { Trash2, MoreHorizontal, Loader2, ShieldOff, X, Eye, EyeOff, Database } from 'lucide-react'
+import { Trash2, MoreHorizontal, Loader2, ShieldOff, X, Eye, EyeOff, Database, Pencil } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,6 +40,7 @@ import {
   useOtelIngestKeys,
   useCreateOtelIngestKey,
   useRevokeOtelIngestKey,
+  useRenameOtelIngestKey,
   useUpdateOtelIngestKeyExclusions,
 } from '@/api/queries'
 import { useAuth } from '@/lib/auth'
@@ -198,6 +199,7 @@ export function IngestKeysPanel({ account }: { account: string }) {
   const { data, isLoading, error } = useOtelIngestKeys(account)
   const createMutation = useCreateOtelIngestKey(account)
   const revokeMutation = useRevokeOtelIngestKey(account)
+  const renameMutation = useRenameOtelIngestKey(account)
   const exclusionsMutation = useUpdateOtelIngestKeyExclusions(account)
   const { copy: copyKey, copied: keyCopied } = useCopyToClipboard()
   const { copy: copyBlock, copied: blockCopied } = useCopyToClipboard()
@@ -212,6 +214,8 @@ export function IngestKeysPanel({ account }: { account: string }) {
   const [keyRevealed, setKeyRevealed] = useState(false)
   const [revealExclusions, setRevealExclusions] = useState<string[]>([])
   const [revokeKey, setRevokeKey] = useState<OtelIngestKey | null>(null)
+  const [renameKey, setRenameKey] = useState<OtelIngestKey | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const [editKey, setEditKey] = useState<OtelIngestKey | null>(null)
   const [editExclusions, setEditExclusions] = useState<string[]>([])
   const [collectPrompts, setCollectPrompts] = useState(false)
@@ -231,6 +235,12 @@ export function IngestKeysPanel({ account }: { account: string }) {
     setEditKey(key)
     setEditExclusions(key.excluded_emails ?? [])
     exclusionsMutation.reset()
+  }
+
+  const openRename = (key: OtelIngestKey) => {
+    setRenameKey(key)
+    setRenameDraft(key.name)
+    renameMutation.reset()
   }
 
   const handleCreate = () => {
@@ -266,6 +276,15 @@ export function IngestKeysPanel({ account }: { account: string }) {
     revokeMutation.mutate(revokeKey.id, {
       onSuccess: () => setRevokeKey(null),
     })
+  }
+
+  const handleRename = () => {
+    const trimmed = renameDraft.trim()
+    if (!renameKey || !trimmed || trimmed === renameKey.name) return
+    renameMutation.mutate(
+      { keyId: renameKey.id, name: trimmed },
+      { onSuccess: () => setRenameKey(null) },
+    )
   }
 
   const handleSaveExclusions = () => {
@@ -316,7 +335,13 @@ export function IngestKeysPanel({ account }: { account: string }) {
           </TableHeader>
           <TableBody>
             {keys.map((key) => (
-              <KeyRow key={key.id} entry={key} onRevoke={() => setRevokeKey(key)} onEdit={() => openEdit(key)} />
+              <KeyRow
+                key={key.id}
+                entry={key}
+                onRevoke={() => setRevokeKey(key)}
+                onEdit={() => openEdit(key)}
+                onRename={() => openRename(key)}
+              />
             ))}
           </TableBody>
         </Table>
@@ -472,6 +497,50 @@ export function IngestKeysPanel({ account }: { account: string }) {
         </DialogContent>
       </Dialog>
 
+      {/* Rename — name only, key untouched and never revealed */}
+      <Dialog open={!!renameKey} onOpenChange={(open) => !open && setRenameKey(null)}>
+        <DialogContent className="max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Rename data source</DialogTitle>
+            <DialogDescription>
+              Only the display name changes. The ingestion key keeps working, so machines already sending telemetry
+              need no update.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label size="md" htmlFor="otel-key-rename">Name</Label>
+            <Input
+              id="otel-key-rename"
+              value={renameDraft}
+              autoFocus
+              placeholder="e.g. Engineering laptops"
+              disabled={renameMutation.isPending}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+            />
+            {renameMutation.isError && (
+              <p className="text-xs text-destructive">
+                {renameMutation.error instanceof Error ? renameMutation.error.message : 'Failed to rename data source.'}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" disabled={renameMutation.isPending}>Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={
+                !renameDraft.trim() || renameDraft.trim() === renameKey?.name || renameMutation.isPending
+              }
+              onClick={handleRename}
+            >
+              {renameMutation.isPending && <Loader2 className="size-3.5 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Revoke confirmation */}
       <Dialog open={!!revokeKey} onOpenChange={(open) => !open && setRevokeKey(null)}>
         <DialogContent className="max-w-[400px]">
@@ -532,7 +601,17 @@ export function IngestKeysPanel({ account }: { account: string }) {
   )
 }
 
-function KeyRow({ entry, onRevoke, onEdit }: { entry: OtelIngestKey; onRevoke: () => void; onEdit: () => void }) {
+function KeyRow({
+  entry,
+  onRevoke,
+  onEdit,
+  onRename,
+}: {
+  entry: OtelIngestKey
+  onRevoke: () => void
+  onEdit: () => void
+  onRename: () => void
+}) {
   const exclusionCount = entry.excluded_emails?.length ?? 0
   const kind = resolveDataSourceKind(entry.source_type)
   return (
@@ -580,6 +659,10 @@ function KeyRow({ entry, onRevoke, onEdit }: { entry: OtelIngestKey; onRevoke: (
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[160px]">
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="size-3.5" />
+              Rename
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={onEdit}>
               <ShieldOff className="size-3.5" />
               Edit exclusions

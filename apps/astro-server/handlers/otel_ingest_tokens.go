@@ -50,9 +50,36 @@ type UpdateOtelIngestTokenExclusionsResponse struct {
 	ExcludedEmails []string `json:"excluded_emails"`
 }
 
+// RenameOtelIngestTokenRequest replaces a key's display name.
+type RenameOtelIngestTokenRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+// RenameOtelIngestTokenResponse is the name as stored.
+type RenameOtelIngestTokenResponse struct {
+	Name string `json:"name"`
+}
+
 // maxExcludedEmails caps a key's exclusion list. Generous — a large team can
 // still be listed — while bounding the row and the ingest-time set.
 const maxExcludedEmails = 500
+
+// maxTokenNameLen bounds a key's display name. The column is unbounded text,
+// so this is what keeps a name renderable in the sources table.
+const maxTokenNameLen = 200
+
+// normalizeTokenName trims and length-checks a key name. Shared by create and
+// rename so a rename cannot set a name create would have rejected.
+func normalizeTokenName(in string) (string, error) {
+	name := strings.TrimSpace(in)
+	if name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	if len(name) > maxTokenNameLen {
+		return "", fmt.Errorf("name too long (max %d characters)", maxTokenNameLen)
+	}
+	return name, nil
+}
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
@@ -160,11 +187,12 @@ func CreateOtelIngestToken(
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
 			return
 		}
-		req.Name = strings.TrimSpace(req.Name)
-		if req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		name, err := normalizeTokenName(req.Name)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		req.Name = name
 
 		excluded, err := normalizeEmails(req.ExcludedEmails)
 		if err != nil {
@@ -238,6 +266,45 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
 		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", ""))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
+	}
+}
+
+// RenameOtelIngestToken changes a key's display name. Naming is otherwise
+// only possible at creation; the credential itself is untouched, so this
+// neither rotates nor re-reveals the key.
+// PATCH /api/v1/accounts/:account/otel-keys/:tokenID/name
+func RenameOtelIngestToken(log *logger.Logger, store *ingesttoken.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+		tokenID := c.Param("tokenID")
+
+		var req RenameOtelIngestTokenRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+			return
+		}
+		name, err := normalizeTokenName(req.Name)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := store.Rename(acct.ID, tokenID, name); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
+				return
+			}
+			log.Error("Failed to rename OTel ingest token", "error", err, "account_id", acct.ID, "token_id", tokenID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename ingest key"})
+			return
+		}
+
+		log.Info("OTel ingest token renamed", "account_id", acct.ID, "token_id", tokenID)
+		c.JSON(http.StatusOK, RenameOtelIngestTokenResponse{Name: name})
 	}
 }
 

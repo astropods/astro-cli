@@ -31,6 +31,17 @@ export function useRevokeOtelIngestKey(account: string) {
   });
 }
 
+export function useRenameOtelIngestKey(account: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ keyId, name }: { keyId: string; name: string }) =>
+      api.renameOtelIngestKey(account, keyId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: otelIngestKeyKeys.byAccount(account) });
+    },
+  });
+}
+
 export function useUpdateOtelIngestKeyExclusions(account: string) {
   const qc = useQueryClient();
   return useMutation({
