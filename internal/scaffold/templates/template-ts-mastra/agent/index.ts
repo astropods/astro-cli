@@ -86,7 +86,9 @@ const agent = new Agent({
 {{- end}}
   memory,
   // Ensure traces include stable Astro metadata by default.
-  // The collector endpoint is injected by `ast dev`.
+  // The collector endpoint (OTEL_EXPORTER_OTLP_ENDPOINT) is injected in deployed
+  // environments only — `ast project start` runs no collector, so local tracing
+  // is a silent no-op.
   defaultOptions: {
     tracingOptions: {
       tags: ['astro', 'agent:{{.Name}}'],
