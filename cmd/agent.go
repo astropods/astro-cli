@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
 )
+
+// agentLogsTailLines is how many recent lines `ast agent logs` fetches. The
+// server defaults to 200, which is a few seconds of a debug-level sidecar.
+const agentLogsTailLines = 500
 
 // agentServerURLOverride is set in tests to redirect API calls to a test server.
 var agentServerURLOverride string
@@ -702,6 +707,11 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 	q.Set("workload", workload)
 	q.Set("container", container)
 	q.Set("since", since)
+	// Page backwards from now: the server's default direction is forward, which
+	// returns the *oldest* lines in the window. On a chatty container that hides
+	// whatever just happened, which is the reason to run this command at all.
+	q.Set("direction", "backward")
+	q.Set("tailLines", strconv.Itoa(agentLogsTailLines))
 	batchURL := fmt.Sprintf("%s/api/v1/deployments/%s/logs?%s", agentBaseURL(), url.PathEscape(dep.ID), q.Encode())
 
 	var raw json.RawMessage
