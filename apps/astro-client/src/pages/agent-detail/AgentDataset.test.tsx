@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -18,7 +18,18 @@ import type {
   ReviewQueueResponse,
   TraceDetailResponse,
 } from "@/lib/api";
+import type { AuthContextType } from "@/lib/auth-context";
+import { coachmarkStorageKey } from "@/hooks/use-persistent-coachmark";
 import AgentDataset from "./AgentDataset";
+
+const AUTO_JUDGE_ONBOARDING_KEY = coachmarkStorageKey(
+  "llm-judge",
+  mockAuthContext.user!.id,
+);
+
+beforeEach(() => {
+  localStorage.setItem(AUTO_JUDGE_ONBOARDING_KEY, "true");
+});
 
 afterEach(cleanup);
 afterEach(() => {
@@ -229,9 +240,11 @@ function setupDataset(
 function renderDataset({
   deploymentId = "dep-test",
   tab = "dataset",
+  auth = mockAuthContext,
 }: {
   deploymentId?: string;
   tab?: "queue" | "dataset" | null;
+  auth?: AuthContextType;
 } = {}) {
   const query = tab ? `?tab=${tab}` : "";
   return renderRoute(
@@ -256,7 +269,7 @@ function renderDataset({
     ],
     {
       initialEntries: [`/testuser/agents/${deploymentId}/dataset${query}`],
-      auth: mockAuthContext,
+      auth,
     },
   );
 }
@@ -282,6 +295,110 @@ describe("error state", () => {
 });
 
 describe("review queue view", () => {
+  it("introduces auto-judging once per user before enabling its hover popup", async () => {
+    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+    const queue = reviewQueueResponse([queueItem({})]);
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      queue,
+    );
+    let resolveQueue!: (value: ReviewQueueResponse) => void;
+    const pendingQueue = new Promise<ReviewQueueResponse>((resolve) => {
+      resolveQueue = resolve;
+    });
+    mockReviewQueueRequest(() => pendingQueue);
+
+    const user = userEvent.setup();
+    const { unmount } = renderDataset({ tab: null });
+    const judgeButton = await screen.findByRole("button", {
+      name: "Run AI Judge",
+    });
+
+    expect(judgeButton).toBeDisabled();
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+    await user.hover(judgeButton.parentElement!);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    resolveQueue(queue);
+    expect(
+      await screen.findByRole("heading", {
+        name: "Save time with auto-judging",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Score every trace in one pass to streamline judging, then just confirm the verdicts or pick your own.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.hover(judgeButton);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBe("true");
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+
+    const hoverJudgeButton = screen.getByRole("button", {
+      name: "Run AI Judge",
+    });
+    await user.hover(hoverJudgeButton);
+    expect(await screen.findByRole("tooltip")).toBeInTheDocument();
+
+    unmount();
+    const { unmount: unmountReturningUser } = renderDataset({ tab: null });
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+
+    unmountReturningUser();
+    renderDataset({
+      tab: null,
+      auth: {
+        ...mockAuthContext,
+        user: { ...mockAuthContext.user!, id: "user-2" },
+      },
+    });
+    expect(
+      await screen.findByRole("heading", {
+        name: "Save time with auto-judging",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("dismisses onboarding when the user runs the judge", async () => {
+    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([queueItem({})]),
+    );
+    mockRunPredictions(() => ({
+      enqueued_trace_ids: ["trace-1"],
+      failed_trace_ids: [],
+    }));
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Save time with auto-judging",
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+
+    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBe("true");
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows an empty queue message when there are no traces to review", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
 
@@ -452,6 +569,7 @@ describe("review queue view", () => {
   );
 
   it("disables the judge button while predictions are active", async () => {
+    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -471,13 +589,19 @@ describe("review queue view", () => {
       ]),
     );
 
+    const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Judging 2 items" }),
-      ).toBeDisabled();
+    const judgeButton = await screen.findByRole("button", {
+      name: "Judging 2 items",
     });
+    await waitFor(() => expect(judgeButton).toBeDisabled());
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
+    await user.hover(judgeButton.parentElement!);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("shows a warning banner for a failed prediction", async () => {
@@ -504,6 +628,7 @@ describe("review queue view", () => {
   });
 
   it("disables the judge button when the loaded queue has nothing to judge", async () => {
+    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
 
     const user = userEvent.setup();
@@ -513,6 +638,10 @@ describe("review queue view", () => {
       name: "Run AI Judge",
     });
     await waitFor(() => expect(judgeButton).toBeDisabled());
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
 
     await user.hover(judgeButton.parentElement!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
@@ -559,6 +688,7 @@ describe("review queue view", () => {
   });
 
   it("enables the judge button when the Not judged filter finds an unjudged trace", async () => {
+    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
     const predictedItem = queueItem({
       trace_id: "trace-predicted-good",
       output: "Predicted response",
@@ -595,6 +725,10 @@ describe("review queue view", () => {
       name: "Run AI Judge",
     });
     await waitFor(() => expect(judgeButton).toBeDisabled());
+    expect(
+      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
 
     await user.click(
       screen.getByRole("combobox", { name: "Filter review queue" }),
@@ -603,6 +737,11 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("Unjudged response")).toBeInTheDocument();
     expect(judgeButton).toBeEnabled();
+    expect(
+      await screen.findByRole("heading", {
+        name: "Save time with auto-judging",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("disables the judge button when every queue item has a prediction", async () => {

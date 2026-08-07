@@ -542,8 +542,8 @@ html.dark .sbdocs-preview {
   animation: card-edit-entrance 0.5s ease both;
 }
 
-/* First-run chat agent-switcher coachmark: a one-shot entrance on the wrapper,
-   a gentle infinite bob on the bubble to draw the eye up to the switcher. */
+/* First-run coachmarks: a one-shot entrance on the wrapper, then a gentle
+   infinite bob on the bubble to draw the eye toward the anchored action. */
 @keyframes coachmark-in {
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

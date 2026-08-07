@@ -1,13 +1,27 @@
-import { ExternalLink, PanelRight, SquarePen } from "lucide-react";
+import {
+  ArrowLeftRight,
+  ExternalLink,
+  PanelRight,
+  SquarePen,
+  X,
+} from "lucide-react";
 import { useCallback, useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CONVERSATION_TITLE, type ChatSession } from "@/lib/chat/types";
 import { AgentDeploymentMenu } from "@/components/agent-detail/AgentDeploymentMenu";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { useDeployments, useDeploymentsSummary } from "@/api/queries/deployments";
-import { accountBlueprintsPath, chatDeploymentPath, explorePath } from "@/lib/routes";
+import {
+  useDeployments,
+  useDeploymentsSummary,
+} from "@/api/queries/deployments";
+import {
+  accountBlueprintsPath,
+  chatDeploymentPath,
+  explorePath,
+} from "@/lib/routes";
 import { Button } from "@/components/ui/button";
+import { Coachmark } from "@/components/ui/coachmark";
 import {
   Tooltip,
   TooltipContent,
@@ -15,7 +29,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ConversationHistoryDropdown } from "./ConversationHistoryDropdown";
-import { ChatAgentSwitchCoachmark } from "./ChatAgentSwitchCoachmark";
 
 // Set once the user opens the agent switcher or dismisses the coachmark, so
 // the first-run nudge never shows again. Plain localStorage (not the shared
@@ -139,24 +152,43 @@ export function ChatThreadHeader({
 
   return (
     <header className="@container relative z-10 flex h-[52px] shrink-0 items-center gap-3 border-b border-border/60 px-3 md:px-4">
-      <AgentDeploymentMenu
-        deployment={deployment}
-        triggerClassName={cn(
-          "dark:mt-0 dark:ml-0",
-          showCoachmark &&
-            "bg-primary/10 ring-1 ring-inset ring-primary/50 dark:bg-primary-400/10 dark:ring-primary-400/50",
-        )}
-        eligibleDeploymentIds={eligibleDeploymentIds}
-        getDeploymentPath={(_acct, dep) => chatDeploymentPath(dep.id)}
-        showAccountLabels
-        deployMoreHref={deployMoreHref}
-        onOpenChange={(open) => {
-          if (open) dismissCoachmark();
-        }}
-      />
-      {showCoachmark ? (
-        <ChatAgentSwitchCoachmark onClose={dismissCoachmark} />
-      ) : null}
+      <Coachmark
+        open={showCoachmark}
+        anchor={
+          <AgentDeploymentMenu
+            deployment={deployment}
+            triggerClassName={cn(
+              "dark:mt-0 dark:ml-0",
+              showCoachmark &&
+                "bg-primary/10 ring-1 ring-inset ring-primary/50 dark:bg-primary-400/10 dark:ring-primary-400/50",
+            )}
+            eligibleDeploymentIds={eligibleDeploymentIds}
+            getDeploymentPath={(_acct, dep) => chatDeploymentPath(dep.id)}
+            showAccountLabels
+            deployMoreHref={deployMoreHref}
+            onOpenChange={(open) => {
+              if (open) dismissCoachmark();
+            }}
+          />
+        }
+        announcement="Switch agents here"
+        sideOffset={8}
+        contentClassName="flex items-center gap-2.5 py-2 pl-3 pr-2 text-body text-foreground"
+      >
+        <ArrowLeftRight className="size-4 shrink-0 text-foreground-accent" />
+        <span className="whitespace-nowrap font-medium">
+          Switch agents here
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Dismiss"
+          onClick={dismissCoachmark}
+          className="-mr-0.5 ml-1 text-muted-foreground hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </Button>
+      </Coachmark>
 
       <div
         aria-hidden
@@ -216,7 +248,10 @@ export function ChatThreadHeader({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <a
-                    href={chatDeploymentPath(deployment.id, activeConversationId)}
+                    href={chatDeploymentPath(
+                      deployment.id,
+                      activeConversationId,
+                    )}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label="Open chat in new tab"

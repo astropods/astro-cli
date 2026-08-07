@@ -5,7 +5,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AutoJudgePopover } from "./AutoJudgePopover";
+import {
+  AutoJudgeAction,
+  type AutoJudgeState,
+} from "./AutoJudgeAction";
 
 const REVIEW_QUEUE_FILTER_OPTIONS = [
   { label: "All verdicts", value: "all" },
@@ -21,7 +24,7 @@ export type ReviewQueueFilterValue =
 export function ReviewQueueToolbar({
   deploymentId,
   account,
-  autoJudgeDisabled,
+  autoJudgeState,
   judgingCount,
   onJudgingStarted,
   filter,
@@ -29,7 +32,7 @@ export function ReviewQueueToolbar({
 }: {
   deploymentId: string;
   account: string;
-  autoJudgeDisabled: boolean;
+  autoJudgeState: AutoJudgeState;
   judgingCount: number;
   onJudgingStarted?: (predictionCount: number) => void;
   filter: ReviewQueueFilterValue;
@@ -37,10 +40,10 @@ export function ReviewQueueToolbar({
 }) {
   return (
     <div className="flex flex-none items-center justify-between gap-3 border-b border-border px-4 py-3">
-      <AutoJudgePopover
+      <AutoJudgeAction
         deploymentId={deploymentId}
         account={account}
-        disabled={autoJudgeDisabled}
+        state={autoJudgeState}
         judgingCount={judgingCount}
         onJudgingStarted={onJudgingStarted}
       />

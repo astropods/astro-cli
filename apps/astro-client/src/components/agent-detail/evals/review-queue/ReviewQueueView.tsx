@@ -123,6 +123,7 @@ export function ReviewQueueView({
   const {
     data: predictionStatus,
     isError: predictionStatusIsError,
+    isLoading: predictionStatusIsLoading,
   } = useReviewQueuePredictionStatus(deploymentId);
   const {
     data,
@@ -161,10 +162,14 @@ export function ReviewQueueView({
     predictionFilter !== undefined &&
     allQueueFullyJudged &&
     !hasVisibleUnjudgedItems;
-  const autoJudgeDisabled =
-    hasActivePredictions ||
-    currentAllQueueFullyJudged ||
-    filteredQueueFullyJudged;
+  const autoJudgeLoading = isLoading || predictionStatusIsLoading;
+  const autoJudgeState = autoJudgeLoading
+    ? "loading"
+    : hasActivePredictions
+      ? "judging"
+      : currentAllQueueFullyJudged || filteredQueueFullyJudged
+        ? "nothing-to-judge"
+        : "ready";
   const loadedPageCount = data?.pages.length ?? 0;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
@@ -529,7 +534,7 @@ export function ReviewQueueView({
             <ReviewQueueToolbar
               deploymentId={deploymentId}
               account={account}
-              autoJudgeDisabled={autoJudgeDisabled}
+              autoJudgeState={autoJudgeState}
               judgingCount={judgingCount}
               onJudgingStarted={(predictionCount) =>
                 setJudgingRun({
