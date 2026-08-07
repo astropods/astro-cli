@@ -128,7 +128,7 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	}
 
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -325,7 +325,7 @@ func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
 	// No credentials file — if validation weren't first, push would fail with "not authenticated".
 	// Spec is missing required top-level `agent`, so validation must fail first.
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: test-agent\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -384,7 +384,7 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	}
 
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: test-agent\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -594,7 +594,7 @@ func TestRegisterAgent_SendsPrivateVisibility(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -620,7 +620,7 @@ func TestRegisterAgent_SendsPublicVisibility(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -864,7 +864,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 
 	// Spec with @org/name format — the push should resolve to org namespace
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: \"@my-org/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
+	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: \"@my-org/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -910,7 +910,7 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 
 	// Spec references a different account (@acme-corp/test-agent).
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	specContent := "spec: package/v1\nname: \"@acme-corp/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"
+	specContent := "spec: blueprint/v1\nname: \"@acme-corp/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"
 	require.NoError(t, os.WriteFile(specPath, []byte(specContent), 0600))
 
 	origDir, _ := os.Getwd()
@@ -939,7 +939,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 	writeAccountTestCredentials(t, accountTestCreds(currentAccount))
 
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	specContent := fmt.Sprintf("spec: package/v1\nname: %q\nmeta: {}\nagent:\n  image: test:latest\n", specAgentName)
+	specContent := fmt.Sprintf("spec: blueprint/v1\nname: %q\nmeta: {}\nagent:\n  image: test:latest\n", specAgentName)
 	require.NoError(t, os.WriteFile(specPath, []byte(specContent), 0600))
 
 	origDir, _ := os.Getwd()

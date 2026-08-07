@@ -54,6 +54,32 @@ func renderAstroYml(t *testing.T, config ScaffoldConfig) string {
 	return yaml
 }
 
+// TestAstroYml_SpecVersion pins the scaffolded spec version to blueprint/v1 and
+// guards against re-emitting the deprecated meta block. The spec validator only
+// checks that `spec` is a non-empty string, so a wrong value here is silent —
+// this test is the only thing keeping the scaffold aligned with the spec.
+func TestAstroYml_SpecVersion(t *testing.T) {
+	yaml := renderAstroYml(t, ScaffoldConfig{
+		Name:            "spec-agent",
+		Description:     "spec",
+		Interfaces:      []string{"web"},
+		Integrations:    []string{},
+		IntegrationKeys: map[string]string{},
+		Knowledge:       []string{},
+		Ingestions:      []string{},
+	})
+
+	if !strings.Contains(yaml, "spec: blueprint/v1") {
+		t.Errorf("scaffold must emit 'spec: blueprint/v1', got:\n%s", yaml)
+	}
+	if strings.Contains(yaml, "package/v1") {
+		t.Errorf("scaffold must not emit the outdated 'package/v1', got:\n%s", yaml)
+	}
+	if strings.Contains(yaml, "meta:") {
+		t.Errorf("scaffold must not emit the deprecated 'meta' block, got:\n%s", yaml)
+	}
+}
+
 func TestAstroYml_GitHubUnderTools(t *testing.T) {
 	yaml := renderAstroYml(t, ScaffoldConfig{
 		Name:            "test-agent",

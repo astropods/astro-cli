@@ -134,13 +134,13 @@ Variables you need to run your agent, such as your API keys:
 
 Run `ast project configure` to set them. `ast project start` injects them into the agent container.
 
-The platform also auto-injects these variables into the agent container that you don't configure yourself:
+The platform also auto-injects these variables into the agent container that you don't configure yourself. **All of them are deployed-environment only** — `ast project start` injects your configured variables plus `GRPC_SERVER_ADDR` and `AGENT_FILES_DIR`, and nothing below. Read them with a fallback so the agent boots the same way locally:
 
 | Variable                      | Purpose                                                                                        |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP endpoint for agent telemetry (see below). Present in deployed environments only.    |
-| `ASTRO_AGENT_NAME`            | Agent name; use as OpenTelemetry `service.name`.                                               |
-| `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version`.                                            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP endpoint for agent telemetry (see below).                                            |
+| `ASTRO_AGENT_NAME`            | Agent name; use as OpenTelemetry `service.name` (fall back to a literal, e.g. `?? "agent"`).   |
+| `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version` (fall back to a literal, e.g. `?? "dev"`).  |
 | `ASTRO_AGENT_ID`              | Deployment ID of the running agent.                                                            |
 | `ASTRO_EXTERNAL_AGENT_URL`    | The agent's **public** HTTPS URL, e.g. `https://<host>`. Injected only when the agent exposes an endpoint (`agent.interfaces.frontend: true`) and a public host resolves. Use it to build absolute callback/webhook URLs that point back at your agent — see [OAuth-protected MCP servers](#connecting-to-oauth-protected-mcp-servers). |
 | `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host. Reachable from other components in the deployment, **not** from the public internet. |
