@@ -30,6 +30,11 @@ type Config struct {
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
 	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
 	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification
+	// Signup provisioning. Empty package disables it.
+	MetronomePackageID        string // METRONOME_PACKAGE_ID
+	MetronomeCreditTypeID     string // METRONOME_CREDIT_TYPE_ID — pricing unit
+	MetronomeSignupCredit     int    // METRONOME_SIGNUP_CREDIT — in the credit type's own unit
+	MetronomeCreditExpiryDays int    // METRONOME_CREDIT_EXPIRY_DAYS
 	// Stripe card-vault (payment-method collection only; Metronome charges the
 	// saved card). Enabled when StripeSecretKey is set. astro-server never moves
 	// money — it only creates SetupIntents and saves cards. Card setup is
@@ -417,21 +422,25 @@ func Load() (*Config, error) {
 			AppIdentifier:  getEnv("NOVU_APP_IDENTIFIER", ""),
 			SocketURL:      getEnv("NOVU_SOCKET_URL", ""),
 		},
-		BillingProvider:         getEnv("BILLING_PROVIDER", ""),
-		MetronomeAPIKey:         getEnv("METRONOME_API_KEY", ""),
-		MetronomeWebhookSecret:  getEnv("METRONOME_WEBHOOK_SECRET", ""),
-		StripeSecretKey:         getEnv("STRIPE_SECRET_KEY", ""),
-		StripePublishableKey:    getEnv("STRIPE_PUBLISHABLE_KEY", ""),
-		StripeWebhookSecret:     getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		BillingGateEnforce:      getEnv("BILLING_GATE_ENFORCE", "") == "true",
-		BillingDunningGraceDays: getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
-		QuotaEnforce:            getEnv("QUOTA_ENFORCE", "") == "true",
-		QuotaDefaults:           loadQuotaDefaults(),
-		LokiURL:                 getEnv("LOKI_URL", ""),
-		DeploymentLogBackend:    getEnv("DEPLOYMENT_LOG_BACKEND", ""),
-		PrometheusURL:           getEnv("PROMETHEUS_URL", ""),
-		OTelIngestEndpoint:      getEnv("OTEL_INGEST_ENDPOINT", ""),
-		RedisURL:                getEnv("REDIS_URL", ""),
+		BillingProvider:           getEnv("BILLING_PROVIDER", ""),
+		MetronomeAPIKey:           getEnv("METRONOME_API_KEY", ""),
+		MetronomeWebhookSecret:    getEnv("METRONOME_WEBHOOK_SECRET", ""),
+		MetronomePackageID:        getEnv("METRONOME_PACKAGE_ID", ""),
+		MetronomeCreditTypeID:     getEnv("METRONOME_CREDIT_TYPE_ID", ""),
+		MetronomeSignupCredit:     getEnvIntDefault("METRONOME_SIGNUP_CREDIT", 0),
+		MetronomeCreditExpiryDays: getEnvIntDefault("METRONOME_CREDIT_EXPIRY_DAYS", 0),
+		StripeSecretKey:           getEnv("STRIPE_SECRET_KEY", ""),
+		StripePublishableKey:      getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeWebhookSecret:       getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		BillingGateEnforce:        getEnv("BILLING_GATE_ENFORCE", "") == "true",
+		BillingDunningGraceDays:   getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
+		QuotaEnforce:              getEnv("QUOTA_ENFORCE", "") == "true",
+		QuotaDefaults:             loadQuotaDefaults(),
+		LokiURL:                   getEnv("LOKI_URL", ""),
+		DeploymentLogBackend:      getEnv("DEPLOYMENT_LOG_BACKEND", ""),
+		PrometheusURL:             getEnv("PROMETHEUS_URL", ""),
+		OTelIngestEndpoint:        getEnv("OTEL_INGEST_ENDPOINT", ""),
+		RedisURL:                  getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -439,6 +448,25 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// validateBilling checks the Metronome provisioning settings hang together.
+// Defaults are off (no credit), so a partial config is an operator mistake:
+// left to run it would error on every grant, and a grant error is not a 409,
+// so the sweep would retry the same account forever.
+func (c *Config) validateBilling() error {
+	if c.MetronomePackageID == "" || c.MetronomeSignupCredit <= 0 {
+		return nil
+	}
+	if c.MetronomeCreditTypeID == "" {
+		return fmt.Errorf("METRONOME_CREDIT_TYPE_ID is required when METRONOME_PACKAGE_ID is set and METRONOME_SIGNUP_CREDIT > 0")
+	}
+	// Metronome requires an expiry on every credit grant — there is no
+	// never-expires — so 0 days would grant credit that is already dead.
+	if c.MetronomeCreditExpiryDays <= 0 {
+		return fmt.Errorf("METRONOME_CREDIT_EXPIRY_DAYS must be > 0 when METRONOME_SIGNUP_CREDIT > 0")
+	}
+	return nil
 }
 
 // Validate validates the configuration
@@ -468,6 +496,10 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop or metronome)", c.BillingProvider)
 		}
+	}
+
+	if err := c.validateBilling(); err != nil {
+		return err
 	}
 
 	// Deployment config only required for API mode

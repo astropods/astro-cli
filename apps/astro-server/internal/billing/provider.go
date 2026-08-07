@@ -25,6 +25,11 @@ var ErrBillingUnavailable = errors.New("billing: not available")
 // not a server error.
 var ErrInvoiceNotAvailable = errors.New("billing: invoice not available")
 
+// ErrProvisionBlocked marks a provisioning failure only an operator can clear
+// (a customer already covered by someone else's contract). Retrying cannot fix
+// it, so callers should stop rather than back off.
+var ErrProvisionBlocked = errors.New("billing: provisioning blocked")
+
 // UsageEvent is a single metered usage record. TransactionID is the idempotency
 // key (the metering UUID) so retries and backfills dedupe. Properties carries
 // the metric payload (e.g. cu_hours, model, component).
@@ -44,6 +49,15 @@ type Account struct {
 	OwnerEmail string
 	// BifrostCustomerID, when set, is added as an ingest alias at creation.
 	BifrostCustomerID string
+}
+
+// Provisioner puts a customer on the rate card and grants signup credit. Kept
+// off BillingProvider (interface assertion) so noop implements nothing.
+type Provisioner interface {
+	// ProvisionCustomer is idempotent — keyed on accountID provider-side. The
+	// bool is false when the provider is unconfigured: nothing provisioned,
+	// nothing failed, so callers must not record the account as done.
+	ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error)
 }
 
 // BillingProvider is the provider-agnostic metering contract: customer

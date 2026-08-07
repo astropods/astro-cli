@@ -19,6 +19,7 @@ import (
 
 	"github.com/Metronome-Industries/metronome-go/v3"
 	"github.com/Metronome-Industries/metronome-go/v3/option"
+	"github.com/Metronome-Industries/metronome-go/v3/packages/param"
 	"github.com/Metronome-Industries/metronome-go/v3/shared"
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
@@ -31,15 +32,25 @@ const ingestBatchLimit = 100
 // Config holds the settings the Metronome provider needs.
 type Config struct {
 	APIKey string // METRONOME_API_KEY (bearer token)
+
+	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op.
+	PackageID        string  // METRONOME_PACKAGE_ID
+	CreditTypeID     string  // METRONOME_CREDIT_TYPE_ID — pricing unit
+	SignupCredit     float64 // METRONOME_SIGNUP_CREDIT — in the credit type's own unit
+	CreditExpiryDays int     // METRONOME_CREDIT_EXPIRY_DAYS
 }
 
 // Provider is the Metronome-backed billing provider.
 type Provider struct {
-	mc metronome.Client
+	mc  metronome.Client
+	cfg Config
 }
 
-// Compile-time assertion.
-var _ billing.BillingProvider = (*Provider)(nil)
+// Compile-time assertions.
+var (
+	_ billing.BillingProvider = (*Provider)(nil)
+	_ billing.Provisioner     = (*Provider)(nil)
+)
 
 // New constructs a Metronome provider. Returns nil when no API key is set so
 // callers' `provider == nil` guards behave like the other backends.
@@ -48,13 +59,24 @@ func New(cfg Config) *Provider {
 		return nil
 	}
 	return &Provider{
-		mc: metronome.NewClient(option.WithBearerToken(cfg.APIKey)),
+		mc:  metronome.NewClient(option.WithBearerToken(cfg.APIKey)),
+		cfg: cfg,
 	}
 }
 
 // CreateCustomer creates a Metronome customer keyed on the Astro account ID as
 // an ingest alias, so usage events attribute by account ID.
+//
+// Customer creation takes no uniqueness key, so unlike the contract and grant
+// it cannot lean on a 409. It resolves the alias first instead: if the caller
+// created a customer and then failed to persist the id, the retry adopts it
+// rather than creating a second customer and splitting the account's usage.
 func (p *Provider) CreateCustomer(ctx context.Context, a billing.Account) (string, error) {
+	if existing, err := p.customerByAlias(ctx, a.ID); err != nil {
+		return "", err
+	} else if existing != "" {
+		return existing, nil
+	}
 	aliases := []string{a.ID}
 	if a.BifrostCustomerID != "" {
 		aliases = append(aliases, a.BifrostCustomerID)
@@ -67,6 +89,21 @@ func (p *Provider) CreateCustomer(ctx context.Context, a billing.Account) (strin
 		return "", fmt.Errorf("metronome create customer: %w", err)
 	}
 	return resp.Data.ID, nil
+}
+
+// customerByAlias returns the customer carrying the ingest alias, or "".
+func (p *Provider) customerByAlias(ctx context.Context, alias string) (string, error) {
+	page, err := p.mc.V1.Customers.List(ctx, metronome.V1CustomerListParams{
+		IngestAlias: param.NewOpt(alias),
+		Limit:       param.NewOpt(int64(1)),
+	})
+	if err != nil {
+		return "", fmt.Errorf("metronome find customer by alias: %w", err)
+	}
+	if len(page.Data) == 0 {
+		return "", nil
+	}
+	return page.Data[0].ID, nil
 }
 
 // SetIngestAliases replaces the customer's ingest aliases.
@@ -117,6 +154,117 @@ func (p *Provider) LinkStripeCustomer(ctx context.Context, metronomeCustomerID, 
 		return fmt.Errorf("metronome link stripe customer: %w", err)
 	}
 	return nil
+}
+
+// ProvisionCustomer puts the customer on the configured package and grants its
+// signup credit. Both writes carry a uniqueness key derived from the account
+// ID, so Metronome rejects a repeat with 409 and this treats that as already
+// provisioned. Reports false when no package is configured.
+func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error) {
+	if p.cfg.PackageID == "" {
+		return false, nil
+	}
+	now := time.Now().UTC().Truncate(time.Hour)
+
+	// A contract made outside this path (by hand in the dashboard) carries no
+	// uniqueness key, so Contracts.New would not 409 against it. covering_date
+	// filters to contracts effective now.
+	existing, err := p.mc.V1.Contracts.List(ctx, metronome.V1ContractListParams{
+		CustomerID:   customerID,
+		CoveringDate: param.NewOpt(now),
+	})
+	if err != nil {
+		return false, fmt.Errorf("metronome list contracts: %w", err)
+	}
+
+	contractKey := "contract:" + accountID
+	switch cov, foreign := classifyCoverage(existing.Data, p.cfg.PackageID, contractKey); cov {
+	case coverageOurs:
+		// Already on the right package; the grant below is separately keyed.
+	case coverageNone:
+		// PackageID is mutually exclusive with the rest of the contract fields:
+		// only customer_id, starting_at, package_id, uniqueness_key, transition,
+		// and custom_fields are accepted alongside it.
+		_, err = p.mc.V1.Contracts.New(ctx, metronome.V1ContractNewParams{
+			CustomerID:    customerID,
+			StartingAt:    now,
+			PackageID:     param.NewOpt(p.cfg.PackageID),
+			UniquenessKey: param.NewOpt(contractKey),
+		})
+		if err != nil && !isConflict(err) {
+			return false, fmt.Errorf("metronome create contract: %w", err)
+		}
+	case coverageForeign:
+		// Adding ours would stack a second contract; skipping would silently
+		// bill the account on someone else's rates. Neither is ours to choose,
+		// so archive the stray contract in Metronome. Not retryable, so the
+		// caller cancels and the hourly sweep re-checks once rather than the
+		// job burning its whole backoff schedule every tick.
+		return false, fmt.Errorf("%w: customer %s is covered by a contract on package %q, want %s",
+			billing.ErrProvisionBlocked, customerID, foreign, p.cfg.PackageID)
+	}
+
+	if p.cfg.SignupCredit <= 0 {
+		return true, nil
+	}
+	expiry := now.AddDate(0, 0, p.cfg.CreditExpiryDays)
+	_, err = p.mc.V1.CreditGrants.New(ctx, metronome.V1CreditGrantNewParams{
+		CustomerID:    customerID,
+		Name:          "Signup credit",
+		ExpiresAt:     expiry,
+		Priority:      1,
+		GrantAmount:   metronome.V1CreditGrantNewParamsGrantAmount{Amount: p.cfg.SignupCredit, CreditTypeID: p.cfg.CreditTypeID},
+		PaidAmount:    metronome.V1CreditGrantNewParamsPaidAmount{Amount: 0, CreditTypeID: p.cfg.CreditTypeID},
+		UniquenessKey: param.NewOpt("signup-credit:" + accountID),
+	})
+	if err != nil && !isConflict(err) {
+		return false, fmt.Errorf("metronome create credit grant: %w", err)
+	}
+	return true, nil
+}
+
+// coverage classifies the contracts already covering a customer.
+type coverage int
+
+const (
+	coverageNone    coverage = iota // nothing covers the customer; create ours
+	coverageOurs                    // already on our package; leave it alone
+	coverageForeign                 // on someone else's package
+)
+
+// classifyCoverage scans every covering contract rather than trusting list
+// order. Ours anywhere wins, since a second contract on the same package would
+// double-bill; otherwise any foreign package is reported so the caller can
+// refuse. foreignPkg is set only for coverageForeign.
+//
+// A contract is ours by package or by the uniqueness key we created it with.
+// The key matters because it does not depend on the list response populating
+// package_id: without it, a contract we made would read as foreign on any
+// re-check — say a retry after the credit grant failed — and provisioning for
+// that account would be cancelled for good.
+func classifyCoverage(contracts []shared.Contract, wantPackage, wantKey string) (cov coverage, foreignPkg string) {
+	for _, c := range contracts {
+		if c.PackageID == wantPackage || (wantKey != "" && c.UniquenessKey == wantKey) {
+			return coverageOurs, ""
+		}
+	}
+	for _, c := range contracts {
+		if c.PackageID != "" {
+			return coverageForeign, c.PackageID
+		}
+	}
+	// A packageless contract still covers the customer, so creating ours would
+	// stack a second one. Treat it as foreign rather than as absent.
+	if len(contracts) > 0 {
+		return coverageForeign, ""
+	}
+	return coverageNone, ""
+}
+
+// isConflict reports a 409, which a uniqueness key returns for a repeat write.
+func isConflict(err error) bool {
+	var apiErr *metronome.Error
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }
 
 // IngestUsage sends usage events, chunked to the batch limit. The event UUID is

@@ -167,7 +167,11 @@ func main() {
 		log.Info("Billing provider: noop (unmetered)")
 	case config.BillingBackendMetronome:
 		mp := metronome.New(metronome.Config{
-			APIKey: cfg.MetronomeAPIKey,
+			APIKey:           cfg.MetronomeAPIKey,
+			PackageID:        cfg.MetronomePackageID,
+			CreditTypeID:     cfg.MetronomeCreditTypeID,
+			SignupCredit:     float64(cfg.MetronomeSignupCredit),
+			CreditExpiryDays: cfg.MetronomeCreditExpiryDays,
 		})
 		if mp == nil {
 			log.Error("BILLING_PROVIDER=metronome but METRONOME_API_KEY is not set; billing disabled")
@@ -1112,7 +1116,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("deployment", "Repeated visible deployment ID (max 100)", true),
 				oapispec.Response(200, &handlers.DeploymentSummariesResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, cfg.BillingBackend(), auditStore, queue),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, auditStore, queue),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),

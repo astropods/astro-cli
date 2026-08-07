@@ -19,6 +19,12 @@ type notifyQueue interface {
 	EmitNotify(ctx context.Context, ev notify.Event) error
 }
 
+// billingProvisionQueue enqueues signup billing provisioning. Satisfied by
+// *riverqueue.Queue and discovered by assertion off notifyQueue.
+type billingProvisionQueue interface {
+	InsertBillingProvision(ctx context.Context, accountID string) error
+}
+
 // emitNotify enqueues an alert best-effort from a request handler: a nil queue
 // (e.g. in tests) or an enqueue error is logged, never surfaced to the caller,
 // so notifications can never fail the user's operation.

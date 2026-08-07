@@ -188,6 +188,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.stripeHook != nil {
 		wired.stripeHook.queue = q
 	}
+	if wired.provisionSweep != nil {
+		wired.provisionSweep.queue = q
+	}
 	if wired.ghBuild != nil {
 		wired.ghBuild.queue = q
 	}
@@ -345,6 +348,13 @@ func (q *Queue) InsertBillingSuspend(ctx context.Context, accountID string) erro
 // deployments billing suspended).
 func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error {
 	_, err := q.Insert(ctx, BillingResumeArgs{AccountID: accountID}, nil)
+	return err
+}
+
+// InsertBillingProvision enqueues rate-card + signup-credit provisioning for an
+// account. Deduped by account, so repeat calls collapse.
+func (q *Queue) InsertBillingProvision(ctx context.Context, accountID string) error {
+	_, err := q.Insert(ctx, BillingProvisionArgs{AccountID: accountID}, nil)
 	return err
 }
 

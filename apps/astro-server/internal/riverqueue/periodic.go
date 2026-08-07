@@ -54,6 +54,21 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
+	// Backfills accounts that never got a rate card or signup credit.
+	if cfg.BillingBackend == "metronome" {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return BillingProvisionSweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 1 * time.Hour,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	// Billing dunning-grace sweep (hosted/metronome only) — ages past_due
 	// accounts to suspended once their grace window elapses.
 	if cfg.BillingBackend == "metronome" {

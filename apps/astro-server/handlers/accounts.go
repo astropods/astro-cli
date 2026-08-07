@@ -119,7 +119,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -250,20 +250,14 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
 		}
 
-		// Create billing customer (non-blocking — failure is logged, not fatal)
-		if billingProvider != nil {
-			bifrostCustomerID, _ := accountStore.GetBifrostCustomerID(acct.ID)
-			customerID, omErr := billingProvider.CreateCustomer(c.Request.Context(), billing.Account{
-				ID:                acct.ID,
-				Name:              acct.Name,
-				Type:              acct.Type,
-				OwnerEmail:        user.Email,
-				BifrostCustomerID: bifrostCustomerID,
-			})
-			if omErr != nil {
-				log.Error("Failed to create billing customer", "error", omErr, "account_id", acct.ID)
-			} else if storeErr := accountStore.SetBillingCustomerID(acct.ID, billingBackend, customerID); storeErr != nil {
-				log.Error("Failed to store billing customer ID", "error", storeErr, "account_id", acct.ID)
+		// Billing customer, rate card, and signup credit are provisioned off the
+		// request path. A dropped enqueue is picked up by the hourly sweep.
+		// Only a provisioning backend has a worker registered for the job, and
+		// the noop provider is non-nil, so assert the seam rather than nil.
+		_, provisions := billingProvider.(billing.Provisioner)
+		if q, ok := queue.(billingProvisionQueue); ok && provisions {
+			if err := q.InsertBillingProvision(c.Request.Context(), acct.ID); err != nil {
+				log.Error("Failed to enqueue billing provisioning", "error", err, "account_id", acct.ID)
 			}
 		}
 

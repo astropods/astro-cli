@@ -64,6 +64,9 @@ CREATE TABLE public.accounts (
     -- as a card vault only; Metronome charges this customer's card. Populated on
     -- first payment-method setup when STRIPE_SECRET_KEY is configured.
     stripe_customer_id text,
+    -- Stamps when the account was put on the rate card and granted its signup
+    -- credit. NULL means the provisioning sweep still owes it work.
+    billing_provisioned_at timestamptz,
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
@@ -94,6 +97,13 @@ CREATE TABLE public.account_profile (
 );
 
 CREATE INDEX idx_accounts_name_prefix ON public.accounts(name text_pattern_ops);
+
+-- The hourly provisioning sweep looks for accounts still owed a contract and
+-- credit. Partial so it holds only the pending ones and empties out as they
+-- provision, rather than growing with the table.
+CREATE INDEX idx_accounts_pending_billing_provision
+    ON public.accounts(created_at)
+    WHERE billing_provisioned_at IS NULL AND deleted_at IS NULL;
 
 CREATE TABLE public.account_organizations (
     account_id uuid NOT NULL,

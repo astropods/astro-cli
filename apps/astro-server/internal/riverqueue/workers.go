@@ -133,6 +133,7 @@ type wiredWorkers struct {
 	billingResume  *BillingResumeWorker
 	metronomeHook  *MetronomeWebhookWorker
 	stripeHook     *StripeWebhookWorker
+	provisionSweep *BillingProvisionSweepWorker
 	ghBuild        *GitHubBuildWorker
 	observation    *ObservationSweepWorker
 	undeploy       *UndeployWorker
@@ -163,6 +164,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var billingResumeWorker *BillingResumeWorker
 	var metronomeHook *MetronomeWebhookWorker
 	var stripeHook *StripeWebhookWorker
+	var provisionSweep *BillingProvisionSweepWorker
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
 		if cfg.ServerConfig != nil {
@@ -192,6 +194,16 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, log: log}
 		addWorkerWithCatalogCheck(log, workers, stripeHook)
 		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
+
+		addWorkerWithCatalogCheck(log, workers, &BillingProvisionWorker{
+			accounts: cfg.AccountStore,
+			provider: cfg.Billing,
+			backend:  cfg.BillingBackend,
+			log:      log,
+		})
+		provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}
+		addWorkerWithCatalogCheck(log, workers, provisionSweep)
+		log.Info("river: registered worker", "worker", "BillingProvision/SweepWorker")
 	}
 
 	memberEmailStore := memberemails.NewStore(cfg.DB)
@@ -524,6 +536,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		billingResume:  billingResumeWorker,
 		metronomeHook:  metronomeHook,
 		stripeHook:     stripeHook,
+		provisionSweep: provisionSweep,
 		ghBuild:        ghBuildWorker,
 		observation:    observationSweep,
 		insightsRollup: insightsRollupDiscovery,

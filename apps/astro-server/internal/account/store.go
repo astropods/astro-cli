@@ -898,6 +898,39 @@ func (s *AccountStore) GetAccountsMissingBillingCustomer(backend string, limit i
 	return accounts, nil
 }
 
+// GetAccountsPendingBillingProvision returns live accounts not yet put on the
+// rate card, oldest first.
+func (s *AccountStore) GetAccountsPendingBillingProvision(limit int) ([]Account, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, type, created_at, updated_at
+		FROM accounts
+		WHERE billing_provisioned_at IS NULL AND deleted_at IS NULL
+		ORDER BY created_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query accounts pending billing provision: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
+// MarkBillingProvisioned stamps an account as provisioned.
+func (s *AccountStore) MarkBillingProvisioned(accountID string) error {
+	_, err := s.db.Exec(`UPDATE accounts SET billing_provisioned_at = now() WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to mark billing provisioned: %w", err)
+	}
+	return nil
+}
+
 // GetMetronomeCustomerID returns the linked Metronome customer ID for an account, or "" if unset.
 func (s *AccountStore) GetMetronomeCustomerID(accountID string) (string, error) {
 	var customerID sql.NullString
