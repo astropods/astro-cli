@@ -2,11 +2,17 @@ package org
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/workos/workos-go/v6/pkg/organizations"
 	"github.com/workos/workos-go/v6/pkg/usermanagement"
+	"github.com/workos/workos-go/v6/pkg/workos_errors"
 )
+
+// ErrOrganizationNotFound reports that WorkOS no longer has the organization.
+var ErrOrganizationNotFound = errors.New("WorkOS organization not found")
 
 // Client wraps WorkOS Organizations + Membership + Invitation SDK calls.
 // Keeps auth.WorkOSClient focused on authentication.
@@ -43,9 +49,17 @@ func (c *Client) GetOrganization(ctx context.Context, workosOrgID string) (Organ
 		Organization: workosOrgID,
 	})
 	if err != nil {
-		return Organization{}, fmt.Errorf("workos: get organization: %w", err)
+		return Organization{}, fmt.Errorf("workos: get organization: %w", classifyOrganizationError(err))
 	}
 	return Organization{ID: org.ID, Name: org.Name}, nil
+}
+
+func classifyOrganizationError(err error) error {
+	var httpErr workos_errors.HTTPError
+	if errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound {
+		return errors.Join(ErrOrganizationNotFound, err)
+	}
+	return err
 }
 
 // DeleteOrganization deletes a WorkOS organization.

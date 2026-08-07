@@ -23,6 +23,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
@@ -42,6 +43,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -177,7 +179,7 @@ func validateAgentDisplayName(name string) (string, error) {
 
 // UpdateDeploymentDisplayName returns a handler that updates only the display name
 // of a deployment without triggering a redeploy.
-func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache, fgaSync *authz.DeploymentFGASyncStore, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -204,10 +206,28 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 			return
 		}
 
-		if err := deployStore.UpdateDisplayName(dep.ID, name); err != nil {
+		var fgaRecorded bool
+		var txFn func(*sql.Tx) error
+		if name != dep.DisplayName {
+			txFn = func(tx *sql.Tx) error {
+				var recordErr error
+				fgaRecorded, recordErr = fgaSync.RecordNameUpdateTx(c.Request.Context(), tx, dep.ID)
+				return recordErr
+			}
+		}
+		if err := deployStore.UpdateDisplayNameWithTx(dep.ID, name, txFn); err != nil {
 			log.Error("failed to update display name", "deployment_id", dep.ID, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
 			return
+		}
+		if fgaQueue, ok := queue.(deploymentFGAQueue); ok && fgaRecorded {
+			if err := fgaQueue.InsertDeploymentFGAReconcileJob(c.Request.Context(), dep.ID); err != nil {
+				log.Warn("Failed to enqueue deployment FGA reconciliation",
+					"deployment_id", dep.ID,
+					"desired_state", authz.DeploymentFGARegistered,
+					"error", err,
+				)
+			}
 		}
 		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
@@ -326,17 +346,18 @@ func respondDeploymentTemplate(
 // the registered agent build, regenerates the server's template, enforces Rule 19,
 // and returns everything needed to proceed with deployment or validation.
 type deployContext struct {
-	acct              *account.Account
-	sourceAccountName string // account that owns the blueprint (may differ from acct on cross-account deploys)
-	sourceAccountID   string
-	agentName         string
-	displayName       string
-	deploymentID      string
-	buildID           string
-	k8sNS             string
-	isUpdate          bool // true when deployment_id was provided (in-place update)
-	resolveResult     *deployment.ResolveResult
-	varRefs           map[string]string // variable name → original account variable ref (before resolution)
+	acct                *account.Account
+	sourceAccountName   string // account that owns the blueprint (may differ from acct on cross-account deploys)
+	sourceAccountID     string
+	agentName           string
+	displayName         string
+	previousDisplayName string
+	deploymentID        string
+	buildID             string
+	k8sNS               string
+	isUpdate            bool // true when deployment_id was provided (in-place update)
+	resolveResult       *deployment.ResolveResult
+	varRefs             map[string]string // variable name → original account variable ref (before resolution)
 }
 
 type configuredSecretMode int
@@ -571,6 +592,9 @@ func prepareDeployment(
 		}
 		submittedSpec.Target.DisplayName = validated
 	}
+	if existing != nil && strings.TrimSpace(submittedSpec.Target.DisplayName) == "" {
+		submittedSpec.Target.DisplayName = existing.DisplayName
+	}
 
 	if k8sNamespace == "" {
 		deploymentID = deployid.New()
@@ -634,19 +658,24 @@ func prepareDeployment(
 		})
 		return nil, false
 	}
+	previousDisplayName := ""
+	if existing != nil {
+		previousDisplayName = existing.DisplayName
+	}
 
 	return &deployContext{
-		acct:              targetAcct,
-		sourceAccountName: sourceAcct.Name,
-		sourceAccountID:   sourceAcct.ID,
-		agentName:         agentName,
-		displayName:       displayName,
-		deploymentID:      deploymentID,
-		buildID:           buildID,
-		k8sNS:             k8sNamespace,
-		isUpdate:          isUpdate,
-		resolveResult:     resolveResult,
-		varRefs:           varRefs,
+		acct:                targetAcct,
+		sourceAccountName:   sourceAcct.Name,
+		sourceAccountID:     sourceAcct.ID,
+		agentName:           agentName,
+		displayName:         displayName,
+		previousDisplayName: previousDisplayName,
+		deploymentID:        deploymentID,
+		buildID:             buildID,
+		k8sNS:               k8sNamespace,
+		isUpdate:            isUpdate,
+		resolveResult:       resolveResult,
+		varRefs:             varRefs,
 	}, true
 }
 
@@ -674,6 +703,12 @@ type DeployQueue interface {
 	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
 }
 
+type deploymentFGAQueue interface {
+	InsertDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error
+}
+
+var _ deploymentFGAQueue = (*riverqueue.Queue)(nil)
+
 // EnqueueUndeploy transitions a deployment to "undeploying" and inserts an
 // async undeploy job. Used by both UndeployAgent and DeleteAccount.
 func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, dep *deploymentstore.Deployment) error {
@@ -690,7 +725,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, db *sql.DB, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, fgaSync *authz.DeploymentFGASyncStore, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -719,6 +754,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		if !ok {
 			return
 		}
+		user, _ := middleware.GetUser(c) // prepareDeployment already requires authentication.
 
 		if !validateDeployTargetCluster(c, log, clusterStore, k8sReg, submittedSpec.Target.ClusterID) {
 			return
@@ -824,6 +860,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		params := deploymentstore.SaveDeploymentParams{
 			ID: dctx.deploymentID, AccountID: dctx.acct.ID,
 			SourceAccountID: dctx.sourceAccountID,
+			DeployedBy:      user.ID,
 			AgentName:       dctx.agentName, DisplayName: dctx.displayName,
 			BuildID: dctx.buildID, Namespace: dctx.k8sNS,
 			SpecJSON:  string(specJSON),
@@ -858,6 +895,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			c.JSON(http.StatusBadRequest, gin.H{"error": ingressErr.Error()})
 			return
 		}
+		var fgaRecorded bool
 		txFn := func(tx *sql.Tx, deploymentID string) error {
 			nsCfg := &deploymentstore.NormalizedSpecConfig{
 				Namespace:              dctx.k8sNS,
@@ -879,6 +917,18 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				grants := buildAuthorizationGrants(deploymentID, submittedSpec)
 				if err := authorizationstore.ReplaceGrantsTx(tx, deploymentID, grants); err != nil {
 					return fmt.Errorf("replace grants: %w", err)
+				}
+			}
+			if !dctx.isUpdate || dctx.previousDisplayName != dctx.displayName {
+				var recordErr error
+				switch {
+				case !dctx.isUpdate:
+					fgaRecorded, recordErr = fgaSync.RecordRegistrationTx(c.Request.Context(), tx, deploymentID)
+				case dctx.previousDisplayName != dctx.displayName:
+					fgaRecorded, recordErr = fgaSync.RecordNameUpdateTx(c.Request.Context(), tx, deploymentID)
+				}
+				if recordErr != nil {
+					return recordErr
 				}
 			}
 			return nil
@@ -929,6 +979,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("Failed to enqueue deploy job", "error", err, "deployment_id", dctx.deploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
+		}
+		if fgaRecorded {
+			if fgaQueue, ok := queue.(deploymentFGAQueue); ok {
+				if err := fgaQueue.InsertDeploymentFGAReconcileJob(c.Request.Context(), dctx.deploymentID); err != nil {
+					log.Warn("Failed to enqueue deployment FGA reconciliation",
+						"deployment_id", dctx.deploymentID,
+						"desired_state", authz.DeploymentFGARegistered,
+						"error", err,
+					)
+				}
+			}
 		}
 		// Pre-empt the deploy worker's invalidation: the row is committed and
 		// the user may navigate to /agents before the worker picks up the job.

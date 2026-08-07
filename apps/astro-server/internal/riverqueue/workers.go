@@ -135,6 +135,8 @@ type wiredWorkers struct {
 	stripeHook     *StripeWebhookWorker
 	ghBuild        *GitHubBuildWorker
 	observation    *ObservationSweepWorker
+	undeploy       *UndeployWorker
+	deploymentFGA  *DeploymentFGAReconcileWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -235,6 +237,14 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	log.Info("river: registered worker", "worker", "NotifyWorker")
 
 	store := deploymentstore.NewStore(cfg.DB)
+	deploymentFGAWorker := &DeploymentFGAReconcileWorker{
+		fga:           cfg.FGA,
+		sync:          cfg.DeploymentFGASync,
+		organizations: cfg.OrgClient,
+		log:           log,
+	}
+	addWorkerWithCatalogCheck(log, workers, deploymentFGAWorker)
+	log.Info("river: registered worker", "worker", "DeploymentFGAReconcileWorker", "period", "1m")
 
 	var langfuseBaseURL string
 	if cfg.ServerConfig != nil {
@@ -343,14 +353,16 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	addWorkerWithCatalogCheck(log, workers, evalJudgeWorker)
 	log.Info("river: registered worker", "worker", "EvalJudgePredictionWorker")
 
-	addWorkerWithCatalogCheck(log, workers, &UndeployWorker{
+	undeployWorker := &UndeployWorker{
 		deployer: dep,
 		store:    store,
 		ksStore:  knowledgestore.NewStore(cfg.DB, cfg.K8sCache),
 		log:      log,
 		cache:    cfg.K8sCache,
 		billing:  billing,
-	})
+		fgaSync:  cfg.DeploymentFGASync,
+	}
+	addWorkerWithCatalogCheck(log, workers, undeployWorker)
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
@@ -440,6 +452,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	pw := &AccountPurgeWorker{
 		db:            cfg.DB,
 		deployStore:   store,
+		fgaSync:       cfg.DeploymentFGASync,
 		retentionDays: cfg.AccountRetentionDays,
 		log:           log,
 	}
@@ -514,5 +527,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		ghBuild:        ghBuildWorker,
 		observation:    observationSweep,
 		insightsRollup: insightsRollupDiscovery,
+		undeploy:       undeployWorker,
+		deploymentFGA:  deploymentFGAWorker,
 	}
 }

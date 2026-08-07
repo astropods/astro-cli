@@ -9,6 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
@@ -54,20 +55,21 @@ type Deps struct {
 }
 
 type Stores struct {
-	Account      *account.AccountStore
-	Deployment   *deploymentstore.Store
-	AccountVars  *accountvars.Store
-	Heart        *heartstore.Store
-	AgentMetrics *metricsstore.Store
-	Cluster      *clusterstore.Store
-	Audit        *auditlog.Store
-	Avatar       *avatar.Store
-	ReadmeAssets *readmeassets.Store
-	Knowledge    *knowledgestore.Store
-	GH           *githubconnection.Store
-	Webhook      *githubwebhook.Store
-	SlackID      *slackidentity.Store
-	Watcher      *watcher.Store
+	Account           *account.AccountStore
+	Deployment        *deploymentstore.Store
+	AccountVars       *accountvars.Store
+	Heart             *heartstore.Store
+	AgentMetrics      *metricsstore.Store
+	Cluster           *clusterstore.Store
+	Audit             *auditlog.Store
+	Avatar            *avatar.Store
+	ReadmeAssets      *readmeassets.Store
+	Knowledge         *knowledgestore.Store
+	GH                *githubconnection.Store
+	Webhook           *githubwebhook.Store
+	SlackID           *slackidentity.Store
+	Watcher           *watcher.Store
+	DeploymentFGASync *authz.DeploymentFGASyncStore
 }
 
 type Clients struct {

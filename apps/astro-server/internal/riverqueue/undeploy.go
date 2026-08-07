@@ -2,12 +2,14 @@ package riverqueue
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
@@ -45,6 +47,8 @@ type UndeployWorker struct {
 	log      *logger.Logger
 	cache    k8scache.Cache
 	billing  *metering.BillingStateManager
+	fgaSync  *authz.DeploymentFGASyncStore
+	fgaQueue deploymentFGAQueue
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {
@@ -87,8 +91,16 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
-	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}); err != nil {
+	var fgaRecorded bool
+	if err := w.store.UpdateStatusWithTx(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}, func(tx *sql.Tx) error {
+		var recordErr error
+		fgaRecorded, recordErr = w.fgaSync.RecordDeletionTx(ctx, tx, dep.ID)
+		return recordErr
+	}); err != nil {
 		return fmt.Errorf("set undeployed: %w", err)
+	}
+	if fgaRecorded {
+		w.enqueueDeploymentFGAReconciliation(ctx, dep.ID)
 	}
 	// Undeploy → the deployment drops out of the visible list for this account.
 	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -99,4 +111,17 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 
 	return nil
+}
+
+func (w *UndeployWorker) enqueueDeploymentFGAReconciliation(ctx context.Context, deploymentID string) {
+	if w.fgaQueue == nil {
+		return
+	}
+	if err := w.fgaQueue.InsertDeploymentFGAReconcileJob(ctx, deploymentID); err != nil {
+		w.log.Warn("Failed to enqueue deployment FGA reconciliation",
+			"deployment_id", deploymentID,
+			"desired_state", authz.DeploymentFGADeleted,
+			"error", err,
+		)
+	}
 }

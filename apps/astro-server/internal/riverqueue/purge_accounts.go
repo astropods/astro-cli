@@ -9,6 +9,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -44,6 +45,7 @@ type AccountPurgeWorker struct {
 	retentionDays   int
 	log             *logger.Logger
 	enqueueUndeploy func(ctx context.Context, deploymentID string) error
+	fgaSync         *authz.DeploymentFGASyncStore
 }
 
 func (w *AccountPurgeWorker) Work(ctx context.Context, job *river.Job[AccountPurgeArgs]) error {
@@ -111,6 +113,15 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 			}
 		}
 		return fmt.Errorf("account %s has %d deployments still pending teardown", accountID, len(pending))
+	}
+	if w.fgaSync != nil {
+		pendingFGA, err := w.fgaSync.HasPendingForAccount(ctx, accountID)
+		if err != nil {
+			return err
+		}
+		if pendingFGA {
+			return fmt.Errorf("account %s has deployment FGA cleanup pending", accountID)
+		}
 	}
 
 	// 2. Clean up external resources (must succeed before hard-delete)

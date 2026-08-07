@@ -136,7 +136,21 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
-	if cfg.WorkOSAPIKey != "" {
+	if cfg.DeploymentFGASync != nil && cfg.DeploymentFGASync.Enabled() {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return DeploymentFGAReconcileArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 1 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	if cfg.WorkOSClient != nil {
 		// Backfill member emails still missing from the mirror. Emails are
 		// captured at auth time (login + account create); this reconcile is the
 		// safety net that fills any gaps by querying WorkOS directly.

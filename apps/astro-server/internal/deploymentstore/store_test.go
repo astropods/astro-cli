@@ -63,7 +63,7 @@ func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "agent-a",
 		DisplayName: "Agent A", BuildID: "build-1", Namespace: "ns-test",
-		SpecJSON: `{"spec":"v1"}`,
+		SpecJSON: `{"spec":"v1"}`, DeployedBy: "user-creator",
 	}, nil)
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -76,6 +76,13 @@ func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	}
 	if d.DisplayName != "Agent A" {
 		t.Errorf("expected display_name 'Agent A', got %q", d.DisplayName)
+	}
+	var deployedBy string
+	if err := db.QueryRow(`SELECT deployed_by FROM deployments WHERE id = $1`, d.ID).Scan(&deployedBy); err != nil {
+		t.Fatalf("read deployed_by: %v", err)
+	}
+	if deployedBy != "user-creator" {
+		t.Errorf("deployed_by = %q, want user-creator", deployedBy)
 	}
 }
 

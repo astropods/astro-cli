@@ -34,6 +34,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
@@ -118,6 +119,11 @@ func main() {
 	// Initialize account store and agent index (needed by both API and worker)
 	accountStore := account.NewAccountStore(db)
 	agentIndex := agentindex.NewIndexWithDB(db)
+	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
+	var deploymentFGA authz.FGA
+	if deploymentFGASync.Enabled() {
+		deploymentFGA = authz.NewWorkOSFGA(cfg.Auth.WorkOSAPIKey)
+	}
 
 	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
 	sharedS3Client, sharedS3Err := newS3Client(cfg)
@@ -225,12 +231,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg))
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, deploymentFGA)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -322,6 +328,7 @@ func runAPI(
 	avatarStore *avatar.Store,
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
+	deploymentFGASync *authz.DeploymentFGASyncStore,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -504,20 +511,21 @@ func runAPI(
 		Quota: quotaChecker,
 		Probe: probeHandler,
 		Stores: Stores{
-			Account:      accountStore,
-			Deployment:   deploymentStore,
-			AccountVars:  accountVarsStore,
-			Heart:        heartStore,
-			AgentMetrics: agentMetricsStore,
-			Cluster:      clusterStore,
-			Audit:        auditStore,
-			Avatar:       avatarStore,
-			ReadmeAssets: readmeAssetStore,
-			Knowledge:    ksStore,
-			GH:           ghStore,
-			Webhook:      webhookStore,
-			SlackID:      slackIdentityStore,
-			Watcher:      watcherStore,
+			Account:           accountStore,
+			Deployment:        deploymentStore,
+			AccountVars:       accountVarsStore,
+			Heart:             heartStore,
+			AgentMetrics:      agentMetricsStore,
+			Cluster:           clusterStore,
+			Audit:             auditStore,
+			Avatar:            avatarStore,
+			ReadmeAssets:      readmeAssetStore,
+			Knowledge:         ksStore,
+			GH:                ghStore,
+			Webhook:           webhookStore,
+			SlackID:           slackIdentityStore,
+			Watcher:           watcherStore,
+			DeploymentFGASync: deploymentFGASync,
 		},
 		Clients: Clients{
 			AgentIndex: agentIndex,
@@ -637,6 +645,8 @@ func runWorker(
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 	imagePreflighter *k8s.ImagePreflighter,
+	deploymentFGASync *authz.DeploymentFGASyncStore,
+	deploymentFGA authz.FGA,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -751,7 +761,8 @@ func runWorker(
 		K8sRegistry:             k8sReg,
 		K8sCache:                k8sCache,
 		ServerConfig:            cfg,
-		WorkOSAPIKey:            cfg.Auth.WorkOSAPIKey,
+		DeploymentFGASync:       deploymentFGASync,
+		FGA:                     deploymentFGA,
 		WorkOSClient:            workosClient,
 		OrgClient:               orgClient,
 		PromClient:              promClient,
@@ -819,6 +830,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	k8sCache := deps.Clients.K8sCache
 	imagePreflighter := deps.Clients.Preflight
 	queue := deps.Clients.Queue
+	deploymentFGASync := deps.Stores.DeploymentFGASync
 
 	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
 	// per-user notification-preference proxy. Novu owns the catalog and
@@ -1689,7 +1701,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, db, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, deploymentFGASync, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -1713,7 +1725,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.GetDeploymentStatusResponse{}),
 			)
-			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache),
+			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, deploymentFGASync, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

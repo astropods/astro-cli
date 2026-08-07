@@ -1,7 +1,7 @@
 # Deployment FGAC API Rollout
 
 **Status:** Approved direction
-**Updated:** 2026-08-05
+**Updated:** 2026-08-06
 
 ## Decision
 
@@ -9,21 +9,21 @@ Introduce WorkOS FGA for deployment control-plane access through small, reversib
 
 The first policy has two resource permissions:
 
-- `deployment:view` — read a deployment page and its non-secret control-plane data.
+- `deployment:read` — read a deployment page and its non-secret control-plane data.
 - `deployment:edit` — change or operate a deployment.
 
 Chat and invocation authorization remain separate data-plane concerns. Existing messaging grants are unchanged.
 
 ## Final behavior
 
-Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment viewers and editors in its database.
+Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment readers and editors in its database.
 
 | Subject | View | Edit | Manage access in this milestone |
 | --- | --- | --- | --- |
 | Organization owner/admin | All organization deployments | All organization deployments | Yes |
 | Deployment creator | The deployment they created | The deployment they created | Only if also an organization owner/admin |
 | `deployment-editor` assignee | Assigned deployment | Assigned deployment | No |
-| `deployment-viewer` assignee | Assigned deployment | No | No |
+| `deployment-reader` assignee | Assigned deployment | No | No |
 | Unassigned organization member | No after view enforcement | No | No |
 | Personal-account owner | Yes | Yes | Not applicable |
 
@@ -35,7 +35,7 @@ flowchart LR
     Saswat["Saswat membership"] --> Group
     Sohum["Sohum membership"] --> Group
     Group --> Assignment["deployment-editor on dep_123"]
-    Assignment --> View["deployment:view"]
+    Assignment --> Read["deployment:read"]
     Assignment --> Edit["deployment:edit"]
 ```
 
@@ -73,10 +73,10 @@ Deployment lists must use WorkOS accessible-resource discovery or batching. They
 Configure preview before PR4 makes live writes; repeat in production before production enforcement:
 
 - Resource type `deployment`, parent organization.
-- Permission `deployment:view`, scoped to deployment.
+- Permission `deployment:read`, scoped to deployment.
 - Permission `deployment:edit`, scoped to deployment.
-- Role `deployment-viewer` containing `deployment:view`.
-- Role `deployment-editor` containing `deployment:view` and `deployment:edit`.
+- Role `deployment-reader` containing `deployment:read`.
+- Role `deployment-editor` containing `deployment:read` and `deployment:edit`.
 - Organization owner/admin roles include both deployment permissions through child-resource inheritance.
 - Organization member role includes neither permission for the final private-by-default behavior.
 
@@ -94,19 +94,19 @@ Status: merged as PR #1362.
 
 ### PR2 — WorkOS membership in the session
 
-Status: open as PR #1383.
+Status: merged as PR #1383.
 
 - Add `organization_membership_id` to the WorkOS JWT template and Astro session.
 - Resolve it from the claim, with synchronized database fallback where appropriate.
 - Populate the authorization subject without adding FGA checks.
-- Replace the coarse deployment action with the external permission contracts `deployment:view` and `deployment:edit`; `MembershipChecker` still ignores the action.
+- Replace the coarse deployment action with the external permission contracts `deployment:read` and `deployment:edit`; `MembershipChecker` still ignores the action.
 - Store this rollout plan with the identity prerequisite it coordinates.
 
 ### PR3 — Minimal WorkOS FGA client
 
-Status: draft PR #1891.
+Status: merged as PR #1891.
 
-- Define the `deployment-viewer` and `deployment-editor` role slugs around the permission contracts supplied by PR2.
+- Define the `deployment-reader` and `deployment-editor` role slugs around the permission contracts supplied by PR2.
 - Expose resource registration/deletion, role assignment/removal, and permission checking.
 - Delegate transport and vendor models to the official WorkOS Authorization SDK.
 - Support membership and existing-group role assignments.
@@ -117,9 +117,15 @@ Status: draft PR #1891.
 
 - Add `deployments.deployed_by` and capture the authenticated user on deploy.
 - After the deployment transaction commits, register organization deployments in WorkOS and assign the creator `deployment-editor`.
+- If a current member's creator membership is temporarily unavailable, use bounded fast retries followed by hourly assignment retries; resource lifecycle remains converged and account purge is not blocked. Stop assignment retries when no creator exists or the creator is no longer an organization member.
+- Extend the minimal FGA seam with resource-name updates and reconcile deployment renames/redeploy name changes to WorkOS.
 - Delete the WorkOS resource when the deployment is deleted; assignment cleanup cascades.
+- If the WorkOS organization was already deleted, verify its absence and converge child-resource cleanup so account purge cannot remain blocked.
 - Skip WorkOS for personal accounts.
+- When WorkOS is disabled, skip lifecycle intent writes and reconciliation jobs so account cleanup cannot be blocked by work that has no processor.
 - Do not fail or roll back a successful deployment after an FGA write failure. Record retryable reconciliation work and structured logs.
+- Store only desired/applied reconciliation state locally, never deployment role assignments or permission decisions.
+- Enqueue immediate reconciliation after commit and have the periodic sweep enqueue the same unique per-deployment jobs, keeping WorkOS mutations serialized; PR6 reuses this seam for historical backfill.
 - Keep first deployment creation membership-gated because the resource does not exist before creation.
 
 ### PR5 — FGA checker and shadow decisions
@@ -157,10 +163,10 @@ This replaces Matt's original frontend PR. No UI is built.
 - Add a small WorkOS Groups service beside the FGA interface using the same root SDK client.
 - Create/list/update/delete organization groups.
 - Add/list/remove organization members using local account-member IDs; Astro resolves WorkOS membership IDs internally.
-- List, assign, and remove `deployment-viewer` and `deployment-editor` for membership or group subjects.
+- List, assign, and remove `deployment-reader` and `deployment-editor` for membership or group subjects.
 - Validate that the caller, subject, group, deployment, and WorkOS resource belong to the same organization.
 - Restrict access management to organization owners/admins and allowlist the two built-in deployment roles.
-- Add accessible-deployment discovery, then enforce `deployment:view` on detail and list APIs without N+1 checks.
+- Add accessible-deployment discovery, then enforce `deployment:read` on detail and list APIs without N+1 checks.
 
 Proposed API surface; exact paths follow existing server conventions during implementation:
 
@@ -194,7 +200,7 @@ The milestone is complete when this flow succeeds against Astro APIs in preview:
 4. Each member can view and edit that deployment using their own authenticated session.
 5. The same members cannot access an unassigned deployment unless an inherited organization role allows it.
 6. Removing Matt from the group revokes his group-derived access on the next check while Sohum and Saswat remain allowed.
-7. Assigning `deployment-viewer` permits reads but returns `403` for mutations.
+7. Assigning `deployment-reader` permits reads but returns `403` for mutations.
 8. Organization owners/admins retain inherited access to every deployment.
 9. Cross-organization assignment attempts are rejected before WorkOS is called.
 

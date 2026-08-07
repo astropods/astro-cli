@@ -115,6 +115,7 @@ type SaveDeploymentParams struct {
 	ID               string
 	AccountID        string
 	SourceAccountID  string
+	DeployedBy       string
 	AgentName        string
 	DisplayName      string
 	BuildID          string
@@ -758,6 +759,13 @@ func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
 // UpdateStatus is the single entry point for all deployment status changes.
 // It updates the deployment row and inserts a deployment_events row in one transaction.
 func (s *Store) UpdateStatus(id string, u StatusUpdate) error {
+	return s.UpdateStatusWithTx(id, u, nil)
+}
+
+// UpdateStatusWithTx applies a status transition and optional related writes in
+// one transaction. The callback is used when external reconciliation intent
+// must commit atomically with the lifecycle transition.
+func (s *Store) UpdateStatusWithTx(id string, u StatusUpdate, txFn func(*sql.Tx) error) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -766,6 +774,11 @@ func (s *Store) UpdateStatus(id string, u StatusUpdate) error {
 
 	if err := updateStatusTx(tx, id, u); err != nil {
 		return err
+	}
+	if txFn != nil {
+		if err := txFn(tx); err != nil {
+			return fmt.Errorf("failed to run status tx callback: %w", err)
+		}
 	}
 
 	return tx.Commit()
@@ -906,12 +919,12 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	err = tx.QueryRow(`
 		INSERT INTO deployments (id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, encrypted_data_key, kms_key_arn, cluster_id,
-		    status, status_changed_at, current_revision, deployed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), 1, NOW())
+		    deployed_by, status, status_changed_at, current_revision, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), 1, NOW())
 		RETURNING id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
 		    deployment_spec_json, status, deployed_at
 	`, p.ID, p.AccountID, nilIfEmpty(p.SourceAccountID), p.AgentName, p.BuildID, p.Namespace, p.DisplayName,
-		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), nilIfEmpty(p.ClusterID), StatusPending).Scan(
+		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), nilIfEmpty(p.ClusterID), nilIfEmpty(p.DeployedBy), StatusPending).Scan(
 		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
@@ -954,16 +967,32 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	return &d, nil
 }
 
-// UpdateDeploymentSpecJSON updates only the stored deployment spec JSON.
-// Used by repair to persist a re-generated template without changing status or revision.
-func (s *Store) UpdateDisplayName(deploymentID, displayName string) error {
-	_, err := s.db.Exec(`UPDATE deployments SET display_name = $2 WHERE id = $1`, deploymentID, displayName)
+// UpdateDisplayNameWithTx updates the display name and related reconciliation
+// intent atomically.
+func (s *Store) UpdateDisplayNameWithTx(deploymentID, displayName string, txFn func(*sql.Tx) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin deployment display name update: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	_, err = tx.Exec(`UPDATE deployments SET display_name = $2 WHERE id = $1`, deploymentID, displayName)
 	if err != nil {
 		return fmt.Errorf("update deployment display name: %w", err)
+	}
+	if txFn != nil {
+		if err := txFn(tx); err != nil {
+			return fmt.Errorf("record deployment display name update: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit deployment display name update: %w", err)
 	}
 	return nil
 }
 
+// UpdateDeploymentSpecJSON updates only the stored deployment spec JSON.
+// Used by repair to persist a re-generated template without changing status or revision.
 func (s *Store) UpdateDeploymentSpecJSON(deploymentID, specJSON string) error {
 	_, err := s.db.Exec(`UPDATE deployments SET deployment_spec_json = $2 WHERE id = $1`, deploymentID, specJSON)
 	if err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -179,6 +180,16 @@ func (q *mockQueue) InsertDeployJob(_ context.Context, _, _ string) error   { re
 func (q *mockQueue) InsertUndeployJob(_ context.Context, _, _ string) error { return nil }
 func (q *mockQueue) InsertWakeUpJob(_ context.Context, _, _ string) error   { return nil }
 
+type deploymentFGATestQueue struct {
+	mockQueue
+	reconciled []string
+}
+
+func (q *deploymentFGATestQueue) InsertDeploymentFGAReconcileJob(_ context.Context, deploymentID string) error {
+	q.reconciled = append(q.reconciled, deploymentID)
+	return nil
+}
+
 // deploymentByIDColumns lists the columns scanned by scanDeployment, in order.
 var deploymentByIDColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
@@ -212,6 +223,102 @@ func deploymentByIDRowWithSource(id, accountID, sourceAccountID, agentName, buil
 // emptyDeploymentByIDRows returns an empty sqlmock.Rows matching the deploymentColumns layout.
 func emptyDeploymentByIDRows() *sqlmock.Rows {
 	return sqlmock.NewRows(deploymentByIDColumns)
+}
+
+func TestUpdateDeploymentDisplayNameRecordsFGAReconciliation(t *testing.T) {
+	tests := []struct {
+		name               string
+		accountType        string
+		fgaEnabled         bool
+		currentDisplayName string
+		requestedName      string
+		wantReconciled     bool
+	}{
+		{name: "organization", accountType: "organization", fgaEnabled: true, currentDisplayName: "Support agent", requestedName: "Renamed support agent", wantReconciled: true},
+		{name: "unchanged organization name", accountType: "organization", fgaEnabled: true, currentDisplayName: "Support agent", requestedName: "Support agent", wantReconciled: false},
+		{name: "personal", accountType: "personal", fgaEnabled: true, currentDisplayName: "Support agent", requestedName: "Renamed support agent", wantReconciled: false},
+		{name: "WorkOS disabled", accountType: "organization", fgaEnabled: false, currentDisplayName: "Support agent", requestedName: "Renamed support agent", wantReconciled: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testUpdateDeploymentDisplayNameFGAReconciliation(t, tt.accountType, tt.fgaEnabled, tt.currentDisplayName, tt.requestedName, tt.wantReconciled)
+		})
+	}
+}
+
+func testUpdateDeploymentDisplayNameFGAReconciliation(t *testing.T, accountType string, fgaEnabled bool, currentDisplayName, requestedName string, wantReconciled bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	accountDB, accountMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accountDB.Close() //nolint:errcheck
+	deployDB, deployMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deployDB.Close() //nolint:errcheck
+
+	depID := "abc-def-ghi"
+	accountID := "acct_123"
+	now := time.Now()
+	deployMock.ExpectQuery(`SELECT`).
+		WithArgs(depID).
+		WillReturnRows(deploymentByIDRow(depID, accountID, "support-agent", "build-1", "astro-abc-0", currentDisplayName, `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT COUNT\(\*\) FROM account_members`).
+		WithArgs(accountID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE deployments SET display_name`).
+		WithArgs(depID, requestedName).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if fgaEnabled && requestedName != currentDisplayName {
+		rowsAffected := int64(1)
+		if accountType != "organization" {
+			rowsAffected = 0
+		}
+		deployMock.ExpectExec(`(?s)UPDATE deployment_fga_sync.*desired_version = desired_version \+ 1`).
+			WithArgs(depID).
+			WillReturnResult(sqlmock.NewResult(0, rowsAffected))
+	}
+	deployMock.ExpectCommit()
+
+	queue := &deploymentFGATestQueue{}
+	router := gin.New()
+	router.Use(setAuthUser("user-1"))
+	router.PATCH("/api/v1/deployments/:id", UpdateDeploymentDisplayName(
+		logger.New("error", "json"),
+		account.NewAccountStore(accountDB),
+		deploymentstore.NewStore(deployDB),
+		nil,
+		k8scache.NoopCache{},
+		authz.NewDeploymentFGASyncStore(deployDB, fgaEnabled),
+		queue,
+	))
+
+	reqBody := fmt.Sprintf(`{"display_name":%q}`, requestedName)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/deployments/"+depID, strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if wantReconciled {
+		if len(queue.reconciled) != 1 || queue.reconciled[0] != depID {
+			t.Fatalf("reconciled = %v, want [%s]", queue.reconciled, depID)
+		}
+	} else if len(queue.reconciled) != 0 {
+		t.Fatalf("reconciled = %v, want no FGA job", queue.reconciled)
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
@@ -2367,6 +2474,7 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"next_revision"}).AddRow(2))
 	deployMock.ExpectQuery(`UPDATE deployments`).
+		WithArgs(depID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "My Agent", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
@@ -5989,7 +6097,8 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 	expectDeployPrepWithCluster(accountMock, indexMock, "eu-west-1-managed")
 
 	// Pin the cluster_id arg in the INSERT. The deployment INSERT's
-	// parameter list ends with (..., kms_key_arn, cluster_id, status); the
+	// parameter list ends with (..., kms_key_arn, cluster_id, deployed_by,
+	// status); the
 	// $11 position is cluster_id. sqlmock uses WithArgs on positional args
 	// against the parameter list, not column-named — so we pass
 	// AnyArg() for the earlier columns and pin only $11.
@@ -6007,7 +6116,8 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 			sqlmock.AnyArg(),    // $9  encrypted_data_key
 			sqlmock.AnyArg(),    // $10 kms_key_arn
 			"eu-west-1-managed", // $11 cluster_id — the new pin
-			sqlmock.AnyArg(),    // $12 status
+			"user-1",            // $12 deployed_by — authenticated creator
+			sqlmock.AnyArg(),    // $13 status
 		).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",

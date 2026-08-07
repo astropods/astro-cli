@@ -6,7 +6,7 @@ import "context"
 type RoleSlug string
 
 const (
-	RoleDeploymentViewer RoleSlug = "deployment-viewer"
+	RoleDeploymentReader RoleSlug = "deployment-reader"
 	RoleDeploymentEditor RoleSlug = "deployment-editor"
 )
 
@@ -36,6 +36,7 @@ func GroupAssignmentSubject(id string) AssignmentSubject {
 // owns transport, retries, pagination, and vendor response models.
 type FGA interface {
 	RegisterResource(ctx context.Context, organizationID string, resource ResourceRef, name string) error
+	UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error
 	DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error
 	AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
 	RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error

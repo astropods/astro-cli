@@ -41,6 +41,30 @@ func TestWorkOSFGARegisterResource(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAUpdateResourceName(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		assertRequest(t, request, http.MethodPatch, "/authorization/organizations/org_123/resources/deployment/dep_123", map[string]any{
+			"name": "Renamed support agent",
+		})
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"id":                 "resource_123",
+			"external_id":        "dep_123",
+			"name":               "Renamed support agent",
+			"organization_id":    "org_123",
+			"resource_type_slug": "deployment",
+			"description":        nil,
+			"parent_resource_id": nil,
+		})
+	})
+	defer closeServer()
+
+	if err := fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Renamed support agent"); err != nil {
+		t.Fatalf("UpdateResourceName() error = %v", err)
+	}
+}
+
 func TestWorkOSFGADeleteResourceCascadesAssignments(t *testing.T) {
 	t.Parallel()
 
@@ -172,6 +196,27 @@ func TestWorkOSFGAAssignRoleSupportsMembershipsAndGroups(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAAssignRoleClassifiesConflict(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, _ *http.Request) {
+		writeWorkOSJSON(t, response, http.StatusConflict, map[string]string{
+			"code":    "role_assignment_exists",
+			"message": "role assignment already exists",
+		})
+	})
+	defer closeServer()
+
+	err := fga.AssignRole(context.Background(), MembershipAssignmentSubject("om_123"), RoleDeploymentEditor, DeploymentResource("dep_123"))
+	if !errors.Is(err, ErrRoleAssignmentExists) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrRoleAssignmentExists)", err)
+	}
+	var apiErr *workos.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v, want wrapped *workos.APIError", err)
+	}
+}
+
 func TestWorkOSFGARemoveRoleSupportsMembershipsAndGroups(t *testing.T) {
 	t.Parallel()
 
@@ -191,13 +236,13 @@ func TestWorkOSFGARemoveRoleSupportsMembershipsAndGroups(t *testing.T) {
 				assertRequest(t, request, http.MethodDelete, test.wantPath, map[string]any{
 					"resource_external_id": "dep_123",
 					"resource_type_slug":   "deployment",
-					"role_slug":            "deployment-viewer",
+					"role_slug":            "deployment-reader",
 				})
 				response.WriteHeader(http.StatusNoContent)
 			})
 			defer closeServer()
 
-			if err := fga.RemoveRole(context.Background(), test.subject, RoleDeploymentViewer, DeploymentResource("dep_123")); err != nil {
+			if err := fga.RemoveRole(context.Background(), test.subject, RoleDeploymentReader, DeploymentResource("dep_123")); err != nil {
 				t.Fatalf("RemoveRole() error = %v", err)
 			}
 		})
@@ -212,7 +257,7 @@ func TestWorkOSFGACheck(t *testing.T) {
 			t.Parallel()
 			fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
 				assertRequest(t, request, http.MethodPost, "/authorization/organization_memberships/om_123/check", map[string]any{
-					"permission_slug":      "deployment:view",
+					"permission_slug":      "deployment:read",
 					"resource_external_id": "dep_123",
 					"resource_type_slug":   "deployment",
 				})
@@ -220,7 +265,7 @@ func TestWorkOSFGACheck(t *testing.T) {
 			})
 			defer closeServer()
 
-			allowed, err := fga.Check(context.Background(), "om_123", ActionDeploymentView, DeploymentResource("dep_123"))
+			allowed, err := fga.Check(context.Background(), "om_123", ActionDeploymentRead, DeploymentResource("dep_123"))
 			if err != nil {
 				t.Fatalf("Check() error = %v", err)
 			}
@@ -270,6 +315,30 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 			},
 		},
 		{
+			name: "update resource name with empty organization id",
+			call: func(fga *WorkOSFGA) error {
+				return fga.UpdateResourceName(context.Background(), "", DeploymentResource("dep_123"), "Support agent")
+			},
+		},
+		{
+			name: "update resource name with empty resource type",
+			call: func(fga *WorkOSFGA) error {
+				return fga.UpdateResourceName(context.Background(), "org_123", ResourceRef{ExternalID: "dep_123"}, "Support agent")
+			},
+		},
+		{
+			name: "update resource name with empty resource external id",
+			call: func(fga *WorkOSFGA) error {
+				return fga.UpdateResourceName(context.Background(), "org_123", ResourceRef{Type: ResourceDeployment}, "Support agent")
+			},
+		},
+		{
+			name: "update resource with empty name",
+			call: func(fga *WorkOSFGA) error {
+				return fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "")
+			},
+		},
+		{
 			name: "delete resource with empty organization id",
 			call: func(fga *WorkOSFGA) error {
 				return fga.DeleteResource(context.Background(), "", DeploymentResource("dep_123"))
@@ -314,7 +383,7 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 		{
 			name: "check with empty membership id",
 			call: func(fga *WorkOSFGA) error {
-				_, err := fga.Check(context.Background(), "", ActionDeploymentView, DeploymentResource("dep_123"))
+				_, err := fga.Check(context.Background(), "", ActionDeploymentRead, DeploymentResource("dep_123"))
 				return err
 			},
 		},
@@ -328,14 +397,14 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 		{
 			name: "check with empty resource type",
 			call: func(fga *WorkOSFGA) error {
-				_, err := fga.Check(context.Background(), "om_123", ActionDeploymentView, ResourceRef{ExternalID: "dep_123"})
+				_, err := fga.Check(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{ExternalID: "dep_123"})
 				return err
 			},
 		},
 		{
 			name: "check with empty resource external id",
 			call: func(fga *WorkOSFGA) error {
-				_, err := fga.Check(context.Background(), "om_123", ActionDeploymentView, ResourceRef{Type: ResourceDeployment})
+				_, err := fga.Check(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{Type: ResourceDeployment})
 				return err
 			},
 		},
@@ -357,7 +426,10 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	t.Parallel()
 
-	if _, err := (&FakeFGA{}).Check(context.Background(), "om_123", ActionDeploymentView, DeploymentResource("dep_123")); err == nil {
+	if err := (&FakeFGA{}).UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent"); err == nil {
+		t.Fatal("UpdateResourceName() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).Check(context.Background(), "om_123", ActionDeploymentRead, DeploymentResource("dep_123")); err == nil {
 		t.Fatal("Check() error = nil, want unexpected-call error")
 	}
 }

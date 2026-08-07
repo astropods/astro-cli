@@ -19,6 +19,8 @@ var (
 	ErrResourceExists = errors.New("resource already exists")
 	// ErrResourceNotFound means WorkOS does not have the resource being deleted.
 	ErrResourceNotFound = errors.New("resource not found")
+	// ErrRoleAssignmentExists means WorkOS already has the requested role assignment.
+	ErrRoleAssignmentExists = errors.New("role assignment already exists")
 )
 
 var _ FGA = (*WorkOSFGA)(nil)
@@ -51,7 +53,31 @@ func (f *WorkOSFGA) RegisterResource(ctx context.Context, organizationID string,
 		Name:             name,
 	})
 	if err != nil {
-		return fmt.Errorf("register WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyResourceError(err, http.StatusConflict, ErrResourceExists))
+		return fmt.Errorf("register WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusConflict, ErrResourceExists))
+	}
+	return nil
+}
+
+func (f *WorkOSFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
+	if organizationID == "" {
+		return errors.New("organization id is required")
+	}
+	if name == "" {
+		return errors.New("resource name is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return err
+	}
+
+	_, err := f.authorization.UpdateResourceByExternalID(
+		ctx,
+		organizationID,
+		string(resource.Type),
+		resource.ExternalID,
+		&workos.AuthorizationUpdateResourceByExternalIDParams{Name: &name},
+	)
+	if err != nil {
+		return fmt.Errorf("update WorkOS resource %s:%s name: %w", resource.Type, resource.ExternalID, err)
 	}
 	return nil
 }
@@ -72,7 +98,7 @@ func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, r
 		resource.ExternalID,
 		&workos.AuthorizationDeleteResourceByExternalIDParams{CascadeDelete: &cascade},
 	); err != nil {
-		return fmt.Errorf("delete WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyResourceError(err, http.StatusNotFound, ErrResourceNotFound))
+		return fmt.Errorf("delete WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
 	}
 	return nil
 }
@@ -89,7 +115,7 @@ func (f *WorkOSFGA) AssignRole(ctx context.Context, subject AssignmentSubject, r
 			ResourceTarget: workOSResourceTarget(resource),
 		})
 		if err != nil {
-			return fmt.Errorf("assign WorkOS role %q to membership on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+			return fmt.Errorf("assign WorkOS role %q to membership on %s:%s: %w", role, resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusConflict, ErrRoleAssignmentExists))
 		}
 	case AssignmentSubjectGroup:
 		externalID := resource.ExternalID
@@ -100,7 +126,7 @@ func (f *WorkOSFGA) AssignRole(ctx context.Context, subject AssignmentSubject, r
 			ResourceTypeSlug:   &resourceType,
 		})
 		if err != nil {
-			return fmt.Errorf("assign WorkOS role %q to group on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+			return fmt.Errorf("assign WorkOS role %q to group on %s:%s: %w", role, resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusConflict, ErrRoleAssignmentExists))
 		}
 	default:
 		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
@@ -185,27 +211,27 @@ func workOSResourceTarget(resource ResourceRef) workos.AuthorizationResourceTarg
 	}
 }
 
-type classifiedResourceError struct {
+type classifiedAPIError struct {
 	kind  error
 	cause error
 }
 
-func (e *classifiedResourceError) Error() string {
+func (e *classifiedAPIError) Error() string {
 	return e.cause.Error()
 }
 
-func (e *classifiedResourceError) Unwrap() error {
+func (e *classifiedAPIError) Unwrap() error {
 	return e.cause
 }
 
-func (e *classifiedResourceError) Is(target error) bool {
+func (e *classifiedAPIError) Is(target error) bool {
 	return target == e.kind
 }
 
-func classifyResourceError(err error, statusCode int, kind error) error {
+func classifyAPIError(err error, statusCode int, kind error) error {
 	var apiErr *workos.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == statusCode {
-		return &classifiedResourceError{kind: kind, cause: err}
+		return &classifiedAPIError{kind: kind, cause: err}
 	}
 	return err
 }

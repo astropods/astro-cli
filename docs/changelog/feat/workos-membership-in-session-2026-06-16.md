@@ -1,6 +1,6 @@
 # Summary
 
-Populate WorkOS org membership id (`om_*`) on the server session so upcoming FGA checks have a subject. Replace the coarse deployment action with `deployment:view` and `deployment:edit`; there is no authorization behavior change because routes still use existing JWT permissions and membership checks.
+Populate WorkOS org membership id (`om_*`) on the server session so upcoming FGA checks have a subject. Replace the coarse deployment action with `deployment:read` and `deployment:edit`; there is no authorization behavior change because routes still use existing JWT permissions and membership checks.
 
 # Design
 
@@ -21,7 +21,7 @@ Bearer auth reads the JWT claim only (no per-request DB hit). `SubjectFromContex
 
 The deployment FGAC rollout is documented alongside this identity prerequisite. The sequence is API-first: live resource writes, shadow checks, backfill, enforcement, access/group APIs, and preview verification precede any frontend work.
 
-`deployment:view` covers reading non-secret deployment control-plane data. `deployment:edit` covers changing or operating a deployment. These values are WorkOS permission-slug contracts, but `MembershipChecker` still ignores the requested action until live FGA checks are introduced.
+`deployment:read` covers reading non-secret deployment control-plane data. `deployment:edit` covers changing or operating a deployment. These values are WorkOS permission-slug contracts, but `MembershipChecker` still ignores the requested action until live FGA checks are introduced.
 
 Org-unscoped sessions (first login before switch-org) legitimately have empty membership until the user selects an org.
 

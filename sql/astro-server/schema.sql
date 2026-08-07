@@ -295,6 +295,9 @@ CREATE TABLE public.deployments (
     -- (no token emitted); set to now() on the next avatar write.
     avatar_updated_at timestamptz,
     cluster_id varchar(64),
+    -- WorkOS user ID that created the deployment. Resource-role reconciliation
+    -- resolves this user to the account's current organization membership.
+    deployed_by text,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
     CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
     CONSTRAINT deployments_source_account_id_fkey FOREIGN KEY (source_account_id) REFERENCES public.accounts(id) ON DELETE SET NULL,
@@ -321,6 +324,35 @@ CREATE INDEX idx_deployments_source_account_agent ON public.deployments(source_a
 CREATE UNIQUE INDEX idx_deployments_live_display_name ON public.deployments(account_id, display_name) WHERE status <> 'undeployed' AND display_name <> '';
 
 CREATE INDEX idx_deployments_cluster_id ON public.deployments(cluster_id) WHERE cluster_id IS NOT NULL;
+
+-- Transactional desired state for the deployment resource in WorkOS FGA. The
+-- deployment transaction is authoritative; a River worker applies this state
+-- after commit and records failures here for retry without rolling Astro back.
+CREATE TABLE public.deployment_fga_sync (
+    deployment_id varchar(11) NOT NULL,
+    desired_state text NOT NULL,
+    desired_version bigint NOT NULL DEFAULT 1,
+    synced_state text,
+    synced_version bigint,
+    -- Resource lifecycle can converge while a current member's creator role
+    -- remains eligible for low-frequency retry after membership-mirror lag.
+    creator_assignment_pending boolean NOT NULL DEFAULT false,
+    attempt_count int NOT NULL DEFAULT 0,
+    last_error text,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    synced_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_fga_sync_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT deployment_fga_sync_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_fga_sync_desired_state_check CHECK (desired_state IN ('registered', 'deleted')),
+    CONSTRAINT deployment_fga_sync_synced_state_check CHECK (synced_state IS NULL OR synced_state IN ('registered', 'deleted'))
+);
+
+CREATE INDEX idx_deployment_fga_sync_pending
+    ON public.deployment_fga_sync(next_attempt_at, updated_at)
+    WHERE synced_state IS DISTINCT FROM desired_state
+       OR synced_version IS DISTINCT FROM desired_version
+       OR creator_assignment_pending;
 
 -- Who gets alerted about a deployment. A member becomes a watcher implicitly by
 -- acting on it (deploying, changing config, rolling back, …); registration is
