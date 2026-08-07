@@ -44,8 +44,9 @@ type Config struct {
 	StripePublishableKey string // STRIPE_PUBLISHABLE_KEY — surfaced to the client for Elements
 	StripeWebhookSecret  string // STRIPE_WEBHOOK_SECRET — signature verification for payment-collection webhooks
 	// Consumption gating (hosted). Status is always computed/written; enforce
-	// controls whether a suspended account is blocked (402) or only logged.
-	BillingGateEnforce      bool // BILLING_GATE_ENFORCE — false = observe/log, true = enforce 402s
+	// controls whether it is acted on (402, suspend, notifications) or only
+	// logged. Resume is never gated, so turning this off can undo suspensions.
+	BillingGateEnforce      bool // BILLING_GATE_ENFORCE — false = observe/log, true = enforce
 	BillingDunningGraceDays int  // BILLING_DUNNING_GRACE_DAYS — past_due→suspended window (default 7)
 	// QuotaDefaults holds the system-wide default per-account resource limits
 	// (blueprints, agent_builds, agent_deployments, members, knowledge_stores,

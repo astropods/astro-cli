@@ -111,6 +111,8 @@ type Queue struct {
 	pool   *pgxpool.Pool
 	client *river.Client[pgx.Tx]
 	log    *logger.Logger
+	// billingEnforce is BILLING_GATE_ENFORCE; false is observe mode.
+	billingEnforce bool
 }
 
 // New creates a Queue: opens a pgxpool, registers workers, and builds the River client.
@@ -150,9 +152,10 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	q := &Queue{
-		pool:   pool,
-		client: riverClient,
-		log:    cfg.Logger,
+		pool:           pool,
+		client:         riverClient,
+		log:            cfg.Logger,
+		billingEnforce: cfg.ServerConfig != nil && cfg.ServerConfig.BillingGateEnforce,
 	}
 
 	// Set queue references on workers that need Insert capability.
@@ -346,17 +349,46 @@ func evalJudgePredictionInsertManyParams(evalDatasetID string, traceIDs []string
 }
 
 // InsertBillingSuspend enqueues a billing suspend for an account (scale its
-// deployments to zero).
+// deployments to zero). No-op in observe mode.
 func (q *Queue) InsertBillingSuspend(ctx context.Context, accountID string) error {
+	if !q.billingActs("suspend", accountID) {
+		return nil
+	}
 	_, err := q.Insert(ctx, BillingSuspendArgs{AccountID: accountID}, nil)
 	return err
 }
 
 // InsertBillingResume enqueues a billing resume for an account (restore the
 // deployments billing suspended).
+//
+// Deliberately not gated. Resume is remediation, not enforcement: it only
+// restores deployments left in StatusSuspended, which nothing but billing sets,
+// so with enforcement off there is nothing for it to find. Gating it with
+// suspend would mean turning the flag off after a real suspension could not
+// undo it — an account that then fixed its card would stay at zero replicas.
 func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error {
 	_, err := q.Insert(ctx, BillingResumeArgs{AccountID: accountID}, nil)
 	return err
+}
+
+// EmitBillingNotify sends an owner-facing billing alert, or logs what it would
+// have sent in observe mode. Separate from EmitNotify so only billing traffic
+// is gated.
+func (q *Queue) EmitBillingNotify(ctx context.Context, ev notify.Event) error {
+	if !q.billingActs("notify "+string(ev.Type), ev.AccountID) {
+		return nil
+	}
+	return q.EmitNotify(ctx, ev)
+}
+
+// billingActs reports whether billing may take a user-visible action, logging
+// the decision it skipped when it may not.
+func (q *Queue) billingActs(action, accountID string) bool {
+	if q.billingEnforce {
+		return true
+	}
+	q.log.Info("billing gate (observe): would "+action, "account_id", accountID)
+	return false
 }
 
 // InsertBillingProvision enqueues rate-card + signup-credit provisioning for an

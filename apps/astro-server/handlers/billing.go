@@ -9,6 +9,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -32,12 +33,18 @@ type BillingStatusResponse struct {
 	Reason           string `json:"reason,omitempty"`
 	CreditsExhausted bool   `json:"credits_exhausted"`
 	HasPaymentMethod bool   `json:"has_payment_method"`
+	// Enforced is BILLING_GATE_ENFORCE: whether this status is acted on.
+	Enforced bool `json:"enforced"`
+	// WorkloadsSuspended is whether billing has already stopped this account's
+	// deployments. Outlives Enforced, since turning enforcement off does not
+	// restart what it stopped.
+	WorkloadsSuspended bool `json:"workloads_suspended"`
 }
 
 // GetBillingStatus handles GET /api/v1/accounts/:account/billing/status. It
 // reads the cached status only — no provider call — so it is cheap enough to
 // poll on every page. Without a status store (OSS) every account is active.
-func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore) gin.HandlerFunc {
+func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, deployments *deploymentstore.Store, enforced bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -45,7 +52,7 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore) gi
 			return
 		}
 		if billingStatus == nil {
-			c.JSON(http.StatusOK, BillingStatusResponse{Status: string(billing.StatusActive)})
+			c.JSON(http.StatusOK, BillingStatusResponse{Status: string(billing.StatusActive), Enforced: enforced})
 			return
 		}
 		rec, err := billingStatus.Record(c.Request.Context(), acct.ID)
@@ -54,11 +61,23 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore) gi
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load billing status"})
 			return
 		}
+		// Only a non-active status can raise a banner, so an active account
+		// skips the read. Best-effort: a failure must not hide a status the
+		// user can act on.
+		stopped := false
+		if rec.Status != billing.StatusActive && deployments != nil {
+			var derr error
+			if stopped, derr = deployments.HasBillingSuspended(c.Request.Context(), acct.ID); derr != nil {
+				log.Warn("Failed to check suspended workloads", "error", derr, "account_id", acct.ID)
+			}
+		}
 		c.JSON(http.StatusOK, BillingStatusResponse{
-			Status:           string(rec.Status),
-			Reason:           rec.Reason,
-			CreditsExhausted: rec.CreditsExhausted,
-			HasPaymentMethod: rec.HasPaymentMethod,
+			Status:             string(rec.Status),
+			Reason:             rec.Reason,
+			CreditsExhausted:   rec.CreditsExhausted,
+			HasPaymentMethod:   rec.HasPaymentMethod,
+			Enforced:           enforced,
+			WorkloadsSuspended: stopped,
 		})
 	}
 }

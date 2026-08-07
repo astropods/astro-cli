@@ -25,6 +25,8 @@ function status(partial: Partial<BillingStatusResponse>): BillingStatusResponse 
     status: "active",
     credits_exhausted: false,
     has_payment_method: false,
+    enforced: true,
+    workloads_suspended: false,
     ...partial,
   };
 }
@@ -72,6 +74,27 @@ describe("BillingStatusBanner", () => {
     render(<BillingStatusBanner />);
     expect(screen.getByText("Payment failed")).toBeInTheDocument();
     expect(screen.getByText(/agents are stopped once the grace period ends/)).toBeInTheDocument();
+  });
+
+  it("stays silent in observe mode, where nothing is actually suspended", () => {
+    mockStatus.mockReturnValue({
+      data: status({ status: "suspended", reason: "credits_exhausted", enforced: false }),
+    });
+    const { container } = render(<BillingStatusBanner />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("keeps warning while workloads are still stopped after enforcement is off", () => {
+    mockStatus.mockReturnValue({
+      data: status({
+        status: "suspended",
+        reason: "credits_exhausted",
+        enforced: false,
+        workloads_suspended: true,
+      }),
+    });
+    render(<BillingStatusBanner />);
+    expect(screen.getByText(/free credits/i)).toBeInTheDocument();
   });
 
   // A write-off outranks exhaustion server-side, and adding a card does not

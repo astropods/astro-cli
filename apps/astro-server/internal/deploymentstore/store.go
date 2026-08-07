@@ -364,6 +364,20 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 }
 
 // GetDeploymentsByAccountInStatuses returns deployments for an account matching any of the given statuses.
+// HasBillingSuspended reports whether billing has actually stopped any of the
+// account's deployments. Distinct from the cached billing status, which records
+// what the state machine decided rather than what was carried out.
+func (s *Store) HasBillingSuspended(ctx context.Context, accountID string) (bool, error) {
+	var stopped bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM deployments WHERE account_id = $1 AND status = $2)`,
+		accountID, StatusSuspended).Scan(&stopped)
+	if err != nil {
+		return false, fmt.Errorf("check billing-suspended deployments: %w", err)
+	}
+	return stopped, nil
+}
+
 func (s *Store) GetDeploymentsByAccountInStatuses(accountID string, statuses ...string) ([]*Deployment, error) {
 	if len(statuses) == 0 {
 		return nil, nil

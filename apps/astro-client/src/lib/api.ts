@@ -2265,6 +2265,12 @@ export interface BillingStatusResponse {
   reason?: string;
   credits_exhausted: boolean;
   has_payment_method: boolean;
+  /** Whether the server acts on this status (observe vs enforce). */
+  enforced: boolean;
+  /** Whether billing has already stopped this account's deployments. Outlives
+   *  `enforced`, so a real suspension stays visible after enforcement is
+   *  turned off. */
+  workloads_suspended: boolean;
 }
 
 export interface SetupIntentResponse {

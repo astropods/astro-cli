@@ -328,7 +328,7 @@ func applyWebhookSignal(
 	}
 	if ev, ok := billingAlert(sig, acct.ID, acct.Name, hostedInvoiceURL); ok && queue != nil {
 		ev.DedupeKey = "billing:" + source + ":" + eventID
-		if emitErr := queue.EmitNotify(ctx, ev); emitErr != nil {
+		if emitErr := queue.EmitBillingNotify(ctx, ev); emitErr != nil {
 			log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", string(sig))
 		}
 	}

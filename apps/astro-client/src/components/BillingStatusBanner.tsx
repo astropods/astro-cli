@@ -61,7 +61,11 @@ export function BillingStatusBanner({ className }: { className?: string }) {
   const navigate = useNavigate();
   const { data } = useBillingStatus(activeAccount ?? "");
 
-  if (!data || data.status === "active") return null;
+  // Observe mode computes a status without acting on it, so there is nothing to
+  // report — unless enforcement already stopped this account and was then
+  // turned off, which leaves it genuinely down.
+  const acted = data?.enforced || data?.workloads_suspended;
+  if (!data || !acted || data.status === "active") return null;
 
   const suspended = data.status === "suspended";
   const copy = bannerCopy(

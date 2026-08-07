@@ -60,7 +60,7 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 					w.log.Error("dunning sweep: enqueue suspend failed", "account_id", id, "error", err)
 				}
 				// Notify the owner their account was suspended (best-effort).
-				if err := w.queue.EmitNotify(ctx, notify.BillingSuspended(id, "")); err != nil {
+				if err := w.queue.EmitBillingNotify(ctx, notify.BillingSuspended(id, "")); err != nil {
 					w.log.Warn("dunning sweep: emit suspended notification failed", "account_id", id, "error", err)
 				}
 			}

@@ -1299,7 +1299,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.GET(accountManage, "/billing/status", "Get billing gating status", handlers.GetBillingStatus(log, deps.Stores.BillingStatus),
+				api.GET(accountManage, "/billing/status", "Get billing gating status", handlers.GetBillingStatus(log, deps.Stores.BillingStatus, deps.Stores.Deployment, cfg.BillingGateEnforce),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
