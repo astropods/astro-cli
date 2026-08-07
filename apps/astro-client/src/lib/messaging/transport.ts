@@ -16,6 +16,8 @@ export type MessagingStreamHandlers = {
   // Any inbound SSE event (chunk, heartbeat, ...): the transport is alive.
   onActivity: () => void;
   onInteraction?: (interaction: Interaction) => void;
+  // A server-injected thread row the client didn't send — a resolved-interaction note (role "note") or a "write your own reply" (role "user") — and the boundary that starts the continuation's new bubble.
+  onInjected?: (id: string, role: string, content: string) => void;
 };
 
 type SsePayload = {
@@ -24,6 +26,8 @@ type SsePayload = {
   content?: string;
   attachments?: ChatAttachment[];
   message?: string;
+  id?: string;
+  role?: string;
 };
 
 function parseSsePayload(data: string): SsePayload | null {
@@ -56,6 +60,10 @@ export function openMessagingStream(
       if (interaction) handlers.onInteraction?.(interaction);
       return;
     }
+    if (typ === "injected" && typeof payload.content === "string") {
+      handlers.onInjected?.(payload.id ?? "", payload.role ?? "note", payload.content);
+      return;
+    }
     if (typ === "error") {
       handlers.onError(
         payload.message || "The agent stopped responding. You can try sending again.",
@@ -76,6 +84,10 @@ export function openMessagingStream(
   es.addEventListener("interaction", (e) => {
     handlers.onActivity();
     if (e instanceof MessageEvent) handleData("interaction", String(e.data));
+  });
+  es.addEventListener("injected", (e) => {
+    handlers.onActivity();
+    if (e instanceof MessageEvent) handleData("injected", String(e.data));
   });
   es.addEventListener("finish", (e) => {
     handlers.onActivity();

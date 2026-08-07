@@ -3,7 +3,7 @@ import type { GetDeploymentChatConversationResponse } from "@/lib/api";
 import {
   mergeConversationTail,
   patchConversationAssistantChunk,
-  patchConversationUserMessage,
+  appendConversationMessage,
   removeConversationMessage,
 } from "./conversation-sync";
 
@@ -21,9 +21,9 @@ function thread(
   };
 }
 
-describe("patchConversationUserMessage", () => {
+describe("appendConversationMessage", () => {
   it("appends an optimistic user row and marks streaming", () => {
-    const patched = patchConversationUserMessage(undefined, convId, {
+    const patched = appendConversationMessage(undefined, convId, {
       id: "user-1",
       role: "user",
       content: "hello",
@@ -33,11 +33,32 @@ describe("patchConversationUserMessage", () => {
     ]);
     expect(patched.assistant_streaming).toBe(true);
   });
+
+  it("appends a note row and keeps the turn streaming", () => {
+    // The note is the interaction boundary; it must stay a live turn so the
+    // agent's continuation streams in as a fresh assistant bubble after it.
+    const base = appendConversationMessage(undefined, convId, {
+      id: "a1",
+      role: "assistant",
+      content: "preamble",
+    });
+    const patched = appendConversationMessage(base, convId, {
+      id: "n1",
+      role: "note",
+      content: "Answered · Name: octocat",
+    });
+    expect(patched.messages?.at(-1)).toEqual({
+      id: "n1",
+      role: "note",
+      content: "Answered · Name: octocat",
+    });
+    expect(patched.assistant_streaming).toBe(true);
+  });
 });
 
 describe("patchConversationAssistantChunk", () => {
   it("appends assistant on first chunk", () => {
-    const base = patchConversationUserMessage(undefined, convId, {
+    const base = appendConversationMessage(undefined, convId, {
       id: "user-1",
       role: "user",
       content: "hello",
@@ -57,7 +78,7 @@ describe("patchConversationAssistantChunk", () => {
 
   it("accumulates incremental chunks", () => {
     const base = patchConversationAssistantChunk(
-      patchConversationUserMessage(undefined, convId, {
+      appendConversationMessage(undefined, convId, {
         id: "user-1",
         role: "user",
         content: "hello",
@@ -76,7 +97,7 @@ describe("patchConversationAssistantChunk", () => {
 
 describe("removeConversationMessage", () => {
   it("rolls back a failed optimistic user send", () => {
-    const base = patchConversationUserMessage(undefined, convId, {
+    const base = appendConversationMessage(undefined, convId, {
       id: "user-1",
       role: "user",
       content: "hello",

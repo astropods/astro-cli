@@ -147,4 +147,22 @@ describe("inFlightAssistantMessageId", () => {
       }),
     ).toBe("a1");
   });
+
+  it("returns null for a note tail so the continuation opens a fresh bubble", () => {
+    // The note is the interaction boundary: the turn is still in flight, but the
+    // trailing row is not an assistant, so the next chunk must start a new bubble
+    // instead of appending to the pre-interaction reply.
+    const withNoteTail = {
+      conversation_id: "c1",
+      title: "",
+      updated_at: "",
+      assistant_streaming: true,
+      messages: [
+        { id: "a1", role: "assistant" as const, content: "preamble" },
+        { id: "n1", role: "note" as const, content: "Answered · Name: octocat" },
+      ],
+    };
+    expect(serverTurnInFlight(withNoteTail)).toBe(true);
+    expect(inFlightAssistantMessageId(withNoteTail)).toBeNull();
+  });
 });

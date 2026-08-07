@@ -4,7 +4,9 @@ import type {
   GetDeploymentChatConversationResponse,
 } from "@/lib/api";
 
-export type ChatRole = "user" | "assistant";
+// "note" is a server-injected ghost recording a resolved interaction — rendered
+// as a muted line, not a chat bubble.
+export type ChatRole = "user" | "assistant" | "note";
 
 /** View-model message for deployment chat UI (server-owned history). */
 export type ChatMessage = {

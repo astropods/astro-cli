@@ -9,6 +9,7 @@ import {
   type ListDeploymentChatConversationsResponse,
 } from "@/lib/api";
 import {
+  type ChatRole,
   deriveTurnInFlight,
   inFlightAssistantMessageId,
   mapServerMessages,
@@ -18,9 +19,9 @@ import { useDeploymentChatConversation } from "@/api/queries/chat";
 import { chatKeys, fileKeys } from "@/api/queries/keys";
 import {
   CHAT_INITIAL_PAGE_LIMIT,
+  appendConversationMessage,
   mergeConversationOlder,
   patchConversationAssistantChunk,
-  patchConversationUserMessage,
   removeConversationMessage,
 } from "@/lib/chat/conversation-sync";
 import { openMessagingStream } from "@/lib/messaging/transport";
@@ -270,6 +271,7 @@ export function useDeploymentChat(
         ? assistantIdRef.current
         : inFlightAssistantMessageId(cached);
 
+      // A null pointer opens a fresh assistant bubble — at turn start, and after a note lands (a non-assistant tail), which is how the continuation breaks into its own bubble.
       if (!assistantId || chunkType === "replace") {
         assistantId =
           inFlightAssistantMessageId(cached) ?? `assistant-${Date.now()}`;
@@ -537,6 +539,28 @@ export function useDeploymentChat(
         }
         setLiveInteraction({ convId, interaction });
       },
+      onInjected: (id, role, content) => {
+        // A server-injected row the client didn't send: a resolved-interaction note (grey line) or a "write your own reply" (user bubble). Append it and clear the streaming pointer so it becomes a non-assistant tail and the continuation opens a fresh bubble; the turn stays in flight.
+        const messageId = id || `${role}-${Date.now()}`;
+        queryClient.setQueryData<GetDeploymentChatConversationResponse>(
+          conversationKey(convId),
+          (old) => {
+            // Idempotent by id: a redelivered event after a reconnect must not double the row.
+            if (old?.messages?.some((m) => m.id === messageId)) return old;
+            return appendConversationMessage(old, convId, {
+              id: messageId,
+              role: role as ChatRole,
+              content,
+            });
+          },
+        );
+        // Only reset the on-screen streaming pointers for the active conversation (a background row must not clobber the active view).
+        if (convId === activeConversationIdRef.current) {
+          assistantIdRef.current = null;
+          setStreamingAssistantId(null);
+        }
+        armStallTimer(convId);
+      },
     });
     streamsRef.current.set(convId, es);
     // Arm the liveness watchdog for the pipe (reset by any activity) and the
@@ -554,9 +578,11 @@ export function useDeploymentChat(
     api,
     armWatchdog,
     armStallTimer,
+    conversationKey,
     deploymentId,
     finalizeConversation,
     patchAssistantChunk,
+    queryClient,
     surfaceTurnError,
     turnInFlight,
   ]);
@@ -604,7 +630,7 @@ export function useDeploymentChat(
           convId = created.conversation_id;
           queryClient.setQueryData(
             conversationKey(convId),
-            patchConversationUserMessage(undefined, convId, {
+            appendConversationMessage(undefined, convId, {
               id: userId,
               role: "user",
               content: trimmed,
@@ -619,7 +645,7 @@ export function useDeploymentChat(
           queryClient.setQueryData<GetDeploymentChatConversationResponse>(
             key,
             (old) =>
-              patchConversationUserMessage(old, convId!, {
+              appendConversationMessage(old, convId!, {
                 id: userId,
                 role: "user",
                 content: trimmed,

@@ -16,14 +16,9 @@ function conversationMessages(
   return thread.messages ?? [];
 }
 
-/**
- * Client-generated optimistic/streaming row id. sendMessage uses `user-<ts>` for
- * the optimistic user row and patchConversationAssistantChunk uses
- * `assistant-<ts>` for the streaming assistant row before the server id lands.
- * Server ids are UUIDs, which never match this shape.
- */
+/** Client-generated optimistic/streaming row id (`user-`/`assistant-`/`note-<ts>`); server ids are UUIDs and never match. */
 function isClientTempId(id: string): boolean {
-  return /^(assistant|user)-\d+$/.test(id);
+  return /^(assistant|user|note)-\d+$/.test(id);
 }
 
 /**
@@ -81,8 +76,8 @@ function emptyConversation(
   };
 }
 
-/** Optimistically append a user message while the send request is in flight. */
-export function patchConversationUserMessage(
+/** Append a row (optimistic user send or server-injected note) and mark the turn in flight, so the agent's next chunk opens a fresh bubble. */
+export function appendConversationMessage(
   existing: GetDeploymentChatConversationResponse | undefined,
   conversationId: string,
   message: DeploymentChatMessageRecord,

@@ -60,14 +60,11 @@ export function DeploymentChatRuntimeProvider({
     [messages],
   );
 
-  // assistant-ui treats isRunning as "show an in-flight assistant turn". When the
-  // tail is still the *previous* assistant it re-marks that message running
-  // (loading dot above the new user bubble). Only signal running once the sent
-  // user message is in history, or the server tail is a streaming assistant.
+  // A completed-assistant tail reads as not running; any other non-assistant tail (sent user message, or a note awaiting the continuation) is in flight — else the composer flips to Send mid-turn and drops typed input.
   const threadIsRunning = useMemo(() => {
     if (assistantStreaming != null) return true;
     if (!isStreaming) return false;
-    return messages.at(-1)?.role === "user";
+    return messages.at(-1)?.role !== "assistant";
   }, [assistantStreaming, isStreaming, messages]);
 
   const api = useApiClient();

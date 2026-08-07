@@ -969,7 +969,8 @@ export interface ChatAttachment {
 
 export interface DeploymentChatMessageRecord {
   id: string;
-  role: "user" | "assistant";
+  // "note" is a server-injected ghost recording a resolved interaction.
+  role: "user" | "assistant" | "note";
   content: string;
   attachments?: ChatAttachment[];
 }

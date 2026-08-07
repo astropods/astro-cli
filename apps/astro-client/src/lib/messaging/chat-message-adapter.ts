@@ -51,6 +51,15 @@ export function chatMessagesToThreadMessages(
       };
     }
 
+    if (m.role === "note") {
+      // Map to system role; assistant-ui requires exactly one text part on those.
+      return {
+        id: m.id,
+        role: "system",
+        content: [{ type: "text", text: m.content }],
+      };
+    }
+
     const base: ThreadMessageLike = {
       id: m.id,
       role: "assistant",

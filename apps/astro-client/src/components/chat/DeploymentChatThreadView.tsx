@@ -226,6 +226,8 @@ const ThreadMessage: FC<{
 }> = ({ deploymentId, agentLabel }) => {
   const role = useAuiState((s) => s.message.role);
   if (role === "user") return <UserMessage deploymentId={deploymentId} />;
+  // A note (mapped to system role) renders as a muted line, not a bubble.
+  if (role === "system") return <NoteMessage />;
   return (
     <AssistantMessage deploymentId={deploymentId} agentLabel={agentLabel} />
   );
@@ -817,6 +819,23 @@ const AssistantMessage: FC<{
         <AssistantActionBar />
       </div>
     </MessagePrimitive.Root>
+  );
+};
+
+// Renders a resolved-interaction note as a muted centered aside, not a chat bubble.
+const NoteMessage: FC = () => {
+  const text = useAuiState((s) => {
+    const first = s.message.content[0];
+    return first?.type === "text" ? first.text : "";
+  });
+  if (!text) return null;
+  return (
+    <div
+      data-role="note"
+      className="fade-in animate-in flex justify-center px-2 py-0.5 duration-150"
+    >
+      <span className="text-faint-foreground text-body-sm">{text}</span>
+    </div>
   );
 };
 
