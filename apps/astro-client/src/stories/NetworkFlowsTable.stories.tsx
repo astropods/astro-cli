@@ -14,6 +14,8 @@ function flow(
   return {
     peer,
     peer_kind,
+    registrable_domain:
+      peer_kind === "address" ? peer.split(".").slice(-2).join(".") : undefined,
     request_count: requests,
     error_count: errors,
     error_rate: requests > 0 ? errors / requests : 0,
@@ -105,6 +107,18 @@ export const WithUnknownPeer: Story = {
     flows: [
       ...outboundFlows,
       flow("(unknown)", "address", 14, 14, 1840, 4800, { "5xx": 14 }),
+    ],
+  },
+};
+
+/** Peers wider than the column still ellipsize once the icon takes its slot. */
+export const LongPeerNames: Story = {
+  args: {
+    direction: "outbound",
+    flows: [
+      flow("shard-07.edge-gateway.eu-west-1.acme-cdn-provider.example.com", "address", 1420, 0, 42, 180),
+      flow("api.openai.com", "address", 920, 0, 380, 1640),
+      flow("a-very-long-internal-service-name.namespace.svc.cluster.local", "address", 210, 0, 8, 24),
     ],
   },
 };

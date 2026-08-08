@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -17,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -325,6 +328,26 @@ func fillDirectionSummary(
 }
 
 // peerKindFor maps the direction's peer label to the response's peer_kind tag.
+// registrableDomainOf returns the eTLD+1 for an address peer, so clients can
+// group a vendor's hosts without shipping a public suffix list of their own.
+// Empty for anything that isn't a registrable domain — bare IPs, single-label
+// internal names — which callers treat as "stands alone".
+func registrableDomainOf(peer string) string {
+	host := peer
+	if h, _, err := net.SplitHostPort(peer); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" || net.ParseIP(host) != nil {
+		return ""
+	}
+	domain, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil {
+		return ""
+	}
+	return domain
+}
+
 func peerKindFor(direction string) string {
 	switch direction {
 	case "inbound":
@@ -477,6 +500,9 @@ func collectFlows(
 			return f
 		}
 		f := &NetworkFlow{Peer: peer, PeerKind: peerKind}
+		if peerKind == "address" {
+			f.RegistrableDomain = registrableDomainOf(peer)
+		}
 		if spec.hasStatusCode {
 			f.StatusCodes = map[string]int64{}
 		}

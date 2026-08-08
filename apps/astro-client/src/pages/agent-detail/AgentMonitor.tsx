@@ -18,7 +18,9 @@ import { RequestVolumeChart } from "@/components/agent-detail/charts/RequestVolu
 import { LatencyCard } from "@/components/agent-detail/charts/LatencyCard";
 import { NetworkSummaryCard } from "@/components/agent-detail/network/NetworkSummaryCard";
 import { NetworkFlowsTable } from "@/components/agent-detail/network/NetworkFlowsTable";
-import type { NetworkDirection } from "@/lib/api";
+import { NetworkFlowGraph } from "@/components/agent-detail/network/NetworkFlowGraph";
+import { useDeploymentAvatarUrl } from "@/lib/avatar-bust";
+import type { NetworkDirection, NetworkFlow } from "@/lib/api";
 import {
   aggregateByLocalDay,
   aggregateRequestsByLocalDay,
@@ -27,6 +29,9 @@ import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { deploymentPath, DeploymentTab } from "@/lib/routes";
 import { classify } from "@/components/agent-detail/pods/classify";
 import { cn } from "@/lib/utils";
+
+// Stable identity, or a pending query re-runs the graph's layout every render.
+const NO_FLOWS: NetworkFlow[] = [];
 
 const CORE_NETWORK_DIRECTIONS: { key: NetworkDirection; label: string }[] = [
   { key: "inbound", label: "Inbound" },
@@ -137,6 +142,14 @@ export default function AgentMonitor() {
     networkWindow,
   );
 
+  // No sort/limit, so the table's active direction shares a key and is cached.
+  const { data: inboundFlows } = useNetworkFlows(deploymentId, "inbound", networkWindow);
+  const { data: outboundFlows } = useNetworkFlows(deploymentId, "outbound", networkWindow);
+  const graphInbound = inboundFlows?.flows ?? NO_FLOWS;
+  const graphOutbound = outboundFlows?.flows ?? NO_FLOWS;
+  const hasGraphTraffic = graphInbound.length > 0 || graphOutbound.length > 0;
+  const agentAvatarUrl = useDeploymentAvatarUrl(deployment);
+
   return (
     <div className="relative z-10 flex flex-1 overflow-hidden pt-16">
       {/* Main content */}
@@ -214,6 +227,15 @@ export default function AgentMonitor() {
                 HTTP traffic to and from your agent
               </p>
             </div>
+
+            {hasGraphTraffic && (
+              <NetworkFlowGraph
+                inbound={graphInbound}
+                outbound={graphOutbound}
+                agentAvatarUrl={agentAvatarUrl}
+                className="mb-8"
+              />
+            )}
 
             <div
               className={cn(

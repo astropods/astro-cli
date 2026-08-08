@@ -5,7 +5,7 @@
  * and its place in the layout.
  */
 
-import { hasIntegrationIcon } from "@/lib/integration-icon-ids";
+import { resolveIconId } from "@/lib/integration-icon-ids";
 
 export type Role =
   | "agent"
@@ -58,8 +58,8 @@ export function roleRank(role: Role): number {
  */
 export function brandIconId(role: Role, provider: string | undefined, component: string | undefined): string | null {
   if (role !== "knowledge" && role !== "model" && role !== "integration") return null;
-  const p = (provider ?? "").toLowerCase();
-  if (p && hasIntegrationIcon(p)) return p;
+  const fromProvider = provider ? resolveIconId(provider) : null;
+  if (fromProvider) return fromProvider;
   const suffix = (component ?? "").toLowerCase().replace(/^(knowledge|model|tool)-/, "");
-  return hasIntegrationIcon(suffix) ? suffix : null;
+  return suffix ? resolveIconId(suffix) : null;
 }

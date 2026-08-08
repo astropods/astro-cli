@@ -853,6 +853,9 @@ type NetworkFlow struct {
 	LatencyP95Ms *float64         `json:"latency_p95_ms"`
 	BytesTotal   int64            `json:"bytes_total"`
 	StatusCodes  map[string]int64 `json:"status_codes,omitempty"`
+	// eTLD+1 for outbound address peers, so clients can group a vendor's hosts
+	// without shipping a public suffix list. Empty when the peer isn't a domain.
+	RegistrableDomain string `json:"registrable_domain,omitempty"`
 }
 
 // NetworkFlowsResponse is returned by the per-deployment network flows endpoint.

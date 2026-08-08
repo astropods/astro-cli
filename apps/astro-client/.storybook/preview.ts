@@ -6,6 +6,7 @@ import { initialize, mswLoader } from 'msw-storybook-addon'
 import { AuthContext } from '../src/lib/auth-context'
 import { mockAuthContext } from '../src/test/test-utils'
 import { handlers } from '../src/test/msw/handlers'
+import { setTheme } from '../src/lib/theme'
 import '../src/index.css'
 
 initialize(
@@ -44,6 +45,14 @@ const ThemePane = ({ label, dark, children }: ThemePaneProps) =>
     children,
   )
 
+/** Drives the real theme store, on commit — setTheme notifies subscribers. */
+const ThemeSync = ({ theme }: { theme: 'light' | 'dark' | 'split' }) => {
+  React.useLayoutEffect(() => {
+    setTheme(theme === 'split' ? 'light' : theme)
+  }, [theme])
+  return null
+}
+
 const preview: Preview = {
   globalTypes: {
     theme: {
@@ -67,10 +76,6 @@ const preview: Preview = {
   decorators: [
     (Story, context) => {
       const theme = context.globals.theme as 'light' | 'dark' | 'split';
-      // Scope `dark` to a sub-tree only when in split mode so each pane
-      // resolves its own CSS variables. In single-pane modes we toggle
-      // `<html>` so production-style styles match.
-      document.documentElement.classList.toggle('dark', theme === 'dark');
 
       const renderStory = () =>
         React.createElement(
@@ -83,16 +88,22 @@ const preview: Preview = {
           ),
         )
 
-      if (theme === 'split') {
-        return React.createElement(
-          'div',
-          { className: 'grid grid-cols-2 gap-4 p-4 items-stretch' },
-          React.createElement(ThemePane, { label: 'Light', dark: false }, renderStory()),
-          React.createElement(ThemePane, { label: 'Dark', dark: true }, renderStory()),
-        )
-      }
+      const content =
+        theme === 'split'
+          ? React.createElement(
+              'div',
+              { className: 'grid grid-cols-2 gap-4 p-4 items-stretch' },
+              React.createElement(ThemePane, { label: 'Light', dark: false }, renderStory()),
+              React.createElement(ThemePane, { label: 'Dark', dark: true }, renderStory()),
+            )
+          : renderStory()
 
-      return renderStory()
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(ThemeSync, { theme }),
+        content,
+      )
     },
   ],
   parameters: {

@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getIntegrationIconUrl } from "@/lib/assets";
+import { useResolvedTheme } from "@/lib/theme";
 import type { NetworkDirection, NetworkFlow } from "@/lib/api";
+import { iconIdForPeer } from "./destination-groups";
 import { formatCompactNumber } from "../charts/chart-utils";
 import {
   Table,
@@ -69,8 +72,8 @@ export function NetworkFlowsTable({ flows, direction, loading }: NetworkFlowsTab
           ) : (
             visible.map((flow) => (
               <TableRow key={flow.peer}>
-                <TableCell className="max-w-[280px] truncate font-mono text-body-sm text-foreground">
-                  {flow.peer}
+                <TableCell className="max-w-[280px] font-mono text-body-sm text-foreground">
+                  <PeerCell flow={flow} direction={direction} />
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono text-body-sm text-foreground">
                   {formatCompactNumber(flow.request_count)}
@@ -101,6 +104,26 @@ export function NetworkFlowsTable({ flows, direction, loading }: NetworkFlowsTab
         )}
       </Table>
     </TooltipProvider>
+  );
+}
+
+/** The icon slot collapses when nothing resolves, so route rows stay flush left. */
+function PeerCell({ flow, direction }: { flow: NetworkFlow; direction: NetworkDirection }) {
+  const resolvedTheme = useResolvedTheme();
+  const iconId = iconIdForPeer(flow.peer, direction, flow.registrable_domain);
+
+  return (
+    <span className="flex items-center gap-2">
+      {iconId && (
+        <img
+          src={getIntegrationIconUrl(iconId, resolvedTheme)}
+          alt=""
+          className="size-4 shrink-0 object-contain dark:brightness-150"
+          loading="lazy"
+        />
+      )}
+      <span className="min-w-0 truncate">{flow.peer}</span>
+    </span>
   );
 }
 

@@ -1833,6 +1833,8 @@ export interface NetworkFlow {
   latency_p95_ms: number | null;
   bytes_total: number;
   status_codes?: Record<string, number>;
+  /** eTLD+1, server-computed. Only set for outbound address peers. */
+  registrable_domain?: string;
 }
 
 export interface NetworkFlowsResponse {
