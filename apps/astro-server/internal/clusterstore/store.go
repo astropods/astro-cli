@@ -386,7 +386,7 @@ func (s *Store) Blockers(ctx context.Context, id string) (accounts []Blocker, ac
 		return nil, 0, nil, 0, fmt.Errorf("count blocking deployments: %w", err)
 	}
 	rows, err = s.db.QueryContext(ctx,
-		`SELECT id, name, status FROM deployments WHERE cluster_id = $1 ORDER BY created_at DESC LIMIT $2`, id, limit)
+		`SELECT id, agent_name, status FROM deployments WHERE cluster_id = $1 ORDER BY deployed_at DESC LIMIT $2`, id, limit)
 	if err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
 	}
