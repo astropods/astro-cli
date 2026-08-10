@@ -1,19 +1,32 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/admin";
+import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useStopDeployment, useWakeUpDeployment, useRefreshMessagingCache } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import {
+  cn,
   formatDateTime,
   truncateUUID,
   formatClusterId,
   PRIMARY_CLUSTER_FILTER,
   deploymentMatchesClusterFilter,
+  mutationErrorMessage,
 } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { AdminDeployment } from "@/types/admin";
 
@@ -121,7 +134,10 @@ export function DeploymentsPage() {
 
   return (
     <div>
-      <h2 className="mb-4 text-xl font-semibold">Deployments</h2>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h2 className="text-xl font-semibold">Deployments</h2>
+        <ResetEcrPullThroughButton />
+      </div>
 
       {/* Filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -307,6 +323,54 @@ export function DeploymentsPage() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function ResetEcrPullThroughButton() {
+  const refreshMut = useRefreshMessagingCache();
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            disabled={refreshMut.isPending}
+          >
+            <RefreshCw className={cn("size-3.5", refreshMut.isPending && "animate-spin")} />
+            {refreshMut.isPending ? "Resetting…" : "Reset ECR pull-through"}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset ECR pull-through cache?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Evicts the messaging sidecar&apos;s ECR Docker Hub pull-through cache tag
+              (astropods/messaging:latest) so the next agent pull re-imports it from
+              Docker Hub, bypassing AWS&apos;s ~24h upstream-check window. Running agents keep
+              their current sidecar until their pods restart or redeploy.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => refreshMut.mutate()}>
+              Reset
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {refreshMut.isSuccess && (
+        <p className="max-w-xs text-right text-[10px] text-green-600">
+          {refreshMut.data?.message ?? "Cache reset."}
+        </p>
+      )}
+      {refreshMut.isError && (
+        <p className="max-w-xs text-right text-[10px] text-destructive">
+          {mutationErrorMessage(refreshMut.error)}
+        </p>
       )}
     </div>
   );

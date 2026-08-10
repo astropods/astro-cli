@@ -1,4 +1,4 @@
-import { useState, type ClipboardEvent } from "react";
+import { useState, type ClipboardEvent, type ReactNode } from "react";
 import {
   useClusters,
   useDeployments,
@@ -8,14 +8,12 @@ import {
   useDeregisterCluster,
   useUpdateCluster,
   useCheckClusterHealth,
-  useRefreshMessagingCache,
 } from "@/api/admin";
 import type { RegisteredCluster } from "@/types/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -36,13 +34,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ChevronDown, CircleCheck, CircleX, Copy, Pencil, Plus, RefreshCw } from "lucide-react";
-import { cn, formatDateTime, countDeploymentsByRoutedCluster } from "@/lib/utils";
-
-function mutationErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return "Request failed";
-}
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CircleCheck, CircleX, Copy, Pencil, Plus, RefreshCw } from "lucide-react";
+import { cn, formatDateTime, countDeploymentsByRoutedCluster, mutationErrorMessage } from "@/lib/utils";
 
 /** Accept AWS base64 or PEM; return base64 for JSON transport (Go []byte unmarshaling). */
 function normalizeEksClusterCA(raw: string): string {
@@ -106,6 +100,115 @@ function clusterDeployComplete(f: ClusterDeployFields): boolean {
   );
 }
 
+// ClusterFormValues backs both the register and edit dialogs — one form, one
+// validation path, so the two flows can't drift out of sync.
+type ClusterFormValues = {
+  id: string;
+  region: string;
+  eksName: string;
+  eksEndpoint: string;
+  eksClusterCA: string;
+  ingress: ClusterDeployFields;
+};
+
+function emptyClusterFormValues(): ClusterFormValues {
+  return {
+    id: "",
+    region: "",
+    eksName: "",
+    eksEndpoint: "",
+    eksClusterCA: "",
+    ingress: emptyClusterDeploy,
+  };
+}
+
+function clusterFormValuesFromCluster(cluster: RegisteredCluster): ClusterFormValues {
+  return {
+    id: cluster.id,
+    region: cluster.region,
+    eksName: cluster.eks_cluster_name,
+    eksEndpoint: cluster.eks_cluster_endpoint,
+    eksClusterCA: cluster.eks_cluster_ca ?? "",
+    ingress: clusterDeployFromCluster(cluster),
+  };
+}
+
+function clusterFormComplete(values: ClusterFormValues): boolean {
+  return missingClusterFields(values).length === 0;
+}
+
+function missingClusterFields(values: ClusterFormValues): string[] {
+  const missing: string[] = [];
+  if (!values.id.trim()) missing.push("id");
+  if (!values.region.trim()) missing.push("region");
+  if (!values.eksName.trim()) missing.push("eks_cluster_name");
+  if (!values.eksEndpoint.trim()) missing.push("eks_cluster_endpoint");
+  if (!values.eksClusterCA.trim()) missing.push("eks_cluster_ca");
+  if (!values.ingress.agent_ingress_domain.trim()) missing.push("agent_ingress_domain");
+  if (!values.ingress.ingestion_ingress_domain.trim()) missing.push("ingestion_ingress_domain");
+  if (!values.ingress.langfuse_base_url_ext.trim()) missing.push("langfuse_base_url_ext");
+  if (!values.ingress.langfuse_vpce_ips.trim()) missing.push("langfuse_vpce_ips");
+  if (!values.ingress.pod_subnet_cidrs.trim()) missing.push("pod_subnet_cidrs");
+  return missing;
+}
+
+// ClusterApiPayload mirrors RegisterClusterRequest/UpdateClusterRequest field
+// names exactly, so the JSON tab shows (and accepts) the real API body.
+type ClusterApiPayload = {
+  id: string;
+  region: string;
+  eks_cluster_name: string;
+  eks_cluster_endpoint: string;
+  eks_cluster_ca: string;
+  agent_ingress_domain: string;
+  ingestion_ingress_domain: string;
+  langfuse_base_url_ext: string;
+  langfuse_vpce_ips: string;
+  pod_subnet_cidrs: string;
+};
+
+function valuesToApiPayload(values: ClusterFormValues): ClusterApiPayload {
+  return {
+    id: values.id.trim(),
+    region: values.region.trim(),
+    eks_cluster_name: values.eksName.trim(),
+    eks_cluster_endpoint: values.eksEndpoint.trim(),
+    eks_cluster_ca: normalizeEksClusterCA(values.eksClusterCA),
+    ...trimClusterDeploy(values.ingress),
+  };
+}
+
+function apiPayloadToValues(payload: Record<string, unknown>): ClusterFormValues {
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    id: str(payload.id),
+    region: str(payload.region),
+    eksName: str(payload.eks_cluster_name),
+    eksEndpoint: str(payload.eks_cluster_endpoint),
+    eksClusterCA: str(payload.eks_cluster_ca),
+    ingress: {
+      agent_ingress_domain: str(payload.agent_ingress_domain),
+      ingestion_ingress_domain: str(payload.ingestion_ingress_domain),
+      langfuse_base_url_ext: str(payload.langfuse_base_url_ext),
+      langfuse_vpce_ips: str(payload.langfuse_vpce_ips),
+      pod_subnet_cidrs: str(payload.pod_subnet_cidrs),
+    },
+  };
+}
+
+function parseClusterJson(text: string): { ok: true; values: ClusterFormValues } | { ok: false; error: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Invalid JSON" };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, error: "Expected a JSON object" };
+  }
+  return { ok: true, values: apiPayloadToValues(parsed as Record<string, unknown>) };
+}
+
 export function ClustersPage() {
   const [enabledOnly, setEnabledOnly] = useState(false);
   const { data, isLoading, error } = useClusters(enabledOnly);
@@ -113,38 +216,18 @@ export function ClustersPage() {
   const registerMut = useRegisterCluster();
 
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [id, setId] = useState("");
-  const [region, setRegion] = useState("");
-  const [eksName, setEksName] = useState("");
-  const [eksEndpoint, setEksEndpoint] = useState("");
-  const [eksClusterCA, setEksClusterCA] = useState("");
-  const [ingress, setIngress] = useState<ClusterDeployFields>(emptyClusterDeploy);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const clusters = data?.clusters ?? [];
   const deploymentCounts = countDeploymentsByRoutedCluster(deploymentsData?.deployments ?? []);
+  const deployCountFor = (cluster: RegisteredCluster) =>
+    cluster.is_primary ? (deploymentCounts.get("primary") ?? 0) : (deploymentCounts.get(cluster.id) ?? 0);
+  const selectedCluster = clusters.find((c) => c.id === selectedId) ?? clusters[0] ?? null;
 
-  const handleRegister = () => {
+  const handleRegister = (values: ClusterFormValues) => {
     registerMut.mutate(
-      {
-        id: id.trim(),
-        region: region.trim(),
-        eks_cluster_name: eksName.trim(),
-        eks_cluster_endpoint: eksEndpoint.trim(),
-        eks_cluster_ca: normalizeEksClusterCA(eksClusterCA),
-        enabled: true,
-        ...trimClusterDeploy(ingress),
-      },
-      {
-        onSuccess: () => {
-          setId("");
-          setRegion("");
-          setEksName("");
-          setEksEndpoint("");
-          setEksClusterCA("");
-          setIngress(emptyClusterDeploy);
-          setRegisterOpen(false);
-        },
-      },
+      { ...valuesToApiPayload(values), enabled: true },
+      { onSuccess: () => setRegisterOpen(false) },
     );
   };
 
@@ -158,7 +241,6 @@ export function ClustersPage() {
           </p>
         </div>
         <div className="flex items-start gap-3">
-          <RefreshMessagingCacheButton />
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -171,100 +253,60 @@ export function ClustersPage() {
         </div>
       </div>
 
-      <Collapsible open={registerOpen} onOpenChange={setRegisterOpen}>
-        <CollapsibleTrigger asChild>
+      <ClusterFormDialog
+        open={registerOpen}
+        onOpenChange={setRegisterOpen}
+        trigger={
           <Button size="sm" variant="outline" className="gap-1">
             <Plus className="size-3.5" />
             Register cluster
-            <ChevronDown
-              className={cn("size-3.5 transition-transform", registerOpen && "rotate-180")}
-            />
           </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-3 rounded-lg glass p-3 space-y-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="ID" value={id} onChange={setId} placeholder="us-west-2" />
-            <Field label="Region" value={region} onChange={setRegion} placeholder="us-west-2" />
-            <Field
-              label="EKS cluster name"
-              value={eksName}
-              onChange={setEksName}
-              placeholder="astro-preview-us-west-2"
-            />
-            <Field
-              label="EKS endpoint"
-              value={eksEndpoint}
-              onChange={setEksEndpoint}
-              placeholder="https://..."
-            />
-          </div>
-          <EksClusterCAField value={eksClusterCA} onChange={setEksClusterCA} />
-          <ClusterDeployFieldset value={ingress} onChange={setIngress} />
-          {registerMut.isError && (
-            <p className="text-destructive text-xs">{mutationErrorMessage(registerMut.error)}</p>
-          )}
-          <Button
-            size="sm"
-            onClick={handleRegister}
-            disabled={
-              registerMut.isPending ||
-              !id.trim() ||
-              !region.trim() ||
-              !eksName.trim() ||
-              !eksEndpoint.trim() ||
-              !eksClusterCA.trim() ||
-              !clusterDeployComplete(ingress)
-            }
-          >
-            {registerMut.isPending ? "Registering…" : "Register"}
-          </Button>
-        </CollapsibleContent>
-      </Collapsible>
+        }
+        title="Register cluster"
+        description="Register an additional cluster for multi-region routing. All fields are required."
+        idEditable
+        initialValues={emptyClusterFormValues()}
+        submitLabel="Register"
+        pendingLabel="Registering…"
+        isPending={registerMut.isPending}
+        isError={registerMut.isError}
+        error={registerMut.error}
+        onSubmit={handleRegister}
+      />
 
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-destructive text-sm">{error.message}</p>}
 
-      <div className="overflow-x-auto rounded-lg glass">
-        <table className="w-full text-[11px] whitespace-nowrap">
-          <thead>
-            <tr className="border-b border-glass-border-honey glass-subtle">
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">ID</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Region</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Deploys</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Agent domain</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Ingress</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">EKS name</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Endpoint</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Primary</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Enabled</th>
-              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Healthy</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Health error</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Created</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clusters.length === 0 && !isLoading && (
-              <tr>
-                <td colSpan={13} className="px-2 py-4 text-center text-muted-foreground">
-                  No clusters found.
-                </td>
-              </tr>
+      {!isLoading && !error && (
+        <div className="flex gap-4">
+          <div className="w-56 shrink-0 space-y-1">
+            {clusters.length === 0 ? (
+              <p className="rounded-lg glass px-3 py-4 text-center text-xs text-muted-foreground">
+                No clusters found.
+              </p>
+            ) : (
+              clusters.map((cluster) => (
+                <ClusterListItem
+                  key={cluster.id}
+                  cluster={cluster}
+                  deploymentCount={deployCountFor(cluster)}
+                  selected={selectedCluster?.id === cluster.id}
+                  onSelect={() => setSelectedId(cluster.id)}
+                />
+              ))
             )}
-            {clusters.map((cluster) => (
-              <ClusterRow
-                key={cluster.id}
-                cluster={cluster}
-                deploymentCount={
-                  cluster.is_primary
-                    ? (deploymentCounts.get("primary") ?? 0)
-                    : (deploymentCounts.get(cluster.id) ?? 0)
-                }
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+          <div className="min-w-0 flex-1">
+            {selectedCluster ? (
+              <ClusterDetail cluster={selectedCluster} deploymentCount={deployCountFor(selectedCluster)} />
+            ) : (
+              <div className="flex h-40 items-center justify-center rounded-lg glass text-xs text-muted-foreground">
+                Select a cluster to view details.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -391,7 +433,251 @@ function EksClusterCAField({
   );
 }
 
-function ClusterRow({
+function ClusterFormDialog({
+  open,
+  onOpenChange,
+  trigger,
+  title,
+  description,
+  idEditable,
+  initialValues,
+  submitLabel,
+  pendingLabel,
+  isPending,
+  isError,
+  error,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  trigger: ReactNode;
+  title: string;
+  description?: string;
+  idEditable: boolean;
+  initialValues: ClusterFormValues;
+  submitLabel: string;
+  pendingLabel: string;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  onSubmit: (values: ClusterFormValues) => void;
+}) {
+  const [values, setValues] = useState<ClusterFormValues>(initialValues);
+  const [mode, setMode] = useState<"form" | "json">("form");
+  const [jsonText, setJsonText] = useState("");
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [jsonValidated, setJsonValidated] = useState(false);
+  const set = (patch: Partial<ClusterFormValues>) => setValues((v) => ({ ...v, ...patch }));
+
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setValues(initialValues);
+      setMode("form");
+      setJsonError(null);
+      setJsonValidated(false);
+    }
+    onOpenChange(next);
+  };
+
+  const handleTabChange = (next: string) => {
+    if (next === "json") {
+      setJsonText(JSON.stringify(valuesToApiPayload(values), null, 2));
+      setJsonError(null);
+      setJsonValidated(false);
+      setMode("json");
+      return;
+    }
+    // Switching back to the form: sync any edits made in the JSON tab first.
+    const parsed = parseClusterJson(jsonText);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      return;
+    }
+    setValues(parsed.values);
+    setJsonError(null);
+    setMode("form");
+  };
+
+  const handleValidateJson = () => {
+    const parsed = parseClusterJson(jsonText);
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      setJsonValidated(false);
+      return;
+    }
+    const missing = missingClusterFields(parsed.values);
+    if (missing.length > 0) {
+      setJsonError(`Missing required fields: ${missing.join(", ")}`);
+      setJsonValidated(false);
+      return;
+    }
+    setJsonError(null);
+    setJsonValidated(true);
+  };
+
+  const handleSubmit = () => {
+    if (mode === "json") {
+      if (!jsonValidated) return;
+      const parsed = parseClusterJson(jsonText);
+      if (!parsed.ok) {
+        setJsonError(parsed.error);
+        setJsonValidated(false);
+        return;
+      }
+      onSubmit(parsed.values);
+      return;
+    }
+    onSubmit(values);
+  };
+
+  const submitDisabled = isPending || (mode === "form" ? !clusterFormComplete(values) : !jsonValidated);
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+        <Tabs value={mode} onValueChange={handleTabChange}>
+          <TabsList>
+            <TabsTrigger value="form">Form</TabsTrigger>
+            <TabsTrigger value="json">JSON</TabsTrigger>
+          </TabsList>
+          <TabsContent value="form" className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {idEditable ? (
+                <Field label="ID" value={values.id} onChange={(v) => set({ id: v })} placeholder="us-west-2" />
+              ) : (
+                <label className="block space-y-1">
+                  <span className="text-xs text-muted-foreground">ID</span>
+                  <Input value={values.id} disabled className="h-7 font-mono text-xs" />
+                </label>
+              )}
+              <Field
+                label="Region"
+                value={values.region}
+                onChange={(v) => set({ region: v })}
+                placeholder="us-west-2"
+              />
+              <Field
+                label="EKS cluster name"
+                value={values.eksName}
+                onChange={(v) => set({ eksName: v })}
+                placeholder="astro-preview-us-west-2"
+              />
+              <Field
+                label="EKS endpoint"
+                value={values.eksEndpoint}
+                onChange={(v) => set({ eksEndpoint: v })}
+                placeholder="https://..."
+              />
+            </div>
+            <EksClusterCAField value={values.eksClusterCA} onChange={(v) => set({ eksClusterCA: v })} />
+            <ClusterDeployFieldset value={values.ingress} onChange={(v) => set({ ingress: v })} />
+          </TabsContent>
+          <TabsContent value="json" className="space-y-1.5">
+            <p className="text-[10px] text-muted-foreground">
+              Paste or edit the exact API request body. Field names match the REST endpoint.
+            </p>
+            <Textarea
+              value={jsonText}
+              onChange={(e) => {
+                setJsonText(e.target.value);
+                setJsonError(null);
+                setJsonValidated(false);
+              }}
+              rows={16}
+              className="field-sizing-fixed resize-y overflow-y-auto font-mono text-[10px]"
+              spellCheck={false}
+            />
+            <div className="flex items-center gap-2">
+              <Button size="xs" variant="outline" onClick={handleValidateJson}>
+                Validate
+              </Button>
+              {jsonValidated && <span className="text-xs text-green-600">Valid — ready to save</span>}
+            </div>
+            {jsonError && <p className="text-destructive text-xs">{jsonError}</p>}
+          </TabsContent>
+        </Tabs>
+        {isError && <p className="text-destructive text-xs">{mutationErrorMessage(error)}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={submitDisabled}>
+            {isPending ? pendingLabel : submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClusterListItem({
+  cluster,
+  deploymentCount,
+  selected,
+  onSelect,
+}: {
+  cluster: RegisteredCluster;
+  deploymentCount: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "w-full rounded-lg border px-3 py-2 text-left transition-colors",
+        selected ? "glass-subtle border-glass-border-honey" : "border-transparent hover:glass-subtle",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-mono text-xs font-medium">{cluster.id}</span>
+        {cluster.healthy ? (
+          <CircleCheck className="size-3 shrink-0 text-green-600" />
+        ) : (
+          <CircleX className="size-3 shrink-0 text-red-500" />
+        )}
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+        <span>{cluster.region || "—"}</span>
+        <span>·</span>
+        <span>
+          {deploymentCount} deploy{deploymentCount !== 1 ? "s" : ""}
+        </span>
+        {cluster.is_primary && (
+          <span className="rounded bg-blue-500/10 px-1 text-blue-600">Primary</span>
+        )}
+        {!cluster.enabled && <span className="rounded bg-muted px-1">Disabled</span>}
+      </div>
+    </button>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+  mono,
+  small,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  small?: boolean;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className={cn("break-all", mono && "font-mono", small ? "text-[10px]" : "text-xs")}>{value}</div>
+    </div>
+  );
+}
+
+function ClusterDetail({
   cluster,
   deploymentCount,
 }: {
@@ -405,11 +691,6 @@ function ClusterRow({
   const healthMut = useCheckClusterHealth();
 
   const [editOpen, setEditOpen] = useState(false);
-  const [region, setRegion] = useState(cluster.region);
-  const [eksName, setEksName] = useState(cluster.eks_cluster_name);
-  const [eksEndpoint, setEksEndpoint] = useState(cluster.eks_cluster_endpoint);
-  const [eksClusterCA, setEksClusterCA] = useState(cluster.eks_cluster_ca ?? "");
-  const [ingress, setIngress] = useState<ClusterDeployFields>(() => clusterDeployFromCluster(cluster));
 
   const busy =
     enableMut.isPending ||
@@ -429,200 +710,21 @@ function ClusterRow({
   const runDeregister = () => deregisterMut.mutate(cluster.id);
   const runHealthCheck = () => healthMut.mutate(cluster.id);
 
-  const resetEditForm = () => {
-    setRegion(cluster.region);
-    setEksName(cluster.eks_cluster_name);
-    setEksEndpoint(cluster.eks_cluster_endpoint);
-    setEksClusterCA(cluster.eks_cluster_ca ?? "");
-    setIngress(clusterDeployFromCluster(cluster));
-  };
-
-  const handleEditOpenChange = (open: boolean) => {
-    setEditOpen(open);
-    if (open) {
-      resetEditForm();
-    }
-  };
-
-  const handleSaveEdit = () => {
+  const handleSaveEdit = (values: ClusterFormValues) => {
     updateMut.mutate(
-      {
-        id: cluster.id,
-        region: region.trim(),
-        eks_cluster_name: eksName.trim(),
-        eks_cluster_endpoint: eksEndpoint.trim(),
-        eks_cluster_ca: normalizeEksClusterCA(eksClusterCA),
-        ...trimClusterDeploy(ingress),
-      },
-      {
-        onSuccess: () => setEditOpen(false),
-      },
+      { ...valuesToApiPayload(values), id: cluster.id },
+      { onSuccess: () => setEditOpen(false) },
     );
   };
 
-  const canSaveEdit =
-    region.trim() !== "" &&
-    eksName.trim() !== "" &&
-    eksEndpoint.trim() !== "" &&
-    eksClusterCA.trim() !== "" &&
-    clusterDeployComplete(ingress);
-
   const deployFields = clusterDeployFromCluster(cluster);
   const ingressOk = cluster.is_primary || clusterDeployComplete(deployFields);
-  const agentDomain = deployFields.agent_ingress_domain || "—";
 
-  return (
-    <tr className="border-b border-glass-border-honey/50 hover:glass-subtle">
-      <td className="px-2 py-1.5 font-mono">{cluster.id}</td>
-      <td className="px-2 py-1.5">{cluster.region || "—"}</td>
-      <td className="px-2 py-1.5 text-center tabular-nums">{deploymentCount}</td>
-      <td
-        className="max-w-[10rem] truncate px-2 py-1.5 font-mono text-[10px]"
-        title={agentDomain}
-      >
-        {agentDomain}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {ingressOk ? (
-          <span className="text-green-600">OK</span>
-        ) : (
-          <button
-            type="button"
-            className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 hover:bg-amber-500/25"
-            title="Ingress / cert fields incomplete — edit cluster to fix"
-            onClick={() => setEditOpen(true)}
-          >
-            Incomplete
-          </button>
-        )}
-      </td>
-      <td className="px-2 py-1.5">{cluster.eks_cluster_name || "—"}</td>
-      <td
-        className="max-w-[12rem] truncate px-2 py-1.5 font-mono"
-        title={cluster.eks_cluster_endpoint}
-      >
-        {cluster.eks_cluster_endpoint || "—"}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {cluster.is_primary ? (
-          <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-600">Primary</span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {cluster.enabled ? (
-          <span className="text-green-600">Yes</span>
-        ) : (
-          <span className="text-muted-foreground">No</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        <div className="flex items-center justify-center gap-1">
-          {cluster.healthy ? (
-            <CircleCheck className="size-3.5 text-green-600" />
-          ) : (
-            <CircleX className="size-3.5 text-red-500" />
-          )}
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            disabled={busy}
-            title="Retry health check"
-            onClick={runHealthCheck}
-          >
-            <RefreshCw className={cn("size-3", healthMut.isPending && "animate-spin")} />
-          </Button>
-        </div>
-      </td>
-      <td className="max-w-md px-2 py-1.5 align-top whitespace-normal">
-        {!cluster.healthy && cluster.health_error ? (
-          <HealthErrorMessage message={cluster.health_error} />
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-muted-foreground">
-        {cluster.created_at ? formatDateTime(cluster.created_at) : "—"}
-      </td>
-      <td className="px-2 py-1.5">
-        {cluster.is_primary ? (
-          <span className="text-[10px] text-muted-foreground">Env kubeconfig</span>
-        ) : (
-          <div className="flex flex-wrap items-center gap-1">
-            <Dialog open={editOpen} onOpenChange={handleEditOpenChange}>
-              <DialogTrigger asChild>
-                <Button size="xs" variant="outline" disabled={busy}>
-                  <Pencil className="size-3" />
-                  Edit
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Edit cluster {cluster.id}</DialogTitle>
-                  <DialogDescription>
-                    Update EKS coordinates and the per-cluster ingress / cert config.
-                    The cluster id cannot be changed.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Field label="Region" value={region} onChange={setRegion} placeholder="us-west-2" />
-                  <Field
-                    label="EKS cluster name"
-                    value={eksName}
-                    onChange={setEksName}
-                    placeholder="astro-preview-us-west-2"
-                  />
-                  <Field
-                    label="EKS endpoint"
-                    value={eksEndpoint}
-                    onChange={setEksEndpoint}
-                    placeholder="https://..."
-                  />
-                </div>
-                <EksClusterCAField value={eksClusterCA} onChange={setEksClusterCA} />
-                <ClusterDeployFieldset value={ingress} onChange={setIngress} />
-                {updateMut.isError && (
-                  <p className="text-destructive text-xs">{mutationErrorMessage(updateMut.error)}</p>
-                )}
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setEditOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleSaveEdit} disabled={updateMut.isPending || !canSaveEdit}>
-                    {updateMut.isPending ? "Saving…" : "Save"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            {cluster.enabled ? (
-              <Button size="xs" variant="outline" disabled={busy} onClick={runDisable}>
-                Disable
-              </Button>
-            ) : (
-              <Button size="xs" variant="outline" disabled={busy} onClick={runEnable}>
-                Enable
-              </Button>
-            )}
-            <DeregisterButton clusterId={cluster.id} disabled={busy} onConfirm={runDeregister} />
-          </div>
-        )}
-        {actionError && (
-          <p className="mt-1 max-w-xs text-[10px] text-destructive">
-            {mutationErrorMessage(actionError)}
-          </p>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function HealthErrorMessage({ message }: { message: string }) {
   const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
+  const handleCopyError = async () => {
+    if (!cluster.health_error) return;
     try {
-      await navigator.clipboard.writeText(message);
+      await navigator.clipboard.writeText(cluster.health_error);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -631,68 +733,131 @@ function HealthErrorMessage({ message }: { message: string }) {
   };
 
   return (
-    <div className="flex items-start gap-1.5">
-      <pre className="min-w-0 flex-1 select-all whitespace-pre-wrap break-all rounded border border-red-500/20 bg-red-500/5 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-red-600">
-        {message}
-      </pre>
-      <Button
-        size="xs"
-        variant="outline"
-        className="shrink-0"
-        onClick={handleCopy}
-        title="Copy error message"
-      >
-        <Copy className="size-3" />
-        {copied ? "Copied" : "Copy"}
-      </Button>
-    </div>
-  );
-}
-
-function RefreshMessagingCacheButton() {
-  const refreshMut = useRefreshMessagingCache();
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1"
-            disabled={refreshMut.isPending}
-          >
-            <RefreshCw className={cn("size-3.5", refreshMut.isPending && "animate-spin")} />
-            {refreshMut.isPending ? "Refreshing…" : "Refresh messaging cache"}
+    <div className="space-y-4 rounded-lg glass p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-mono text-base font-semibold">{cluster.id}</h3>
+            {cluster.is_primary && (
+              <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-600">Primary</span>
+            )}
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px]",
+                cluster.enabled ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground",
+              )}
+            >
+              {cluster.enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">
+            {deploymentCount} deployment{deploymentCount !== 1 ? "s" : ""} routed here
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="xs" variant="outline" disabled={busy} onClick={runHealthCheck} title="Retry health check">
+            <RefreshCw className={cn("size-3", healthMut.isPending && "animate-spin")} />
+            Check health
           </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Refresh messaging cache?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Evicts the messaging sidecar&apos;s ECR Docker Hub pull-through cache tag
-              (astropods/messaging:latest) so the next agent pull re-imports it from
-              Docker Hub, bypassing AWS&apos;s ~24h upstream-check window. Running agents keep
-              their current sidecar until their pods restart or redeploy.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => refreshMut.mutate()}>
-              Refresh
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      {refreshMut.isSuccess && (
-        <p className="max-w-xs text-right text-[10px] text-green-600">
-          {refreshMut.data?.message ?? "Cache refreshed."}
-        </p>
+          {cluster.is_primary ? (
+            <span className="text-[10px] text-muted-foreground">Env kubeconfig</span>
+          ) : (
+            <>
+              <ClusterFormDialog
+                open={editOpen}
+                onOpenChange={setEditOpen}
+                trigger={
+                  <Button size="xs" variant="outline" disabled={busy}>
+                    <Pencil className="size-3" />
+                    Edit
+                  </Button>
+                }
+                title={`Edit cluster ${cluster.id}`}
+                description="Update EKS coordinates and the per-cluster ingress / cert config. The cluster id cannot be changed."
+                idEditable={false}
+                initialValues={clusterFormValuesFromCluster(cluster)}
+                submitLabel="Save"
+                pendingLabel="Saving…"
+                isPending={updateMut.isPending}
+                isError={updateMut.isError}
+                error={updateMut.error}
+                onSubmit={handleSaveEdit}
+              />
+              {cluster.enabled ? (
+                <Button size="xs" variant="outline" disabled={busy} onClick={runDisable}>
+                  Disable
+                </Button>
+              ) : (
+                <Button size="xs" variant="outline" disabled={busy} onClick={runEnable}>
+                  Enable
+                </Button>
+              )}
+              <DeregisterButton clusterId={cluster.id} disabled={busy} onConfirm={runDeregister} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {actionError && (
+        <p className="text-[10px] text-destructive">{mutationErrorMessage(actionError)}</p>
       )}
-      {refreshMut.isError && (
-        <p className="max-w-xs text-right text-[10px] text-destructive">
-          {mutationErrorMessage(refreshMut.error)}
-        </p>
-      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <DetailField label="Region" value={cluster.region || "—"} />
+        <DetailField label="EKS cluster name" value={cluster.eks_cluster_name || "—"} />
+        <DetailField label="EKS endpoint" value={cluster.eks_cluster_endpoint || "—"} mono />
+        <DetailField label="Created" value={cluster.created_at ? formatDateTime(cluster.created_at) : "—"} />
+      </div>
+
+      <div className="space-y-1.5 rounded-md border border-glass-border-honey/60 p-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground">Ingress</span>
+          {ingressOk ? (
+            <span className="text-[10px] text-green-600">OK</span>
+          ) : (
+            <button
+              type="button"
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-500/25"
+              title="Ingress / cert fields incomplete — edit cluster to fix"
+              onClick={() => setEditOpen(true)}
+            >
+              Incomplete
+            </button>
+          )}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <DetailField label="Agent domain" value={deployFields.agent_ingress_domain || "—"} mono small />
+          <DetailField label="Ingestion domain" value={deployFields.ingestion_ingress_domain || "—"} mono small />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Health</span>
+        <div className="flex items-center gap-1.5 text-xs">
+          {cluster.healthy ? (
+            <>
+              <CircleCheck className="size-3.5 text-green-600" />
+              <span className="text-green-600">Healthy</span>
+            </>
+          ) : (
+            <>
+              <CircleX className="size-3.5 text-red-500" />
+              <span className="text-red-500">Unhealthy</span>
+            </>
+          )}
+        </div>
+        {!cluster.healthy && cluster.health_error && (
+          <div className="flex items-start gap-1.5">
+            <pre className="min-w-0 flex-1 select-all whitespace-pre-wrap break-all rounded border border-red-500/20 bg-red-500/5 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-red-600">
+              {cluster.health_error}
+            </pre>
+            <Button size="xs" variant="outline" className="shrink-0" onClick={handleCopyError}>
+              <Copy className="size-3" />
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
