@@ -1263,3 +1263,60 @@ func TestBuildProject_ResolverCredentialNames(t *testing.T) {
 		t.Error("FALLBACK_API_KEY (old per-entry convention) must not appear; resolver names by provider")
 	}
 }
+
+func TestBuildProject_AgentCoreRuntime(t *testing.T) {
+	newSpec := func() *spec.AstroSpec {
+		return &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest", Annotations: map[string]string{"runtime": "agentcore"}},
+			Dev: &spec.Dev{
+				Interfaces: &spec.DevInterfaces{
+					Messaging: &spec.DevMessaging{Adapters: []string{"web"}},
+				},
+			},
+		}
+	}
+
+	// AgentCore dev: the agent serves /invocations; messaging invokes it by the
+	// compose service DNS name over HTTP (topology inverted vs the gRPC default).
+	t.Run("agentcore flips transport", func(t *testing.T) {
+		project, err := BuildProject(newSpec(), "/work", nil)
+		if err != nil {
+			t.Fatalf("BuildProject() error = %v", err)
+		}
+		agent := project.Services["agent"]
+		if envVal(agent.Environment, "ASTRO_RUNTIME") != "agentcore" {
+			t.Errorf("agent ASTRO_RUNTIME = %q, want agentcore", envVal(agent.Environment, "ASTRO_RUNTIME"))
+		}
+		if got := envVal(agent.Environment, "GRPC_SERVER_ADDR"); got != "" {
+			t.Errorf("agent GRPC_SERVER_ADDR = %q, want empty (agent serves, not dials)", got)
+		}
+		messaging := project.Services["astro-messaging"]
+		if envVal(messaging.Environment, "AGENT_TRANSPORT") != "agentcore" {
+			t.Errorf("messaging AGENT_TRANSPORT = %q, want agentcore", envVal(messaging.Environment, "AGENT_TRANSPORT"))
+		}
+		if got := envVal(messaging.Environment, "AGENT_RUNTIME_ENDPOINT"); got != "http://agent:8080" {
+			t.Errorf("messaging AGENT_RUNTIME_ENDPOINT = %q, want http://agent:8080", got)
+		}
+	})
+
+	// Default (eks) is unchanged: agent dials the messaging gRPC server.
+	t.Run("eks default unchanged", func(t *testing.T) {
+		s := newSpec()
+		s.Agent.Annotations = nil // no runtime annotation -> default (eks)
+		project, err := BuildProject(s, "/work", nil)
+		if err != nil {
+			t.Fatalf("BuildProject() error = %v", err)
+		}
+		agent := project.Services["agent"]
+		if envVal(agent.Environment, "GRPC_SERVER_ADDR") != "astro-messaging:9090" {
+			t.Errorf("agent GRPC_SERVER_ADDR = %q, want astro-messaging:9090", envVal(agent.Environment, "GRPC_SERVER_ADDR"))
+		}
+		if got := envVal(agent.Environment, "ASTRO_RUNTIME"); got != "" {
+			t.Errorf("agent ASTRO_RUNTIME = %q, want empty for eks", got)
+		}
+		if got := envVal(project.Services["astro-messaging"].Environment, "AGENT_TRANSPORT"); got != "" {
+			t.Errorf("messaging AGENT_TRANSPORT = %q, want empty for eks", got)
+		}
+	})
+}
