@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { Fragment } from 'react'
 
 const hues = [
   'stone',
@@ -229,12 +230,9 @@ function ColorGrid() {
 
         {/* Color rows */}
         {hues.map((hue) => (
-          <>
+          <Fragment key={hue}>
             {/* Row label */}
-            <div
-              key={`${hue}-label`}
-              className="flex items-center text-sm font-medium capitalize text-foreground"
-            >
+            <div className="flex items-center text-sm font-medium capitalize text-foreground">
               {hue}
             </div>
             {/* Swatches */}
@@ -245,7 +243,7 @@ function ColorGrid() {
                 title={`${hue}-${shade}`}
               />
             ))}
-          </>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -330,15 +328,12 @@ function SemanticTokens() {
             <div className="text-label font-mono uppercase text-faint-foreground">Purpose</div>
             <div className="text-label font-mono uppercase text-faint-foreground">Value (light / dark)</div>
             {group.tokens.map((t) => (
-              <>
-                <div
-                  key={`${t.name}-swatch`}
-                  className={`h-9 w-20 rounded-md border border-black/8 ${t.bg}`}
-                />
-                <code key={`${t.name}-name`} className="text-mono-sm font-mono text-foreground">{t.name}</code>
-                <span key={`${t.name}-desc`} className="text-body-sm text-muted-foreground">{t.desc}</span>
-                <span key={`${t.name}-value`} className="text-mono-sm font-mono text-faint-foreground">{t.light} / {t.dark}</span>
-              </>
+              <Fragment key={t.name}>
+                <div className={`h-9 w-20 rounded-md border border-black/8 ${t.bg}`} />
+                <code className="text-mono-sm font-mono text-foreground">{t.name}</code>
+                <span className="text-body-sm text-muted-foreground">{t.desc}</span>
+                <span className="text-mono-sm font-mono text-faint-foreground">{t.light} / {t.dark}</span>
+              </Fragment>
             ))}
           </div>
         </div>

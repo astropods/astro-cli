@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { AvatarColors } from "@/lib/api";
 import { HoloButton } from "@/components/ui/holo-button";
@@ -87,26 +87,12 @@ function extractFromImage(img: HTMLImageElement): ExtractionResult | null {
 
 // --- UI components ---
 
-// Known agent avatars from local storybook assets
-const AGENT_AVATAR_URLS = [
-  `/assets/avatars/agents/chrisjpatty/chrisbot.jpg`,
-  `/assets/avatars/agents/chrisjpatty/slack-bot.jpg`,
-  `/assets/avatars/agents/chrisjpatty/deploy-test-agent.jpg`,
-  `/assets/avatars/agents/chrisjpatty/directives-test.jpg`,
-  `/assets/avatars/agents/chrispattypm/directives-test.jpg`,
-  `/assets/avatars/agents/acme/data-pipeline.jpg`,
-  `/assets/avatars/agents/atlas/code-reviewer.jpg`,
-  `/assets/avatars/agents/nova/weather-bot.jpg`,
-  `/assets/avatars/agents/pixel/design-assistant.jpg`,
-  `/assets/avatars/agents/spark/email-responder.jpg`,
-];
-
-// Random photos for additional variety
-const PICSUM_URLS = Array.from({ length: 15 }, (_, i) =>
-  `https://picsum.photos/seed/diag${i}/128/128`
+// The committed placeholder avatars — the only avatar images every checkout
+// has (assets/avatars/ is per-developer and gitignored), and varied enough to
+// exercise the extractor.
+const AVATAR_URLS = Array.from({ length: 25 }, (_, i) =>
+  `/assets/placeholders/accounts/avatar_${String(i + 1).padStart(2, "0")}.jpg`
 );
-
-const AVATAR_URLS = [...AGENT_AVATAR_URLS, ...PICSUM_URLS];
 
 function ColorSwatch({ color, label }: { color: string; label: string }) {
   return (
@@ -581,7 +567,7 @@ function SingleDiagnosticPanel() {
         <select
           className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
           value={activeUrl}
-          onChange={(e) => { setActiveUrl(e.target.value); setColors(null); }}
+          onChange={(e) => { setActiveUrl(e.target.value); setResult(null); }}
         >
           {AVATAR_URLS.map((url, i) => (
             <option key={url} value={url}>Image {i + 1}</option>

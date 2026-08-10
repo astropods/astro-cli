@@ -10,6 +10,10 @@ const mockDeployment: AgentDeploymentSummary = {
   namespace: "storybook",
   status: "pending",
   created_at: new Date().toISOString(),
+  // The overlay preloads this into the trading card SVG, which has no <img>
+  // error fallback. Point at a committed placeholder rather than the
+  // deployment key, whose file is generated per-developer and not in git.
+  avatar_url: "/assets/placeholders/accounts/avatar_07.jpg",
 };
 
 const meta = {

@@ -14,11 +14,6 @@
       "count": 3
     }
   },
-  "src/stories/ColorDiagnostics3D.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/stories/LogViewer.stories.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1

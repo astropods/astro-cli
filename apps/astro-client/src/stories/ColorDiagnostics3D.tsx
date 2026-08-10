@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Text, Line, Billboard } from "@react-three/drei";
 import * as THREE from "three";
@@ -6,22 +6,6 @@ import type { ColorEntry } from "./ColorDiagnostics.stories";
 
 const CYLINDER_RADIUS = 1.5;
 const CYLINDER_HEIGHT = 2;
-
-/** Convert HSL (h: 0-360, s: 0-1, l: 0-1) to RGB (0-1). */
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  h /= 360;
-  const hue2rgb = (p: number, q: number, t: number) => {
-    if (t < 0) t += 1; if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-  if (s === 0) return [l, l, l];
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  return [hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3)];
-}
 
 /** Convert HSL to a position in the 3D cylinder. */
 function hslToPosition(h: number, s: number, l: number): [number, number, number] {

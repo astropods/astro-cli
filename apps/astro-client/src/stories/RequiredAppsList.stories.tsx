@@ -33,6 +33,6 @@ export const Multiple: Story = {
 
 export const UnknownIntegration: Story = {
   args: {
-    integrations: [ri("slack", "Slack"), ri("some-custom-app", "SomeCustomApp")],
+    integrations: [ri("slack", "Slack"), { id: "some-custom-app", name: "SomeCustomApp", known: false }],
   },
 };

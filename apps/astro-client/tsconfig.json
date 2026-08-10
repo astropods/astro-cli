@@ -6,6 +6,10 @@
   ],
   "compilerOptions": {
     "baseUrl": ".",
+    // esbuild falls back to this config for sources the referenced projects
+    // exclude (the react-three-fiber diagnostics stories); without it they
+    // compile against the classic JSX runtime and fail at render.
+    "jsx": "react-jsx",
     "paths": {
       "@/*": ["./src/*"]
     }

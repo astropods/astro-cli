@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { BuildLogViewer, type BuildLogComponentData } from "@/components/blueprint-detail/BuildLogViewer";
 
 const meta = {
@@ -85,6 +85,7 @@ function DialogStory({ components, isLoading, error }: {
   return (
     <Dialog open>
       <DialogContent className="sm:max-w-3xl gap-0 p-0">
+        <DialogTitle className="sr-only">Build logs</DialogTitle>
         <div className="overflow-y-auto max-h-[75vh] rounded-lg">
           <BuildLogViewer
             commitSha="a1b2c3d"

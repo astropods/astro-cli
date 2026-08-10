@@ -30,7 +30,8 @@ export const DeterministicAssignment: Story = {
   render: () => (
     <div className="flex flex-col gap-4 p-2">
       <p className="text-body-sm text-muted-foreground">
-        Each handle consistently maps to the same avatar across all sessions.
+        A handle always resolves to the same avatar URL. Handles with no uploaded image, as here,
+        land on the shared placeholder.
       </p>
       <div className="flex flex-wrap gap-3">
         {Array.from({ length: 10 }, (_, i) => {
