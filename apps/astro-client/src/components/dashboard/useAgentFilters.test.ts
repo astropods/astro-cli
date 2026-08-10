@@ -84,4 +84,61 @@ describe('useAgentFilters', () => {
     act(() => result.current.toolbarProps.onFilterChange(''));
     expect(result.current.filtered).toHaveLength(3);
   });
+
+  it('filters by status: active matches the Running UI status', () => {
+    const { result } = renderHook(() => useAgentFilters(deployments));
+    act(() => result.current.toolbarProps.onStatusChange('active'));
+    expect(result.current.filtered).toEqual([alpha, beta]);
+  });
+
+  it('filters by status: error matches the error UI status', () => {
+    const { result } = renderHook(() => useAgentFilters(deployments));
+    act(() => result.current.toolbarProps.onStatusChange('error'));
+    expect(result.current.filtered).toEqual([gamma]);
+  });
+
+  it('filters by status: stopped matches the Stopped UI status', () => {
+    const stopped = makeDeployment({ id: 'd', name: 'delta-agent', display_name: 'Delta Bot', status: 'Stopped' });
+    const { result } = renderHook(() => useAgentFilters([...deployments, stopped]));
+    act(() => result.current.toolbarProps.onStatusChange('stopped'));
+    expect(result.current.filtered.map((d) => d.id)).toEqual(['d']);
+  });
+
+  it('combines the status filter with text search', () => {
+    const { result } = renderHook(() => useAgentFilters(deployments));
+    act(() => {
+      result.current.toolbarProps.onStatusChange('active');
+      result.current.toolbarProps.onFilterChange('alpha');
+    });
+    expect(result.current.filtered).toEqual([alpha]);
+  });
+
+  it('clears the status filter with null', () => {
+    const { result } = renderHook(() => useAgentFilters(deployments));
+    act(() => result.current.toolbarProps.onStatusChange('error'));
+    expect(result.current.filtered).toHaveLength(1);
+    act(() => result.current.toolbarProps.onStatusChange(null));
+    expect(result.current.filtered).toHaveLength(3);
+  });
+
+  it('persists the status filter and restores it on a later mount', () => {
+    const first = renderHook(() => useAgentFilters(deployments));
+    act(() => first.result.current.toolbarProps.onStatusChange('error'));
+    first.unmount();
+
+    // A fresh mount (e.g. the user navigating back) restores the last filter.
+    const second = renderHook(() => useAgentFilters(deployments));
+    expect(second.result.current.toolbarProps.statusFilter).toBe('error');
+    expect(second.result.current.filtered).toEqual([gamma]);
+  });
+
+  it('does not restore a cleared status filter', () => {
+    const first = renderHook(() => useAgentFilters(deployments));
+    act(() => first.result.current.toolbarProps.onStatusChange('error'));
+    act(() => first.result.current.toolbarProps.onStatusChange(null));
+    first.unmount();
+
+    const second = renderHook(() => useAgentFilters(deployments));
+    expect(second.result.current.toolbarProps.statusFilter).toBeNull();
+  });
 });

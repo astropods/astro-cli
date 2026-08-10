@@ -1,10 +1,29 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentDeploymentSummary } from "@/lib/api";
+import { getPersistentStorageSnapshot, setPersistentStorageSnapshot } from "@/lib/persistent-storage";
 
 export type SortOption = "recent" | "name" | "requests";
 
-export function useAgentFilters(
-  deployments: AgentDeploymentSummary[],
+export type DeploymentStatusFilter = "active" | "stopped" | "error";
+
+// Maps a coarse filter onto the loose UI status string a summary carries
+// (dbStatusToUIStatus on the server): active -> Running, stopped -> Stopped,
+// error -> error (failed/suspended/undeployed all surface as error).
+const STATUS_FILTER_UI: Record<DeploymentStatusFilter, string> = {
+  active: "Running",
+  stopped: "Stopped",
+  error: "error",
+};
+
+const STATUS_FILTER_STORAGE_KEY = "astro:page-filters:agents-status";
+
+function readStoredStatusFilter(): DeploymentStatusFilter | null {
+  const v = getPersistentStorageSnapshot(STATUS_FILTER_STORAGE_KEY);
+  return v === "active" || v === "stopped" || v === "error" ? v : null;
+}
+
+export function useAgentFilters<T extends AgentDeploymentSummary>(
+  deployments: T[],
   requestCounts: Map<string, number> = new Map(),
   controlledFilter?: {
     filter: string;
@@ -16,6 +35,18 @@ export function useAgentFilters(
   const filter = controlledFilter?.filter ?? localFilter;
   const setFilter = controlledFilter?.onFilterChange ?? setLocalFilter;
   const filterLocally = controlledFilter == null;
+  const [statusFilter, setStatusFilterState] = useState<DeploymentStatusFilter | null>(null);
+
+  // Restore the last-used status filter on mount (client only, so SSR markup
+  // stays at the default and hydration matches), then persist every change.
+  useEffect(() => {
+    const stored = readStoredStatusFilter();
+    if (stored) setStatusFilterState(stored);
+  }, []);
+  const setStatusFilter = useCallback((next: DeploymentStatusFilter | null) => {
+    setStatusFilterState(next);
+    setPersistentStorageSnapshot(STATUS_FILTER_STORAGE_KEY, next ?? "");
+  }, []);
 
   const filtered = useMemo(() => {
     let list = deployments;
@@ -29,6 +60,10 @@ export function useAgentFilters(
           d.name.toLowerCase().includes(lower) ||
           d.display_name?.toLowerCase().includes(lower),
       );
+    }
+
+    if (statusFilter) {
+      list = list.filter((d) => d.status === STATUS_FILTER_UI[statusFilter]);
     }
 
     if (sortBy === "name") {
@@ -48,7 +83,7 @@ export function useAgentFilters(
     }
 
     return list;
-  }, [deployments, filter, filterLocally, sortBy, requestCounts]);
+  }, [deployments, filter, filterLocally, sortBy, statusFilter, requestCounts]);
 
   return {
     filtered,
@@ -57,6 +92,8 @@ export function useAgentFilters(
       onFilterChange: setFilter,
       sortBy,
       onSortChange: setSortBy,
+      statusFilter,
+      onStatusChange: setStatusFilter,
     },
   };
 }
