@@ -945,10 +945,12 @@ type GetClusterBlockersRequest struct {
 }
 
 type GetClusterBlockersResponse struct {
-	AccountCount    int32             `json:"account_count,omitempty"`
-	Accounts        []*ClusterBlocker `json:"accounts,omitempty"`
-	DeploymentCount int32             `json:"deployment_count,omitempty"`
-	Deployments     []*ClusterBlocker `json:"deployments,omitempty"`
+	// No omitempty: the frontend reads account_count/accounts/deployment_count/
+	// deployments unconditionally, and the common case is one side being zero.
+	AccountCount    int32             `json:"account_count"`
+	Accounts        []*ClusterBlocker `json:"accounts"`
+	DeploymentCount int32             `json:"deployment_count"`
+	Deployments     []*ClusterBlocker `json:"deployments"`
 }
 
 type ListClustersRequest struct {
