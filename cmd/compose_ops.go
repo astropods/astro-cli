@@ -99,10 +99,8 @@ func projectForUp(p *types.Project) *types.Project {
 	return &up
 }
 
-// groupStartupServices splits the project's services into the ones `up` starts
-// and the profiled ingestions it does not. Listing them together implies the
-// profiled ones run as services, when startup entries run once and the rest
-// only when triggered. Each ingestion name carries which of the two it is.
+// groupStartupServices splits services into the ones `up` starts and the
+// profiled ingestions it does not, tagging each ingestion with when it runs.
 func groupStartupServices(p *types.Project, s *spec.AstroSpec) (services, ingestion []string) {
 	services = make([]string, 0, len(p.Services))
 	for name, svc := range p.Services {
