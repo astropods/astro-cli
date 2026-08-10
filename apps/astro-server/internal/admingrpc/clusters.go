@@ -252,9 +252,9 @@ func (s *Server) GetClusterBlockers(ctx context.Context, req *adminv1.GetCluster
 	}
 
 	return &adminv1.GetClusterBlockersResponse{
-		AccountCount:    int32(accountCount),
+		AccountCount:    int32(accountCount), //nolint:gosec // bounded by account count, not attacker-controlled
 		Accounts:        blockersToProto(accounts),
-		DeploymentCount: int32(deploymentCount),
+		DeploymentCount: int32(deploymentCount), //nolint:gosec // bounded by deployment count, not attacker-controlled
 		Deployments:     blockersToProto(deployments),
 	}, nil
 }

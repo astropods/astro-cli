@@ -17,13 +17,18 @@ func clusterIDLabel(id string) string {
 }
 
 // populateAdminDeploymentPlacement sets cluster placement fields on an admin deployment row.
-func populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, deploymentClusterID, accountClusterID string) {
+func populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, deploymentClusterID, accountClusterID, status string) {
 	if ad == nil {
 		return
 	}
 	ad.ClusterID = deploymentClusterID
 	ad.AccountClusterID = accountClusterID
-	ad.PlacementMismatch = placementMismatch(accountClusterID, deploymentClusterID)
+	// An undeployed deployment has its cluster_id cleared (nothing runs there
+	// anymore, nothing to redeploy) and would otherwise spuriously mismatch
+	// against whatever cluster the account is currently pinned to.
+	if status != "undeployed" {
+		ad.PlacementMismatch = placementMismatch(accountClusterID, deploymentClusterID)
+	}
 }
 
 // placementHintMessage returns guidance when account and deployment clusters differ.

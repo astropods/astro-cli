@@ -732,6 +732,10 @@ type StatusUpdate struct {
 // (unless already set) — this is the single entry point for status changes, so
 // stamping the timestamp here avoids the previous bug where the undeploy
 // worker tried to set it via a separate call with a stale WHERE-status guard.
+// cluster_id is cleared at the same time: once undeployed, nothing reads it
+// (a later redeploy sets a fresh value from the submitted spec), and leaving
+// it set left a stale deployments_cluster_id_fkey reference that blocked
+// deregistering a cluster with no actual workloads left on it.
 func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
 	details := nilIfEmptyJSON(u.ErrorDetails)
 	// $2 is cast to text explicitly: pq's parameter-type deduction fails
@@ -748,7 +752,8 @@ func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
 		    undeployed_at = CASE
 		      WHEN $2::text = 'undeployed' AND undeployed_at IS NULL THEN NOW()
 		      ELSE undeployed_at
-		    END
+		    END,
+		    cluster_id = CASE WHEN $2::text = 'undeployed' THEN NULL ELSE cluster_id END
 		WHERE id = $1
 	`, id, u.Status, nilIfEmpty(u.ErrorMsg), details)
 	if err != nil {

@@ -658,7 +658,7 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 		if d.CurrentRevision != nil {
 			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
 		}
-		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID)
+		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID, d.Status)
 
 		results = append(results, ad)
 	}
@@ -738,7 +738,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if dep.CurrentRevision != nil {
 		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
 	}
-	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID)
+	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID, dep.Status)
 
 	// Fetch events
 	var protoEvents []*adminv1.AdminDeploymentEvent

@@ -324,7 +324,27 @@ func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 // ErrInUseByAccounts or ErrInUseByDeployments depending on which FK actually
 // blocked the delete (ErrInUse if Postgres doesn't report the constraint
 // name). Returns ErrNotFound if no row matches.
+//
+// If the delete is blocked by a deployments row, it self-heals once: rows
+// that are already undeployed don't need cluster_id anymore (updateStatusTx
+// clears it going forward; this catches rows undeployed before that fix)
+// and are safe to clear here too, then the delete is retried. Accounts are
+// never auto-cleared — a cluster_id pin there is a live routing decision,
+// not stale history.
 func (s *Store) Deregister(ctx context.Context, id string) error {
+	err := s.tryDeleteCluster(ctx, id)
+	if !errors.Is(err, ErrInUseByDeployments) {
+		return err
+	}
+	if _, healErr := s.db.ExecContext(ctx,
+		`UPDATE deployments SET cluster_id = NULL WHERE cluster_id = $1 AND status = 'undeployed'`, id,
+	); healErr != nil {
+		return fmt.Errorf("clear stale cluster_id on undeployed deployments: %w", healErr)
+	}
+	return s.tryDeleteCluster(ctx, id)
+}
+
+func (s *Store) tryDeleteCluster(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM clusters WHERE id = $1`, id)
 	if err != nil {
 		if pgCode(err) == pgForeignKeyViolation {
@@ -365,40 +385,48 @@ func (s *Store) Blockers(ctx context.Context, id string) (accounts []Blocker, ac
 	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM accounts WHERE cluster_id = $1`, id).Scan(&accountCount); err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("count blocking accounts: %w", err)
 	}
-	rows, err := s.db.QueryContext(ctx,
+	accountRows, err := s.db.QueryContext(ctx,
 		`SELECT id, name FROM accounts WHERE cluster_id = $1 ORDER BY name LIMIT $2`, id, limit)
 	if err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("list blocking accounts: %w", err)
 	}
-	for rows.Next() {
+	for accountRows.Next() {
 		var b Blocker
-		if err = rows.Scan(&b.ID, &b.Name); err != nil {
-			rows.Close()
+		if err = accountRows.Scan(&b.ID, &b.Name); err != nil {
+			_ = accountRows.Close()
 			return nil, 0, nil, 0, fmt.Errorf("scan blocking account: %w", err)
 		}
 		accounts = append(accounts, b)
 	}
-	if err = rows.Close(); err != nil {
+	if err = accountRows.Err(); err != nil {
+		_ = accountRows.Close()
+		return nil, 0, nil, 0, fmt.Errorf("list blocking accounts: %w", err)
+	}
+	if err = accountRows.Close(); err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("list blocking accounts: %w", err)
 	}
 
 	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM deployments WHERE cluster_id = $1`, id).Scan(&deploymentCount); err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("count blocking deployments: %w", err)
 	}
-	rows, err = s.db.QueryContext(ctx,
+	deploymentRows, err := s.db.QueryContext(ctx,
 		`SELECT id, agent_name, status FROM deployments WHERE cluster_id = $1 ORDER BY deployed_at DESC LIMIT $2`, id, limit)
 	if err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
+	for deploymentRows.Next() {
 		var b Blocker
-		if err = rows.Scan(&b.ID, &b.Name, &b.Status); err != nil {
+		if err = deploymentRows.Scan(&b.ID, &b.Name, &b.Status); err != nil {
+			_ = deploymentRows.Close()
 			return nil, 0, nil, 0, fmt.Errorf("scan blocking deployment: %w", err)
 		}
 		deployments = append(deployments, b)
 	}
-	if err = rows.Err(); err != nil {
+	if err = deploymentRows.Err(); err != nil {
+		_ = deploymentRows.Close()
+		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
+	}
+	if err = deploymentRows.Close(); err != nil {
 		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
 	}
 	return accounts, accountCount, deployments, deploymentCount, nil

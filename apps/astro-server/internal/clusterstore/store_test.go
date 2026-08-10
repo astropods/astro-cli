@@ -385,6 +385,9 @@ func TestDeregister_NotFound(t *testing.T) {
 	}
 }
 
+// TestDeregister_InUse covers the case where a non-undeployed deployment is
+// still genuinely blocking: the self-heal clears stale undeployed rows, but
+// the retry hits the same FK because a live deployment remains.
 func TestDeregister_InUse(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
@@ -392,9 +395,38 @@ func TestDeregister_InUse(t *testing.T) {
 	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
 		WithArgs("us-east-1-managed").
 		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "deployments_cluster_id_fkey"})
+	mock.ExpectExec("UPDATE deployments SET cluster_id = NULL WHERE cluster_id = \\$1 AND status = 'undeployed'").
+		WithArgs("us-east-1-managed").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "deployments_cluster_id_fkey"})
 
 	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByDeployments) {
 		t.Errorf("expected ErrInUseByDeployments, got %v", err)
+	}
+}
+
+// TestDeregister_SelfHealsStaleUndeployedRows covers the case this feature
+// exists for: the only blockers are deployments already undeployed before
+// updateStatusTx started clearing cluster_id on undeploy. The self-heal
+// clears them and the retried delete succeeds without any manual DB fix.
+func TestDeregister_SelfHealsStaleUndeployedRows(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "deployments_cluster_id_fkey"})
+	mock.ExpectExec("UPDATE deployments SET cluster_id = NULL WHERE cluster_id = \\$1 AND status = 'undeployed'").
+		WithArgs("us-east-1-managed").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.Deregister(context.Background(), "us-east-1-managed"); err != nil {
+		t.Errorf("expected self-heal to unblock deletion, got %v", err)
 	}
 }
 
