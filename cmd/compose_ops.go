@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/cli/cli/command"
 	cliflags "github.com/docker/cli/cli/flags"
@@ -94,6 +97,28 @@ func projectForUp(p *types.Project) *types.Project {
 		}
 	}
 	return &up
+}
+
+// groupStartupServices splits the project's services into the ones `up` starts
+// and the profiled ingestions it does not. Listing them together implies the
+// profiled ones run as services, when startup entries run once and the rest
+// only when triggered. Each ingestion name carries which of the two it is.
+func groupStartupServices(p *types.Project, s *spec.AstroSpec) (services, ingestion []string) {
+	services = make([]string, 0, len(p.Services))
+	for name, svc := range p.Services {
+		if len(svc.Profiles) == 0 {
+			services = append(services, name)
+			continue
+		}
+		when := "on demand"
+		if ing, ok := s.Ingestion[strings.TrimPrefix(name, "ingestion-")]; ok && ing.Trigger.Type == "startup" {
+			when = "once at start"
+		}
+		ingestion = append(ingestion, fmt.Sprintf("%s (%s)", name, when))
+	}
+	sort.Strings(services)
+	sort.Strings(ingestion)
+	return services, ingestion
 }
 
 // allServiceNames returns the names of all services in the project.
