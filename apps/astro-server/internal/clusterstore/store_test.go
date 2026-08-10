@@ -393,8 +393,63 @@ func TestDeregister_InUse(t *testing.T) {
 		WithArgs("us-east-1-managed").
 		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "deployments_cluster_id_fkey"})
 
+	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByDeployments) {
+		t.Errorf("expected ErrInUseByDeployments, got %v", err)
+	}
+}
+
+func TestDeregister_InUseByAccounts(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "accounts_cluster_id_fkey"})
+
+	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByAccounts) {
+		t.Errorf("expected ErrInUseByAccounts, got %v", err)
+	}
+}
+
+func TestDeregister_InUseUnknownConstraint(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "some_other_fkey"})
+
 	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUse) {
 		t.Errorf("expected ErrInUse, got %v", err)
+	}
+}
+
+func TestBlockers(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM accounts WHERE cluster_id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT id, name FROM accounts WHERE cluster_id = \\$1 ORDER BY name LIMIT \\$2").
+		WithArgs("us-east-1-managed", 25).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow("acct-1", "acme"))
+	mock.ExpectQuery("SELECT count\\(\\*\\) FROM deployments WHERE cluster_id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT id, agent_name, status FROM deployments WHERE cluster_id = \\$1 ORDER BY deployed_at DESC LIMIT \\$2").
+		WithArgs("us-east-1-managed", 25).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_name", "status"}).AddRow("dep-1", "pirate-parrot", "undeployed"))
+
+	accounts, accountCount, deployments, deploymentCount, err := store.Blockers(context.Background(), "us-east-1-managed")
+	if err != nil {
+		t.Fatalf("Blockers returned error: %v", err)
+	}
+	if accountCount != 1 || len(accounts) != 1 || accounts[0].Name != "acme" {
+		t.Errorf("unexpected accounts result: count=%d rows=%v", accountCount, accounts)
+	}
+	if deploymentCount != 1 || len(deployments) != 1 || deployments[0].Name != "pirate-parrot" || deployments[0].Status != "undeployed" {
+		t.Errorf("unexpected deployments result: count=%d rows=%v", deploymentCount, deployments)
 	}
 }
 
