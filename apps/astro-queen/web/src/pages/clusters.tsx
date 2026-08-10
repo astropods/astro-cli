@@ -6,10 +6,11 @@ import {
   useEnableCluster,
   useDisableCluster,
   useDeregisterCluster,
+  useClusterBlockers,
   useUpdateCluster,
   useCheckClusterHealth,
 } from "@/api/admin";
-import type { RegisteredCluster } from "@/types/admin";
+import type { RegisteredCluster, GetClusterBlockersResponse } from "@/types/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -677,6 +678,56 @@ function DetailField({
   );
 }
 
+function ClusterBlockersPanel({ blockers }: { blockers: GetClusterBlockersResponse }) {
+  const nothingListed = blockers.accounts.length === 0 && blockers.deployments.length === 0;
+  return (
+    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-xs font-medium text-destructive">
+        Blocked by {blockers.account_count} account{blockers.account_count !== 1 ? "s" : ""} and{" "}
+        {blockers.deployment_count} deployment{blockers.deployment_count !== 1 ? "s" : ""} still
+        referencing this cluster
+      </p>
+      {blockers.accounts.length > 0 && (
+        <div>
+          <div className="text-[10px] text-muted-foreground">Accounts pinned to this cluster</div>
+          <ul className="text-xs">
+            {blockers.accounts.map((a) => (
+              <li key={a.id} className="font-mono">{a.name || a.id}</li>
+            ))}
+          </ul>
+          {blockers.account_count > blockers.accounts.length && (
+            <p className="text-[10px] text-muted-foreground">
+              +{blockers.account_count - blockers.accounts.length} more
+            </p>
+          )}
+        </div>
+      )}
+      {blockers.deployments.length > 0 && (
+        <div>
+          <div className="text-[10px] text-muted-foreground">Deployments routed here</div>
+          <ul className="text-xs">
+            {blockers.deployments.map((d) => (
+              <li key={d.id} className="font-mono">
+                {d.name || d.id} <span className="text-muted-foreground">({d.status})</span>
+              </li>
+            ))}
+          </ul>
+          {blockers.deployment_count > blockers.deployments.length && (
+            <p className="text-[10px] text-muted-foreground">
+              +{blockers.deployment_count - blockers.deployments.length} more
+            </p>
+          )}
+        </div>
+      )}
+      {nothingListed && (
+        <p className="text-[10px] text-muted-foreground">
+          Nothing found — the block may have cleared. Try deregistering again.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ClusterDetail({
   cluster,
   deploymentCount,
@@ -704,6 +755,8 @@ function ClusterDetail({
     deregisterMut.error ??
     updateMut.error ??
     healthMut.error;
+
+  const blockersQuery = useClusterBlockers(cluster.id, deregisterMut.isError);
 
   const runEnable = () => enableMut.mutate(cluster.id);
   const runDisable = () => disableMut.mutate(cluster.id);
@@ -800,6 +853,9 @@ function ClusterDetail({
 
       {actionError && (
         <p className="text-[10px] text-destructive">{mutationErrorMessage(actionError)}</p>
+      )}
+      {deregisterMut.isError && blockersQuery.data && (
+        <ClusterBlockersPanel blockers={blockersQuery.data} />
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">

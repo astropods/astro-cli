@@ -42,6 +42,7 @@ service AdminService {
   rpc EnableCluster(EnableClusterRequest) returns (EnableClusterResponse);
   rpc DisableCluster(DisableClusterRequest) returns (DisableClusterResponse);
   rpc DeregisterCluster(DeregisterClusterRequest) returns (DeregisterClusterResponse);
+  rpc GetClusterBlockers(GetClusterBlockersRequest) returns (GetClusterBlockersResponse);
   rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
@@ -714,6 +715,25 @@ message DeregisterClusterRequest {
 }
 
 message DeregisterClusterResponse {}
+
+// ClusterBlocker is a single account or deployment row still referencing a
+// cluster via an ON DELETE RESTRICT foreign key, preventing deregistration.
+message ClusterBlocker {
+  string id = 1;
+  string name = 2;
+  string status = 3; // empty for accounts; deployment status otherwise
+}
+
+message GetClusterBlockersRequest {
+  string id = 1;
+}
+
+message GetClusterBlockersResponse {
+  int32 account_count = 1;
+  repeated ClusterBlocker accounts = 2;
+  int32 deployment_count = 3;
+  repeated ClusterBlocker deployments = 4;
+}
 
 message ListClustersRequest {
   bool enabled_only = 1;

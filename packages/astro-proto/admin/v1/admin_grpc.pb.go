@@ -52,6 +52,7 @@ type AdminServiceClient interface {
 	EnableCluster(ctx context.Context, in *EnableClusterRequest, opts ...grpc.CallOption) (*EnableClusterResponse, error)
 	DisableCluster(ctx context.Context, in *DisableClusterRequest, opts ...grpc.CallOption) (*DisableClusterResponse, error)
 	DeregisterCluster(ctx context.Context, in *DeregisterClusterRequest, opts ...grpc.CallOption) (*DeregisterClusterResponse, error)
+	GetClusterBlockers(ctx context.Context, in *GetClusterBlockersRequest, opts ...grpc.CallOption) (*GetClusterBlockersResponse, error)
 	ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error)
 	SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
@@ -396,6 +397,14 @@ func (c *adminServiceClient) DeregisterCluster(ctx context.Context, in *Deregist
 	return out, nil
 }
 
+func (c *adminServiceClient) GetClusterBlockers(ctx context.Context, in *GetClusterBlockersRequest, opts ...grpc.CallOption) (*GetClusterBlockersResponse, error) {
+	out := new(GetClusterBlockersResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetClusterBlockers", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error) {
 	out := new(ListClustersResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListClusters", in, out, opts...); err != nil {
@@ -614,6 +623,7 @@ type AdminServiceServer interface {
 	EnableCluster(context.Context, *EnableClusterRequest) (*EnableClusterResponse, error)
 	DisableCluster(context.Context, *DisableClusterRequest) (*DisableClusterResponse, error)
 	DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error)
+	GetClusterBlockers(context.Context, *GetClusterBlockersRequest) (*GetClusterBlockersResponse, error)
 	ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error)
 	SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
@@ -790,6 +800,9 @@ func (UnimplementedAdminServiceServer) DisableCluster(context.Context, *DisableC
 
 func (UnimplementedAdminServiceServer) DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeregisterCluster not implemented")
+}
+func (UnimplementedAdminServiceServer) GetClusterBlockers(context.Context, *GetClusterBlockersRequest) (*GetClusterBlockersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetClusterBlockers not implemented")
 }
 
 func (UnimplementedAdminServiceServer) ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error) {
@@ -1473,6 +1486,21 @@ func _AdminService_DeregisterCluster_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetClusterBlockers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetClusterBlockersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetClusterBlockers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetClusterBlockers"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetClusterBlockers(ctx, req.(*GetClusterBlockersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_ListClusters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListClustersRequest)
 	if err := dec(in); err != nil {
@@ -1847,6 +1875,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "EnableCluster", Handler: _AdminService_EnableCluster_Handler},
 		{MethodName: "DisableCluster", Handler: _AdminService_DisableCluster_Handler},
 		{MethodName: "DeregisterCluster", Handler: _AdminService_DeregisterCluster_Handler},
+		{MethodName: "GetClusterBlockers", Handler: _AdminService_GetClusterBlockers_Handler},
 		{MethodName: "ListClusters", Handler: _AdminService_ListClusters_Handler},
 		{MethodName: "SetAccountCluster", Handler: _AdminService_SetAccountCluster_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},

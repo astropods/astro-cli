@@ -37,7 +37,9 @@ func clusterStoreErr(err error) error {
 	if errors.Is(err, clusterstore.ErrAlreadyExists) {
 		return status.Error(codes.AlreadyExists, err.Error())
 	}
-	if errors.Is(err, clusterstore.ErrInUse) {
+	if errors.Is(err, clusterstore.ErrInUse) ||
+		errors.Is(err, clusterstore.ErrInUseByAccounts) ||
+		errors.Is(err, clusterstore.ErrInUseByDeployments) {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	return status.Error(codes.InvalidArgument, err.Error())
@@ -232,6 +234,37 @@ func (s *Server) DeregisterCluster(ctx context.Context, req *adminv1.DeregisterC
 		return nil, status.Errorf(codes.Internal, "refresh registry: %v", err)
 	}
 	return &adminv1.DeregisterClusterResponse{}, nil
+}
+
+// GetClusterBlockers lists the accounts and deployments that currently
+// reference a cluster and would fail DeregisterCluster's FK-backed delete.
+func (s *Server) GetClusterBlockers(ctx context.Context, req *adminv1.GetClusterBlockersRequest) (*adminv1.GetClusterBlockersResponse, error) {
+	if err := s.requireClusterAdmin(); err != nil {
+		return nil, err
+	}
+	if req.ID == "" {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+
+	accounts, accountCount, deployments, deploymentCount, err := s.clusterStore.Blockers(ctx, req.ID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list cluster blockers: %v", err)
+	}
+
+	return &adminv1.GetClusterBlockersResponse{
+		AccountCount:    int32(accountCount),
+		Accounts:        blockersToProto(accounts),
+		DeploymentCount: int32(deploymentCount),
+		Deployments:     blockersToProto(deployments),
+	}, nil
+}
+
+func blockersToProto(blockers []clusterstore.Blocker) []*adminv1.ClusterBlocker {
+	out := make([]*adminv1.ClusterBlocker, 0, len(blockers))
+	for _, b := range blockers {
+		out = append(out, &adminv1.ClusterBlocker{ID: b.ID, Name: b.Name, Status: b.Status})
+	}
+	return out
 }
 
 // ListClusters returns the synthesized primary plus additional cluster rows.

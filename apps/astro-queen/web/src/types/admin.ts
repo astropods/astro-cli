@@ -525,6 +525,20 @@ export interface UpdateClusterResponse {
   cluster: RegisteredCluster;
 }
 
+export interface ClusterBlocker {
+  id: string;
+  name: string;
+  /** Empty for accounts; deployment status otherwise. */
+  status: string;
+}
+
+export interface GetClusterBlockersResponse {
+  account_count: number;
+  accounts: ClusterBlocker[];
+  deployment_count: number;
+  deployments: ClusterBlocker[];
+}
+
 export interface CheckClusterHealthResponse {
   cluster: RegisteredCluster;
 }

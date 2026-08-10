@@ -29,7 +29,17 @@ import (
 var (
 	ErrNotFound      = errors.New("cluster not found")
 	ErrAlreadyExists = errors.New("cluster already registered")
-	ErrInUse         = errors.New("cluster has active deployments")
+	// ErrInUse is a catch-all for a foreign-key violation on delete when the
+	// violated constraint isn't one of the two known ones below. Deregister
+	// should normally return one of the more specific errors instead.
+	ErrInUse = errors.New("cluster is still referenced by accounts or deployments")
+	// ErrInUseByAccounts means an account still has this cluster set as its
+	// cluster_id (accounts_cluster_id_fkey) — independent of whether that
+	// account has any deployments here.
+	ErrInUseByAccounts = errors.New("cluster still has accounts pinned to it")
+	// ErrInUseByDeployments means a deployment row still references this
+	// cluster (deployments_cluster_id_fkey), regardless of deployment status.
+	ErrInUseByDeployments = errors.New("cluster has active deployments")
 )
 
 // Postgres SQLSTATE codes we translate to typed errors.
@@ -309,14 +319,23 @@ func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	return nil
 }
 
-// Deregister deletes a cluster row. Returns ErrInUse if any deployment still
-// references it (the FK is ON DELETE RESTRICT). Returns ErrNotFound if no row
-// matches.
+// Deregister deletes a cluster row. Both accounts.cluster_id and
+// deployments.cluster_id are ON DELETE RESTRICT, so it returns
+// ErrInUseByAccounts or ErrInUseByDeployments depending on which FK actually
+// blocked the delete (ErrInUse if Postgres doesn't report the constraint
+// name). Returns ErrNotFound if no row matches.
 func (s *Store) Deregister(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM clusters WHERE id = $1`, id)
 	if err != nil {
 		if pgCode(err) == pgForeignKeyViolation {
-			return ErrInUse
+			switch pgConstraint(err) {
+			case "accounts_cluster_id_fkey":
+				return ErrInUseByAccounts
+			case "deployments_cluster_id_fkey":
+				return ErrInUseByDeployments
+			default:
+				return ErrInUse
+			}
 		}
 		return fmt.Errorf("delete cluster: %w", err)
 	}
@@ -328,6 +347,61 @@ func (s *Store) Deregister(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// Blocker is a single account or deployment row still referencing a cluster,
+// as surfaced to admins deciding what to move before deregistering.
+type Blocker struct {
+	ID     string
+	Name   string
+	Status string // empty for accounts
+}
+
+// Blockers lists (up to a cap) the accounts and deployments that currently
+// reference a cluster and would fail Deregister, plus their total counts.
+func (s *Store) Blockers(ctx context.Context, id string) (accounts []Blocker, accountCount int, deployments []Blocker, deploymentCount int, err error) {
+	const limit = 25
+
+	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM accounts WHERE cluster_id = $1`, id).Scan(&accountCount); err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("count blocking accounts: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name FROM accounts WHERE cluster_id = $1 ORDER BY name LIMIT $2`, id, limit)
+	if err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("list blocking accounts: %w", err)
+	}
+	for rows.Next() {
+		var b Blocker
+		if err = rows.Scan(&b.ID, &b.Name); err != nil {
+			rows.Close()
+			return nil, 0, nil, 0, fmt.Errorf("scan blocking account: %w", err)
+		}
+		accounts = append(accounts, b)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("list blocking accounts: %w", err)
+	}
+
+	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM deployments WHERE cluster_id = $1`, id).Scan(&deploymentCount); err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("count blocking deployments: %w", err)
+	}
+	rows, err = s.db.QueryContext(ctx,
+		`SELECT id, name, status FROM deployments WHERE cluster_id = $1 ORDER BY created_at DESC LIMIT $2`, id, limit)
+	if err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b Blocker
+		if err = rows.Scan(&b.ID, &b.Name, &b.Status); err != nil {
+			return nil, 0, nil, 0, fmt.Errorf("scan blocking deployment: %w", err)
+		}
+		deployments = append(deployments, b)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, nil, 0, fmt.Errorf("list blocking deployments: %w", err)
+	}
+	return accounts, accountCount, deployments, deploymentCount, nil
 }
 
 // baseSelect is the column projection shared by Get and List.
@@ -363,6 +437,16 @@ func pgCode(err error) string {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
 		return string(pqErr.Code)
+	}
+	return ""
+}
+
+// pgConstraint returns the violated constraint name from a Postgres error
+// (e.g. "accounts_cluster_id_fkey"), or "" if err is not a *pq.Error.
+func pgConstraint(err error) string {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Constraint
 	}
 	return ""
 }

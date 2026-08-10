@@ -14,6 +14,7 @@ func (s *Server) registerClusterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/clusters/{id}/disable", s.handleDisableCluster)
 	mux.HandleFunc("POST /api/admin/clusters/{id}/health-check", s.handleCheckClusterHealth)
 	mux.HandleFunc("DELETE /api/admin/clusters/{id}", s.handleDeregisterCluster)
+	mux.HandleFunc("GET /api/admin/clusters/{id}/blockers", s.handleGetClusterBlockers)
 }
 
 func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
@@ -149,4 +150,14 @@ func (s *Server) handleDeregisterCluster(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGetClusterBlockers(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	resp, err := s.admin.GetClusterBlockers(r.Context(), &adminv1.GetClusterBlockersRequest{ID: id})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

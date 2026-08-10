@@ -29,6 +29,7 @@ import type {
   UpdateClusterRequest,
   UpdateClusterResponse,
   CheckClusterHealthResponse,
+  GetClusterBlockersResponse,
   SetAccountClusterResponse,
   InvalidateCachesResponse,
   RefreshMessagingCacheResponse,
@@ -783,6 +784,16 @@ export function useDeregisterCluster() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
     },
+  });
+}
+
+/** Fetches only when `enabled` — meant to fire after a failed deregister. */
+export function useClusterBlockers(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: adminKeys.clusterBlockers(id),
+    queryFn: () =>
+      api.get<GetClusterBlockersResponse>(`/api/admin/clusters/${encodeURIComponent(id)}/blockers`),
+    enabled,
   });
 }
 

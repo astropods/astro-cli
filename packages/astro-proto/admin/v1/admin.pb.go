@@ -932,6 +932,25 @@ type DeregisterClusterRequest struct {
 
 type DeregisterClusterResponse struct{}
 
+// ClusterBlocker is a single account or deployment row still referencing a
+// cluster via an ON DELETE RESTRICT foreign key, preventing deregistration.
+type ClusterBlocker struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Status string `json:"status,omitempty"` // empty for accounts; deployment status otherwise
+}
+
+type GetClusterBlockersRequest struct {
+	ID string `json:"id,omitempty"`
+}
+
+type GetClusterBlockersResponse struct {
+	AccountCount    int32             `json:"account_count,omitempty"`
+	Accounts        []*ClusterBlocker `json:"accounts,omitempty"`
+	DeploymentCount int32             `json:"deployment_count,omitempty"`
+	Deployments     []*ClusterBlocker `json:"deployments,omitempty"`
+}
+
 type ListClustersRequest struct {
 	EnabledOnly bool `json:"enabled_only,omitempty"`
 }
