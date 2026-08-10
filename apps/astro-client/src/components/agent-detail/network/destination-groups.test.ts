@@ -96,6 +96,23 @@ describe("iconIdForPeer", () => {
     expect(iconIdForPeer("api.hubapi.com", "outbound", "hubapi.com")).toBe("hubspot");
   });
 
+  // Hosting platforms are public suffixes, so eTLD+1 keeps the customer's
+  // label and the platform only appears in the parent.
+  it("resolves a hosting platform from the parent domain", () => {
+    expect(iconIdForPeer("myapp.vercel.app", "outbound", "myapp.vercel.app")).toBe("vercel");
+    expect(iconIdForPeer("raw.githubusercontent.com", "outbound", "raw.githubusercontent.com")).toBe("github");
+  });
+
+  // Wildcard PSL rules put the platform two or more labels up.
+  it("walks past a wildcard suffix to reach the platform", () => {
+    const bucket = "mybucket.nyc3.digitaloceanspaces.com";
+    expect(iconIdForPeer(bucket, "outbound", bucket)).toBe("digitalocean");
+  });
+
+  it("does not climb past the registrable domain for ordinary hosts", () => {
+    expect(iconIdForPeer("api.acme-cdn.io", "outbound", "acme-cdn.io")).toBeNull();
+  });
+
   it("resolves nothing without a registrable domain", () => {
     expect(iconIdForPeer("api.openai.com", "outbound")).toBeNull();
   });

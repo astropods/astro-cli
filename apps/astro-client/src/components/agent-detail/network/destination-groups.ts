@@ -10,16 +10,6 @@ export interface DestinationGroup {
   bytesTotal: number;
 }
 
-// Bridge until these move into the brand-icons manifest as `domains`/`aliases`.
-const LOCAL_ALIASES: ReadonlyMap<string, string> = new Map([
-  ["hubapi.com", "hubspot"],
-  ["postgresql", "postgres"],
-]);
-
-function iconIdFor(key: string): string | null {
-  return resolveIconId(key) ?? LOCAL_ALIASES.get(key.toLowerCase()) ?? null;
-}
-
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /** Keys off `://`, not an `http` prefix: `httpbin.org:443` is a host, not a scheme. */
@@ -73,14 +63,30 @@ export function groupDestinations(flows: NetworkFlow[]): DestinationGroup[] {
   return [...byDomain.values()];
 }
 
-/** Nothing resolves without the server's eTLD+1 — a raw host isn't enough. */
+/**
+ * Hosting platforms like `vercel.app` are public suffixes, so eTLD+1 keeps the
+ * customer's label and the platform never appears as the key. Falling back to
+ * the parent lets `myapp.vercel.app` still resolve to Vercel.
+ */
 export function iconIdForHost(registrableDomain?: string): string | null {
   if (!registrableDomain) return null;
-  return iconIdFor(registrableDomain) ?? iconIdFor(vendorLabel(registrableDomain));
+  const direct =
+    resolveIconId(registrableDomain) ?? resolveIconId(vendorLabel(registrableDomain));
+  if (direct) return direct;
+
+  // Wildcard suffixes sit several labels up: a bucket at
+  // mybucket.nyc3.digitaloceanspaces.com needs two steps to reach the platform.
+  // Stops at two labels so a bare TLD can never match.
+  const parts = registrableDomain.split(".");
+  for (let i = 1; parts.length - i >= 2; i++) {
+    const id = resolveIconId(parts.slice(i).join("."));
+    if (id) return id;
+  }
+  return null;
 }
 
 export function iconIdForDbSystem(peer: string): string | null {
-  return iconIdFor(peer);
+  return resolveIconId(peer);
 }
 
 /** Inbound peers are `http_route` templates, so there's no brand to resolve. */

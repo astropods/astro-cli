@@ -1,112 +1,586 @@
 {
   "icons": [
     {
-      "id": "airtable"
+      "id": "1password",
+      "domains": [
+        "1passwordservices.com",
+        "1passwordusercontent.com"
+      ],
+      "aliases": [
+        "onepassword"
+      ]
+    },
+    {
+      "id": "ably",
+      "domains": [
+        "ably-realtime.com"
+      ]
+    },
+    {
+      "id": "adyen",
+      "domains": [
+        "adyenpayments.com"
+      ]
+    },
+    {
+      "id": "airtable",
+      "domains": [
+        "airtableusercontent.com"
+      ]
+    },
+    {
+      "id": "akamai",
+      "domains": [
+        "akamaized.net"
+      ]
+    },
+    {
+      "id": "algolia",
+      "domains": [
+        "algolianet.com"
+      ]
+    },
+    {
+      "id": "amplitude"
+    },
+    {
+      "id": "ansible"
     },
     {
       "id": "anthropic"
     },
     {
-      "id": "asana"
+      "id": "apify"
+    },
+    {
+      "id": "asana",
+      "domains": [
+        "asanausercontent.com"
+      ]
     },
     {
       "id": "astro"
     },
     {
-      "id": "auth0"
+      "id": "auth0",
+      "domains": [
+        "auth0app.com"
+      ]
     },
     {
-      "id": "aws"
+      "id": "aws",
+      "domains": [
+        "amazonaws.com",
+        "amazonaws.com.cn",
+        "amplifyapp.com",
+        "awsapps.com",
+        "cloudfront.net",
+        "ecr.aws",
+        "elasticbeanstalk.com"
+      ]
     },
     {
-      "id": "azure"
+      "id": "azure",
+      "domains": [
+        "azurecr.io",
+        "azureedge.net",
+        "azurestaticapps.net",
+        "azurewebsites.net",
+        "usgovcloudapi.net",
+        "windows.net"
+      ]
     },
     {
-      "id": "bitbucket"
+      "id": "backblaze",
+      "domains": [
+        "backblazeb2.com"
+      ]
+    },
+    {
+      "id": "betterstack",
+      "domains": [
+        "logtail.com",
+        "betterstackdata.com"
+      ]
+    },
+    {
+      "id": "bitbucket",
+      "domains": [
+        "bitbucket.io",
+        "bytebucket.org"
+      ]
+    },
+    {
+      "id": "bitwarden",
+      "domains": [
+        "btwrdn.co",
+        "btwrdn.com"
+      ]
+    },
+    {
+      "id": "brave"
+    },
+    {
+      "id": "brevo",
+      "domains": [
+        "sendinblue.com"
+      ]
+    },
+    {
+      "id": "bugsnag"
     },
     {
       "id": "calendly"
     },
     {
+      "id": "canva",
+      "domains": [
+        "canva-apps.com"
+      ]
+    },
+    {
+      "id": "cerebras"
+    },
+    {
+      "id": "chargebee"
+    },
+    {
+      "id": "circleci",
+      "domains": [
+        "circle-artifacts.com"
+      ]
+    },
+    {
       "id": "claude"
     },
     {
-      "id": "claude-code"
+      "id": "claude-code",
+      "aliases": [
+        "claudecode"
+      ]
     },
     {
-      "id": "clerk"
+      "id": "clerk",
+      "domains": [
+        "accounts.dev",
+        "clerk-telemetry.com",
+        "clerk.app"
+      ]
     },
     {
-      "id": "cloudflare"
+      "id": "clickhouse"
+    },
+    {
+      "id": "clickup",
+      "domains": [
+        "clickup-attachments.com"
+      ]
+    },
+    {
+      "id": "cloudflare",
+      "domains": [
+        "cloudflare-dns.com",
+        "cloudflareinsights.com",
+        "cloudflarestorage.com",
+        "cloudflarestream.com",
+        "imagedelivery.net",
+        "pages.dev",
+        "r2.dev",
+        "videodelivery.net",
+        "workers.dev"
+      ]
+    },
+    {
+      "id": "cloudinary"
+    },
+    {
+      "id": "cockroachlabs",
+      "aliases": [
+        "cockroachdb"
+      ]
+    },
+    {
+      "id": "codecov"
+    },
+    {
+      "id": "cohere"
+    },
+    {
+      "id": "coinbase"
     },
     {
       "id": "confluence"
     },
     {
-      "id": "datadog"
+      "id": "confluent"
     },
     {
-      "id": "discord"
+      "id": "contentful",
+      "domains": [
+        "ctfassets.net",
+        "ctfcloud.net"
+      ]
+    },
+    {
+      "id": "databricks",
+      "domains": [
+        "azuredatabricks.net"
+      ]
+    },
+    {
+      "id": "datadog",
+      "domains": [
+        "datadoghq.com",
+        "datadoghq.eu",
+        "ddog-gov.com"
+      ]
+    },
+    {
+      "id": "deepgram"
+    },
+    {
+      "id": "deepseek"
+    },
+    {
+      "id": "deno",
+      "domains": [
+        "deno.dev"
+      ]
+    },
+    {
+      "id": "digitalocean",
+      "domains": [
+        "digitaloceanspaces.com",
+        "do-ai.run",
+        "ondigitalocean.app"
+      ]
+    },
+    {
+      "id": "discord",
+      "domains": [
+        "discordapp.com",
+        "discordapp.net",
+        "discordsays.com",
+        "discordsez.com"
+      ]
     },
     {
       "id": "docker"
     },
     {
-      "id": "dropbox"
+      "id": "docusign"
     },
     {
-      "id": "elasticsearch"
+      "id": "doppler"
     },
     {
-      "id": "figma"
+      "id": "dropbox",
+      "domains": [
+        "dropboxapi.com"
+      ]
     },
     {
-      "id": "gcp"
+      "id": "duckdb"
     },
     {
-      "id": "github"
+      "id": "elasticsearch",
+      "domains": [
+        "elastic-cloud.com",
+        "elastic.co",
+        "found.io"
+      ]
     },
     {
-      "id": "gitlab"
+      "id": "elevenlabs",
+      "aliases": [
+        "11labs"
+      ]
     },
     {
-      "id": "gmail"
+      "id": "fastly"
     },
     {
-      "id": "google-calendar"
+      "id": "figma",
+      "domains": [
+        "figma.site"
+      ]
     },
     {
-      "id": "google-drive"
+      "id": "firebase",
+      "domains": [
+        "firebaseapp.com",
+        "firebasedatabase.app",
+        "firebaseio.com",
+        "firebasestorage.app",
+        "web.app"
+      ]
     },
     {
-      "id": "google-sheets"
+      "id": "firecrawl"
     },
     {
-      "id": "hubspot"
+      "id": "fireworks"
     },
     {
-      "id": "huggingface"
+      "id": "fly",
+      "domains": [
+        "fly.dev"
+      ]
     },
     {
-      "id": "intercom"
+      "id": "freshdesk",
+      "domains": [
+        "freshworks.com"
+      ]
+    },
+    {
+      "id": "gcp",
+      "domains": [
+        "a.run.app",
+        "appspot.com",
+        "cloudfunctions.net",
+        "gcr.io",
+        "pkg.dev"
+      ]
+    },
+    {
+      "id": "getdbt",
+      "domains": [
+        "dbt.com"
+      ],
+      "aliases": [
+        "dbt"
+      ]
+    },
+    {
+      "id": "github",
+      "domains": [
+        "ghcr.io",
+        "ghe.com",
+        "github.io",
+        "githubassets.com",
+        "githubcopilot.com",
+        "githubusercontent.com"
+      ]
+    },
+    {
+      "id": "gitlab",
+      "domains": [
+        "gitlab-static.net",
+        "gitlab.io"
+      ]
+    },
+    {
+      "id": "gmail",
+      "domains": [
+        "googlemail.com"
+      ]
+    },
+    {
+      "id": "google",
+      "domains": [
+        "googleapis.com",
+        "googleusercontent.com",
+        "gstatic.com"
+      ]
+    },
+    {
+      "id": "google-calendar",
+      "aliases": [
+        "googlecalendar"
+      ]
+    },
+    {
+      "id": "google-docs",
+      "aliases": [
+        "googledocs"
+      ]
+    },
+    {
+      "id": "google-drive",
+      "aliases": [
+        "googledrive"
+      ]
+    },
+    {
+      "id": "google-sheets",
+      "aliases": [
+        "googlesheets"
+      ]
+    },
+    {
+      "id": "grafana"
+    },
+    {
+      "id": "groq"
+    },
+    {
+      "id": "helpscout",
+      "domains": [
+        "helpscoutdocs.com"
+      ]
+    },
+    {
+      "id": "heroku",
+      "domains": [
+        "herokuapp.com"
+      ]
+    },
+    {
+      "id": "hubspot",
+      "domains": [
+        "hsforms.com",
+        "hubapi.com",
+        "hubspotusercontent-eu1.net",
+        "hubspotusercontent-na1.net",
+        "hubspotusercontent.com"
+      ]
+    },
+    {
+      "id": "huggingface",
+      "domains": [
+        "hf.co",
+        "hf.space"
+      ]
+    },
+    {
+      "id": "ibm",
+      "domains": [
+        "appdomain.cloud",
+        "bluemix.net",
+        "icr.io"
+      ]
+    },
+    {
+      "id": "influxdata",
+      "aliases": [
+        "influxdb"
+      ]
+    },
+    {
+      "id": "intercom",
+      "domains": [
+        "intercomcdn.com"
+      ]
+    },
+    {
+      "id": "jenkins",
+      "domains": [
+        "jenkins-ci.org"
+      ]
+    },
+    {
+      "id": "jetbrains"
     },
     {
       "id": "jira"
     },
     {
-      "id": "kubernetes"
+      "id": "keycloak"
+    },
+    {
+      "id": "klaviyo"
+    },
+    {
+      "id": "kubernetes",
+      "domains": [
+        "k8s.io"
+      ],
+      "aliases": [
+        "k8s"
+      ]
+    },
+    {
+      "id": "langchain",
+      "domains": [
+        "langgraph.app"
+      ]
+    },
+    {
+      "id": "langfuse"
+    },
+    {
+      "id": "launchdarkly"
+    },
+    {
+      "id": "lemonsqueezy",
+      "domains": [
+        "lmsqueezy.com"
+      ]
     },
     {
       "id": "linear"
     },
     {
-      "id": "mailchimp"
+      "id": "linkedin",
+      "domains": [
+        "licdn.com",
+        "lnkd.in"
+      ]
     },
     {
-      "id": "microsoft-teams"
+      "id": "linode",
+      "domains": [
+        "linodeobjects.com"
+      ]
     },
     {
-      "id": "mongodb"
+      "id": "llamaindex"
+    },
+    {
+      "id": "loom"
+    },
+    {
+      "id": "mailchimp",
+      "domains": [
+        "list-manage.com",
+        "mcusercontent.com"
+      ]
+    },
+    {
+      "id": "mailgun"
+    },
+    {
+      "id": "mapbox"
+    },
+    {
+      "id": "meilisearch"
+    },
+    {
+      "id": "microsoft-teams",
+      "aliases": [
+        "microsoftteams",
+        "msteams"
+      ]
+    },
+    {
+      "id": "milvus",
+      "domains": [
+        "zilliz.com",
+        "zillizcloud.com"
+      ]
+    },
+    {
+      "id": "mistral"
+    },
+    {
+      "id": "mixpanel",
+      "domains": [
+        "mxpnl.com"
+      ]
+    },
+    {
+      "id": "modal"
+    },
+    {
+      "id": "monday"
+    },
+    {
+      "id": "mongodb",
+      "aliases": [
+        "mongodb+srv",
+        "mongo"
+      ]
     },
     {
       "id": "mysql"
@@ -115,76 +589,428 @@
       "id": "neo4j"
     },
     {
-      "id": "netlify"
+      "id": "neon"
     },
     {
-      "id": "notion"
+      "id": "netlify",
+      "domains": [
+        "netlify.app",
+        "netlifyglobalcdn.com"
+      ]
+    },
+    {
+      "id": "newrelic",
+      "domains": [
+        "nr-assets.net",
+        "nr-data.net"
+      ]
+    },
+    {
+      "id": "nodejs"
+    },
+    {
+      "id": "notion",
+      "domains": [
+        "notion-static.com",
+        "notion.site",
+        "notionusercontent.com"
+      ]
+    },
+    {
+      "id": "npmjs"
+    },
+    {
+      "id": "nvidia",
+      "domains": [
+        "nvcr.io"
+      ]
+    },
+    {
+      "id": "obsidian"
+    },
+    {
+      "id": "okta",
+      "domains": [
+        "okta-emea.com",
+        "okta-gov.com",
+        "oktacdn.com",
+        "oktapreview.com"
+      ]
     },
     {
       "id": "ollama"
     },
     {
-      "id": "openai"
+      "id": "openai",
+      "domains": [
+        "chatgpt.com",
+        "oaistatic.com",
+        "oaiusercontent.com"
+      ]
+    },
+    {
+      "id": "openrouter"
+    },
+    {
+      "id": "opentelemetry",
+      "aliases": [
+        "otel"
+      ]
+    },
+    {
+      "id": "oracle",
+      "domains": [
+        "oraclecloud.com"
+      ]
+    },
+    {
+      "id": "outlook",
+      "domains": [
+        "office365.com"
+      ]
+    },
+    {
+      "id": "paddle"
     },
     {
       "id": "pagerduty"
     },
     {
+      "id": "paypal",
+      "domains": [
+        "paypalobjects.com"
+      ]
+    },
+    {
+      "id": "perplexity"
+    },
+    {
       "id": "pinecone"
     },
     {
-      "id": "postgres"
+      "id": "plaid"
+    },
+    {
+      "id": "planetscale",
+      "domains": [
+        "psdb.cloud"
+      ]
+    },
+    {
+      "id": "postgres",
+      "domains": [
+        "postgresql.org"
+      ],
+      "aliases": [
+        "postgresql"
+      ]
+    },
+    {
+      "id": "posthog"
+    },
+    {
+      "id": "postman",
+      "domains": [
+        "getpostman.com"
+      ]
+    },
+    {
+      "id": "postmarkapp",
+      "domains": [
+        "pstmrk.it"
+      ]
+    },
+    {
+      "id": "prometheus"
+    },
+    {
+      "id": "pulumi"
+    },
+    {
+      "id": "pusher",
+      "domains": [
+        "pusherapp.com"
+      ]
+    },
+    {
+      "id": "pypi",
+      "domains": [
+        "pythonhosted.org"
+      ]
+    },
+    {
+      "id": "python"
     },
     {
       "id": "qdrant"
     },
     {
-      "id": "redis"
+      "id": "rabbitmq"
+    },
+    {
+      "id": "railway",
+      "domains": [
+        "up.railway.app"
+      ]
+    },
+    {
+      "id": "reddit",
+      "domains": [
+        "redd.it",
+        "redditmedia.com",
+        "redditstatic.com"
+      ]
+    },
+    {
+      "id": "redis",
+      "domains": [
+        "redis-cloud.com",
+        "redislabs.com",
+        "rlrcp.com"
+      ]
+    },
+    {
+      "id": "render",
+      "domains": [
+        "onrender.com"
+      ]
+    },
+    {
+      "id": "replicate"
+    },
+    {
+      "id": "replit",
+      "domains": [
+        "repl.co",
+        "replit.app",
+        "replit.dev"
+      ]
     },
     {
       "id": "resend"
     },
     {
-      "id": "salesforce"
+      "id": "rollbar"
     },
     {
-      "id": "sentry"
+      "id": "runpod"
     },
     {
-      "id": "shopify"
+      "id": "salesforce",
+      "domains": [
+        "documentforce.com",
+        "force.com",
+        "marketingcloudapis.com"
+      ]
     },
     {
-      "id": "slack"
+      "id": "sanity",
+      "domains": [
+        "sanity-cdn.com"
+      ]
     },
     {
-      "id": "snowflake"
+      "id": "sendgrid"
+    },
+    {
+      "id": "sentry",
+      "domains": [
+        "sentry-cdn.com"
+      ]
+    },
+    {
+      "id": "shopify",
+      "domains": [
+        "myshopify.com",
+        "shopifycdn.com",
+        "shopifycdn.net"
+      ]
+    },
+    {
+      "id": "slack",
+      "domains": [
+        "slack-edge.com",
+        "slack-files.com",
+        "slack-imgs.com"
+      ]
+    },
+    {
+      "id": "snowflake",
+      "domains": [
+        "snowflakecomputing.app",
+        "snowflakecomputing.com"
+      ]
+    },
+    {
+      "id": "snyk",
+      "domains": [
+        "snykgov.io"
+      ]
+    },
+    {
+      "id": "sourcegraph"
+    },
+    {
+      "id": "splunk",
+      "domains": [
+        "splunkcloud.com",
+        "signalfx.com"
+      ]
+    },
+    {
+      "id": "spotify",
+      "domains": [
+        "scdn.co",
+        "spotifycdn.com"
+      ]
+    },
+    {
+      "id": "stability"
+    },
+    {
+      "id": "stackoverflow",
+      "domains": [
+        "sstatic.net",
+        "stackexchange.com",
+        "stackoverflowteams.com"
+      ]
     },
     {
       "id": "stripe"
     },
     {
-      "id": "supabase"
+      "id": "sumologic"
     },
     {
-      "id": "trello"
+      "id": "supabase",
+      "domains": [
+        "supabase.co"
+      ]
     },
     {
-      "id": "twilio"
+      "id": "telegram",
+      "domains": [
+        "t.me",
+        "telesco.pe"
+      ]
     },
     {
-      "id": "vercel"
+      "id": "telnyx"
+    },
+    {
+      "id": "temporal",
+      "domains": [
+        "tmprl.cloud"
+      ]
+    },
+    {
+      "id": "terraform"
+    },
+    {
+      "id": "together"
+    },
+    {
+      "id": "trello",
+      "domains": [
+        "trellocdn.com"
+      ]
+    },
+    {
+      "id": "trychroma",
+      "aliases": [
+        "chroma",
+        "chromadb"
+      ]
+    },
+    {
+      "id": "twilio",
+      "domains": [
+        "twil.io"
+      ]
+    },
+    {
+      "id": "typeform"
+    },
+    {
+      "id": "upstash"
+    },
+    {
+      "id": "vercel",
+      "domains": [
+        "vercel-storage.com",
+        "vercel.app"
+      ]
+    },
+    {
+      "id": "wandb"
     },
     {
       "id": "weaviate"
     },
     {
-      "id": "x"
+      "id": "whatsapp"
     },
     {
-      "id": "zendesk"
+      "id": "wordpress",
+      "domains": [
+        "wp.com"
+      ]
     },
     {
-      "id": "zoom"
+      "id": "workos",
+      "domains": [
+        "authkit.app",
+        "workoscdn.com"
+      ]
+    },
+    {
+      "id": "x",
+      "domains": [
+        "t.co",
+        "twimg.com",
+        "twitter.com"
+      ],
+      "aliases": [
+        "twitter"
+      ]
+    },
+    {
+      "id": "youtube",
+      "domains": [
+        "googlevideo.com",
+        "withyoutube.com",
+        "youtu.be",
+        "youtube-nocookie.com",
+        "ytimg.com"
+      ]
+    },
+    {
+      "id": "zendesk",
+      "domains": [
+        "zdassets.com",
+        "zdusercontent.com"
+      ]
+    },
+    {
+      "id": "zoho",
+      "domains": [
+        "zohoapis.ca",
+        "zohoapis.com",
+        "zohoapis.com.au",
+        "zohoapis.com.cn",
+        "zohoapis.eu",
+        "zohoapis.in",
+        "zohoapis.jp",
+        "zohoapis.sa",
+        "zohocdn.com",
+        "zohostatic.com"
+      ]
+    },
+    {
+      "id": "zoom",
+      "domains": [
+        "zoomgov.com"
+      ]
     }
   ]
 }

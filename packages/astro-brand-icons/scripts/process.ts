@@ -31,6 +31,14 @@ const DEFAULT_OUT = resolve(PKG_ROOT, "../../assets/integrations");
 interface IconEntry {
   id: string;
   brand?: string;
+  /**
+   * Registrable domains (eTLD+1) whose traffic resolves to this icon, for
+   * vendors whose API host doesn't carry the brand name (`hubapi.com` →
+   * HubSpot). Omitted when the id already matches the domain's first label.
+   */
+  domains?: string[];
+  /** Other lowercase identifiers for the brand: driver names, former names. */
+  aliases?: string[];
 }
 
 interface Manifest {
