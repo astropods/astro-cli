@@ -58,6 +58,7 @@ service AdminService {
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
   rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
+  rpc ListOutboundDomains(ListOutboundDomainsRequest) returns (ListOutboundDomainsResponse);
   rpc RefreshMessagingCache(RefreshMessagingCacheRequest) returns (RefreshMessagingCacheResponse);
   rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
   rpc ClearAlert(ClearAlertRequest) returns (ClearAlertResponse);
@@ -916,4 +917,24 @@ message RefreshMessagingCacheRequest {}
 message RefreshMessagingCacheResponse {
   string image = 1;   // pull-through cache image path that was evicted
   string message = 2; // operator-facing status detail
+}
+
+// ListOutboundDomains aggregates the destinations agents call, fleet-wide,
+// so brand-icon coverage can be prioritised against real traffic.
+message ListOutboundDomainsRequest {
+  int32 days = 1;  // lookback window; defaults to 30, capped at 90
+  int32 limit = 2; // top N by request count; defaults to 200, capped at 2000
+}
+
+message OutboundDomain {
+  string domain = 1;          // registrable domain (eTLD+1)
+  int64 request_count = 2;    // total requests across all deployments
+  int32 deployment_count = 3; // distinct deployments that called it
+  repeated string hosts = 4;  // busiest server_address values, truncated
+  int32 host_count = 5;       // distinct hosts observed, before truncation
+}
+
+message ListOutboundDomainsResponse {
+  repeated OutboundDomain domains = 1;
+  string window = 2; // the lookback actually queried, e.g. "30d"
 }

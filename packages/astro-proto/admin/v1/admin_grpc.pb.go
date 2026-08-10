@@ -71,6 +71,7 @@ type AdminServiceClient interface {
 	PauseQueue(ctx context.Context, in *PauseQueueRequest, opts ...grpc.CallOption) (*PauseQueueResponse, error)
 	ResumeQueue(ctx context.Context, in *ResumeQueueRequest, opts ...grpc.CallOption) (*ResumeQueueResponse, error)
 	RefreshMessagingCache(ctx context.Context, in *RefreshMessagingCacheRequest, opts ...grpc.CallOption) (*RefreshMessagingCacheResponse, error)
+	ListOutboundDomains(ctx context.Context, in *ListOutboundDomainsRequest, opts ...grpc.CallOption) (*ListOutboundDomainsResponse, error)
 	ListAlerts(ctx context.Context, in *ListAlertsRequest, opts ...grpc.CallOption) (*ListAlertsResponse, error)
 	ClearAlert(ctx context.Context, in *ClearAlertRequest, opts ...grpc.CallOption) (*ClearAlertResponse, error)
 	MuteAlert(ctx context.Context, in *MuteAlertRequest, opts ...grpc.CallOption) (*MuteAlertResponse, error)
@@ -642,6 +643,7 @@ type AdminServiceServer interface {
 	PauseQueue(context.Context, *PauseQueueRequest) (*PauseQueueResponse, error)
 	ResumeQueue(context.Context, *ResumeQueueRequest) (*ResumeQueueResponse, error)
 	RefreshMessagingCache(context.Context, *RefreshMessagingCacheRequest) (*RefreshMessagingCacheResponse, error)
+	ListOutboundDomains(context.Context, *ListOutboundDomainsRequest) (*ListOutboundDomainsResponse, error)
 	ListAlerts(context.Context, *ListAlertsRequest) (*ListAlertsResponse, error)
 	ClearAlert(context.Context, *ClearAlertRequest) (*ClearAlertResponse, error)
 	MuteAlert(context.Context, *MuteAlertRequest) (*MuteAlertResponse, error)
@@ -875,6 +877,10 @@ func (UnimplementedAdminServiceServer) ResumeQueue(context.Context, *ResumeQueue
 
 func (UnimplementedAdminServiceServer) RefreshMessagingCache(context.Context, *RefreshMessagingCacheRequest) (*RefreshMessagingCacheResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshMessagingCache not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListOutboundDomains(context.Context, *ListOutboundDomainsRequest) (*ListOutboundDomainsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListOutboundDomains not implemented")
 }
 func (UnimplementedAdminServiceServer) ListAlerts(context.Context, *ListAlertsRequest) (*ListAlertsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAlerts not implemented")
@@ -1894,6 +1900,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "PauseQueue", Handler: _AdminService_PauseQueue_Handler},
 		{MethodName: "ResumeQueue", Handler: _AdminService_ResumeQueue_Handler},
 		{MethodName: "RefreshMessagingCache", Handler: _AdminService_RefreshMessagingCache_Handler},
+		{MethodName: "ListOutboundDomains", Handler: _AdminService_ListOutboundDomains_Handler},
 		{MethodName: "ListAlerts", Handler: _AdminService_ListAlerts_Handler},
 		{MethodName: "ClearAlert", Handler: _AdminService_ClearAlert_Handler},
 		{MethodName: "MuteAlert", Handler: _AdminService_MuteAlert_Handler},
@@ -1901,4 +1908,27 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",
+}
+
+func (c *adminServiceClient) ListOutboundDomains(ctx context.Context, in *ListOutboundDomainsRequest, opts ...grpc.CallOption) (*ListOutboundDomainsResponse, error) {
+	out := new(ListOutboundDomainsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListOutboundDomains", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func _AdminService_ListOutboundDomains_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOutboundDomainsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListOutboundDomains(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListOutboundDomains"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListOutboundDomains(ctx, req.(*ListOutboundDomainsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }

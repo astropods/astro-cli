@@ -1,8 +1,8 @@
-package handlers
+package peerdomain
 
 import "testing"
 
-func TestRegistrableDomainOf(t *testing.T) {
+func TestRegistrable(t *testing.T) {
 	cases := []struct {
 		name string
 		peer string
@@ -35,8 +35,8 @@ func TestRegistrableDomainOf(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := registrableDomainOf(tc.peer); got != tc.want {
-				t.Errorf("registrableDomainOf(%q) = %q, want %q", tc.peer, got, tc.want)
+			if got := Registrable(tc.peer); got != tc.want {
+				t.Errorf("Registrable(%q) = %q, want %q", tc.peer, got, tc.want)
 			}
 		})
 	}

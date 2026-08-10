@@ -352,3 +352,40 @@ func TestQueryRange_SkipsMalformedPoints(t *testing.T) {
 		t.Errorf("expected single valid point with value 42, got %+v", series[0].Points)
 	}
 }
+
+// A slow upstream must not outlive the per-request cap, and the cap must be
+// the caller's choice — an http.Client.Timeout would make it unraisable.
+func TestQueryWithTimeout_BoundsSlowUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+	_, err := NewClient(srv.URL, "").QueryWithTimeout(context.Background(), "up", 150*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("took %s; the per-call timeout was ignored", elapsed)
+	}
+}
+
+// QueryWithTimeout can only tighten the caller's deadline, never extend it.
+func TestQueryWithTimeout_CallerDeadlineStillWins(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, err := NewClient(srv.URL, "").QueryWithTimeout(ctx, "up", time.Hour); err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("took %s; the caller's shorter deadline was ignored", elapsed)
+	}
+}

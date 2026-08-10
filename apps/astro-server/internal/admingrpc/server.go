@@ -37,6 +37,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/lib/pq"
@@ -118,6 +119,10 @@ type Server struct {
 	// imageRefresher force-refreshes ECR pull-through cache images (e.g. the
 	// messaging sidecar). Nil until SetImageRefresher is called.
 	imageRefresher *imagecache.Refresher
+
+	// promClient backs ListOutboundDomains. Nil until SetPrometheusClient is
+	// called; the RPC then reports FailedPrecondition.
+	promClient *promquery.Client
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.

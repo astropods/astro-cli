@@ -1009,6 +1009,24 @@ type InvalidateCachesResponse struct {
 	DeploymentsBusted int32 `json:"deployments_busted,omitempty"`
 }
 
+type ListOutboundDomainsRequest struct {
+	Days  int32 `json:"days,omitempty"`
+	Limit int32 `json:"limit,omitempty"`
+}
+
+type OutboundDomain struct {
+	Domain          string   `json:"domain,omitempty"`
+	RequestCount    int64    `json:"request_count,omitempty"`
+	DeploymentCount int32    `json:"deployment_count,omitempty"`
+	Hosts           []string `json:"hosts,omitempty"`
+	HostCount       int32    `json:"host_count,omitempty"`
+}
+
+type ListOutboundDomainsResponse struct {
+	Domains []*OutboundDomain `json:"domains,omitempty"`
+	Window  string            `json:"window,omitempty"`
+}
+
 type RefreshMessagingCacheRequest struct{}
 
 type RefreshMessagingCacheResponse struct {

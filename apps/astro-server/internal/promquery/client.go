@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+// defaultQueryTimeout caps a single request. Callers whose work legitimately
+// outlives it opt in per-call via QueryWithTimeout rather than raising it for
+// everyone.
+const defaultQueryTimeout = 10 * time.Second
+
 // Client queries a Prometheus-compatible HTTP API.
 type Client struct {
 	baseURL    string
@@ -25,12 +30,13 @@ func NewClient(baseURL, cluster string) *Client {
 	if baseURL == "" {
 		return nil
 	}
+	// No http.Client.Timeout: it is a hard ceiling no caller can raise, which
+	// leaves no way to run a query that legitimately takes minutes. Each request
+	// is bounded by its context instead.
 	return &Client{
-		baseURL: baseURL,
-		cluster: cluster,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		baseURL:    baseURL,
+		cluster:    cluster,
+		httpClient: &http.Client{},
 	}
 }
 
@@ -59,6 +65,15 @@ type Point struct {
 
 // Query executes an instant PromQL query and returns the result vector.
 func (c *Client) Query(ctx context.Context, promql string) ([]Sample, error) {
+	return c.QueryWithTimeout(ctx, promql, defaultQueryTimeout)
+}
+
+// QueryWithTimeout is Query with an explicit per-request cap. The caller's own
+// deadline still applies, so this can only tighten it, never extend it.
+func (c *Client) QueryWithTimeout(ctx context.Context, promql string, timeout time.Duration) ([]Sample, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	u, err := url.Parse(c.baseURL + "/api/v1/query")
 	if err != nil {
 		return nil, fmt.Errorf("promquery: bad url: %w", err)
@@ -123,6 +138,9 @@ func (c *Client) Query(ctx context.Context, promql string) ([]Sample, error) {
 // QueryRange executes a range PromQL query and returns the result matrix.
 // step is the resolution between points (e.g. 30 * time.Second).
 func (c *Client) QueryRange(ctx context.Context, promql string, start, end time.Time, step time.Duration) ([]MatrixSample, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
+	defer cancel()
+
 	u, err := url.Parse(c.baseURL + "/api/v1/query_range")
 	if err != nil {
 		return nil, fmt.Errorf("promquery: bad url: %w", err)
