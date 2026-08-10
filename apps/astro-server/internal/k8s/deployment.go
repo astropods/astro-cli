@@ -125,11 +125,16 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		Containers: []corev1.Container{container},
 	}
 
-	// Add node selector: explicit config takes precedence over GPU auto-detection
+	// Add node selector: explicit config takes precedence over GPU auto-detection,
+	// which takes precedence over the tenant-pool default. The default keeps
+	// agent pods off the system pool (reserved for cluster fabric like CoreDNS,
+	// the ALB controller, and Contour) when nothing else pins their placement.
 	if cfg.NodeSelector != nil {
 		podSpec.NodeSelector = cfg.NodeSelector
 	} else if cfg.Container.HasGPU() {
 		podSpec.NodeSelector = map[string]string{"workload-type": "gpu"}
+	} else {
+		podSpec.NodeSelector = map[string]string{"workload-type": "tenant"}
 	}
 
 	// Seed tolerations so the array is never nil after K8s protobuf roundtrip.
@@ -479,7 +484,8 @@ func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment 
 	progressDeadline := deploymentProgressDeadlineSeconds
 	container := buildCollectorContainer(cfg)
 	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
+		Containers:   []corev1.Container{container},
+		NodeSelector: map[string]string{"workload-type": "tenant"},
 	}
 	hardenPodSpec(&podSpec)
 

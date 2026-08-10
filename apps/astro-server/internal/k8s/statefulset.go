@@ -304,9 +304,16 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 					if len(cfg.Tolerations) > 0 {
 						tolerations = append(tolerations, cfg.Tolerations...)
 					}
+					// Node selector: explicit config takes precedence; otherwise default to
+					// the tenant pool so agent pods don't land on the system pool (reserved
+					// for cluster fabric like CoreDNS, the ALB controller, and Contour).
+					nodeSelector := cfg.NodeSelector
+					if nodeSelector == nil {
+						nodeSelector = map[string]string{"workload-type": "tenant"}
+					}
 					ps := corev1.PodSpec{
 						Containers:   []corev1.Container{container},
-						NodeSelector: cfg.NodeSelector,
+						NodeSelector: nodeSelector,
 						Tolerations:  tolerations,
 						Volumes:      extraVolumes,
 					}

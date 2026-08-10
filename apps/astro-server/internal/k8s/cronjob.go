@@ -35,6 +35,7 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 	podSpec := corev1.PodSpec{
 		Containers:    []corev1.Container{container},
 		RestartPolicy: corev1.RestartPolicyOnFailure,
+		NodeSelector:  map[string]string{"workload-type": "tenant"},
 	}
 	hardenPodSpec(&podSpec)
 

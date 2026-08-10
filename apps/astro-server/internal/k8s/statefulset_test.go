@@ -313,6 +313,24 @@ func TestBuildStatefulSet(t *testing.T) {
 		}
 	})
 
+	t.Run("default node selector is tenant pool", func(t *testing.T) {
+		ss := mustBuildStatefulSet(t, tests[0].cfg)
+		ns := ss.Spec.Template.Spec.NodeSelector
+		if ns["workload-type"] != "tenant" {
+			t.Errorf("expected default workload-type=tenant, got %v", ns)
+		}
+	})
+
+	t.Run("explicit node selector takes precedence", func(t *testing.T) {
+		cfg := tests[0].cfg
+		cfg.NodeSelector = map[string]string{"workload-type": "gpu"}
+		ss := mustBuildStatefulSet(t, cfg)
+		ns := ss.Spec.Template.Spec.NodeSelector
+		if ns["workload-type"] != "gpu" {
+			t.Errorf("expected explicit workload-type=gpu to take precedence, got %v", ns)
+		}
+	})
+
 	t.Run("ConfigMap and Secret envFrom", func(t *testing.T) {
 		ss := mustBuildStatefulSet(t, tests[6].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]

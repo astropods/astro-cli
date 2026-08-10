@@ -118,6 +118,7 @@ func BuildJob(cfg JobConfig) *batchv1.Job {
 					ps := corev1.PodSpec{
 						Containers:    []corev1.Container{container},
 						RestartPolicy: corev1.RestartPolicyOnFailure,
+						NodeSelector:  map[string]string{"workload-type": "tenant"},
 					}
 					hardenPodSpec(&ps)
 					return ps
@@ -148,6 +149,7 @@ func BuildIngestionDeployment(cfg JobConfig, port int32) *appsv1.Deployment {
 	podSpec := corev1.PodSpec{
 		Containers:    []corev1.Container{container},
 		RestartPolicy: corev1.RestartPolicyAlways,
+		NodeSelector:  map[string]string{"workload-type": "tenant"},
 	}
 	hardenPodSpec(&podSpec)
 

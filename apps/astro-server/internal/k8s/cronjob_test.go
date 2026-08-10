@@ -58,6 +58,9 @@ func TestBuildCronJob(t *testing.T) {
 	if podSpec.RestartPolicy != corev1.RestartPolicyOnFailure {
 		t.Errorf("restart policy: expected OnFailure, got %s", podSpec.RestartPolicy)
 	}
+	if podSpec.NodeSelector["workload-type"] != "tenant" {
+		t.Errorf("expected workload-type=tenant node selector, got %v", podSpec.NodeSelector)
+	}
 
 	container := podSpec.Containers[0]
 	if container.Name != "ingestion-worker" {
@@ -170,6 +173,9 @@ func TestBuildJob(t *testing.T) {
 	if podSpec.RestartPolicy != corev1.RestartPolicyOnFailure {
 		t.Errorf("restart policy: expected OnFailure, got %s", podSpec.RestartPolicy)
 	}
+	if podSpec.NodeSelector["workload-type"] != "tenant" {
+		t.Errorf("expected workload-type=tenant node selector, got %v", podSpec.NodeSelector)
+	}
 
 	container := podSpec.Containers[0]
 	if container.Name != "ingestion-worker" {
@@ -274,6 +280,9 @@ func TestBuildIngestionDeployment(t *testing.T) {
 	podSpec := d.Spec.Template.Spec
 	if podSpec.RestartPolicy != corev1.RestartPolicyAlways {
 		t.Errorf("restart policy: expected Always, got %s", podSpec.RestartPolicy)
+	}
+	if podSpec.NodeSelector["workload-type"] != "tenant" {
+		t.Errorf("expected workload-type=tenant node selector, got %v", podSpec.NodeSelector)
 	}
 
 	container := podSpec.Containers[0]

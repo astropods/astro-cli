@@ -261,6 +261,12 @@ func TestBuildDeployment(t *testing.T) {
 		if container.LivenessProbe != nil {
 			t.Error("expected no liveness probe without healthcheck")
 		}
+
+		// Default node selector: tenant pool when no explicit selector or GPU
+		ns := d.Spec.Template.Spec.NodeSelector
+		if ns["workload-type"] != "tenant" {
+			t.Errorf("expected default workload-type=tenant, got %v", ns)
+		}
 	})
 
 	t.Run("GPU resources check", func(t *testing.T) {
@@ -661,6 +667,12 @@ func TestBuildCollectorDeployment(t *testing.T) {
 		memLim := container.Resources.Limits[corev1.ResourceMemory]
 		if memLim.Cmp(resource.MustParse("128Mi")) != 0 {
 			t.Errorf("expected memory limit 128Mi, got %s", memLim.String())
+		}
+
+		// Default node selector: tenant pool
+		ns := d.Spec.Template.Spec.NodeSelector
+		if ns["workload-type"] != "tenant" {
+			t.Errorf("expected workload-type=tenant node selector, got %v", ns)
 		}
 	})
 
