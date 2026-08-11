@@ -546,6 +546,9 @@ export interface CheckClusterHealthResponse {
 export interface SetAccountClusterResponse {
   status?: string;
   cluster_id?: string;
+}
+
+export interface MigrateAccountDeploymentsResponse {
   migrations_enqueued?: number;
   deployment_ids?: string[];
 }

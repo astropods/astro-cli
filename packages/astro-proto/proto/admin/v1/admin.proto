@@ -53,6 +53,7 @@ service AdminService {
   rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
   rpc SetAccountCluster(SetAccountClusterRequest) returns (SetAccountClusterResponse);
+  rpc MigrateAccountDeployments(MigrateAccountDeploymentsRequest) returns (MigrateAccountDeploymentsResponse);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
@@ -868,8 +869,19 @@ message SetAccountClusterRequest {
 message SetAccountClusterResponse {
   string status = 1;
   string cluster_id = 2;
-  int32 migrations_enqueued = 3;
-  repeated string deployment_ids = 4;
+  // Setting the cluster no longer migrates deployments as a side effect —
+  // see MigrateAccountDeployments.
+  reserved 3, 4;
+  reserved "migrations_enqueued", "deployment_ids";
+}
+
+message MigrateAccountDeploymentsRequest {
+  string account_id = 1;
+}
+
+message MigrateAccountDeploymentsResponse {
+  int32 migrations_enqueued = 1;
+  repeated string deployment_ids = 2;
 }
 
 message UpdateClusterRequest {

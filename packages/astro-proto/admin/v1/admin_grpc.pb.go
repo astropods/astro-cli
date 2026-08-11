@@ -55,6 +55,7 @@ type AdminServiceClient interface {
 	GetClusterBlockers(ctx context.Context, in *GetClusterBlockersRequest, opts ...grpc.CallOption) (*GetClusterBlockersResponse, error)
 	ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error)
 	SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error)
+	MigrateAccountDeployments(ctx context.Context, in *MigrateAccountDeploymentsRequest, opts ...grpc.CallOption) (*MigrateAccountDeploymentsResponse, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
 	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
@@ -422,6 +423,14 @@ func (c *adminServiceClient) SetAccountCluster(ctx context.Context, in *SetAccou
 	return out, nil
 }
 
+func (c *adminServiceClient) MigrateAccountDeployments(ctx context.Context, in *MigrateAccountDeploymentsRequest, opts ...grpc.CallOption) (*MigrateAccountDeploymentsResponse, error) {
+	out := new(MigrateAccountDeploymentsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/MigrateAccountDeployments", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error) {
 	out := new(UpdateClusterResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/UpdateCluster", in, out, opts...); err != nil {
@@ -627,6 +636,7 @@ type AdminServiceServer interface {
 	GetClusterBlockers(context.Context, *GetClusterBlockersRequest) (*GetClusterBlockersResponse, error)
 	ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error)
 	SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error)
+	MigrateAccountDeployments(context.Context, *MigrateAccountDeploymentsRequest) (*MigrateAccountDeploymentsResponse, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
 	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
@@ -813,6 +823,9 @@ func (UnimplementedAdminServiceServer) ListClusters(context.Context, *ListCluste
 
 func (UnimplementedAdminServiceServer) SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetAccountCluster not implemented")
+}
+func (UnimplementedAdminServiceServer) MigrateAccountDeployments(context.Context, *MigrateAccountDeploymentsRequest) (*MigrateAccountDeploymentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MigrateAccountDeployments not implemented")
 }
 
 func (UnimplementedAdminServiceServer) UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error) {
@@ -1537,6 +1550,21 @@ func _AdminService_SetAccountCluster_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_MigrateAccountDeployments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MigrateAccountDeploymentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).MigrateAccountDeployments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/MigrateAccountDeployments"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).MigrateAccountDeployments(ctx, req.(*MigrateAccountDeploymentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_UpdateCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateClusterRequest)
 	if err := dec(in); err != nil {
@@ -1884,6 +1912,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetClusterBlockers", Handler: _AdminService_GetClusterBlockers_Handler},
 		{MethodName: "ListClusters", Handler: _AdminService_ListClusters_Handler},
 		{MethodName: "SetAccountCluster", Handler: _AdminService_SetAccountCluster_Handler},
+		{MethodName: "MigrateAccountDeployments", Handler: _AdminService_MigrateAccountDeployments_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
 		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},

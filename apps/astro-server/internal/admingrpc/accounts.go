@@ -13,9 +13,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 )
 
-// SetAccountCluster assigns or clears the additional cluster placement for an account.
-// When the cluster changes, enqueues migration jobs for active/failed/pending
-// deployments that still route to the previous cluster, then updates the account row.
+// SetAccountCluster assigns or clears the additional cluster placement for an
+// account. It only updates the account row — existing deployments keep
+// routing to whatever cluster they're already on. Use MigrateAccountDeployments
+// to move them onto the new cluster, whenever that's wanted.
 func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountClusterRequest) (*adminv1.SetAccountClusterResponse, error) {
 	if req.AccountID == "" {
 		return nil, fmt.Errorf("account_id is required")
@@ -49,45 +50,8 @@ func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountC
 		oldClusterID = *acct.ClusterID
 	}
 
-	clusterChanging := clusterplacement.NormalizedClusterID(oldClusterID) != clusterplacement.NormalizedClusterID(clusterID)
-
-	var toMigrate []*deploymentstore.Deployment
-	if clusterChanging {
-		if s.deployStore == nil {
-			return nil, fmt.Errorf("deployment store not configured; cannot migrate deployments after cluster change")
-		}
-		toMigrate, err = clusterplacement.ListDeploymentsNeedingMigration(s.deployStore, req.AccountID, clusterID)
-		if err != nil {
-			return nil, fmt.Errorf("list deployments for migration: %w", err)
-		}
-	}
-
-	// River enqueues and SetClusterID are not one transaction. Workers read target/source
-	// cluster from job args (not accounts.cluster_id), so jobs stay correct if SetClusterID
-	// fails after enqueue; ops should retry SetAccountCluster or wait for in-flight jobs.
-	var deploymentIDs []string
-	if len(toMigrate) > 0 {
-		if s.queue == nil {
-			return nil, fmt.Errorf("queue not configured; cannot migrate deployments after cluster change")
-		}
-		deploymentIDs, err = enqueueAccountClusterMigrations(ctx, s.queue, clusterID, toMigrate)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	if err := acctStore.SetClusterID(req.AccountID, clusterID); err != nil {
-		if len(deploymentIDs) > 0 {
-			return nil, fmt.Errorf(
-				"enqueued %d migration job(s) but failed to update account cluster (account row unchanged; retry SetAccountCluster, avoid ReapplyDeployment until complete): %w",
-				len(deploymentIDs), err,
-			)
-		}
 		return nil, err
-	}
-
-	if len(deploymentIDs) > 0 {
-		_ = deploycache.Invalidate(ctx, s.cache, req.AccountID)
 	}
 
 	if s.auditStore != nil {
@@ -101,17 +65,75 @@ func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountC
 			evt.Description = "Admin set account cluster placement to " + clusterID
 		}
 		evt.Metadata = map[string]any{
+			"cluster_id":     clusterID,
+			"old_cluster_id": oldClusterID,
+		}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	return &adminv1.SetAccountClusterResponse{
+		Status:    "updated",
+		ClusterID: clusterID,
+	}, nil
+}
+
+// MigrateAccountDeployments enqueues migration jobs for the account's
+// active/failed/pending deployments that still route to a cluster other than
+// the account's current one. Safe to call independently of SetAccountCluster,
+// and safe to retry if a prior call only partially enqueued.
+func (s *Server) MigrateAccountDeployments(ctx context.Context, req *adminv1.MigrateAccountDeploymentsRequest) (*adminv1.MigrateAccountDeploymentsResponse, error) {
+	if req.AccountID == "" {
+		return nil, fmt.Errorf("account_id is required")
+	}
+	if s.deployStore == nil {
+		return nil, fmt.Errorf("deployment store not configured")
+	}
+	if s.queue == nil {
+		return nil, fmt.Errorf("queue not configured")
+	}
+
+	acctStore := account.NewAccountStore(s.db)
+	acct, err := acctStore.GetByID(req.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	if acct == nil {
+		return nil, fmt.Errorf("account not found: %s", req.AccountID)
+	}
+	clusterID := ""
+	if acct.ClusterID != nil {
+		clusterID = *acct.ClusterID
+	}
+
+	toMigrate, err := clusterplacement.ListDeploymentsNeedingMigration(s.deployStore, req.AccountID, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("list deployments for migration: %w", err)
+	}
+
+	deploymentIDs, err := enqueueAccountClusterMigrations(ctx, s.queue, clusterID, toMigrate)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(deploymentIDs) > 0 {
+		_ = deploycache.Invalidate(ctx, s.cache, req.AccountID)
+	}
+
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.AccountSetCluster
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin migrated account deployments to " + clusterID
+		evt.Metadata = map[string]any{
 			"cluster_id":          clusterID,
-			"old_cluster_id":      oldClusterID,
 			"migrations_enqueued": len(deploymentIDs),
 			"deployment_ids":      deploymentIDs,
 		}
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
-	return &adminv1.SetAccountClusterResponse{
-		Status:             "updated",
-		ClusterID:          clusterID,
+	return &adminv1.MigrateAccountDeploymentsResponse{
 		MigrationsEnqueued: int32(len(deploymentIDs)), //nolint:gosec // bounded by account deployment count
 		DeploymentIds:      deploymentIDs,
 	}, nil
@@ -128,7 +150,7 @@ func enqueueAccountClusterMigrations(
 		sourceClusterID := dep.EffectiveClusterID()
 		if err := q.InsertMigrateDeploymentClusterJob(ctx, dep.ID, targetClusterID, sourceClusterID); err != nil {
 			return deploymentIDs, fmt.Errorf(
-				"enqueued %d/%d migration jobs before failure on deployment %s (account cluster unchanged; retry SetAccountCluster, avoid ReapplyDeployment until complete): %w",
+				"enqueued %d/%d migration jobs before failure on deployment %s: %w",
 				len(deploymentIDs), len(deps), dep.ID, err,
 			)
 		}

@@ -10,6 +10,7 @@ import {
   useClusters,
   useRenameAccount,
   useSetAccountCluster,
+  useMigrateAccountDeployments,
   useInvalidateAccountCaches,
   useQuotaRequests,
   useApproveQuotaRequest,
@@ -333,6 +334,7 @@ function IdRow({ label, value }: { label: string; value: string }) {
 function PlacementCard({ accountId, clusterId, disabled }: { accountId: string; clusterId: string; disabled: boolean }) {
   const { data: clustersData } = useClusters(true);
   const setClusterMut = useSetAccountCluster();
+  const migrateMut = useMigrateAccountDeployments();
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -341,21 +343,30 @@ function PlacementCard({ accountId, clusterId, disabled }: { accountId: string; 
   const effective = pending ?? savedValue;
   const dirty = effective !== savedValue;
 
-  const migrate = () => {
+  const save = () => {
     const target = effective === PRIMARY_CLUSTER_VALUE ? "" : effective;
     setClusterMut.mutate(
       { id: accountId, clusterId: target },
       {
-        onSuccess: (resp) => {
+        onSuccess: () => {
           setPending(null);
-          const count = resp.migrations_enqueued ?? 0;
-          setMessage(count > 0
-            ? `${count} deployment migration${count === 1 ? "" : "s"} queued. Track in Admin → Migrations.`
-            : "Cluster updated; no deployment migrations queued.");
+          setMessage("Cluster updated. Existing deployments stay put until migrated separately.");
         },
         onError: (e) => setMessage(`Cluster change failed: ${(e as Error).message}`),
       },
     );
+  };
+
+  const migrate = () => {
+    migrateMut.mutate(accountId, {
+      onSuccess: (resp) => {
+        const count = resp.migrations_enqueued ?? 0;
+        setMessage(count > 0
+          ? `${count} deployment migration${count === 1 ? "" : "s"} queued. Track in Admin → Migrations.`
+          : "No deployment migrations needed — everything is already on this cluster.");
+      },
+      onError: (e) => setMessage(`Migration failed: ${(e as Error).message}`),
+    });
   };
 
   return (
@@ -374,14 +385,24 @@ function PlacementCard({ accountId, clusterId, disabled }: { accountId: string; 
         </Select>
         {dirty && (
           <>
-            <Button size="sm" className="h-7 px-2 text-xs" disabled={setClusterMut.isPending} onClick={migrate}>
-              {setClusterMut.isPending ? "Migrating…" : "Migrate"}
+            <Button size="sm" className="h-7 px-2 text-xs" disabled={setClusterMut.isPending} onClick={save}>
+              {setClusterMut.isPending ? "Saving…" : "Save"}
             </Button>
             <Button variant="ghost" size="icon-xs" onClick={() => setPending(null)} title="Cancel">
               <X className="size-3" />
             </Button>
           </>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          disabled={disabled || migrateMut.isPending}
+          onClick={migrate}
+          title="Enqueue migration jobs for deployments not yet on this account's current cluster"
+        >
+          {migrateMut.isPending ? "Migrating…" : "Migrate deployments"}
+        </Button>
       </div>
       {message && <p className="mt-2 text-[11px] text-muted-foreground">{message}</p>}
     </Section>

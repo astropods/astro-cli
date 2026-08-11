@@ -31,6 +31,7 @@ import type {
   CheckClusterHealthResponse,
   GetClusterBlockersResponse,
   SetAccountClusterResponse,
+  MigrateAccountDeploymentsResponse,
   InvalidateCachesResponse,
   RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
@@ -237,6 +238,23 @@ export function useSetAccountCluster() {
         { cluster_id: clusterId },
       ),
     onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+    },
+  });
+}
+
+/** Enqueues migration jobs for an account's deployments not yet on its
+ * current cluster. Independent of useSetAccountCluster — call whenever
+ * ready, not just right after a cluster change. */
+export function useMigrateAccountDeployments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<MigrateAccountDeploymentsResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/migrate-cluster`,
+      ),
+    onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
       qc.invalidateQueries({ queryKey: adminKeys.account(id) });
       qc.invalidateQueries({ queryKey: adminKeys.migrations() });

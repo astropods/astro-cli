@@ -109,15 +109,9 @@ func TestSetAccountCluster_Clear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{
-		db:          db,
-		deployStore: deploymentstore.NewStore(db),
-		log:         logger.New("error", "json"),
-	}
+	s := &Server{db: db, log: logger.New("error", "json")}
 
 	expectAccountGetByID(mock, "acct-1", "eu")
-	expectDeploymentsNeedingMigration(mock, "acct-1")
-
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
 		WithArgs(sqlmock.AnyArg(), "acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -129,32 +123,33 @@ func TestSetAccountCluster_Clear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetAccountCluster: %v", err)
 	}
-	if resp.MigrationsEnqueued != 0 {
-		t.Fatalf("migrations_enqueued = %d, want 0", resp.MigrationsEnqueued)
+	if resp.ClusterID != "" {
+		t.Fatalf("cluster_id = %q, want empty", resp.ClusterID)
 	}
 }
 
-func TestSetAccountCluster_NoOpSameCluster(t *testing.T) {
+func TestSetAccountCluster_SetsClusterID(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{db: db, log: logger.New("error", "json")}
+	s := &Server{db: db, clusterStore: clusterstore.New(db), log: logger.New("error", "json")}
 
+	expectEnabledClusterGet(mock, "eu")
 	expectAccountGetByID(mock, "acct-1", "")
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
-		WithArgs(sqlmock.AnyArg(), "acct-1").
+		WithArgs("eu", "acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	resp, err := s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
 		AccountID: "acct-1",
-		ClusterID: "",
+		ClusterID: "eu",
 	})
 	if err != nil {
 		t.Fatalf("SetAccountCluster: %v", err)
 	}
-	if resp.MigrationsEnqueued != 0 {
-		t.Fatalf("migrations_enqueued = %d, want 0 for unchanged cluster", resp.MigrationsEnqueued)
+	if resp.ClusterID != "eu" || resp.Status != "updated" {
+		t.Fatalf("resp = %+v", resp)
 	}
 }
 
@@ -182,57 +177,10 @@ func TestSetAccountCluster_DisabledCluster(t *testing.T) {
 	}
 }
 
-func TestSetAccountCluster_MigrationRequiresQueue(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Server{
-		db:           db,
-		clusterStore: clusterstore.New(db),
-		deployStore:  deploymentstore.NewStore(db),
-		log:          logger.New("error", "json"),
-	}
-
-	expectEnabledClusterGet(mock, "eu")
-	expectAccountGetByID(mock, "acct-1", "")
-	expectDeploymentsNeedingMigration(mock, "acct-1",
-		[]any{
-			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
-			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
-			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil, nil,
-		},
-	)
-
-	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
-		AccountID: "acct-1",
-		ClusterID: "eu",
-	})
-	if err == nil {
-		t.Fatal("expected error when queue is nil but migrations are required")
-	}
-}
-
-func TestSetAccountCluster_MigrationRequiresDeployStore(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Server{db: db, log: logger.New("error", "json")}
-
-	expectAccountGetByID(mock, "acct-1", "")
-
-	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
-		AccountID: "acct-1",
-		ClusterID: "eu",
-	})
-	if err == nil {
-		t.Fatal("expected error when deployStore is nil but cluster is changing")
-	}
-}
-
-func TestSetAccountCluster_EnqueuesBeforeAccountUpdate(t *testing.T) {
+// TestSetAccountCluster_DoesNotMigrateDeployments is the regression test for
+// the decoupling: changing an account's cluster must not touch the deploy
+// store or job queue, even though mismatched deployments exist.
+func TestSetAccountCluster_DoesNotMigrateDeployments(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -248,6 +196,60 @@ func TestSetAccountCluster_EnqueuesBeforeAccountUpdate(t *testing.T) {
 
 	expectEnabledClusterGet(mock, "eu")
 	expectAccountGetByID(mock, "acct-1", "")
+	mock.ExpectExec("UPDATE accounts SET cluster_id").
+		WithArgs("eu", "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if _, err := s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
+		AccountID: "acct-1",
+		ClusterID: "eu",
+	}); err != nil {
+		t.Fatalf("SetAccountCluster: %v", err)
+	}
+	if len(q.migrateCalls) != 0 {
+		t.Fatalf("migrate calls = %d, want 0 — SetAccountCluster must not enqueue migrations", len(q.migrateCalls))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestSetAccountCluster_UpdateFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{db: db, clusterStore: clusterstore.New(db), log: logger.New("error", "json")}
+
+	expectEnabledClusterGet(mock, "eu")
+	expectAccountGetByID(mock, "acct-1", "")
+	mock.ExpectExec("UPDATE accounts SET cluster_id").
+		WithArgs("eu", "acct-1").
+		WillReturnError(errors.New("connection reset"))
+
+	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
+		AccountID: "acct-1",
+		ClusterID: "eu",
+	})
+	if err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("expected connection reset error, got %v", err)
+	}
+}
+
+func TestMigrateAccountDeployments_Success(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := &mockAdminJobQueue{}
+	s := &Server{
+		db:          db,
+		deployStore: deploymentstore.NewStore(db),
+		queue:       q,
+		log:         logger.New("error", "json"),
+	}
+
+	expectAccountGetByID(mock, "acct-1", "eu")
 	expectDeploymentsNeedingMigration(mock, "acct-1",
 		[]any{
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
@@ -262,16 +264,12 @@ func TestSetAccountCluster_EnqueuesBeforeAccountUpdate(t *testing.T) {
 			time.Now(), nil, nil, nil,
 		},
 	)
-	mock.ExpectExec("UPDATE accounts SET cluster_id").
-		WithArgs("eu", "acct-1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	resp, err := s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
+	resp, err := s.MigrateAccountDeployments(context.Background(), &adminv1.MigrateAccountDeploymentsRequest{
 		AccountID: "acct-1",
-		ClusterID: "eu",
 	})
 	if err != nil {
-		t.Fatalf("SetAccountCluster: %v", err)
+		t.Fatalf("MigrateAccountDeployments: %v", err)
 	}
 	if resp.MigrationsEnqueued != 2 {
 		t.Fatalf("migrations_enqueued = %d, want 2", resp.MigrationsEnqueued)
@@ -284,73 +282,69 @@ func TestSetAccountCluster_EnqueuesBeforeAccountUpdate(t *testing.T) {
 	}
 }
 
-func TestSetAccountCluster_SetClusterIDFailureAfterEnqueue(t *testing.T) {
+func TestMigrateAccountDeployments_NoneNeeded(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := &mockAdminJobQueue{}
 	s := &Server{
-		db:           db,
-		clusterStore: clusterstore.New(db),
-		deployStore:  deploymentstore.NewStore(db),
-		queue:        q,
-		log:          logger.New("error", "json"),
+		db:          db,
+		deployStore: deploymentstore.NewStore(db),
+		queue:       q,
+		log:         logger.New("error", "json"),
 	}
 
-	expectEnabledClusterGet(mock, "eu")
-	expectAccountGetByID(mock, "acct-1", "")
-	expectDeploymentsNeedingMigration(mock, "acct-1",
-		[]any{
-			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
-			`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
-			"active", nil, nil, time.Now(), 1,
-			time.Now(), nil, nil, nil,
-		},
-	)
-	mock.ExpectExec("UPDATE accounts SET cluster_id").
-		WithArgs("eu", "acct-1").
-		WillReturnError(errors.New("connection reset"))
+	expectAccountGetByID(mock, "acct-1", "eu")
+	expectDeploymentsNeedingMigration(mock, "acct-1")
 
-	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
+	resp, err := s.MigrateAccountDeployments(context.Background(), &adminv1.MigrateAccountDeploymentsRequest{
 		AccountID: "acct-1",
-		ClusterID: "eu",
 	})
-	if err == nil {
-		t.Fatal("expected error when SetClusterID fails after enqueue")
+	if err != nil {
+		t.Fatalf("MigrateAccountDeployments: %v", err)
 	}
-	errMsg := err.Error()
-	for _, part := range []string{
-		"enqueued 1 migration job",
-		"retry SetAccountCluster",
-		"avoid ReapplyDeployment",
-		"connection reset",
-	} {
-		if !strings.Contains(errMsg, part) {
-			t.Fatalf("error %q missing %q", errMsg, part)
-		}
-	}
-	if len(q.migrateCalls) != 1 {
-		t.Fatalf("migrate calls = %d, want 1", len(q.migrateCalls))
+	if resp.MigrationsEnqueued != 0 {
+		t.Fatalf("migrations_enqueued = %d, want 0", resp.MigrationsEnqueued)
 	}
 }
 
-func TestSetAccountCluster_EnqueueFailureLeavesAccountUnchanged(t *testing.T) {
+func TestMigrateAccountDeployments_RequiresQueue(t *testing.T) {
+	s := &Server{deployStore: deploymentstore.NewStore(nil), log: logger.New("error", "json")}
+
+	_, err := s.MigrateAccountDeployments(context.Background(), &adminv1.MigrateAccountDeploymentsRequest{
+		AccountID: "acct-1",
+	})
+	if err == nil {
+		t.Fatal("expected error when queue is nil")
+	}
+}
+
+func TestMigrateAccountDeployments_RequiresDeployStore(t *testing.T) {
+	s := &Server{queue: &mockAdminJobQueue{}, log: logger.New("error", "json")}
+
+	_, err := s.MigrateAccountDeployments(context.Background(), &adminv1.MigrateAccountDeploymentsRequest{
+		AccountID: "acct-1",
+	})
+	if err == nil {
+		t.Fatal("expected error when deployStore is nil")
+	}
+}
+
+func TestMigrateAccountDeployments_PartialEnqueueFailure(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := &mockAdminJobQueue{failOnCall: 2}
 	s := &Server{
-		db:           db,
-		clusterStore: clusterstore.New(db),
-		deployStore:  deploymentstore.NewStore(db),
-		queue:        q,
-		log:          logger.New("error", "json"),
+		db:          db,
+		deployStore: deploymentstore.NewStore(db),
+		queue:       q,
+		log:         logger.New("error", "json"),
 	}
 
-	expectEnabledClusterGet(mock, "eu")
-	expectAccountGetByID(mock, "acct-1", "")
+	expectAccountGetByID(mock, "acct-1", "eu")
 	expectDeploymentsNeedingMigration(mock, "acct-1",
 		[]any{
 			"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
@@ -366,9 +360,8 @@ func TestSetAccountCluster_EnqueueFailureLeavesAccountUnchanged(t *testing.T) {
 		},
 	)
 
-	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
+	_, err = s.MigrateAccountDeployments(context.Background(), &adminv1.MigrateAccountDeploymentsRequest{
 		AccountID: "acct-1",
-		ClusterID: "eu",
 	})
 	if err == nil {
 		t.Fatal("expected error when second enqueue fails")

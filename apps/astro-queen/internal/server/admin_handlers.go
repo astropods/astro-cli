@@ -17,6 +17,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/cluster", s.handleSetAccountCluster)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/migrate-cluster", s.handleMigrateAccountDeployments)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/invalidate-cache", s.handleInvalidateAccountCaches)
 	mux.HandleFunc("POST /api/admin/invalidate-cache", s.handleInvalidateAllCaches)
 	mux.HandleFunc("GET /api/admin/deployments", s.handleListDeployments)
@@ -153,6 +154,18 @@ func (s *Server) handleSetAccountCluster(w http.ResponseWriter, r *http.Request)
 	resp, err := s.admin.SetAccountCluster(r.Context(), &adminv1.SetAccountClusterRequest{
 		AccountID: id,
 		ClusterID: body.ClusterID,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleMigrateAccountDeployments(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	resp, err := s.admin.MigrateAccountDeployments(r.Context(), &adminv1.MigrateAccountDeploymentsRequest{
+		AccountID: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

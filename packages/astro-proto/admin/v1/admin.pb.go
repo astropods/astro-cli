@@ -967,8 +967,15 @@ type SetAccountClusterRequest struct {
 }
 
 type SetAccountClusterResponse struct {
-	Status             string   `json:"status,omitempty"`
-	ClusterID          string   `json:"cluster_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
+}
+
+type MigrateAccountDeploymentsRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type MigrateAccountDeploymentsResponse struct {
 	MigrationsEnqueued int32    `json:"migrations_enqueued,omitempty"`
 	DeploymentIds      []string `json:"deployment_ids,omitempty"`
 }
