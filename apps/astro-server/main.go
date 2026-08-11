@@ -414,12 +414,6 @@ func runAPI(
 		}
 	}()
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		backfillClusterPullCredentials(ctx, clusterStore, log)
-	}()
-
 	// Initialize Kubernetes registry. The registry holds the primary
 	// ClusterClient (built from env vars / kubeconfig) and is the seam
 	// for per-deployment cluster_id resolution against the `clusters`
@@ -460,6 +454,12 @@ func runAPI(
 			)
 		}
 	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		backfillClusterPullCredentials(ctx, clusterStore, k8sReg, log)
+	}()
 
 	// Resolve deployment log backend: explicit env var > auto-detect from LOKI_URL
 	logBackend := cfg.DeploymentLogBackend
@@ -626,8 +626,12 @@ func runAPI(
 }
 
 // backfillClusterPullCredentials is safe to run from every process/replica —
-// EnsurePullCredential is a guarded, no-op-once-issued UPDATE.
-func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterstore.Store, log *logger.Logger) {
+// EnsurePullCredential is a guarded, no-op-once-issued UPDATE. Refreshes the
+// registry's cached entry for anything it backfills, since GetEntry caches
+// lazily and never expires on its own — without this, a deploy that raced
+// ahead of this goroutine and cached an empty credential would stay stuck
+// with it until some unrelated admin action called Refresh.
+func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterstore.Store, registry *k8s.Registry, log *logger.Logger) {
 	clusters, err := clusterStore.List(ctx, false)
 	if err != nil {
 		log.Warn("cluster pull credential backfill: list clusters failed", "error", err)
@@ -641,6 +645,9 @@ func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterst
 		}
 		if generated {
 			log.Info("cluster pull credential backfilled", "cluster", c.ID)
+			if registry != nil {
+				_ = registry.Refresh(ctx, c.ID)
+			}
 		}
 	}
 }
@@ -690,11 +697,6 @@ func runWorker(
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	clusterStore := clusterstore.New(db)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		backfillClusterPullCredentials(ctx, clusterStore, log)
-	}()
 	registry, registryErr := k8s.NewRegistry(initCtx, clusterStore, k8s.RegistryConfig{
 		Mode:             clientMode,
 		Region:           cfg.Deployment.AWSRegion,
@@ -711,6 +713,12 @@ func runWorker(
 	} else {
 		k8sReg = registry
 	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		backfillClusterPullCredentials(ctx, clusterStore, k8sReg, log)
+	}()
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)

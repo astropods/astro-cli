@@ -262,6 +262,7 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         row.PodSubnetCIDRs,
+		PullCredential:         row.PullCredential,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
 	}
@@ -317,6 +318,7 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 			LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 			LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 			PodSubnetCIDRs:         row.PodSubnetCIDRs,
+			PullCredential:         row.PullCredential,
 			CreatedAt:              row.CreatedAt,
 			UpdatedAt:              row.UpdatedAt,
 		})

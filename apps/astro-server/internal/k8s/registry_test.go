@@ -160,6 +160,50 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 	}
 }
 
+// TestRegistry_GetEntry_IncludesPullCredential guards against the field
+// being dropped in this row->entry mapping, distinct from the one in
+// admingrpc.rowToEntry — clustercfg.Resolve depends on this one.
+func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WithArgs("eu-west-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
+			"agent_ingress_domain", "ingestion_ingress_domain",
+			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+			"pull_credential", "pull_key_hash",
+			"created_at", "updated_at",
+		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
+			"agents.example.com", "ingestion.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
+			"astrocp_eu-west-1_secret", []byte("hash"),
+			now, now))
+
+	r := &Registry{
+		primary:      &fakeClient{id: "p"},
+		clusterStore: clusterstore.New(db),
+		cache:        make(map[string]ClusterClient),
+		entryCache:   make(map[string]ClusterEntry),
+		log:          logger.New("error", "json"),
+	}
+	entry, err := r.GetEntry(context.Background(), "eu-west-1")
+	if err != nil {
+		t.Fatalf("GetEntry: %v", err)
+	}
+	if entry.PullCredential != "astrocp_eu-west-1_secret" {
+		t.Fatalf("PullCredential = %q, want astrocp_eu-west-1_secret", entry.PullCredential)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -178,7 +222,7 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
-			nil, nil,
+			"astrocp_eu-west-1_secret", nil,
 			now, now))
 
 	r := &Registry{
@@ -207,6 +251,9 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	}
 	if entries[1].ID != "eu-west-1" || entries[1].IsPrimary {
 		t.Fatalf("entries[1] = %+v", entries[1])
+	}
+	if entries[1].PullCredential != "astrocp_eu-west-1_secret" {
+		t.Fatalf("entries[1].PullCredential = %q, want astrocp_eu-west-1_secret", entries[1].PullCredential)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
