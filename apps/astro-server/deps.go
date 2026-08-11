@@ -89,6 +89,7 @@ type Clients struct {
 	K8sCache   k8scache.Cache
 	Preflight  *k8s.ImagePreflighter
 	Queue      *riverqueue.Queue
+	FGA        authz.FGA
 
 	// Observability provisioners, wired onto the admin server for the account
 	// detail view's recover actions. Nil when their backends are unconfigured.

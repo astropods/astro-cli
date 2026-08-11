@@ -71,7 +71,7 @@ func TestMembershipChecker_allowsMemberDespiteOrgScopeMismatch(t *testing.T) {
 
 	checker := authz.NewMembershipChecker(
 		fakeMemberChecker{
-			isMember: func(accountID, userID string) (bool, error) {
+			isMember: func(_ context.Context, accountID, userID string) (bool, error) {
 				return accountID == resourceAccountID && userID == "user-1", nil
 			},
 		},
@@ -113,7 +113,7 @@ func TestMembershipChecker_personalFlagDoesNotChangeAuthorizeOutcome(t *testing.
 	for _, personal := range []bool{true, false} {
 		checker := authz.NewMembershipChecker(
 			fakeMemberChecker{
-				isMember: func(accountID, userID string) (bool, error) {
+				isMember: func(_ context.Context, accountID, userID string) (bool, error) {
 					return accountID == "acct-1" && userID == sub.UserID, nil
 				},
 			},

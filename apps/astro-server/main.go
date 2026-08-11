@@ -232,7 +232,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, deploymentFGA)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -331,6 +331,7 @@ func runAPI(
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
+	deploymentFGA authz.FGA,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -550,6 +551,7 @@ func runAPI(
 			K8sCache:   k8sCache,
 			Preflight:  imagePreflighter,
 			Queue:      rq,
+			FGA:        deploymentFGA,
 		},
 	}
 	setupRoutes(router, deps)
@@ -879,6 +881,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	k8sCache := deps.Clients.K8sCache
 	imagePreflighter := deps.Clients.Preflight
 	queue := deps.Clients.Queue
+	deploymentFGA := deps.Clients.FGA
 	deploymentFGASync := deps.Stores.DeploymentFGASync
 
 	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
@@ -1091,6 +1094,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		// Protected endpoints (require authentication)
 		protected := v1.Group("")
 		protected.Use(authMw.RequireAuth())
+		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
+			resourceAccounts := authz.NewDeploymentAccountResolver(db)
+			membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
+			fgaChecker := authz.NewFGAChecker(deploymentFGA, resourceAccounts)
+			protected.Use(middleware.ObserveDeploymentAuthorization(
+				log,
+				authz.NewGatedShadowChecker(log, resourceAccounts, membershipChecker, fgaChecker),
+			))
+			log.Info("Deployment FGA shadow checks enabled")
+		}
 		{
 			// Profile
 			api.GET(protected, "/me", "Get current user profile", handlers.GetProfile(log, accountStore, agentIndex),

@@ -11,18 +11,20 @@ import (
 var _ authz.Checker = (*authz.MembershipChecker)(nil)
 
 type fakeMemberChecker struct {
-	isMember func(accountID, userID string) (bool, error)
+	isMember func(context.Context, string, string) (bool, error)
 }
 
-func (f fakeMemberChecker) IsMember(accountID, userID string) (bool, error) {
-	return f.isMember(accountID, userID)
+type membershipContextKey struct{}
+
+func (f fakeMemberChecker) IsMemberContext(ctx context.Context, accountID, userID string) (bool, error) {
+	return f.isMember(ctx, accountID, userID)
 }
 
 type fakeAccountResolver struct {
 	accountForResource func(res authz.ResourceRef) (accountID string, personal bool, err error)
 }
 
-func (f fakeAccountResolver) AccountForResource(res authz.ResourceRef) (string, bool, error) {
+func (f fakeAccountResolver) AccountForResource(_ context.Context, res authz.ResourceRef) (string, bool, error) {
 	return f.accountForResource(res)
 }
 
@@ -82,10 +84,14 @@ func TestMembershipChecker_Authorize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			ctx := context.WithValue(context.Background(), membershipContextKey{}, tt.name)
 
 			checker := authz.NewMembershipChecker(
 				fakeMemberChecker{
-					isMember: func(accountID, userID string) (bool, error) {
+					isMember: func(memberCtx context.Context, accountID, userID string) (bool, error) {
+						if memberCtx.Value(membershipContextKey{}) != tt.name {
+							t.Fatal("membership lookup did not receive the authorization context")
+						}
 						if tt.memberErr != nil {
 							return false, tt.memberErr
 						}
@@ -108,7 +114,7 @@ func TestMembershipChecker_Authorize(t *testing.T) {
 				},
 			)
 
-			got, err := checker.Authorize(context.Background(), sub, authz.ActionDeploymentEdit, res)
+			got, err := checker.Authorize(ctx, sub, authz.ActionDeploymentEdit, res)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) && err.Error() != tt.wantErr.Error() {
 					t.Fatalf("Authorize() error = %v, want %v", err, tt.wantErr)
@@ -131,7 +137,7 @@ func TestMembershipChecker_resolverErrorSkipsIsMember(t *testing.T) {
 	resolverErr := errors.New("deployment not found")
 	checker := authz.NewMembershipChecker(
 		fakeMemberChecker{
-			isMember: func(accountID, userID string) (bool, error) {
+			isMember: func(_ context.Context, accountID, userID string) (bool, error) {
 				t.Fatal("IsMember must not be called when resolver fails")
 				return false, nil
 			},
@@ -167,7 +173,7 @@ func TestMembershipChecker_crossAccountMembershipDenied(t *testing.T) {
 
 	checker := authz.NewMembershipChecker(
 		fakeMemberChecker{
-			isMember: func(accountID, userID string) (bool, error) {
+			isMember: func(_ context.Context, accountID, userID string) (bool, error) {
 				byUser, ok := memberships[accountID]
 				if !ok {
 					return false, nil
@@ -213,7 +219,7 @@ func TestMembershipChecker_emptyUserIDDenied(t *testing.T) {
 
 	checker := authz.NewMembershipChecker(
 		fakeMemberChecker{
-			isMember: func(accountID, userID string) (bool, error) {
+			isMember: func(_ context.Context, accountID, userID string) (bool, error) {
 				if userID != "" {
 					t.Fatalf("IsMember userID = %q, want empty string", userID)
 				}

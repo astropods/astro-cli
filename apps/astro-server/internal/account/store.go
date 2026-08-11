@@ -362,8 +362,13 @@ func (s *AccountStore) DisplayNamesForUsers(userIDs []string) (map[string]string
 
 // IsMember checks if a user is a member of an account
 func (s *AccountStore) IsMember(accountID, userID string) (bool, error) {
+	return s.IsMemberContext(context.Background(), accountID, userID)
+}
+
+// IsMemberContext checks membership while honoring caller cancellation.
+func (s *AccountStore) IsMemberContext(ctx context.Context, accountID, userID string) (bool, error) {
 	var count int
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM account_members
 		WHERE account_id = $1 AND user_id = $2
 	`, accountID, userID).Scan(&count)

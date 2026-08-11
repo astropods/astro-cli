@@ -30,6 +30,7 @@ The dev database is **remote** - nothing local starts Postgres; point `DATABASE_
 | `REGISTRY_URL`    | Container registry URL                           | `docker.io/library`                                                 |
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | WorkOS app credentials (stage app)   | placeholders - use real stage values                               |
 | `AUTH_COOKIE_PASSWORD` | Key for session-cookie encryption           | set in `.env.example`                                              |
+| `FGA_SHADOW_ENABLED` | Compare deployment authorization with WorkOS without enforcing it | `false` |
 | `PORT`            | Server port                                      | `8080`                                                             |
 | `GIN_MODE`        | Gin framework mode                               | `release`                                                          |
 | `LOG_LEVEL`       | Logging level (`debug`, `info`, `warn`, `error`) | `debug`                                                            |

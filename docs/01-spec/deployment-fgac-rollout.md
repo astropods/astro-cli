@@ -1,7 +1,7 @@
 # Deployment FGAC API Rollout
 
 **Status:** Approved direction
-**Updated:** 2026-08-06
+**Updated:** 2026-08-07
 
 ## Decision
 
@@ -62,7 +62,7 @@ flowchart TD
     Subject --> Check["Check membership, action, deployment"]
     Check --> Sources["WorkOS evaluates direct, group, inherited org roles"]
     Sources -->|Allowed| Allow
-    Sources -->|Denied| Deny["403 Forbidden"]
+    Sources -->|Denied| Deny["Fail closed without exposing resource existence"]
     Check -->|Unavailable| Error["Fail closed; retryable service error"]
 ```
 
@@ -115,6 +115,8 @@ Status: merged as PR #1891.
 
 ### PR4 — Deployment resource lifecycle
 
+Status: merged as PR #1895.
+
 - Add `deployments.deployed_by` and capture the authenticated user on deploy.
 - After the deployment transaction commits, register organization deployments in WorkOS and assign the creator `deployment-editor`.
 - If a current member's creator membership is temporarily unavailable, use bounded fast retries followed by hourly assignment retries; resource lifecycle remains converged and account purge is not blocked. Stop assignment retries when no creator exists or the creator is no longer an organization member.
@@ -125,36 +127,54 @@ Status: merged as PR #1891.
 - When WorkOS is disabled, skip lifecycle intent writes and reconciliation jobs so account cleanup cannot be blocked by work that has no processor.
 - Do not fail or roll back a successful deployment after an FGA write failure. Record retryable reconciliation work and structured logs.
 - Store only desired/applied reconciliation state locally, never deployment role assignments or permission decisions.
-- Enqueue immediate reconciliation after commit and have the periodic sweep enqueue the same unique per-deployment jobs, keeping WorkOS mutations serialized; PR6 reuses this seam for historical backfill.
+- Enqueue immediate reconciliation after commit and have the periodic sweep enqueue the same unique per-deployment jobs, keeping WorkOS mutations serialized.
 - Keep first deployment creation membership-gated because the resource does not exist before creation.
 
 ### PR5 — FGA checker and shadow decisions
 
+Status: draft as PR #1898.
+
 - Implement `FGAChecker` using the session membership ID and live WorkOS checks.
 - Short-circuit personal accounts through the centralized personal-owner rule.
-- Deduplicate identical checks within one request.
+- Deduplicate deployment/account resolution within one request so shadow comparison adds one database lookup, not two.
 - Keep `MembershipChecker` enforcing while FGA runs in shadow mode.
 - Log structured mismatches with action, route, resource, and subject identifiers.
-- Add an `FGA_SHADOW` rollout flag.
+- Run shadow comparison off the request goroutine with a short timeout and the shared WorkOS client so observation cannot add user-facing WorkOS latency.
+- Limit the first sample to deployment detail (`deployment:read`) and rename (`deployment:edit`); all other routes wait for the PR6 action inventory.
+- Enable shadow observation per environment with `FGA_SHADOW_ENABLED`; call WorkOS only for deployments whose PR4 registration is converged. Personal, historical, and pending resources remain entirely on legacy authorization.
 - Treat an empty membership ID on an organization-scoped session as unavailable identity, not an authorization denial. It can result from a transient session-build resolution failure or production running before the JWT template update; `/auth/me` does not query the database to repair it, while token refresh, switch-org, or re-login does.
+- Never alter the HTTP response in shadow mode. A mismatch is evidence for rollout work, not a denial.
 
-### PR6 — Backfill and reconciliation
+```mermaid
+flowchart TD
+    Request["Authenticated deployment request"] --> Sample{"Detail GET or rename PATCH?"}
+    Sample -- No --> Legacy["Current authorization only"]
+    Sample -- Yes --> Current["Evaluate current membership rule"]
+    Current --> Gate{"Shadow enabled and PR4 resource converged?"}
+    Gate -- No --> LegacyResult["Return current result; skip WorkOS"]
+    Gate -- Yes --> Live["Live WorkOS permission check"]
+    Live --> Compare["Log match, mismatch, or failure"]
+    Compare --> CurrentResult["Return current result; never enforce"]
+```
 
-- Register every active organization deployment missing from WorkOS.
-- Assign `deployment-editor` when trustworthy `deployed_by` data exists.
-- Register historical deployments without a known creator; organization owners/admins retain inherited access.
-- Reconcile failed resource writes and role assignments idempotently.
-- Provide dry-run support, structured output, and an operator runbook.
+### PR6 — Deployment action inventory and expanded shadow coverage
+
+- Write the source-controlled deployment action matrix by reviewing every owner/admin/member API and UI behavior by hand.
+- Classify each route as `deployment:read`, `deployment:edit`, another future permission, public/data-plane, or intentionally out of scope.
+- Expand shadow coverage only after the route's resource resolution and information-disclosure behavior are understood.
+- Add route-coverage tests so a new mutation cannot silently bypass the reviewed catalog.
+- Do not backfill historical deployments in this milestone; Preview enforcement remains limited to resources created through PR4.
 
 ### PR7 — Server enforcement
 
 - Add deployment-action middleware that resolves the deployment and checks the requested permission.
-- Enforce `deployment:edit` on redeploy, rename, avatar changes, wake, stop, rollback, restart, ingestion triggers, and delete.
+- Enforce the reviewed `deployment:edit` routes only for allowlisted organizations and FGA-ready deployments created through PR4.
 - Add an authenticated capability endpoint for API testing and future clients.
-- Fail closed on WorkOS errors; distinguish denial (`403`) from authorization-service failure.
+- Fail closed on WorkOS errors; distinguish denial from authorization-service failure internally without exposing resource existence.
 - Fail closed on an empty session membership ID with a retryable auth/session-unavailable response, not `403`, so an otherwise valid member can repair the session instead of receiving indefinite denials.
 - Enable in preview only after shadow mismatches are understood, then production.
 - Keep view behavior unchanged until accessible-resource listing and access assignment APIs exist.
+- Authorize before loading deployment details, runtime state, logs, configuration, or observability data. Denied, cross-organization, and nonexistent resources must not become distinguishable existence oracles.
 
 ### PR8 — API-only access and group management
 
