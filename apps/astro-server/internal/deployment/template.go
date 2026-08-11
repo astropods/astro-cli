@@ -81,8 +81,8 @@ type TemplateInput struct {
 
 // defaultMessagingImage is the messaging sidecar image reference used when no
 // override is supplied via TemplateInput.MessagingImage (MESSAGING_IMAGE). It is
-// a bare Docker Hub reference; resolveImage rewrites it to the ECR pull-through
-// path at generation time.
+// a bare Docker Hub reference; infra (containerd registry mirror config) routes
+// the pull through the ECR pull-through cache, so no rewrite happens here.
 const defaultMessagingImage = "astropods/messaging:latest"
 
 // GenerateDeploymentTemplate creates a deployment spec template from a registered astro-spec.
@@ -108,7 +108,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*AstroDeploymentSpec, erro
 		Observability: DeploymentObservability{
 			Enabled:   true,
 			Provider:  "langfuse",
-			Image:     resolveImage("astropods/collector:latest", input),
+			Image:     "astropods/collector:latest",
 			Port:      4318,
 			Resources: CollectorResources,
 		},
@@ -349,7 +349,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*AstroDeploymentSpec, erro
 		}
 		ds.Interfaces = &DeploymentInterfaces{
 			Adapters:  []string{},
-			Image:     resolveImage(messagingImage, input),
+			Image:     messagingImage,
 			Resources: MessagingResources,
 			Endpoints: map[string]Endpoint{
 				"grpc": {Port: 9090, Protocol: "grpc"},
@@ -1210,72 +1210,17 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, name string, input Templ
 	return di
 }
 
-// resolveBuiltImage is resolveImage with a fallback for components whose source
-// spec uses container.build without an explicit image. In that case the image
-// name is synthesized using the canonical {agent}-{kind}-{name} convention so
-// the deployment spec passes validation. This mirrors what the build pipeline
+// resolveBuiltImage fills in the image for components whose source spec uses
+// container.build without an explicit image. In that case the image name is
+// synthesized using the canonical {agent}-{kind}-{name} convention so the
+// deployment spec passes validation. This mirrors what the build pipeline
 // does via TransformSpecForRegistry, ensuring the deployment generator works
 // against either a raw or a registry-rewritten spec.
 func resolveBuiltImage(kind spec.ComponentKind, name, image string, build *spec.BuildConfig, input TemplateInput) string {
 	if image == "" && build != nil {
 		image = spec.ComponentImageName(kind, input.AgentName, name)
 	}
-	return resolveImage(image, input)
-}
-
-// resolveImage maps an image reference to its final pull path:
-//   - Tenant images (hosted on ProxyRegistryHost) → unchanged. The pushed
-//     reference is already the pull URL; astro-registry maps the account
-//     namespace to its ECR repo at pull time. See docs/01-spec/registry-pull-through-spec.md.
-//   - Public images (bare Docker Hub reference, no registry host) → ECR pull-through cache: {ecrHost}/dockerhub/{image}
-//     Official library images (no org prefix) are placed under "library/".
-//   - Third-party images (explicit registry host such as gcr.io, ghcr.io) → unchanged.
-func resolveImage(image string, input TemplateInput) string {
-	if image == "" {
-		return image
-	}
-
-	// 1. Tenant image (hosted on the proxy registry) → passed through unchanged.
-	// The pushed reference (registry.<domain>/{account}/{image}) is already the
-	// pull URL; astro-registry maps the account namespace to its ECR repo at pull
-	// time (see registry-pull-through spec). No rewriting in the control plane.
-	if input.ProxyRegistryHost != "" && strings.HasPrefix(image, input.ProxyRegistryHost+"/") {
-		return image
-	}
-
-	// 2. Public image (no registry host in first segment) → ECR pull-through cache.
-	// In local environments images are pulled directly from Docker Hub (or are
-	// already present in the local daemon), so we skip the rewrite.
-	if input.RegistryURL != "" && input.Environment != "local" {
-		name := image
-		if i := strings.LastIndex(image, ":"); i >= 0 {
-			name = image[:i]
-		}
-		firstSegment := name
-		if i := strings.Index(name, "/"); i >= 0 {
-			firstSegment = name[:i]
-		}
-		if !strings.Contains(firstSegment, ".") && !strings.Contains(firstSegment, ":") {
-			imageName, tag := image, ""
-			if i := strings.LastIndex(image, ":"); i >= 0 {
-				imageName, tag = image[:i], image[i:]
-			}
-			if !strings.Contains(imageName, "/") {
-				imageName = "library/" + imageName
-			}
-			return fmt.Sprintf("%s/dockerhub/%s%s", stripScheme(input.RegistryURL), imageName, tag)
-		}
-	}
-
-	// 3. Third-party image (explicit registry host) → unchanged
 	return image
-}
-
-func stripScheme(url string) string {
-	if idx := strings.Index(url, "://"); idx >= 0 {
-		url = url[idx+3:]
-	}
-	return strings.TrimRight(url, "/")
 }
 
 // ModelSelection describes a deploy-time gateway model choice. It is a

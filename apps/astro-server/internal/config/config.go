@@ -252,8 +252,7 @@ type DeploymentConfig struct {
 	// MessagingImage overrides the messaging sidecar image reference (bare
 	// Docker Hub ref, e.g. a pinned "astropods/messaging@sha256:..."). Empty
 	// uses the built-in default. Set per-environment to pin prod independently
-	// of preview; the value is rewritten to the ECR pull-through path by
-	// deployment.resolveImage.
+	// of preview; infra routes the pull through the ECR pull-through cache.
 	MessagingImage string // MESSAGING_IMAGE
 	EKSClusterName string // EKS cluster name (required for eks mode)
 	K8sMasterURL   string // K8s API server endpoint (required for eks mode)

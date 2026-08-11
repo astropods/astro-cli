@@ -147,7 +147,7 @@ func TestTemplate_AgentBuildWithoutImage(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "registry.example.com/dockerhub/library/my-agent"
+	expected := "my-agent"
 	if ds.Agent.Image != expected {
 		t.Errorf("agent.image: expected %s, got %s", expected, ds.Agent.Image)
 	}
@@ -193,8 +193,8 @@ func TestTemplate_ContainerModel(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	m := ds.Models["embedder"]
-	if m.Image != "registry.example.com/dockerhub/library/custom-embedder:v1" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/custom-embedder:v1, got %s", m.Image)
+	if m.Image != "custom-embedder:v1" {
+		t.Errorf("image: expected custom-embedder:v1, got %s", m.Image)
 	}
 	if PrimaryPort(m.Endpoints) != 9999 {
 		t.Errorf("endpoints primary port: expected 9999, got %d", PrimaryPort(m.Endpoints))
@@ -218,7 +218,7 @@ func TestTemplate_ContainerModel_BuildWithoutImage(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	m := ds.Models["embedder"]
-	expected := "registry.example.com/dockerhub/library/my-agent-model-embedder"
+	expected := "my-agent-model-embedder"
 	if m.Image != expected {
 		t.Errorf("image: expected %s, got %s", expected, m.Image)
 	}
@@ -407,8 +407,8 @@ func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["docs"]
-	if k.Image != "registry.example.com/dockerhub/qdrant/qdrant:latest" {
-		t.Errorf("image: expected registry.example.com/dockerhub/qdrant/qdrant:latest, got %s", k.Image)
+	if k.Image != "qdrant/qdrant:latest" {
+		t.Errorf("image: expected qdrant/qdrant:latest, got %s", k.Image)
 	}
 	if PrimaryPort(k.Endpoints) != 6333 {
 		t.Errorf("endpoints primary port: expected 6333, got %d", PrimaryPort(k.Endpoints))
@@ -449,8 +449,8 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["cache"]
-	if k.Image != "registry.example.com/dockerhub/library/redis:7-alpine" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/redis:7-alpine, got %s", k.Image)
+	if k.Image != "redis:7-alpine" {
+		t.Errorf("image: expected redis:7-alpine, got %s", k.Image)
 	}
 	if PrimaryPort(k.Endpoints) != 6379 {
 		t.Errorf("endpoints primary port: expected 6379, got %d", PrimaryPort(k.Endpoints))
@@ -482,8 +482,8 @@ func TestTemplate_ProviderKnowledge_Neo4j(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["graph"]
-	if k.Image != "registry.example.com/dockerhub/library/neo4j:5-community" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/neo4j:5-community, got %s", k.Image)
+	if k.Image != "neo4j:5-community" {
+		t.Errorf("image: expected neo4j:5-community, got %s", k.Image)
 	}
 	if PrimaryPort(k.Endpoints) != 7474 {
 		t.Errorf("endpoints primary port: expected 7474, got %d", PrimaryPort(k.Endpoints))
@@ -509,8 +509,8 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["custom_db"]
-	if k.Image != "registry.example.com/dockerhub/library/my-db:latest" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/my-db:latest, got %s", k.Image)
+	if k.Image != "my-db:latest" {
+		t.Errorf("image: expected my-db:latest, got %s", k.Image)
 	}
 	if PrimaryPort(k.Endpoints) != 5000 {
 		t.Errorf("endpoints primary port: expected 5000, got %d", PrimaryPort(k.Endpoints))
@@ -540,7 +540,7 @@ func TestTemplate_ContainerKnowledge_BuildWithoutImage(t *testing.T) {
 
 	k := ds.Knowledge["chat-sandbox"]
 	// Image should be synthesized from agent name + knowledge entry name
-	expectedImage := "registry.example.com/dockerhub/library/my-agent-knowledge-chat-sandbox"
+	expectedImage := "my-agent-knowledge-chat-sandbox"
 	if k.Image != expectedImage {
 		t.Errorf("image: expected %s, got %s", expectedImage, k.Image)
 	}
@@ -661,8 +661,8 @@ func TestTemplate_Tool(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	tool := ds.Integrations["websearch"]
-	if tool.Image != "registry.example.com/dockerhub/library/search:v2" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/search:v2, got %s", tool.Image)
+	if tool.Image != "search:v2" {
+		t.Errorf("image: expected search:v2, got %s", tool.Image)
 	}
 	if PrimaryPort(tool.Endpoints) != 3000 {
 		t.Errorf("endpoints primary port: expected 3000, got %d", PrimaryPort(tool.Endpoints))
@@ -725,8 +725,8 @@ func TestTemplate_IngestionSchedule(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	ing := ds.Ingestion["sync"]
-	if ing.Image != "registry.example.com/dockerhub/library/sync:latest" {
-		t.Errorf("image: expected registry.example.com/dockerhub/library/sync:latest, got %s", ing.Image)
+	if ing.Image != "sync:latest" {
+		t.Errorf("image: expected sync:latest, got %s", ing.Image)
 	}
 	if ing.Trigger.Type != "schedule" {
 		t.Errorf("trigger.type: expected schedule, got %s", ing.Trigger.Type)
@@ -1234,8 +1234,8 @@ agent:
 		t.Errorf("interfaces.adapters: expected empty, got %v", ds.Interfaces.Adapters)
 	}
 
-	// Messaging image resolved through registry
-	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
+	// Messaging image passed through unchanged; infra routes the pull.
+	if ds.Interfaces.Image != "astropods/messaging:latest" {
 		t.Errorf("interfaces.image: got %s", ds.Interfaces.Image)
 	}
 
@@ -1535,10 +1535,10 @@ func TestTemplate_MultipleModels(t *testing.T) {
 	if len(ds.Models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(ds.Models))
 	}
-	if ds.Models["llm"].Image != "registry.example.com/dockerhub/library/my-model:latest" {
+	if ds.Models["llm"].Image != "my-model:latest" {
 		t.Errorf("llm image: got %s", ds.Models["llm"].Image)
 	}
-	if ds.Models["custom"].Image != "registry.example.com/dockerhub/library/custom:latest" {
+	if ds.Models["custom"].Image != "custom:latest" {
 		t.Errorf("custom image: got %s", ds.Models["custom"].Image)
 	}
 	if PrimaryPort(ds.Models["custom"].Endpoints) != 5000 {
@@ -1603,7 +1603,7 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	if parsed.Source.Name != "my-agent" {
 		t.Errorf("source.name: expected my-agent, got %s", parsed.Source.Name)
 	}
-	if parsed.Models["llm"].Image != "registry.example.com/dockerhub/library/my-model:latest" {
+	if parsed.Models["llm"].Image != "my-model:latest" {
 		t.Errorf("models.llm.image lost in round-trip: got %s", parsed.Models["llm"].Image)
 	}
 	if !parsed.Knowledge["docs"].Persistent {
@@ -1638,7 +1638,7 @@ func proxyInput() TemplateInput {
 }
 
 func TestGenerateTemplate_MessagingImageOverride(t *testing.T) {
-	t.Run("override is honored and rewritten to the pull-through path", func(t *testing.T) {
+	t.Run("override is honored and passed through unchanged", func(t *testing.T) {
 		input := baseInput()
 		input.Environment = "prod"
 		input.MessagingImage = "astropods/messaging@sha256:abc123"
@@ -1647,7 +1647,7 @@ func TestGenerateTemplate_MessagingImageOverride(t *testing.T) {
 		if ds.Interfaces == nil {
 			t.Fatal("interfaces: expected non-nil")
 		}
-		want := "registry.example.com/dockerhub/astropods/messaging@sha256:abc123"
+		want := "astropods/messaging@sha256:abc123"
 		if ds.Interfaces.Image != want {
 			t.Errorf("interfaces.image: got %q, want %q", ds.Interfaces.Image, want)
 		}
@@ -1662,189 +1662,11 @@ func TestGenerateTemplate_MessagingImageOverride(t *testing.T) {
 		if ds.Interfaces == nil {
 			t.Fatal("interfaces: expected non-nil")
 		}
-		want := "registry.example.com/dockerhub/astropods/messaging:latest"
+		want := "astropods/messaging:latest"
 		if ds.Interfaces.Image != want {
 			t.Errorf("interfaces.image: got %q, want %q", ds.Interfaces.Image, want)
 		}
 	})
-}
-
-func TestResolveImage_TenantImage(t *testing.T) {
-	input := proxyInput()
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	// Pull-through: the pushed reference passes through unchanged; astro-registry
-	// maps the "acme" namespace to its ECR repo at pull time.
-	expected := "proxy.registry.io/acme/my-app:v1"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_TenantImageMissingImageSegment(t *testing.T) {
-	input := proxyInput()
-	// Only account, no image name — malformed, returned unchanged
-	got := resolveImage("proxy.registry.io/acme", input)
-	if got != "proxy.registry.io/acme" {
-		t.Errorf("malformed tenant path should be unchanged, got %s", got)
-	}
-}
-
-func TestResolveImage_TenantImageRegistryURLWithoutScheme(t *testing.T) {
-	// RegistryURL no longer affects tenant resolution under pull-through; the
-	// image stays on the proxy registry host regardless of the ECR URL form.
-	input := proxyInput()
-	input.RegistryURL = "123456789.dkr.ecr.us-east-1.amazonaws.com"
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "proxy.registry.io/acme/my-app:v1"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_PublicOrgImage(t *testing.T) {
-	input := proxyInput()
-	got := resolveImage("astropods/messaging:latest", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_PublicLibraryImage(t *testing.T) {
-	input := proxyInput()
-	got := resolveImage("nginx:1.27", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx:1.27"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_ThirdPartyImageUnchanged(t *testing.T) {
-	input := proxyInput()
-	cases := []string{
-		"gcr.io/my-project/my-app:v1",
-		"123456789.dkr.ecr.us-east-1.amazonaws.com/my-repo:latest",
-		"registry.example.com/org/image:tag",
-		"localhost:5000/my-image:latest",
-		"docker.io/library/python:3.11",
-	}
-	for _, img := range cases {
-		got := resolveImage(img, input)
-		if got != img {
-			t.Errorf("third-party image %q should be unchanged, got %q", img, got)
-		}
-	}
-}
-
-func TestResolveImage_EmptyImage(t *testing.T) {
-	got := resolveImage("", proxyInput())
-	if got != "" {
-		t.Errorf("empty image should stay empty, got %s", got)
-	}
-}
-
-func TestResolveImage_NoRegistryConfigured(t *testing.T) {
-	input := proxyInput()
-	input.RegistryURL = ""
-	input.ProxyRegistryHost = ""
-	got := resolveImage("astropods/messaging:latest", input)
-	if got != "astropods/messaging:latest" {
-		t.Errorf("without registry config, image should be unchanged, got %s", got)
-	}
-}
-
-func TestResolveImage_TenantImageWithoutRegistryURL(t *testing.T) {
-	// ProxyRegistryHost configured but RegistryURL missing — must not produce a malformed path
-	input := proxyInput()
-	input.RegistryURL = ""
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	if got != "proxy.registry.io/acme/my-app:v1" {
-		t.Errorf("tenant image without RegistryURL should be unchanged, got %s", got)
-	}
-}
-
-func TestResolveImage_RegistryURLWithTrailingSlash(t *testing.T) {
-	input := proxyInput()
-	input.RegistryURL = "https://123456789.dkr.ecr.us-east-1.amazonaws.com/"
-	got := resolveImage("nginx:1.27", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx:1.27"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_PublicImageWithNoTag(t *testing.T) {
-	input := proxyInput()
-	got := resolveImage("nginx", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx"
-	if got != expected {
-		t.Errorf("expected %s, got %s", expected, got)
-	}
-}
-
-func TestResolveImage_DockerIOPrefixIsThirdParty(t *testing.T) {
-	// docker.io is an explicit registry host — treated as third-party, not routed to cache
-	input := proxyInput()
-	image := "docker.io/library/python:3.11"
-	got := resolveImage(image, input)
-	if got != image {
-		t.Errorf("docker.io-prefixed image should be unchanged, got %s", got)
-	}
-}
-
-// TestResolveImage_LocalEnvironmentSkipsDockerHubRewrite verifies that public
-// Docker Hub images are returned unchanged when Environment is "local", since
-// local Kubernetes pulls directly from Docker Hub (or the local daemon).
-func TestResolveImage_LocalEnvironmentSkipsDockerHubRewrite(t *testing.T) {
-	input := proxyInput()
-	input.Environment = "local"
-	input.RegistryURL = "docker.io/library"
-
-	cases := []struct {
-		name  string
-		image string
-	}{
-		{"org image", "astropods/messaging:latest"},
-		{"library image", "redis:7-alpine"},
-		{"library image with org", "qdrant/qdrant:latest"},
-		{"library image no tag", "neo4j"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := resolveImage(tc.image, input)
-			if got != tc.image {
-				t.Errorf("in local env, %q should be unchanged, got %q", tc.image, got)
-			}
-		})
-	}
-}
-
-// TestResolveImage_LocalEnvironmentStillResolvesTenantImages verifies that
-// proxy-registry-hosted tenant images are still rewritten to ECR even in local
-// mode, since tenant images are stored in the private registry.
-func TestResolveImage_LocalEnvironmentStillResolvesTenantImages(t *testing.T) {
-	input := proxyInput()
-	input.Environment = "local"
-
-	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "proxy.registry.io/acme/my-app:v1"
-	if got != expected {
-		t.Errorf("tenant images should still resolve in local env, expected %s, got %s", expected, got)
-	}
-}
-
-// TestResolveImage_ProdEnvironmentStillRewritesDockerHub verifies that prod
-// environments continue to rewrite public images through the ECR pull-through
-// cache as before.
-func TestResolveImage_ProdEnvironmentStillRewritesDockerHub(t *testing.T) {
-	input := proxyInput()
-	input.Environment = "prod"
-
-	got := resolveImage("qdrant/qdrant:latest", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/qdrant/qdrant:latest"
-	if got != expected {
-		t.Errorf("prod env should rewrite to pull-through cache, expected %s, got %s", expected, got)
-	}
 }
 
 func TestTemplate_AgentImageResolved(t *testing.T) {
@@ -1927,7 +1749,7 @@ func TestTemplate_IntegrationBuildWithoutImage(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "registry.example.com/dockerhub/library/my-agent-integration-search"
+	expected := "my-agent-integration-search"
 	if ds.Integrations["search"].Image != expected {
 		t.Errorf("integration image: expected %s, got %s", expected, ds.Integrations["search"].Image)
 	}
@@ -1946,7 +1768,7 @@ func TestTemplate_IngestionBuildWithoutImage(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	expected := "registry.example.com/dockerhub/library/my-agent-ingestion-crawler"
+	expected := "my-agent-ingestion-crawler"
 	if ds.Ingestion["crawler"].Image != expected {
 		t.Errorf("ingestion image: expected %s, got %s", expected, ds.Ingestion["crawler"].Image)
 	}
@@ -2020,8 +1842,8 @@ func TestTemplate_MixedTenantAndPublicImages(t *testing.T) {
 	if !strings.Contains(ds.Models["proxy"].Image, "proxy.registry.io/acme") {
 		t.Errorf("proxy image should be resolved, got %s", ds.Models["proxy"].Image)
 	}
-	// Public image is served through the ECR pull-through cache
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/my-model:latest"
+	// Public image is passed through unchanged; infra routes the pull.
+	expected := "my-model:latest"
 	if ds.Models["public"].Image != expected {
 		t.Errorf("expected %s, got %s", expected, ds.Models["public"].Image)
 	}
@@ -3481,7 +3303,7 @@ agent:
 		t.Errorf("interfaces.adapters: expected empty, got %v", ds.Interfaces.Adapters)
 	}
 
-	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
+	if ds.Interfaces.Image != "astropods/messaging:latest" {
 		t.Errorf("interfaces.image: got %s", ds.Interfaces.Image)
 	}
 
