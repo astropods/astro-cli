@@ -146,6 +146,89 @@ func TestResolve_AdditionalClusterWithEmptyFieldErrors(t *testing.T) {
 	}
 }
 
+func TestResolve_PrimaryUsesConfiguredPullCredential(t *testing.T) {
+	dep := envDefaults()
+	dep.RegistryPullCredential = "astrocp_primary_secret"
+
+	got, err := Resolve(context.Background(), nil, dep, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.RegistryPullCredential != "astrocp_primary_secret" {
+		t.Errorf("RegistryPullCredential = %q, want dep's configured credential", got.RegistryPullCredential)
+	}
+}
+
+func TestResolve_AdditionalClusterUsesOwnPullCredential(t *testing.T) {
+	dep := envDefaults()
+	dep.ProxyRegistryHost = "registry.example.com"
+	dep.RegistryPullCredential = "astrocp_primary_secret"
+
+	reg := k8s.NewRegistryWithPrimary(nil)
+	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
+		ID:                     "eu-west-1",
+		Enabled:                true,
+		AgentIngressDomain:     "eu.agents.example.com",
+		IngestionIngressDomain: "eu.ingestion.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10",
+		PodSubnetCIDRs:         "10.0.0.0/24",
+		PullCredential:         "astrocp_eu-west-1_secret",
+	})
+
+	got, err := Resolve(context.Background(), reg, dep, "eu-west-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.RegistryPullCredential != "astrocp_eu-west-1_secret" {
+		t.Errorf("RegistryPullCredential = %q, want the cluster's own credential, not the primary's", got.RegistryPullCredential)
+	}
+}
+
+func TestResolve_AdditionalClusterMissingPullCredentialErrorsWhenPullThroughEnabled(t *testing.T) {
+	dep := envDefaults()
+	dep.ProxyRegistryHost = "registry.example.com"
+
+	reg := k8s.NewRegistryWithPrimary(nil)
+	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
+		ID:                     "eu-west-1",
+		Enabled:                true,
+		AgentIngressDomain:     "eu.agents.example.com",
+		IngestionIngressDomain: "eu.ingestion.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10",
+		PodSubnetCIDRs:         "10.0.0.0/24",
+	})
+
+	_, err := Resolve(context.Background(), reg, dep, "eu-west-1")
+	if err == nil || !strings.Contains(err.Error(), "pull credential") {
+		t.Fatalf("expected a pull credential error, got %v", err)
+	}
+}
+
+func TestResolve_AdditionalClusterMissingPullCredentialOKWhenPullThroughDisabled(t *testing.T) {
+	dep := envDefaults() // ProxyRegistryHost unset, matching local dev
+
+	reg := k8s.NewRegistryWithPrimary(nil)
+	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
+		ID:                     "eu-west-1",
+		Enabled:                true,
+		AgentIngressDomain:     "eu.agents.example.com",
+		IngestionIngressDomain: "eu.ingestion.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
+		LangfuseVPCEIPs:        "10.0.1.10",
+		PodSubnetCIDRs:         "10.0.0.0/24",
+	})
+
+	got, err := Resolve(context.Background(), reg, dep, "eu-west-1")
+	if err != nil {
+		t.Fatalf("unexpected error when pull-through is disabled: %v", err)
+	}
+	if got.RegistryPullCredential != "" {
+		t.Errorf("RegistryPullCredential = %q, want empty", got.RegistryPullCredential)
+	}
+}
+
 func TestResolve_UnknownClusterErrors(t *testing.T) {
 	reg := k8s.NewRegistryWithPrimary(nil)
 	_, err := Resolve(context.Background(), reg, envDefaults(), "does-not-exist")

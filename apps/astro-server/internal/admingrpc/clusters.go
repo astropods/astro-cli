@@ -110,6 +110,7 @@ func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
 		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         row.PodSubnetCIDRs,
+		PullCredential:         row.PullCredential,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
 	}
@@ -314,6 +315,10 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 		PodSubnetCIDRs:         req.PodSubnetCIDRs,
 	}); err != nil {
 		return nil, clusterStoreErr(err)
+	}
+	// Backfills clusters registered before pull_credential existed.
+	if _, err := s.clusterStore.EnsurePullCredential(ctx, req.ID); err != nil {
+		s.log.Warn("Failed to ensure cluster pull credential", "cluster", req.ID, "error", err)
 	}
 	if err := s.k8sRegistry.Refresh(ctx, req.ID); err != nil {
 		return nil, status.Errorf(codes.Internal, "refresh registry: %v", err)

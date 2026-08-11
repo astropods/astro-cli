@@ -30,6 +30,7 @@ type Resolved struct {
 	LangfuseVPCEIPs          []string // VPCE ENI IPs for netpol :3000 egress
 	PodSubnetCIDRs           []string // pod subnet CIDRs for netpol except list
 	CPSubnetCIDRs            []string // apiserver ENI subnets for service-proxy ingress NP
+	RegistryPullCredential   string   // CPC embedded in this cluster's tenant image-pull Secret
 }
 
 // Resolve returns the effective config for a deployment targeting clusterID.
@@ -51,6 +52,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 			LangfuseVPCEIPs:          dep.LangfuseVPCEIPs,
 			PodSubnetCIDRs:           dep.PodSubnetCIDRs,
 			CPSubnetCIDRs:            dep.CPSubnetCIDRs,
+			RegistryPullCredential:   dep.RegistryPullCredential,
 		}, nil
 	}
 
@@ -65,6 +67,9 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 	if err := clusterfields.ValidateDeployNonEmpty(clusterID, deployConfigFromEntry(entry)); err != nil {
 		return Resolved{}, err
 	}
+	if dep.ProxyRegistryHost != "" && entry.PullCredential == "" {
+		return Resolved{}, fmt.Errorf("cluster %q has no registry pull credential — register or update the cluster to generate one", clusterID)
+	}
 
 	return Resolved{
 		AgentIngressDomain:     entry.AgentIngressDomain,
@@ -72,6 +77,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 		LangfuseBaseURL:        entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        commalist.Parse(entry.LangfuseVPCEIPs),
 		PodSubnetCIDRs:         commalist.Parse(entry.PodSubnetCIDRs),
+		RegistryPullCredential: entry.PullCredential,
 	}, nil
 }
 

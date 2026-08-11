@@ -34,6 +34,7 @@ var clusterColumns = []string{
 	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 	"agent_ingress_domain", "ingestion_ingress_domain",
 	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+	"pull_credential", "pull_key_hash",
 	"created_at", "updated_at",
 }
 
@@ -49,6 +50,7 @@ func clusterRow(id, region, eksName, eksEndpoint string, enabled bool, now time.
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
 		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
+		nil, nil,
 		now, now,
 	}
 }
@@ -251,8 +253,11 @@ func TestUpdateCluster_Success(t *testing.T) {
 	srv, mock := newClusterTestServer(t)
 	now := time.Now()
 
-	mock.ExpectExec("UPDATE clusters SET").
+	mock.ExpectExec("UPDATE clusters SET region").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE clusters SET pull_credential").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "eu-west-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("eu-west-1").
 		WillReturnRows(sqlmock.NewRows(clusterColumns).

@@ -39,12 +39,9 @@ CREATE TABLE public.clusters (
     langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',
     langfuse_vpce_ips         text         NOT NULL DEFAULT '',
     pod_subnet_cidrs          text         NOT NULL DEFAULT '',
-    -- sha256 of this cluster's pull credential (CPC) secret, set by astro-server
-    -- at cluster registration. The cluster's kubelets present the CPC to
-    -- astro-registry's /token endpoint to obtain a pull-scoped registry token;
-    -- overwriting this hash revokes the cluster in isolation. NULL until issued.
-    -- The primary cluster has no row here — its hash lives in the registry's
-    -- PRIMARY_PULL_KEY_HASH env var. See docs/01-spec/registry-pull-through-spec.md.
+    -- Cluster pull credential (CPC), generated at registration. pull_key_hash
+    -- is sha256 of its secret portion. See docs/01-spec/registry-pull-through-spec.md.
+    pull_credential    text,
     pull_key_hash      bytea,
     created_at         timestamptz  NOT NULL DEFAULT now(),
     updated_at         timestamptz  NOT NULL DEFAULT now(),

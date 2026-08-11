@@ -10,7 +10,10 @@ package clusterstore
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"net"
@@ -23,6 +26,16 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/commalist"
 
 	"github.com/lib/pq"
+)
+
+// pullCredentialPrefix matches astro-registry's internal/clusterpull parser.
+const pullCredentialPrefix = "astrocp_"
+
+// PrimaryClusterID and PrimaryRegion identify the primary cluster, which has
+// no row in this table.
+const (
+	PrimaryClusterID = "primary"
+	PrimaryRegion    = "us-east-1"
 )
 
 // Errors returned by the store.
@@ -75,8 +88,23 @@ type Cluster struct {
 	LangfuseBaseURLExt     string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
 	LangfuseVPCEIPs        string // comma-separated VPCE ENI /32 targets for netpol egress
 	PodSubnetCIDRs         string // comma-separated pod subnet CIDRs for netpol except list
+	PullCredential         string // plaintext CPC; empty until Register/EnsurePullCredential sets it
+	PullKeyHash            []byte // sha256 of the CPC's secret portion
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+}
+
+// generatePullCredential returns a new astrocp_{clusterID}_{secret} credential
+// and the sha256 hash of its secret portion.
+func generatePullCredential(clusterID string) (plaintext string, hash []byte, err error) {
+	b := make([]byte, 20)
+	if _, err = rand.Read(b); err != nil {
+		return "", nil, fmt.Errorf("generate pull credential: read random: %w", err)
+	}
+	secret := strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
+	plaintext = pullCredentialPrefix + clusterID + "_" + secret
+	sum := sha256.Sum256([]byte(secret))
+	return plaintext, sum[:], nil
 }
 
 // ValidateID returns nil if id is a valid cluster identifier.
@@ -198,15 +226,23 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 		return err
 	}
 
-	_, err := s.db.ExecContext(ctx, `
+	credential, hash, err := generatePullCredential(c.ID)
+	if err != nil {
+		return err
+	}
+	c.PullCredential, c.PullKeyHash = credential, hash
+
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO clusters (
 			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 			agent_ingress_domain, ingestion_ingress_domain,
-			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
+			pull_credential, pull_key_hash
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
 		c.AgentIngressDomain, c.IngestionIngressDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
+		c.PullCredential, c.PullKeyHash,
 	)
 	if err != nil {
 		if pgCode(err) == pgUniqueViolation {
@@ -317,6 +353,28 @@ func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// EnsurePullCredential backfills a pull credential if the cluster doesn't
+// have one yet. Safe to call unconditionally and repeatedly.
+func (s *Store) EnsurePullCredential(ctx context.Context, id string) (generated bool, err error) {
+	credential, hash, err := generatePullCredential(id)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE clusters SET pull_credential = $1, pull_key_hash = $2, updated_at = now()
+		WHERE id = $3 AND pull_credential IS NULL`,
+		credential, hash, id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("ensure pull credential: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("rows affected: %w", err)
+	}
+	return n > 0, nil
 }
 
 // Deregister deletes a cluster row. Both accounts.cluster_id and
@@ -437,6 +495,7 @@ const baseSelect = `
 	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 	       agent_ingress_domain, ingestion_ingress_domain,
 	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
+	       pull_credential, pull_key_hash,
 	       created_at, updated_at
 	FROM clusters`
 
@@ -447,14 +506,17 @@ type rowScanner interface {
 
 func scanCluster(r rowScanner) (*Cluster, error) {
 	var c Cluster
+	var pullCredential sql.NullString
 	if err := r.Scan(
 		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
 		&c.AgentIngressDomain, &c.IngestionIngressDomain,
 		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs,
+		&pullCredential, &c.PullKeyHash,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
+	c.PullCredential = pullCredential.String
 	return &c, nil
 }
 

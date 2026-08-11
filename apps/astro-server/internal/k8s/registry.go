@@ -68,8 +68,10 @@ type ClusterEntry struct {
 	LangfuseBaseURLExt     string
 	LangfuseVPCEIPs        string
 	PodSubnetCIDRs         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	// PullCredential is never exposed via the admin API; only clustercfg.Resolve reads it.
+	PullCredential string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // RegistryConfig is the process-level Kubernetes configuration that the

@@ -414,6 +414,12 @@ func runAPI(
 		}
 	}()
 
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		backfillClusterPullCredentials(ctx, clusterStore, log)
+	}()
+
 	// Initialize Kubernetes registry. The registry holds the primary
 	// ClusterClient (built from env vars / kubeconfig) and is the seam
 	// for per-deployment cluster_id resolution against the `clusters`
@@ -619,6 +625,26 @@ func runAPI(
 	return srv, grpcServer, fleetServer, probeHandler, adminSrv, rq
 }
 
+// backfillClusterPullCredentials is safe to run from every process/replica —
+// EnsurePullCredential is a guarded, no-op-once-issued UPDATE.
+func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterstore.Store, log *logger.Logger) {
+	clusters, err := clusterStore.List(ctx, false)
+	if err != nil {
+		log.Warn("cluster pull credential backfill: list clusters failed", "error", err)
+		return
+	}
+	for _, c := range clusters {
+		generated, err := clusterStore.EnsurePullCredential(ctx, c.ID)
+		if err != nil {
+			log.Warn("cluster pull credential backfill failed", "cluster", c.ID, "error", err)
+			continue
+		}
+		if generated {
+			log.Info("cluster pull credential backfilled", "cluster", c.ID)
+		}
+	}
+}
+
 // newImagePreflighter constructs the registry-HEAD preflighter used by both
 // the deploy handler (synchronous 422 response) and the deploy worker
 // (Applier defense-in-depth). Local mode treats 5xx responses as missing
@@ -664,6 +690,11 @@ func runWorker(
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	clusterStore := clusterstore.New(db)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		backfillClusterPullCredentials(ctx, clusterStore, log)
+	}()
 	registry, registryErr := k8s.NewRegistry(initCtx, clusterStore, k8s.RegistryConfig{
 		Mode:             clientMode,
 		Region:           cfg.Deployment.AWSRegion,

@@ -137,10 +137,12 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
+			nil, nil,
 			now, now))
 
 	r := &Registry{
@@ -171,10 +173,12 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24",
+			nil, nil,
 			now, now))
 
 	r := &Registry{

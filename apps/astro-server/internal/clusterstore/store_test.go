@@ -3,6 +3,7 @@ package clusterstore
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,14 +71,22 @@ func TestRegister_Success(t *testing.T) {
 			true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
+			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.Register(context.Background(), fullCluster()); err != nil {
+	c := fullCluster()
+	if err := store.Register(context.Background(), c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+	if c.PullCredential == "" || len(c.PullKeyHash) == 0 {
+		t.Errorf("Register did not populate PullCredential/PullKeyHash on the struct: %+v", c)
+	}
+	if !strings.HasPrefix(c.PullCredential, "astrocp_us-east-1-managed_") {
+		t.Errorf("PullCredential = %q, want astrocp_us-east-1-managed_ prefix", c.PullCredential)
 	}
 }
 
@@ -302,6 +311,43 @@ func TestSetEnabled_NotFound(t *testing.T) {
 	}
 }
 
+func TestEnsurePullCredential_Backfills(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("UPDATE clusters SET pull_credential = \\$1, pull_key_hash = \\$2").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "eu-west-1-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	generated, err := store.EnsurePullCredential(context.Background(), "eu-west-1-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !generated {
+		t.Error("expected generated=true when the guarded UPDATE affects a row")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestEnsurePullCredential_NoOpWhenAlreadyIssued(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := New(db)
+
+	mock.ExpectExec("UPDATE clusters SET pull_credential = \\$1, pull_key_hash = \\$2").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "eu-west-1-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	generated, err := store.EnsurePullCredential(context.Background(), "eu-west-1-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if generated {
+		t.Error("expected generated=false when the row already has a credential")
+	}
+}
+
 func TestUpdate_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := New(db)
@@ -492,6 +538,7 @@ func clusterRows() *sqlmock.Rows {
 		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 		"agent_ingress_domain", "ingestion_ingress_domain",
 		"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs",
+		"pull_credential", "pull_key_hash",
 		"created_at", "updated_at",
 	})
 }
@@ -504,6 +551,7 @@ func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string,
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
 		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24",
+		nil, nil,
 		now, now,
 	)
 }
