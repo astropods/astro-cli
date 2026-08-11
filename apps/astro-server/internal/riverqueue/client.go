@@ -492,7 +492,11 @@ func (q *Queue) ResumeQueue(ctx context.Context, name string) error {
 
 // NewInsertOnly creates a Queue that can only insert jobs (no workers, no periodic jobs).
 // Used by the API process to enqueue deploy/undeploy/wakeup jobs without running workers.
-func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) (*Queue, error) {
+//
+// billingEnforce is BILLING_GATE_ENFORCE and is a parameter rather than a
+// config field so it cannot be left unset: the API process reconciles workloads
+// on card add/remove, and a zero value silently downgrades that to observe mode.
+func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger, billingEnforce bool) (*Queue, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("riverqueue: pgxpool: %w", err)
@@ -508,9 +512,10 @@ func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) 
 	}
 
 	return &Queue{
-		pool:   pool,
-		client: riverClient,
-		log:    log,
+		pool:           pool,
+		client:         riverClient,
+		log:            log,
+		billingEnforce: billingEnforce,
 	}, nil
 }
 

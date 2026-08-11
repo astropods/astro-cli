@@ -484,7 +484,7 @@ func runAPI(
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Create insert-only River queue for API (no workers, no periodic jobs — workers run in runWorker)
-	rq, rqErr := riverqueue.NewInsertOnly(context.Background(), cfg.Database.URL, log)
+	rq, rqErr := riverqueue.NewInsertOnly(context.Background(), cfg.Database.URL, log, cfg.BillingGateEnforce)
 	if rqErr != nil {
 		log.Error("Failed to create River queue for API", "error", rqErr)
 		os.Exit(1)

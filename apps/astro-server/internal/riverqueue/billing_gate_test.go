@@ -60,3 +60,22 @@ func TestInsertBillingResume_IsNotGated(t *testing.T) {
 		t.Error("resume never reached the client; a suspended account could not be restored")
 	}
 }
+
+// The API process builds its queue through NewInsertOnly and reconciles
+// workloads on card add/remove. A constructor that drops the flag leaves that
+// path permanently in observe mode, so an account whose credits are spent and
+// whose card is gone is never stopped. The DSN is never dialled: pgxpool
+// connects lazily, so this asserts wiring without a database.
+func TestNewInsertOnly_CarriesBillingEnforce(t *testing.T) {
+	const dsn = "postgres://u:p@127.0.0.1:1/db"
+	for _, enforce := range []bool{true, false} {
+		q, err := NewInsertOnly(context.Background(), dsn, logger.New("error", "json"), enforce)
+		if err != nil {
+			t.Fatalf("NewInsertOnly(enforce=%v): %v", enforce, err)
+		}
+		t.Cleanup(q.Close)
+		if got := q.billingActs("suspend", "acct_1"); got != enforce {
+			t.Errorf("billingActs = %v, want %v", got, enforce)
+		}
+	}
+}
