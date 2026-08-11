@@ -367,13 +367,11 @@ type GetAccountBillingDetailRequest struct {
 }
 
 type BillingContract struct {
-	ID            string `json:"id,omitempty"`
-	Name          string `json:"name,omitempty"`
-	UniquenessKey string `json:"uniqueness_key,omitempty"`
-	RateCardID    string `json:"rate_card_id,omitempty"`
-	StartingAt    string `json:"starting_at,omitempty"`
-	EndingBefore  string `json:"ending_before,omitempty"`
-	Ours          bool   `json:"ours"`
+	ID           string `json:"id,omitempty"`
+	Name         string `json:"name,omitempty"`
+	RateCardID   string `json:"rate_card_id,omitempty"`
+	StartingAt   string `json:"starting_at,omitempty"`
+	EndingBefore string `json:"ending_before,omitempty"`
 }
 
 type BillingProvisionJob struct {

@@ -167,11 +167,8 @@ func main() {
 		log.Info("Billing provider: noop (unmetered)")
 	case config.BillingBackendMetronome:
 		mp := metronome.New(metronome.Config{
-			APIKey:           cfg.MetronomeAPIKey,
-			PackageID:        cfg.MetronomePackageID,
-			CreditTypeID:     cfg.MetronomeCreditTypeID,
-			SignupCredit:     float64(cfg.MetronomeSignupCredit),
-			CreditExpiryDays: cfg.MetronomeCreditExpiryDays,
+			APIKey:    cfg.MetronomeAPIKey,
+			PackageID: cfg.MetronomePackageID,
 		})
 		if mp == nil {
 			log.Error("BILLING_PROVIDER=metronome but METRONOME_API_KEY is not set; billing disabled")

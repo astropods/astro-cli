@@ -33,11 +33,9 @@ const ingestBatchLimit = 100
 type Config struct {
 	APIKey string // METRONOME_API_KEY (bearer token)
 
-	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op.
-	PackageID        string  // METRONOME_PACKAGE_ID
-	CreditTypeID     string  // METRONOME_CREDIT_TYPE_ID — pricing unit
-	SignupCredit     float64 // METRONOME_SIGNUP_CREDIT — in the credit type's own unit
-	CreditExpiryDays int     // METRONOME_CREDIT_EXPIRY_DAYS
+	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op. The
+	// package carries the signup credit, so nothing about it is configured here.
+	PackageID string // METRONOME_PACKAGE_ID
 }
 
 // Provider is the Metronome-backed billing provider.
@@ -158,10 +156,9 @@ func (p *Provider) LinkStripeCustomer(ctx context.Context, metronomeCustomerID, 
 	return nil
 }
 
-// ProvisionCustomer puts the customer on the configured package and grants its
-// signup credit. Both writes carry a uniqueness key derived from the account
-// ID, so Metronome rejects a repeat with 409 and this treats that as already
-// provisioned. Reports false when no package is configured.
+// ProvisionCustomer puts the customer on the configured package. The package
+// carries the signup credit, so Metronome attaches it to the contract and no
+// second write is needed. Reports false when no package is configured.
 func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error) {
 	if p.cfg.PackageID == "" {
 		return false, nil
@@ -172,55 +169,31 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	if err != nil {
 		return false, err
 	}
-
-	contractKey := contractKey(accountID)
-	switch cov, foreign := classifyCoverage(existing, contractKey); cov {
-	case coverageOurs:
-		// Already on the right package; the grant below is separately keyed.
-	case coverageNone:
-		// PackageID is mutually exclusive with the rest of the contract fields:
-		// only customer_id, starting_at, package_id, uniqueness_key, transition,
-		// and custom_fields are accepted alongside it.
-		_, err = p.mc.V1.Contracts.New(ctx, metronome.V1ContractNewParams{
-			CustomerID:    customerID,
-			StartingAt:    now,
-			PackageID:     param.NewOpt(p.cfg.PackageID),
-			UniquenessKey: param.NewOpt(contractKey),
-		})
-		if err != nil && !isConflict(err) {
-			return false, fmt.Errorf("metronome create contract: %w", err)
-		}
-	case coverageForeign:
-		// Adding ours would stack a second contract; skipping would silently
-		// bill the account on whatever rates that one carries. Neither is ours
-		// to choose, so archive the stray contract in Metronome. Not retryable,
-		// so the caller cancels and the hourly sweep re-checks once rather than
-		// the job burning its whole backoff schedule every tick.
-		return false, fmt.Errorf("%w: customer %s is already covered by contract %s",
-			billing.ErrProvisionBlocked, customerID, foreign)
-	}
-
-	if p.cfg.SignupCredit <= 0 {
+	// Any contract effective now already bills the customer, so a second would
+	// bill them twice. The uniqueness key does not 409 against a contract made
+	// by hand, which is why the list happens at all.
+	if len(existing) > 0 {
 		return true, nil
 	}
-	expiry := now.AddDate(0, 0, p.cfg.CreditExpiryDays)
-	_, err = p.mc.V1.CreditGrants.New(ctx, metronome.V1CreditGrantNewParams{
+
+	// PackageID is mutually exclusive with the rest of the contract fields:
+	// only customer_id, starting_at, package_id, uniqueness_key, transition,
+	// and custom_fields are accepted alongside it.
+	_, err = p.mc.V1.Contracts.New(ctx, metronome.V1ContractNewParams{
 		CustomerID:    customerID,
-		Name:          "Signup credit",
-		ExpiresAt:     expiry,
-		Priority:      1,
-		GrantAmount:   metronome.V1CreditGrantNewParamsGrantAmount{Amount: p.cfg.SignupCredit, CreditTypeID: p.cfg.CreditTypeID},
-		PaidAmount:    metronome.V1CreditGrantNewParamsPaidAmount{Amount: 0, CreditTypeID: p.cfg.CreditTypeID},
-		UniquenessKey: param.NewOpt("signup-credit:" + accountID),
+		StartingAt:    now,
+		PackageID:     param.NewOpt(p.cfg.PackageID),
+		UniquenessKey: param.NewOpt(contractKey(accountID)),
 	})
 	if err != nil && !isConflict(err) {
-		return false, fmt.Errorf("metronome create credit grant: %w", err)
+		return false, fmt.Errorf("metronome create contract: %w", err)
 	}
 	return true, nil
 }
 
-// coveringContracts lists the contracts effective at `at`. A contract made by
-// hand carries no uniqueness key, so Contracts.New would not 409 against it.
+// coveringContracts lists the contracts effective at `at`. A contract made
+// outside this path (by hand in the dashboard) carries no uniqueness key, so
+// Contracts.New would not 409 against it and it has to be read first.
 func (p *Provider) coveringContracts(ctx context.Context, customerID string, at time.Time) ([]shared.ContractV2, error) {
 	page, err := p.mc.V2.Contracts.List(ctx, metronome.V2ContractListParams{
 		CustomerID:   customerID,
@@ -232,75 +205,42 @@ func (p *Provider) coveringContracts(ctx context.Context, customerID string, at 
 	return page.Data, nil
 }
 
-// ContractCoverage reports the verdict ProvisionCustomer acts on. Read-only.
-func (p *Provider) ContractCoverage(ctx context.Context, customerID, accountID string) (billing.Coverage, error) {
+// ContractCoverage reports the verdict ProvisionCustomer acts on, for the admin
+// view. Read-only: it never creates a contract.
+func (p *Provider) ContractCoverage(ctx context.Context, customerID string) (billing.Coverage, error) {
 	contracts, err := p.coveringContracts(ctx, customerID, time.Now().UTC().Truncate(time.Hour))
 	if err != nil {
 		return billing.Coverage{}, err
 	}
 
-	key := contractKey(accountID)
-	cov, _ := classifyCoverage(contracts, key)
-	out := billing.Coverage{State: cov.String(), Contracts: make([]billing.Contract, 0, len(contracts))}
-	for _, c := range contracts {
-		out.Contracts = append(out.Contracts, billing.Contract{
-			ID:            c.ID,
-			Name:          c.Name,
-			UniquenessKey: c.UniquenessKey,
-			RateCardID:    c.RateCardID,
-			StartingAt:    c.StartingAt,
-			EndingBefore:  c.EndingBefore,
-			Ours:          c.UniquenessKey != "" && c.UniquenessKey == key,
-		})
-	}
-	return out, nil
+	return coverageFrom(contracts), nil
 }
 
-// contractKey is the uniqueness key every contract created here carries, so a
-// repeat create 409s instead of stacking.
-func contractKey(accountID string) string { return "contract:" + accountID }
-
-// coverage classifies the contracts already covering a customer.
-type coverage int
-
-const (
-	coverageNone    coverage = iota // nothing covers the customer; create ours
-	coverageOurs                    // we created it; leave it alone
-	coverageForeign                 // covered by a contract we did not create
-)
-
-func (c coverage) String() string {
-	switch c {
-	case coverageOurs:
-		return billing.CoverageOurs
-	case coverageForeign:
-		return billing.CoverageForeign
-	default:
-		return billing.CoverageNone
-	}
-}
-
-// classifyCoverage scans every covering contract rather than trusting list
-// order. Ours anywhere wins, since a second contract would double-bill;
-// otherwise the first stray is reported so the caller can refuse. foreignID is
-// set only for coverageForeign.
-//
-// A contract is ours only by the uniqueness key we created it with. The list
-// response carries no package, so a hand-made contract on our own package is
-// indistinguishable from one on any other and is treated as foreign: the safe
-// direction, since the alternative is stacking a second contract on a customer
-// already being billed.
-func classifyCoverage(contracts []shared.ContractV2, wantKey string) (cov coverage, foreignID string) {
-	for _, c := range contracts {
-		if wantKey != "" && c.UniquenessKey == wantKey {
-			return coverageOurs, ""
-		}
+// coverageFrom maps the contract list to the verdict. Covered is by existence:
+// with one package, who created a contract changes nothing and is not reported.
+func coverageFrom(contracts []shared.ContractV2) billing.Coverage {
+	out := billing.Coverage{
+		State:     billing.CoverageNone,
+		Contracts: make([]billing.Contract, 0, len(contracts)),
 	}
 	if len(contracts) > 0 {
-		return coverageForeign, contracts[0].ID
+		out.State = billing.CoverageCovered
 	}
-	return coverageNone, ""
+	for _, c := range contracts {
+		out.Contracts = append(out.Contracts, billing.Contract{
+			ID:           c.ID,
+			Name:         c.Name,
+			RateCardID:   c.RateCardID,
+			StartingAt:   c.StartingAt,
+			EndingBefore: c.EndingBefore,
+		})
+	}
+	return out
 }
+
+// contractKey is the uniqueness key every contract provisioning creates carries,
+// derived here so the provisioning path and the admin check cannot disagree.
+func contractKey(accountID string) string { return "contract:" + accountID }
 
 // isConflict reports a 409, which a uniqueness key returns for a repeat write.
 func isConflict(err error) bool {

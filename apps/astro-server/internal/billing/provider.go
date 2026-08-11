@@ -25,11 +25,6 @@ var ErrBillingUnavailable = errors.New("billing: not available")
 // not a server error.
 var ErrInvoiceNotAvailable = errors.New("billing: invoice not available")
 
-// ErrProvisionBlocked marks a provisioning failure only an operator can clear
-// (a customer already covered by someone else's contract). Retrying cannot fix
-// it, so callers should stop rather than back off.
-var ErrProvisionBlocked = errors.New("billing: provisioning blocked")
-
 // UsageEvent is a single metered usage record. TransactionID is the idempotency
 // key (the metering UUID) so retries and backfills dedupe. Properties carries
 // the metric payload (e.g. cu_hours, model, component).
@@ -60,22 +55,21 @@ type Provisioner interface {
 	ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error)
 }
 
-// Coverage states, mirroring the decision ProvisionCustomer acts on.
+// Coverage states. There is one package, so any contract effective now bills
+// the customer at the rates provisioning would have set, and the only question
+// is whether one exists.
 const (
-	CoverageNone    = "none"    // nothing covers the customer
-	CoverageOurs    = "ours"    // covered by a contract provisioning created
-	CoverageForeign = "foreign" // covered by a contract created elsewhere
+	CoverageNone    = "none"
+	CoverageCovered = "covered"
 )
 
 // Contract is one contract covering a customer.
 type Contract struct {
-	ID            string
-	Name          string
-	UniquenessKey string
-	RateCardID    string
-	StartingAt    time.Time
-	EndingBefore  time.Time // zero when open-ended
-	Ours          bool
+	ID           string
+	Name         string
+	RateCardID   string
+	StartingAt   time.Time
+	EndingBefore time.Time // zero when open-ended
 }
 
 // Coverage is the provisioning verdict plus the contracts it was drawn from.
@@ -84,9 +78,13 @@ type Coverage struct {
 	Contracts []Contract
 }
 
-// Spend is the at-a-glance money view for one customer. Zero means "no data",
-// so every amount carries its own presence flag.
+// Spend is the at-a-glance money view for one customer. Zero values mean "no
+// data", which is why every field is reported alongside its own presence flag
+// rather than inferred from being non-zero.
 type Spend struct {
+	// Currency names the unit all three amounts share, which holds because there
+	// is one package and one credit type. Amounts arrive already converted, so
+	// no caller rescales money.
 	Currency string
 
 	// CreditRemaining is what is left of the granted credit. This is the number
@@ -112,10 +110,10 @@ type SpendReporter interface {
 }
 
 // ContractInspector exposes the same coverage check provisioning makes, so the
-// admin view reports the verdict rather than a second opinion. Kept off
+// admin view reports that verdict rather than a second opinion. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.
 type ContractInspector interface {
-	ContractCoverage(ctx context.Context, customerID, accountID string) (Coverage, error)
+	ContractCoverage(ctx context.Context, customerID string) (Coverage, error)
 }
 
 // BillingProvider is the provider-agnostic metering contract: customer

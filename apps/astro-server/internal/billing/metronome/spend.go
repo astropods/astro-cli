@@ -8,6 +8,7 @@ import (
 
 	"github.com/Metronome-Industries/metronome-go/v3"
 	"github.com/Metronome-Industries/metronome-go/v3/packages/param"
+	"github.com/Metronome-Industries/metronome-go/v3/shared"
 
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
@@ -21,7 +22,8 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	var out billing.Spend
 	var errs []error
 
-	// Without include_balance every credit reads as zero, which is
+	// covering_date drops credits whose access schedule has not started or has
+	// ended; without include_balance every one reads as zero remaining, which is
 	// indistinguishable from exhausted.
 	credits := p.mc.V1.Customers.Credits.ListAutoPaging(ctx, metronome.V1CustomerCreditListParams{
 		CustomerID:     customerID,
@@ -30,8 +32,12 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	})
 	for credits.Next() {
 		c := credits.Current()
-		out.CreditRemaining += c.Balance
+		amount, unit := scaleAmount(c.Balance, c.AccessSchedule.CreditType)
+		out.CreditRemaining += amount
 		out.HasCredit = true
+		if out.Currency == "" {
+			out.Currency = unit
+		}
 	}
 	// A part-read page understates the balance, so drop it rather than report
 	// an incomplete total as a fact.
@@ -45,10 +51,13 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	case err != nil:
 		errs = append(errs, err)
 	case draft != nil:
-		out.CurrentSpend = draft.Total
+		amount, unit := scaleAmount(draft.Total, draft.CreditType)
+		out.CurrentSpend = amount
 		out.CurrentPeriodEnd = draft.EndTimestamp
 		out.HasCurrentSpend = true
-		out.Currency = draft.CreditType.Name
+		if out.Currency == "" {
+			out.Currency = unit
+		}
 	}
 
 	final, err := p.latestInvoice(ctx, customerID, "FINALIZED")
@@ -56,15 +65,30 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	case err != nil:
 		errs = append(errs, err)
 	case final != nil:
-		out.LastInvoiceTotal = final.Total
+		amount, unit := scaleAmount(final.Total, final.CreditType)
+		out.LastInvoiceTotal = amount
 		out.LastInvoiceAt = final.IssuedAt
 		out.HasLastInvoice = true
 		if out.Currency == "" {
-			out.Currency = final.CreditType.Name
+			out.Currency = unit
 		}
 	}
 
 	return out, errors.Join(errs...)
+}
+
+// usdCentsCreditTypeID is Metronome's built-in fiat unit, in hundredths. The id
+// is fixed across accounts and documented on V1PricingUnitService.List.
+const usdCentsCreditTypeID = "2714e483-4ff1-48e4-9e25-ac732e8f24f2" //nolint:gosec // public vendor id
+
+// scaleAmount converts an amount into the unit named by the returned currency,
+// so no caller has to know the vendor's. A credit type carries no precision
+// field, so the id is the only stable signal; the name is Metronome's to reword.
+func scaleAmount(v float64, ct shared.CreditTypeData) (float64, string) {
+	if ct.ID == usdCentsCreditTypeID {
+		return v / 100, "USD"
+	}
+	return v, ct.Name
 }
 
 // latestInvoice returns the newest invoice in the given status, or nil when the

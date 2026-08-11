@@ -2,7 +2,6 @@ package riverqueue
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -115,13 +114,6 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 	// Provisioning is optional on the seam; backends without it are done here.
 	if p, ok := w.provider.(billing.Provisioner); ok {
 		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID)
-		if errors.Is(err, billing.ErrProvisionBlocked) {
-			// Only an operator can clear this, so retrying just makes noise.
-			// Cancelled sits outside this job's unique states, so the hourly
-			// sweep still re-checks the account.
-			w.log.Error("billing provision blocked", "account_id", acct.ID, "error", err)
-			return river.JobCancel(err)
-		}
 		if err != nil {
 			return err
 		}

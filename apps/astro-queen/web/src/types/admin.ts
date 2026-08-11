@@ -368,16 +368,12 @@ export interface RegisterAccountMetronomeResponse {
   metronome_customer_id?: string;
 }
 
-// A contract is ours only by its uniqueness key; the list response carries no
-// package, so a hand-made contract cannot be told apart any other way.
 export interface BillingContract {
   id: string;
   name?: string;
-  uniqueness_key?: string;
   rate_card_id?: string;
   starting_at?: string;
   ending_before?: string;
-  ours: boolean;
 }
 
 export interface BillingProvisionJob {
@@ -415,7 +411,7 @@ export interface GetAccountBillingDetailResponse {
   provisioned_at?: string;
   enforced: boolean;
   workloads_suspended: boolean;
-  coverage?: "ours" | "foreign" | "none" | "unknown";
+  coverage?: "covered" | "none" | "unknown";
   contracts?: BillingContract[];
   provision_job?: BillingProvisionJob;
   card?: BillingCard;

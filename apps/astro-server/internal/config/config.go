@@ -30,11 +30,9 @@ type Config struct {
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
 	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
 	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification
-	// Signup provisioning. Empty package disables it.
-	MetronomePackageID        string // METRONOME_PACKAGE_ID
-	MetronomeCreditTypeID     string // METRONOME_CREDIT_TYPE_ID — pricing unit
-	MetronomeSignupCredit     int    // METRONOME_SIGNUP_CREDIT — in the credit type's own unit
-	MetronomeCreditExpiryDays int    // METRONOME_CREDIT_EXPIRY_DAYS
+	// Signup provisioning. Empty package disables it. The package carries the
+	// signup credit, so its amount, unit, and expiry are Metronome-side.
+	MetronomePackageID string // METRONOME_PACKAGE_ID
 	// MetronomeDashboardEnv is the environment segment in Metronome dashboard
 	// URLs (app.metronome.com/<env>/customers/...), used only to build admin
 	// deep links. Empty for the default environment. The API token is scoped to
@@ -432,9 +430,6 @@ func Load() (*Config, error) {
 		MetronomeAPIKey:           getEnv("METRONOME_API_KEY", ""),
 		MetronomeWebhookSecret:    getEnv("METRONOME_WEBHOOK_SECRET", ""),
 		MetronomePackageID:        getEnv("METRONOME_PACKAGE_ID", ""),
-		MetronomeCreditTypeID:     getEnv("METRONOME_CREDIT_TYPE_ID", ""),
-		MetronomeSignupCredit:     getEnvIntDefault("METRONOME_SIGNUP_CREDIT", 0),
-		MetronomeCreditExpiryDays: getEnvIntDefault("METRONOME_CREDIT_EXPIRY_DAYS", 0),
 		MetronomeDashboardEnv:     getEnv("METRONOME_DASHBOARD_ENV", ""),
 		StripeSecretKey:           getEnv("STRIPE_SECRET_KEY", ""),
 		StripePublishableKey:      getEnv("STRIPE_PUBLISHABLE_KEY", ""),
@@ -455,25 +450,6 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// validateBilling checks the Metronome provisioning settings hang together.
-// Defaults are off (no credit), so a partial config is an operator mistake:
-// left to run it would error on every grant, and a grant error is not a 409,
-// so the sweep would retry the same account forever.
-func (c *Config) validateBilling() error {
-	if c.MetronomePackageID == "" || c.MetronomeSignupCredit <= 0 {
-		return nil
-	}
-	if c.MetronomeCreditTypeID == "" {
-		return fmt.Errorf("METRONOME_CREDIT_TYPE_ID is required when METRONOME_PACKAGE_ID is set and METRONOME_SIGNUP_CREDIT > 0")
-	}
-	// Metronome requires an expiry on every credit grant — there is no
-	// never-expires — so 0 days would grant credit that is already dead.
-	if c.MetronomeCreditExpiryDays <= 0 {
-		return fmt.Errorf("METRONOME_CREDIT_EXPIRY_DAYS must be > 0 when METRONOME_SIGNUP_CREDIT > 0")
-	}
-	return nil
 }
 
 // Validate validates the configuration
@@ -505,9 +481,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if err := c.validateBilling(); err != nil {
-		return err
-	}
 
 	// Deployment config only required for API mode
 	if c.RunAPI() {

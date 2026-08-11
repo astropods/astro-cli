@@ -2,7 +2,6 @@ package riverqueue
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -120,30 +119,6 @@ func TestProvisionWorker_LeavesUnstampedWhenNothingProvisioned(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unexpected statements: %v", err)
-	}
-}
-
-// A blocked account needs an operator, so the job must cancel rather than
-// return a plain error and burn its backoff schedule every sweep tick.
-func TestProvisionWorker_CancelsWhenBlocked(t *testing.T) {
-	w, mock := provisionWorker(t, &fakeProvisioner{provisionErr: billing.ErrProvisionBlocked})
-
-	expectAccount(mock)
-	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
-
-	err := runProvision(t, w)
-	if err == nil {
-		t.Fatal("expected the job to fail")
-	}
-	if !errors.Is(err, billing.ErrProvisionBlocked) {
-		t.Errorf("lost the cause: %v", err)
-	}
-	// A plain return surfaces the sentinel verbatim; JobCancel wraps it.
-	if err.Error() == billing.ErrProvisionBlocked.Error() {
-		t.Error("returned a plain error; the job would retry instead of cancelling")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("account was stamped despite being blocked: %v", err)
 	}
 }
 

@@ -17,17 +17,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Vendor dashboards own the money operations. These links hand the operator to
-// them rather than reimplementing those flows behind a second audit trail.
+// Money operations live in the vendor dashboards, which already carry their own
+// permissions and audit trail. These links point there.
 const (
 	metronomeDashboardURL = "https://app.metronome.com/"
 	stripeCustomerURL     = "https://dashboard.stripe.com/customers/"
 	stripeTestCustomerURL = "https://dashboard.stripe.com/test/customers/"
 )
 
-// GetAccountBillingDetail returns the billing picture only astro holds: status,
-// provisioning outcome, and the contract verdict provisioning acted on. A
-// failing source becomes a warning, so an outage does not empty the view.
+// GetAccountBillingDetail joins the astro-side billing record to the live
+// contract verdict. A failing source becomes a warning, not an error, so a
+// vendor outage still leaves the astro-side half readable.
 func (s *Server) GetAccountBillingDetail(ctx context.Context, req *adminv1.GetAccountBillingDetailRequest) (*adminv1.GetAccountBillingDetailResponse, error) {
 	if req.AccountID == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_id is required")
@@ -104,7 +104,7 @@ func (s *Server) GetAccountBillingDetail(ctx context.Context, req *adminv1.GetAc
 
 	if resp.Billing.MetronomeCustomerID != "" {
 		resp.MetronomeURL = s.metronomeCustomerURL(resp.Billing.MetronomeCustomerID)
-		resp.Coverage, resp.Contracts, err = s.contractCoverage(ctx, resp.Billing.MetronomeCustomerID, req.AccountID)
+		resp.Coverage, resp.Contracts, err = s.contractCoverage(ctx, resp.Billing.MetronomeCustomerID)
 		if err != nil {
 			resp.Warnings = append(resp.Warnings, "contract lookup failed: "+err.Error())
 		}
@@ -144,23 +144,21 @@ func (s *Server) GetAccountBillingDetail(ctx context.Context, req *adminv1.GetAc
 
 // contractCoverage returns the verdict provisioning would reach. A provider
 // that cannot answer reports "unknown"; "none" would read as safe to provision.
-func (s *Server) contractCoverage(ctx context.Context, customerID, accountID string) (string, []*adminv1.BillingContract, error) {
+func (s *Server) contractCoverage(ctx context.Context, customerID string) (string, []*adminv1.BillingContract, error) {
 	inspector, ok := s.billingProvider.(billing.ContractInspector)
 	if !ok {
 		return "unknown", nil, nil
 	}
-	coverage, err := inspector.ContractCoverage(ctx, customerID, accountID)
+	coverage, err := inspector.ContractCoverage(ctx, customerID)
 	if err != nil {
 		return "unknown", nil, err
 	}
 	contracts := make([]*adminv1.BillingContract, 0, len(coverage.Contracts))
 	for _, c := range coverage.Contracts {
 		out := &adminv1.BillingContract{
-			ID:            c.ID,
-			Name:          c.Name,
-			UniquenessKey: c.UniquenessKey,
-			RateCardID:    c.RateCardID,
-			Ours:          c.Ours,
+			ID:         c.ID,
+			Name:       c.Name,
+			RateCardID: c.RateCardID,
 		}
 		if !c.StartingAt.IsZero() {
 			out.StartingAt = c.StartingAt.Format(time.RFC3339)
@@ -290,9 +288,12 @@ func (s *Server) RetryBillingProvision(ctx context.Context, req *adminv1.RetryBi
 	return &adminv1.RetryBillingProvisionResponse{Status: "enqueued"}, nil
 }
 
-// ForceBillingResume restores billing-suspended deployments. The resume worker
-// only touches what billing stopped, so nothing a customer stopped restarts.
-// The billing status is left alone, so the next signal can suspend again.
+// ForceBillingResume restores an account's billing-suspended deployments. The
+// resume worker only touches deployments billing stopped, so this cannot start
+// anything a customer stopped on purpose.
+//
+// It leaves billing status alone by design: the next signal can suspend the
+// account again. This unblocks an account, it does not exempt it from billing.
 func (s *Server) ForceBillingResume(ctx context.Context, req *adminv1.ForceBillingResumeRequest) (*adminv1.ForceBillingResumeResponse, error) {
 	if req.AccountID == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_id is required")

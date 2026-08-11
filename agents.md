@@ -54,7 +54,7 @@ Use Moon as the default task runner from repo root.
 - `astro-client:build-chat-embed`, `astro-client:clean`, `astro-client:dev`, `astro-client:e2e`, `astro-client:e2e.setup`, `astro-client:embed-into-cli`, `astro-client:lint`, `astro-client:test`, `astro-client:typecheck`
 - `astro-collector:build`
 - `astro-otel:build`, `astro-otel:fmt`, `astro-otel:lint`, `astro-otel:test`, `astro-otel:typecheck`, `astro-otel:vet`
-- `astro-proto:deps`, `astro-proto:generate`, `astro-proto:typecheck`
+- `astro-proto:deps`, `astro-proto:typecheck`
 - `astro-queen:build`, `astro-queen:deps`, `astro-queen:dev`, `astro-queen:fmt`, `astro-queen:link`, `astro-queen:start`, `astro-queen:typecheck`, `astro-queen:unlink`, `astro-queen:vet`, `astro-queen:web-build`, `astro-queen:web-install`
 - `astro-registry:build`, `astro-registry:deps`, `astro-registry:fmt`, `astro-registry:lint`, `astro-registry:test`, `astro-registry:typecheck`, `astro-registry:vet`
 - `astro-server:build`, `astro-server:deps`, `astro-server:dev`, `astro-server:e2e`, `astro-server:e2e.setup`, `astro-server:e2e.teardown`, `astro-server:fmt`, `astro-server:lint`, `astro-server:test`, `astro-server:test-integration`, `astro-server:typecheck`, `astro-server:vet`

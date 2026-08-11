@@ -331,21 +331,15 @@ function MetronomeAliasCheck({ accountId }: { accountId: string }) {
 }
 
 const COVERAGE_COPY: Record<string, { label: string; tone: string; detail: string }> = {
-  ours: {
-    label: "On our contract",
+  covered: {
+    label: "On contract",
     tone: "text-green-600",
-    detail: "A contract created by provisioning covers this customer.",
+    detail: "A contract effective now covers this customer, so provisioning creates none.",
   },
   none: {
     label: "No contract",
     tone: "text-amber-600",
-    detail: "Nothing covers this customer, so the next sweep will create our contract.",
-  },
-  foreign: {
-    label: "Blocked by another contract",
-    tone: "text-red-500",
-    detail:
-      "A contract we did not create covers this customer, so provisioning refuses rather than stack a second one. Archive it in Metronome, then retry.",
+    detail: "Nothing covers this customer, so the next sweep creates a contract.",
   },
   unknown: {
     label: "Unknown",
@@ -486,6 +480,8 @@ function BillingOperationsCard({ accountId }: { accountId: string }) {
   );
 }
 
+// Amounts arrive in the unit named by currency; the server has already
+// converted Metronome's own unit, so nothing here rescales money.
 function formatAmount(value: number, currency?: string): string {
   const amount = value.toFixed(2);
   return currency === "USD" ? `$${amount}` : `${amount} ${currency ?? ""}`.trim();
@@ -531,18 +527,16 @@ function ContractTable({ contracts }: { contracts: BillingContract[] }) {
       <thead>
         <tr className="text-muted-foreground">
           <th className="py-0.5 text-left font-medium">Contract</th>
-          <th className="py-0.5 text-left font-medium">Uniqueness key</th>
+          <th className="py-0.5 text-left font-medium">Rate card</th>
           <th className="py-0.5 text-left font-medium">Started</th>
-          <th className="py-0.5 text-center font-medium">Ours</th>
         </tr>
       </thead>
       <tbody>
         {contracts.map((c) => (
-          <tr key={c.id} className={c.ours ? "" : "text-amber-600"}>
+          <tr key={c.id}>
             <td className="py-0.5 font-mono break-all">{c.id}</td>
-            <td className="py-0.5 font-mono break-all">{c.uniqueness_key || "—"}</td>
+            <td className="py-0.5 font-mono break-all">{c.rate_card_id || "—"}</td>
             <td className="py-0.5">{c.starting_at ? formatDateTime(c.starting_at) : "—"}</td>
-            <td className="py-0.5 text-center">{c.ours ? "✓" : "—"}</td>
           </tr>
         ))}
       </tbody>

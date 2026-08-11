@@ -15,7 +15,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// stubInspector stands in for Metronome.
+// stubInspector reports a fixed coverage verdict and spend, standing in for
+// Metronome.
 type stubInspector struct {
 	billing.BillingProvider
 	coverage billing.Coverage
@@ -24,7 +25,7 @@ type stubInspector struct {
 	spendErr error
 }
 
-func (s stubInspector) ContractCoverage(context.Context, string, string) (billing.Coverage, error) {
+func (s stubInspector) ContractCoverage(context.Context, string) (billing.Coverage, error) {
 	return s.coverage, s.err
 }
 
@@ -61,9 +62,9 @@ func expectNoProvisionJob(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "state", "attempt", "created_at", "finalized_at", "error"}))
 }
 
-// A stray contract must be reported as foreign rather than absent: "none" reads
-// as safe to provision, which is exactly the double-billing case.
-func TestGetAccountBillingDetail_ForeignContractBlocks(t *testing.T) {
+// A contract created outside provisioning must still report as covered:
+// "none" reads as safe to provision, which is the double-billing case.
+func TestGetAccountBillingDetail_ReportsContractCreatedByHand(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -73,9 +74,9 @@ func TestGetAccountBillingDetail_ForeignContractBlocks(t *testing.T) {
 		deployStore: deploymentstore.NewStore(db),
 		log:         logger.New("error", "json"),
 		billingProvider: stubInspector{coverage: billing.Coverage{
-			State: billing.CoverageForeign,
+			State: billing.CoverageCovered,
 			Contracts: []billing.Contract{{
-				ID:         "con_stray",
+				ID:         "con_by_hand",
 				StartingAt: time.Now().Add(-time.Hour),
 			}},
 		}},
@@ -90,19 +91,20 @@ func TestGetAccountBillingDetail_ForeignContractBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAccountBillingDetail: %v", err)
 	}
-	if resp.Coverage != billing.CoverageForeign {
-		t.Errorf("coverage = %q, want %q", resp.Coverage, billing.CoverageForeign)
+	if resp.Coverage != billing.CoverageCovered {
+		t.Errorf("coverage = %q, want %q", resp.Coverage, billing.CoverageCovered)
 	}
-	if len(resp.Contracts) != 1 || resp.Contracts[0].Ours {
-		t.Errorf("contracts = %+v, want one contract not marked ours", resp.Contracts)
+	if len(resp.Contracts) != 1 || resp.Contracts[0].ID != "con_by_hand" {
+		t.Errorf("contracts = %+v, want the covering contract", resp.Contracts)
 	}
 	if resp.MetronomeURL == "" {
-		t.Error("metronome_url is empty; the operator has no way to reach the stray contract")
+		t.Error("metronome_url is empty; the operator cannot reach the contract")
 	}
 }
 
-// Without the environment segment the link opens the default environment and
-// reports no such customer, which reads as missing data rather than a bad link.
+// The environment segment is what makes the link resolve. Preview bills against
+// sandbox, so a link built without it opens the default environment and reports
+// no such customer, which reads as missing data rather than a wrong link.
 func TestMetronomeCustomerURL_CarriesEnvironment(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{
 		{"sandbox", "https://app.metronome.com/sandbox/customers/cust-1"},
@@ -115,7 +117,8 @@ func TestMetronomeCustomerURL_CarriesEnvironment(t *testing.T) {
 	}
 }
 
-// A vendor failure must degrade the view, not empty it.
+// A vendor failure must degrade the view, not empty it: the astro-side record
+// is what says whether provisioning ever completed.
 func TestGetAccountBillingDetail_ContractLookupFailureWarns(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -148,7 +151,8 @@ func TestGetAccountBillingDetail_ContractLookupFailureWarns(t *testing.T) {
 	}
 }
 
-// Zero and absent differ: exhausted reports 0, a failed lookup reports nothing.
+// Zero and absent are different: an exhausted account reports 0 remaining, and
+// a failed lookup must not be rendered as the same thing.
 func TestGetAccountBillingDetail_SpendDistinguishesZeroFromMissing(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -168,7 +172,9 @@ func TestGetAccountBillingDetail_SpendDistinguishesZeroFromMissing(t *testing.T)
 			wantSpend:   false,
 			wantWarning: 1,
 		},
-		// A failed part must not discard a balance an earlier part returned.
+		// Spend is read in parts. A part that failed must not discard the credit
+		// balance a part that succeeded already returned, or one slow invoice
+		// endpoint hides the number gating turns on.
 		{
 			name:        "partial read keeps what was read",
 			spend:       billing.Spend{Currency: "USD", CreditRemaining: 250, HasCredit: true},
@@ -187,7 +193,7 @@ func TestGetAccountBillingDetail_SpendDistinguishesZeroFromMissing(t *testing.T)
 				deployStore: deploymentstore.NewStore(db),
 				log:         logger.New("error", "json"),
 				billingProvider: stubInspector{
-					coverage: billing.Coverage{State: billing.CoverageOurs},
+					coverage: billing.Coverage{State: billing.CoverageCovered},
 					spend:    tc.spend,
 					spendErr: tc.spendErr,
 				},
@@ -239,7 +245,8 @@ func TestRetryBillingProvision_EnqueuesWhenUnprovisioned(t *testing.T) {
 	}
 }
 
-// A second signup credit if the uniqueness key ever changed, so guard here too.
+// Re-provisioning a done account would grant a second signup credit if the
+// uniqueness key ever changed, so the guard is here rather than only provider-side.
 func TestRetryBillingProvision_SkipsProvisionedAccount(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

@@ -2,19 +2,6 @@ layer: "library"
 language: "go"
 
 tasks:
-  # Regenerating needs a buf.gen.yaml, which this package does not have: the
-  # Go in admin/ and connect/ is hand-maintained against the .proto files.
-  generate:
-    command: "buf generate"
-    inputs:
-      - "proto/**/*.proto"
-      - "buf.gen.yaml"
-    outputs:
-      - "admin/v1/admin.pb.go"
-      - "admin/v1/admin_grpc.pb.go"
-    options:
-      cache: false
-
   deps:
     script: "go mod download && go mod tidy"
     inputs:

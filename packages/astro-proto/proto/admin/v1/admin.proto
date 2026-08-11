@@ -850,17 +850,13 @@ message GetAccountBillingDetailRequest {
   string account_id = 1;
 }
 
-// BillingContract is one Metronome contract covering the customer now. The list
-// response carries no package, so uniqueness_key is what marks a contract as
-// created by provisioning rather than by hand.
+// BillingContract is one Metronome contract covering the customer now.
 message BillingContract {
   string id = 1;
   string name = 2;
-  string uniqueness_key = 3;
   string rate_card_id = 4;
   string starting_at = 5;
   string ending_before = 6; // empty when open-ended
-  bool ours = 7;
 }
 
 // BillingProvisionJob is the account's most recent provisioning attempt. A
@@ -901,7 +897,7 @@ message GetAccountBillingDetailResponse {
   string provisioned_at = 2;      // empty until provisioning completed
   bool enforced = 3;              // BILLING_GATE_ENFORCE on this server
   bool workloads_suspended = 4;   // read from the deployments, not from status
-  string coverage = 5;            // ours | foreign | none | unknown
+  string coverage = 5;            // covered | none | unknown
   repeated BillingContract contracts = 6;
   BillingProvisionJob provision_job = 7;
   BillingCard card = 8;
