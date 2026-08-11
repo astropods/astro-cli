@@ -35,7 +35,7 @@ type metronomeWebhookEnvelope struct {
 }
 
 // MetronomeWebhook handles POST /webhooks/metronome. It verifies the
-// HMAC-SHA256 signature over `Metronome-Webhook-Date + "\n" + rawBody` (keyed by
+// HMAC-SHA256 signature over `X-Metronome-Date + "\n" + rawBody` (keyed by
 // METRONOME_WEBHOOK_SECRET, hex-encoded, compared to the
 // Metronome-Webhook-Signature header), then enqueues the event as a River job
 // for tracked, retryable processing (MetronomeWebhookWorker maps the customer to
@@ -56,7 +56,12 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 			return
 		}
 
-		date := c.GetHeader("Metronome-Webhook-Date")
+		// X-Metronome-Date is the signed header; Date carries the same value and
+		// is kept only for Metronome's documented backward compatibility.
+		date := c.GetHeader("X-Metronome-Date")
+		if date == "" {
+			date = c.GetHeader("Date")
+		}
 		sig := c.GetHeader("Metronome-Webhook-Signature")
 		if !verifyMetronomeSignature(secret, date, body, sig) {
 			log.Warn("Metronome webhook signature verification failed")
