@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"errors"
 
 	"github.com/riverqueue/river"
 
@@ -58,7 +59,7 @@ func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingS
 	}
 	var suspended int
 	for _, dep := range deps {
-		client, err := w.reg.Get(ctx, dep.EffectiveClusterID())
+		client, err := suspendClusterClient(ctx, w.reg, dep)
 		if err != nil {
 			w.log.Error("billing suspend: cluster client", "deployment_id", dep.ID, "error", err)
 			continue
@@ -76,6 +77,22 @@ func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingS
 	}
 	w.log.Info("billing suspend", "account_id", job.Args.AccountID, "suspended", suspended, "total", len(deps))
 	return nil
+}
+
+// suspendClusterClient resolves the client for dep. A row with no cluster_id
+// lives on the primary cluster, the convention every other resolver follows
+// (handlers.clusterClientForDeployment, deployer.clusterClientForKey,
+// admingrpc.deploymentClusterClient). Registry.Get rejects an empty id, so
+// the fallback is what makes suspension work at all: nearly every deployment
+// row carries no cluster_id.
+func suspendClusterClient(ctx context.Context, reg *k8s.Registry, dep *deploymentstore.Deployment) (k8s.ClusterClient, error) {
+	if dep.EffectiveClusterID() == "" {
+		if reg.Default() == nil {
+			return nil, errors.New("kubernetes client not configured")
+		}
+		return reg.Default(), nil
+	}
+	return reg.Get(ctx, dep.EffectiveClusterID())
 }
 
 // BillingResumeWorker re-provisions deployments that billing suspended, via the
