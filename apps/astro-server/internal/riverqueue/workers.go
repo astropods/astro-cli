@@ -182,10 +182,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log.Info("river: registered worker", "worker", "DunningSweepWorker", "period", "1h")
 
 		addWorkerWithCatalogCheck(log, workers, &BillingSuspendWorker{
-			store: billingDepStore,
-			reg:   cfg.K8sRegistry,
-			cache: cfg.K8sCache,
-			log:   log,
+			store:  billingDepStore,
+			status: statusStore,
+			reg:    cfg.K8sRegistry,
+			cache:  cfg.K8sCache,
+			log:    log,
 		})
 		billingResumeWorker = &BillingResumeWorker{store: billingDepStore, log: log}
 		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)

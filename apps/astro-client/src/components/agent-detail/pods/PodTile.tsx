@@ -19,7 +19,7 @@ import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from 
 // state — every tile gets it regardless of K8s's own per-workload status,
 // since "the whole agent is off" trumps any individual workload's idle/active
 // reading (e.g. a CronJob still appearing Idle when nothing will actually fire).
-export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending" | "probing" | "paused";
+export type PodStatus = "healthy" | "warning" | "unhealthy" | "pending" | "probing" | "paused" | "suspended";
 
 export interface PodStatusInfo {
   status: PodStatus;
@@ -120,12 +120,15 @@ export const POD_STATUS_STYLES: Record<PodStatus, { dot: string; glow: string; l
   pending:   { dot: "bg-blue-400",                    glow: "shadow-[0_0_6px_2px] shadow-blue-400/50",   label: "Starting" },
   probing:   { dot: "bg-muted-foreground/60 animate-pulse", glow: "",                                    label: "Probing" },
   paused:    { dot: "bg-stone-500",                   glow: "",                                          label: "Paused" },
+  suspended: { dot: "bg-amber-500",                   glow: "",                                          label: "Suspended" },
 };
 
 export function resolvePodStatus(
   workload: WorkloadDetail | undefined,
-  opts: { paused?: boolean; probing?: boolean },
+  opts: { paused?: boolean; suspended?: boolean; probing?: boolean },
 ): PodStatusInfo {
+  // Outranks paused: both mean zero replicas, but only a pause is undoable.
+  if (opts.suspended) return { status: "suspended", label: POD_STATUS_STYLES.suspended.label };
   if (opts.paused) return { status: "paused", label: POD_STATUS_STYLES.paused.label };
   if (opts.probing) return { status: "probing", label: POD_STATUS_STYLES.probing.label };
   return derivePodStatus(workload);
@@ -342,6 +345,8 @@ interface PodTileProps {
    * being off trumps an individual CronJob still appearing Idle, etc.
    */
   paused?: boolean;
+  /** True when billing stopped the deployment. Outranks paused. */
+  suspended?: boolean;
   /**
    * The parent deployment. When present, the agent tile renders the deployment's
    * avatar in place of the generic agent icon.
@@ -353,12 +358,12 @@ interface PodTileProps {
   dimmed?: boolean;
 }
 
-export function PodTile({ workload, deploymentId, probing, paused, deployment, className, onClick, selected, dimmed }: PodTileProps) {
+export function PodTile({ workload, deploymentId, probing, paused, suspended, deployment, className, onClick, selected, dimmed }: PodTileProps) {
   // Hooks must run unconditionally (rules-of-hooks). Pass safe defaults when
   // workload is missing so we can still bail out below — see PodGraph for the
   // root-cause fix; this is a defensive backstop for AnimatePresence exits and
   // query refetches that can briefly feed undefined through.
-  const { status, label } = resolvePodStatus(workload, { paused, probing });
+  const { status, label } = resolvePodStatus(workload, { paused, suspended, probing });
   const containerName = workload && status === "unhealthy" ? findUnhealthyContainer(workload) : "";
   const { data: errorLogs } = useLastErrorLog(
     deploymentId,
@@ -391,7 +396,7 @@ export function PodTile({ workload, deploymentId, probing, paused, deployment, c
   // Hide ephemeral details (age, restart warnings, error logs) when the
   // tile is in a non-live state — they're either stale (paused) or
   // unknown (probing).
-  const idle = paused || probing;
+  const idle = paused || suspended || probing;
   // Agent tile → deployment avatar; knowledge/model/integration → brand icon
   // when shipped; otherwise the role icon (via PodTileContent's `icon`).
   const role = classify(workload.component, workload.kind);

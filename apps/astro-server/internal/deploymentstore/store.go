@@ -720,11 +720,15 @@ func nilIfEmptyJSON(j json.RawMessage) interface{} {
 // ErrorMsg is stored in deployments.error_message and should only be non-empty for StatusFailed.
 // EventMsg is stored in deployment_events.message; if empty it falls back to ErrorMsg so error
 // callers don't need to repeat themselves. It may carry context for any transition.
+// EventDetails is stored in deployment_events.details only, unlike ErrorDetails
+// which also lands in deployments.error_details. Carries machine-readable
+// context for a non-error transition. Falls back to ErrorDetails when unset.
 type StatusUpdate struct {
 	Status       string
 	ErrorMsg     string
 	EventMsg     string
 	ErrorDetails json.RawMessage
+	EventDetails json.RawMessage
 }
 
 // updateStatusTx updates a deployment's status and records an event within an existing transaction.
@@ -764,10 +768,14 @@ func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
 	if msg == "" {
 		msg = u.ErrorMsg
 	}
+	eventDetails := nilIfEmptyJSON(u.EventDetails)
+	if eventDetails == nil {
+		eventDetails = details
+	}
 	_, err = tx.Exec(`
 		INSERT INTO deployment_events (deployment_id, status, message, details)
 		VALUES ($1, $2, $3, $4)
-	`, id, u.Status, nilIfEmpty(msg), details)
+	`, id, u.Status, nilIfEmpty(msg), eventDetails)
 	if err != nil {
 		return fmt.Errorf("failed to insert deployment event: %w", err)
 	}

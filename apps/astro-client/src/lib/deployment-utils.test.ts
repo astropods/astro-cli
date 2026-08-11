@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveChatComposerState,
+  isBillingSuspendedStatus,
   isChatListEligible,
   isLaunchReady,
   isPausedState,
@@ -190,10 +191,40 @@ describe("deriveChatComposerState", () => {
     ).toBe("stopped");
   });
 
+  // The stopped copy says to start the agent, which billing prevents.
+  it("is 'suspended', not 'stopped', when billing stopped the agent", () => {
+    expect(
+      deriveChatComposerState(status("inactive", "suspended"), undefined),
+    ).toBe("suspended");
+  });
+
   it("is 'stopped' while undeploying", () => {
     expect(
       deriveChatComposerState(status("undeploying", "undeploying"), undefined),
     ).toBe("stopped");
+  });
+});
+
+describe("isBillingSuspendedStatus", () => {
+  const status = (
+    value: DeploymentStatusValue,
+    reason: DeploymentStatusReason,
+  ): DeploymentStatus => ({ value, reason, details: "" });
+
+  it("reads the reason code, not the record status", () => {
+    expect(isBillingSuspendedStatus(status("inactive", "suspended"))).toBe(true);
+  });
+
+  // A suspended deployment's record status is "error", so the two must not be
+  // confused in either direction.
+  it("is false for a failed deploy and for a user pause", () => {
+    expect(isBillingSuspendedStatus(status("error", "failed"))).toBe(false);
+    expect(isBillingSuspendedStatus(status("inactive", "paused"))).toBe(false);
+  });
+
+  it("is false before the status loads", () => {
+    expect(isBillingSuspendedStatus(undefined)).toBe(false);
+    expect(isBillingSuspendedStatus(null)).toBe(false);
   });
 });
 

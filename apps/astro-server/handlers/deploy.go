@@ -1374,7 +1374,7 @@ type DeploymentRecord struct {
 //
 //	"active"      — DB active AND observed ready >= desired
 //	"deploying"   — DB pending/provisioning, OR DB active but ready<desired
-//	"inactive"    — DB stopped (paused)
+//	"inactive"    — DB stopped (paused) or suspended (billing)
 //	"undeploying" — DB undeploying
 //	"error"       — DB failed/crashloopbackoff
 //
@@ -1445,6 +1445,7 @@ func humanizeWorkloadReason(reason string) string {
 // existing consumers (they branch on the union and ignore unknown codes).
 const (
 	StatusReasonPaused       = "paused"       // DB stopped
+	StatusReasonSuspended    = "suspended"    // DB suspended (billing)
 	StatusReasonUndeploying  = "undeploying"  // DB undeploying
 	StatusReasonFailed       = "failed"       // DB failed
 	StatusReasonProvisioning = "provisioning" // DB pending/provisioning
@@ -2358,6 +2359,12 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 		case deploymentstore.StatusStopped:
 			status.Value, status.Reason = "inactive", StatusReasonPaused
 			status.Details = "Deployment is paused"
+			c.JSON(http.StatusOK, status)
+			return
+		// Deliberately off, not broken, so inactive rather than error.
+		case deploymentstore.StatusSuspended:
+			status.Value, status.Reason = "inactive", StatusReasonSuspended
+			status.Details = "Stopped by billing"
 			c.JSON(http.StatusOK, status)
 			return
 		case deploymentstore.StatusUndeploying:

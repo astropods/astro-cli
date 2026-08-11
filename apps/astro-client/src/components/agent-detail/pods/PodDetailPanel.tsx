@@ -24,6 +24,8 @@ interface PodDetailPanelProps {
   externalUrls?: ServiceEndpointInfo[];
   /** True when the parent deployment is paused. Mirrors PodTile status precedence. */
   paused?: boolean;
+  /** True when billing stopped the deployment. Outranks paused. */
+  suspended?: boolean;
   /** True while the runtime query has not returned. Mirrors PodTile status precedence. */
   probing?: boolean;
   onClose: () => void;
@@ -31,7 +33,7 @@ interface PodDetailPanelProps {
   onToggleExpanded?: () => void;
 }
 
-export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
+export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, suspended, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
   return (
     <PodDetailPanelInner
       key={workload.name}
@@ -39,6 +41,7 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, p
       deploymentId={deploymentId}
       externalUrls={externalUrls}
       paused={paused}
+      suspended={suspended}
       probing={probing}
       onClose={onClose}
       expanded={expanded}
@@ -47,12 +50,12 @@ export function PodDetailPanel({ workload, deploymentId, externalUrls, paused, p
   );
 }
 
-function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
+function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, suspended, probing, onClose, expanded, onToggleExpanded }: PodDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("General");
   const logsVisited = useRef(false);
   if (activeTab === "Logs") logsVisited.current = true;
 
-  const { status, label: statusLabel } = resolvePodStatus(workload, { paused, probing });
+  const { status, label: statusLabel } = resolvePodStatus(workload, { paused, suspended, probing });
   const name = workload.component || workload.name;
 
   // Detect error-level logs for this pod (reuses the same cached queries the
@@ -60,7 +63,7 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, pro
   // container diagnostics on General.
   const { byContainer, report } = useContainerErrors();
   const isLongRunning = workload.kind === "Deployment" || workload.kind === "StatefulSet";
-  const probeContainers = isLongRunning && !paused && !probing ? workload.containers ?? [] : [];
+  const probeContainers = isLongRunning && !paused && !suspended && !probing ? workload.containers ?? [] : [];
   const logErrorMessage = firstContainerError(byContainer, probeContainers.map((c) => c.name));
 
   return (

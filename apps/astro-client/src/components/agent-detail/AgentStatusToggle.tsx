@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { useDeploymentStatus, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
-import { isPausedState } from "@/lib/deployment-utils";
+import { useBillingStatus } from "@/api/queries/billing";
+import { isBillingSuspendedStatus, isPausedState } from "@/lib/deployment-utils";
+import { billingStoppedHint } from "@/lib/billing-copy";
 import type { AgentDeployment } from "@/lib/api";
 
 interface AgentStatusToggleProps {
@@ -23,6 +25,12 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
   const statusDetails = statusData?.details;
 
   const paused = isPausedState(deployment);
+  // Reads as off and cannot be toggled back on: a wakeup would be re-suspended
+  // on the next recompute.
+  const suspended = isBillingSuspendedStatus(statusData);
+  // Same query key as the app-shell banner, so this is a cache read.
+  const { data: billing } = useBillingStatus(suspended ? account : "");
+  const suspendedHint = billingStoppedHint(billing?.reason);
   const serverTransitioning = liveStatus === "deploying" || liveStatus === "undeploying";
 
   // Track local intent: "pausing" or "resuming" until server catches up
@@ -38,7 +46,7 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
 
   const transitioning = serverTransitioning || intent !== null;
   const busy = stopMutation.isPending || wakeupMutation.isPending || transitioning;
-  const checked = intent === "resuming" ? true : intent === "pausing" ? false : !paused;
+  const checked = intent === "resuming" ? true : intent === "pausing" ? false : !paused && !suspended;
   // A failed deploy is neither active nor paused: its record status isn't
   // "stopped" (so `checked` reads true), but the live status is "error". Without
   // this the toggle would render a healthy green "Active" for a broken agent.
@@ -61,12 +69,16 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
     ? (checked ? "Deploying" : "Pausing")
     : errored
       ? "Error"
-      : checked ? "Active" : "Paused";
+      : suspended
+        ? "Suspended"
+        : checked ? "Active" : "Paused";
 
   const accentClass = transitioning && checked
     ? "text-yellow-700 dark:text-yellow-400"
     : errored
       ? "text-red-700 dark:text-red-400"
+      : suspended
+        ? "text-amber-700 dark:text-amber-400"
       : checked
         ? "text-green-700 dark:text-green-400"
         : "text-stone-600 dark:text-stone-400";
@@ -85,6 +97,8 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
                     "size-2 shrink-0 rounded-full",
                     errored
                       ? "bg-red-600 dark:bg-red-400"
+                      : suspended
+                        ? "bg-amber-600 dark:bg-amber-400"
                       : checked
                         ? "bg-green-600 shadow-[0_0_6px_2px] shadow-green-600/50 dark:bg-green-400 dark:shadow-green-400/50"
                         : "bg-stone-500 dark:bg-stone-400",
@@ -96,7 +110,9 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
               </span>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{statusDetails || label}</TooltipContent>
+          <TooltipContent side="bottom">
+            {suspended ? suspendedHint : statusDetails || label}
+          </TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -104,14 +120,16 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
               <Switch
                 checked={checked}
                 onCheckedChange={handleToggle}
-                disabled={busy}
+                disabled={busy || suspended}
               />
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {transitioning
-              ? (checked ? "Deploying agent…" : "Pausing agent…")
-              : (checked ? "Pause this agent" : "Redeploy this agent")}
+            {suspended
+              ? suspendedHint
+              : transitioning
+                ? (checked ? "Deploying agent…" : "Pausing agent…")
+                : (checked ? "Pause this agent" : "Redeploy this agent")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

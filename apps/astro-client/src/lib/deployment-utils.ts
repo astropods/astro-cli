@@ -11,6 +11,15 @@ export const launchUnavailableMessage =
 
 export const PAUSED_DEPLOYMENT_RECORD_STATUSES = ["stopped", "Stopped"] as const;
 
+// Billing stopped the agent, and the user cannot undo it from the agent page.
+// Reads the reason code because the record status collapses everything that is
+// neither running nor paused into "error" (dbStatusToUIStatus).
+export function isBillingSuspendedStatus(
+  status: DeploymentStatus | null | undefined,
+): boolean {
+  return status?.reason === "suspended";
+}
+
 export type PausedDeploymentRecordStatus =
   (typeof PAUSED_DEPLOYMENT_RECORD_STATUSES)[number];
 
@@ -73,6 +82,7 @@ export function withLatestBuildId(
  * - unknown: status hasn't loaded yet; we don't know if the agent is reachable.
  * - ready: active + messaging reachable; the user can chat.
  * - paused: intentionally stopped by the user.
+ * - suspended: stopped by billing; the user cannot start it from here.
  * - error: deployment is in an error state.
  * - starting: deploying / provisioning.
  * - stopped: inactive / undeploying (not paused).
@@ -88,6 +98,7 @@ export type ChatComposerState =
   | "unknown"
   | "ready"
   | "paused"
+  | "suspended"
   | "error"
   | "starting"
   | "stopped"
@@ -114,7 +125,11 @@ export function deriveChatComposerState(
     case "error":
       return "error";
     case "inactive":
-      return status.reason === "paused" ? "paused" : "stopped";
+      if (status.reason === "paused") return "paused";
+      // Split from stopped: the stopped copy tells the owner to start the agent,
+      // which billing prevents.
+      if (status.reason === "suspended") return "suspended";
+      return "stopped";
     case "undeploying":
       return "stopped";
     default:

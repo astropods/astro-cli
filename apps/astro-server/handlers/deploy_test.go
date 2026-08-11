@@ -2771,6 +2771,7 @@ func TestGetDeploymentStatus_DBStatusPrecedence(t *testing.T) {
 		wantDetails string
 	}{
 		{"stopped", "stopped", "inactive", StatusReasonPaused, "Deployment is paused"},
+		{"suspended", "suspended", "inactive", StatusReasonSuspended, "Stopped by billing"},
 		{"undeploying", "undeploying", "undeploying", StatusReasonUndeploying, "Deployment is being torn down"},
 		{"failed", "failed", "error", StatusReasonFailed, "Deployment failed"},
 		{"pending", "pending", "deploying", StatusReasonProvisioning, "Pods are being provisioned"},

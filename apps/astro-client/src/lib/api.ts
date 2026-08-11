@@ -851,6 +851,7 @@ export type DeploymentStatusValue =
 // in sync with the Status* constants on the server.
 export type DeploymentStatusReason =
   | "paused"
+  | "suspended"
   | "undeploying"
   | "failed"
   | "provisioning"

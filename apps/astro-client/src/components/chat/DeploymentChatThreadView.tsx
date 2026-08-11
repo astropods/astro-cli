@@ -63,6 +63,7 @@ import {
   ArrowUpIcon,
   CheckIcon,
   CopyIcon,
+  CreditCard,
   Download,
   ExternalLink,
   FileIcon,
@@ -109,6 +110,7 @@ export function DeploymentChatThreadView({
   const dimThread =
     composerState === "paused" ||
     composerState === "stopped" ||
+    composerState === "suspended" ||
     composerState === "error";
 
   return (
@@ -278,13 +280,18 @@ const TRANSIENT_NOTICE: Record<"starting" | "unreachable", string> = {
 };
 
 const STATE_BANNER: Record<
-  "paused" | "error" | "stopped",
+  "paused" | "error" | "stopped" | "suspended",
   { Icon: typeof Pause; titleSuffix: string; body: string }
 > = {
   paused: {
     Icon: Pause,
     titleSuffix: "is paused",
     body: "You can't send messages until it's resumed.",
+  },
+  suspended: {
+    Icon: CreditCard,
+    titleSuffix: "is stopped by billing",
+    body: "Resolve billing to start it again.",
   },
   stopped: {
     Icon: Power,
@@ -398,7 +405,7 @@ const ComposerArea: FC<{
 };
 
 const ChatStateBanner: FC<{
-  state: "paused" | "error" | "stopped";
+  state: "paused" | "error" | "stopped" | "suspended";
   agentLabel: string;
   account: string;
   deploymentId: string;

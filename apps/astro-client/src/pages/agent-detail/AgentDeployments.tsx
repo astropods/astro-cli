@@ -12,7 +12,7 @@ import { PodDetailPanel } from "@/components/agent-detail/pods/PodDetailPanel";
 import { useContainerSize } from "@/hooks/use-container-size";
 import { useDeploymentHistory, useDeploymentStatus, useStopDeployment } from "@/api/queries/deployments";
 import { ActionPanel } from "@/components/ui/status-panel";
-import { isPausedState } from "@/lib/deployment-utils";
+import { isBillingSuspendedStatus, isPausedState } from "@/lib/deployment-utils";
 import type { WorkloadDetail, WorkloadIssue } from "@/lib/api";
 
 const PANEL_SPRING = { type: "spring" as const, bounce: 0.12, duration: 0.5 };
@@ -35,7 +35,7 @@ function remToPx(rem: number) {
 function findErroredWorkloadIndex(
   workloads: WorkloadDetail[],
   failedOn: WorkloadIssue[] | undefined,
-  statusOverrides: { paused: boolean; probing: boolean },
+  statusOverrides: { paused: boolean; suspended: boolean; probing: boolean },
 ): number {
   const unhealthy = workloads.map(
     (workload) =>
@@ -72,6 +72,7 @@ export default function AgentDeployments() {
   // server-humanized failed_on reason (never from raw K8s events).
   const navigate = useNavigate();
   const { data: statusData } = useDeploymentStatus(deployment.id);
+  const suspended = isBillingSuspendedStatus(statusData);
   const hasFailed = statusData?.value === "error";
   const failure = hasFailed ? statusData?.failed_on?.[0] ?? null : null;
   // While a deploy is in flight (or its status hasn't resolved yet) the record's
@@ -147,6 +148,7 @@ export default function AgentDeployments() {
       statusData.failed_on,
       {
         paused,
+        suspended,
         probing,
       },
     );
@@ -168,6 +170,7 @@ export default function AgentDeployments() {
     deployment.id,
     hasFailed,
     paused,
+    suspended,
     probing,
     selectedPodIndex,
     statusData,
@@ -311,6 +314,7 @@ export default function AgentDeployments() {
                   // "Paused" regardless of its individual K8s status — see
                   // PodTile's status precedence rules.
                   paused={paused}
+                  suspended={suspended}
                   onClick={() => handlePodClick(i)}
                   selected={selectedPodIndex === i}
                   dimmed={selectedPodIndex !== null && selectedPodIndex !== i}
@@ -336,6 +340,7 @@ export default function AgentDeployments() {
               deploymentId={deployment.id}
               externalUrls={deployment.external_urls}
               paused={paused}
+              suspended={suspended}
               probing={probing}
               onClose={handleClosePodPanel}
               expanded={podPanelExpanded}

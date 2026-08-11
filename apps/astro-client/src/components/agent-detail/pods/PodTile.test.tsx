@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { screen } from "@testing-library/react";
 import type { WorkloadDetail } from "@/lib/api";
 import { renderWithProviders } from "@/test/test-utils";
-import { derivePodStatus, PodTile, PodTileContent } from "./PodTile";
+import { derivePodStatus, resolvePodStatus, PodTile, PodTileContent } from "./PodTile";
 
 // Regression: Go nil slices serialize as JSON `null`, so the `containers`
 // field arrives undefined for Job/CronJob workloads that have no live pods.
@@ -255,5 +255,31 @@ describe("PodTile storage gating", () => {
   it("hides the bar while the deployment is paused", () => {
     renderWithProviders(<PodTile workload={knowledge()} deploymentId="dep-1" paused />);
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+// A suspended agent has zero replicas, so derivePodStatus alone reads
+// "Starting". The deployment-level state has to win, and stay distinct from a
+// pause the user chose.
+describe("resolvePodStatus precedence", () => {
+  const scaledToZero = { kind: "Deployment", containers: [] } as unknown as WorkloadDetail;
+
+  it("reports Suspended for a billing-stopped deployment", () => {
+    expect(resolvePodStatus(scaledToZero, { suspended: true })).toEqual({
+      status: "suspended",
+      label: "Suspended",
+    });
+  });
+
+  it("keeps Suspended when the record also looks paused", () => {
+    expect(resolvePodStatus(scaledToZero, { suspended: true, paused: true }).label).toBe("Suspended");
+  });
+
+  it("still reports Paused for a user-initiated stop", () => {
+    expect(resolvePodStatus(scaledToZero, { paused: true }).label).toBe("Paused");
+  });
+
+  it("falls through to Starting when neither applies", () => {
+    expect(resolvePodStatus(scaledToZero, {}).label).toBe("Starting");
   });
 });

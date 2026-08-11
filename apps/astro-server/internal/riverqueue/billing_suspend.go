@@ -2,10 +2,12 @@ package riverqueue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -46,10 +48,52 @@ func init() {
 // restores what billing stopped).
 type BillingSuspendWorker struct {
 	river.WorkerDefaults[BillingSuspendArgs]
-	store *deploymentstore.Store
-	reg   *k8s.Registry
-	cache k8scache.Cache
-	log   *logger.Logger
+	store  *deploymentstore.Store
+	status *billing.StatusStore // reads the gating reason for the event; optional
+	reg    *k8s.Registry
+	cache  k8scache.Cache
+	log    *logger.Logger
+}
+
+// reasonUnknown is recorded when the gating reason cannot be read. Readers pick
+// their copy from this code, so an unobserved reason must not be guessed at.
+const reasonUnknown = "unknown"
+
+// suspendReason resolves the account's gating reason once per job, so every
+// deployment in the job records the same snapshot.
+func (w *BillingSuspendWorker) suspendReason(ctx context.Context, accountID string) string {
+	if w.status == nil {
+		return reasonUnknown
+	}
+	_, reason, err := w.status.Get(ctx, accountID)
+	if err != nil || reason == "" {
+		return reasonUnknown
+	}
+	return reason
+}
+
+// suspendEvent describes the stop on the deployment's timeline. Readers branch
+// on the reason code; the message is display copy.
+func suspendEvent(reason string) deploymentstore.StatusUpdate {
+	msg := "Stopped by billing"
+	if reason == billing.ReasonCreditsExhausted {
+		msg = "Stopped: free credits used up and no payment method on file"
+	}
+	return deploymentstore.StatusUpdate{
+		Status:       deploymentstore.StatusSuspended,
+		EventMsg:     msg,
+		EventDetails: billingEventDetails(reason),
+	}
+}
+
+// billingEventDetails marshals rather than concatenates so a reason can never
+// break out of the JSON string.
+func billingEventDetails(reason string) json.RawMessage {
+	b, err := json.Marshal(map[string]string{"source": "billing", "reason": reason})
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingSuspendArgs]) error {
@@ -57,6 +101,7 @@ func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingS
 	if err != nil {
 		return err
 	}
+	event := suspendEvent(w.suspendReason(ctx, job.Args.AccountID))
 	var suspended int
 	for _, dep := range deps {
 		client, err := suspendClusterClient(ctx, w.reg, dep)
@@ -69,7 +114,7 @@ func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingS
 			continue
 		}
 		k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusSuspended}); err != nil {
+		if err := w.store.UpdateStatus(dep.ID, event); err != nil {
 			w.log.Error("billing suspend: update status", "deployment_id", dep.ID, "error", err)
 			continue
 		}
@@ -111,7 +156,11 @@ func (w *BillingResumeWorker) Work(ctx context.Context, job *river.Job[BillingRe
 	}
 	var resumed int
 	for _, dep := range deps {
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusPending}); err != nil {
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{
+			Status:       deploymentstore.StatusPending,
+			EventMsg:     "Restarting after billing was resolved",
+			EventDetails: billingEventDetails("resumed"),
+		}); err != nil {
 			w.log.Error("billing resume: update status", "deployment_id", dep.ID, "error", err)
 			continue
 		}

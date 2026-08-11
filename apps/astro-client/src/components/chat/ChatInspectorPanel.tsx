@@ -437,6 +437,7 @@ const SETTINGS_UNAVAILABLE_NOTICE: Record<
 > = {
   unknown: "Checking agent status…",
   paused: "Agent is paused — resume it to view its configuration.",
+  suspended: "Agent is stopped by billing.",
   stopped: "Agent isn't running.",
   starting: "Agent is starting…",
   error: "Agent is in an error state.",
