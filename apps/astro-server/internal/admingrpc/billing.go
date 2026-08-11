@@ -248,7 +248,12 @@ func (s *Server) stripeCustomerURL(customerID string) string {
 
 // RetryBillingProvision re-enqueues provisioning, sparing an operator
 // hand-written SQL against river. An already-provisioned account is reported,
-// not re-enqueued.
+// not re-enqueued, unless Force is set.
+//
+// Force exists because the job ends by applying SignalCreditsGranted, which is
+// the only path that clears a credits_exhausted latch. Credit added outside
+// Astro (an operator grant in the Metronome dashboard) raises no signal, so
+// without this the account stays gated while holding a balance.
 func (s *Server) RetryBillingProvision(ctx context.Context, req *adminv1.RetryBillingProvisionRequest) (*adminv1.RetryBillingProvisionResponse, error) {
 	if req.AccountID == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_id is required")
@@ -267,7 +272,7 @@ func (s *Server) RetryBillingProvision(ctx context.Context, req *adminv1.RetryBi
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
 	}
-	if provisionedAt.Valid {
+	if provisionedAt.Valid && !req.Force {
 		return &adminv1.RetryBillingProvisionResponse{Status: "already_provisioned"}, nil
 	}
 

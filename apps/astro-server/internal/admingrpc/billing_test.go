@@ -271,6 +271,34 @@ func TestRetryBillingProvision_SkipsProvisionedAccount(t *testing.T) {
 	}
 }
 
+// Force is the only way to clear a credits_exhausted latch from Queen: the job
+// ends by granting credit, and every account holding a latch is by definition
+// already provisioned, so the unforced guard would always refuse.
+func TestRetryBillingProvision_ForceRerunsProvisionedAccount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := &mockAdminJobQueue{}
+	s := &Server{db: db, queue: q, log: logger.New("error", "json")}
+
+	mock.ExpectQuery("SELECT billing_provisioned_at FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"billing_provisioned_at"}).AddRow(time.Now()))
+
+	resp, err := s.RetryBillingProvision(context.Background(),
+		&adminv1.RetryBillingProvisionRequest{AccountID: "acct-1", Force: true})
+	if err != nil {
+		t.Fatalf("RetryBillingProvision: %v", err)
+	}
+	if resp.Status != "enqueued" {
+		t.Errorf("status = %q, want enqueued", resp.Status)
+	}
+	if len(q.billingProvisionCalls) != 1 {
+		t.Errorf("provision enqueues = %v, want one", q.billingProvisionCalls)
+	}
+}
+
 func TestForceBillingResume_OnlyWhenSuspended(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

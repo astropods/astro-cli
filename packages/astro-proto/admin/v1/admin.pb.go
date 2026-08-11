@@ -419,6 +419,7 @@ type GetAccountBillingDetailResponse struct {
 
 type RetryBillingProvisionRequest struct {
 	AccountID string `json:"account_id,omitempty"`
+	Force     bool   `json:"force,omitempty"`
 }
 
 type RetryBillingProvisionResponse struct {

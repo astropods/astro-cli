@@ -435,19 +435,26 @@ function BillingOperationsCard({ accountId }: { accountId: string }) {
           <Button
             size="xs"
             variant="outline"
-            disabled={retryMut.isPending || !!data.provisioned_at}
-            title={data.provisioned_at ? "Already provisioned" : "Re-enqueue the provisioning job"}
+            disabled={retryMut.isPending}
+            title={
+              data.provisioned_at
+                ? "Re-run provisioning. Idempotent, and grants credit, which clears a stale credits_exhausted gate."
+                : "Re-enqueue the provisioning job"
+            }
             onClick={() => {
               setResult(null);
-              retryMut.mutate(accountId, {
-                onSuccess: (r) =>
-                  setResult(
-                    r.status === "already_provisioned"
-                      ? "Already provisioned; nothing enqueued."
-                      : "Provisioning enqueued.",
-                  ),
-                onError: (e) => setResult(`Failed: ${(e as Error).message}`),
-              });
+              retryMut.mutate(
+                { id: accountId, force: !!data.provisioned_at },
+                {
+                  onSuccess: (r) =>
+                    setResult(
+                      r.status === "already_provisioned"
+                        ? "Already provisioned; nothing enqueued."
+                        : "Provisioning enqueued.",
+                    ),
+                  onError: (e) => setResult(`Failed: ${(e as Error).message}`),
+                },
+              );
             }}
           >
             {retryMut.isPending ? "Enqueueing…" : "Retry provisioning"}

@@ -185,16 +185,17 @@ export function useAccountBilling(id: string) {
   });
 }
 
-// Re-enqueues provisioning for an account that never completed it.
+// Re-enqueues provisioning. force re-runs it for an already-provisioned
+// account, which is how a stale credits_exhausted latch gets cleared.
 export function useRetryBillingProvision() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       api.post<RetryBillingProvisionResponse>(
-        `/api/admin/accounts/${encodeURIComponent(id)}/billing/retry-provision`,
+        `/api/admin/accounts/${encodeURIComponent(id)}/billing/retry-provision${force ? "?force=true" : ""}`,
         {},
       ),
-    onSuccess: (_data, id) => {
+    onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: adminKeys.accountBilling(id) });
     },
   });

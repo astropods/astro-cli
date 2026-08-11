@@ -95,6 +95,7 @@ func (s *Server) handleGetAccountBillingDetail(w http.ResponseWriter, r *http.Re
 func (s *Server) handleRetryBillingProvision(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.RetryBillingProvision(r.Context(), &adminv1.RetryBillingProvisionRequest{
 		AccountID: r.PathValue("id"),
+		Force:     r.URL.Query().Get("force") == "true",
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

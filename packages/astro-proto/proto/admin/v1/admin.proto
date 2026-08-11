@@ -914,6 +914,10 @@ message GetAccountBillingDetailResponse {
 
 message RetryBillingProvisionRequest {
   string account_id = 1;
+  // Re-run for an account already marked provisioned. The job is idempotent and
+  // ends by granting credit, which is the only way to clear a stale
+  // credits_exhausted latch after credit is added outside Astro.
+  bool force = 2;
 }
 
 message RetryBillingProvisionResponse {
