@@ -291,6 +291,17 @@ describe("user views running pods", () => {
     expect(await screen.findByText("No active pods")).toBeInTheDocument();
   });
 
+  it("shows a deploying state, not 'No active pods', while a deploy is in flight with no pods yet (#1876)", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({ value: "deploying", reason: "provisioning", details: "Pods are being provisioned" }),
+      ),
+    );
+    renderDeployments(makeDeployment({ workloads: [] }));
+    expect(await screen.findByText("Deploying your agent…")).toBeInTheDocument();
+    expect(screen.queryByText("No active pods")).not.toBeInTheDocument();
+  });
+
   it("shows Error status and last error message on unhealthy pod", async () => {
     server.use(
       http.get("/api/v1/deployments/:id/logs", () =>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
+import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
@@ -73,6 +74,10 @@ export default function AgentDeployments() {
   const { data: statusData } = useDeploymentStatus(deployment.id);
   const hasFailed = statusData?.value === "error";
   const failure = hasFailed ? statusData?.failed_on?.[0] ?? null : null;
+  // While a deploy is in flight (or its status hasn't resolved yet) the record's
+  // workloads can be empty; show a deploying state rather than "No active pods"
+  // so the page never looks blank mid-deploy (#1876).
+  const settingUp = statusData === undefined || statusData.value === "deploying";
   const stopMutation = useStopDeployment(account);
   const { data: history } = useDeploymentHistory(account, deployment.name, deployment.id, hasFailed);
   // Last good version = highest-revision past deploy that isn't current and didn't fail.
@@ -274,7 +279,14 @@ export default function AgentDeployments() {
         >
           {workloads.length === 0 ? (
             <div className="flex flex-1 items-center justify-center">
-              <p className="text-muted-foreground text-sm">No active pods</p>
+              {settingUp ? (
+                <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                  <Loader2 className="size-6 animate-spin" />
+                  <p className="text-sm">Deploying your agent…</p>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">No active pods</p>
+              )}
             </div>
           ) : (
             <PodGraph
