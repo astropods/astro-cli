@@ -961,7 +961,8 @@ type RegisteredCluster struct {
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	// EKS API server CA in PEM. Captured at registration so per-cluster client
 	// builds don't need cross-account DescribeCluster. Empty for is_primary.
-	EKSClusterCA []byte `json:"eks_cluster_ca,omitempty"`
+	EKSClusterCA       []byte `json:"eks_cluster_ca,omitempty"`
+	PodSubnetIPv6CIDRs string `json:"pod_subnet_ipv6_cidrs,omitempty"`
 }
 
 type RegisterClusterRequest struct {
@@ -976,6 +977,7 @@ type RegisterClusterRequest struct {
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
+	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs,omitempty"`
 }
 
 type RegisterClusterResponse struct {
@@ -1063,6 +1065,7 @@ type UpdateClusterRequest struct {
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips,omitempty"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
+	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs,omitempty"`
 }
 
 type UpdateClusterResponse struct {

@@ -32,12 +32,17 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 // clusterDeployBody is the subset of fields every register / update payload
 // must carry. Empty values are rejected by astro-server (no env fallback for
 // non-primary clusters), so the UI must collect all of them.
+//
+// PodSubnetIPv6CIDRs is the one exception — it's optional server-side (empty
+// for every IPv4-only cluster) and only needs a real value on IPv6 clusters
+// like the pm-eu pilot.
 type clusterDeployBody struct {
 	AgentIngressDomain     string `json:"agent_ingress_domain"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain"`
 	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext"`
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs"`
+	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs"`
 }
 
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +71,7 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
 	}
 	if body.Enabled != nil {
 		req.Enabled = body.Enabled
@@ -104,6 +110,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

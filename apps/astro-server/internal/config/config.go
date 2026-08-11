@@ -269,6 +269,9 @@ type DeploymentConfig struct {
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
 	// NetworkPolicy isolation: secondary-private subnet CIDRs where pods run (comma-separated).
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
+	// IPv6 counterpart to PodSubnetCIDRs. Empty for IPv4-only clusters (every
+	// cluster today except the pm-eu IPv6 pilot).
+	PodSubnetIPv6CIDRs []string // POD_SUBNET_IPV6_CIDRS
 	// EKS apiserver ENI subnets (primary VPC private subnets). Service proxy traffic
 	// from astro-server enters tenant pods from these CIDRs.
 	CPSubnetCIDRs []string // CP_SUBNET_CIDRS
@@ -353,6 +356,7 @@ func Load() (*Config, error) {
 			AgentPublicIngressDomain: getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
 			IngestionIngressDomain:   getEnv("INGESTION_INGRESS_DOMAIN", ""),
 			PodSubnetCIDRs:           getEnvSlice("POD_SUBNET_CIDRS", nil),
+			PodSubnetIPv6CIDRs:       getEnvSlice("POD_SUBNET_IPV6_CIDRS", nil),
 			CPSubnetCIDRs:            getEnvSlice("CP_SUBNET_CIDRS", nil),
 			KMSKeyARN:                getEnv("KMS_KEY_ARN", ""),
 			AIGatewayURL:             getEnv("AI_GATEWAY_URL", ""),

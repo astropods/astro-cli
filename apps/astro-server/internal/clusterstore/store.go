@@ -88,6 +88,7 @@ type Cluster struct {
 	LangfuseBaseURLExt     string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
 	LangfuseVPCEIPs        string // comma-separated VPCE ENI /32 targets for netpol egress
 	PodSubnetCIDRs         string // comma-separated pod subnet CIDRs for netpol except list
+	PodSubnetIPv6CIDRs     string // comma-separated pod subnet IPv6 CIDRs for netpol except list; empty for IPv4-only clusters
 	PullCredential         string // plaintext CPC; empty until Register/EnsurePullCredential sets it
 	PullKeyHash            []byte // sha256 of the CPC's secret portion
 	CreatedAt              time.Time
@@ -236,12 +237,12 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 		INSERT INTO clusters (
 			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 			agent_ingress_domain, ingestion_ingress_domain,
-			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
+			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
 			pull_credential, pull_key_hash
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
 		c.AgentIngressDomain, c.IngestionIngressDomain,
-		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
+		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
 		c.PullCredential, c.PullKeyHash,
 	)
 	if err != nil {
@@ -314,11 +315,12 @@ func (s *Store) Update(ctx context.Context, c *Cluster) error {
 			langfuse_base_url_ext = $7,
 			langfuse_vpce_ips = $8,
 			pod_subnet_cidrs = $9,
+			pod_subnet_ipv6_cidrs = $10,
 			updated_at = now()
-		WHERE id = $10`,
+		WHERE id = $11`,
 		c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
 		c.AgentIngressDomain, c.IngestionIngressDomain,
-		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs,
+		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
 		c.ID,
 	)
 	if err != nil {
@@ -494,7 +496,7 @@ func (s *Store) Blockers(ctx context.Context, id string) (accounts []Blocker, ac
 const baseSelect = `
 	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 	       agent_ingress_domain, ingestion_ingress_domain,
-	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs,
+	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
 	       pull_credential, pull_key_hash,
 	       created_at, updated_at
 	FROM clusters`
@@ -510,7 +512,7 @@ func scanCluster(r rowScanner) (*Cluster, error) {
 	if err := r.Scan(
 		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
 		&c.AgentIngressDomain, &c.IngestionIngressDomain,
-		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs,
+		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs, &c.PodSubnetIPv6CIDRs,
 		&pullCredential, &c.PullKeyHash,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {

@@ -1165,8 +1165,9 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 // applyNetworkPolicies applies namespace isolation NetworkPolicies.
 // Policy 1 (default-deny-all): deny all ingress and egress.
 // Policy 2 (allow-namespace-traffic): allow intra-namespace pods, ALB/external
-// traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs), DNS, and
-// monitoring namespace ingress on port 9091 (for Alloy metrics scraping).
+// traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs, plus ::/0 except
+// podSubnetIPv6CIDRs on IPv6 clusters), DNS, and monitoring namespace ingress
+// on port 9091 (for Alloy metrics scraping).
 // Policy 3 (allow-apiserver-proxy, conditional): when cpSubnetCIDRs is set,
 // a sibling NP scoped to messaging sidecar pods (component=agent) allows
 // service-proxy ingress on TCP 8090 only from apiserver ENI CIDRs.
@@ -1181,6 +1182,22 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		Except: make([]string, 0, len(a.podSubnetCIDRs)),
 	}
 	externalIPBlock.Except = append(externalIPBlock.Except, a.podSubnetCIDRs...)
+
+	// externalPeers is the "everything else" peer set for both the ingress and
+	// egress allow-namespace-traffic rules below. An ipBlock only ever matches
+	// traffic in its own address family — 0.0.0.0/0 matches zero IPv6 traffic —
+	// so an IPv6 cluster (podSubnetIPv6CIDRs non-empty) needs its own ::/0
+	// except-list peer, or DNS/internet egress over IPv6 is silently dropped by
+	// default-deny-all. Kept as a separate ipBlock (not merged into the IPv4
+	// one) so each stays a single, valid CIDR family.
+	externalPeers := []networkingv1.NetworkPolicyPeer{{IPBlock: &externalIPBlock}}
+	if len(a.podSubnetIPv6CIDRs) > 0 {
+		externalIPv6Block := networkingv1.IPBlock{
+			CIDR:   "::/0",
+			Except: append([]string{}, a.podSubnetIPv6CIDRs...),
+		}
+		externalPeers = append(externalPeers, networkingv1.NetworkPolicyPeer{IPBlock: &externalIPv6Block})
+	}
 
 	// Policy 1: default-deny-all
 	denyAll := &networkingv1.NetworkPolicy{
@@ -1204,9 +1221,7 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 			},
 		},
 		{
-			From: []networkingv1.NetworkPolicyPeer{
-				{IPBlock: &externalIPBlock},
-			},
+			From: externalPeers,
 		},
 		{
 			From: []networkingv1.NetworkPolicyPeer{
@@ -1253,15 +1268,14 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 					},
 				},
 				// Allow to external IPs and the cluster service CIDR (0.0.0.0/0 except
-				// pod subnets). This covers both outbound internet traffic (e.g. OpenAI)
-				// and DNS to the kube-dns service IP. A separate ports-only DNS rule is
-				// intentionally omitted: the AWS VPC CNI PolicyEndpoint controller merges
-				// a To-less egress rule onto the ipBlock rule, which would restrict
-				// internet egress to port 53 only.
+				// pod subnets, plus ::/0 except pod subnets on IPv6 clusters). This
+				// covers both outbound internet traffic (e.g. OpenAI) and DNS to the
+				// kube-dns service IP. A separate ports-only DNS rule is intentionally
+				// omitted: the AWS VPC CNI PolicyEndpoint controller merges a To-less
+				// egress rule onto the ipBlock rule, which would restrict internet
+				// egress to port 53 only.
 				{
-					To: []networkingv1.NetworkPolicyPeer{
-						{IPBlock: &externalIPBlock},
-					},
+					To: externalPeers,
 				},
 			},
 		},

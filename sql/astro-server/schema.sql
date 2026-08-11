@@ -39,6 +39,10 @@ CREATE TABLE public.clusters (
     langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',
     langfuse_vpce_ips         text         NOT NULL DEFAULT '',
     pod_subnet_cidrs          text         NOT NULL DEFAULT '',
+    -- IPv6 counterpart to pod_subnet_cidrs, for the tenant NetworkPolicy's
+    -- ::/0-except-list. Empty for IPv4-only clusters (every cluster today
+    -- except the pm-eu IPv6 pilot).
+    pod_subnet_ipv6_cidrs     text         NOT NULL DEFAULT '',
     -- Cluster pull credential (CPC), generated at registration. pull_key_hash
     -- is sha256 of its secret portion. See docs/01-spec/registry-pull-through-spec.md.
     pull_credential    text,

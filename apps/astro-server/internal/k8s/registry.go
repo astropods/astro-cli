@@ -68,6 +68,7 @@ type ClusterEntry struct {
 	LangfuseBaseURLExt     string
 	LangfuseVPCEIPs        string
 	PodSubnetCIDRs         string
+	PodSubnetIPv6CIDRs     string
 	// PullCredential is never exposed via the admin API; only clustercfg.Resolve reads it.
 	PullCredential string
 	CreatedAt      time.Time

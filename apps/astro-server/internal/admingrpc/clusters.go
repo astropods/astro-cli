@@ -88,6 +88,7 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 		LangfuseBaseURLExt:     entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        entry.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         entry.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     entry.PodSubnetIPv6CIDRs,
 	}
 	if !entry.IsPrimary {
 		out.CreatedAt = entry.CreatedAt.UTC().Format(time.RFC3339)
@@ -110,6 +111,7 @@ func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
 		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         row.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     row.PodSubnetIPv6CIDRs,
 		PullCredential:         row.PullCredential,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
@@ -153,6 +155,7 @@ func (s *Server) RegisterCluster(ctx context.Context, req *adminv1.RegisterClust
 		LangfuseBaseURLExt:     req.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         req.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     req.PodSubnetIPv6CIDRs,
 	}
 	if err := s.clusterStore.Register(ctx, row); err != nil {
 		return nil, clusterStoreErr(err)
@@ -313,6 +316,7 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 		LangfuseBaseURLExt:     req.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         req.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     req.PodSubnetIPv6CIDRs,
 	}); err != nil {
 		return nil, clusterStoreErr(err)
 	}

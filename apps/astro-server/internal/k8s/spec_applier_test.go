@@ -1688,6 +1688,116 @@ func TestNetworkPolicies_NoApiserverProxyNPWhenCPUnset(t *testing.T) {
 	}
 }
 
+// TestNetworkPolicies_IPv4OnlyClusterUnaffectedByIPv6Field guards the IPv6
+// NetworkPolicy fix's non-regression invariant: when podSubnetIPv6CIDRs is
+// unset (every cluster today except the pm-eu IPv6 pilot), the generated
+// policy must have exactly one "everything else" peer (the IPv4 ipBlock) in
+// both the ingress and egress rules — no behavior change for IPv4-only clusters.
+func TestNetworkPolicies_IPv4OnlyClusterUnaffectedByIPv6Field(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"100.65.0.0/20", "100.65.16.0/20"},
+	}
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	for _, rule := range np.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.IPBlock != nil && from.IPBlock.CIDR == "::/0" {
+				t.Error("ingress must not carry an ::/0 peer when podSubnetIPv6CIDRs is unset")
+			}
+		}
+	}
+	for _, rule := range np.Spec.Egress {
+		for _, to := range rule.To {
+			if to.IPBlock != nil && to.IPBlock.CIDR == "::/0" {
+				t.Error("egress must not carry an ::/0 peer when podSubnetIPv6CIDRs is unset")
+			}
+		}
+	}
+}
+
+// TestNetworkPolicies_IPv6ExternalPeerAdded verifies that on an IPv6 cluster
+// (podSubnetIPv6CIDRs set — currently only the pm-eu pilot), allow-namespace-traffic
+// gets a second "everything else" peer: a ::/0 ipBlock excepting the IPv6 pod
+// subnets, alongside the existing IPv4 0.0.0.0/0 peer. Without this, ipBlock's
+// per-address-family matching means 0.0.0.0/0 alone matches zero IPv6 traffic,
+// silently blocking DNS/egress for every pod on an IPv6 cluster.
+func TestNetworkPolicies_IPv6ExternalPeerAdded(t *testing.T) {
+	podCIDRs := []string{"100.65.0.0/20", "100.65.16.0/20"}
+	podIPv6CIDRs := []string{"2a05:d018:51b:d580::/64", "2a05:d018:51b:d581::/64"}
+
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:          fakeClient,
+		namespace:          "test-ns",
+		podSubnetCIDRs:     podCIDRs,
+		podSubnetIPv6CIDRs: podIPv6CIDRs,
+	}
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	checkPeers := func(t *testing.T, peers []networkingv1.NetworkPolicyPeer, direction string) {
+		t.Helper()
+		var v4, v6 *networkingv1.IPBlock
+		for _, peer := range peers {
+			if peer.IPBlock == nil {
+				continue
+			}
+			switch peer.IPBlock.CIDR {
+			case "0.0.0.0/0":
+				v4 = peer.IPBlock
+			case "::/0":
+				v6 = peer.IPBlock
+			}
+		}
+		if v4 == nil {
+			t.Errorf("%s: missing 0.0.0.0/0 peer", direction)
+		}
+		if v6 == nil {
+			t.Fatalf("%s: missing ::/0 peer", direction)
+		}
+		for _, want := range podIPv6CIDRs {
+			if !containsString(v6.Except, want) {
+				t.Errorf("%s: ::/0 except missing %q; got %v", direction, want, v6.Except)
+			}
+		}
+	}
+
+	for _, rule := range np.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.IPBlock != nil && (from.IPBlock.CIDR == "0.0.0.0/0" || from.IPBlock.CIDR == "::/0") {
+				checkPeers(t, rule.From, "ingress")
+			}
+		}
+	}
+	for _, rule := range np.Spec.Egress {
+		for _, to := range rule.To {
+			if to.IPBlock != nil && (to.IPBlock.CIDR == "0.0.0.0/0" || to.IPBlock.CIDR == "::/0") {
+				checkPeers(t, rule.To, "egress")
+			}
+		}
+	}
+}
+
 func externalIngressExceptCIDRs(np *networkingv1.NetworkPolicy) []string {
 	for _, rule := range np.Spec.Ingress {
 		for _, from := range rule.From {

@@ -29,6 +29,7 @@ type Resolved struct {
 	LangfuseBaseURL          string   // collector LANGFUSE_BASE_URL
 	LangfuseVPCEIPs          []string // VPCE ENI IPs for netpol :3000 egress
 	PodSubnetCIDRs           []string // pod subnet CIDRs for netpol except list
+	PodSubnetIPv6CIDRs       []string // IPv6 counterpart to PodSubnetCIDRs; empty for IPv4-only clusters
 	CPSubnetCIDRs            []string // apiserver ENI subnets for service-proxy ingress NP
 	RegistryPullCredential   string   // CPC embedded in this cluster's tenant image-pull Secret
 }
@@ -51,6 +52,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 			LangfuseBaseURL:          langfuseURL,
 			LangfuseVPCEIPs:          dep.LangfuseVPCEIPs,
 			PodSubnetCIDRs:           dep.PodSubnetCIDRs,
+			PodSubnetIPv6CIDRs:       dep.PodSubnetIPv6CIDRs,
 			CPSubnetCIDRs:            dep.CPSubnetCIDRs,
 			RegistryPullCredential:   dep.RegistryPullCredential,
 		}, nil
@@ -77,6 +79,7 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 		LangfuseBaseURL:        entry.LangfuseBaseURLExt,
 		LangfuseVPCEIPs:        commalist.Parse(entry.LangfuseVPCEIPs),
 		PodSubnetCIDRs:         commalist.Parse(entry.PodSubnetCIDRs),
+		PodSubnetIPv6CIDRs:     commalist.Parse(entry.PodSubnetIPv6CIDRs),
 		RegistryPullCredential: entry.PullCredential,
 	}, nil
 }

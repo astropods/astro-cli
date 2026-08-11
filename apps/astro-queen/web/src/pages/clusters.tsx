@@ -58,6 +58,8 @@ type ClusterDeployFields = {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  /** Optional — only needed for IPv6 clusters (e.g. the pm-eu pilot). Empty otherwise. */
+  pod_subnet_ipv6_cidrs: string;
 };
 
 const emptyClusterDeploy: ClusterDeployFields = {
@@ -66,6 +68,7 @@ const emptyClusterDeploy: ClusterDeployFields = {
   langfuse_base_url_ext: "",
   langfuse_vpce_ips: "",
   pod_subnet_cidrs: "",
+  pod_subnet_ipv6_cidrs: "",
 };
 
 /** Primary cluster omits ingress fields in API JSON (env-sourced); coalesce before use. */
@@ -76,6 +79,7 @@ function clusterDeployFromCluster(cluster: Pick<RegisteredCluster, keyof Cluster
     langfuse_base_url_ext: cluster.langfuse_base_url_ext ?? "",
     langfuse_vpce_ips: cluster.langfuse_vpce_ips ?? "",
     pod_subnet_cidrs: cluster.pod_subnet_cidrs ?? "",
+    pod_subnet_ipv6_cidrs: cluster.pod_subnet_ipv6_cidrs ?? "",
   };
 }
 
@@ -87,9 +91,12 @@ function trimClusterDeploy(f: ClusterDeployFields): ClusterDeployFields {
     langfuse_base_url_ext: normalized.langfuse_base_url_ext.trim(),
     langfuse_vpce_ips: normalized.langfuse_vpce_ips.trim(),
     pod_subnet_cidrs: normalized.pod_subnet_cidrs.trim(),
+    pod_subnet_ipv6_cidrs: normalized.pod_subnet_ipv6_cidrs.trim(),
   };
 }
 
+// pod_subnet_ipv6_cidrs is intentionally excluded — it's optional server-side,
+// unlike every other deploy field, so it doesn't gate form/JSON completeness.
 function clusterDeployComplete(f: ClusterDeployFields): boolean {
   const normalized = clusterDeployFromCluster(f);
   return (
@@ -166,6 +173,7 @@ type ClusterApiPayload = {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  pod_subnet_ipv6_cidrs: string;
 };
 
 function valuesToApiPayload(values: ClusterFormValues): ClusterApiPayload {
@@ -193,6 +201,7 @@ function apiPayloadToValues(payload: Record<string, unknown>): ClusterFormValues
       langfuse_base_url_ext: str(payload.langfuse_base_url_ext),
       langfuse_vpce_ips: str(payload.langfuse_vpce_ips),
       pod_subnet_cidrs: str(payload.pod_subnet_cidrs),
+      pod_subnet_ipv6_cidrs: str(payload.pod_subnet_ipv6_cidrs),
     },
   };
 }
@@ -370,6 +379,12 @@ function ClusterDeployFieldset({
           value={value.pod_subnet_cidrs}
           onChange={(v) => set({ pod_subnet_cidrs: v })}
           placeholder="10.0.0.0/24,10.1.0.0/24"
+        />
+        <Field
+          label="Pod subnet IPv6 CIDRs (optional)"
+          value={value.pod_subnet_ipv6_cidrs}
+          onChange={(v) => set({ pod_subnet_ipv6_cidrs: v })}
+          placeholder="2a05:d018:51b:d540::/64,2a05:d018:51b:d541::/64"
         />
       </div>
     </div>

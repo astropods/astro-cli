@@ -534,6 +534,8 @@ export interface RegisteredCluster {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  /** IPv6 counterpart to pod_subnet_cidrs. Empty for IPv4-only clusters. */
+  pod_subnet_ipv6_cidrs: string;
   /** Base64-encoded PEM from `aws eks describe-cluster`. Omitted for primary. */
   eks_cluster_ca?: string;
 }
@@ -555,6 +557,8 @@ export interface RegisterClusterRequest {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
+  pod_subnet_ipv6_cidrs?: string;
 }
 
 export interface RegisterClusterResponse {
@@ -580,6 +584,8 @@ export interface UpdateClusterRequest {
   langfuse_base_url_ext: string;
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
+  /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
+  pod_subnet_ipv6_cidrs?: string;
 }
 
 export interface UpdateClusterResponse {

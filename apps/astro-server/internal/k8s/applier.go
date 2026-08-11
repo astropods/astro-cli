@@ -70,6 +70,12 @@ type ApplierConfig struct {
 	// PodSubnetCIDRs are the secondary-private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
+	// PodSubnetIPv6CIDRs is the IPv6 counterpart to PodSubnetCIDRs. When non-empty,
+	// applyNetworkPolicies adds a second ::/0-except ipBlock peer alongside the
+	// IPv4 one — a plain 0.0.0.0/0 ipBlock never matches IPv6 traffic, so IPv6
+	// clusters need their own except-list to reach kube-dns/the internet without
+	// also opening a hole to other tenants' IPv6 pod IPs.
+	PodSubnetIPv6CIDRs []string
 	// CPSubnetCIDRs are primary VPC private subnets hosting EKS apiserver ENIs.
 	// When non-empty, a sibling `allow-apiserver-proxy` NetworkPolicy is generated
 	// allowing service-proxy traffic to messaging sidecars on TCP 8090/9090.
@@ -146,6 +152,7 @@ type Applier struct {
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs       []string
+	podSubnetIPv6CIDRs   []string
 	cpSubnetCIDRs        []string
 	langfuseVPCEIPs      []string
 	localMode            bool
@@ -183,6 +190,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceLabels:          cfg.NamespaceLabels,
 		namespaceAnnotations:     cfg.NamespaceAnnotations,
 		podSubnetCIDRs:           cfg.PodSubnetCIDRs,
+		podSubnetIPv6CIDRs:       cfg.PodSubnetIPv6CIDRs,
 		cpSubnetCIDRs:            cfg.CPSubnetCIDRs,
 		langfuseVPCEIPs:          cfg.LangfuseVPCEIPs,
 		localMode:                cfg.LocalMode,

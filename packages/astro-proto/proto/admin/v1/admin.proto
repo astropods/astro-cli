@@ -675,6 +675,8 @@ message RegisteredCluster {
   // Empty for is_primary=true entries (primary fetches CA from its in-account
   // DescribeCluster call at boot).
   bytes eks_cluster_ca = 21;
+  // IPv6 counterpart to pod_subnet_cidrs. Empty for IPv4-only clusters.
+  string pod_subnet_ipv6_cidrs = 22;
 }
 
 message RegisterClusterRequest {
@@ -693,6 +695,7 @@ message RegisterClusterRequest {
   string langfuse_vpce_ips = 14;
   string pod_subnet_cidrs = 15;
   bytes eks_cluster_ca = 16; // PEM CA bytes; required (clusterstore rejects empty)
+  string pod_subnet_ipv6_cidrs = 17; // IPv6 counterpart to pod_subnet_cidrs; empty for IPv4-only clusters
 }
 
 message RegisterClusterResponse {
@@ -981,6 +984,7 @@ message UpdateClusterRequest {
   string langfuse_vpce_ips = 13;
   string pod_subnet_cidrs = 14;
   bytes eks_cluster_ca = 15; // PEM CA bytes; required for additional clusters
+  string pod_subnet_ipv6_cidrs = 16; // IPv6 counterpart to pod_subnet_cidrs; empty for IPv4-only clusters
 }
 
 message UpdateClusterResponse {
