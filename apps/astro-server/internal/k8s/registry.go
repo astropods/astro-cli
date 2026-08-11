@@ -75,6 +75,32 @@ type ClusterEntry struct {
 	UpdatedAt      time.Time
 }
 
+// ClusterEntryFromRow maps a clusterstore row onto the registry's ClusterEntry
+// view. The only conversion site for additional (non-primary) clusters —
+// GetEntry, List, and admingrpc's rowToEntry all call this — so a field added
+// to either struct only needs wiring in one place instead of three drifting
+// copies (see the pod_subnet_ipv6_cidrs incident this replaced).
+func ClusterEntryFromRow(row *clusterstore.Cluster) ClusterEntry {
+	return ClusterEntry{
+		ID:                     row.ID,
+		IsPrimary:              false,
+		Region:                 row.Region,
+		EKSClusterName:         row.EKSClusterName,
+		EKSClusterEndpoint:     row.EKSClusterEndpoint,
+		EKSClusterCA:           row.EKSClusterCA,
+		Enabled:                row.Enabled,
+		AgentIngressDomain:     row.AgentIngressDomain,
+		IngestionIngressDomain: row.IngestionIngressDomain,
+		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
+		PodSubnetCIDRs:         row.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:     row.PodSubnetIPv6CIDRs,
+		PullCredential:         row.PullCredential,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
+	}
+}
+
 // RegistryConfig is the process-level Kubernetes configuration that the
 // primary ClusterClient needs. EKS and Local fields are populated from the
 // `cfg.Deployment.*` env-var-backed fields by `main.go`.
@@ -250,23 +276,7 @@ func (r *Registry) GetEntry(ctx context.Context, id string) (ClusterEntry, error
 		}
 		return ClusterEntry{}, fmt.Errorf("registry.GetEntry: %w", err)
 	}
-	entry := ClusterEntry{
-		ID:                     row.ID,
-		IsPrimary:              false,
-		Region:                 row.Region,
-		EKSClusterName:         row.EKSClusterName,
-		EKSClusterEndpoint:     row.EKSClusterEndpoint,
-		EKSClusterCA:           row.EKSClusterCA,
-		Enabled:                row.Enabled,
-		AgentIngressDomain:     row.AgentIngressDomain,
-		IngestionIngressDomain: row.IngestionIngressDomain,
-		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
-		PodSubnetCIDRs:         row.PodSubnetCIDRs,
-		PullCredential:         row.PullCredential,
-		CreatedAt:              row.CreatedAt,
-		UpdatedAt:              row.UpdatedAt,
-	}
+	entry := ClusterEntryFromRow(row)
 	r.mu.Lock()
 	if r.entryCache == nil {
 		r.entryCache = make(map[string]ClusterEntry)
@@ -306,23 +316,7 @@ func (r *Registry) List(ctx context.Context, enabledOnly bool) ([]ClusterEntry, 
 		return nil, fmt.Errorf("registry.List: %w", err)
 	}
 	for _, row := range rows {
-		out = append(out, ClusterEntry{
-			ID:                     row.ID,
-			IsPrimary:              false,
-			Region:                 row.Region,
-			EKSClusterName:         row.EKSClusterName,
-			EKSClusterEndpoint:     row.EKSClusterEndpoint,
-			EKSClusterCA:           row.EKSClusterCA,
-			Enabled:                row.Enabled,
-			AgentIngressDomain:     row.AgentIngressDomain,
-			IngestionIngressDomain: row.IngestionIngressDomain,
-			LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
-			LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
-			PodSubnetCIDRs:         row.PodSubnetCIDRs,
-			PullCredential:         row.PullCredential,
-			CreatedAt:              row.CreatedAt,
-			UpdatedAt:              row.UpdatedAt,
-		})
+		out = append(out, ClusterEntryFromRow(row))
 	}
 	return out, nil
 }

@@ -97,25 +97,11 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 	return out
 }
 
+// rowToEntry delegates to k8s.ClusterEntryFromRow — the single conversion
+// site GetEntry, List, and this package all share, so a new clusterstore
+// column only needs wiring in one place. See its doc comment.
 func (s *Server) rowToEntry(row *clusterstore.Cluster) k8s.ClusterEntry {
-	return k8s.ClusterEntry{
-		ID:                     row.ID,
-		IsPrimary:              false,
-		Region:                 row.Region,
-		EKSClusterName:         row.EKSClusterName,
-		EKSClusterEndpoint:     row.EKSClusterEndpoint,
-		EKSClusterCA:           row.EKSClusterCA,
-		Enabled:                row.Enabled,
-		AgentIngressDomain:     row.AgentIngressDomain,
-		IngestionIngressDomain: row.IngestionIngressDomain,
-		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
-		PodSubnetCIDRs:         row.PodSubnetCIDRs,
-		PodSubnetIPv6CIDRs:     row.PodSubnetIPv6CIDRs,
-		PullCredential:         row.PullCredential,
-		CreatedAt:              row.CreatedAt,
-		UpdatedAt:              row.UpdatedAt,
-	}
+	return k8s.ClusterEntryFromRow(row)
 }
 
 func (s *Server) loadAdditionalEntry(ctx context.Context, id string) (k8s.ClusterEntry, error) {

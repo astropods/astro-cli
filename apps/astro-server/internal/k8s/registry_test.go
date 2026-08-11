@@ -181,7 +181,7 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
-			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
 			"astrocp_eu-west-1_secret", []byte("hash"),
 			now, now))
 
@@ -198,6 +198,9 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 	}
 	if entry.PullCredential != "astrocp_eu-west-1_secret" {
 		t.Fatalf("PullCredential = %q, want astrocp_eu-west-1_secret", entry.PullCredential)
+	}
+	if entry.PodSubnetIPv6CIDRs != "2a05:d018:51b:d540::/64" {
+		t.Fatalf("PodSubnetIPv6CIDRs = %q, want 2a05:d018:51b:d540::/64", entry.PodSubnetIPv6CIDRs)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -221,7 +224,7 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
-			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
 			"astrocp_eu-west-1_secret", nil,
 			now, now))
 
@@ -251,6 +254,9 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	}
 	if entries[1].ID != "eu-west-1" || entries[1].IsPrimary {
 		t.Fatalf("entries[1] = %+v", entries[1])
+	}
+	if entries[1].PodSubnetIPv6CIDRs != "2a05:d018:51b:d540::/64" {
+		t.Fatalf("entries[1].PodSubnetIPv6CIDRs = %q, want 2a05:d018:51b:d540::/64", entries[1].PodSubnetIPv6CIDRs)
 	}
 	if entries[1].PullCredential != "astrocp_eu-west-1_secret" {
 		t.Fatalf("entries[1].PullCredential = %q, want astrocp_eu-west-1_secret", entries[1].PullCredential)
