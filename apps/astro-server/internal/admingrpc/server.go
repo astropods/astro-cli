@@ -37,6 +37,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
+	"github.com/astropods/astro/apps/astro-server/internal/payment"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
@@ -59,6 +60,8 @@ type adminJobQueue interface {
 	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
+	InsertBillingProvision(ctx context.Context, accountID string) error
+	InsertBillingResume(ctx context.Context, accountID string) error
 	TriggerJob(ctx context.Context, kind string, argsJSON json.RawMessage) (int64, error)
 	CancelJob(ctx context.Context, id int64) error
 	RetryJob(ctx context.Context, id int64) (bool, error)
@@ -99,6 +102,16 @@ type Server struct {
 	// detail view. Nil until SetBillingProvider is called; the check then reports
 	// "not configured" rather than failing.
 	billingProvider billing.BillingProvider
+
+	// paymentProvider reads the saved card. Nil until set; the view then omits it.
+	paymentProvider payment.Provider
+
+	// billingEnforced mirrors BILLING_GATE_ENFORCE: acted on, or only observed.
+	billingEnforced bool
+
+	// metronomeDashboardEnv is the deep link's environment segment, empty for
+	// the default environment.
+	metronomeDashboardEnv string
 
 	// Langfuse + Bifrost recovery for the account detail view. Each is nil until
 	// its setter is called; the corresponding recover RPC then reports "not
@@ -161,6 +174,14 @@ func (s *Server) SetQuotaReporter(r quota.Reporter) {
 // customer's ingest aliases from the account detail view.
 func (s *Server) SetBillingProvider(p billing.BillingProvider) {
 	s.billingProvider = p
+}
+
+// SetBillingView wires what the billing panel needs beyond the provider: the
+// card vault, the enforcement flag, and the Metronome dashboard environment.
+func (s *Server) SetBillingView(p payment.Provider, enforced bool, metronomeDashboardEnv string) {
+	s.paymentProvider = p
+	s.billingEnforced = enforced
+	s.metronomeDashboardEnv = metronomeDashboardEnv
 }
 
 // SetLangfuseProvisioner wires the Langfuse project provisioner (and the KMS

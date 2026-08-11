@@ -6,6 +6,8 @@ export const adminKeys = {
   account: (id: string) => [...adminKeys.all, "account", id] as const,
   accountMetronomeAliases: (id: string) =>
     [...adminKeys.all, "account", id, "metronome-aliases"] as const,
+  accountBilling: (id: string) =>
+    [...adminKeys.all, "account", id, "billing"] as const,
   blueprints: () => [...adminKeys.all, "blueprints"] as const,
   blueprintBuilds: (account: string, name: string) =>
     [...adminKeys.all, "blueprintBuilds", account, name] as const,

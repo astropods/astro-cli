@@ -49,6 +49,9 @@ service AdminService {
   rpc GetAccountMetronomeAliases(GetAccountMetronomeAliasesRequest) returns (MetronomeAliasStatus);
   rpc RecoverAccountMetronomeAliases(RecoverAccountMetronomeAliasesRequest) returns (MetronomeAliasStatus);
   rpc RegisterAccountMetronome(RegisterAccountMetronomeRequest) returns (RegisterAccountMetronomeResponse);
+  rpc GetAccountBillingDetail(GetAccountBillingDetailRequest) returns (GetAccountBillingDetailResponse);
+  rpc RetryBillingProvision(RetryBillingProvisionRequest) returns (RetryBillingProvisionResponse);
+  rpc ForceBillingResume(ForceBillingResumeRequest) returns (ForceBillingResumeResponse);
   rpc RecoverAccountLangfuse(RecoverAccountLangfuseRequest) returns (RecoverAccountLangfuseResponse);
   rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
@@ -843,6 +846,89 @@ message RecoverAccountBifrostResponse {
 // MetronomeAliasStatus reports whether an account's Metronome customer carries
 // the ingest aliases it should ({account_id, bifrost_customer_id}). Live check
 // against the Metronome API.
+message GetAccountBillingDetailRequest {
+  string account_id = 1;
+}
+
+// BillingContract is one Metronome contract covering the customer now. The list
+// response carries no package, so uniqueness_key is what marks a contract as
+// created by provisioning rather than by hand.
+message BillingContract {
+  string id = 1;
+  string name = 2;
+  string uniqueness_key = 3;
+  string rate_card_id = 4;
+  string starting_at = 5;
+  string ending_before = 6; // empty when open-ended
+  bool ours = 7;
+}
+
+// BillingProvisionJob is the account's most recent provisioning attempt. A
+// cancelled job with a blocked error is the state an operator has to clear.
+message BillingProvisionJob {
+  int64 id = 1;
+  string state = 2;
+  int32 attempt = 3;
+  string created_at = 4;
+  string finalized_at = 5; // empty while still running
+  string last_error = 6;
+}
+
+// BillingSpend is the customer's money position. Each amount carries a presence
+// flag: zero and absent are different, and only one of them is a fact.
+message BillingSpend {
+  string currency = 1;           // credit type name, e.g. USD
+  double credit_remaining = 2;
+  bool has_credit = 3;
+  double current_spend = 4;      // open period's draft invoice total
+  string current_period_end = 5;
+  bool has_current_spend = 6;
+  double last_invoice_total = 7;
+  string last_invoice_at = 8;
+  bool has_last_invoice = 9;
+}
+
+// BillingCard is the saved payment method, brand and last four only.
+message BillingCard {
+  string brand = 1;
+  string last4 = 2;
+  int32 exp_month = 3;
+  int32 exp_year = 4;
+}
+
+message GetAccountBillingDetailResponse {
+  AccountBillingInfo billing = 1;
+  string provisioned_at = 2;      // empty until provisioning completed
+  bool enforced = 3;              // BILLING_GATE_ENFORCE on this server
+  bool workloads_suspended = 4;   // read from the deployments, not from status
+  string coverage = 5;            // ours | foreign | none | unknown
+  repeated BillingContract contracts = 6;
+  BillingProvisionJob provision_job = 7;
+  BillingCard card = 8;
+  BillingSpend spend = 12;
+  string metronome_url = 9;       // vendor dashboard, empty without a customer
+  string stripe_url = 10;
+  // warnings carries per-source failures so one vendor being down degrades the
+  // view instead of failing the whole request.
+  repeated string warnings = 11;
+}
+
+message RetryBillingProvisionRequest {
+  string account_id = 1;
+}
+
+message RetryBillingProvisionResponse {
+  string status = 1; // enqueued | already_provisioned
+}
+
+message ForceBillingResumeRequest {
+  string account_id = 1;
+}
+
+message ForceBillingResumeResponse {
+  string status = 1; // enqueued | nothing_suspended
+}
+
 message MetronomeAliasStatus {
   bool configured = 1;         // provider available and account has a Metronome customer
   bool ok = 2;                 // all expected aliases present

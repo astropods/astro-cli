@@ -9,6 +9,8 @@ const (
 
 	BillingRecoverAliases        = "billing.recover_aliases"
 	BillingRegisterMetronome     = "billing.register_metronome"
+	BillingRetryProvision        = "billing.retry_provision"
+	BillingForceResume           = "billing.force_resume"
 	ObservabilityRecoverLangfuse = "observability.recover_langfuse"
 	ObservabilityRecoverBifrost  = "observability.recover_bifrost"
 	ProfileUpdate                = "profile.update"

@@ -35,6 +35,12 @@ type Config struct {
 	MetronomeCreditTypeID     string // METRONOME_CREDIT_TYPE_ID — pricing unit
 	MetronomeSignupCredit     int    // METRONOME_SIGNUP_CREDIT — in the credit type's own unit
 	MetronomeCreditExpiryDays int    // METRONOME_CREDIT_EXPIRY_DAYS
+	// MetronomeDashboardEnv is the environment segment in Metronome dashboard
+	// URLs (app.metronome.com/<env>/customers/...), used only to build admin
+	// deep links. Empty for the default environment. The API token is scoped to
+	// one environment, so this must name the same one or the links resolve to
+	// nothing.
+	MetronomeDashboardEnv string // METRONOME_DASHBOARD_ENV
 	// Stripe card-vault (payment-method collection only; Metronome charges the
 	// saved card). Enabled when StripeSecretKey is set. astro-server never moves
 	// money — it only creates SetupIntents and saves cards. Card setup is
@@ -430,6 +436,7 @@ func Load() (*Config, error) {
 		MetronomeCreditTypeID:     getEnv("METRONOME_CREDIT_TYPE_ID", ""),
 		MetronomeSignupCredit:     getEnvIntDefault("METRONOME_SIGNUP_CREDIT", 0),
 		MetronomeCreditExpiryDays: getEnvIntDefault("METRONOME_CREDIT_EXPIRY_DAYS", 0),
+		MetronomeDashboardEnv:     getEnv("METRONOME_DASHBOARD_ENV", ""),
 		StripeSecretKey:           getEnv("STRIPE_SECRET_KEY", ""),
 		StripePublishableKey:      getEnv("STRIPE_PUBLISHABLE_KEY", ""),
 		StripeWebhookSecret:       getEnv("STRIPE_WEBHOOK_SECRET", ""),

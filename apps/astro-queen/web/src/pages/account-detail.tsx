@@ -5,6 +5,9 @@ import {
   useAccountMetronomeAliases,
   useRecoverAccountMetronomeAliases,
   useRegisterAccountMetronome,
+  useAccountBilling,
+  useRetryBillingProvision,
+  useForceBillingResume,
   useRecoverAccountLangfuse,
   useRecoverAccountBifrost,
   useClusters,
@@ -17,7 +20,13 @@ import {
   useDenyQuotaRequest,
 } from "@/api/admin";
 import type { QuotaRequest } from "@/api/admin";
-import type { AccountBillingInfo, AccountResourceLimit, AccountMemberInfo } from "@/types/admin";
+import type {
+  AccountBillingInfo,
+  AccountResourceLimit,
+  AccountMemberInfo,
+  BillingContract,
+  BillingSpend,
+} from "@/types/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +40,7 @@ import {
   Crown,
   CircleCheck,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { FEATURE_LABELS } from "@/pages/quota-requests";
@@ -89,6 +99,8 @@ export function AccountDetailPage() {
           bifrostCustomerId={billing?.bifrost_customer_id ?? ""}
         />
       </div>
+
+      <BillingOperationsCard accountId={account.id} />
 
       <AccountQuotaRequests accountId={account.id} />
 
@@ -179,6 +191,8 @@ function BillingCard({ billing, accountId }: { billing?: AccountBillingInfo; acc
   const status = billing?.status || "";
   const metronomeId = billing?.metronome_customer_id ?? "";
   const registerMut = useRegisterAccountMetronome();
+  // Same query key as the operations panel, so this costs no extra request.
+  const { data: detail } = useAccountBilling(accountId);
   return (
     <Section title="Billing">
       <div className="space-y-3">
@@ -215,8 +229,9 @@ function BillingCard({ billing, accountId }: { billing?: AccountBillingInfo; acc
             onRecover={() => registerMut.mutate(accountId)}
             pending={registerMut.isPending}
             error={registerMut.error}
+            href={detail?.metronome_url}
           />
-          <IdRow label="Stripe" value={billing?.stripe_customer_id ?? ""} />
+          <IdRow label="Stripe" value={billing?.stripe_customer_id ?? ""} href={detail?.stripe_url} />
         </div>
         {metronomeId && <MetronomeAliasCheck accountId={accountId} />}
       </div>
@@ -315,13 +330,263 @@ function MetronomeAliasCheck({ accountId }: { accountId: string }) {
   );
 }
 
-function IdRow({ label, value }: { label: string; value: string }) {
+const COVERAGE_COPY: Record<string, { label: string; tone: string; detail: string }> = {
+  ours: {
+    label: "On our contract",
+    tone: "text-green-600",
+    detail: "A contract created by provisioning covers this customer.",
+  },
+  none: {
+    label: "No contract",
+    tone: "text-amber-600",
+    detail: "Nothing covers this customer, so the next sweep will create our contract.",
+  },
+  foreign: {
+    label: "Blocked by another contract",
+    tone: "text-red-500",
+    detail:
+      "A contract we did not create covers this customer, so provisioning refuses rather than stack a second one. Archive it in Metronome, then retry.",
+  },
+  unknown: {
+    label: "Unknown",
+    tone: "text-muted-foreground",
+    detail: "The billing provider cannot report contract coverage on this server.",
+  },
+};
+
+// Only the two actions with no vendor equivalent live here; contracts, credit,
+// and refunds stay in the vendor dashboards linked above.
+function BillingOperationsCard({ accountId }: { accountId: string }) {
+  const { data, isLoading, error } = useAccountBilling(accountId);
+  const retryMut = useRetryBillingProvision();
+  const resumeMut = useForceBillingResume();
+  const [result, setResult] = useState<string | null>(null);
+
+  if (isLoading) return <Section title="Billing operations"><Skeleton className="h-24 w-full" /></Section>;
+  if (error) {
+    return (
+      <Section title="Billing operations">
+        <p className="text-xs text-destructive">Failed to load: {error.message}</p>
+      </Section>
+    );
+  }
+  if (!data) return null;
+
+  const coverage = COVERAGE_COPY[data.coverage ?? "unknown"] ?? COVERAGE_COPY.unknown;
+  const job = data.provision_job;
+  const contracts = data.contracts ?? [];
+
+  return (
+    <Section
+      title="Billing operations"
+      action={
+        <div className="flex items-center gap-2">
+          {data.metronome_url && <VendorLink href={data.metronome_url} label="Metronome" />}
+          {data.stripe_url && <VendorLink href={data.stripe_url} label="Stripe" />}
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className={`rounded-full px-2 py-0.5 font-medium ${data.enforced ? "bg-red-500/10 text-red-500" : "bg-muted text-muted-foreground"}`}>
+            {data.enforced ? "Enforcing" : "Observe only"}
+          </span>
+          {data.workloads_suspended && (
+            <span className="rounded-full bg-red-500/10 px-2 py-0.5 font-medium text-red-500">
+              Workloads suspended
+            </span>
+          )}
+          <span className="text-muted-foreground">
+            {data.provisioned_at
+              ? `Provisioned ${formatDateTime(data.provisioned_at)}`
+              : "Not provisioned"}
+          </span>
+          {data.card && (
+            <span className="text-muted-foreground">
+              Card {data.card.brand} ····{data.card.last4} exp {data.card.exp_month}/{data.card.exp_year}
+            </span>
+          )}
+        </div>
+
+        {data.spend && <SpendRow spend={data.spend} />}
+
+        <div className="rounded bg-glass-light px-2 py-1.5">
+          <p className={`text-[11px] font-medium ${coverage.tone}`}>{coverage.label}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{coverage.detail}</p>
+          {contracts.length > 0 && <ContractTable contracts={contracts} />}
+        </div>
+
+        <div className="rounded bg-glass-light px-2 py-1.5">
+          <p className="text-[11px] font-medium">Provisioning</p>
+          {job ? (
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              Last job {job.state} on attempt {job.attempt}
+              {job.finalized_at ? ` at ${formatDateTime(job.finalized_at)}` : ""}
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              No recent job. River prunes finished jobs, so this does not mean it never ran.
+            </p>
+          )}
+          {job?.last_error && (
+            <p className="mt-0.5 break-all text-[10px] text-destructive">{job.last_error}</p>
+          )}
+        </div>
+
+        {(data.warnings ?? []).map((warning) => (
+          <p key={warning} className="text-[10px] text-amber-600">{warning}</p>
+        ))}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={retryMut.isPending || !!data.provisioned_at}
+            title={data.provisioned_at ? "Already provisioned" : "Re-enqueue the provisioning job"}
+            onClick={() => {
+              setResult(null);
+              retryMut.mutate(accountId, {
+                onSuccess: (r) =>
+                  setResult(
+                    r.status === "already_provisioned"
+                      ? "Already provisioned; nothing enqueued."
+                      : "Provisioning enqueued.",
+                  ),
+                onError: (e) => setResult(`Failed: ${(e as Error).message}`),
+              });
+            }}
+          >
+            {retryMut.isPending ? "Enqueueing…" : "Retry provisioning"}
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={resumeMut.isPending || !data.workloads_suspended}
+            title={data.workloads_suspended ? "Restore billing-suspended deployments" : "Nothing is suspended"}
+            onClick={() => {
+              if (!window.confirm("Restore this account's billing-suspended deployments?\n\nThis does not change billing status, so a still-unpaid account can be suspended again by the next signal.")) return;
+              setResult(null);
+              resumeMut.mutate(accountId, {
+                onSuccess: (r) =>
+                  setResult(
+                    r.status === "nothing_suspended"
+                      ? "Nothing suspended; no job enqueued."
+                      : "Resume enqueued.",
+                  ),
+                onError: (e) => setResult(`Failed: ${(e as Error).message}`),
+              });
+            }}
+          >
+            {resumeMut.isPending ? "Resuming…" : "Force resume"}
+          </Button>
+          {result && <span className="text-[11px] text-muted-foreground">{result}</span>}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function formatAmount(value: number, currency?: string): string {
+  const amount = value.toFixed(2);
+  return currency === "USD" ? `$${amount}` : `${amount} ${currency ?? ""}`.trim();
+}
+
+// Credit remaining is what gating fires on, so it leads and reddens at zero.
+function SpendRow({ spend }: { spend: BillingSpend }) {
+  const exhausted = spend.has_credit && spend.credit_remaining <= 0;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 rounded bg-glass-light px-2 py-1.5">
+      <Metric
+        label="Credit left"
+        value={spend.has_credit ? formatAmount(spend.credit_remaining, spend.currency) : "—"}
+        tone={exhausted ? "text-red-500" : "text-green-600"}
+      />
+      <Metric
+        label="This period"
+        value={spend.has_current_spend ? formatAmount(spend.current_spend, spend.currency) : "—"}
+        hint={spend.current_period_end ? `ends ${formatDateTime(spend.current_period_end)}` : undefined}
+      />
+      <Metric
+        label="Last invoice"
+        value={spend.has_last_invoice ? formatAmount(spend.last_invoice_total, spend.currency) : "—"}
+        hint={spend.last_invoice_at ? formatDateTime(spend.last_invoice_at) : undefined}
+      />
+    </div>
+  );
+}
+
+function Metric({ label, value, tone, hint }: { label: string; value: string; tone?: string; hint?: string }) {
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className={`text-sm font-semibold tabular-nums ${tone ?? ""}`}>{value}</p>
+      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function ContractTable({ contracts }: { contracts: BillingContract[] }) {
+  return (
+    <table className="mt-1.5 w-full text-[10px]">
+      <thead>
+        <tr className="text-muted-foreground">
+          <th className="py-0.5 text-left font-medium">Contract</th>
+          <th className="py-0.5 text-left font-medium">Uniqueness key</th>
+          <th className="py-0.5 text-left font-medium">Started</th>
+          <th className="py-0.5 text-center font-medium">Ours</th>
+        </tr>
+      </thead>
+      <tbody>
+        {contracts.map((c) => (
+          <tr key={c.id} className={c.ours ? "" : "text-amber-600"}>
+            <td className="py-0.5 font-mono break-all">{c.id}</td>
+            <td className="py-0.5 font-mono break-all">{c.uniqueness_key || "—"}</td>
+            <td className="py-0.5">{c.starting_at ? formatDateTime(c.starting_at) : "—"}</td>
+            <td className="py-0.5 text-center">{c.ours ? "✓" : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function VendorLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {label} <ExternalLink className="size-3" />
+    </a>
+  );
+}
+
+// IdValue links a provider ID to its dashboard. The URL is resolved server-side
+// so it is absent rather than wrong when the environment is unknown.
+function IdValue({ value, href }: { value: string; href?: string }) {
+  if (!href) return <span className="font-mono break-all">{value}</span>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-mono break-all underline decoration-dotted underline-offset-2 hover:text-foreground"
+    >
+      {value}
+      <ExternalLink className="size-3 shrink-0" />
+    </a>
+  );
+}
+
+function IdRow({ label, value, href }: { label: string; value: string; href?: string }) {
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
       {value ? (
         <>
-          <span className="font-mono break-all">{value}</span>
+          <IdValue value={value} href={href} />
           <CopyButton value={value} />
         </>
       ) : (
@@ -436,13 +701,14 @@ function ObservabilityCard({ accountId, hasLangfuse, langfuseProjectId, bifrostC
   );
 }
 
-function ObservabilityRow({ label, value, onRecover, pending, error, actionLabel = "Recover" }: {
+function ObservabilityRow({ label, value, onRecover, pending, error, actionLabel = "Recover", href }: {
   label: string;
   value: string;
   onRecover: () => void;
   pending: boolean;
   error: Error | null;
   actionLabel?: string;
+  href?: string;
 }) {
   return (
     <div>
@@ -450,7 +716,7 @@ function ObservabilityRow({ label, value, onRecover, pending, error, actionLabel
         <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
         {value ? (
           <>
-            <span className="font-mono break-all">{value}</span>
+            <IdValue value={value} href={href} />
             <CopyButton value={value} />
           </>
         ) : (

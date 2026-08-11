@@ -590,6 +590,10 @@ func runAPI(
 	// Wire the billing provider for the Metronome ingest-alias health check.
 	adminSrv.SetBillingProvider(billingProvider)
 
+	// Wire the card vault, the gate flag, and the Metronome environment the
+	// account billing view's deep links point at.
+	adminSrv.SetBillingView(paymentProvider, cfg.BillingGateEnforce, cfg.MetronomeDashboardEnv)
+
 	// Wire the observability provisioners for the account detail view's recover
 	// actions (Langfuse project, Bifrost customer). Built in setupRoutes and
 	// stashed on deps; nil when their backends are unconfigured.

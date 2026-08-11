@@ -9,6 +9,9 @@ import type {
   GetAccountResponse,
   MetronomeAliasStatus,
   RegisterAccountMetronomeResponse,
+  GetAccountBillingDetailResponse,
+  RetryBillingProvisionResponse,
+  ForceBillingResumeResponse,
   RecoverAccountLangfuseResponse,
   RecoverAccountBifrostResponse,
   ListBlueprintsResponse,
@@ -164,6 +167,51 @@ export function useRegisterAccountMetronome() {
       qc.invalidateQueries({ queryKey: adminKeys.account(id) });
       // A fresh customer is seeded with the ingest aliases — re-check them.
       qc.invalidateQueries({ queryKey: adminKeys.accountMetronomeAliases(id) });
+    },
+  });
+}
+
+// Merged billing view: our status and provisioning record, plus the live
+// contract verdict from Metronome. Separate from useAccount so the account page
+// does not wait on a vendor API to render.
+export function useAccountBilling(id: string) {
+  return useQuery({
+    queryKey: adminKeys.accountBilling(id),
+    queryFn: () =>
+      api.get<GetAccountBillingDetailResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/billing`,
+      ),
+    enabled: !!id,
+  });
+}
+
+// Re-enqueues provisioning for an account that never completed it.
+export function useRetryBillingProvision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RetryBillingProvisionResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/billing/retry-provision`,
+        {},
+      ),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accountBilling(id) });
+    },
+  });
+}
+
+// Restores deployments that billing suspended. Does not change billing status,
+// so an account that still recomputes to suspended can be stopped again.
+export function useForceBillingResume() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<ForceBillingResumeResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/billing/force-resume`,
+        {},
+      ),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accountBilling(id) });
     },
   });
 }

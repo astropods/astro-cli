@@ -368,6 +368,71 @@ export interface RegisterAccountMetronomeResponse {
   metronome_customer_id?: string;
 }
 
+// A contract is ours only by its uniqueness key; the list response carries no
+// package, so a hand-made contract cannot be told apart any other way.
+export interface BillingContract {
+  id: string;
+  name?: string;
+  uniqueness_key?: string;
+  rate_card_id?: string;
+  starting_at?: string;
+  ending_before?: string;
+  ours: boolean;
+}
+
+export interface BillingProvisionJob {
+  id?: number;
+  state?: string;
+  attempt: number;
+  created_at?: string;
+  finalized_at?: string;
+  last_error?: string;
+}
+
+// Amounts carry a presence flag because zero and absent are different: a
+// customer with no draft invoice and one whose lookup failed both show nothing.
+export interface BillingSpend {
+  currency?: string;
+  credit_remaining: number;
+  has_credit: boolean;
+  current_spend: number;
+  current_period_end?: string;
+  has_current_spend: boolean;
+  last_invoice_total: number;
+  last_invoice_at?: string;
+  has_last_invoice: boolean;
+}
+
+export interface BillingCard {
+  brand?: string;
+  last4?: string;
+  exp_month: number;
+  exp_year: number;
+}
+
+export interface GetAccountBillingDetailResponse {
+  billing?: AccountBillingInfo;
+  provisioned_at?: string;
+  enforced: boolean;
+  workloads_suspended: boolean;
+  coverage?: "ours" | "foreign" | "none" | "unknown";
+  contracts?: BillingContract[];
+  provision_job?: BillingProvisionJob;
+  card?: BillingCard;
+  spend?: BillingSpend;
+  metronome_url?: string;
+  stripe_url?: string;
+  warnings?: string[];
+}
+
+export interface RetryBillingProvisionResponse {
+  status?: string;
+}
+
+export interface ForceBillingResumeResponse {
+  status?: string;
+}
+
 export interface RecoverAccountLangfuseResponse {
   langfuse_project_id?: string;
 }

@@ -60,6 +60,64 @@ type Provisioner interface {
 	ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error)
 }
 
+// Coverage states, mirroring the decision ProvisionCustomer acts on.
+const (
+	CoverageNone    = "none"    // nothing covers the customer
+	CoverageOurs    = "ours"    // covered by a contract provisioning created
+	CoverageForeign = "foreign" // covered by a contract created elsewhere
+)
+
+// Contract is one contract covering a customer.
+type Contract struct {
+	ID            string
+	Name          string
+	UniquenessKey string
+	RateCardID    string
+	StartingAt    time.Time
+	EndingBefore  time.Time // zero when open-ended
+	Ours          bool
+}
+
+// Coverage is the provisioning verdict plus the contracts it was drawn from.
+type Coverage struct {
+	State     string
+	Contracts []Contract
+}
+
+// Spend is the at-a-glance money view for one customer. Zero means "no data",
+// so every amount carries its own presence flag.
+type Spend struct {
+	Currency string
+
+	// CreditRemaining is what is left of the granted credit. This is the number
+	// credit-exhaustion gating fires on.
+	CreditRemaining float64
+	HasCredit       bool
+
+	// CurrentSpend is the open billing period's draft invoice total.
+	CurrentSpend     float64
+	CurrentPeriodEnd time.Time
+	HasCurrentSpend  bool
+
+	// LastInvoice is the most recent finalized invoice.
+	LastInvoiceTotal float64
+	LastInvoiceAt    time.Time
+	HasLastInvoice   bool
+}
+
+// SpendReporter summarises a customer's money position. Kept off
+// BillingProvider (interface assertion) so noop implements nothing.
+type SpendReporter interface {
+	CustomerSpend(ctx context.Context, customerID string) (Spend, error)
+}
+
+// ContractInspector exposes the same coverage check provisioning makes, so the
+// admin view reports the verdict rather than a second opinion. Kept off
+// BillingProvider (interface assertion) so noop implements nothing.
+type ContractInspector interface {
+	ContractCoverage(ctx context.Context, customerID, accountID string) (Coverage, error)
+}
+
 // BillingProvider is the provider-agnostic metering contract: customer
 // lifecycle plus usage ingest. Implemented by noop (OSS) and metronome (hosted).
 type BillingProvider interface {

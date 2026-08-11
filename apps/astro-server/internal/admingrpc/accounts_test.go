@@ -76,6 +76,10 @@ type mockAdminJobQueue struct {
 	migrateCalls []migrateQueueCall
 	failOnCall   int
 	failErr      error
+
+	billingProvisionCalls []string
+	billingResumeCalls    []string
+	billingErr            error
 }
 
 type migrateQueueCall struct {
@@ -94,6 +98,16 @@ func (m *mockAdminJobQueue) CancelJob(context.Context, int64) error        { ret
 func (m *mockAdminJobQueue) RetryJob(context.Context, int64) (bool, error) { return true, nil }
 func (m *mockAdminJobQueue) PauseQueue(context.Context, string) error      { return nil }
 func (m *mockAdminJobQueue) ResumeQueue(context.Context, string) error     { return nil }
+
+func (m *mockAdminJobQueue) InsertBillingProvision(_ context.Context, accountID string) error {
+	m.billingProvisionCalls = append(m.billingProvisionCalls, accountID)
+	return m.billingErr
+}
+
+func (m *mockAdminJobQueue) InsertBillingResume(_ context.Context, accountID string) error {
+	m.billingResumeCalls = append(m.billingResumeCalls, accountID)
+	return m.billingErr
+}
 
 func (m *mockAdminJobQueue) InsertMigrateDeploymentClusterJob(_ context.Context, deploymentID, targetClusterID, sourceClusterID string) error {
 	m.migrateCalls = append(m.migrateCalls, migrateQueueCall{deploymentID, targetClusterID, sourceClusterID})

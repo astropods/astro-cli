@@ -48,8 +48,10 @@ type Provider struct {
 
 // Compile-time assertions.
 var (
-	_ billing.BillingProvider = (*Provider)(nil)
-	_ billing.Provisioner     = (*Provider)(nil)
+	_ billing.BillingProvider   = (*Provider)(nil)
+	_ billing.Provisioner       = (*Provider)(nil)
+	_ billing.ContractInspector = (*Provider)(nil)
+	_ billing.SpendReporter     = (*Provider)(nil)
 )
 
 // New constructs a Metronome provider. Returns nil when no API key is set so
@@ -166,19 +168,13 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	}
 	now := time.Now().UTC().Truncate(time.Hour)
 
-	// A contract made outside this path (by hand in the dashboard) carries no
-	// uniqueness key, so Contracts.New would not 409 against it. covering_date
-	// filters to contracts effective now.
-	existing, err := p.mc.V2.Contracts.List(ctx, metronome.V2ContractListParams{
-		CustomerID:   customerID,
-		CoveringDate: param.NewOpt(now),
-	})
+	existing, err := p.coveringContracts(ctx, customerID, now)
 	if err != nil {
-		return false, fmt.Errorf("metronome list contracts: %w", err)
+		return false, err
 	}
 
-	contractKey := "contract:" + accountID
-	switch cov, foreign := classifyCoverage(existing.Data, contractKey); cov {
+	contractKey := contractKey(accountID)
+	switch cov, foreign := classifyCoverage(existing, contractKey); cov {
 	case coverageOurs:
 		// Already on the right package; the grant below is separately keyed.
 	case coverageNone:
@@ -223,6 +219,47 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	return true, nil
 }
 
+// coveringContracts lists the contracts effective at `at`. A contract made by
+// hand carries no uniqueness key, so Contracts.New would not 409 against it.
+func (p *Provider) coveringContracts(ctx context.Context, customerID string, at time.Time) ([]shared.ContractV2, error) {
+	page, err := p.mc.V2.Contracts.List(ctx, metronome.V2ContractListParams{
+		CustomerID:   customerID,
+		CoveringDate: param.NewOpt(at),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("metronome list contracts: %w", err)
+	}
+	return page.Data, nil
+}
+
+// ContractCoverage reports the verdict ProvisionCustomer acts on. Read-only.
+func (p *Provider) ContractCoverage(ctx context.Context, customerID, accountID string) (billing.Coverage, error) {
+	contracts, err := p.coveringContracts(ctx, customerID, time.Now().UTC().Truncate(time.Hour))
+	if err != nil {
+		return billing.Coverage{}, err
+	}
+
+	key := contractKey(accountID)
+	cov, _ := classifyCoverage(contracts, key)
+	out := billing.Coverage{State: cov.String(), Contracts: make([]billing.Contract, 0, len(contracts))}
+	for _, c := range contracts {
+		out.Contracts = append(out.Contracts, billing.Contract{
+			ID:            c.ID,
+			Name:          c.Name,
+			UniquenessKey: c.UniquenessKey,
+			RateCardID:    c.RateCardID,
+			StartingAt:    c.StartingAt,
+			EndingBefore:  c.EndingBefore,
+			Ours:          c.UniquenessKey != "" && c.UniquenessKey == key,
+		})
+	}
+	return out, nil
+}
+
+// contractKey is the uniqueness key every contract created here carries, so a
+// repeat create 409s instead of stacking.
+func contractKey(accountID string) string { return "contract:" + accountID }
+
 // coverage classifies the contracts already covering a customer.
 type coverage int
 
@@ -231,6 +268,17 @@ const (
 	coverageOurs                    // we created it; leave it alone
 	coverageForeign                 // covered by a contract we did not create
 )
+
+func (c coverage) String() string {
+	switch c {
+	case coverageOurs:
+		return billing.CoverageOurs
+	case coverageForeign:
+		return billing.CoverageForeign
+	default:
+		return billing.CoverageNone
+	}
+}
 
 // classifyCoverage scans every covering contract rather than trusting list
 // order. Ours anywhere wins, since a second contract would double-bill;

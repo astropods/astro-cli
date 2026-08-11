@@ -2,7 +2,8 @@
 // Uses JSON-over-gRPC encoding registered under the "json" content-subtype.
 // Clients must opt in via grpc.CallContentSubtype("json"); see
 // apps/astro-queen/internal/client/client.go.
-// Regenerate by running: buf generate (requires buf CLI)
+// Hand-maintained: there is no buf.gen.yaml, so editing the .proto does not
+// produce this file. Keep the structs and their JSON tags in step by hand.
 
 package adminv1
 
@@ -359,6 +360,79 @@ type RecoverAccountBifrostRequest struct {
 
 type RecoverAccountBifrostResponse struct {
 	BifrostCustomerID string `json:"bifrost_customer_id,omitempty"`
+}
+
+type GetAccountBillingDetailRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type BillingContract struct {
+	ID            string `json:"id,omitempty"`
+	Name          string `json:"name,omitempty"`
+	UniquenessKey string `json:"uniqueness_key,omitempty"`
+	RateCardID    string `json:"rate_card_id,omitempty"`
+	StartingAt    string `json:"starting_at,omitempty"`
+	EndingBefore  string `json:"ending_before,omitempty"`
+	Ours          bool   `json:"ours"`
+}
+
+type BillingProvisionJob struct {
+	ID          int64  `json:"id,omitempty"`
+	State       string `json:"state,omitempty"`
+	Attempt     int32  `json:"attempt"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	FinalizedAt string `json:"finalized_at,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+}
+
+type BillingSpend struct {
+	Currency         string  `json:"currency,omitempty"`
+	CreditRemaining  float64 `json:"credit_remaining"`
+	HasCredit        bool    `json:"has_credit"`
+	CurrentSpend     float64 `json:"current_spend"`
+	CurrentPeriodEnd string  `json:"current_period_end,omitempty"`
+	HasCurrentSpend  bool    `json:"has_current_spend"`
+	LastInvoiceTotal float64 `json:"last_invoice_total"`
+	LastInvoiceAt    string  `json:"last_invoice_at,omitempty"`
+	HasLastInvoice   bool    `json:"has_last_invoice"`
+}
+
+type BillingCard struct {
+	Brand    string `json:"brand,omitempty"`
+	Last4    string `json:"last4,omitempty"`
+	ExpMonth int32  `json:"exp_month"`
+	ExpYear  int32  `json:"exp_year"`
+}
+
+type GetAccountBillingDetailResponse struct {
+	Billing            *AccountBillingInfo  `json:"billing,omitempty"`
+	ProvisionedAt      string               `json:"provisioned_at,omitempty"`
+	Enforced           bool                 `json:"enforced"`
+	WorkloadsSuspended bool                 `json:"workloads_suspended"`
+	Coverage           string               `json:"coverage,omitempty"`
+	Contracts          []*BillingContract   `json:"contracts,omitempty"`
+	ProvisionJob       *BillingProvisionJob `json:"provision_job,omitempty"`
+	Card               *BillingCard         `json:"card,omitempty"`
+	Spend              *BillingSpend        `json:"spend,omitempty"`
+	MetronomeURL       string               `json:"metronome_url,omitempty"`
+	StripeURL          string               `json:"stripe_url,omitempty"`
+	Warnings           []string             `json:"warnings,omitempty"`
+}
+
+type RetryBillingProvisionRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type RetryBillingProvisionResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type ForceBillingResumeRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type ForceBillingResumeResponse struct {
+	Status string `json:"status,omitempty"`
 }
 
 type MetronomeAliasStatus struct {

@@ -2,7 +2,8 @@ layer: "library"
 language: "go"
 
 tasks:
-  # Regenerate Go code from proto definitions (requires buf CLI).
+  # Regenerating needs a buf.gen.yaml, which this package does not have: the
+  # Go in admin/ and connect/ is hand-maintained against the .proto files.
   generate:
     command: "buf generate"
     inputs:

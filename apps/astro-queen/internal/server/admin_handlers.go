@@ -13,6 +13,9 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts/{id}/metronome-aliases", s.handleGetAccountMetronomeAliases)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/metronome-aliases/recover", s.handleRecoverAccountMetronomeAliases)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/metronome/register", s.handleRegisterAccountMetronome)
+	mux.HandleFunc("GET /api/admin/accounts/{id}/billing", s.handleGetAccountBillingDetail)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/billing/retry-provision", s.handleRetryBillingProvision)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/billing/force-resume", s.handleForceBillingResume)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/langfuse/recover", s.handleRecoverAccountLangfuse)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
@@ -69,6 +72,39 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetAccountMetronomeAliases(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.GetAccountMetronomeAliases(r.Context(), &adminv1.GetAccountMetronomeAliasesRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetAccountBillingDetail(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.GetAccountBillingDetail(r.Context(), &adminv1.GetAccountBillingDetailRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRetryBillingProvision(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RetryBillingProvision(r.Context(), &adminv1.RetryBillingProvisionRequest{
+		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleForceBillingResume(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ForceBillingResume(r.Context(), &adminv1.ForceBillingResumeRequest{
 		AccountID: r.PathValue("id"),
 	})
 	if err != nil {

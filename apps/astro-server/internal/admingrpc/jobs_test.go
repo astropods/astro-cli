@@ -47,6 +47,8 @@ func (m *mockJobsQueue) InsertDeployJob(context.Context, string, string) error  
 func (m *mockJobsQueue) InsertMigrateDeploymentClusterJob(context.Context, string, string, string) error {
 	return nil
 }
+func (m *mockJobsQueue) InsertBillingProvision(context.Context, string) error { return nil }
+func (m *mockJobsQueue) InsertBillingResume(context.Context, string) error    { return nil }
 func (m *mockJobsQueue) TriggerJob(context.Context, string, json.RawMessage) (int64, error) {
 	return 0, nil
 }

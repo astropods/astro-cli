@@ -1,5 +1,8 @@
 // Code generated manually to match proto/admin/v1/admin.proto.
-// Regenerate by running: buf generate (requires buf CLI)
+// Hand-maintained: there is no buf.gen.yaml, so editing the .proto does not
+// produce this file. Add or change an RPC in six places here (client
+// interface, client method, server interface, Unimplemented stub, handler,
+// ServiceDesc) to match.
 
 package adminv1
 
@@ -23,6 +26,9 @@ type AdminServiceClient interface {
 	GetAccountMetronomeAliases(ctx context.Context, in *GetAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error)
 	RecoverAccountMetronomeAliases(ctx context.Context, in *RecoverAccountMetronomeAliasesRequest, opts ...grpc.CallOption) (*MetronomeAliasStatus, error)
 	RegisterAccountMetronome(ctx context.Context, in *RegisterAccountMetronomeRequest, opts ...grpc.CallOption) (*RegisterAccountMetronomeResponse, error)
+	GetAccountBillingDetail(ctx context.Context, in *GetAccountBillingDetailRequest, opts ...grpc.CallOption) (*GetAccountBillingDetailResponse, error)
+	RetryBillingProvision(ctx context.Context, in *RetryBillingProvisionRequest, opts ...grpc.CallOption) (*RetryBillingProvisionResponse, error)
+	ForceBillingResume(ctx context.Context, in *ForceBillingResumeRequest, opts ...grpc.CallOption) (*ForceBillingResumeResponse, error)
 	RecoverAccountLangfuse(ctx context.Context, in *RecoverAccountLangfuseRequest, opts ...grpc.CallOption) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(ctx context.Context, in *RecoverAccountBifrostRequest, opts ...grpc.CallOption) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
@@ -162,6 +168,30 @@ func (c *adminServiceClient) RecoverAccountMetronomeAliases(ctx context.Context,
 func (c *adminServiceClient) RegisterAccountMetronome(ctx context.Context, in *RegisterAccountMetronomeRequest, opts ...grpc.CallOption) (*RegisterAccountMetronomeResponse, error) {
 	out := new(RegisterAccountMetronomeResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RegisterAccountMetronome", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetAccountBillingDetail(ctx context.Context, in *GetAccountBillingDetailRequest, opts ...grpc.CallOption) (*GetAccountBillingDetailResponse, error) {
+	out := new(GetAccountBillingDetailResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAccountBillingDetail", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RetryBillingProvision(ctx context.Context, in *RetryBillingProvisionRequest, opts ...grpc.CallOption) (*RetryBillingProvisionResponse, error) {
+	out := new(RetryBillingProvisionResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RetryBillingProvision", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ForceBillingResume(ctx context.Context, in *ForceBillingResumeRequest, opts ...grpc.CallOption) (*ForceBillingResumeResponse, error) {
+	out := new(ForceBillingResumeResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ForceBillingResume", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -604,6 +634,9 @@ type AdminServiceServer interface {
 	GetAccountMetronomeAliases(context.Context, *GetAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error)
 	RecoverAccountMetronomeAliases(context.Context, *RecoverAccountMetronomeAliasesRequest) (*MetronomeAliasStatus, error)
 	RegisterAccountMetronome(context.Context, *RegisterAccountMetronomeRequest) (*RegisterAccountMetronomeResponse, error)
+	GetAccountBillingDetail(context.Context, *GetAccountBillingDetailRequest) (*GetAccountBillingDetailResponse, error)
+	RetryBillingProvision(context.Context, *RetryBillingProvisionRequest) (*RetryBillingProvisionResponse, error)
+	ForceBillingResume(context.Context, *ForceBillingResumeRequest) (*ForceBillingResumeResponse, error)
 	RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(context.Context, *RecoverAccountBifrostRequest) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
@@ -698,6 +731,15 @@ func (UnimplementedAdminServiceServer) RecoverAccountMetronomeAliases(context.Co
 }
 func (UnimplementedAdminServiceServer) RegisterAccountMetronome(context.Context, *RegisterAccountMetronomeRequest) (*RegisterAccountMetronomeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterAccountMetronome not implemented")
+}
+func (UnimplementedAdminServiceServer) GetAccountBillingDetail(context.Context, *GetAccountBillingDetailRequest) (*GetAccountBillingDetailResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountBillingDetail not implemented")
+}
+func (UnimplementedAdminServiceServer) RetryBillingProvision(context.Context, *RetryBillingProvisionRequest) (*RetryBillingProvisionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RetryBillingProvision not implemented")
+}
+func (UnimplementedAdminServiceServer) ForceBillingResume(context.Context, *ForceBillingResumeRequest) (*ForceBillingResumeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForceBillingResume not implemented")
 }
 func (UnimplementedAdminServiceServer) RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecoverAccountLangfuse not implemented")
@@ -1066,6 +1108,51 @@ func _AdminService_RegisterAccountMetronome_Handler(srv interface{}, ctx context
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RegisterAccountMetronome"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).RegisterAccountMetronome(ctx, req.(*RegisterAccountMetronomeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetAccountBillingDetail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountBillingDetailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAccountBillingDetail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAccountBillingDetail"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAccountBillingDetail(ctx, req.(*GetAccountBillingDetailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RetryBillingProvision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryBillingProvisionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RetryBillingProvision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RetryBillingProvision"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RetryBillingProvision(ctx, req.(*RetryBillingProvisionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ForceBillingResume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForceBillingResumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ForceBillingResume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ForceBillingResume"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ForceBillingResume(ctx, req.(*ForceBillingResumeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1880,6 +1967,9 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetAccountMetronomeAliases", Handler: _AdminService_GetAccountMetronomeAliases_Handler},
 		{MethodName: "RecoverAccountMetronomeAliases", Handler: _AdminService_RecoverAccountMetronomeAliases_Handler},
 		{MethodName: "RegisterAccountMetronome", Handler: _AdminService_RegisterAccountMetronome_Handler},
+		{MethodName: "GetAccountBillingDetail", Handler: _AdminService_GetAccountBillingDetail_Handler},
+		{MethodName: "RetryBillingProvision", Handler: _AdminService_RetryBillingProvision_Handler},
+		{MethodName: "ForceBillingResume", Handler: _AdminService_ForceBillingResume_Handler},
 		{MethodName: "RecoverAccountLangfuse", Handler: _AdminService_RecoverAccountLangfuse_Handler},
 		{MethodName: "RecoverAccountBifrost", Handler: _AdminService_RecoverAccountBifrost_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
