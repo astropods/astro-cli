@@ -9,6 +9,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
@@ -31,6 +32,7 @@ func init() {
 type MessageCountSyncWorker struct {
 	river.WorkerDefaults[MessageCountSyncArgs]
 	promClient   *promquery.Client
+	registry     *k8s.Registry
 	accountStore *account.AccountStore
 	db           *sql.DB
 	log          *logger.Logger
@@ -42,15 +44,48 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		return nil
 	}
 
-	query := `sum by (agent) (messaging_messages_forwarded_total)`
-	if cluster := w.promClient.Cluster(); cluster != "" {
-		query = fmt.Sprintf(`sum by (agent) (messaging_messages_forwarded_total{cluster=%q})`, cluster)
+	// Query every registered, enabled cluster — not just the primary — since
+	// deployments can live on any of them and each may have its own
+	// prometheus_url. entries[0] is always the primary (synthesized by
+	// Registry.List even when the registry is nil).
+	entries := []k8s.ClusterEntry{{ID: "", IsPrimary: true}}
+	if w.registry != nil {
+		listed, err := w.registry.List(ctx, true)
+		if err != nil {
+			w.log.Error("Message count sync: failed to list clusters, falling back to primary only", "error", err)
+		} else {
+			entries = listed
+		}
 	}
 
-	samples, err := w.promClient.Query(ctx, query)
-	if err != nil {
-		w.log.Error("Message count sync: failed to query Prometheus", "error", err)
-		return nil // Don't retry — transient Prometheus issues shouldn't wedge the queue
+	var samples []promquery.Sample
+	for _, entry := range entries {
+		// ForEntry, not the ID-based PrometheusClientFor: entries already came
+		// from List, so re-resolving by id would cost a redundant clusterstore
+		// round trip per cluster.
+		client := w.registry.PrometheusClientForEntry(entry, w.promClient)
+		if client == nil {
+			continue
+		}
+
+		// Prefer the registry's name for this cluster; fall back to the
+		// client's own baked-in label when there's no registry (e.g. tests
+		// constructing a client directly via promquery.NewClient).
+		clusterLabel := entry.EKSClusterName
+		if clusterLabel == "" {
+			clusterLabel = client.Cluster()
+		}
+		query := `sum by (agent) (messaging_messages_forwarded_total)`
+		if clusterLabel != "" {
+			query = fmt.Sprintf(`sum by (agent) (messaging_messages_forwarded_total{cluster=%q})`, clusterLabel)
+		}
+
+		clusterSamples, err := client.Query(ctx, query)
+		if err != nil {
+			w.log.Error("Message count sync: failed to query Prometheus", "cluster", entry.ID, "error", err)
+			continue // Don't retry — transient Prometheus issues shouldn't wedge the queue
+		}
+		samples = append(samples, clusterSamples...)
 	}
 
 	if len(samples) == 0 {

@@ -60,6 +60,10 @@ type ClusterDeployFields = {
   pod_subnet_cidrs: string;
   /** Optional — only needed for IPv6 clusters (e.g. the pm-eu pilot). Empty otherwise. */
   pod_subnet_ipv6_cidrs: string;
+  /** Optional — only needed when this cluster ships to its own local Loki/
+   * Prometheus instead of the shared one. Empty otherwise. */
+  loki_url: string;
+  prometheus_url: string;
 };
 
 const emptyClusterDeploy: ClusterDeployFields = {
@@ -69,6 +73,8 @@ const emptyClusterDeploy: ClusterDeployFields = {
   langfuse_vpce_ips: "",
   pod_subnet_cidrs: "",
   pod_subnet_ipv6_cidrs: "",
+  loki_url: "",
+  prometheus_url: "",
 };
 
 /** Primary cluster omits ingress fields in API JSON (env-sourced); coalesce before use. */
@@ -80,6 +86,8 @@ function clusterDeployFromCluster(cluster: Pick<RegisteredCluster, keyof Cluster
     langfuse_vpce_ips: cluster.langfuse_vpce_ips ?? "",
     pod_subnet_cidrs: cluster.pod_subnet_cidrs ?? "",
     pod_subnet_ipv6_cidrs: cluster.pod_subnet_ipv6_cidrs ?? "",
+    loki_url: cluster.loki_url ?? "",
+    prometheus_url: cluster.prometheus_url ?? "",
   };
 }
 
@@ -92,11 +100,14 @@ function trimClusterDeploy(f: ClusterDeployFields): ClusterDeployFields {
     langfuse_vpce_ips: normalized.langfuse_vpce_ips.trim(),
     pod_subnet_cidrs: normalized.pod_subnet_cidrs.trim(),
     pod_subnet_ipv6_cidrs: normalized.pod_subnet_ipv6_cidrs.trim(),
+    loki_url: normalized.loki_url.trim(),
+    prometheus_url: normalized.prometheus_url.trim(),
   };
 }
 
-// pod_subnet_ipv6_cidrs is intentionally excluded — it's optional server-side,
-// unlike every other deploy field, so it doesn't gate form/JSON completeness.
+// pod_subnet_ipv6_cidrs, loki_url, and prometheus_url are intentionally
+// excluded — they're optional server-side, unlike every other deploy field,
+// so they don't gate form/JSON completeness.
 function clusterDeployComplete(f: ClusterDeployFields): boolean {
   const normalized = clusterDeployFromCluster(f);
   return (
@@ -174,6 +185,8 @@ type ClusterApiPayload = {
   langfuse_vpce_ips: string;
   pod_subnet_cidrs: string;
   pod_subnet_ipv6_cidrs: string;
+  loki_url: string;
+  prometheus_url: string;
 };
 
 function valuesToApiPayload(values: ClusterFormValues): ClusterApiPayload {
@@ -202,6 +215,8 @@ function apiPayloadToValues(payload: Record<string, unknown>): ClusterFormValues
       langfuse_vpce_ips: str(payload.langfuse_vpce_ips),
       pod_subnet_cidrs: str(payload.pod_subnet_cidrs),
       pod_subnet_ipv6_cidrs: str(payload.pod_subnet_ipv6_cidrs),
+      loki_url: str(payload.loki_url),
+      prometheus_url: str(payload.prometheus_url),
     },
   };
 }
@@ -385,6 +400,18 @@ function ClusterDeployFieldset({
           value={value.pod_subnet_ipv6_cidrs}
           onChange={(v) => set({ pod_subnet_ipv6_cidrs: v })}
           placeholder="2a05:d018:51b:d540::/64,2a05:d018:51b:d541::/64"
+        />
+        <Field
+          label="Loki URL (optional)"
+          value={value.loki_url}
+          onChange={(v) => set({ loki_url: v })}
+          placeholder="http://loki-query.example.internal:3100"
+        />
+        <Field
+          label="Prometheus URL (optional)"
+          value={value.prometheus_url}
+          onChange={(v) => set({ prometheus_url: v })}
+          placeholder="http://vm-query.example.internal:8428"
         />
       </div>
     </div>

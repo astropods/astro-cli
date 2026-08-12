@@ -43,6 +43,12 @@ CREATE TABLE public.clusters (
     -- ::/0-except-list. Empty for IPv4-only clusters (every cluster today
     -- except the pm-eu IPv6 pilot).
     pod_subnet_ipv6_cidrs     text         NOT NULL DEFAULT '',
+    -- Per-cluster Loki/Prometheus query endpoints. Optional: empty means this
+    -- cluster's telemetry is queried through the global LOKI_URL/PROMETHEUS_URL
+    -- (the shared/primary observability stack). Set only when a cluster ships
+    -- to its own local Loki/VictoriaMetrics behind a dedicated query endpoint.
+    loki_url                  varchar(512) NOT NULL DEFAULT '',
+    prometheus_url            varchar(512) NOT NULL DEFAULT '',
     -- Cluster pull credential (CPC), generated at registration. pull_key_hash
     -- is sha256 of its secret portion. See docs/01-spec/registry-pull-through-spec.md.
     pull_credential    text,

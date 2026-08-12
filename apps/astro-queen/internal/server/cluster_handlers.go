@@ -33,9 +33,10 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 // must carry. Empty values are rejected by astro-server (no env fallback for
 // non-primary clusters), so the UI must collect all of them.
 //
-// PodSubnetIPv6CIDRs is the one exception — it's optional server-side (empty
-// for every IPv4-only cluster) and only needs a real value on IPv6 clusters
-// like the pm-eu pilot.
+// PodSubnetIPv6CIDRs, LokiURL, and PrometheusURL are the exceptions — all
+// optional server-side. PodSubnetIPv6CIDRs only needs a real value on IPv6
+// clusters like the pm-eu pilot; LokiURL/PrometheusURL only need one when the
+// cluster ships to its own local observability stack instead of the shared one.
 type clusterDeployBody struct {
 	AgentIngressDomain     string `json:"agent_ingress_domain"`
 	IngestionIngressDomain string `json:"ingestion_ingress_domain"`
@@ -43,6 +44,8 @@ type clusterDeployBody struct {
 	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips"`
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs"`
 	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs"`
+	LokiURL                string `json:"loki_url"`
+	PrometheusURL          string `json:"prometheus_url"`
 }
 
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +75,8 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
+		LokiURL:                body.LokiURL,
+		PrometheusURL:          body.PrometheusURL,
 	}
 	if body.Enabled != nil {
 		req.Enabled = body.Enabled
@@ -111,6 +116,8 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         body.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
+		LokiURL:                body.LokiURL,
+		PrometheusURL:          body.PrometheusURL,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

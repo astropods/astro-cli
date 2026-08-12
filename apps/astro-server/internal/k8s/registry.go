@@ -17,6 +17,8 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
 
 // PrimaryClusterID is the stable identifier for the env-var-defined primary
@@ -44,6 +46,8 @@ type Registry struct {
 	mu         sync.RWMutex
 	cache      map[string]ClusterClient
 	entryCache map[string]ClusterEntry
+	lokiCache  map[string]*loki.Client
+	promCache  map[string]*promquery.Client
 }
 
 // ClusterEntry is a registry-level view of one cluster (primary or additional).
@@ -69,6 +73,13 @@ type ClusterEntry struct {
 	LangfuseVPCEIPs        string
 	PodSubnetCIDRs         string
 	PodSubnetIPv6CIDRs     string
+	// LokiURL and PrometheusURL are optional per-cluster query endpoint
+	// overrides. Empty for both the primary cluster and any additional
+	// cluster without its own observability stack — callers fall back to the
+	// global LOKI_URL/PROMETHEUS_URL client in that case (see LokiClientFor /
+	// PrometheusClientFor in observability.go).
+	LokiURL       string
+	PrometheusURL string
 	// PullCredential is never exposed via the admin API; only clustercfg.Resolve reads it.
 	PullCredential string
 	CreatedAt      time.Time
@@ -95,6 +106,8 @@ func ClusterEntryFromRow(row *clusterstore.Cluster) ClusterEntry {
 		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         row.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     row.PodSubnetIPv6CIDRs,
+		LokiURL:                row.LokiURL,
+		PrometheusURL:          row.PrometheusURL,
 		PullCredential:         row.PullCredential,
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt,
@@ -361,5 +374,7 @@ func (r *Registry) Refresh(_ context.Context, id string) error {
 	defer r.mu.Unlock()
 	delete(r.cache, id)
 	delete(r.entryCache, id)
+	delete(r.lokiCache, id)
+	delete(r.promCache, id)
 	return nil
 }

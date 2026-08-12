@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -68,46 +69,58 @@ func (s *Server) ListOutboundDomains(ctx context.Context, req *adminv1.ListOutbo
 	}
 	window := strconv.Itoa(days) + "d"
 
-	// No namespace or service_name filter — that is what makes this fleet-wide,
-	// where the per-deployment endpoints in handlers/network.go pin both. The
-	// cluster filter still applies, because environments can share a Prometheus,
-	// but it spans every registered cluster rather than just the primary.
-	counter := `http_client_request_duration_seconds_count`
-	if selector := s.outboundClusterSelector(ctx); selector != "" {
-		counter += selector
-	}
-	requestsQL := fmt.Sprintf(
-		`sum by (server_address) (increase(%s[%s]))`, counter, window)
-	// One series per (host, deployment); the fold below dedupes to a set per
-	// domain. Collapsing with an outer count here would lose the deployment
-	// identity a multi-host vendor needs to be counted once.
-	// (k8s_namespace_name, service_name) is the pair Beyla emits per deployment.
-	//
-	// This is the one part of the RPC with no cardinality ceiling — it scales
-	// with total outbound edges, and `limit` cannot bound it because ranking
-	// happens after the PSL fold. Its series count is logged either way so a
-	// query-limit rejection has a breadcrumb.
-	deploymentsQL := fmt.Sprintf(
-		`count by (server_address, k8s_namespace_name, service_name) (increase(%s[%s]))`,
-		counter, window)
+	// Registered clusters may not all share one Prometheus — a cluster with
+	// its own prometheus_url override needs its own query, since a cluster
+	// label filter can't reach series that live in a different backend
+	// entirely. Clusters without an override still share one combined query
+	// against the default client, same as before.
+	groups := s.outboundClusterGroups(ctx)
 
-	var requests, deployments []promquery.Sample
+	var (
+		mu                    sync.Mutex
+		requests, deployments []promquery.Sample
+	)
 	g, gCtx := errgroup.WithContext(ctx)
-	// Logged per query, not after g.Wait: on a cardinality rejection the error
-	// path returns early and errgroup cancels the sibling, so a combined log
-	// after the fact would never record the counts a failure needs explaining.
-	g.Go(func() error {
-		out, err := s.promClient.QueryWithTimeout(gCtx, requestsQL, outboundQueryTimeout)
-		s.log.Info("Outbound domain host query done", "window", window, "host_series", len(out), "error", err)
-		requests = out
-		return err
-	})
-	g.Go(func() error {
-		out, err := s.promClient.QueryWithTimeout(gCtx, deploymentsQL, outboundQueryTimeout)
-		s.log.Info("Outbound domain edge query done", "window", window, "edge_series", len(out), "error", err)
-		deployments = out
-		return err
-	})
+	for i, grp := range groups {
+		// No namespace or service_name filter — that is what makes this
+		// fleet-wide, where the per-deployment endpoints in handlers/network.go
+		// pin both.
+		counter := `http_client_request_duration_seconds_count` + grp.selector
+		requestsQL := fmt.Sprintf(
+			`sum by (server_address) (increase(%s[%s]))`, counter, window)
+		// One series per (host, deployment); the fold below dedupes to a set per
+		// domain. Collapsing with an outer count here would lose the deployment
+		// identity a multi-host vendor needs to be counted once.
+		// (k8s_namespace_name, service_name) is the pair Beyla emits per deployment.
+		//
+		// This is the one part of the RPC with no cardinality ceiling — it scales
+		// with total outbound edges, and `limit` cannot bound it because ranking
+		// happens after the PSL fold. Its series count is logged either way so a
+		// query-limit rejection has a breadcrumb.
+		deploymentsQL := fmt.Sprintf(
+			`count by (server_address, k8s_namespace_name, service_name) (increase(%s[%s]))`,
+			counter, window)
+
+		// Logged per query, not after g.Wait: on a cardinality rejection the error
+		// path returns early and errgroup cancels the siblings, so a combined log
+		// after the fact would never record the counts a failure needs explaining.
+		g.Go(func() error {
+			out, err := grp.client.QueryWithTimeout(gCtx, requestsQL, outboundQueryTimeout)
+			s.log.Info("Outbound domain host query done", "group", i, "window", window, "host_series", len(out), "error", err)
+			mu.Lock()
+			requests = append(requests, out...)
+			mu.Unlock()
+			return err
+		})
+		g.Go(func() error {
+			out, err := grp.client.QueryWithTimeout(gCtx, deploymentsQL, outboundQueryTimeout)
+			s.log.Info("Outbound domain edge query done", "group", i, "window", window, "edge_series", len(out), "error", err)
+			mu.Lock()
+			deployments = append(deployments, out...)
+			mu.Unlock()
+			return err
+		})
+	}
 	if err := g.Wait(); err != nil {
 		s.log.Error("Outbound domain query failed", "error", err, "window", window)
 		return nil, status.Errorf(codes.Internal, "query metrics: %v", err)
@@ -196,17 +209,50 @@ func aggregateOutboundDomains(requests, deployments []promquery.Sample, limit in
 	return out
 }
 
-// outboundClusterSelector builds a label matcher covering every registered
-// cluster. Scoping to the primary alone would silently drop agents on
-// additional clusters from a query whose whole point is being fleet-wide, so
-// the primary is only a fallback for a registry that failed to answer.
-func (s *Server) outboundClusterSelector(ctx context.Context) string {
+// outboundGroup is one Prometheus backend to query, plus the cluster label
+// selector covering every registered cluster that backend answers for.
+type outboundGroup struct {
+	client   *promquery.Client
+	selector string
+}
+
+// outboundClusterGroups partitions every registered, enabled cluster by which
+// Prometheus client actually answers for it — the shared default for clusters
+// without their own prometheus_url, and a distinct group per cluster that has
+// one. Scoping to the primary alone would silently drop agents on additional
+// clusters from a query whose whole point is being fleet-wide, so the primary
+// is only a fallback for a registry that failed to answer.
+func (s *Server) outboundClusterGroups(ctx context.Context) []outboundGroup {
 	entries, err := s.k8sRegistry.List(ctx, true)
 	if err != nil {
 		s.log.Warn("Outbound domains: cluster list failed, scoping to primary", "error", err)
-		return clusterSelector([]k8s.ClusterEntry{{EKSClusterName: s.promClient.Cluster()}})
+		return []outboundGroup{{
+			client:   s.promClient,
+			selector: clusterSelector([]k8s.ClusterEntry{{EKSClusterName: s.promClient.Cluster()}}),
+		}}
 	}
-	return clusterSelector(entries)
+
+	byClient := map[*promquery.Client][]k8s.ClusterEntry{}
+	var order []*promquery.Client
+	for _, e := range entries {
+		// ForEntry, not the ID-based PrometheusClientFor: entries came from
+		// List, so re-resolving by id would cost a redundant clusterstore
+		// round trip per cluster.
+		client := s.k8sRegistry.PrometheusClientForEntry(e, s.promClient)
+		if client == nil {
+			continue
+		}
+		if _, ok := byClient[client]; !ok {
+			order = append(order, client)
+		}
+		byClient[client] = append(byClient[client], e)
+	}
+
+	groups := make([]outboundGroup, 0, len(order))
+	for _, client := range order {
+		groups = append(groups, outboundGroup{client: client, selector: clusterSelector(byClient[client])})
+	}
+	return groups
 }
 
 func clusterSelector(entries []k8s.ClusterEntry) string {

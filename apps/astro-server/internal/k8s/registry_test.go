@@ -137,11 +137,13 @@ func TestRegistry_Get_Disabled(t *testing.T) {
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
+			"loki_url", "prometheus_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
+			"", "",
 			nil, nil,
 			now, now))
 
@@ -177,11 +179,13 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
+			"loki_url", "prometheus_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
+			"http://loki.eu-west-1.internal:3100", "http://prometheus.eu-west-1.internal:9090",
 			"astrocp_eu-west-1_secret", []byte("hash"),
 			now, now))
 
@@ -202,6 +206,12 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 	if entry.PodSubnetIPv6CIDRs != "2a05:d018:51b:d540::/64" {
 		t.Fatalf("PodSubnetIPv6CIDRs = %q, want 2a05:d018:51b:d540::/64", entry.PodSubnetIPv6CIDRs)
 	}
+	if entry.LokiURL != "http://loki.eu-west-1.internal:3100" {
+		t.Fatalf("LokiURL = %q, want http://loki.eu-west-1.internal:3100", entry.LokiURL)
+	}
+	if entry.PrometheusURL != "http://prometheus.eu-west-1.internal:9090" {
+		t.Fatalf("PrometheusURL = %q, want http://prometheus.eu-west-1.internal:9090", entry.PrometheusURL)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -220,11 +230,13 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 			"agent_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
+			"loki_url", "prometheus_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
+			"http://loki.eu-west-1.internal:3100", "http://prometheus.eu-west-1.internal:9090",
 			"astrocp_eu-west-1_secret", nil,
 			now, now))
 
@@ -257,6 +269,9 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	}
 	if entries[1].PodSubnetIPv6CIDRs != "2a05:d018:51b:d540::/64" {
 		t.Fatalf("entries[1].PodSubnetIPv6CIDRs = %q, want 2a05:d018:51b:d540::/64", entries[1].PodSubnetIPv6CIDRs)
+	}
+	if entries[1].LokiURL != "http://loki.eu-west-1.internal:3100" || entries[1].PrometheusURL != "http://prometheus.eu-west-1.internal:9090" {
+		t.Fatalf("entries[1] observability URLs = %+v", entries[1])
 	}
 	if entries[1].PullCredential != "astrocp_eu-west-1_secret" {
 		t.Fatalf("entries[1].PullCredential = %q, want astrocp_eu-west-1_secret", entries[1].PullCredential)

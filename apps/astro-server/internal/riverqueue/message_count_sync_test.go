@@ -1,6 +1,7 @@
 package riverqueue
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +13,33 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
+
+// clusterColumns mirrors clusterstore's baseSelect projection, for mock rows
+// built directly against a clusterstore-backed registry.
+var clusterColumns = []string{
+	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
+	"agent_ingress_domain", "ingestion_ingress_domain",
+	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
+	"loki_url", "prometheus_url",
+	"pull_credential", "pull_key_hash",
+	"created_at", "updated_at",
+}
+
+func additionalClusterRow(id, eksName, prometheusURL string, now time.Time) []driver.Value {
+	return []driver.Value{
+		id, "eu-west-1", eksName, "https://" + eksName + ".example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
+		"agents.example.com", "ingestion.example.com",
+		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
+		"", prometheusURL,
+		"astrocp_" + id + "_secret", nil,
+		now, now,
+	}
+}
 
 func TestMessageCountSyncArgs_Kind(t *testing.T) {
 	args := MessageCountSyncArgs{}
@@ -210,6 +235,74 @@ func TestWork_NoClusterFilter(t *testing.T) {
 	_ = w.Work(t.Context(), &river.Job[MessageCountSyncArgs]{})
 	if strings.Contains(receivedQuery, "cluster") {
 		t.Errorf("expected no cluster filter when cluster is empty, got: %s", receivedQuery)
+	}
+}
+
+// TestWork_QueriesAllRegisteredClusters guards against the bug this worker
+// used to have: with a registry attached, it must query every enabled
+// cluster's own Prometheus (not just the primary/default one), and merge the
+// results — otherwise message counts for agents on additional clusters are
+// silently never metered.
+func TestWork_QueriesAllRegisteredClusters(t *testing.T) {
+	var primaryQuery, additionalQuery string
+	primarySrv := promServerWithQueryCheck(t, map[string]float64{"acct-1.bot": 10}, func(q string) { primaryQuery = q })
+	defer primarySrv.Close()
+	additionalSrv := promServerWithQueryCheck(t, map[string]float64{"acct-2.bot": 20}, func(q string) { additionalQuery = q })
+	defer additionalSrv.Close()
+
+	accountDB, accountMock, _ := sqlmock.New()
+	defer accountDB.Close()
+	// Each sample is fully processed (lookup then upsert) before the next, so
+	// the mock expectations must interleave rather than batch by call type.
+	accountMock.ExpectQuery("SELECT a.id").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows(accountColumns).
+			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	accountMock.ExpectExec("INSERT INTO agent_message_counts").
+		WithArgs("uuid-acct-1", "bot", 10.0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	accountMock.ExpectQuery("SELECT a.id").
+		WithArgs("acct-2").
+		WillReturnRows(sqlmock.NewRows(accountColumns).
+			AddRow("uuid-acct-2", "acct-2", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	accountMock.ExpectExec("INSERT INTO agent_message_counts").
+		WithArgs("uuid-acct-2", "bot", 20.0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	clusterDB, clusterMock, _ := sqlmock.New()
+	defer clusterDB.Close()
+	now := time.Now()
+	// Only the List query — Work resolves each cluster's client via
+	// PrometheusClientForEntry (using the entry List already returned), not a
+	// second by-id lookup.
+	clusterMock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WillReturnRows(sqlmock.NewRows(clusterColumns).
+			AddRow(additionalClusterRow("eu-west-1-managed", "eks-eu", additionalSrv.URL, now)...))
+
+	reg := k8s.NewRegistryForTest(nil, clusterstore.New(clusterDB), k8s.RegistryConfig{EKSBootstrapName: "eks-primary"})
+
+	w := &MessageCountSyncWorker{
+		promClient:   promquery.NewClient(primarySrv.URL, ""),
+		registry:     reg,
+		accountStore: account.NewAccountStore(accountDB),
+		db:           accountDB,
+		log:          logger.New("error", "text"),
+	}
+
+	if err := w.Work(t.Context(), &river.Job[MessageCountSyncArgs]{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(primaryQuery, `cluster="eks-primary"`) {
+		t.Errorf("expected primary query to filter on eks-primary, got: %s", primaryQuery)
+	}
+	if !strings.Contains(additionalQuery, `cluster="eks-eu"`) {
+		t.Errorf("expected additional cluster query to filter on eks-eu, got: %s", additionalQuery)
+	}
+	if err := accountMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet account expectations: %v", err)
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet cluster expectations: %v", err)
 	}
 }
 

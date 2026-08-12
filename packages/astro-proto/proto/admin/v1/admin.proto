@@ -677,6 +677,10 @@ message RegisteredCluster {
   bytes eks_cluster_ca = 21;
   // IPv6 counterpart to pod_subnet_cidrs. Empty for IPv4-only clusters.
   string pod_subnet_ipv6_cidrs = 22;
+  // Optional per-cluster observability query endpoints. Empty means this
+  // cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead.
+  string loki_url = 23;
+  string prometheus_url = 24;
 }
 
 message RegisterClusterRequest {
@@ -696,6 +700,10 @@ message RegisterClusterRequest {
   string pod_subnet_cidrs = 15;
   bytes eks_cluster_ca = 16; // PEM CA bytes; required (clusterstore rejects empty)
   string pod_subnet_ipv6_cidrs = 17; // IPv6 counterpart to pod_subnet_cidrs; empty for IPv4-only clusters
+  // Optional — empty means this cluster is queried through the global
+  // LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
+  string loki_url = 18;
+  string prometheus_url = 19;
 }
 
 message RegisterClusterResponse {
@@ -989,6 +997,10 @@ message UpdateClusterRequest {
   string pod_subnet_cidrs = 14;
   bytes eks_cluster_ca = 15; // PEM CA bytes; required for additional clusters
   string pod_subnet_ipv6_cidrs = 16; // IPv6 counterpart to pod_subnet_cidrs; empty for IPv4-only clusters
+  // Optional — empty means this cluster is queried through the global
+  // LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
+  string loki_url = 17;
+  string prometheus_url = 18;
 }
 
 message UpdateClusterResponse {

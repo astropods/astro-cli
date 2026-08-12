@@ -1402,8 +1402,12 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 		tailLines = 100
 	}
 
+	// lokiClient may differ from s.lokiClient when dep's cluster has its own
+	// loki_url override; see k8s.Registry.LokiClientFor.
+	lokiClient := s.k8sRegistry.LokiClientFor(ctx, dep.EffectiveClusterID(), s.lokiClient)
+
 	// Loki path: query the centralized log store.
-	if s.lokiClient != nil {
+	if lokiClient != nil {
 		p := loki.QueryParams{
 			Namespace: dep.Namespace,
 			Cluster:   s.k8sRegistry.LokiClusterName(ctx, dep.EffectiveClusterID()),
@@ -1418,7 +1422,7 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 			p.End = time.Unix(0, req.UntilUnixNs)
 		}
 
-		lines, err := s.lokiClient.QueryLogs(ctx, p)
+		lines, err := lokiClient.QueryLogs(ctx, p)
 		if err != nil {
 			return nil, fmt.Errorf("query loki logs: %w", err)
 		}

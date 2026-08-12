@@ -89,6 +89,8 @@ func entryToProto(ctx context.Context, s *Server, entry k8s.ClusterEntry) *admin
 		LangfuseVPCEIPs:        entry.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         entry.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     entry.PodSubnetIPv6CIDRs,
+		LokiURL:                entry.LokiURL,
+		PrometheusURL:          entry.PrometheusURL,
 	}
 	if !entry.IsPrimary {
 		out.CreatedAt = entry.CreatedAt.UTC().Format(time.RFC3339)
@@ -142,6 +144,8 @@ func (s *Server) RegisterCluster(ctx context.Context, req *adminv1.RegisterClust
 		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         req.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     req.PodSubnetIPv6CIDRs,
+		LokiURL:                req.LokiURL,
+		PrometheusURL:          req.PrometheusURL,
 	}
 	if err := s.clusterStore.Register(ctx, row); err != nil {
 		return nil, clusterStoreErr(err)
@@ -303,6 +307,8 @@ func (s *Server) UpdateCluster(ctx context.Context, req *adminv1.UpdateClusterRe
 		LangfuseVPCEIPs:        req.LangfuseVPCEIPs,
 		PodSubnetCIDRs:         req.PodSubnetCIDRs,
 		PodSubnetIPv6CIDRs:     req.PodSubnetIPv6CIDRs,
+		LokiURL:                req.LokiURL,
+		PrometheusURL:          req.PrometheusURL,
 	}); err != nil {
 		return nil, clusterStoreErr(err)
 	}

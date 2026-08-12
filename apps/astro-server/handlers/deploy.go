@@ -2314,11 +2314,14 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 		rt := runtimeFromSnapshot(snap, dbDep, cfg)
 
 		// Overlay live volume usage (Prometheus) onto StatefulSet workloads.
+		// resolvedProm may differ from promClient when dbDep's cluster has its
+		// own prometheus_url override; see k8s.Registry.PrometheusClientFor.
+		resolvedProm := k8sReg.PrometheusClientFor(c.Request.Context(), dbDep.EffectiveClusterID(), promClient)
 		clusterFilter := ""
-		if promClient != nil && k8sReg != nil {
+		if resolvedProm != nil && k8sReg != nil {
 			clusterFilter = k8sReg.PrometheusClusterFilter(c.Request.Context(), dbDep.EffectiveClusterID())
 		}
-		enrichRuntimeStorage(c.Request.Context(), runtimeStorageCache, promClient, clusterFilter, dbDep.ID, dbDep.Namespace, statefulSetWorkloadNames(snap), &rt)
+		enrichRuntimeStorage(c.Request.Context(), runtimeStorageCache, resolvedProm, clusterFilter, dbDep.ID, dbDep.Namespace, statefulSetWorkloadNames(snap), &rt)
 
 		c.JSON(http.StatusOK, gin.H{"runtime": rt})
 	}
@@ -3061,9 +3064,12 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
+		// resolvedLoki may differ from lokiClient when dep's cluster has its
+		// own loki_url override; see k8s.Registry.LokiClientFor.
+		resolvedLoki := k8sReg.LokiClientFor(c.Request.Context(), dep.EffectiveClusterID(), lokiClient)
 
 		var k8sClient k8s.ClusterClient
-		if lokiClient == nil {
+		if resolvedLoki == nil {
 			var ok bool
 			k8sClient, ok = clusterClientForDeployment(c, k8sReg, dep)
 			if !ok {
@@ -3123,7 +3129,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		}
 
 		// For the K8s fallback, resolve pod name from workload if needed.
-		if lokiClient == nil && podName == "" && workloadName != "" {
+		if resolvedLoki == nil && podName == "" && workloadName != "" {
 			resolved, listErr := resolvePodForStream(c.Request.Context(), k8sClient, dep.Namespace, workloadName, containerName)
 			if listErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list pods", "details": listErr.Error()})
@@ -3132,7 +3138,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			podName = resolved
 		}
 
-		if lokiClient == nil && podName == "" {
+		if resolvedLoki == nil && podName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pod or workload query parameter is required"})
 			return
 		}
@@ -3142,7 +3148,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			logOpts.Container = containerName
 		}
 
-		streamLogs(c, log, lokiClient, lokiParams, k8sClient, dep.Namespace, podName, logOpts, loc)
+		streamLogs(c, log, resolvedLoki, lokiParams, k8sClient, dep.Namespace, podName, logOpts, loc)
 	}
 }
 
@@ -3201,9 +3207,12 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
+		// resolvedLoki may differ from lokiClient when dep's cluster has its
+		// own loki_url override; see k8s.Registry.LokiClientFor.
+		resolvedLoki := k8sReg.LokiClientFor(c.Request.Context(), dep.EffectiveClusterID(), lokiClient)
 
 		var k8sClient k8s.ClusterClient
-		if lokiClient == nil {
+		if resolvedLoki == nil {
 			var ok bool
 			k8sClient, ok = clusterClientForDeployment(c, k8sReg, dep)
 			if !ok {
@@ -3225,7 +3234,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		loc := getTimezoneLocation(c)
 
 		backend := "none"
-		if lokiClient != nil {
+		if resolvedLoki != nil {
 			backend = "loki"
 		} else if k8sClient != nil {
 			backend = "k8s"
@@ -3236,7 +3245,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			"workload", workloadName, "container", containerName, "pod", podName,
 			"backend", backend)
 
-		if lokiClient == nil && k8sClient == nil {
+		if resolvedLoki == nil && k8sClient == nil {
 			log.Warn("SSE stream rejected: no log backend configured", "deployment", dep.ID)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
 			return
@@ -3314,7 +3323,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			}
 		}
 
-		if lokiClient != nil {
+		if resolvedLoki != nil {
 			// Loki's tail WebSocket closes periodically. Reconnect server-side so the
 			// SSE connection stays open.
 			heartbeat := time.NewTicker(hbInterval)
@@ -3330,7 +3339,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				log.Debug("Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
 					"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 
-				ch, tailErr := lokiClient.TailLogs(c.Request.Context(), loki.QueryParams{
+				ch, tailErr := resolvedLoki.TailLogs(c.Request.Context(), loki.QueryParams{
 					Namespace: dep.Namespace,
 					Cluster:   k8sReg.LokiClusterName(c.Request.Context(), dep.EffectiveClusterID()),
 					Pod:       podName,

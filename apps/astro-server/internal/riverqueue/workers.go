@@ -396,6 +396,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	addWorkerWithCatalogCheck(log, workers, &MessageCountSyncWorker{
 		promClient:   cfg.PromClient,
+		registry:     cfg.K8sRegistry,
 		accountStore: cfg.AccountStore,
 		db:           cfg.DB,
 		log:          log,

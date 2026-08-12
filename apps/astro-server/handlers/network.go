@@ -39,6 +39,11 @@ type deploymentContext struct {
 	Namespace     string // k8s_namespace_name label value
 	ServiceName   string // service_name label value (sanitized agent name)
 	ClusterFilter string // ",cluster=\"X\"" or "" — append inside metric selectors
+	// PromClient is the deployment's cluster's own Prometheus client when its
+	// cluster has a prometheus_url override, otherwise the caller's default
+	// client. May be nil if neither is configured. See
+	// k8s.Registry.PrometheusClientFor.
+	PromClient *promquery.Client
 }
 
 // resolveDeploymentContext validates auth, looks up the deployment, checks
@@ -69,8 +74,9 @@ func resolveDeploymentContext(
 		return nil, false
 	}
 
+	resolvedProm := k8sReg.PrometheusClientFor(c.Request.Context(), dep.EffectiveClusterID(), promClient)
 	clusterFilter := ""
-	if promClient != nil {
+	if resolvedProm != nil {
 		clusterFilter = k8sReg.PrometheusClusterFilter(c.Request.Context(), dep.EffectiveClusterID())
 	}
 
@@ -79,6 +85,7 @@ func resolveDeploymentContext(
 		Namespace:     dep.Namespace,
 		ServiceName:   deployment.SanitizeName(dep.AgentName),
 		ClusterFilter: clusterFilter,
+		PromClient:    resolvedProm,
 	}, true
 }
 
@@ -207,7 +214,7 @@ func GetNetworkSummary(
 
 		// No Prometheus configured → return a zero-valued response so the
 		// frontend can render the empty state without erroring out.
-		if promClient == nil {
+		if dctx.PromClient == nil {
 			c.JSON(http.StatusOK, NetworkSummaryResponse{
 				WindowFrom: window.From,
 				WindowTo:   window.To,
@@ -228,7 +235,7 @@ func GetNetworkSummary(
 		g, gCtx := errgroup.WithContext(c.Request.Context())
 		for dirName, sum := range targets {
 			g.Go(func() error {
-				return fillDirectionSummary(gCtx, promClient, directionSpecs[dirName], dctx, window, sum)
+				return fillDirectionSummary(gCtx, dctx.PromClient, directionSpecs[dirName], dctx, window, sum)
 			})
 		}
 		if err := g.Wait(); err != nil {
@@ -387,12 +394,12 @@ func GetNetworkFlows(
 		}
 
 		resp := NetworkFlowsResponse{Direction: direction, Flows: []NetworkFlow{}}
-		if promClient == nil {
+		if dctx.PromClient == nil {
 			c.JSON(http.StatusOK, resp)
 			return
 		}
 
-		flows, err := collectFlows(c.Request.Context(), promClient, spec, dctx, window, direction)
+		flows, err := collectFlows(c.Request.Context(), dctx.PromClient, spec, dctx, window, direction)
 		if err != nil {
 			log.Error("Network flows query failed",
 				"deployment_id", dctx.Deployment.ID, "direction", direction, "error", err)
@@ -645,12 +652,12 @@ func GetNetworkTimeseries(
 			Step:      step.String(),
 			Series:    []NetworkSeries{},
 		}
-		if promClient == nil {
+		if dctx.PromClient == nil {
 			c.JSON(http.StatusOK, resp)
 			return
 		}
 
-		series, err := queryTimeseries(c.Request.Context(), promClient, spec, dctx, window, step, metric, groupBy)
+		series, err := queryTimeseries(c.Request.Context(), dctx.PromClient, spec, dctx, window, step, metric, groupBy)
 		if err != nil {
 			log.Error("Network timeseries query failed",
 				"deployment_id", dctx.Deployment.ID, "direction", direction, "metric", metric, "error", err)

@@ -2,20 +2,32 @@ package admingrpc
 
 import (
 	"context"
+	"database/sql/driver"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
+
+// clusterRowWithProm is clusterRow plus a prometheus_url override, for tests
+// that need a cluster with its own isolated metrics backend.
+func clusterRowWithProm(id, eksName, prometheusURL string) []driver.Value {
+	row := clusterRow(id, "eu-west-1", eksName, "https://"+eksName+".example", true, time.Now())
+	row[13] = prometheusURL // loki_url, prometheus_url follow pod_subnet_ipv6_cidrs in clusterColumns
+	return row
+}
 
 func reqSample(host string, v float64) promquery.Sample {
 	return promquery.Sample{Labels: map[string]string{"server_address": host}, Value: v}
@@ -240,6 +252,57 @@ func TestListOutboundDomains_FallsBackToPrimaryWithoutRegistry(t *testing.T) {
 		if !strings.Contains(q, `cluster=~"primary-eks"`) {
 			t.Errorf("query %q should be scoped to the primary", q)
 		}
+	}
+}
+
+// A cluster with its own prometheus_url override lives in a different backend
+// entirely — a cluster label filter on the default client's query can't reach
+// it, so it needs its own separate query against its own client. This guards
+// against the bug ListOutboundDomains used to have: querying only the default
+// backend (with a combined label selector) silently dropped every cluster
+// that had its own isolated Prometheus.
+func TestListOutboundDomains_QueriesEachClusterOwnPrometheus(t *testing.T) {
+	var primaryQueries, euQueries []string
+	primaryProm := promStub(t, &primaryQueries)
+	defer primaryProm.Close()
+	euProm := promStub(t, &euQueries)
+	defer euProm.Close()
+
+	clusterDB, clusterMock, _ := sqlmock.New()
+	defer clusterDB.Close()
+	clusterMock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WillReturnRows(sqlmock.NewRows(clusterColumns).
+			AddRow(clusterRowWithProm("eu-west-1-managed", "eks-eu", euProm.URL)...))
+
+	srv := &Server{
+		log:        logger.New("error", "json"),
+		promClient: promquery.NewClient(primaryProm.URL, "primary-eks"),
+		k8sRegistry: k8s.NewRegistryForTest(nil, clusterstore.New(clusterDB),
+			k8s.RegistryConfig{EKSBootstrapName: "primary-eks"}),
+	}
+	if _, err := srv.ListOutboundDomains(context.Background(),
+		&adminv1.ListOutboundDomainsRequest{}); err != nil {
+		t.Fatalf("ListOutboundDomains: %v", err)
+	}
+
+	if len(primaryQueries) != 2 {
+		t.Fatalf("got %d primary queries, want 2", len(primaryQueries))
+	}
+	for _, q := range primaryQueries {
+		if !strings.Contains(q, `cluster=~"primary-eks"`) {
+			t.Errorf("primary query %q should be scoped to primary-eks only, got: %s", q, q)
+		}
+	}
+	if len(euQueries) != 2 {
+		t.Fatalf("got %d eu queries, want 2 — the eu cluster's own Prometheus was never queried", len(euQueries))
+	}
+	for _, q := range euQueries {
+		if !strings.Contains(q, `cluster=~"eks-eu"`) {
+			t.Errorf("eu query %q should be scoped to eks-eu", q)
+		}
+	}
+	if err := clusterMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet cluster expectations: %v", err)
 	}
 }
 

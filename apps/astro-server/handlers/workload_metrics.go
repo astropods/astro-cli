@@ -82,7 +82,7 @@ func GetWorkloadMetrics(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
-	promClient *promquery.Client,
+	defaultPromClient *promquery.Client,
 	k8sReg *k8s.Registry,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -99,10 +99,13 @@ func GetWorkloadMetrics(
 			return
 		}
 
-		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, promClient)
+		dctx, ok := resolveDeploymentContext(c, deploymentStore, accountStore, k8sReg, defaultPromClient)
 		if !ok {
 			return
 		}
+		// dctx.PromClient may differ from defaultPromClient when this pod's
+		// cluster has its own prometheus_url override.
+		promClient := dctx.PromClient
 
 		end := time.Now().UTC()
 		start := end.Add(-preset.window)

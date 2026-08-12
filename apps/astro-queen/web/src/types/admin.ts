@@ -536,6 +536,10 @@ export interface RegisteredCluster {
   pod_subnet_cidrs: string;
   /** IPv6 counterpart to pod_subnet_cidrs. Empty for IPv4-only clusters. */
   pod_subnet_ipv6_cidrs: string;
+  /** Optional per-cluster observability query endpoints. Empty means this
+   * cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead. */
+  loki_url: string;
+  prometheus_url: string;
   /** Base64-encoded PEM from `aws eks describe-cluster`. Omitted for primary. */
   eks_cluster_ca?: string;
 }
@@ -559,6 +563,10 @@ export interface RegisterClusterRequest {
   pod_subnet_cidrs: string;
   /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
   pod_subnet_ipv6_cidrs?: string;
+  /** Optional — empty means this cluster is queried through the global
+   * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
+  loki_url?: string;
+  prometheus_url?: string;
 }
 
 export interface RegisterClusterResponse {
@@ -586,6 +594,10 @@ export interface UpdateClusterRequest {
   pod_subnet_cidrs: string;
   /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
   pod_subnet_ipv6_cidrs?: string;
+  /** Optional — empty means this cluster is queried through the global
+   * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
+  loki_url?: string;
+  prometheus_url?: string;
 }
 
 export interface UpdateClusterResponse {

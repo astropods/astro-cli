@@ -964,6 +964,10 @@ type RegisteredCluster struct {
 	// builds don't need cross-account DescribeCluster. Empty for is_primary.
 	EKSClusterCA       []byte `json:"eks_cluster_ca,omitempty"`
 	PodSubnetIPv6CIDRs string `json:"pod_subnet_ipv6_cidrs,omitempty"`
+	// Optional per-cluster observability query endpoints. Empty means this
+	// cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead.
+	LokiURL       string `json:"loki_url,omitempty"`
+	PrometheusURL string `json:"prometheus_url,omitempty"`
 }
 
 type RegisterClusterRequest struct {
@@ -979,6 +983,10 @@ type RegisterClusterRequest struct {
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
 	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs,omitempty"`
+	// Optional — empty means this cluster is queried through the global
+	// LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
+	LokiURL       string `json:"loki_url,omitempty"`
+	PrometheusURL string `json:"prometheus_url,omitempty"`
 }
 
 type RegisterClusterResponse struct {
@@ -1067,6 +1075,10 @@ type UpdateClusterRequest struct {
 	PodSubnetCIDRs         string `json:"pod_subnet_cidrs,omitempty"`
 	EKSClusterCA           []byte `json:"eks_cluster_ca,omitempty"` // PEM CA bytes; required
 	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs,omitempty"`
+	// Optional — empty means this cluster is queried through the global
+	// LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
+	LokiURL       string `json:"loki_url,omitempty"`
+	PrometheusURL string `json:"prometheus_url,omitempty"`
 }
 
 type UpdateClusterResponse struct {
