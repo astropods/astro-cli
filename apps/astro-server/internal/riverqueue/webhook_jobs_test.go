@@ -46,8 +46,16 @@ func TestMetronomeSignalMapping(t *testing.T) {
 		// contract-credit variants map, since we issue no commits.
 		{"alerts.low_remaining_contract_credit_balance_reached", billing.SignalCreditsExhausted, true},
 		{"alerts.low_remaining_contract_credit_and_commit_balance_reached", billing.SignalCreditsExhausted, true},
-		// Not a real alert_type — guards against reintroducing the invented name.
+		// IN_ALARM -> OK clears the exhaustion latch, whichever variant fires.
+		{"alerts.low_remaining_contract_credit_balance_resolved", billing.SignalCreditsGranted, true},
+		{"alerts.low_remaining_contract_credit_and_commit_balance_resolved", billing.SignalCreditsGranted, true},
+		// Clears the alert latch, which a payment deliberately does not.
+		{"alerts.spend_threshold_resolved", billing.SignalAlertResolved, true},
+		// Prepaid credit balance, not contract credit: a UI banner, not a gate.
 		{"alerts.low_remaining_credit_balance_reached", "", false},
+		// Resolved fires for every threshold type once enabled, so the non-gating
+		// alerts get one too. They stay unhandled, same as their _reached twin.
+		{"alerts.usage_threshold_resolved", "", false},
 		// Non-suspend alerts are UI banners, not gating signals.
 		{"alerts.usage_threshold_reached", "", false},
 		{"alerts.low_remaining_commit_balance_reached", "", false},

@@ -17,7 +17,8 @@ const (
 	SignalAlert          Signal = "alert"           // Metronome hard threshold/spend alert → suspend
 	SignalUncollectible  Signal = "uncollectible"   // retries exhausted, invoice written off → force suspend
 	SignalVoided         Signal = "voided"          // invoice voided → debt gone, clear all collection flags
-	SignalRecovery       Signal = "recovery"        // payment succeeded → clear dunning + alert
+	SignalRecovery       Signal = "recovery"        // payment succeeded → clear dunning
+	SignalAlertResolved  Signal = "alert_resolved"  // Metronome spend alert returned to OK → lift the alert latch
 	SignalCardUpdated    Signal = "card_updated"    // card network auto-updated an expired card → clear dunning
 
 	SignalCreditsExhausted Signal = "credits_exhausted" // Metronome low-remaining-credit alert → gate a card-less account
@@ -56,6 +57,11 @@ func ApplySignal(ctx context.Context, store *StatusStore, accountID string, sig 
 		// period spend) nor a terminal write-off (force-suspend) — those clear via
 		// their own signals (void) or the gating plan, not an unrelated payment.
 		err = store.ClearDunning(ctx, accountID)
+	case SignalAlertResolved:
+		// The spend alert's own IN_ALARM -> OK edge, the one event that does mean
+		// period spend fell back under the threshold. SignalRecovery cannot stand
+		// in for it: a payment says nothing about spend.
+		err = store.ClearAlert(ctx, accountID)
 	case SignalCardUpdated:
 		// A refreshed card is a payment-path fix, not a balance fix — clear
 		// dunning so the next Stripe/Metronome retry starts clean; leave any

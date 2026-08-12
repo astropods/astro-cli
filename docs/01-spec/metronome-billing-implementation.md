@@ -73,7 +73,7 @@ Enforcement respects `QUOTA_ENFORCE`; a disabled feature (limit 0) always blocks
 
 ### Billing — metering + consumption gate (hosted only)
 
-The provider seam meters and reads back; it does **not** gate. Consumption gating is a separate layer that reads a cached `account_billing_status` row (`active | past_due | suspended`) written off-path — see [`../06-plan/billing-gating-plan.md`](../06-plan/billing-gating-plan.md). Status is planned; the seam and metering below are shipped.
+The provider seam meters and reads back; it does **not** gate. Consumption gating is a separate layer that reads a cached `account_billing_status` row (`active | past_due | suspended`) written off-path — see [`../06-plan/billing-gating-plan.md`](../06-plan/billing-gating-plan.md). Gating is shipped and proven end to end on preview: alert → webhook → signal → `billing.suspend` → replicas to zero, and back.
 
 ## `BillingProvider` interface
 
@@ -263,24 +263,33 @@ Stripe/Metronome ──POST──▶ handler (verify sig) ──enqueue──▶
 | `SignalPaymentFailed` | Stripe `invoice.payment_failed` | `SetDunningSince` → past_due (→ suspended after grace) |
 | `SignalActionRequired` | Stripe `invoice.payment_action_required` | `SetDunningSince`; handler logs `hosted_invoice_url` for the 3DS link |
 | `SignalAlert` | Metronome `alerts.spend_threshold_reached` | `SetAlert` → suspended (balance_alert) |
+| `SignalAlertResolved` | Metronome `alerts.spend_threshold_resolved` | `ClearAlert` only; a write-off or open dunning still outranks it |
 | `SignalUncollectible` | Stripe `invoice.marked_uncollectible` | `SetForceSuspend` → suspended immediately (uncollectible), bypassing grace |
 | `SignalVoided` | Stripe `invoice.voided` | clear dunning + alert + force-suspend (debt gone) |
-| `SignalRecovery` | Stripe `invoice.paid` | clear dunning + alert |
+| `SignalRecovery` | Stripe `invoice.paid` | clear dunning **only** |
 | `SignalCardUpdated` | Stripe `payment_method.automatically_updated` | clear dunning (leave balance alert) |
+| `SignalCreditsExhausted` | Metronome `alerts.low_remaining_contract_credit{,_and_commit}_balance_reached` | `SetCreditsExhausted` → suspended (credits_exhausted) while no card |
+| `SignalCreditsGranted` | Metronome `..._resolved`, or the provisioning job | `ClearCreditsExhausted` |
+| `SignalCardAdded` / `SignalCardRemoved` | Stripe `payment_method.attached` / `detached` | `SetPaymentMethod`; exhaustion stops/resumes gating |
 
-Payment failure/recovery are Stripe-only — Metronome relays no payment events, so its sole status-changing signal is the spend-threshold alert. All other Metronome alerts (usage/credit/commit/invoice-total) are UI banners, not gating signals, and stay unhandled.
+Payment failure/recovery are Stripe-only — Metronome relays no payment events. Metronome's status-changing signals are the spend-threshold alert and the contract-credit balance alert, in both directions. All other Metronome alerts (usage/commit/invoice-total) are UI banners, not gating signals, and stay unhandled.
 
-`invoice.marked_uncollectible` uses a new `force_suspended` flag on `account_billing_status` and reason `uncollectible` — the state machine's highest-priority rule (before alert and dunning-grace). Cleared only on recovery or void.
+**Every flag is two-way.** A gate that only sets is a gate only an operator can lift, which is how the forced provisioning re-run came to exist. `dunning_since` clears on recovery/card-update/void, `force_suspended` on void, `alert_active` on the alert's own resolved event or a void, `credits_exhausted` on the credit alert's resolved event or a grant.
+
+`invoice.marked_uncollectible` uses a `force_suspended` flag on `account_billing_status` and reason `uncollectible` — the state machine's highest-priority rule (before alert and dunning-grace). Cleared on void, not on an unrelated payment: the write-off is terminal until the debt itself is resolved.
 
 ### `POST /webhooks/metronome`
 
 HMAC-SHA256 over `Metronome-Webhook-Date + "\n" + rawBody` (keyed by `METRONOME_WEBHOOK_SECRET`, hex-compared to `Metronome-Webhook-Signature`; raw body read before JSON middleware). Enqueues `webhook.metronome`; the worker maps via `GetByMetronomeCustomerID`. Full catalog per [Metronome docs](https://docs.metronome.com/guides/platform-configuration/setup-webhooks); the `—` action means received-but-not-consumed.
 
-> Only `alerts.spend_threshold_reached` (→ `SignalAlert` → suspended) is consumed today. Which exact Metronome condition fires the suspend-worthy alert is a billing-owner decision (open question below). Payment failure/recovery are Stripe concerns — see the Stripe endpoint.
+> Two conditions gate: the contract-credit balance hitting zero (the free-tier floor, which only bites without a card) and the spend threshold (a backstop against runaway spend on a card). Resolved notifications are enabled per account and cover every threshold type at once, so each `_reached` has a `_resolved` twin. Payment failure/recovery are Stripe concerns — see the Stripe endpoint.
 
 | Metronome event | fires when | astro-server action |
 |---|---|---|
 | `alerts.spend_threshold_reached` | spend exceeds configured limit | `SetAlert` → `suspended` |
+| `alerts.spend_threshold_resolved` | spend back under the limit (period rollover) | `ClearAlert` |
+| `alerts.low_remaining_contract_credit_balance_reached` | contract credit spent | `SetCreditsExhausted` → `suspended` while no card |
+| `alerts.low_remaining_contract_credit_balance_resolved` | credit balance restored | `ClearCreditsExhausted` |
 | `alerts.usage_threshold_reached` | billable-metric usage over threshold | near-cap banner |
 | `alerts.low_remaining_credit_balance_reached` | prepaid credit balance low | top-up banner |
 | `alerts.low_remaining_commit_balance_reached` | commit balance low | top-up banner |
@@ -371,7 +380,6 @@ Effective limit = `override(account, resource)` else config default.
 ## Open questions
 
 - **Provisioning surface** — enterprise/prepaid/subscription setup in `astro-queen` vs self-serve prepaid top-ups.
-- **Metronome alert config** — which balance/spend condition Metronome fires `alerts.spend_threshold_reached` on (drives the `suspended` transition); defined Metronome-side, confirmed with the billing owner.
-- **Metronome suspend trigger** — `metronomeSignal` consumes `alerts.spend_threshold_reached` (catalog-accurate). Confirm with the billing owner that this is the alert configured to fire on the suspend-worthy condition (vs. usage/credit/commit alerts, which stay banners). There is no Metronome alert-cleared event — recovery from a balance-alert suspend is owned by the gating plan, not this webhook.
+- **Spend-threshold event name** — only `low_remaining_contract_credit_and_commit_balance_resolved` is documented by name; the rest are inferred from the enum's `<alert_type>_resolved` form. An inferred name that misses falls through to the unhandled-event log, which leaves the latch set, so confirm the real names from the first live event before relying on the spend gate.
 - **3DS link surfacing** — `invoice.payment_action_required` carries `hosted_invoice_url` on the job and logs it today; the in-app surface (banner/email from the pay-link) is not yet built.
 - **Unverified API details** to confirm against the SDKs: Metronome `payment_gate.*` payloads; exact `AccessSchedule`/`InvoiceSchedule` sub-fields on commits. (Stripe `hosted_invoice_url`/`customer` paths and `webhook.ConstructEvent` are verified as-built.)

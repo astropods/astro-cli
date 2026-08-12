@@ -75,9 +75,7 @@ func init() {
 // spend threshold (suspend outright) and a spent credit balance (suspend only
 // while no card is on file — see billing.computeStatus). The remaining alerts
 // (usage/commit/invoice-total) are UI banners, not gating signals, so they stay
-// unhandled here. Alerts fire on threshold crossing; we don't depend on a
-// recovery event, so nothing here ever clears a latch. Event names are the
-// alert_type enum prefixed with "alerts.":
+// unhandled here. Event names are the alert_type enum prefixed with "alerts.":
 // https://docs.metronome.com/api-reference/alerts/create-a-threshold-notification
 func metronomeSignal(eventType string) (billing.Signal, bool) {
 	switch eventType {
@@ -90,6 +88,19 @@ func metronomeSignal(eventType string) (billing.Signal, bool) {
 	case "alerts.low_remaining_contract_credit_balance_reached",
 		"alerts.low_remaining_contract_credit_and_commit_balance_reached":
 		return billing.SignalCreditsExhausted, true
+	// The IN_ALARM -> OK edge. Both gating latches are otherwise one-way:
+	// exhaustion exits only via a card or an operator re-running provisioning,
+	// and the spend alert only via a void. Metronome emits these once support
+	// enables resolved notifications, which is per-account and covers every
+	// threshold type at once. Only the and-commit credit variant is documented;
+	// the others follow the enum's "<alert_type>_resolved" naming, and an
+	// unmatched name falls through to the unhandled-event log, which is the
+	// behaviour we have today.
+	case "alerts.low_remaining_contract_credit_balance_resolved",
+		"alerts.low_remaining_contract_credit_and_commit_balance_resolved":
+		return billing.SignalCreditsGranted, true
+	case "alerts.spend_threshold_resolved":
+		return billing.SignalAlertResolved, true
 	default:
 		return "", false
 	}
