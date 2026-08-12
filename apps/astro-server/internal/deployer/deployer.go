@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -466,17 +465,25 @@ func mapBoundCredentials(plainCreds map[string]string) map[string]string {
 	return out
 }
 
-// kmsClient returns the deployer's KMS client, or creates one from the default AWS config.
+// kmsClient returns the deployer's KMS client, falling back to the backend for
+// the current environment.
+//
+// The fallback must make the same choice as the connect path
+// (knowledgestore.KMSBackend), because the two operate on the same ciphertext:
+// connecting a store wraps its data key, deploying an agent unwraps it. Reaching
+// unconditionally for AWS here meant a local environment encrypted with the local
+// backend and then tried to decrypt with AWS, which cannot succeed regardless of
+// what credentials are available.
 func (d *Deployer) kmsClient(ctx context.Context) envelope.KMSClient {
 	if d.KMSClient != nil {
 		return d.KMSClient
 	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+	client, err := knowledgestore.KMSBackend(ctx, d.Cfg.Deployment.IsLocal())
 	if err != nil {
-		d.Log.Warn("Failed to load AWS config for KMS", "error", err)
+		d.Log.Warn("Failed to create KMS client", "error", err)
 		return nil
 	}
-	return kms.NewFromConfig(awsCfg)
+	return client
 }
 
 // buildNamespaceLabels returns the namespace label set for a deployment.
