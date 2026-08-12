@@ -27,6 +27,15 @@ const (
 	SignalCardRemoved      Signal = "card_removed"      // card removed → back to the free-tier floor
 )
 
+// AllSignals is every declared signal. Tests walk it to prove ApplySignal
+// handles each one and that every gate it raises has a signal that lowers it, so
+// a new signal cannot be added without deciding both.
+var AllSignals = []Signal{
+	SignalPaymentFailed, SignalActionRequired, SignalAlert, SignalAlertResolved,
+	SignalUncollectible, SignalVoided, SignalRecovery, SignalCardUpdated,
+	SignalCreditsExhausted, SignalCreditsGranted, SignalCardAdded, SignalCardRemoved,
+}
+
 // ApplySignal writes the collection flags for a signal and recomputes the cached
 // status. It performs no provider calls and does not touch workloads — the caller
 // reconciles suspend/resume off the returned (status, changed). Idempotent: safe

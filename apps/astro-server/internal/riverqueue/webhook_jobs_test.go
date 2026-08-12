@@ -73,3 +73,39 @@ func TestMetronomeSignalMapping(t *testing.T) {
 		}
 	}
 }
+
+// A gate-clearing signal that no provider event produces is only reachable by an
+// operator, which is how a topped-up account stayed suspended until someone
+// forced a provisioning re-run. Assert each clear is reachable from a real event.
+// The set mirrors billing's signalWrites spec (see signal_matrix_test.go).
+func TestWebhookEvents_ReachEveryGateClearingSignal(t *testing.T) {
+	corpus := []string{
+		// Stripe payment-collection events.
+		"invoice.payment_failed", "invoice.payment_action_required", "invoice.paid",
+		"invoice.voided", "invoice.marked_uncollectible",
+		"payment_method.automatically_updated", "payment_method.attached", "payment_method.detached",
+		// Metronome alert events, both edges.
+		"alerts.spend_threshold_reached", "alerts.spend_threshold_resolved",
+		"alerts.low_remaining_contract_credit_balance_reached",
+		"alerts.low_remaining_contract_credit_balance_resolved",
+		"alerts.low_remaining_contract_credit_and_commit_balance_reached",
+		"alerts.low_remaining_contract_credit_and_commit_balance_resolved",
+	}
+	reachable := map[billing.Signal]string{}
+	for _, ev := range corpus {
+		if sig, ok := stripeSignal(ev); ok {
+			reachable[sig] = ev
+		}
+		if sig, ok := metronomeSignal(ev); ok {
+			reachable[sig] = ev
+		}
+	}
+	for _, sig := range []billing.Signal{
+		billing.SignalRecovery, billing.SignalVoided, billing.SignalCardUpdated,
+		billing.SignalCreditsGranted, billing.SignalAlertResolved,
+	} {
+		if _, ok := reachable[sig]; !ok {
+			t.Errorf("no provider event maps to %q: the gate it clears can only be lifted by an operator", sig)
+		}
+	}
+}
