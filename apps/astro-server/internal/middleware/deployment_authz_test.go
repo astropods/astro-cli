@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -107,19 +109,46 @@ func (l *concurrencyCaptureLog) Debug(message string, attrs ...any) {
 }
 func (l *concurrencyCaptureLog) Warn(string, ...any) {}
 
+func deploymentTestRoutes(router *gin.Engine, catalog *middleware.DeploymentRouteCatalog) *middleware.DeploymentRoutes {
+	return middleware.NewDeploymentRoutes(
+		oapispec.New("test", "1", ""),
+		router.Group("/api/v1"),
+		catalog,
+	)
+}
+
+func registerObservedTestRoute(routes *middleware.DeploymentRoutes, method string, action authz.Action, path string, handler gin.HandlerFunc) {
+	switch method {
+	case http.MethodGet:
+		routes.ObservedGET(action, path, "test", handler)
+	case http.MethodPost:
+		routes.ObservedPOST(action, path, "test", handler)
+	case http.MethodPut:
+		routes.ObservedPUT(action, path, "test", handler)
+	case http.MethodPatch:
+		routes.ObservedPATCH(action, path, "test", handler)
+	case http.MethodDelete:
+		routes.ObservedDELETE(action, path, "test", handler)
+	default:
+		panic("unsupported observed test method " + method)
+	}
+}
+
 func TestObserveDeploymentAuthorizationMapsControlPlaneRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name       string
-		method     string
-		route      string
-		request    string
-		wantCalls  int32
-		wantAction authz.Action
+		name          string
+		method        string
+		route         string
+		request       string
+		wantCalls     int32
+		wantAction    authz.Action
+		handlerAction authz.Action
+		handlerStatus int
 	}{
 		{
-			name:       "read route",
+			name:       "configuration-bearing detail route",
 			method:     http.MethodGet,
 			route:      "/api/v1/deployments/:id",
 			request:    "/api/v1/deployments/dep_123",
@@ -135,10 +164,68 @@ func TestObserveDeploymentAuthorizationMapsControlPlaneRoutes(t *testing.T) {
 			wantAction: authz.ActionDeploymentEdit,
 		},
 		{
-			name:      "unreviewed mutation is excluded",
+			name:       "operation route",
+			method:     http.MethodPost,
+			route:      "/api/v1/deployments/:id/restart",
+			request:    "/api/v1/deployments/dep_123/restart",
+			wantCalls:  1,
+			wantAction: authz.ActionDeploymentOperate,
+		},
+		{
+			name:       "file mutation route",
+			method:     http.MethodDelete,
+			route:      "/api/v1/deployments/:id/files/:fileKey",
+			request:    "/api/v1/deployments/dep_123/files/file_123",
+			wantCalls:  1,
+			wantAction: authz.ActionDeploymentEdit,
+		},
+		{
+			name:          "body-addressed redeploy",
+			method:        http.MethodPost,
+			route:         "/api/v1/deploy",
+			request:       "/api/v1/deploy",
+			wantCalls:     1,
+			wantAction:    authz.ActionDeploymentOperate,
+			handlerAction: authz.ActionDeploymentOperate,
+		},
+		{
+			name:          "body-addressed undeploy",
+			method:        http.MethodPost,
+			route:         "/api/v1/undeploy",
+			request:       "/api/v1/undeploy",
+			wantCalls:     1,
+			wantAction:    authz.ActionDeploymentDelete,
+			handlerAction: authz.ActionDeploymentDelete,
+		},
+		{
+			name:          "rejected body-addressed attempt is still observed",
+			method:        http.MethodPost,
+			route:         "/api/v1/undeploy",
+			request:       "/api/v1/undeploy",
+			wantCalls:     1,
+			wantAction:    authz.ActionDeploymentDelete,
+			handlerAction: authz.ActionDeploymentDelete,
+			handlerStatus: http.StatusForbidden,
+		},
+		{
+			name:      "new deployment has no redeploy observation",
 			method:    http.MethodPost,
-			route:     "/api/v1/deployments/:id/restart",
-			request:   "/api/v1/deployments/dep_123/restart",
+			route:     "/api/v1/deploy",
+			request:   "/api/v1/deploy",
+			wantCalls: 0,
+		},
+		{
+			name:      "frequently fetched read is cataloged but deferred",
+			method:    http.MethodGet,
+			route:     "/api/v1/deployments/:id/status",
+			request:   "/api/v1/deployments/dep_123/status",
+			wantCalls: 0,
+		},
+		{
+			name:      "authorization model is deferred",
+			method:    http.MethodPost,
+			route:     "/api/v1/deployments/:id/dataset/judgments",
+			request:   "/api/v1/deployments/dep_123/dataset/judgments",
 			wantCalls: 0,
 		},
 		{
@@ -152,6 +239,10 @@ func TestObserveDeploymentAuthorizationMapsControlPlaneRoutes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			wantStatus := test.handlerStatus
+			if wantStatus == 0 {
+				wantStatus = http.StatusNoContent
+			}
 			checker := newRecordingChecker(nil, nil)
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
@@ -163,14 +254,36 @@ func TestObserveDeploymentAuthorizationMapsControlPlaneRoutes(t *testing.T) {
 				})
 				c.Next()
 			})
-			router.Use(middleware.ObserveDeploymentAuthorization(newRecordingShadowLog(), checker))
-			router.Handle(test.method, test.route, func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			catalog := middleware.NewDeploymentRouteCatalog()
+			router.Use(middleware.ObserveDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+			handler := func(c *gin.Context) {
+				if test.handlerAction != "" {
+					middleware.SetDeploymentAuthorizationObservation(c, test.handlerAction, "dep_123")
+				}
+				c.Status(wantStatus)
+			}
+			if strings.Contains(test.route, "/deployments/:id") {
+				routes := deploymentTestRoutes(router, catalog)
+				path := strings.TrimPrefix(test.route, "/api/v1")
+				switch test.name {
+				case "frequently fetched read is cataloged but deferred":
+					routes.DeferredGET(authz.ActionDeploymentRead, path, "test", handler)
+				case "authorization model is deferred":
+					routes.ModelDeferredPOST(path, "test", handler)
+				case "data plane route is excluded":
+					routes.DataPlaneGET(path, "test", handler)
+				default:
+					registerObservedTestRoute(routes, test.method, test.wantAction, path, handler)
+				}
+			} else {
+				router.Handle(test.method, test.route, handler)
+			}
 
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest(test.method, test.request, nil))
 
-			if response.Code != http.StatusNoContent {
-				t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+			if response.Code != wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, wantStatus)
 			}
 			if test.wantCalls == 1 {
 				select {
@@ -208,8 +321,14 @@ func TestObserveDeploymentAuthorizationDoesNotBlockHandler(t *testing.T) {
 		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
 		c.Next()
 	})
-	router.Use(middleware.ObserveDeploymentAuthorization(newRecordingShadowLog(), checker))
-	router.PATCH("/api/v1/deployments/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(middleware.ObserveDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+	deploymentTestRoutes(router, catalog).ObservedPATCH(
+		authz.ActionDeploymentEdit,
+		"/deployments/:id",
+		"test",
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
 
 	response := httptest.NewRecorder()
 	responseDone := make(chan struct{})
@@ -246,8 +365,14 @@ func TestObserveDeploymentAuthorizationLogsNotFoundAtDebug(t *testing.T) {
 		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
 		c.Next()
 	})
-	router.Use(middleware.ObserveDeploymentAuthorization(log, checker))
-	router.GET("/api/v1/deployments/:id", func(c *gin.Context) { c.Status(http.StatusNotFound) })
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(middleware.ObserveDeploymentAuthorization(log, checker, catalog))
+	deploymentTestRoutes(router, catalog).ObservedGET(
+		authz.ActionDeploymentRead,
+		"/deployments/:id",
+		"test",
+		func(c *gin.Context) { c.Status(http.StatusNotFound) },
+	)
 
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/missing", nil))
@@ -277,8 +402,14 @@ func TestObserveDeploymentAuthorizationRecoversCheckerPanic(t *testing.T) {
 		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
 		c.Next()
 	})
-	router.Use(middleware.ObserveDeploymentAuthorization(log, panickingChecker{}))
-	router.GET("/api/v1/deployments/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(middleware.ObserveDeploymentAuthorization(log, panickingChecker{}, catalog))
+	deploymentTestRoutes(router, catalog).ObservedGET(
+		authz.ActionDeploymentRead,
+		"/deployments/:id",
+		"test",
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
 
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep_123", nil))
@@ -329,8 +460,14 @@ func TestObserveDeploymentAuthorizationDropsCheckAtConcurrencyLimit(t *testing.T
 		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
 		c.Next()
 	})
-	router.Use(middleware.ObserveDeploymentAuthorization(log, checker))
-	router.GET("/api/v1/deployments/:id", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(middleware.ObserveDeploymentAuthorization(log, checker, catalog))
+	deploymentTestRoutes(router, catalog).ObservedGET(
+		authz.ActionDeploymentRead,
+		"/deployments/:id",
+		"test",
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
 
 	for i := 0; i < maxConcurrent; i++ {
 		response := httptest.NewRecorder()

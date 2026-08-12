@@ -34,6 +34,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -341,6 +342,133 @@ func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil))
 
 	return router, deployMock, accountMock
+}
+
+type handlerAuthorizationCall struct {
+	subject  authz.Subject
+	action   authz.Action
+	resource authz.ResourceRef
+}
+
+type handlerAuthorizationChecker struct {
+	calls chan handlerAuthorizationCall
+}
+
+func (c *handlerAuthorizationChecker) Authorize(_ context.Context, subject authz.Subject, action authz.Action, resource authz.ResourceRef) (bool, error) {
+	c.calls <- handlerAuthorizationCall{subject: subject, action: action, resource: resource}
+	return true, nil
+}
+
+func TestUndeployEmitsDeploymentDeleteObservation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	log := logger.New("error", "json")
+	checker := &handlerAuthorizationChecker{calls: make(chan handlerAuthorizationCall, 1)}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			UserID:             "user-1",
+			OrganizationID:     "org-1",
+			WorkOSMembershipID: "om-1",
+		})
+		c.Next()
+	})
+	router.Use(middleware.ObserveDeploymentAuthorization(log, checker, middleware.NewDeploymentRouteCatalog()))
+	// A nil deployment store deliberately rejects after the real handler parses
+	// the body and records the attempt. Shadow coverage must include rejected attempts.
+	router.POST("/api/v1/undeploy", UndeployAgent(log, nil, nil, nil, nil, &mockQueue{}, nil, nil))
+
+	deploymentID := deployid.New()
+	body := `{"deployment_id":"` + deploymentID + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/undeploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusServiceUnavailable, response.Body.String())
+	}
+	select {
+	case call := <-checker.calls:
+		if call.action != authz.ActionDeploymentDelete {
+			t.Fatalf("action = %q, want %q", call.action, authz.ActionDeploymentDelete)
+		}
+		if call.resource != authz.DeploymentResource(deploymentID) {
+			t.Fatalf("resource = %+v, want %+v", call.resource, authz.DeploymentResource(deploymentID))
+		}
+		if call.subject.MembershipID != "om-1" {
+			t.Fatalf("subject = %+v, want membership om-1", call.subject)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("real undeploy handler did not emit a deployment delete observation")
+	}
+}
+
+func TestRedeployEmitsDeploymentOperateObservation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer indexDB.Close()
+	accountDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accountDB.Close()
+	deployDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer deployDB.Close()
+
+	log := logger.New("error", "json")
+	checker := &handlerAuthorizationChecker{calls: make(chan handlerAuthorizationCall, 1)}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			UserID:             "user-1",
+			OrganizationID:     "org-1",
+			WorkOSMembershipID: "om-1",
+		})
+		c.Next()
+	})
+	router.Use(middleware.ObserveDeploymentAuthorization(log, checker, middleware.NewDeploymentRouteCatalog()))
+	cfg := &config.Config{Deployment: config.DeploymentConfig{
+		RegistryURL:        "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
+		Environment:        "test",
+		TemplateSigningKey: testSigningKey,
+	}}
+	router.POST("/deploy", DeployAgent(
+		log,
+		agentindex.NewIndexWithDB(indexDB),
+		account.NewAccountStore(accountDB),
+		cfg,
+		deploymentstore.NewStore(deployDB),
+		nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil,
+	)) //nolint:staticcheck // dependencies after observation are unnecessary; the unmatched account lookup rejects safely.
+
+	deploymentID := deployid.New()
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, signedDeployRequest(t, deployableSpec(deploymentID)))
+
+	select {
+	case call := <-checker.calls:
+		if call.action != authz.ActionDeploymentOperate {
+			t.Fatalf("action = %q, want %q", call.action, authz.ActionDeploymentOperate)
+		}
+		if call.resource != authz.DeploymentResource(deploymentID) {
+			t.Fatalf("resource = %+v, want %+v", call.resource, authz.DeploymentResource(deploymentID))
+		}
+		if call.subject.MembershipID != "om-1" {
+			t.Fatalf("subject = %+v, want membership om-1", call.subject)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("real redeploy handler did not emit a deployment operate observation")
+	}
 }
 
 func TestUndeploy_Success(t *testing.T) {

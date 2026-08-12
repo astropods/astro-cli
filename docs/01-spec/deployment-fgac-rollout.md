@@ -1,16 +1,31 @@
 # Deployment FGAC API Rollout
 
 **Status:** Approved direction
-**Updated:** 2026-08-07
+**Updated:** 2026-08-10
 
 ## Decision
 
 Introduce WorkOS FGA for deployment control-plane access through small, reversible server PRs. The milestone is API-first: every behavior must be proven through Astro API requests in preview before frontend work begins. The deployment UI is a later designer handoff, not part of PRs 1–9.
 
-The first policy has two resource permissions:
+The first policy uses a small set of practical, actor-neutral capabilities. Permissions represent jobs someone may perform on a deployment, not individual buttons or response fields. The same checks apply to people, groups, bots, agents, the UI, and the CLI.
 
-- `deployment:read` — read a deployment page and its non-secret control-plane data.
-- `deployment:edit` — change or operate a deployment.
+| Permission | Meaning |
+| --- | --- |
+| `deployment:read` | Discover a deployment; read its detail, configuration metadata, logs, traces, monitoring, and files; and manage the caller's own alert subscription. Secret values remain redacted. |
+| `deployment:edit` | Change deployment-owned content or metadata, including its name, avatar, and files. |
+| `deployment:operate` | Run deployment lifecycle operations: redeploy, rollback, restart, stop, resume, cancel, and trigger ingestion. |
+| `deployment:delete` | Delete the deployment. |
+| `deployment:manage_access` | Invite people and grant or revoke deployment access. |
+
+Permissions do not imply one another. Roles are the bundles: for example, a deployment reader needs only `deployment:read`, while an operator role can combine `deployment:read` and `deployment:operate`. A custom role can use any combination without changing Astro's route policy.
+
+This catalog intentionally avoids one permission per UI control. There is no useful product persona who may restart but not resume, or read monitoring but not logs, in the initial milestone. We add another permission only when a concrete security or product boundary requires independent grants.
+
+Evaluation endpoints are deployment-addressed today, but that URL shape does not prove evaluations are deployment-owned authorization resources. PR6 marks dataset, prediction, review, and judgment routes as model-deferred: they remain on legacy membership authorization and receive no deployment permission until their ownership and sharing model is designed.
+
+The deployment-detail response carries environment metadata and non-secret values. `LoadDecryptedBuildEnv` replaces every secret value with `••••••••` before the response is built; no deployment permission exposes plaintext secrets.
+
+Redeploy and teardown use the body-addressed `POST /deploy` and `POST /undeploy` flows. Signed redeploy attempts and parsed undeploy attempts with a nonempty deployment ID are shadow-checked as `deployment:operate` and `deployment:delete`, including attempts rejected later by legacy authorization or business validation. Malformed requests without an ID are skipped. `deployment:manage_access` remains forward-looking until the access APIs land. `POST /agents/:account/:name/archive` only archives the blueprint and therefore remains an agent-level authorization decision.
 
 Chat and invocation authorization remain separate data-plane concerns. Existing messaging grants are unchanged.
 
@@ -18,12 +33,12 @@ Chat and invocation authorization remain separate data-plane concerns. Existing 
 
 Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment readers and editors in its database.
 
-| Subject | View | Edit | Manage access in this milestone |
+| Subject | Baseline read | Deployment operations | Manage access in this milestone |
 | --- | --- | --- | --- |
-| Organization owner/admin | All organization deployments | All organization deployments | Yes |
-| Deployment creator | The deployment they created | The deployment they created | Only if also an organization owner/admin |
-| `deployment-editor` assignee | Assigned deployment | Assigned deployment | No |
-| `deployment-reader` assignee | Assigned deployment | No | No |
+| Organization owner/admin | All organization deployments | All deployment permissions | Yes |
+| Deployment creator | The deployment they created | `deployment-editor` bundle on that deployment | Only if also an organization owner/admin |
+| `deployment-editor` assignee | Assigned deployment | Read, edit, operate, and delete | No |
+| `deployment-reader` assignee | Assigned deployment | None | No |
 | Unassigned organization member | No after view enforcement | No | No |
 | Personal-account owner | Yes | Yes | Not applicable |
 
@@ -35,11 +50,11 @@ flowchart LR
     Saswat["Saswat membership"] --> Group
     Sohum["Sohum membership"] --> Group
     Group --> Assignment["deployment-editor on dep_123"]
-    Assignment --> Read["deployment:read"]
-    Assignment --> Edit["deployment:edit"]
+    Assignment --> Read["flat read capabilities"]
+    Assignment --> Edit["flat mutation capabilities"]
 ```
 
-The initial access-management API allows only organization owners/admins to change assignments. A later permission such as `deployment:manage_access` can allow deployment owners to share access without changing the FGA client primitives.
+The initial access-management API allows only organization owners/admins to change assignments. A later `deployment:manage_access` grant can allow another role to manage access without changing the FGA client primitives.
 
 ## Sources of truth
 
@@ -73,12 +88,11 @@ Deployment lists must use WorkOS accessible-resource discovery or batching. They
 Configure preview before PR4 makes live writes; repeat in production before production enforcement:
 
 - Resource type `deployment`, parent organization.
-- Permission `deployment:read`, scoped to deployment.
-- Permission `deployment:edit`, scoped to deployment.
+- The five permissions in the deployment catalog above, scoped to `deployment`.
 - Role `deployment-reader` containing `deployment:read`.
-- Role `deployment-editor` containing `deployment:read` and `deployment:edit`.
-- Organization owner/admin roles include both deployment permissions through child-resource inheritance.
-- Organization member role includes neither permission for the final private-by-default behavior.
+- Role `deployment-editor` containing `deployment:read`, `deployment:edit`, `deployment:operate`, and `deployment:delete`.
+- Organization owner/admin roles include every deployment permission through child-resource inheritance.
+- Organization member role includes no deployment permissions for private-by-default behavior.
 
 The slugs are external contracts. Repository constants and WorkOS environment configuration must change together.
 
@@ -140,7 +154,7 @@ Status: draft as PR #1898.
 - Keep `MembershipChecker` enforcing while FGA runs in shadow mode.
 - Log structured mismatches with action, route, resource, and subject identifiers.
 - Run shadow comparison off the request goroutine with a short timeout and the shared WorkOS client so observation cannot add user-facing WorkOS latency.
-- Limit the first sample to deployment detail (`deployment:read`) and rename (`deployment:edit`); all other routes wait for the PR6 action inventory.
+- Limit the first sample to deployment detail and rename using the bootstrap `deployment:read` and `deployment:edit` actions; PR6 refines the read boundary before enforcement.
 - Enable shadow observation per environment with `FGA_SHADOW_ENABLED`; call WorkOS only for deployments whose PR4 registration is converged. Personal, historical, and pending resources remain entirely on legacy authorization.
 - Treat an empty membership ID on an organization-scoped session as unavailable identity, not an authorization denial. It can result from a transient session-build resolution failure or production running before the JWT template update; `/auth/me` does not query the database to repair it, while token refresh, switch-org, or re-login does.
 - Never alter the HTTP response in shadow mode. A mismatch is evidence for rollout work, not a denial.
@@ -159,17 +173,33 @@ flowchart TD
 
 ### PR6 — Deployment action inventory and expanded shadow coverage
 
-- Write the source-controlled deployment action matrix by reviewing every owner/admin/member API and UI behavior by hand.
-- Classify each route as `deployment:read`, `deployment:edit`, another future permission, public/data-plane, or intentionally out of scope.
-- Expand shadow coverage only after the route's resource resolution and information-disclosure behavior are understood.
-- Add route-coverage tests so a new mutation cannot silently bypass the reviewed catalog.
+- Define five flat, actor-neutral deployment capabilities: read, edit, operate, delete, and manage access. Avoid permissions for individual buttons until a concrete product boundary requires one.
+- Register every deployment-ID server route with one control-plane permission, an explicit chat/messaging data-plane classification, or a model-deferred classification; there is no separate route-policy map to drift.
+- Keep evaluation routes on legacy membership authorization until their resource ownership and sharing model is established; do not send a deployment permission to WorkOS for them.
+- Shadow-check user-triggered mutations as edit, operate, or delete. Keep frequently fetched reads cataloged but deferred so polling cannot create one WorkOS request per refresh.
+- Shadow-check signed body-addressed redeploy and parsed undeploy attempts as operate and delete once the request supplies a nonempty deployment ID, including attempts rejected later by the handler.
+- Validate the live Gin router at startup so any deployment-ID route without a policy, or any policy without a live route, prevents the server from starting.
+- Preserve the PR5 timeout, concurrency limit, panic recovery, eligibility gate, and legacy HTTP behavior. This PR still returns no FGA-driven `403` responses.
 - Do not backfill historical deployments in this milestone; Preview enforcement remains limited to resources created through PR4.
+
+```mermaid
+flowchart LR
+    Route["Deployment route"] --> Catalog{"Reviewed route catalog"}
+    Catalog -->|User mutation| Shadow["Live WorkOS check in shadow"]
+    Catalog -->|Frequently fetched read| Deferred["Recorded permission; no per-poll check"]
+    Catalog -->|Evaluation model unresolved| ModelDeferred["Explicitly deferred; no deployment permission"]
+    Catalog -->|Chat or messaging| DataPlane["Separate data-plane policy"]
+    Shadow --> Legacy["Log comparison; keep current HTTP result"]
+    Deferred --> Legacy
+    ModelDeferred --> Legacy
+    DataPlane --> Legacy
+```
 
 ### PR7 — Server enforcement
 
 - Add deployment-action middleware that resolves the deployment and checks the requested permission.
-- Enforce the reviewed `deployment:edit` routes only for allowlisted organizations and FGA-ready deployments created through PR4.
-- Add an authenticated capability endpoint for API testing and future clients.
+- Enforce the reviewed granular mutation routes only for allowlisted organizations and FGA-ready deployments created through PR4.
+- Add an authenticated capability endpoint that evaluates the five deployment actions through WorkOS, records every shadow comparison, and returns effective actions for API testing and future clients. Model-deferred evaluation routes remain outside deployment enforcement.
 - Fail closed on WorkOS errors; distinguish denial from authorization-service failure internally without exposing resource existence.
 - Fail closed on an empty session membership ID with a retryable auth/session-unavailable response, not `403`, so an otherwise valid member can repair the session instead of receiving indefinite denials.
 - Enable in preview only after shadow mismatches are understood, then production.
@@ -186,7 +216,7 @@ This replaces Matt's original frontend PR. No UI is built.
 - List, assign, and remove `deployment-reader` and `deployment-editor` for membership or group subjects.
 - Validate that the caller, subject, group, deployment, and WorkOS resource belong to the same organization.
 - Restrict access management to organization owners/admins and allowlist the two built-in deployment roles.
-- Add accessible-deployment discovery, then enforce `deployment:read` on detail and list APIs without N+1 checks.
+- Add accessible-deployment discovery, then enforce `deployment:read` on filtered detail and list APIs without N+1 checks.
 
 Proposed API surface; exact paths follow existing server conventions during implementation:
 
@@ -220,7 +250,7 @@ The milestone is complete when this flow succeeds against Astro APIs in preview:
 4. Each member can view and edit that deployment using their own authenticated session.
 5. The same members cannot access an unassigned deployment unless an inherited organization role allows it.
 6. Removing Matt from the group revokes his group-derived access on the next check while Sohum and Saswat remain allowed.
-7. Assigning `deployment-reader` permits reads but returns `403` for mutations.
+7. Assigning `deployment-reader` permits deployment reads but returns `403` for edit, operate, delete, and manage-access actions. Evaluation behavior remains unchanged until its authorization model is designed.
 8. Organization owners/admins retain inherited access to every deployment.
 9. Cross-organization assignment attempts are rejected before WorkOS is called.
 
@@ -237,4 +267,4 @@ The browser must never call WorkOS directly. Postman and curl call Astro endpoin
 
 ## Frontend handoff
 
-Frontend work begins only after PR9 acceptance passes. The designer receives documented Astro APIs and capability responses for an Access panel, group membership management, role assignment, and view/edit control states. The frontend never becomes an authorization boundary; every protected server endpoint continues to enforce independently.
+Frontend work begins only after PR9 acceptance passes. The designer receives documented Astro APIs and capability responses for an Access panel, group membership management, role assignment, and action-specific control states. The frontend never becomes an authorization boundary; every protected server endpoint continues to enforce independently.

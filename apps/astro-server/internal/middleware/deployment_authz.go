@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"net/http"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
@@ -21,11 +20,34 @@ type deploymentRoute struct {
 	path   string
 }
 
-// PR5 intentionally samples one read and one edit route. The complete route
-// catalog is a security review artifact, not something inferred by middleware.
-var deploymentRouteActions = map[deploymentRoute]authz.Action{
-	{http.MethodGet, "/api/v1/deployments/:id"}:   authz.ActionDeploymentRead,
-	{http.MethodPatch, "/api/v1/deployments/:id"}: authz.ActionDeploymentEdit,
+type deploymentRoutePolicyKind uint8
+
+const (
+	deploymentRouteObserved deploymentRoutePolicyKind = iota
+	deploymentRouteDeferred
+	deploymentRouteModelDeferred
+	deploymentRouteDataPlane
+)
+
+type deploymentRoutePolicy struct {
+	action authz.Action
+	kind   deploymentRoutePolicyKind
+}
+
+func observedDeploymentRoute(action authz.Action) deploymentRoutePolicy {
+	return deploymentRoutePolicy{action: action, kind: deploymentRouteObserved}
+}
+
+func deferredDeploymentRoute(action authz.Action) deploymentRoutePolicy {
+	return deploymentRoutePolicy{action: action, kind: deploymentRouteDeferred}
+}
+
+func modelDeferredDeploymentRoute() deploymentRoutePolicy {
+	return deploymentRoutePolicy{kind: deploymentRouteModelDeferred}
+}
+
+func deploymentDataPlaneRoute() deploymentRoutePolicy {
+	return deploymentRoutePolicy{kind: deploymentRouteDataPlane}
 }
 
 type authorizationShadowLogger interface {
@@ -33,45 +55,85 @@ type authorizationShadowLogger interface {
 	Warn(msg string, args ...any)
 }
 
+const deploymentAuthorizationObservationKey = "deploymentAuthorizationObservation"
+
+type deploymentAuthorizationObservation struct {
+	action       authz.Action
+	deploymentID string
+}
+
+// SetDeploymentAuthorizationObservation records a body-addressed deployment
+// action after its handler has resolved the deployment.
+func SetDeploymentAuthorizationObservation(c *gin.Context, action authz.Action, deploymentID string) {
+	if c == nil || action == "" || deploymentID == "" {
+		return
+	}
+	c.Set(deploymentAuthorizationObservationKey, deploymentAuthorizationObservation{
+		action:       action,
+		deploymentID: deploymentID,
+	})
+}
+
 // ObserveDeploymentAuthorization samples mapped deployment routes without
 // aborting or changing their existing membership-based behavior.
-func ObserveDeploymentAuthorization(log authorizationShadowLogger, checker authz.Checker) gin.HandlerFunc {
+func ObserveDeploymentAuthorization(log authorizationShadowLogger, checker authz.Checker, catalog *DeploymentRouteCatalog) gin.HandlerFunc {
 	shadowSlots := make(chan struct{}, deploymentAuthorizationShadowMaxConcurrent)
 
 	return func(c *gin.Context) {
-		action, ok := deploymentRouteActions[deploymentRoute{method: c.Request.Method, path: c.FullPath()}]
-		if !ok {
-			c.Next()
-			return
-		}
-
-		subject, ok := SubjectFromContext(c)
-		deploymentID := c.Param("id")
-		if !ok || deploymentID == "" {
-			c.Next()
-			return
-		}
-
 		route := c.FullPath()
-		resource := authz.DeploymentResource(deploymentID)
-		select {
-		case shadowSlots <- struct{}{}:
-			requestCtx := c.Request.Context()
-			go func() {
-				defer func() { <-shadowSlots }()
-				observeDeploymentAuthorization(requestCtx, log, checker, route, subject, action, resource)
-			}()
-		default:
-			log.Debug("FGA shadow check skipped: concurrency limit reached",
-				"route", route,
-				"action", action,
-				"resource_type", resource.Type,
-				"resource_id", resource.ExternalID,
-				"user_id", subject.UserID,
-				"concurrency_limit", cap(shadowSlots),
+		policy, ok := catalog.policy(c.Request.Method, c.FullPath())
+		subject, hasSubject := SubjectFromContext(c)
+		deploymentID := c.Param("id")
+		if ok && policy.kind == deploymentRouteObserved && hasSubject && deploymentID != "" {
+			startDeploymentAuthorizationObservation(
+				c.Request.Context(), log, checker, shadowSlots, route, subject,
+				policy.action, authz.DeploymentResource(deploymentID),
 			)
+			c.Next()
+			return
 		}
+
 		c.Next()
+		if !hasSubject {
+			return
+		}
+		value, exists := c.Get(deploymentAuthorizationObservationKey)
+		observation, valid := value.(deploymentAuthorizationObservation)
+		if !exists || !valid {
+			return
+		}
+		startDeploymentAuthorizationObservation(
+			c.Request.Context(), log, checker, shadowSlots, route, subject,
+			observation.action, authz.DeploymentResource(observation.deploymentID),
+		)
+	}
+}
+
+func startDeploymentAuthorizationObservation(
+	requestCtx context.Context,
+	log authorizationShadowLogger,
+	checker authz.Checker,
+	shadowSlots chan struct{},
+	route string,
+	subject authz.Subject,
+	action authz.Action,
+	resource authz.ResourceRef,
+) {
+	select {
+	case shadowSlots <- struct{}{}:
+		go func() {
+			defer func() { <-shadowSlots }()
+			observeDeploymentAuthorization(requestCtx, log, checker, route, subject, action, resource)
+		}()
+	default:
+		log.Debug("FGA shadow check skipped: concurrency limit reached",
+			"route", route,
+			"action", action,
+			"resource_type", resource.Type,
+			"resource_id", resource.ExternalID,
+			"user_id", subject.UserID,
+			"concurrency_limit", cap(shadowSlots),
+		)
 	}
 }
 

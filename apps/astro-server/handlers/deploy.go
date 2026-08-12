@@ -749,6 +749,11 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			})
 			return
 		}
+		// Observe signed redeploy attempts before legacy or business validation so
+		// rejected attempts are represented in Preview shadow comparisons too.
+		if submittedSpec.Target.DeploymentID != "" {
+			middleware.SetDeploymentAuthorizationObservation(c, authz.ActionDeploymentOperate, submittedSpec.Target.DeploymentID)
+		}
 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore, restoreConfiguredSecrets)
 		if !ok {
@@ -1011,7 +1016,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		evt.Description = "Deployed agent " + dctx.agentName
 		evt.Metadata = map[string]any{"build_id": dctx.buildID, "namespace": dctx.k8sNS}
 		auditStore.LogAsync(log, evt)
-
 		c.JSON(http.StatusAccepted, deployment.DeployResponse{
 			Status:       "pending",
 			DeploymentID: dctx.deploymentID,
@@ -1065,6 +1069,9 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			})
 			return
 		}
+		// Observe parsed undeploy attempts before legacy authorization so rejected
+		// attempts are represented in Preview shadow comparisons too.
+		middleware.SetDeploymentAuthorizationObservation(c, authz.ActionDeploymentDelete, req.DeploymentID)
 
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -1122,7 +1129,6 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		evt.ResourceName = dep.AgentName
 		evt.Description = "Undeployed agent " + dep.AgentName
 		auditStore.LogAsync(log, evt)
-
 		c.JSON(http.StatusAccepted, deployment.UndeployResponse{
 			Status:       "undeploying",
 			Name:         dep.AgentName,

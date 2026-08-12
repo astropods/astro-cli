@@ -953,6 +953,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
+	deploymentRouteCatalog := middleware.NewDeploymentRouteCatalog()
 	authzStore := authorizationstore.NewStore(db)
 
 	// Serve OpenAPI spec
@@ -1094,6 +1095,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		// Protected endpoints (require authentication)
 		protected := v1.Group("")
 		protected.Use(authMw.RequireAuth())
+		deploymentRoutes := middleware.NewDeploymentRoutes(api, protected, deploymentRouteCatalog)
 		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
 			resourceAccounts := authz.NewDeploymentAccountResolver(db)
 			membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
@@ -1101,6 +1103,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			protected.Use(middleware.ObserveDeploymentAuthorization(
 				log,
 				authz.NewGatedShadowChecker(log, resourceAccounts, membershipChecker, fgaChecker),
+				deploymentRouteCatalog,
 			))
 			log.Info("Deployment FGA shadow checks enabled")
 		}
@@ -1799,67 +1802,69 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&deployment.UndeployRequest{}),
 				oapispec.Response(202, &handlers.UndeployResponseAlias{}),
 			)
-			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, k8sReg, deploymentStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.GetDeploymentStatusResponse{}),
 			)
-			api.PATCH(protected, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, deploymentFGASync, queue),
+			deploymentRoutes.ObservedPATCH(authz.ActionDeploymentEdit, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, deploymentFGASync, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 			)
-			api.POST(protected, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore),
-				oapispec.Tags("Deployments"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(202, nil),
-			)
-			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sReg, deploymentStore, auditStore, k8sCache),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/cancel", "Cancel an in-progress deployment", handlers.CancelDeployment(log, accountStore, deploymentStore, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sReg, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.GET(protected, "/deployments/:id/watchers", "List deployment alert watchers", handlers.ListDeploymentWatchers(log, accountStore, deploymentStore, watcherStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/cancel", "Cancel an in-progress deployment", handlers.CancelDeployment(log, accountStore, deploymentStore, auditStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
+			)
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/watchers", "List deployment alert watchers", handlers.ListDeploymentWatchers(log, accountStore, deploymentStore, watcherStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.POST(protected, "/deployments/:id/watchers/me", "Watch a deployment's alerts", handlers.WatchDeployment(log, accountStore, deploymentStore, watcherStore),
+			// Alert subscriptions are self-service preferences, not deployment edits:
+			// anyone who can read a deployment may watch or unwatch it for themselves.
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentRead, "/deployments/:id/watchers/me", "Watch a deployment's alerts", handlers.WatchDeployment(log, accountStore, deploymentStore, watcherStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.DELETE(protected, "/deployments/:id/watchers/me", "Stop watching a deployment's alerts", handlers.UnwatchDeployment(log, accountStore, deploymentStore, watcherStore),
+			deploymentRoutes.ObservedDELETE(authz.ActionDeploymentRead, "/deployments/:id/watchers/me", "Stop watching a deployment's alerts", handlers.UnwatchDeployment(log, accountStore, deploymentStore, watcherStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartDeploymentResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1867,7 +1872,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartPodResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sReg, deploymentStore, cfg, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sReg, deploymentStore, cfg, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1877,14 +1882,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 
 			if avatarStore != nil {
-				api.POST(protected, "/deployments/:id/avatar", "Upload deployment avatar",
+				deploymentRoutes.ObservedPOST(authz.ActionDeploymentEdit, "/deployments/:id/avatar", "Upload deployment avatar",
 					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore, k8sCache),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("id", "Deployment ID"),
 					oapispec.Response(200, &handlers.AvatarResponse{}),
 				)
-				api.DELETE(protected, "/deployments/:id/avatar", "Reset deployment avatar",
+				deploymentRoutes.ObservedDELETE(authz.ActionDeploymentEdit, "/deployments/:id/avatar", "Reset deployment avatar",
 					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore, k8sCache),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
@@ -1926,14 +1931,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, deploymentStore, agentIndex, avatarStore, auditStore),
+			// The detail record includes deployed env names and non-secret values. Secret
+			// values are redacted, but the route remains configuration-sensitive.
+			deploymentRoutes.ObservedGET(authz.ActionDeploymentRead, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, deploymentStore, agentIndex, avatarStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/runtime", "Get deployment runtime", handlers.GetDeploymentRuntime(log, accountStore, cfg, deploymentStore, promClient, k8sReg),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/runtime", "Get deployment runtime", handlers.GetDeploymentRuntime(log, accountStore, cfg, deploymentStore, promClient, k8sReg),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1943,19 +1950,19 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// Messaging proxy — pure in-transit forward to the deployment's
 			// messaging sidecar (send + SSE). No chat content is persisted here.
 			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
-			protected.Any("/deployments/:id/messaging/*proxyPath", messagingProxy)
+			deploymentRoutes.DataPlaneAny("/deployments/:id/messaging/*proxyPath", messagingProxy)
 			// Chat API — authenticates the session and forwards to the sidecar,
 			// which owns chat persistence (deployment-local SQLite on the agent's
 			// shared persistent disk). astro-server stores no chat metadata or
 			// message bodies.
-			api.GET(protected, "/deployments/:id/chat/conversations", "List deployment chat conversations",
+			deploymentRoutes.DataPlaneGET("/deployments/:id/chat/conversations", "List deployment chat conversations",
 				handlers.ListDeploymentChatConversations(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.ListChatConversationsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
+			deploymentRoutes.DataPlaneGET("/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
 				handlers.GetDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
@@ -1965,14 +1972,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("before_seq", "Return messages older than this seq (requires limit)", false),
 				oapispec.Response(200, &handlers.GetChatConversationResponse{}),
 			)
-			api.PUT(protected, "/deployments/:id/chat/conversations/:conversationId/title", "Rename deployment chat conversation",
+			deploymentRoutes.DataPlanePUT("/deployments/:id/chat/conversations/:conversationId/title", "Rename deployment chat conversation",
 				handlers.SetDeploymentChatConversationTitle(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("conversationId", "Conversation ID"),
 			)
-			api.DELETE(protected, "/deployments/:id/chat/conversations/:conversationId", "Delete deployment chat conversation",
+			deploymentRoutes.DataPlaneDELETE("/deployments/:id/chat/conversations/:conversationId", "Delete deployment chat conversation",
 				handlers.DeleteDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
@@ -1984,14 +1991,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// endpoints stream bytes and preserve upstream redirects so a future
 			// presigned-object store needs no client change. astro-server stores
 			// no file bytes or metadata.
-			api.GET(protected, "/deployments/:id/files", "List deployment files",
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/files", "List deployment files",
 				handlers.ListDeploymentFiles(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.ListDeploymentFilesResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/files", "Create a deployment file",
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentEdit, "/deployments/:id/files", "Create a deployment file",
 				handlers.CreateDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
@@ -2001,7 +2008,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 			// Registered before the :fileKey route so the static "usage" segment
 			// resolves to this handler, not a file key lookup.
-			api.GET(protected, "/deployments/:id/files/usage", "Get deployment storage usage",
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/files/usage", "Get deployment storage usage",
 				handlers.GetDeploymentStorageUsage(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
@@ -2009,7 +2016,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Desc("Capacity of the volume backing the deployment's file store, for storage-full warnings."),
 				oapispec.Response(200, &handlers.DeploymentStorageUsageResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/files/:fileKey", "Get deployment file metadata",
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/files/:fileKey", "Get deployment file metadata",
 				handlers.GetDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
@@ -2017,14 +2024,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("fileKey", "File key"),
 				oapispec.Response(200, &handlers.DeploymentFileMetaResponse{}),
 			)
-			api.DELETE(protected, "/deployments/:id/files/:fileKey", "Delete a deployment file",
+			deploymentRoutes.ObservedDELETE(authz.ActionDeploymentEdit, "/deployments/:id/files/:fileKey", "Delete a deployment file",
 				handlers.DeleteDeploymentFile(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("fileKey", "File key"),
 			)
-			api.PUT(protected, "/deployments/:id/files/:fileKey/content", "Upload deployment file content",
+			deploymentRoutes.ObservedPUT(authz.ActionDeploymentEdit, "/deployments/:id/files/:fileKey/content", "Upload deployment file content",
 				handlers.UploadDeploymentFileContent(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
@@ -2033,7 +2040,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Desc("Streams the file bytes to the reserved key (server-received upload path)."),
 				oapispec.Response(200, &handlers.DeploymentFileMetaResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/files/:fileKey/content", "Download deployment file content",
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/files/:fileKey/content", "Download deployment file content",
 				handlers.DownloadDeploymentFileContent(log, cfg, k8sReg, accountStore, deploymentStore),
 				oapispec.Tags("Files"),
 				oapispec.BearerAuth(),
@@ -2047,7 +2054,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// authorization endpoint is the messaging-facing
 			// /deployments/authorize wired below behind RequireDeployToken.
 
-			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sReg, deploymentStore, lokiClient),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sReg, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -2058,7 +2065,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, k8sReg, deploymentStore, lokiClient),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/logs/stream", "Stream deployment logs (SSE)", handlers.StreamDeploymentLogs(log, accountStore, k8sReg, deploymentStore, lokiClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2069,19 +2076,19 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, nil),
 				oapispec.Response(501, &handlers.ErrorResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, deploymentStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/events", "Get deployment K8s events", handlers.GetDeploymentEvents(log, accountStore, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DeploymentEventsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/alerts", "Get deployment observation alerts and state", handlers.GetDeploymentAlerts(log, accountStore, deploymentStore, alertStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/alerts", "Get deployment observation alerts and state", handlers.GetDeploymentAlerts(log, accountStore, deploymentStore, alertStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DeploymentAlertsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sReg, deploymentStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -2089,7 +2096,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ConfigMapDataResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sReg, deploymentStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sReg, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -2099,7 +2106,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 			// Observability endpoints (deployment-scoped, backed by Langfuse)
 			langfuseStore := langfuse.NewStore(db)
-			api.GET(protected, "/deployments/:id/observability/metrics", "Get deployment metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, deploymentStore, langfuseStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/metrics", "Get deployment metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2107,7 +2114,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.ObservabilityMetricsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/summary", "Get deployment summary", handlers.GetLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/summary", "Get deployment summary", handlers.GetLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2115,7 +2122,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/traces", "Get deployment traces", handlers.GetLangfuseTraces(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/traces", "Get deployment traces", handlers.GetLangfuseTraces(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2125,7 +2132,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/trace-users", "Get deployment trace users", handlers.GetLangfuseTraceUsers(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/trace-users", "Get deployment trace users", handlers.GetLangfuseTraceUsers(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2133,14 +2140,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.TraceUserFacetsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/traces/:traceId", "Get a single trace with its observations", handlers.GetLangfuseTraceDetail(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("traceId", "Trace ID"),
 				oapispec.Response(200, &handlers.TraceDetailResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/observability/observations/:observationId", "Get a single observation with full input/output/metadata", handlers.GetLangfuseObservationDetail(log, cfg, accountStore, deploymentStore, langfuseStore),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/observability/observations/:observationId", "Get a single observation with full input/output/metadata", handlers.GetLangfuseObservationDetail(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2150,13 +2157,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
 			datasetStore := evaldatasetstore.NewStore(db)
 			judgmentStore := judgmentstore.NewStore(db)
-			api.GET(protected, "/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/dataset/items", "List judged dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/items", "List judged dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2166,13 +2173,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque cursor returned as next_cursor for filtered pagination", false),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, slackIdentityStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, slackIdentityStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2181,27 +2188,27 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/dataset/predictions/status", "Get dataset prediction status", handlers.GetDatasetPredictionStatus(log, accountStore, deploymentStore, datasetStore, judgmentStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/predictions/status", "Get dataset prediction status", handlers.GetDatasetPredictionStatus(log, accountStore, deploymentStore, datasetStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetPredictionStatusResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, &handlers.DatasetPredictionsResponse{}),
 				oapispec.Response(500, &handlers.DatasetPredictionsResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/dataset/judgments", "Submit dataset judgment", handlers.PostDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/judgments", "Submit dataset judgment", handlers.PostDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
 				oapispec.Response(201, &handlers.DatasetJudgmentResponse{}),
 			)
-			api.PATCH(protected, "/deployments/:id/dataset/judgments/:trace_id", "Change dataset judgment", handlers.PatchDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+			deploymentRoutes.ModelDeferredPATCH("/deployments/:id/dataset/judgments/:trace_id", "Change dataset judgment", handlers.PatchDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2209,7 +2216,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
 				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
 			)
-			api.PUT(protected, "/deployments/:id/dataset/judgments/:trace_id/criteria", "Replace dataset judgment criteria", handlers.PutDatasetJudgmentCriteria(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+			deploymentRoutes.ModelDeferredPUT("/deployments/:id/dataset/judgments/:trace_id/criteria", "Replace dataset judgment criteria", handlers.PutDatasetJudgmentCriteria(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2217,7 +2224,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&handlers.DatasetJudgmentCriteriaRequest{}),
 				oapispec.Response(200, &handlers.DatasetJudgmentCriteriaResponse{}),
 			)
-			api.DELETE(protected, "/deployments/:id/dataset/judgments/:trace_id", "Undo dataset judgment", handlers.DeleteDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
+			deploymentRoutes.ModelDeferredDELETE("/deployments/:id/dataset/judgments/:trace_id", "Undo dataset judgment", handlers.DeleteDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2276,7 +2283,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 
 			// Network endpoints (deployment-scoped, backed by Beyla eBPF metrics in Prometheus)
-			api.GET(protected, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, k8sReg, promClient),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/network/summary", "Get deployment network summary", handlers.GetNetworkSummary(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2284,7 +2291,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("end_time", "End time (RFC3339); defaults to now", false),
 				oapispec.Response(200, &handlers.NetworkSummaryResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/network/flows", "Get top network peers for a deployment", handlers.GetNetworkFlows(log, accountStore, deploymentStore, k8sReg, promClient),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/network/flows", "Get top network peers for a deployment", handlers.GetNetworkFlows(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2295,7 +2302,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("sort", "requests | latency_p95 | errors (default requests)", false),
 				oapispec.Response(200, &handlers.NetworkFlowsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/network/timeseries", "Get bucketed network metrics for a deployment", handlers.GetNetworkTimeseries(log, accountStore, deploymentStore, k8sReg, promClient),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/network/timeseries", "Get bucketed network metrics for a deployment", handlers.GetNetworkTimeseries(log, accountStore, deploymentStore, k8sReg, promClient),
 				oapispec.Tags("Network"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2307,7 +2314,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "peer | status_class — capped at 8 series for peer", false),
 				oapispec.Response(200, &handlers.NetworkTimeseriesResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/pods/:pod/metrics", "Get CPU, memory and storage time series for a pod", handlers.GetWorkloadMetrics(log, accountStore, deploymentStore, promClient, k8sReg),
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/pods/:pod/metrics", "Get CPU, memory and storage time series for a pod", handlers.GetWorkloadMetrics(log, accountStore, deploymentStore, promClient, k8sReg),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2560,6 +2567,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			oapispec.PathParam("account", "Account name"),
 			oapispec.Response(200, &handlers.InsightsResponse{}),
 		)
+	}
+
+	if err := deploymentRouteCatalog.Validate(router.Routes()); err != nil {
+		log.Error("Invalid deployment authorization routes", "error", err)
+		os.Exit(1)
 	}
 
 }
