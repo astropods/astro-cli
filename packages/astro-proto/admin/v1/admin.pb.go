@@ -1101,6 +1101,17 @@ type CheckClusterHealthRequest struct {
 
 type CheckClusterHealthResponse struct {
 	Cluster *RegisteredCluster `json:"cluster,omitempty"`
+	// TCP reachability of this cluster's optional observability/netpol URLs
+	// (Langfuse, Loki, Prometheus, tenant-router). Only populated for fields
+	// the cluster actually has set.
+	UrlChecks []UrlReachability `json:"url_checks,omitempty"`
+}
+
+type UrlReachability struct {
+	Label     string `json:"label,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Reachable bool   `json:"reachable,omitempty"`
+	Error     string `json:"error,omitempty"` // dial error message; empty when reachable
 }
 
 type InvalidateAccountCachesRequest struct {

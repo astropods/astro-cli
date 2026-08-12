@@ -3,6 +3,10 @@ package admingrpc
 import (
 	"context"
 	"errors"
+	"net"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
@@ -12,6 +16,77 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 )
+
+// urlReachabilityTimeout bounds each TCP dial so a single unreachable URL
+// can't stall the health-check button.
+const urlReachabilityTimeout = 3 * time.Second
+
+// checkURLReachability dials the host:port for a URL (or bare host:port
+// value, for fields like tenant_router_internal_url that don't carry a
+// scheme) and reports whether a TCP connection succeeds. It doesn't issue an
+// HTTP request, since several of these endpoints require auth and would
+// otherwise report false negatives on 401/403.
+func checkURLReachability(ctx context.Context, rawURL string) (reachable bool, errMsg string) {
+	hostport := rawURL
+	if u, err := url.Parse(rawURL); err == nil && u.Host != "" {
+		hostport = u.Host
+	}
+	if _, _, err := net.SplitHostPort(hostport); err != nil {
+		if strings.HasPrefix(rawURL, "https://") {
+			hostport = net.JoinHostPort(hostport, "443")
+		} else {
+			hostport = net.JoinHostPort(hostport, "80")
+		}
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, urlReachabilityTimeout)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", hostport)
+	if err != nil {
+		return false, err.Error()
+	}
+	_ = conn.Close()
+	return true, ""
+}
+
+// checkClusterURLs runs checkURLReachability concurrently for every
+// non-empty optional observability/netpol URL on the cluster.
+func checkClusterURLs(ctx context.Context, entry k8s.ClusterEntry) []adminv1.UrlReachability {
+	candidates := []struct{ label, url string }{
+		{"langfuse_base_url_ext", entry.LangfuseBaseURLExt},
+		{"loki_url", entry.LokiURL},
+		{"prometheus_url", entry.PrometheusURL},
+		{"tenant_router_internal_url", entry.TenantRouterInternalURL},
+	}
+
+	slots := make([]*adminv1.UrlReachability, len(candidates))
+	var wg sync.WaitGroup
+	for i, c := range candidates {
+		if c.url == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, label, rawURL string) {
+			defer wg.Done()
+			reachable, errMsg := checkURLReachability(ctx, rawURL)
+			slots[i] = &adminv1.UrlReachability{
+				Label:     label,
+				URL:       rawURL,
+				Reachable: reachable,
+				Error:     errMsg,
+			}
+		}(i, c.label, c.url)
+	}
+	wg.Wait()
+
+	results := make([]adminv1.UrlReachability, 0, len(candidates))
+	for _, s := range slots {
+		if s != nil {
+			results = append(results, *s)
+		}
+	}
+	return results
+}
 
 func (s *Server) requireClusterAdmin() error {
 	if s.clusterStore == nil || s.k8sRegistry == nil {
@@ -360,5 +435,8 @@ func (s *Server) CheckClusterHealth(ctx context.Context, req *adminv1.CheckClust
 		}
 	}
 
-	return &adminv1.CheckClusterHealthResponse{Cluster: entryToProto(ctx, s, entry)}, nil
+	return &adminv1.CheckClusterHealthResponse{
+		Cluster:   entryToProto(ctx, s, entry),
+		UrlChecks: checkClusterURLs(ctx, entry),
+	}, nil
 }

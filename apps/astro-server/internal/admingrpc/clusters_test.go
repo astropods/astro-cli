@@ -3,6 +3,7 @@ package admingrpc
 import (
 	"context"
 	"database/sql/driver"
+	"net"
 	"testing"
 	"time"
 
@@ -307,5 +308,55 @@ func TestCheckClusterHealth_Primary(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+	if len(resp.UrlChecks) != 0 {
+		t.Fatalf("UrlChecks = %+v, want none for primary (no optional URLs set)", resp.UrlChecks)
+	}
+}
+
+func TestCheckURLReachability(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	reachable, errMsg := checkURLReachability(context.Background(), "http://"+ln.Addr().String())
+	if !reachable || errMsg != "" {
+		t.Fatalf("reachable = %v, err = %q, want true, \"\"", reachable, errMsg)
+	}
+
+	reachable, errMsg = checkURLReachability(context.Background(), "127.0.0.1:1")
+	if reachable || errMsg == "" {
+		t.Fatalf("reachable = %v, err = %q, want false, non-empty", reachable, errMsg)
+	}
+}
+
+func TestCheckClusterURLs(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	entry := k8s.ClusterEntry{
+		LangfuseBaseURLExt:      "http://" + ln.Addr().String(),
+		TenantRouterInternalURL: "127.0.0.1:1",
+		// LokiURL and PrometheusURL left empty — should be skipped entirely.
+	}
+	results := checkClusterURLs(context.Background(), entry)
+	if len(results) != 2 {
+		t.Fatalf("results = %+v, want 2 entries (empty fields skipped)", results)
+	}
+
+	byLabel := make(map[string]adminv1.UrlReachability, len(results))
+	for _, r := range results {
+		byLabel[r.Label] = r
+	}
+	if r, ok := byLabel["langfuse_base_url_ext"]; !ok || !r.Reachable {
+		t.Fatalf("langfuse_base_url_ext = %+v, want reachable", r)
+	}
+	if r, ok := byLabel["tenant_router_internal_url"]; !ok || r.Reachable || r.Error == "" {
+		t.Fatalf("tenant_router_internal_url = %+v, want unreachable with error", r)
 	}
 }

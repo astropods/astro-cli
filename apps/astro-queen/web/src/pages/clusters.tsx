@@ -10,7 +10,7 @@ import {
   useUpdateCluster,
   useCheckClusterHealth,
 } from "@/api/admin";
-import type { RegisteredCluster, GetClusterBlockersResponse } from "@/types/admin";
+import type { RegisteredCluster, GetClusterBlockersResponse, UrlReachability } from "@/types/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -722,17 +722,36 @@ function DetailField({
   value,
   mono,
   small,
+  reachability,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   small?: boolean;
+  reachability?: UrlReachability;
 }) {
   return (
     <div className="space-y-0.5">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        {label}
+        {reachability && <ReachabilityBadge result={reachability} />}
+      </div>
       <div className={cn("break-all", mono && "font-mono", small ? "text-[10px]" : "text-xs")}>{value}</div>
     </div>
+  );
+}
+
+function ReachabilityBadge({ result }: { result: UrlReachability }) {
+  return (
+    <span
+      className={cn(
+        "rounded px-1 py-0 text-[9px]",
+        result.reachable ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600",
+      )}
+      title={result.reachable ? "TCP dial succeeded" : result.error}
+    >
+      {result.reachable ? "reachable" : "unreachable"}
+    </span>
   );
 }
 
@@ -819,6 +838,10 @@ function ClusterDetail({
     healthMut.error;
 
   const blockersQuery = useClusterBlockers(cluster.id, deregisterMut.isError);
+
+  const urlChecksByLabel = new Map<string, UrlReachability>(
+    (healthMut.data?.url_checks ?? []).map((r) => [r.label, r]),
+  );
 
   const runEnable = () => enableMut.mutate(cluster.id);
   const runDisable = () => disableMut.mutate(cluster.id);
@@ -925,6 +948,7 @@ function ClusterDetail({
         <DetailField label="EKS cluster name" value={cluster.eks_cluster_name || "—"} />
         <DetailField label="EKS endpoint" value={cluster.eks_cluster_endpoint || "—"} mono />
         <DetailField label="Created" value={cluster.created_at ? formatDateTime(cluster.created_at) : "—"} />
+        <DetailField label="Updated" value={cluster.updated_at ? formatDateTime(cluster.updated_at) : "—"} />
       </div>
 
       <div className="space-y-1.5 rounded-md border border-glass-border-honey/60 p-3">
@@ -946,6 +970,43 @@ function ClusterDetail({
         <div className="grid gap-2 sm:grid-cols-2">
           <DetailField label="Agent domain" value={deployFields.agent_ingress_domain || "—"} mono small />
           <DetailField label="Ingestion domain" value={deployFields.ingestion_ingress_domain || "—"} mono small />
+        </div>
+      </div>
+
+      <div className="space-y-1.5 rounded-md border border-glass-border-honey/60 p-3">
+        <span className="text-xs font-medium text-muted-foreground">Langfuse / netpol</span>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <DetailField
+            label="Langfuse base URL"
+            value={deployFields.langfuse_base_url_ext || "—"}
+            mono
+            small
+            reachability={urlChecksByLabel.get("langfuse_base_url_ext")}
+          />
+          <DetailField label="Langfuse VPCE IPs" value={deployFields.langfuse_vpce_ips || "—"} mono small />
+          <DetailField label="Pod subnet CIDRs" value={deployFields.pod_subnet_cidrs || "—"} mono small />
+          <DetailField label="Pod subnet IPv6 CIDRs" value={deployFields.pod_subnet_ipv6_cidrs || "—"} mono small />
+          <DetailField
+            label="Loki URL"
+            value={deployFields.loki_url || "—"}
+            mono
+            small
+            reachability={urlChecksByLabel.get("loki_url")}
+          />
+          <DetailField
+            label="Prometheus URL"
+            value={deployFields.prometheus_url || "—"}
+            mono
+            small
+            reachability={urlChecksByLabel.get("prometheus_url")}
+          />
+          <DetailField
+            label="Tenant router internal URL"
+            value={deployFields.tenant_router_internal_url || "—"}
+            mono
+            small
+            reachability={urlChecksByLabel.get("tenant_router_internal_url")}
+          />
         </div>
       </div>
 

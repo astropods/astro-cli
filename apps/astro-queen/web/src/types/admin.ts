@@ -630,8 +630,18 @@ export interface GetClusterBlockersResponse {
   deployments: ClusterBlocker[];
 }
 
+export interface UrlReachability {
+  label: string;
+  url: string;
+  reachable: boolean;
+  error: string;
+}
+
 export interface CheckClusterHealthResponse {
   cluster: RegisteredCluster;
+  /** TCP reachability of langfuse/loki/prometheus/tenant-router URLs. Only
+   * populated for fields the cluster actually has set. */
+  url_checks?: UrlReachability[];
 }
 
 export interface SetAccountClusterResponse {
