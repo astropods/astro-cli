@@ -79,6 +79,45 @@ All server data integration uses TanStack Query. See [docs/04-guides/tanstack-qu
 - All query keys must come from the factories in `src/api/queries/keys.ts`.
 - Mutations invalidate affected queries in `onSuccess`.
 
+# Writing style
+
+Applies to code comments, changelog entries, release notes, and specs. For
+public product documentation, `docs-public/AGENTS.md` wins.
+
+Follow the [Google developer documentation style guide](https://developers.google.com/style),
+plus these house rules:
+
+- **Active voice, present tense.** "The worker retries the job", not "the job
+  will be retried".
+- **One idea per sentence.** 20 words or fewer for a procedural sentence, 25 for
+  a descriptive one. Split a long sentence instead of joining clauses.
+- **One approved term per concept.** Reuse the same word every time. Do not vary
+  wording for variety; in technical text a synonym reads as a second thing.
+- **Second person and imperative for instructions.** "Run the migration", not
+  "the migration should be run". Sentence-case headings.
+- **Explain why the code exists, not what the next line says.** A comment that
+  restates the code earns nothing. A comment that records the constraint,
+  trade-off, or failure it prevents earns its space.
+- **At most one comment per function**, unless the logic is genuinely
+  non-obvious. Several comments in one body usually means the code needs better
+  names, not more prose.
+- **Never narrate the session that produced the change.** No "this was broken
+  before", "as discussed", "we discovered", "once support enables this". No
+  dated status, no bug-hunt history, no reference to a review or a
+  conversation. Describe the system as it is now. A reader six months from now
+  has none of that context, and a comment tied to a moment goes stale the week
+  after it lands.
+- **No em dashes.** Use a comma, a colon, a pair of parentheses, or a second
+  sentence. An em dash usually joins two ideas that read better apart, so
+  removing it tends to satisfy the one-idea rule at the same time.
+
+Changelogs carry more prose than a comment, because they explain a design and
+the reason for it. The rules above still apply: a changelog describes the
+system after the change, not the process that produced it.
+
+Existing text is not being rewritten to match. These rules apply to new and
+changed lines, so a file can hold both styles while it turns over.
+
 # Changelogs
 
 Every PR must include a changelog file at `docs/changelog/{branch-name}-YYYY-MM-DD.md`. The filename must match the branch name exactly; for branches with slashes (e.g. `fix/my-change`), use subdirectories (e.g. `docs/changelog/fix/my-change-2026-03-10.md`). A GitHub Action warns on PRs missing one and auto-updates the PR description from it.
