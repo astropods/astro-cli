@@ -36,6 +36,7 @@ import {
 import { StatusBadge, type StatusBadgeColor } from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import type { BillingInvoice, BillingRecord, BillingUsageRow, UsageMeter } from "@/lib/api";
+import { formatCreditAmount, toBalanceRow } from "@/lib/billing-balances";
 import {
   Table,
   TableBody,
@@ -73,76 +74,41 @@ const statusBadgeColor: Record<string, StatusBadgeColor> = {
 };
 
 // ---------------------------------------------------------------------------
-// Generic rendering helpers — render whatever the provider returns.
+// Credits and commits
 // ---------------------------------------------------------------------------
 
-function humanize(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}T/;
-
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return value.toLocaleString();
-  if (typeof value === "string") {
-    if (ISO_DATE.test(value)) {
-      const d = new Date(value);
-      if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
-    }
-    return value;
-  }
-  return String(value);
-}
-
-// Columns are the union of scalar (string/number/boolean/null) fields present
-// across the rows — nested objects/arrays are omitted from the flat table.
-function scalarColumns(rows: BillingRecord[]): string[] {
-  const keys: string[] = [];
-  const seen = new Set<string>();
-  for (const row of rows) {
-    for (const [k, v] of Object.entries(row)) {
-      if (seen.has(k)) continue;
-      if (v === null || ["string", "number", "boolean"].includes(typeof v)) {
-        seen.add(k);
-        keys.push(k);
-      }
-    }
-  }
-  return keys;
-}
-
-function GenericRecordTable({ rows }: { rows: BillingRecord[] }) {
-  const columns = useMemo(() => scalarColumns(rows), [rows]);
-  if (!rows.length || !columns.length) {
-    return <EmptyState message="Nothing to show yet." />;
+function BalanceTable({ rows, emptyMessage }: { rows: BillingRecord[]; emptyMessage: string }) {
+  const projected = useMemo(() => rows.map(toBalanceRow), [rows]);
+  if (!projected.length) {
+    return <EmptyState message={emptyMessage} />;
   }
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {columns.map((col) => (
-              <TableHead key={col} className="whitespace-nowrap">
-                {humanize(col)}
-              </TableHead>
-            ))}
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead className="text-right">Granted</TableHead>
+          <TableHead className="text-right">Remaining</TableHead>
+          <TableHead className="text-right">Expires</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {projected.map((row, i) => (
+          <TableRow key={i}>
+            <TableCell className="font-medium text-foreground">{row.name}</TableCell>
+            <TableCell className="text-right tabular-nums">
+              {formatCreditAmount(row.granted, row.creditType)}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {formatCreditAmount(row.remaining, row.creditType)}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-right">
+              {row.expires ? formatInvoiceDate(row.expires) : "\u2014"}
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, i) => (
-            <TableRow key={i}>
-              {columns.map((col) => (
-                <TableCell key={col} className="whitespace-nowrap tabular-nums">
-                  {formatCell(row[col])}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -306,12 +272,6 @@ function invoiceStatusColor(status?: string): StatusBadgeColor {
   }
 }
 
-function formatMoney(value?: number, creditType?: string): string {
-  if (value == null) return "—";
-  const n = value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  return creditType ? `${n} ${creditType}` : n;
-}
-
 function formatInvoiceDate(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -410,7 +370,7 @@ function InvoicesTab({ account }: { account: string }) {
                   <StatusBadge color={invoiceStatusColor(inv.status)}>{inv.status ?? "—"}</StatusBadge>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {formatMoney(inv.total, inv.credit_type?.name)}
+                  {formatCreditAmount(inv.total, inv.credit_type?.name)}
                 </TableCell>
                 <TableCell className="text-right text-body-sm">
                   {hasPdf ? (
@@ -443,11 +403,11 @@ function BalancesTab({ account }: { account: string }) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <h3 className="text-heading-4 text-foreground">Credits</h3>
-        <GenericRecordTable rows={credits} />
+        <BalanceTable rows={credits} emptyMessage="No credits yet." />
       </div>
       <div className="flex flex-col gap-3">
         <h3 className="text-heading-4 text-foreground">Commits</h3>
-        <GenericRecordTable rows={commits} />
+        <BalanceTable rows={commits} emptyMessage="No commits yet." />
       </div>
     </div>
   );
