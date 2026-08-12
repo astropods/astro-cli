@@ -968,6 +968,10 @@ type RegisteredCluster struct {
 	// cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead.
 	LokiURL       string `json:"loki_url,omitempty"`
 	PrometheusURL string `json:"prometheus_url,omitempty"`
+	// Optional private (non-OIDC) address:port for this cluster's tenant-router
+	// Envoy, over PrivateLink. Empty means the in-app chat proxy still relays
+	// through the K8s apiserver's services/proxy subresource instead.
+	TenantRouterInternalURL string `json:"tenant_router_internal_url,omitempty"`
 }
 
 type RegisterClusterRequest struct {
@@ -987,6 +991,9 @@ type RegisterClusterRequest struct {
 	// LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
 	LokiURL       string `json:"loki_url,omitempty"`
 	PrometheusURL string `json:"prometheus_url,omitempty"`
+	// Optional — empty means the in-app chat proxy still relays through the
+	// K8s apiserver's services/proxy subresource instead.
+	TenantRouterInternalURL string `json:"tenant_router_internal_url,omitempty"`
 }
 
 type RegisterClusterResponse struct {
@@ -1079,6 +1086,9 @@ type UpdateClusterRequest struct {
 	// LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
 	LokiURL       string `json:"loki_url,omitempty"`
 	PrometheusURL string `json:"prometheus_url,omitempty"`
+	// Optional — empty means the in-app chat proxy still relays through the
+	// K8s apiserver's services/proxy subresource instead.
+	TenantRouterInternalURL string `json:"tenant_router_internal_url,omitempty"`
 }
 
 type UpdateClusterResponse struct {

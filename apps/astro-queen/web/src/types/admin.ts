@@ -540,6 +540,10 @@ export interface RegisteredCluster {
    * cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead. */
   loki_url: string;
   prometheus_url: string;
+  /** Optional private (non-OIDC) address:port for this cluster's tenant-router
+   * Envoy, over PrivateLink. Empty means the in-app chat proxy still relays
+   * through the K8s apiserver's services/proxy subresource instead. */
+  tenant_router_internal_url: string;
   /** Base64-encoded PEM from `aws eks describe-cluster`. Omitted for primary. */
   eks_cluster_ca?: string;
 }
@@ -567,6 +571,10 @@ export interface RegisterClusterRequest {
    * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
   loki_url?: string;
   prometheus_url?: string;
+  /** Optional — empty means the in-app chat proxy relays through the K8s
+   * apiserver's services/proxy subresource instead of this cluster's own
+   * PrivateLink path to the tenant-router Envoy. */
+  tenant_router_internal_url?: string;
 }
 
 export interface RegisterClusterResponse {
@@ -598,6 +606,10 @@ export interface UpdateClusterRequest {
    * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
   loki_url?: string;
   prometheus_url?: string;
+  /** Optional — empty means the in-app chat proxy relays through the K8s
+   * apiserver's services/proxy subresource instead of this cluster's own
+   * PrivateLink path to the tenant-router Envoy. */
+  tenant_router_internal_url?: string;
 }
 
 export interface UpdateClusterResponse {

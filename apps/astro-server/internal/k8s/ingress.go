@@ -21,6 +21,11 @@ type IngressConfig struct {
 	ServiceName string
 	ServicePort int32
 	Host        string // Full hostname (e.g., agent-name-namespace.agents.example.com)
+	// ExtraHosts adds one IngressRule per entry, each routing to the exact
+	// same backend as Host. Used for a second, internal-only host astro-server
+	// calls directly (bypassing the public ALB and its OIDC gate) — see
+	// GenerateMessagingInternalHost. Empty for every other caller.
+	ExtraHosts []string
 	// ResponseTimeout, when set, is emitted as the
 	// projectcontour.io/response-timeout annotation so the tenant-router Envoy
 	// waits this long for the upstream to respond instead of its stock 15s. A Go
@@ -45,6 +50,38 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 		annotations = map[string]string{"projectcontour.io/response-timeout": cfg.ResponseTimeout}
 	}
 
+	// Every host below routes to the exact same backend — only the Host
+	// value differs, so ExtraHosts (if any) just repeat this rule shape.
+	backendRule := func(host string) networkingv1.IngressRule {
+		return networkingv1.IngressRule{
+			Host: host,
+			IngressRuleValue: networkingv1.IngressRuleValue{
+				HTTP: &networkingv1.HTTPIngressRuleValue{
+					Paths: []networkingv1.HTTPIngressPath{
+						{
+							Path:     "/",
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: cfg.ServiceName,
+									Port: networkingv1.ServiceBackendPort{
+										Number: cfg.ServicePort,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	rules := make([]networkingv1.IngressRule, 0, 1+len(cfg.ExtraHosts))
+	rules = append(rules, backendRule(cfg.Host))
+	for _, h := range cfg.ExtraHosts {
+		rules = append(rules, backendRule(h))
+	}
+
 	return &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        cfg.Name,
@@ -54,29 +91,7 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: stringPtr("tenant-router"),
-			Rules: []networkingv1.IngressRule{
-				{
-					Host: cfg.Host,
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: []networkingv1.HTTPIngressPath{
-								{
-									Path:     "/",
-									PathType: &pathType,
-									Backend: networkingv1.IngressBackend{
-										Service: &networkingv1.IngressServiceBackend{
-											Name: cfg.ServiceName,
-											Port: networkingv1.ServiceBackendPort{
-												Number: cfg.ServicePort,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			Rules:            rules,
 		},
 	}
 }
@@ -174,6 +189,23 @@ func truncateLabel(s string, max int) string {
 // when both use the same server-default domain.
 func GenerateMessagingIngressHost(agentName, namespace, domain string) string {
 	return GenerateIngestionIngressHost(agentName, namespace, "chat", domain)
+}
+
+// GenerateMessagingInternalHost returns the Host value astro-server's own
+// in-app chat proxy sends when it calls a tenant's messaging sidecar directly
+// over the private tenant-router path, bypassing the public ALB and its OIDC
+// gate (see docs/plans/internal-tenant-router-nlb.md and
+// messaging-proxy-astro-server-changes.md, both in the astro-infra repo).
+//
+// Deliberately simple, unlike GenerateMessagingIngressHost: this value is
+// never resolved via real DNS and never seen outside astro-server's own
+// process and the internal load balancer's security-group-restricted network
+// path, so it only needs to be unique per tenant — not hashed or
+// unguessable. Computable from data astro-server already holds at proxy
+// time (the deployment's own namespace), so the proxy path needs neither a
+// live Kubernetes read nor a duplicated hash formula to reach it.
+func GenerateMessagingInternalHost(namespace string) string {
+	return fmt.Sprintf("%s.messaging.internal", deployment.SanitizeName(namespace))
 }
 
 // GenerateIngestionExternalURL generates the full external URL for an ingestion webhook

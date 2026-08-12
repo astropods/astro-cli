@@ -71,7 +71,7 @@ func TestRegister_Success(t *testing.T) {
 			true,
 			"agents.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24", "",
-			"", "",
+			"", "", "",
 			sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -359,7 +359,7 @@ func TestUpdate_Success(t *testing.T) {
 			c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
 			c.AgentIngressDomain, c.IngestionIngressDomain,
 			c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
-			c.LokiURL, c.PrometheusURL,
+			c.LokiURL, c.PrometheusURL, c.TenantRouterInternalURL,
 			c.ID,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -540,7 +540,7 @@ func clusterRows() *sqlmock.Rows {
 		"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 		"agent_ingress_domain", "ingestion_ingress_domain",
 		"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
-		"loki_url", "prometheus_url",
+		"loki_url", "prometheus_url", "tenant_router_internal_url",
 		"pull_credential", "pull_key_hash",
 		"created_at", "updated_at",
 	})
@@ -554,7 +554,7 @@ func fullClusterRow(rows *sqlmock.Rows, id, region, eksName, eksEndpoint string,
 		id, region, eksName, eksEndpoint, fakeCA(), enabled,
 		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24", "",
-		"", "",
+		"", "", "",
 		nil, nil,
 		now, now,
 	)

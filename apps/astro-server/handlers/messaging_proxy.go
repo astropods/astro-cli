@@ -101,7 +101,7 @@ func ProxyDeploymentMessaging(
 			upstreamPath += "?" + c.Request.URL.RawQuery
 		}
 
-		target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
+		upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 		if resolveErr != nil {
 			// No messaging Service / no ready pod (mid-rollout) / non-web agent →
 			// expected, not a fault: 404 so it doesn't trip the per-route 5xx alert.
@@ -154,7 +154,7 @@ func ProxyDeploymentMessaging(
 			upstreamBody = io.NopCloser(bytes.NewReader(raw))
 		}
 
-		upstreamURL := target + upstreamPath
+		upstreamURL := upstream.baseURL + upstreamPath
 		req, err := http.NewRequestWithContext(reqCtx, c.Request.Method, upstreamURL, upstreamBody)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build upstream request"})
@@ -163,8 +163,13 @@ func ProxyDeploymentMessaging(
 
 		copyMessagingRequestHeaders(c.Request.Header, req.Header)
 		req.Header.Set(oidcIdentityHeader, user.ID)
+		if upstream.host != "" {
+			// Envoy on the tenant-router path routes purely on Host; the
+			// internal NLB address itself is shared across every tenant.
+			req.Host = upstream.host
+		}
 
-		resp, err := client.Do(req)
+		resp, err := upstream.client.Do(req)
 		if err != nil {
 			log.Warn("messaging proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
 			status := http.StatusBadGateway
@@ -233,40 +238,59 @@ func isMessagingStreamPath(proxyPath string) bool {
 	return len(parts) == 3 && parts[0] == "conversations" && parts[2] == "stream"
 }
 
+// messagingProxyUpstream is what resolveMessagingProxyTarget resolves to: a
+// base URL to send the upstream request to, the client to send it with, and
+// (for the PrivateLink path only) the Host header to set — the tenant-router
+// Envoy routes on Host, not on the connection target, and the internal NLB
+// address itself carries no tenant information.
+type messagingProxyUpstream struct {
+	baseURL string
+	client  *http.Client
+	host    string // set only for the tenant-router PrivateLink path
+}
+
 func resolveMessagingProxyTarget(
 	ctx context.Context,
 	cfg *config.Config,
 	k8sReg *k8s.Registry,
 	dep *deploymentstore.Deployment,
-) (string, *http.Client, error) {
+) (messagingProxyUpstream, error) {
 	if override := strings.TrimSuffix(cfg.Deployment.MessagingURLOverride, "/"); override != "" {
-		return override, http.DefaultClient, nil
+		return messagingProxyUpstream{baseURL: override, client: http.DefaultClient}, nil
+	}
+
+	if internalURL := tenantRouterInternalURLFor(cfg, k8sReg, ctx, dep); internalURL != "" {
+		return messagingProxyUpstream{
+			baseURL: "http://" + strings.TrimSuffix(internalURL, "/"),
+			client:  http.DefaultClient,
+			host:    k8s.GenerateMessagingInternalHost(dep.Namespace),
+		}, nil
 	}
 
 	kc, err := deploymentClusterClient(ctx, k8sReg, dep)
 	if err != nil {
-		return "", nil, err
+		return messagingProxyUpstream{}, err
 	}
 
 	svcName := deployment.GenerateAgentResourceName(dep.AgentName, "messaging")
 	svc, err := kc.Clientset().CoreV1().Services(dep.Namespace).Get(ctx, svcName, metav1.GetOptions{})
 	if err != nil {
-		return "", nil, fmt.Errorf("get messaging service %q: %w", svcName, err)
+		return messagingProxyUpstream{}, fmt.Errorf("get messaging service %q: %w", svcName, err)
 	}
 
 	port, portErr := messagingHTTPPort(svc)
 	if portErr != nil {
-		return "", nil, portErr
+		return messagingProxyUpstream{}, portErr
 	}
 
 	restCfg := kc.Config()
 	if restCfg == nil {
-		return "", nil, fmt.Errorf("kubernetes client config unavailable")
+		return messagingProxyUpstream{}, fmt.Errorf("kubernetes client config unavailable")
 	}
 
 	transport, err := rest.TransportFor(restCfg)
 	if err != nil {
-		return "", nil, fmt.Errorf("kubernetes transport: %w", err)
+		return messagingProxyUpstream{}, fmt.Errorf("kubernetes transport: %w", err)
 	}
 
 	baseURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:%d/proxy",
@@ -275,7 +299,25 @@ func resolveMessagingProxyTarget(
 		svcName,
 		port,
 	)
-	return baseURL, &http.Client{Transport: transport}, nil
+	return messagingProxyUpstream{baseURL: baseURL, client: &http.Client{Transport: transport}}, nil
+}
+
+// tenantRouterInternalURLFor returns the private tenant-router address for
+// the deployment's cluster, or "" when the proxy should fall back to the
+// older K8s apiserver services/proxy path. The primary cluster has no
+// clusterstore row, so its address (if any) comes from the
+// TENANT_ROUTER_INTERNAL_URL global instead of ClusterEntry — see
+// docs/plans/messaging-proxy-astro-server-changes.md in astro-infra.
+func tenantRouterInternalURLFor(cfg *config.Config, k8sReg *k8s.Registry, ctx context.Context, dep *deploymentstore.Deployment) string {
+	clusterID := dep.EffectiveClusterID()
+	if clusterID == "" {
+		return cfg.Deployment.TenantRouterInternalURL
+	}
+	entry, err := k8sReg.GetEntry(ctx, clusterID)
+	if err != nil {
+		return ""
+	}
+	return entry.TenantRouterInternalURL
 }
 
 // errMessagingNoHTTPPort means the deployment has no web adapter, so it exposes

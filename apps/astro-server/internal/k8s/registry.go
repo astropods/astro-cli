@@ -80,6 +80,12 @@ type ClusterEntry struct {
 	// PrometheusClientFor in observability.go).
 	LokiURL       string
 	PrometheusURL string
+	// TenantRouterInternalURL is the private (non-OIDC) address:port for this
+	// cluster's tenant-router Envoy, over PrivateLink. Empty means the in-app
+	// chat proxy still relays through the K8s apiserver's services/proxy
+	// subresource instead. See docs/plans/internal-tenant-router-nlb.md in
+	// the astro-infra repo.
+	TenantRouterInternalURL string
 	// PullCredential is never exposed via the admin API; only clustercfg.Resolve reads it.
 	PullCredential string
 	CreatedAt      time.Time
@@ -93,24 +99,25 @@ type ClusterEntry struct {
 // copies (see the pod_subnet_ipv6_cidrs incident this replaced).
 func ClusterEntryFromRow(row *clusterstore.Cluster) ClusterEntry {
 	return ClusterEntry{
-		ID:                     row.ID,
-		IsPrimary:              false,
-		Region:                 row.Region,
-		EKSClusterName:         row.EKSClusterName,
-		EKSClusterEndpoint:     row.EKSClusterEndpoint,
-		EKSClusterCA:           row.EKSClusterCA,
-		Enabled:                row.Enabled,
-		AgentIngressDomain:     row.AgentIngressDomain,
-		IngestionIngressDomain: row.IngestionIngressDomain,
-		LangfuseBaseURLExt:     row.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        row.LangfuseVPCEIPs,
-		PodSubnetCIDRs:         row.PodSubnetCIDRs,
-		PodSubnetIPv6CIDRs:     row.PodSubnetIPv6CIDRs,
-		LokiURL:                row.LokiURL,
-		PrometheusURL:          row.PrometheusURL,
-		PullCredential:         row.PullCredential,
-		CreatedAt:              row.CreatedAt,
-		UpdatedAt:              row.UpdatedAt,
+		ID:                      row.ID,
+		IsPrimary:               false,
+		Region:                  row.Region,
+		EKSClusterName:          row.EKSClusterName,
+		EKSClusterEndpoint:      row.EKSClusterEndpoint,
+		EKSClusterCA:            row.EKSClusterCA,
+		Enabled:                 row.Enabled,
+		AgentIngressDomain:      row.AgentIngressDomain,
+		IngestionIngressDomain:  row.IngestionIngressDomain,
+		LangfuseBaseURLExt:      row.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:         row.LangfuseVPCEIPs,
+		PodSubnetCIDRs:          row.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:      row.PodSubnetIPv6CIDRs,
+		LokiURL:                 row.LokiURL,
+		PrometheusURL:           row.PrometheusURL,
+		TenantRouterInternalURL: row.TenantRouterInternalURL,
+		PullCredential:          row.PullCredential,
+		CreatedAt:               row.CreatedAt,
+		UpdatedAt:               row.UpdatedAt,
 	}
 }
 

@@ -111,7 +111,7 @@ func forwardChat(
 		return
 	}
 
-	target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
+	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
 		// No messaging Service / no ready pod (mid-rollout) / non-web agent →
 		// expected, not a fault: 404 so it doesn't trip the per-route 5xx alert.
@@ -125,7 +125,7 @@ func forwardChat(
 		return
 	}
 
-	upstreamURL := target + upstreamPath
+	upstreamURL := upstream.baseURL + upstreamPath
 	if c.Request.URL.RawQuery != "" {
 		upstreamURL += "?" + c.Request.URL.RawQuery
 	}
@@ -165,8 +165,11 @@ func forwardChat(
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set(oidcIdentityHeader, user.ID)
+	if upstream.host != "" {
+		req.Host = upstream.host
+	}
 
-	resp, err := client.Do(req)
+	resp, err := upstream.client.Do(req)
 	if err != nil {
 		status := http.StatusBadGateway
 		if errors.Is(err, context.DeadlineExceeded) {

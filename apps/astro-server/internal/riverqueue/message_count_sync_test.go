@@ -25,7 +25,7 @@ var clusterColumns = []string{
 	"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
 	"agent_ingress_domain", "ingestion_ingress_domain",
 	"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
-	"loki_url", "prometheus_url",
+	"loki_url", "prometheus_url", "tenant_router_internal_url",
 	"pull_credential", "pull_key_hash",
 	"created_at", "updated_at",
 }
@@ -35,7 +35,7 @@ func additionalClusterRow(id, eksName, prometheusURL string, now time.Time) []dr
 		id, "eu-west-1", eksName, "https://" + eksName + ".example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
 		"agents.example.com", "ingestion.example.com",
 		"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
-		"", prometheusURL,
+		"", prometheusURL, "",
 		"astrocp_" + id + "_secret", nil,
 		now, now,
 	}

@@ -49,6 +49,11 @@ CREATE TABLE public.clusters (
     -- to its own local Loki/VictoriaMetrics behind a dedicated query endpoint.
     loki_url                  varchar(512) NOT NULL DEFAULT '',
     prometheus_url            varchar(512) NOT NULL DEFAULT '',
+    -- Private (non-OIDC) address:port for this cluster's tenant-router Envoy,
+    -- reached over PrivateLink. Optional: empty means the in-app chat proxy
+    -- still relays through the K8s apiserver's services/proxy subresource
+    -- instead. See docs/plans/internal-tenant-router-nlb.md (astro-infra repo).
+    tenant_router_internal_url varchar(512) NOT NULL DEFAULT '',
     -- Cluster pull credential (CPC), generated at registration. pull_key_hash
     -- is sha256 of its secret portion. See docs/01-spec/registry-pull-through-spec.md.
     pull_credential    text,

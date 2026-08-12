@@ -697,6 +697,11 @@ func (a *Applier) ApplyDeploymentSpec(
 					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
+					// Second, internal-only host: astro-server's own in-app chat
+					// proxy calls this directly over the private tenant-router
+					// path instead of relaying through the K8s apiserver's
+					// services/proxy subresource. See GenerateMessagingInternalHost.
+					ExtraHosts:      []string{GenerateMessagingInternalHost(a.namespace)},
 					ResponseTimeout: ds.Agent.ResponseTimeout,
 				})
 				status, err := a.applyIngress(ctx, ingress)

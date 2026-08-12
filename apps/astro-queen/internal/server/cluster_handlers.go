@@ -33,19 +33,24 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 // must carry. Empty values are rejected by astro-server (no env fallback for
 // non-primary clusters), so the UI must collect all of them.
 //
-// PodSubnetIPv6CIDRs, LokiURL, and PrometheusURL are the exceptions — all
-// optional server-side. PodSubnetIPv6CIDRs only needs a real value on IPv6
-// clusters like the pm-eu pilot; LokiURL/PrometheusURL only need one when the
-// cluster ships to its own local observability stack instead of the shared one.
+// PodSubnetIPv6CIDRs, LokiURL, PrometheusURL, and TenantRouterInternalURL are
+// the exceptions — all optional server-side. PodSubnetIPv6CIDRs only needs a
+// real value on IPv6 clusters like the pm-eu pilot; LokiURL/PrometheusURL only
+// need one when the cluster ships to its own local observability stack
+// instead of the shared one; TenantRouterInternalURL only needs one once the
+// cluster has its own PrivateLink path to the tenant-router Envoy (see
+// docs/plans/internal-tenant-router-nlb.md in astro-infra) — until then the
+// in-app chat proxy falls back to the older K8s apiserver proxy method.
 type clusterDeployBody struct {
-	AgentIngressDomain     string `json:"agent_ingress_domain"`
-	IngestionIngressDomain string `json:"ingestion_ingress_domain"`
-	LangfuseBaseURLExt     string `json:"langfuse_base_url_ext"`
-	LangfuseVPCEIPs        string `json:"langfuse_vpce_ips"`
-	PodSubnetCIDRs         string `json:"pod_subnet_cidrs"`
-	PodSubnetIPv6CIDRs     string `json:"pod_subnet_ipv6_cidrs"`
-	LokiURL                string `json:"loki_url"`
-	PrometheusURL          string `json:"prometheus_url"`
+	AgentIngressDomain      string `json:"agent_ingress_domain"`
+	IngestionIngressDomain  string `json:"ingestion_ingress_domain"`
+	LangfuseBaseURLExt      string `json:"langfuse_base_url_ext"`
+	LangfuseVPCEIPs         string `json:"langfuse_vpce_ips"`
+	PodSubnetCIDRs          string `json:"pod_subnet_cidrs"`
+	PodSubnetIPv6CIDRs      string `json:"pod_subnet_ipv6_cidrs"`
+	LokiURL                 string `json:"loki_url"`
+	PrometheusURL           string `json:"prometheus_url"`
+	TenantRouterInternalURL string `json:"tenant_router_internal_url"`
 }
 
 func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
@@ -64,19 +69,20 @@ func (s *Server) handleRegisterCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := &adminv1.RegisterClusterRequest{
-		ID:                     body.ID,
-		Region:                 body.Region,
-		EKSClusterName:         body.EKSClusterName,
-		EKSClusterEndpoint:     body.EKSClusterEndpoint,
-		EKSClusterCA:           body.EKSClusterCA,
-		AgentIngressDomain:     body.AgentIngressDomain,
-		IngestionIngressDomain: body.IngestionIngressDomain,
-		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
-		PodSubnetCIDRs:         body.PodSubnetCIDRs,
-		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
-		LokiURL:                body.LokiURL,
-		PrometheusURL:          body.PrometheusURL,
+		ID:                      body.ID,
+		Region:                  body.Region,
+		EKSClusterName:          body.EKSClusterName,
+		EKSClusterEndpoint:      body.EKSClusterEndpoint,
+		EKSClusterCA:            body.EKSClusterCA,
+		AgentIngressDomain:      body.AgentIngressDomain,
+		IngestionIngressDomain:  body.IngestionIngressDomain,
+		LangfuseBaseURLExt:      body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:         body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:          body.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:      body.PodSubnetIPv6CIDRs,
+		LokiURL:                 body.LokiURL,
+		PrometheusURL:           body.PrometheusURL,
+		TenantRouterInternalURL: body.TenantRouterInternalURL,
 	}
 	if body.Enabled != nil {
 		req.Enabled = body.Enabled
@@ -105,19 +111,20 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := s.admin.UpdateCluster(r.Context(), &adminv1.UpdateClusterRequest{
-		ID:                     id,
-		Region:                 body.Region,
-		EKSClusterName:         body.EKSClusterName,
-		EKSClusterEndpoint:     body.EKSClusterEndpoint,
-		EKSClusterCA:           body.EKSClusterCA,
-		AgentIngressDomain:     body.AgentIngressDomain,
-		IngestionIngressDomain: body.IngestionIngressDomain,
-		LangfuseBaseURLExt:     body.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        body.LangfuseVPCEIPs,
-		PodSubnetCIDRs:         body.PodSubnetCIDRs,
-		PodSubnetIPv6CIDRs:     body.PodSubnetIPv6CIDRs,
-		LokiURL:                body.LokiURL,
-		PrometheusURL:          body.PrometheusURL,
+		ID:                      id,
+		Region:                  body.Region,
+		EKSClusterName:          body.EKSClusterName,
+		EKSClusterEndpoint:      body.EKSClusterEndpoint,
+		EKSClusterCA:            body.EKSClusterCA,
+		AgentIngressDomain:      body.AgentIngressDomain,
+		IngestionIngressDomain:  body.IngestionIngressDomain,
+		LangfuseBaseURLExt:      body.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:         body.LangfuseVPCEIPs,
+		PodSubnetCIDRs:          body.PodSubnetCIDRs,
+		PodSubnetIPv6CIDRs:      body.PodSubnetIPv6CIDRs,
+		LokiURL:                 body.LokiURL,
+		PrometheusURL:           body.PrometheusURL,
+		TenantRouterInternalURL: body.TenantRouterInternalURL,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

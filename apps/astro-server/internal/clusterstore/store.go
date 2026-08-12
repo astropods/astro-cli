@@ -77,24 +77,25 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 // data plane are owned by the front-door ALB in astro-infra, so per-
 // cluster ACM cert ARNs and per-tenant ALB group names are not stored here.
 type Cluster struct {
-	ID                     string
-	Region                 string
-	EKSClusterName         string
-	EKSClusterEndpoint     string
-	EKSClusterCA           []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
-	Enabled                bool
-	AgentIngressDomain     string
-	IngestionIngressDomain string
-	LangfuseBaseURLExt     string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
-	LangfuseVPCEIPs        string // comma-separated VPCE ENI /32 targets for netpol egress
-	PodSubnetCIDRs         string // comma-separated pod subnet CIDRs for netpol except list
-	PodSubnetIPv6CIDRs     string // comma-separated pod subnet IPv6 CIDRs for netpol except list; empty for IPv4-only clusters
-	LokiURL                string // optional per-cluster Loki query endpoint; empty falls back to the global LOKI_URL
-	PrometheusURL          string // optional per-cluster Prometheus/VictoriaMetrics query endpoint; empty falls back to the global PROMETHEUS_URL
-	PullCredential         string // plaintext CPC; empty until Register/EnsurePullCredential sets it
-	PullKeyHash            []byte // sha256 of the CPC's secret portion
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                      string
+	Region                  string
+	EKSClusterName          string
+	EKSClusterEndpoint      string
+	EKSClusterCA            []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
+	Enabled                 bool
+	AgentIngressDomain      string
+	IngestionIngressDomain  string
+	LangfuseBaseURLExt      string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
+	LangfuseVPCEIPs         string // comma-separated VPCE ENI /32 targets for netpol egress
+	PodSubnetCIDRs          string // comma-separated pod subnet CIDRs for netpol except list
+	PodSubnetIPv6CIDRs      string // comma-separated pod subnet IPv6 CIDRs for netpol except list; empty for IPv4-only clusters
+	LokiURL                 string // optional per-cluster Loki query endpoint; empty falls back to the global LOKI_URL
+	PrometheusURL           string // optional per-cluster Prometheus/VictoriaMetrics query endpoint; empty falls back to the global PROMETHEUS_URL
+	TenantRouterInternalURL string // optional private (non-OIDC) address:port for this cluster's tenant-router Envoy, over PrivateLink; empty falls back to the K8s apiserver services/proxy method
+	PullCredential          string // plaintext CPC; empty until Register/EnsurePullCredential sets it
+	PullKeyHash             []byte // sha256 of the CPC's secret portion
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // generatePullCredential returns a new astrocp_{clusterID}_{secret} credential
@@ -240,13 +241,13 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 			agent_ingress_domain, ingestion_ingress_domain,
 			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
-			loki_url, prometheus_url,
+			loki_url, prometheus_url, tenant_router_internal_url,
 			pull_credential, pull_key_hash
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
 		c.AgentIngressDomain, c.IngestionIngressDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
-		c.LokiURL, c.PrometheusURL,
+		c.LokiURL, c.PrometheusURL, c.TenantRouterInternalURL,
 		c.PullCredential, c.PullKeyHash,
 	)
 	if err != nil {
@@ -322,12 +323,13 @@ func (s *Store) Update(ctx context.Context, c *Cluster) error {
 			pod_subnet_ipv6_cidrs = $10,
 			loki_url = $11,
 			prometheus_url = $12,
+			tenant_router_internal_url = $13,
 			updated_at = now()
-		WHERE id = $13`,
+		WHERE id = $14`,
 		c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
 		c.AgentIngressDomain, c.IngestionIngressDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
-		c.LokiURL, c.PrometheusURL,
+		c.LokiURL, c.PrometheusURL, c.TenantRouterInternalURL,
 		c.ID,
 	)
 	if err != nil {
@@ -504,7 +506,7 @@ const baseSelect = `
 	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
 	       agent_ingress_domain, ingestion_ingress_domain,
 	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
-	       loki_url, prometheus_url,
+	       loki_url, prometheus_url, tenant_router_internal_url,
 	       pull_credential, pull_key_hash,
 	       created_at, updated_at
 	FROM clusters`
@@ -521,7 +523,7 @@ func scanCluster(r rowScanner) (*Cluster, error) {
 		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
 		&c.AgentIngressDomain, &c.IngestionIngressDomain,
 		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs, &c.PodSubnetIPv6CIDRs,
-		&c.LokiURL, &c.PrometheusURL,
+		&c.LokiURL, &c.PrometheusURL, &c.TenantRouterInternalURL,
 		&pullCredential, &c.PullKeyHash,
 		&c.CreatedAt, &c.UpdatedAt,
 	); err != nil {

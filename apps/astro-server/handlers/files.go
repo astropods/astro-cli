@@ -252,7 +252,7 @@ func forwardFiles(
 		return
 	}
 
-	target, client, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
+	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
 		// A non-web agent has no messaging Service, or one without an http port, or
 		// its sidecar has no ready pod (stopped / mid-rollout). All are expected, not
@@ -267,7 +267,7 @@ func forwardFiles(
 		return
 	}
 
-	upstreamURL := target + upstreamPath
+	upstreamURL := upstream.baseURL + upstreamPath
 	if c.Request.URL.RawQuery != "" {
 		upstreamURL += "?" + c.Request.URL.RawQuery
 	}
@@ -319,12 +319,15 @@ func forwardFiles(
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set(oidcIdentityHeader, user.ID)
+	if upstream.host != "" {
+		req.Host = upstream.host
+	}
 
 	// Do not follow redirects: a download may answer 3xx (presigned URL) that
 	// must reach the client. Share the resolved transport so auth/TLS wiring is
 	// identical to the metadata path.
 	forwardClient := &http.Client{
-		Transport:     client.Transport,
+		Transport:     upstream.client.Transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 

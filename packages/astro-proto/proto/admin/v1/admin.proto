@@ -681,6 +681,10 @@ message RegisteredCluster {
   // cluster is queried through the global LOKI_URL/PROMETHEUS_URL instead.
   string loki_url = 23;
   string prometheus_url = 24;
+  // Optional private (non-OIDC) address:port for this cluster's tenant-router
+  // Envoy, over PrivateLink. Empty means the in-app chat proxy still relays
+  // through the K8s apiserver's services/proxy subresource instead.
+  string tenant_router_internal_url = 25;
 }
 
 message RegisterClusterRequest {
@@ -704,6 +708,9 @@ message RegisterClusterRequest {
   // LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
   string loki_url = 18;
   string prometheus_url = 19;
+  // Optional — empty means the in-app chat proxy still relays through the
+  // K8s apiserver's services/proxy subresource instead.
+  string tenant_router_internal_url = 20;
 }
 
 message RegisterClusterResponse {
@@ -1001,6 +1008,9 @@ message UpdateClusterRequest {
   // LOKI_URL/PROMETHEUS_URL instead of its own observability stack.
   string loki_url = 17;
   string prometheus_url = 18;
+  // Optional — empty means the in-app chat proxy still relays through the
+  // K8s apiserver's services/proxy subresource instead.
+  string tenant_router_internal_url = 19;
 }
 
 message UpdateClusterResponse {

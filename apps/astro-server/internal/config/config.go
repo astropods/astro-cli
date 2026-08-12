@@ -288,6 +288,15 @@ type DeploymentConfig struct {
 	AIGatewayAdminAuth string // AI_GATEWAY_ADMIN_AUTH — full Authorization header (Basic base64(admin:pass)), ESO-delivered
 	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
 	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
+	// TenantRouterInternalURL is the primary cluster's own private
+	// tenant-router address (see ClusterEntry.TenantRouterInternalURL for
+	// additional clusters, which store this per-cluster in the DB instead).
+	// The primary cluster has no DB row of its own, so this is the only way
+	// to turn on the PrivateLink messaging path for it. Empty (the default)
+	// keeps the primary cluster on the older K8s apiserver services/proxy
+	// path. See docs/plans/messaging-proxy-astro-server-changes.md in
+	// astro-infra.
+	TenantRouterInternalURL string // TENANT_ROUTER_INTERNAL_URL
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
 	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
 	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
@@ -364,6 +373,7 @@ func Load() (*Config, error) {
 			AIGatewayAdminURL:        getEnv("AI_GATEWAY_ADMIN_URL", ""),
 			AIGatewayAdminAuth:       getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
 			MessagingURLOverride:     getEnv("MESSAGING_URL_OVERRIDE", ""),
+			TenantRouterInternalURL:  getEnv("TENANT_ROUTER_INTERNAL_URL", ""),
 			LangfuseDBURL:            getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:             getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:            getEnv("LANGFUSE_ORG_ID", "astro"),
@@ -431,24 +441,24 @@ func Load() (*Config, error) {
 			AppIdentifier:  getEnv("NOVU_APP_IDENTIFIER", ""),
 			SocketURL:      getEnv("NOVU_SOCKET_URL", ""),
 		},
-		BillingProvider:           getEnv("BILLING_PROVIDER", ""),
-		MetronomeAPIKey:           getEnv("METRONOME_API_KEY", ""),
-		MetronomeWebhookSecret:    getEnv("METRONOME_WEBHOOK_SECRET", ""),
-		MetronomePackageID:        getEnv("METRONOME_PACKAGE_ID", ""),
-		MetronomeDashboardEnv:     getEnv("METRONOME_DASHBOARD_ENV", ""),
-		StripeSecretKey:           getEnv("STRIPE_SECRET_KEY", ""),
-		StripePublishableKey:      getEnv("STRIPE_PUBLISHABLE_KEY", ""),
-		StripeWebhookSecret:       getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		BillingGateEnforce:        getEnv("BILLING_GATE_ENFORCE", "") == "true",
-		BillingDunningGraceDays:   getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
-		QuotaEnforce:              getEnv("QUOTA_ENFORCE", "") == "true",
-		FGAShadowEnabled:          getEnv("FGA_SHADOW_ENABLED", "") == "true",
-		QuotaDefaults:             loadQuotaDefaults(),
-		LokiURL:                   getEnv("LOKI_URL", ""),
-		DeploymentLogBackend:      getEnv("DEPLOYMENT_LOG_BACKEND", ""),
-		PrometheusURL:             getEnv("PROMETHEUS_URL", ""),
-		OTelIngestEndpoint:        getEnv("OTEL_INGEST_ENDPOINT", ""),
-		RedisURL:                  getEnv("REDIS_URL", ""),
+		BillingProvider:         getEnv("BILLING_PROVIDER", ""),
+		MetronomeAPIKey:         getEnv("METRONOME_API_KEY", ""),
+		MetronomeWebhookSecret:  getEnv("METRONOME_WEBHOOK_SECRET", ""),
+		MetronomePackageID:      getEnv("METRONOME_PACKAGE_ID", ""),
+		MetronomeDashboardEnv:   getEnv("METRONOME_DASHBOARD_ENV", ""),
+		StripeSecretKey:         getEnv("STRIPE_SECRET_KEY", ""),
+		StripePublishableKey:    getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeWebhookSecret:     getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		BillingGateEnforce:      getEnv("BILLING_GATE_ENFORCE", "") == "true",
+		BillingDunningGraceDays: getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
+		QuotaEnforce:            getEnv("QUOTA_ENFORCE", "") == "true",
+		FGAShadowEnabled:        getEnv("FGA_SHADOW_ENABLED", "") == "true",
+		QuotaDefaults:           loadQuotaDefaults(),
+		LokiURL:                 getEnv("LOKI_URL", ""),
+		DeploymentLogBackend:    getEnv("DEPLOYMENT_LOG_BACKEND", ""),
+		PrometheusURL:           getEnv("PROMETHEUS_URL", ""),
+		OTelIngestEndpoint:      getEnv("OTEL_INGEST_ENDPOINT", ""),
+		RedisURL:                getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -486,7 +496,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop or metronome)", c.BillingProvider)
 		}
 	}
-
 
 	// Deployment config only required for API mode
 	if c.RunAPI() {
