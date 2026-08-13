@@ -5,6 +5,7 @@ import {
   useDeregisterCluster,
   useClusterBlockers,
   useCheckClusterHealth,
+  useRefreshClusterPullSecrets,
 } from "@/api/admin";
 import type { RegisteredCluster, GetClusterBlockersResponse, UrlReachability } from "@/types/admin";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { CircleCheck, CircleX, Copy, RefreshCw } from "lucide-react";
+import { CircleCheck, CircleX, Copy, KeyRound, RefreshCw } from "lucide-react";
 import { cn, formatDateTime, countDeploymentsByRoutedCluster, mutationErrorMessage } from "@/lib/utils";
 
 // ClusterDeployFields is the per-cluster deploy config astro-server tracks
@@ -275,9 +276,10 @@ function ClusterDetail({
 }) {
   const deregisterMut = useDeregisterCluster();
   const healthMut = useCheckClusterHealth();
+  const refreshSecretsMut = useRefreshClusterPullSecrets();
 
-  const busy = deregisterMut.isPending || healthMut.isPending;
-  const actionError = deregisterMut.error ?? healthMut.error;
+  const busy = deregisterMut.isPending || healthMut.isPending || refreshSecretsMut.isPending;
+  const actionError = deregisterMut.error ?? healthMut.error ?? refreshSecretsMut.error;
 
   const blockersQuery = useClusterBlockers(cluster.id, deregisterMut.isError);
 
@@ -287,6 +289,7 @@ function ClusterDetail({
 
   const runDeregister = () => deregisterMut.mutate(cluster.id);
   const runHealthCheck = () => healthMut.mutate(cluster.id);
+  const runRefreshSecrets = () => refreshSecretsMut.mutate(cluster.id);
 
   const deployFields = clusterDeployFromCluster(cluster);
   const ingressOk = cluster.is_primary || clusterDeployComplete(deployFields);
@@ -322,6 +325,16 @@ function ClusterDetail({
             <RefreshCw className={cn("size-3", healthMut.isPending && "animate-spin")} />
             Check health
           </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={busy}
+            onClick={runRefreshSecrets}
+            title="Re-push this cluster's registry pull credential to every namespace already deployed there — use after renaming this cluster in config"
+          >
+            <KeyRound className={cn("size-3", refreshSecretsMut.isPending && "animate-spin")} />
+            Refresh pull secrets
+          </Button>
           {cluster.is_primary ? (
             <span className="text-[10px] text-muted-foreground">Env kubeconfig</span>
           ) : (
@@ -335,6 +348,18 @@ function ClusterDetail({
       )}
       {deregisterMut.isError && blockersQuery.data && (
         <ClusterBlockersPanel blockers={blockersQuery.data} />
+      )}
+      {refreshSecretsMut.data && (
+        <p className="text-[10px] text-muted-foreground">
+          Pull secrets refreshed for {refreshSecretsMut.data.refreshed_namespaces?.length ?? 0} namespace
+          {refreshSecretsMut.data.refreshed_namespaces?.length === 1 ? "" : "s"}
+          {!!refreshSecretsMut.data.failed_namespaces?.length && (
+            <span className="text-destructive">
+              {" "}
+              — failed for {refreshSecretsMut.data.failed_namespaces.length}: {refreshSecretsMut.data.failed_namespaces.join(", ")}
+            </span>
+          )}
+        </p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">

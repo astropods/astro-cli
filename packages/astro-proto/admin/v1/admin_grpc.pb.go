@@ -64,6 +64,7 @@ type AdminServiceClient interface {
 	MigrateAccountDeployments(ctx context.Context, in *MigrateAccountDeploymentsRequest, opts ...grpc.CallOption) (*MigrateAccountDeploymentsResponse, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
+	RefreshClusterPullSecrets(ctx context.Context, in *RefreshClusterPullSecretsRequest, opts ...grpc.CallOption) (*RefreshClusterPullSecretsResponse, error)
 	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(ctx context.Context, in *ListClusterMigrationsRequest, opts ...grpc.CallOption) (*ListClusterMigrationsResponse, error)
@@ -477,6 +478,14 @@ func (c *adminServiceClient) CheckClusterHealth(ctx context.Context, in *CheckCl
 	return out, nil
 }
 
+func (c *adminServiceClient) RefreshClusterPullSecrets(ctx context.Context, in *RefreshClusterPullSecretsRequest, opts ...grpc.CallOption) (*RefreshClusterPullSecretsResponse, error) {
+	out := new(RefreshClusterPullSecretsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RefreshClusterPullSecrets", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error) {
 	out := new(InvalidateCachesResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/InvalidateAccountCaches", in, out, opts...); err != nil {
@@ -672,6 +681,7 @@ type AdminServiceServer interface {
 	MigrateAccountDeployments(context.Context, *MigrateAccountDeploymentsRequest) (*MigrateAccountDeploymentsResponse, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
+	RefreshClusterPullSecrets(context.Context, *RefreshClusterPullSecretsRequest) (*RefreshClusterPullSecretsResponse, error)
 	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error)
@@ -876,6 +886,9 @@ func (UnimplementedAdminServiceServer) UpdateCluster(context.Context, *UpdateClu
 
 func (UnimplementedAdminServiceServer) CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckClusterHealth not implemented")
+}
+func (UnimplementedAdminServiceServer) RefreshClusterPullSecrets(context.Context, *RefreshClusterPullSecretsRequest) (*RefreshClusterPullSecretsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RefreshClusterPullSecrets not implemented")
 }
 
 func (UnimplementedAdminServiceServer) InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error) {
@@ -1682,6 +1695,21 @@ func _AdminService_CheckClusterHealth_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RefreshClusterPullSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshClusterPullSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RefreshClusterPullSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RefreshClusterPullSecrets"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RefreshClusterPullSecrets(ctx, req.(*RefreshClusterPullSecretsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_InvalidateAccountCaches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InvalidateAccountCachesRequest)
 	if err := dec(in); err != nil {
@@ -2005,6 +2033,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "MigrateAccountDeployments", Handler: _AdminService_MigrateAccountDeployments_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
+		{MethodName: "RefreshClusterPullSecrets", Handler: _AdminService_RefreshClusterPullSecrets_Handler},
 		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},
 		{MethodName: "InvalidateAllCaches", Handler: _AdminService_InvalidateAllCaches_Handler},
 		{MethodName: "ListClusterMigrations", Handler: _AdminService_ListClusterMigrations_Handler},

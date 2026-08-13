@@ -26,6 +26,7 @@ import type {
   ReapplyDeploymentResponse,
   ListClustersResponse,
   CheckClusterHealthResponse,
+  RefreshClusterPullSecretsResponse,
   GetClusterBlockersResponse,
   SetAccountClusterResponse,
   MigrateAccountDeploymentsResponse,
@@ -828,6 +829,19 @@ export function useCheckClusterHealth() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
     },
+  });
+}
+
+/** Re-pushes a cluster's registry pull credential to every namespace already
+ * deployed there — for use after renaming a cluster in config, whose id
+ * change orphans the credential already baked into those namespaces' pull
+ * Secrets. */
+export function useRefreshClusterPullSecrets() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RefreshClusterPullSecretsResponse>(
+        `/api/admin/clusters/${encodeURIComponent(id)}/refresh-pull-secrets`,
+      ),
   });
 }
 

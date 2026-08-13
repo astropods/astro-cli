@@ -1107,6 +1107,24 @@ type CheckClusterHealthResponse struct {
 	UrlChecks []UrlReachability `json:"url_checks,omitempty"`
 }
 
+// RefreshClusterPullSecretsRequest: ClusterID empty means the default
+// cluster. Operator-triggered after renaming a cluster in config: the id
+// change orphans the registry pull credential already baked into every
+// existing namespace's pull Secret there — an additional cluster's old row
+// stays alive (and its credential valid) only as long as something still
+// references it by id via ON DELETE RESTRICT, and the default cluster has no
+// such protection at all (nothing references it by id) — so this re-pushes
+// the current credential to every namespace already running on the cluster.
+type RefreshClusterPullSecretsRequest struct {
+	ClusterID string `json:"cluster_id,omitempty"`
+}
+
+type RefreshClusterPullSecretsResponse struct {
+	ClusterID           string   `json:"cluster_id,omitempty"`
+	RefreshedNamespaces []string `json:"refreshed_namespaces,omitempty"`
+	FailedNamespaces    []string `json:"failed_namespaces,omitempty"`
+}
+
 type UrlReachability struct {
 	Label     string `json:"label,omitempty"`
 	URL       string `json:"url,omitempty"`

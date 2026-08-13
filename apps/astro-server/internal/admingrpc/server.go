@@ -132,6 +132,11 @@ type Server struct {
 	// promClient backs ListOutboundDomains. Nil until SetPrometheusClient is
 	// called; the RPC then reports FailedPrecondition.
 	promClient *promquery.Client
+
+	// proxyRegistryHost backs RefreshClusterPullSecrets — the dockerconfigjson
+	// host key for the pull Secret it writes. Empty until SetProxyRegistryHost
+	// is called; the RPC then reports FailedPrecondition.
+	proxyRegistryHost string
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.

@@ -206,6 +206,21 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 	}
 }
 
+// RefreshRegistryPullSecret re-pushes the registry pull Secret into an
+// already-provisioned namespace, e.g. after the cluster's pull credential
+// changes. Reuses the same write path a fresh deploy's Apply uses, just
+// against an existing namespace instead of a namespace ensureRegistryPullSecret
+// is about to create.
+func RefreshRegistryPullSecret(ctx context.Context, client ClusterClient, proxyRegistryHost, credential, namespace string) error {
+	a := &Applier{
+		clientset:              client.Clientset(),
+		namespace:              namespace,
+		proxyRegistryHost:      proxyRegistryHost,
+		registryPullCredential: credential,
+	}
+	return a.ensureRegistryPullSecret(ctx)
+}
+
 // ensureRegistryPullSecret writes the tenant image-pull Secret (a
 // dockerconfigjson for the proxy registry, built from the cluster pull
 // credential) into the namespace and links it to the default ServiceAccount, so

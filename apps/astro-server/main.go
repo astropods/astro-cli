@@ -331,12 +331,17 @@ func buildRegistryConfig(ctx context.Context, clusterStore *clusterstore.Store, 
 		return regCfg, err
 	}
 	log.Info("cluster config: loaded", "path", cfg.Deployment.ClusterConfigPath, "entries", len(entries))
-	clusterconfig.Sync(ctx, clusterStore, entries, cfg.Deployment.DefaultClusterID, log)
 
+	// Resolve the default cluster before syncing — a DEFAULT_CLUSTER_ID that
+	// doesn't match any entry (e.g. the default cluster was renamed in config
+	// without updating the env var) must fail before Sync deletes/upserts any
+	// rows, not after.
 	defaultEntry, ok := clusterconfig.Find(entries, cfg.Deployment.DefaultClusterID)
 	if !ok {
 		return regCfg, fmt.Errorf("default cluster %q not found in cluster config", cfg.Deployment.DefaultClusterID)
 	}
+	clusterconfig.Sync(ctx, clusterStore, entries, cfg.Deployment.DefaultClusterID, log)
+
 	ca, err := defaultEntry.DecodedCA()
 	if err != nil {
 		return regCfg, err
@@ -570,6 +575,7 @@ func runAPI(
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
 	adminSrv.SetPrometheusClient(promClient)
+	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)

@@ -579,6 +579,12 @@ export interface CheckClusterHealthResponse {
   url_checks?: UrlReachability[];
 }
 
+export interface RefreshClusterPullSecretsResponse {
+  cluster_id: string;
+  refreshed_namespaces?: string[];
+  failed_namespaces?: string[];
+}
+
 export interface SetAccountClusterResponse {
   status?: string;
   cluster_id?: string;

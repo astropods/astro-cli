@@ -59,6 +59,7 @@ service AdminService {
   rpc MigrateAccountDeployments(MigrateAccountDeploymentsRequest) returns (MigrateAccountDeploymentsResponse);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
+  rpc RefreshClusterPullSecrets(RefreshClusterPullSecretsRequest) returns (RefreshClusterPullSecretsResponse);
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
   rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
@@ -1027,6 +1028,24 @@ message CheckClusterHealthResponse {
   // (Langfuse, Loki, Prometheus, tenant-router). Only populated for fields
   // the cluster actually has set.
   repeated UrlReachability url_checks = 2;
+}
+
+// RefreshClusterPullSecretsRequest: cluster_id empty means the default
+// cluster. Operator-triggered after renaming a cluster in config: the id
+// change orphans the registry pull credential already baked into every
+// existing namespace's pull Secret there — an additional cluster's old row
+// stays alive (and its credential valid) only as long as something still
+// references it by id via ON DELETE RESTRICT, and the default cluster has no
+// such protection at all (nothing references it by id) — so this re-pushes
+// the current credential to every namespace already running on the cluster.
+message RefreshClusterPullSecretsRequest {
+  string cluster_id = 1;
+}
+
+message RefreshClusterPullSecretsResponse {
+  string cluster_id = 1; // the cluster this ran against, echoed back
+  repeated string refreshed_namespaces = 2;
+  repeated string failed_namespaces = 3;
 }
 
 message UrlReachability {

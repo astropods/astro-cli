@@ -591,6 +591,47 @@ func (s *Store) ListAccountIDsWithLineageAgent(ctx context.Context, lineageAccou
 	return ids, nil
 }
 
+// ListActiveNamespacesForCluster returns the distinct namespace of every
+// non-undeployed deployment routed to clusterID. Empty clusterID means the
+// default cluster (deployments.cluster_id IS NULL), handled internally here
+// rather than pushing the NULL-vs-equality distinction onto callers. Used to
+// re-push a cluster's pull Secret to every namespace already running there
+// after its credential changes.
+func (s *Store) ListActiveNamespacesForCluster(ctx context.Context, clusterID string) ([]string, error) {
+	var rows *sql.Rows
+	var err error
+	if clusterID == "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT DISTINCT namespace
+			FROM deployments
+			WHERE cluster_id IS NULL AND status <> 'undeployed'
+		`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT DISTINCT namespace
+			FROM deployments
+			WHERE cluster_id = $1 AND status <> 'undeployed'
+		`, clusterID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query cluster namespaces: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var namespaces []string
+	for rows.Next() {
+		var ns string
+		if err := rows.Scan(&ns); err != nil {
+			return nil, fmt.Errorf("failed to scan namespace: %w", err)
+		}
+		namespaces = append(namespaces, ns)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating default cluster namespaces: %w", err)
+	}
+	return namespaces, nil
+}
+
 func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	rows, err := s.db.Query(`
 		SELECT d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id, d.namespace, d.display_name,

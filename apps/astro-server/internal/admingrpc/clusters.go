@@ -167,6 +167,12 @@ func (s *Server) loadEntry(ctx context.Context, id string) (k8s.ClusterEntry, er
 	return entry, nil
 }
 
+// SetProxyRegistryHost wires the dockerconfigjson host key RefreshClusterPullSecrets
+// writes into each namespace's pull Secret.
+func (s *Server) SetProxyRegistryHost(host string) {
+	s.proxyRegistryHost = host
+}
+
 // DeregisterCluster deletes an additional cluster row when no deployments reference it.
 func (s *Server) DeregisterCluster(ctx context.Context, req *adminv1.DeregisterClusterRequest) (*adminv1.DeregisterClusterResponse, error) {
 	if err := s.requireClusterAdmin(); err != nil {
@@ -253,4 +259,79 @@ func (s *Server) CheckClusterHealth(ctx context.Context, req *adminv1.CheckClust
 		Cluster:   entryToProto(ctx, s, entry),
 		UrlChecks: checkClusterURLs(ctx, entry),
 	}, nil
+}
+
+// RefreshClusterPullSecrets re-pushes a cluster's current registry pull
+// credential into every namespace already deployed there. Operator-triggered
+// after renaming a cluster in config: the rename orphans the credential
+// already baked into those namespaces' pull Secrets — an additional
+// cluster's old row survives, and its credential stays valid, only as long
+// as something still references it by id (ON DELETE RESTRICT); the default
+// cluster has no such protection since nothing references it by id at all.
+//
+// Queen always sends the cluster's real row id, including for the default
+// cluster (ListClusters never returns an empty id). deployments.cluster_id,
+// however, is NULL for every default-routed deployment, never the default
+// cluster's literal id — so req.ClusterID == "" and req.ClusterID == the
+// default cluster's real id must merge into the same "default" case here,
+// not be handled as two different inputs by the caller.
+func (s *Server) RefreshClusterPullSecrets(ctx context.Context, req *adminv1.RefreshClusterPullSecretsRequest) (*adminv1.RefreshClusterPullSecretsResponse, error) {
+	if err := s.requireClusterAdmin(); err != nil {
+		return nil, err
+	}
+	if s.proxyRegistryHost == "" {
+		return nil, status.Error(codes.FailedPrecondition, "proxy registry host not configured")
+	}
+
+	defaultID := s.k8sRegistry.DefaultClusterID()
+	isDefault := req.ClusterID == "" || req.ClusterID == defaultID
+
+	targetID := req.ClusterID
+	var client k8s.ClusterClient
+	if isDefault {
+		if defaultID == "" {
+			return nil, status.Error(codes.FailedPrecondition, "no default cluster configured")
+		}
+		targetID = defaultID
+		client = s.k8sRegistry.Default()
+	} else {
+		var err error
+		client, err = s.k8sRegistry.Get(ctx, targetID)
+		if err != nil {
+			if errors.Is(err, k8s.ErrClusterNotFound) {
+				return nil, status.Error(codes.NotFound, "cluster not found")
+			}
+			return nil, status.Errorf(codes.Internal, "get cluster client: %v", err)
+		}
+	}
+
+	row, err := s.clusterStore.Get(ctx, targetID)
+	if err != nil {
+		return nil, clusterStoreErr(err)
+	}
+	if row.PullCredential == "" {
+		return nil, status.Error(codes.FailedPrecondition, "cluster has no pull credential yet")
+	}
+
+	// deployments.cluster_id is NULL for the default cluster regardless of
+	// which form the caller sent — normalize to "" for the query.
+	namespaceClusterID := targetID
+	if isDefault {
+		namespaceClusterID = ""
+	}
+	namespaces, err := s.deployStore.ListActiveNamespacesForCluster(ctx, namespaceClusterID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list namespaces: %v", err)
+	}
+
+	resp := &adminv1.RefreshClusterPullSecretsResponse{ClusterID: targetID}
+	for _, ns := range namespaces {
+		if err := k8s.RefreshRegistryPullSecret(ctx, client, s.proxyRegistryHost, row.PullCredential, ns); err != nil {
+			s.log.Warn("refresh cluster pull secret failed", "cluster", targetID, "namespace", ns, "error", err)
+			resp.FailedNamespaces = append(resp.FailedNamespaces, ns)
+			continue
+		}
+		resp.RefreshedNamespaces = append(resp.RefreshedNamespaces, ns)
+	}
+	return resp, nil
 }
