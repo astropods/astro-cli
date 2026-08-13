@@ -99,22 +99,25 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc) gin.HandlerFunc {
 const (
 	ActionAddCard        = "add_card"        // free tier ran dry, no card on file
 	ActionUpdateCard     = "update_card"     // a card exists and collection failed
-	ActionContactSupport = "contact_support" // only we can lift it
-	ActionViewBilling    = "view_billing"    // reason unknown to this build
+	ActionContactSupport = "contact_support" // nothing the account holder can do
 )
 
-// BillingAction maps a gating reason to the one thing that resolves it. Telling
-// an account with no card to update one is the copy bug this exists to prevent.
+// BillingAction maps a gating reason to the one thing that resolves it. Only two
+// outcomes are self-serve, and they differ in what the client has to render: an
+// empty card form, or replacing a card already on file. Telling an account with
+// a card to add one is the copy bug this exists to prevent.
+//
+// Everything else is contact_support, which is the absence of a fix rather than
+// a third one. An unrecognised reason lands there too: a build that cannot name
+// the problem must not send the owner to change a card that may be fine.
 func BillingAction(reason string) string {
 	switch reason {
 	case billing.ReasonCreditsExhausted:
 		return ActionAddCard
 	case billing.ReasonDunning, billing.ReasonPaymentFailed, billing.ReasonUncollectible:
 		return ActionUpdateCard
-	case billing.ReasonBalanceAlert:
-		return ActionContactSupport
 	default:
-		return ActionViewBilling
+		return ActionContactSupport
 	}
 }
 
@@ -124,8 +127,7 @@ func BillingAction(reason string) string {
 var actionDetails = map[string]string{
 	ActionAddCard:        "This account's free credits are used up. Add a payment method to continue.",
 	ActionUpdateCard:     "A payment for this account could not be collected. Update the payment method to continue.",
-	ActionContactSupport: "This account reached its spend limit. Contact support to raise it.",
-	ActionViewBilling:    "This account is suspended for a billing issue. Open billing settings to resolve it.",
+	ActionContactSupport: "This account is suspended for a billing issue only support can resolve. Contact support to continue.",
 }
 
 // PaymentRequiredResponse is the 402 body for a billing-suspended account. It

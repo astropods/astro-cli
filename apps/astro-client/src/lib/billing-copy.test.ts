@@ -18,18 +18,16 @@ describe("billingStoppedHint", () => {
   // The server returns contact_support for a spend limit because only an
   // operator can raise it. Naming the threshold without naming the fix left the
   // owner with nothing to do.
-  it("tells a spend-limit account to contact support", () => {
+  it("tells a non-self-serve account to contact support", () => {
     expect(billingStoppedHint("contact_support")).toContain("Contact support");
   });
 
-  // A build that predates a new server action still has to say something true.
-  it("falls back to copy that holds for any action", () => {
-    expect(billingStoppedHint(undefined)).toBe(
-      "Stopped by billing. Resolve billing to start it again.",
-    );
-    expect(billingStoppedHint("some_future_action")).toBe(
-      "Stopped by billing. Resolve billing to start it again.",
-    );
+  // A build that predates a new server action must not guess at a card fix, so
+  // it lands on the one answer that holds whatever the action turns out to be.
+  it("falls back to the non-self-serve copy for an unknown action", () => {
+    const fallback = "Stopped by billing. Contact support to start it again.";
+    expect(billingStoppedHint(undefined)).toBe(fallback);
+    expect(billingStoppedHint("some_future_action")).toBe(fallback);
   });
 });
 

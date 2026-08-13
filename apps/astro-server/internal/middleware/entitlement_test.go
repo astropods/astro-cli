@@ -47,9 +47,10 @@ func TestPaymentRequiredResponse_NamesTheFixForEveryReason(t *testing.T) {
 		billing.ReasonPaymentFailed:    ActionUpdateCard,
 		billing.ReasonUncollectible:    ActionUpdateCard,
 		billing.ReasonBalanceAlert:     ActionContactSupport,
-		// A reason this build predates must still say something true.
-		"reason_from_a_newer_server": ActionViewBilling,
-		"":                           ActionViewBilling,
+		// A reason this build predates must not send the owner to change a card
+		// that may be fine, so it lands on the one non-self-serve answer.
+		"reason_from_a_newer_server": ActionContactSupport,
+		"":                           ActionContactSupport,
 	}
 	for reason, wantAction := range cases {
 		resp := PaymentRequiredResponse(reason)

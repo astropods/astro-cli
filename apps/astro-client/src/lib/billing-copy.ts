@@ -19,12 +19,13 @@ export interface BillingBannerCopy {
 const ACTION_LABEL: Record<string, string> = {
   add_card: "Add payment method",
   update_card: "Update payment method",
+  // No support route exists, so the button opens billing and the instruction
+  // rides in the body copy. Also the label for an action this build predates.
   contact_support: "View billing",
-  view_billing: "View billing",
 };
 
 export function billingActionLabel(action: string | undefined): string {
-  return (action && ACTION_LABEL[action]) || "View billing";
+  return (action && ACTION_LABEL[action]) || ACTION_LABEL.contact_support;
 }
 
 /** Long-form copy for the app-wide banner. Credit exhaustion is split from the
@@ -85,10 +86,9 @@ export function billingBannerCopy(
 const ACTION_HINT: Record<string, string> = {
   add_card: "Stopped by billing. Add a payment method to start it again.",
   update_card: "Stopped by billing. Update your payment method to start it again.",
-  contact_support: "Stopped by billing. Contact support to raise the spend limit.",
-  view_billing: "Stopped by billing. Resolve billing to start it again.",
+  contact_support: "Stopped by billing. Contact support to start it again.",
 };
 
 export function billingStoppedHint(action: string | undefined): string {
-  return (action && ACTION_HINT[action]) || ACTION_HINT.view_billing;
+  return (action && ACTION_HINT[action]) || ACTION_HINT.contact_support;
 }
