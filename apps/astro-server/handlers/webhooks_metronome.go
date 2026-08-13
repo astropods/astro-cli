@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -20,18 +21,39 @@ import (
 // retried. Satisfied by *riverqueue.Queue; nil disables enqueue (endpoint 404s
 // when its secret is also unset).
 type WebhookQueue interface {
-	InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID string) error
+	InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID, detail string) error
 	InsertStripeWebhook(ctx context.Context, eventID, eventType, customerID, hostedInvoiceURL string) error
 }
 
 // metronomeWebhookEnvelope is the minimal shape we read to route a webhook and
-// map it back to an account. id is used as the River idempotency key.
+// map it back to an account. id is used as the River idempotency key. The error
+// fields belong to the integration-failure events, whose only diagnosis is in
+// the payload.
 type metronomeWebhookEnvelope struct {
 	ID         string `json:"id"`
 	Type       string `json:"type"`
 	Properties struct {
-		CustomerID string `json:"customer_id"`
+		CustomerID           string `json:"customer_id"`
+		InvoiceID            string `json:"invoice_id"`
+		BillingProvider      string `json:"billing_provider"`
+		BillingProviderError string `json:"billing_provider_error"`
+		Integration          string `json:"integration"`
+		Error                string `json:"error"`
+		ErrorCode            string `json:"error_code"`
 	} `json:"properties"`
+}
+
+// detail renders the payload's error fields into one log line.
+func (e metronomeWebhookEnvelope) detail() string {
+	p := e.Properties
+	switch {
+	case p.BillingProviderError != "":
+		return fmt.Sprintf("%s invoice %s: %s", p.BillingProvider, p.InvoiceID, p.BillingProviderError)
+	case p.Error != "":
+		return fmt.Sprintf("%s %s: %s", p.Integration, p.ErrorCode, p.Error)
+	default:
+		return ""
+	}
 }
 
 // MetronomeWebhook handles POST /webhooks/metronome. It verifies the
@@ -76,7 +98,7 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 		}
 
 		if queue != nil {
-			if err := queue.InsertMetronomeWebhook(c.Request.Context(), env.ID, env.Type, env.Properties.CustomerID); err != nil {
+			if err := queue.InsertMetronomeWebhook(c.Request.Context(), env.ID, env.Type, env.Properties.CustomerID, env.detail()); err != nil {
 				// Return 500 so Metronome redelivers — the event is not yet tracked.
 				log.Error("Metronome webhook: enqueue failed", "type", env.Type, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})

@@ -18,15 +18,19 @@ import (
 // fakeWebhookQueue records the last enqueue so tests can assert the handler
 // verified and forwarded the event without touching River.
 type fakeWebhookQueue struct {
-	stripeCalls   int
-	lastEventID   string
-	lastEventType string
-	lastCustomer  string
-	lastURL       string
-	err           error
+	stripeCalls    int
+	metronomeCalls int
+	lastEventID    string
+	lastEventType  string
+	lastCustomer   string
+	lastURL        string
+	lastDetail     string
+	err            error
 }
 
-func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, _, _, _ string) error {
+func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, eventID, eventType, customerID, detail string) error {
+	f.metronomeCalls++
+	f.lastEventID, f.lastEventType, f.lastCustomer, f.lastDetail = eventID, eventType, customerID, detail
 	return f.err
 }
 

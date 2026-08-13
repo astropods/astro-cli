@@ -23,6 +23,7 @@ type MetronomeWebhookArgs struct {
 	EventID    string `json:"event_id" river:"unique"`
 	EventType  string `json:"event_type"`
 	CustomerID string `json:"customer_id"`
+	Detail     string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
 }
 
 func (MetronomeWebhookArgs) Kind() string { return "webhook.metronome" }
@@ -104,6 +105,19 @@ func metronomeSignal(eventType string) (billing.Signal, bool) {
 	}
 }
 
+// metronomeAlarm reports whether the event is an integration failure rather than
+// a billing signal. It is the only notice that invoices stopped reaching the
+// billing provider. Account status is unaffected, so Metronome keeps finalizing
+// invoices that are never delivered or paid.
+func metronomeAlarm(eventType string) bool {
+	switch eventType {
+	case "invoice.billing_provider_error", "integration.issue":
+		return true
+	default:
+		return false
+	}
+}
+
 // billingAlert maps a billing signal to the owner-facing notification event, if
 // one exists for it. Uncollectible/voided/card-updated have no user alert.
 func billingAlert(sig billing.Signal, accountID, accountName, hostedInvoiceURL string) (notify.Event, bool) {
@@ -167,6 +181,13 @@ type MetronomeWebhookWorker struct {
 }
 
 func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[MetronomeWebhookArgs]) error {
+	// Ahead of the store guard, which would otherwise drop the alarm on a backend
+	// that has no billing status.
+	if metronomeAlarm(job.Args.EventType) {
+		w.log.Error("metronome webhook: integration failure",
+			"type", job.Args.EventType, "customer_id", job.Args.CustomerID, "detail", job.Args.Detail)
+		return nil
+	}
 	if w.accounts == nil || w.status == nil {
 		return nil
 	}

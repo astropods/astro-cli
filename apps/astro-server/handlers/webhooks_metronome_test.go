@@ -23,10 +23,87 @@ func sign(secret, date, body string) string {
 }
 
 func metronomeWebhookRouter(secret string) *gin.Engine {
+	return metronomeWebhookRouterWithQueue(secret, nil)
+}
+
+func metronomeWebhookRouterWithQueue(secret string, q WebhookQueue) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/webhooks/metronome", MetronomeWebhook(logger.New("error", "json"), secret, nil))
+	r.POST("/webhooks/metronome", MetronomeWebhook(logger.New("error", "json"), secret, q))
 	return r
+}
+
+// A delivery failure to Stripe reports nothing but this webhook: the account's
+// billing status is unaffected and Metronome keeps finalizing invoices. Losing
+// the payload's error text leaves the log with no diagnosis.
+func TestMetronomeWebhook_ForwardsTheBillingProviderError(t *testing.T) {
+	const secret = "whsec-test"
+	const date = "2026-08-12T00:00:00Z"
+	body := `{"id":"evt_1","type":"invoice.billing_provider_error","properties":{` +
+		`"invoice_id":"inv_1","customer_id":"cust_1","billing_provider":"STRIPE",` +
+		`"billing_provider_error":"No token found for environment type SANDBOX and billing provider STRIPE"}}`
+
+	q := &fakeWebhookQueue{}
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/metronome", strings.NewReader(body))
+	req.Header.Set("X-Metronome-Date", date)
+	req.Header.Set("Metronome-Webhook-Signature", sign(secret, date, body))
+	rec := httptest.NewRecorder()
+	metronomeWebhookRouterWithQueue(secret, q).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if q.metronomeCalls != 1 {
+		t.Fatalf("enqueued %d events, want 1", q.metronomeCalls)
+	}
+	if !strings.Contains(q.lastDetail, "No token found") {
+		t.Errorf("detail = %q, want the provider error text", q.lastDetail)
+	}
+	if !strings.Contains(q.lastDetail, "inv_1") {
+		t.Errorf("detail = %q, want the invoice id", q.lastDetail)
+	}
+}
+
+// An integration issue names the integration and an error code instead of an
+// invoice, so it renders from different fields.
+func TestMetronomeWebhook_ForwardsTheIntegrationIssue(t *testing.T) {
+	const secret = "whsec-test"
+	const date = "2026-08-12T00:00:00Z"
+	body := `{"id":"evt_2","type":"integration.issue","properties":{` +
+		`"integration":"STRIPE","error":"Authentication failed","error_code":"INVALID_CREDENTIALS"}}`
+
+	q := &fakeWebhookQueue{}
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/metronome", strings.NewReader(body))
+	req.Header.Set("X-Metronome-Date", date)
+	req.Header.Set("Metronome-Webhook-Signature", sign(secret, date, body))
+	rec := httptest.NewRecorder()
+	metronomeWebhookRouterWithQueue(secret, q).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(q.lastDetail, "INVALID_CREDENTIALS") {
+		t.Errorf("detail = %q, want the error code", q.lastDetail)
+	}
+}
+
+// An alert carries no error fields, and a detail invented for it would read as
+// a failure in the log.
+func TestMetronomeWebhook_LeavesDetailEmptyForAlerts(t *testing.T) {
+	const secret = "whsec-test"
+	const date = "2026-08-12T00:00:00Z"
+	body := `{"id":"evt_3","type":"alerts.spend_threshold_reached","properties":{"customer_id":"cust_1"}}`
+
+	q := &fakeWebhookQueue{}
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/metronome", strings.NewReader(body))
+	req.Header.Set("X-Metronome-Date", date)
+	req.Header.Set("Metronome-Webhook-Signature", sign(secret, date, body))
+	rec := httptest.NewRecorder()
+	metronomeWebhookRouterWithQueue(secret, q).ServeHTTP(rec, req)
+
+	if q.lastDetail != "" {
+		t.Errorf("detail = %q, want empty", q.lastDetail)
+	}
 }
 
 // The date header name has to match what Metronome actually sends, so each

@@ -400,8 +400,8 @@ func (q *Queue) InsertBillingProvision(ctx context.Context, accountID string) er
 
 // InsertMetronomeWebhook enqueues a verified Metronome webhook for processing.
 // Queue routing + event-ID dedupe come from MetronomeWebhookArgs.InsertOpts.
-func (q *Queue) InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID string) error {
-	_, err := q.Insert(ctx, MetronomeWebhookArgs{EventID: eventID, EventType: eventType, CustomerID: customerID}, nil)
+func (q *Queue) InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID, detail string) error {
+	_, err := q.Insert(ctx, MetronomeWebhookArgs{EventID: eventID, EventType: eventType, CustomerID: customerID, Detail: detail}, nil)
 	return err
 }
 

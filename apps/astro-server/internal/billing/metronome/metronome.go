@@ -29,6 +29,9 @@ import (
 // documented limit is ~100; chunk to stay under it.
 const ingestBatchLimit = 100
 
+// billingProviderStripe is Metronome's enum value for Stripe.
+const billingProviderStripe = "stripe"
+
 // Config holds the settings the Metronome provider needs.
 type Config struct {
 	APIKey string // METRONOME_API_KEY (bearer token)
@@ -138,20 +141,111 @@ func (p *Provider) DeleteCustomer(ctx context.Context, customerID string) error 
 	return nil
 }
 
-// LinkStripeCustomer points the Metronome customer's billing config at a Stripe
-// customer with automatic charging, so Metronome pushes finalized invoices to
-// Stripe and charges the saved card. astro-server only vaults the card (via
-// SetupIntent); Metronome does the charging. Idempotent — re-linking the same
-// Stripe customer is a no-op update.
+// LinkStripeCustomer routes the customer's invoices to Stripe, where the vaulted
+// card is charged. Both writes are required. The configuration names the delivery
+// method that resolves the Stripe credential at send time, and without one
+// delivery fails with "No token found for environment type <env> and billing
+// provider STRIPE". The contract must then reference that configuration, because
+// a contract provisioned from a package carries none and keeps its invoices
+// inside Metronome. Both steps are idempotent.
 func (p *Provider) LinkStripeCustomer(ctx context.Context, metronomeCustomerID, stripeCustomerID string) error {
-	err := p.mc.V1.Customers.BillingConfig.New(ctx, metronome.V1CustomerBillingConfigNewParams{
-		CustomerID:                metronomeCustomerID,
-		BillingProviderType:       metronome.V1CustomerBillingConfigNewParamsBillingProviderTypeStripe,
-		BillingProviderCustomerID: stripeCustomerID,
-		StripeCollectionMethod:    metronome.V1CustomerBillingConfigNewParamsStripeCollectionMethodChargeAutomatically,
+	configID, err := p.stripeConfiguration(ctx, metronomeCustomerID, stripeCustomerID)
+	if err != nil {
+		return err
+	}
+	return p.attachConfigurationToContracts(ctx, metronomeCustomerID, configID)
+}
+
+// stripeConfiguration returns the id of the customer's Stripe billing provider
+// configuration, creating it when absent.
+func (p *Provider) stripeConfiguration(ctx context.Context, metronomeCustomerID, stripeCustomerID string) (string, error) {
+	existing, err := p.mc.V1.Customers.GetBillingConfigurations(ctx, metronome.V1CustomerGetBillingConfigurationsParams{
+		CustomerID: metronomeCustomerID,
 	})
 	if err != nil {
-		return fmt.Errorf("metronome link stripe customer: %w", err)
+		return "", fmt.Errorf("metronome get billing configurations: %w", err)
+	}
+	for _, cfg := range existing.Data {
+		if cfg.BillingProvider == billingProviderStripe && cfg.Configuration["stripe_customer_id"] == stripeCustomerID {
+			return cfg.ID, nil
+		}
+	}
+
+	deliveryMethodID, err := p.stripeDeliveryMethodID(ctx)
+	if err != nil {
+		return "", err
+	}
+	created, err := p.mc.V1.Customers.SetBillingConfigurations(ctx, metronome.V1CustomerSetBillingConfigurationsParams{
+		Data: []metronome.V1CustomerSetBillingConfigurationsParamsData{{
+			CustomerID:       metronomeCustomerID,
+			BillingProvider:  billingProviderStripe,
+			DeliveryMethodID: param.NewOpt(deliveryMethodID),
+			Configuration: map[string]any{
+				"stripe_customer_id":       stripeCustomerID,
+				"stripe_collection_method": "charge_automatically",
+			},
+		}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("metronome set billing configuration: %w", err)
+	}
+	if len(created.Data) == 0 {
+		return "", fmt.Errorf("metronome set billing configuration: empty response for customer %s", metronomeCustomerID)
+	}
+	return created.Data[0].ID, nil
+}
+
+// stripeDeliveryMethodID returns the environment's single Stripe delivery
+// method. More than one means multi-entity billing, where which Stripe account
+// to bill is a decision this path cannot make.
+func (p *Provider) stripeDeliveryMethodID(ctx context.Context) (string, error) {
+	providers, err := p.mc.V1.Settings.BillingProviders.List(ctx, metronome.V1SettingBillingProviderListParams{})
+	if err != nil {
+		return "", fmt.Errorf("metronome list billing providers: %w", err)
+	}
+	var ids []string
+	for _, prov := range providers.Data {
+		if prov.BillingProvider == billingProviderStripe {
+			ids = append(ids, prov.DeliveryMethodID)
+		}
+	}
+	switch len(ids) {
+	case 1:
+		return ids[0], nil
+	case 0:
+		return "", errors.New("metronome: no Stripe billing provider configured in this environment")
+	default:
+		return "", fmt.Errorf("metronome: %d Stripe billing providers configured, cannot choose one", len(ids))
+	}
+}
+
+// attachConfigurationToContracts points the customer's covering contracts at the
+// billing provider configuration. START_OF_CURRENT_PERIOD routes the open
+// invoice rather than waiting a month for the next one.
+func (p *Provider) attachConfigurationToContracts(ctx context.Context, metronomeCustomerID, configID string) error {
+	contracts, err := p.coveringContracts(ctx, metronomeCustomerID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	for _, contract := range contracts {
+		if len(contract.BillingProviderConfigurationSchedule) > 0 {
+			continue
+		}
+		_, err := p.mc.V2.Contracts.Edit(ctx, metronome.V2ContractEditParams{
+			CustomerID: metronomeCustomerID,
+			ContractID: contract.ID,
+			AddBillingProviderConfigurationUpdate: metronome.V2ContractEditParamsAddBillingProviderConfigurationUpdate{
+				BillingProviderConfiguration: metronome.V2ContractEditParamsAddBillingProviderConfigurationUpdateBillingProviderConfiguration{
+					BillingProviderConfigurationID: param.NewOpt(configID),
+				},
+				Schedule: metronome.V2ContractEditParamsAddBillingProviderConfigurationUpdateSchedule{
+					EffectiveAt: "START_OF_CURRENT_PERIOD",
+				},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("metronome attach billing configuration to contract %s: %w", contract.ID, err)
+		}
 	}
 	return nil
 }

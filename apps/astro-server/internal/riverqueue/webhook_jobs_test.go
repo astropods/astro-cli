@@ -1,9 +1,16 @@
 package riverqueue
 
 import (
+	"bytes"
+	"context"
+	"log/slog"
+	"strings"
 	"testing"
 
+	"github.com/riverqueue/river"
+
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 func TestStripeSignalMapping(t *testing.T) {
@@ -71,6 +78,56 @@ func TestMetronomeSignalMapping(t *testing.T) {
 		if ok != tc.handled || got != tc.want {
 			t.Errorf("metronomeSignal(%q) = (%q, %v), want (%q, %v)", tc.event, got, ok, tc.want, tc.handled)
 		}
+	}
+}
+
+// An integration failure is an operator alarm, not a billing signal. Routing one
+// into metronomeSignal would move an account's status on a delivery problem, and
+// leaving it out of metronomeAlarm files it under unhandled at info level, where
+// the invoices stop reaching Stripe with nothing to show for it.
+func TestMetronomeAlarmMapping(t *testing.T) {
+	cases := []struct {
+		event string
+		alarm bool
+	}{
+		{"invoice.billing_provider_error", true},
+		{"integration.issue", true},
+		{"alerts.spend_threshold_reached", false},
+		{"invoice.finalized", false},
+	}
+	for _, tc := range cases {
+		if got := metronomeAlarm(tc.event); got != tc.alarm {
+			t.Errorf("metronomeAlarm(%q) = %v, want %v", tc.event, got, tc.alarm)
+		}
+		if _, handled := metronomeSignal(tc.event); tc.alarm && handled {
+			t.Errorf("metronomeSignal(%q) returned a signal: an alarm must not move billing status", tc.event)
+		}
+	}
+}
+
+// The worker returns early without stores, so an alarm logged after that guard
+// is lost on any backend that has no billing status.
+func TestMetronomeWebhookWorker_LogsAlarmWithoutStores(t *testing.T) {
+	var buf bytes.Buffer
+	w := &MetronomeWebhookWorker{log: &logger.Logger{
+		Logger: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})),
+	}}
+	job := &river.Job[MetronomeWebhookArgs]{Args: MetronomeWebhookArgs{
+		EventID:   "evt_1",
+		EventType: "invoice.billing_provider_error",
+		Detail:    "STRIPE invoice inv_1: No token found",
+	}}
+
+	if err := w.Work(context.Background(), job); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"level":"ERROR"`) {
+		t.Errorf("logged %q, want an error-level line", out)
+	}
+	if !strings.Contains(out, "No token found") {
+		t.Errorf("logged %q, want the provider error text", out)
 	}
 }
 
