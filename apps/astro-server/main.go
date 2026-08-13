@@ -900,22 +900,27 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
+	deploymentFGALiveRollout := authz.NewConditionalResourceGate(
+		deploymentFGA != nil && (cfg.FGAShadowEnabled || cfg.FGAEnforcementEnabled),
+		resourceAccounts,
+	)
 	deploymentFGAShadowRollout := authz.NewConditionalResourceGate(
 		deploymentFGA != nil && cfg.FGAShadowEnabled,
 		resourceAccounts,
 	)
 	deploymentFGAOrganizationRollout := authz.NewAccountExperimentResourceGate(
-		deploymentFGAShadowRollout,
+		deploymentFGALiveRollout,
 		resourceAccounts,
 		experiment.NewGate(experimentStore, experiment.FineGrainedAccess),
 	)
 	membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
-	deploymentFGAChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGAShadowRollout, resourceAccounts)
+	deploymentFGALiveChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGALiveRollout, resourceAccounts)
+	deploymentFGAEnforcementChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGAOrganizationRollout, resourceAccounts)
 	deploymentCapabilities := authz.NewCapabilityService(
 		log,
 		deploymentFGAOrganizationRollout,
 		membershipChecker,
-		deploymentFGAChecker,
+		deploymentFGALiveChecker,
 		authz.ActionDeploymentRead,
 	)
 	alertStore := observation.NewStore(db)
@@ -1119,10 +1124,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		protected := v1.Group("")
 		protected.Use(authMw.RequireAuth())
 		deploymentRoutes := middleware.NewDeploymentRoutes(api, protected, deploymentRouteCatalog)
+		if cfg.FGAEnforcementEnabled && cfg.Auth.WorkOSAPIKey != "" {
+			protected.Use(middleware.EnforceDeploymentAuthorization(log, deploymentFGAEnforcementChecker, deploymentRouteCatalog))
+			log.Info("Deployment FGA mutation enforcement enabled")
+		}
 		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
 			protected.Use(middleware.ObserveDeploymentAuthorization(
 				log,
-				authz.NewGatedShadowChecker(log, deploymentFGAShadowRollout, membershipChecker, deploymentFGAChecker),
+				authz.NewGatedShadowChecker(log, deploymentFGAShadowRollout, membershipChecker, deploymentFGALiveChecker),
 				deploymentRouteCatalog,
 			))
 			log.Info("Deployment FGA shadow checks enabled")

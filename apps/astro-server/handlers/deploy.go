@@ -766,10 +766,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			})
 			return
 		}
-		// Observe signed redeploy attempts before legacy or business validation so
-		// rejected attempts are represented in Preview shadow comparisons too.
+		// Authorize signed redeploy attempts before legacy or business validation.
+		// Shadow mode records the same attempt without changing its response.
 		if submittedSpec.Target.DeploymentID != "" {
-			middleware.SetDeploymentAuthorizationObservation(c, authz.ActionDeploymentOperate, submittedSpec.Target.DeploymentID)
+			if !middleware.AuthorizeDeploymentAction(c, authz.ActionDeploymentOperate, submittedSpec.Target.DeploymentID) {
+				return
+			}
 		}
 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore, restoreConfiguredSecrets)
@@ -1085,9 +1087,11 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			})
 			return
 		}
-		// Observe parsed undeploy attempts before legacy authorization so rejected
-		// attempts are represented in Preview shadow comparisons too.
-		middleware.SetDeploymentAuthorizationObservation(c, authz.ActionDeploymentDelete, req.DeploymentID)
+		// Authorize parsed undeploy attempts before legacy authorization. Shadow
+		// mode records the same attempt without changing its response.
+		if !middleware.AuthorizeDeploymentAction(c, authz.ActionDeploymentDelete, req.DeploymentID) {
+			return
+		}
 
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)

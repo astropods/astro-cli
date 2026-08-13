@@ -25,9 +25,10 @@ type Config struct {
 	// BillingProvider selects the metering/billing backend: "noop" (OSS,
 	// unmetered) or "metronome" (hosted). Empty resolves to noop via
 	// BillingBackend().
-	BillingProvider  string // BILLING_PROVIDER
-	QuotaEnforce     bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
-	FGAShadowEnabled bool   // FGA_SHADOW_ENABLED — compare deployment authorization with WorkOS without enforcing
+	BillingProvider       string // BILLING_PROVIDER
+	QuotaEnforce          bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
+	FGAShadowEnabled      bool   // FGA_SHADOW_ENABLED — compare deployment authorization with WorkOS without enforcing
+	FGAEnforcementEnabled bool   // FGA_ENFORCEMENT_ENABLED — enforce opted-in FGA-ready deployment mutations
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
 	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
 	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification
@@ -453,6 +454,7 @@ func Load() (*Config, error) {
 		BillingDunningGraceDays: getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
 		QuotaEnforce:            getEnv("QUOTA_ENFORCE", "") == "true",
 		FGAShadowEnabled:        getEnv("FGA_SHADOW_ENABLED", "") == "true",
+		FGAEnforcementEnabled:   getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
 		QuotaDefaults:           loadQuotaDefaults(),
 		LokiURL:                 getEnv("LOKI_URL", ""),
 		DeploymentLogBackend:    getEnv("DEPLOYMENT_LOG_BACKEND", ""),

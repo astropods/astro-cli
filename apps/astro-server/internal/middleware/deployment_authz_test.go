@@ -28,10 +28,11 @@ type recordingChecker struct {
 	action      authz.Action
 	resource    authz.ResourceRef
 	err         error
+	allowed     bool
 }
 
 func newRecordingChecker(err error, block <-chan struct{}) *recordingChecker {
-	return &recordingChecker{done: make(chan struct{}), block: block, err: err}
+	return &recordingChecker{done: make(chan struct{}), block: block, err: err, allowed: true}
 }
 
 func (c *recordingChecker) Authorize(ctx context.Context, subject authz.Subject, action authz.Action, resource authz.ResourceRef) (bool, error) {
@@ -47,7 +48,7 @@ func (c *recordingChecker) Authorize(ctx context.Context, subject authz.Subject,
 	_, c.hasDeadline = ctx.Deadline()
 	c.calls.Add(1)
 	close(c.done)
-	return true, c.err
+	return c.allowed, c.err
 }
 
 type recordingShadowLog struct {
@@ -60,6 +61,7 @@ func newRecordingShadowLog() *recordingShadowLog {
 }
 
 func (l *recordingShadowLog) Debug(message string, _ ...any) { l.debug <- message }
+func (l *recordingShadowLog) Info(string, ...any)            {}
 func (l *recordingShadowLog) Warn(message string, _ ...any)  { l.warn <- message }
 
 type panickingChecker struct{}
@@ -96,6 +98,7 @@ type panicCaptureLog struct {
 }
 
 func (l *panicCaptureLog) Debug(string, ...any) {}
+func (l *panicCaptureLog) Info(string, ...any)  {}
 func (l *panicCaptureLog) Warn(message string, attrs ...any) {
 	l.warn <- capturedWarn{message: message, attrs: attrs}
 }
@@ -107,6 +110,7 @@ type concurrencyCaptureLog struct {
 func (l *concurrencyCaptureLog) Debug(message string, attrs ...any) {
 	l.debug <- capturedWarn{message: message, attrs: attrs}
 }
+func (l *concurrencyCaptureLog) Info(string, ...any) {}
 func (l *concurrencyCaptureLog) Warn(string, ...any) {}
 
 func deploymentTestRoutes(router *gin.Engine, catalog *middleware.DeploymentRouteCatalog) *middleware.DeploymentRoutes {
@@ -517,5 +521,228 @@ func TestObserveDeploymentAuthorizationDropsCheckAtConcurrencyLimit(t *testing.T
 		case <-time.After(time.Second):
 			t.Fatalf("shadow check %d did not finish", i)
 		}
+	}
+}
+
+func TestEnforceDeploymentAuthorizationStagesMutationsOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		method      string
+		route       string
+		request     string
+		action      authz.Action
+		allowed     bool
+		err         error
+		wantStatus  int
+		wantHandler bool
+		wantCalls   int32
+	}{
+		{
+			name: "allowed mutation", method: http.MethodPost,
+			route: "/api/v1/deployments/:id/restart", request: "/api/v1/deployments/dep_123/restart",
+			action:  authz.ActionDeploymentOperate,
+			allowed: true, wantStatus: http.StatusNoContent, wantHandler: true, wantCalls: 1,
+		},
+		{
+			name: "denied mutation is concealed", method: http.MethodPatch,
+			route: "/api/v1/deployments/:id", request: "/api/v1/deployments/dep_123",
+			action:     authz.ActionDeploymentEdit,
+			wantStatus: http.StatusNotFound, wantCalls: 1,
+		},
+		{
+			name: "resource outside rollout stays legacy", method: http.MethodPost,
+			route: "/api/v1/deployments/:id/stop", request: "/api/v1/deployments/dep_123/stop",
+			action: authz.ActionDeploymentOperate,
+			err:    authz.ErrFGAResourceNotEnabled, wantStatus: http.StatusNoContent, wantHandler: true, wantCalls: 1,
+		},
+		{
+			name: "authorization failure is retryable", method: http.MethodDelete,
+			route: "/api/v1/deployments/:id/files/:fileKey", request: "/api/v1/deployments/dep_123/files/file_123",
+			action: authz.ActionDeploymentEdit,
+			err:    errors.New("workos unavailable"), wantStatus: http.StatusServiceUnavailable, wantCalls: 1,
+		},
+		{
+			name: "read remains unenforced", method: http.MethodGet,
+			route: "/api/v1/deployments/:id", request: "/api/v1/deployments/dep_123",
+			action:     authz.ActionDeploymentRead,
+			wantStatus: http.StatusNoContent, wantHandler: true,
+		},
+		{
+			name: "watch subscription uses read visibility", method: http.MethodPost,
+			route: "/api/v1/deployments/:id/watchers/me", request: "/api/v1/deployments/dep_123/watchers/me",
+			action:     authz.ActionDeploymentRead,
+			wantStatus: http.StatusNotFound, wantCalls: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checker := newRecordingChecker(test.err, nil)
+			checker.allowed = test.allowed
+			handlerCalled := false
+			router := gin.New()
+			catalog := middleware.NewDeploymentRouteCatalog()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
+				c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
+				c.Next()
+			})
+			router.Use(middleware.EnforceDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+			handler := func(c *gin.Context) {
+				handlerCalled = true
+				c.Status(http.StatusNoContent)
+			}
+			routes := deploymentTestRoutes(router, catalog)
+			registerObservedTestRoute(routes, test.method, test.action, strings.TrimPrefix(test.route, "/api/v1"), handler)
+
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(test.method, test.request, nil))
+			if response.Code != test.wantStatus || handlerCalled != test.wantHandler || checker.calls.Load() != test.wantCalls {
+				t.Fatalf("status=%d handler=%v calls=%d", response.Code, handlerCalled, checker.calls.Load())
+			}
+			if test.wantCalls == 1 && !checker.hasDeadline {
+				t.Fatal("enforcement check context has no deadline")
+			}
+			if test.wantCalls == 1 && checker.action != test.action {
+				t.Fatalf("checked action = %q, want %q", checker.action, test.action)
+			}
+		})
+	}
+}
+
+func TestEnforcementAndShadowMiddlewareCoordinate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name               string
+		enforcementAllowed bool
+		enforcementErr     error
+		wantStatus         int
+		wantHandler        bool
+		wantShadow         bool
+	}{
+		{
+			name:               "opted-out organization keeps legacy handler and shadow evidence",
+			enforcementAllowed: true,
+			enforcementErr:     authz.ErrFGAResourceNotEnabled,
+			wantStatus:         http.StatusNoContent,
+			wantHandler:        true,
+			wantShadow:         true,
+		},
+		{
+			name:               "enforcement allow does not duplicate shadow check",
+			enforcementAllowed: true,
+			wantStatus:         http.StatusNoContent,
+			wantHandler:        true,
+		},
+		{
+			name:       "enforcement denial does not duplicate shadow check",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			enforcementChecker := newRecordingChecker(test.enforcementErr, nil)
+			enforcementChecker.allowed = test.enforcementAllowed
+			shadowChecker := newRecordingChecker(nil, nil)
+			handlerCalled := false
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
+				c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
+				c.Next()
+			})
+			catalog := middleware.NewDeploymentRouteCatalog()
+			router.Use(middleware.EnforceDeploymentAuthorization(newRecordingShadowLog(), enforcementChecker, catalog))
+			router.Use(middleware.ObserveDeploymentAuthorization(newRecordingShadowLog(), shadowChecker, catalog))
+			deploymentTestRoutes(router, catalog).ObservedPOST(
+				authz.ActionDeploymentOperate,
+				"/deployments/:id/restart",
+				"test",
+				func(c *gin.Context) {
+					handlerCalled = true
+					c.Status(http.StatusNoContent)
+				},
+			)
+
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/deployments/dep_123/restart", nil))
+			if response.Code != test.wantStatus || handlerCalled != test.wantHandler || enforcementChecker.calls.Load() != 1 {
+				t.Fatalf("status=%d handler=%v enforcement calls=%d", response.Code, handlerCalled, enforcementChecker.calls.Load())
+			}
+
+			if test.wantShadow {
+				select {
+				case <-shadowChecker.done:
+				case <-time.After(time.Second):
+					t.Fatal("shadow check did not run after enforcement rollout skip")
+				}
+				if shadowChecker.calls.Load() != 1 {
+					t.Fatalf("shadow calls=%d, want 1", shadowChecker.calls.Load())
+				}
+				return
+			}
+
+			select {
+			case <-shadowChecker.done:
+				t.Fatal("shadow check duplicated a completed enforcement decision")
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func TestEnforceDeploymentAuthorizationLeavesModelDeferredRoutesOnLegacyPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checker := newRecordingChecker(nil, nil)
+	checker.allowed = false
+	router := gin.New()
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
+		c.Next()
+	})
+	router.Use(middleware.EnforceDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+	routes := deploymentTestRoutes(router, catalog)
+	routes.ModelDeferredPOST("/deployments/:id/dataset/judgments", "test", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/deployments/dep_123/dataset/judgments", nil))
+	if response.Code != http.StatusNoContent || checker.calls.Load() != 0 {
+		t.Fatalf("status=%d calls=%d, want legacy handler with no deployment FGA check", response.Code, checker.calls.Load())
+	}
+}
+
+func TestAuthorizeDeploymentActionEnforcesBodyAddressedMutation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checker := newRecordingChecker(nil, nil)
+	checker.allowed = false
+	router := gin.New()
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
+		c.Next()
+	})
+	router.Use(middleware.EnforceDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+	router.POST("/api/v1/undeploy", func(c *gin.Context) {
+		if middleware.AuthorizeDeploymentAction(c, authz.ActionDeploymentDelete, "dep_123") {
+			c.Status(http.StatusNoContent)
+		}
+	})
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/undeploy", nil))
+	if response.Code != http.StatusNotFound || checker.calls.Load() != 1 || checker.action != authz.ActionDeploymentDelete {
+		t.Fatalf("status=%d calls=%d action=%q", response.Code, checker.calls.Load(), checker.action)
 	}
 }
