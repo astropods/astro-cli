@@ -581,6 +581,24 @@ func (s *AccountStore) TouchAvatarUpdatedAtByName(name string) (time.Time, error
 	return ts, err
 }
 
+// AccountScope returns an account's name and type. It reads two columns instead
+// of reusing GetByID, which joins the profile and organization tables to answer
+// a question about neither.
+func (s *AccountStore) AccountScope(accountID string) (name, accountType string, err error) {
+	err = s.db.QueryRow(`
+		SELECT name, type FROM accounts
+		WHERE id = $1 AND deleted_at IS NULL
+	`, accountID).Scan(&name, &accountType)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", fmt.Errorf("account not found: %s", accountID)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to query account scope: %w", err)
+	}
+	return name, accountType, nil
+}
+
 // GetFirstMemberUserID returns the user ID of the first member of an account.
 // For personal accounts this is the sole owner.
 func (s *AccountStore) GetFirstMemberUserID(accountID string) (string, error) {

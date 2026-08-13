@@ -10,6 +10,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
+// accountTypeOrganization is the accounts.type value for an organization.
+const accountTypeOrganization = "organization"
+
 // memberEmails is the member-email mirror lookup the Deliverer needs.
 // *memberemails.Store satisfies it.
 type memberEmails interface {
@@ -23,6 +26,9 @@ type accountLookup interface {
 	// DisplayNamesForUsers returns user_id → display name for the given users;
 	// users without a resolvable name are omitted.
 	DisplayNamesForUsers(userIDs []string) (map[string]string, error)
+	// AccountScope returns the account's name and type ("personal" or
+	// "organization").
+	AccountScope(accountID string) (name, accountType string, err error)
 }
 
 // managerLookup resolves an account's org managers (org:manage — owner + admin)
@@ -122,13 +128,34 @@ func (d *Deliverer) attachNames(recipients []Recipient) {
 func (d *Deliverer) finalizePayload(ev Event) map[string]any {
 	out := make(map[string]any, len(ev.Payload)+1)
 	maps.Copy(out, ev.Payload)
-	if url, ok := out[PayloadCTAURL].(string); ok && d.appBaseURL != "" && strings.HasPrefix(url, "/") {
-		out[PayloadCTAURL] = d.appBaseURL + url
+	if url, ok := out[PayloadCTAURL].(string); ok {
+		url = d.accountScopedCTA(url, ev.AccountID)
+		if d.appBaseURL != "" && strings.HasPrefix(url, "/") {
+			url = d.appBaseURL + url
+		}
+		out[PayloadCTAURL] = url
 	}
 	// An event that reached delivery unstamped (built outside an emit seam) is
 	// still better served by the delivery time than by an empty field.
 	out[PayloadTimestamp] = ev.Stamped(time.Now()).OccurredAt.Format(time.RFC3339)
 	return out
+}
+
+// accountScopedCTA rewrites a relative "/settings/<section>" link to the
+// organization-scoped route. An organization's settings live there, so the
+// personal path sends its manager to a page that reports nothing wrong. A
+// personal account, an unresolvable account, and any other path pass through.
+// That fallback matches the client's accountSettingsPath.
+func (d *Deliverer) accountScopedCTA(url, accountID string) string {
+	section, ok := strings.CutPrefix(url, "/settings/")
+	if !ok || accountID == "" || d.accounts == nil || strings.HasPrefix(section, "org/") {
+		return url
+	}
+	name, accountType, err := d.accounts.AccountScope(accountID)
+	if err != nil || accountType != accountTypeOrganization || name == "" {
+		return url
+	}
+	return "/settings/org/" + name + "/" + section
 }
 
 // resolveRecipients maps the audience policy to concrete recipients. Every

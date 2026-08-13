@@ -142,12 +142,12 @@ func (p *Provider) DeleteCustomer(ctx context.Context, customerID string) error 
 }
 
 // LinkStripeCustomer routes the customer's invoices to Stripe, where the vaulted
-// card is charged. Both writes are required. The configuration names the delivery
-// method that resolves the Stripe credential at send time, and without one
-// delivery fails with "No token found for environment type <env> and billing
-// provider STRIPE". The contract must then reference that configuration, because
-// a contract provisioned from a package carries none and keeps its invoices
-// inside Metronome. Both steps are idempotent.
+// card is charged. Both writes are required, and both are idempotent. The
+// configuration names the delivery method that resolves the Stripe credential at
+// send time. A configuration without one fails delivery with "No token found for
+// environment type <env> and billing provider STRIPE". The contract must then
+// reference that configuration. A contract provisioned from a package carries
+// none, and keeps its invoices inside Metronome.
 func (p *Provider) LinkStripeCustomer(ctx context.Context, metronomeCustomerID, stripeCustomerID string) error {
 	configID, err := p.stripeConfiguration(ctx, metronomeCustomerID, stripeCustomerID)
 	if err != nil {

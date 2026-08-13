@@ -38,12 +38,19 @@ func (f fakeEmails) EmailsForAccount(_ context.Context, _ string) (map[string]st
 }
 
 type fakeAccounts struct {
-	ownerID string
-	err     error
-	names   map[string]string // user_id -> display name
+	ownerID   string
+	err       error
+	names     map[string]string // user_id -> display name
+	scopeName string
+	scopeType string
+	scopeErr  error
 }
 
 func (f fakeAccounts) GetFirstMemberUserID(string) (string, error) { return f.ownerID, f.err }
+
+func (f fakeAccounts) AccountScope(string) (string, string, error) {
+	return f.scopeName, f.scopeType, f.scopeErr
+}
 
 func (f fakeAccounts) DisplayNamesForUsers(userIDs []string) (map[string]string, error) {
 	if f.names == nil {
@@ -458,5 +465,82 @@ func TestDeliverPropagatesProviderError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected provider error to propagate so River retries")
+	}
+}
+
+// An organization's settings live under /settings/org/<slug>/. A notification
+// that links to the personal path sends the manager somewhere that reports
+// nothing wrong.
+func TestDeliverScopesSettingsCTAToTheAccount(t *testing.T) {
+	cases := []struct {
+		name    string
+		cta     string
+		scope   fakeAccounts
+		wantCTA string
+	}{
+		{
+			name:    "organization gets the org-scoped path",
+			cta:     "/settings/billing",
+			scope:   fakeAccounts{ownerID: "u_owner", scopeName: "acme", scopeType: "organization"},
+			wantCTA: "https://app.test/settings/org/acme/billing",
+		},
+		{
+			name:    "personal account is unchanged",
+			cta:     "/settings/billing",
+			scope:   fakeAccounts{ownerID: "u_owner", scopeName: "matt", scopeType: "personal"},
+			wantCTA: "https://app.test/settings/billing",
+		},
+		{
+			name:    "unresolvable account falls back to the personal path",
+			cta:     "/settings/billing",
+			scope:   fakeAccounts{ownerID: "u_owner", scopeErr: errors.New("gone")},
+			wantCTA: "https://app.test/settings/billing",
+		},
+		{
+			name:    "a non-settings path is untouched",
+			cta:     "/acme/my-agent",
+			scope:   fakeAccounts{ownerID: "u_owner", scopeName: "acme", scopeType: "organization"},
+			wantCTA: "https://app.test/acme/my-agent",
+		},
+		{
+			name:    "an absolute CTA is untouched",
+			cta:     "https://invoice.stripe.com/i/abc",
+			scope:   fakeAccounts{ownerID: "u_owner", scopeName: "acme", scopeType: "organization"},
+			wantCTA: "https://invoice.stripe.com/i/abc",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prov := &fakeProvider{}
+			emails := fakeEmails{byEmail: map[string]string{"o@x.com": "u_owner"}}
+			d := NewDeliverer(prov, emails, tc.scope, nil, "https://app.test", nil)
+
+			if err := d.Deliver(context.Background(), Event{
+				Type: TypeBillingCreditsExhausted, AccountID: "acct_1", Audience: AudienceManagers,
+				Payload: map[string]any{PayloadCTAURL: tc.cta},
+			}); err != nil {
+				t.Fatalf("Deliver: %v", err)
+			}
+			if got := prov.payload[PayloadCTAURL]; got != tc.wantCTA {
+				t.Errorf("ctaUrl = %v, want %v", got, tc.wantCTA)
+			}
+		})
+	}
+}
+
+// The dunning sweep emits with no account name, so only delivery can resolve the
+// link. This notification is what tells an organization it was stopped.
+func TestDeliverScopesSuspensionCTAWithoutAnAccountName(t *testing.T) {
+	prov := &fakeProvider{}
+	emails := fakeEmails{byEmail: map[string]string{"o@x.com": "u_owner"}}
+	accounts := fakeAccounts{ownerID: "u_owner", scopeName: "acme", scopeType: "organization"}
+	d := NewDeliverer(prov, emails, accounts, nil, "https://app.test", nil)
+
+	if err := d.Deliver(context.Background(), BillingSuspended("acct_1", "")); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	want := "https://app.test/settings/org/acme/billing"
+	if got := prov.payload[PayloadCTAURL]; got != want {
+		t.Errorf("ctaUrl = %v, want %v", got, want)
 	}
 }
