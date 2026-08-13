@@ -690,10 +690,11 @@ func canDeploySourceAgent(sourceAcct, targetAcct *account.Account, sourceAgent *
 // POST /api/v1/deploy
 // Content-Type: application/yaml (or application/json)
 // Body: fulfilled deployment spec (spec: deployment/v1)
-// EntitlementChecker is the binary billing gate used by DeployAgent: an account
-// is either in good standing or suspended. A nil EntitlementChecker skips it.
+// EntitlementChecker is the billing gate: an account is either in good standing
+// or suspended. Check returns the gating reason too, so a refusal can name the
+// fix instead of a generic billing error. A nil EntitlementChecker skips it.
 type EntitlementChecker interface {
-	Blocked(ctx context.Context, accountID string) bool
+	Check(ctx context.Context, accountID string) middleware.Decision
 }
 
 // DeployQueue abstracts job insertion for deploy/undeploy/wakeup operations.
@@ -828,9 +829,11 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				return
 			}
 		}
-		if entCheck != nil && entCheck.Blocked(c.Request.Context(), dctx.acct.ID) {
-			c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse())
-			return
+		if entCheck != nil {
+			if d := entCheck.Check(c.Request.Context(), dctx.acct.ID); d.Blocked {
+				c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
+				return
+			}
 		}
 
 		// Persist resolved spec and enqueue async deploy job
@@ -4716,7 +4719,12 @@ func CancelDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // WakeUpDeployment triggers re-provisioning of a paused (stopped) deployment.
-func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
+//
+// entCheck refuses a wakeup on a suspended account. Without it the request still
+// failed, but on the status check below, which reports "deployment is not
+// stopped" for a deployment billing stopped: true, useless, and it hides the
+// only fact the caller can act on.
+func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -4733,13 +4741,22 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 			return
 		}
-		if dep.Status != deploymentstore.StatusStopped {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped"})
+		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
 
-		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+		// After membership, because the reason names another tenant's billing
+		// state; before the status check, so a billing stop is reported as one
+		// rather than as "deployment is not stopped".
+		if entCheck != nil {
+			if d := entCheck.Check(c.Request.Context(), dep.AccountID); d.Blocked {
+				c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
+				return
+			}
+		}
+		if dep.Status != deploymentstore.StatusStopped {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped"})
 			return
 		}
 

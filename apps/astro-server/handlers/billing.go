@@ -39,6 +39,13 @@ type BillingStatusResponse struct {
 	// deployments. Outlives Enforced, since turning enforcement off does not
 	// restart what it stopped.
 	WorkloadsSuspended bool `json:"workloads_suspended"`
+	// Gated is whether this status is worth surfacing: enforcement is on, or it
+	// already stopped something. The server owns the rule so a client does not
+	// combine Enforced and WorkloadsSuspended itself and drift from it.
+	Gated bool `json:"gated"`
+	// Action is the one thing that resolves the gate, matching the 402 body's
+	// action so a banner and a refused request never disagree on the fix.
+	Action string `json:"action,omitempty"`
 }
 
 // GetBillingStatus handles GET /api/v1/accounts/:account/billing/status. It
@@ -71,14 +78,20 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, de
 				log.Warn("Failed to check suspended workloads", "error", derr, "account_id", acct.ID)
 			}
 		}
-		c.JSON(http.StatusOK, BillingStatusResponse{
+		gated := rec.Status != billing.StatusActive && (enforced || stopped)
+		resp := BillingStatusResponse{
 			Status:             string(rec.Status),
 			Reason:             rec.Reason,
 			CreditsExhausted:   rec.CreditsExhausted,
 			HasPaymentMethod:   rec.HasPaymentMethod,
 			Enforced:           enforced,
 			WorkloadsSuspended: stopped,
-		})
+			Gated:              gated,
+		}
+		if gated {
+			resp.Action = middleware.BillingAction(rec.Reason)
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

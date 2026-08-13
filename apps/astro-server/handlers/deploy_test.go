@@ -3009,7 +3009,7 @@ func setupWakeUpRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/deployments/:id/wakeup", WakeUpDeployment(log, accountStore, deployStore, &mockQueue{}, nil))
+	router.POST("/api/v1/deployments/:id/wakeup", WakeUpDeployment(log, accountStore, deployStore, &mockQueue{}, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -3073,7 +3073,7 @@ func TestWakeUpDeployment_Success(t *testing.T) {
 }
 
 func TestWakeUpDeployment_NotStopped(t *testing.T) {
-	router, deployMock, _ := setupWakeUpRouter(t)
+	router, deployMock, accountMock := setupWakeUpRouter(t)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
@@ -3083,6 +3083,10 @@ func TestWakeUpDeployment_NotStopped(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
 			"My Agent", `{}`, "active", now, nil))
+
+	// Membership is decided first, so a non-member never learns the status.
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/wakeup", nil)
 	w := httptest.NewRecorder()

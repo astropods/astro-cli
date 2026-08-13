@@ -1813,7 +1813,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 			)
-			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
