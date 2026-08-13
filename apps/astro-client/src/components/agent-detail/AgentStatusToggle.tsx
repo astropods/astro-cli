@@ -30,7 +30,7 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
   const suspended = isBillingSuspendedStatus(statusData);
   // Same query key as the app-shell banner, so this is a cache read.
   const { data: billing } = useBillingStatus(suspended ? account : "");
-  const suspendedHint = billingStoppedHint(billing?.reason);
+  const suspendedHint = billingStoppedHint(billing?.action);
   const serverTransitioning = liveStatus === "deploying" || liveStatus === "undeploying";
 
   // Track local intent: "pausing" or "resuming" until server catches up

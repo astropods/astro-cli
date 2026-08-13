@@ -2,29 +2,32 @@ import { describe, expect, it } from "vitest";
 import { billingActionLabel, billingBannerCopy, billingStoppedHint } from "./billing-copy";
 
 describe("billingStoppedHint", () => {
-  // Every other reason already has a card, so "add one" cannot resolve it.
-  it("only tells the owner to add a card when credits ran out", () => {
-    expect(billingStoppedHint("credits_exhausted")).toContain("Add a payment method");
-    for (const reason of ["payment_failed", "dunning", "uncollectible", "balance_alert"]) {
-      expect(billingStoppedHint(reason)).not.toContain("Add a payment method");
+  // add_card is the one action that means no card is on file, so it is the one
+  // hint that may tell the owner to add one.
+  it("only tells the owner to add a card for add_card", () => {
+    expect(billingStoppedHint("add_card")).toContain("Add a payment method");
+    for (const action of ["update_card", "contact_support", "view_billing"]) {
+      expect(billingStoppedHint(action)).not.toContain("Add a payment method");
     }
   });
 
-  it("points a failed charge at updating the card", () => {
-    expect(billingStoppedHint("payment_failed")).toContain("Update your payment method");
-    expect(billingStoppedHint("uncollectible")).toContain("Update your payment method");
+  it("points update_card at the existing card", () => {
+    expect(billingStoppedHint("update_card")).toContain("Update your payment method");
   });
 
-  it("names the spend threshold rather than the card", () => {
-    expect(billingStoppedHint("balance_alert")).toContain("spend threshold");
+  // The server returns contact_support for a spend limit because only an
+  // operator can raise it. Naming the threshold without naming the fix left the
+  // owner with nothing to do.
+  it("tells a spend-limit account to contact support", () => {
+    expect(billingStoppedHint("contact_support")).toContain("Contact support");
   });
 
-  // A build that predates a new server reason still has to say something true.
-  it("falls back to copy that holds for any reason", () => {
+  // A build that predates a new server action still has to say something true.
+  it("falls back to copy that holds for any action", () => {
     expect(billingStoppedHint(undefined)).toBe(
       "Stopped by billing. Resolve billing to start it again.",
     );
-    expect(billingStoppedHint("some_future_reason")).toBe(
+    expect(billingStoppedHint("some_future_action")).toBe(
       "Stopped by billing. Resolve billing to start it again.",
     );
   });

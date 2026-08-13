@@ -77,20 +77,18 @@ export function billingBannerCopy(
   return null;
 }
 
-/** One line for a tooltip on a billing-stopped agent. Only credits_exhausted
- *  implies no card on file; the other reasons already have one. An unknown
- *  reason gets copy that holds whichever reason it turns out to be. */
-export function billingStoppedHint(reason: string | undefined): string {
-  switch (reason) {
-    case "credits_exhausted":
-      return "Stopped by billing. Add a payment method to start it again.";
-    case "balance_alert":
-      return "Stopped by billing. The account hit its spend threshold.";
-    case "uncollectible":
-    case "dunning":
-    case "payment_failed":
-      return "Stopped by billing. Update your payment method to start it again.";
-    default:
-      return "Stopped by billing. Resolve billing to start it again.";
-  }
+/** One line for a tooltip on a billing-stopped agent, keyed on the server's
+ *  action for the same reason the banner's button is. The wording is
+ *  deployment-scoped where the server's `details` is account-scoped, so the
+ *  client still owns the sentence, but not the instruction inside it. An
+ *  unknown action gets copy that holds whichever action it turns out to be. */
+const ACTION_HINT: Record<string, string> = {
+  add_card: "Stopped by billing. Add a payment method to start it again.",
+  update_card: "Stopped by billing. Update your payment method to start it again.",
+  contact_support: "Stopped by billing. Contact support to raise the spend limit.",
+  view_billing: "Stopped by billing. Resolve billing to start it again.",
+};
+
+export function billingStoppedHint(action: string | undefined): string {
+  return (action && ACTION_HINT[action]) || ACTION_HINT.view_billing;
 }
