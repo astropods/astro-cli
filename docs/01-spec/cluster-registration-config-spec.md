@@ -10,7 +10,7 @@ Today, cluster registration is manual: astro-infra renders a JSON payload (`clus
 
 This spec makes astro-infra's Terraform output the sole source of truth for a cluster's connectivity/identity data, delivered as part of astro-server's deploy artifact — same mechanism as the primary cluster's env vars, just a list instead of a singleton. Connectivity data can only change via a reviewed Terraform change + redeploy. No background process, no poller, no RPC can write it.
 
-`enabled` and pull credentials stay runtime, human/server-owned state in `public.clusters` — the only things that can change fast, without a redeploy (e.g. disabling an unhealthy cluster).
+Every row present in `public.clusters` is usable — there's no enabled/disabled gate. A cluster removed from config is deleted on the next boot sync (or left in place, logged, if still referenced by an account or deployment); `pull_credential`/`pull_key_hash` are the only server-generated, runtime state.
 
 **Revision note**: two earlier drafts used a background reconciler (S3-polling, or writing straight into the RPC-mutable table). Both rejected — see Alternatives Considered.
 
@@ -44,43 +44,39 @@ flowchart TD
         CM -- mounted file --> BOOT["Boot sync<br/>(runs once, before serving traffic)"]
     end
 
-    BOOT -- "insert / overwrite / disable-on-removal" --> CONNFIELDS["region, eks_*, ingress domains,<br/>observability URLs, pod CIDRs"]:::config
+    BOOT -- "insert / overwrite / delete-on-removal" --> CONNFIELDS["region, eks_*, ingress domains,<br/>observability URLs, pod CIDRs"]:::config
     BOOT -- "new row only" --> GENFIELDS["pull_credential,<br/>pull_key_hash"]:::generated
 
     CONNFIELDS --> TABLE[("public.clusters")]
     GENFIELDS --> TABLE
-    ENABLEFIELD["enabled"]:::operator --> TABLE
 
     TABLE --> CSTORE["clusterstore"]
     CSTORE --> REGISTRY["k8s.Registry<br/>(cache + Refresh)"]
     REGISTRY --> WORK["handlers / River workers"]
 
     subgraph ADMIN["Operator surface"]
-        QUEEN["astro-queen"] -- mTLS admin gRPC --> RPCS["EnableCluster / DisableCluster / DeregisterCluster"]
+        QUEEN["astro-queen"] -- mTLS admin gRPC --> RPCS["DeregisterCluster"]
     end
 
-    RPCS -- "sets (policy decision)" --> ENABLEFIELD
     RPCS --> REGISTRY
 ```
 
-Blue = config-owned (boot sync only). Amber = operator-owned (RPC decision). Green = server-generated (nobody supplies a value). astro-queen has no register/edit action for connectivity fields.
+Blue = config-owned (boot sync only). Green = server-generated (nobody supplies a value). astro-queen has no register/edit/enable/disable action — it's read-only plus deregister and health-check.
 
 ## Terminology
 
 - **Registration payload** — the JSON `cluster-registration-payload` already renders. Unchanged.
 - **Cluster config** — combined list of every additional cluster's payload, rendered into astro-server's Helm values and mounted into its pods. Never includes the primary/default cluster, which keeps its own env vars.
 - **Boot sync** — one-time step at astro-server startup: reads the mounted config, upserts config-owned fields. Not a background loop.
-- **Config-owned field** — region, EKS coordinates, ingress domains, observability URLs, pod CIDRs. Boot sync only, overwritten every startup.
-- **Operator-owned field** — `enabled`. Set only via `EnableCluster`/`DisableCluster`, plus one boot-sync exception (Design).
+- **Config-owned field** — region, EKS coordinates, ingress domains, observability URLs, pod CIDRs. Boot sync only, overwritten every startup. `eks_cluster_ca` and `langfuse_vpce_ips` are the two exceptions that stay optional (Design).
 - **Server-generated field** — `pull_credential`, `pull_key_hash`. astro-server mints these; no config or operator input.
 
 ## Goals
 
 1. One authoritative source for connectivity data — astro-infra's Terraform output, baked into the deploy artifact.
 2. Connectivity data changes only via Terraform + redeploy. No RPC, not even as an override — astro-queen cannot register or edit connectivity fields.
-3. `enabled` stays a reversible, human-owned action, changeable without a redeploy.
-4. Config removed → next boot disables the row, never deletes it. Deletion stays manual `DeregisterCluster`.
-5. Malformed config fails the deploy/readiness check, not a silent runtime drift.
+3. Config removed → next boot deletes the row (or leaves it, logged, if still referenced) — no disabled state to manage separately.
+4. Malformed config fails the deploy/readiness check, not a silent runtime drift.
 
 ## Non-Goals
 
@@ -106,31 +102,30 @@ Onboarding is now two Terraform applies (cluster's own `-infra`, then the primar
 | Field group | Fields | Writer |
 |---|---|---|
 | Config-owned | `region`, `eks_cluster_name`, `eks_cluster_endpoint`, `eks_cluster_ca`, `agent_ingress_domain`, `ingestion_ingress_domain`, `langfuse_base_url_ext`, `langfuse_vpce_ips`, `pod_subnet_cidrs`, `pod_subnet_ipv6_cidrs`, `loki_url`, `prometheus_url`, `tenant_router_internal_url` | Boot sync, exclusively. No RPC, no manual override. |
-| Operator-owned | `enabled` | `EnableCluster`/`DisableCluster` — plus one boot-sync exception (can set `false`, never `true`). |
 | Server-generated | `pull_credential`, `pull_key_hash` | `generatePullCredential`, called only from boot sync on row creation. |
 
-`enabled` is RPC-only by policy (fast/reversible, Goal 3). `pull_credential` is server-generated by necessity: it doesn't exist until astro-server creates it, flows *out* to the cluster, and only its hash is ever persisted — never fit for a Helm-rendered, git-tracked file.
+`eks_cluster_ca` is required for every cluster except the default (the one astro-server itself runs in — no cross-account client to build). `langfuse_vpce_ips` is optional everywhere: only clusters needing a PrivateLink netpol exception to reach Langfuse set it. `pull_credential` is server-generated by necessity: it doesn't exist until astro-server creates it, flows *out* to the cluster, and only its hash is ever persisted — never fit for a Helm-rendered, git-tracked file.
 
-### `RegisterCluster` / `UpdateCluster` are removed
+### `RegisterCluster` / `UpdateCluster` / `EnableCluster` / `DisableCluster` are removed
 
-Their only job was setting connectivity fields; boot sync now owns that exclusively, so both RPCs and astro-queen's register/edit form go away. astro-queen is confirmed the only caller — no other blast radius. Keeping them as a labeled "provisional" escape hatch would recreate the unreviewed write path this spec closes.
+Their only job was mutating connectivity or availability state by hand; boot sync now owns both exclusively, so all four RPCs and astro-queen's register/edit/enable/disable UI go away. astro-queen is confirmed the only caller — no other blast radius. Keeping any of them as a labeled "provisional" escape hatch would recreate the unreviewed write path this spec closes.
 
 ### Boot sync
 
 Runs once, synchronously, at startup, before serving traffic:
 
 1. Parse the mounted file. Top-level parse/schema failure fails startup (caught by readiness check).
-2. Validate each entry (same rules as `clusterstore.Register`). A bad entry is logged and skipped, not fatal.
-3. New id → insert, `enabled = false`, pull credential generated. Existing id → overwrite config-owned fields (skip write if hash unchanged).
-4. Row with `config_synced_at` set but missing from this config → `enabled = false`, logged. Never delete.
-5. Rows with `config_synced_at IS NULL` (legacy `RegisterCluster` rows) are left alone — a transition-only case, resolved by the backfill (Track A) before the RPC is removed (Track B).
+2. Validate each entry (same rules as `clusterstore.UpsertFromConfig`, relaxed per the default-cluster exceptions above). A bad entry is logged and skipped, not fatal.
+3. New id → insert, pull credential generated. Existing id → overwrite config-owned fields (skip write if hash unchanged); credential untouched.
+4. Row with `config_synced_at` set but missing from this config → deleted. If still referenced by an account or deployment, the delete is blocked and logged — same FK semantics as a manual `DeregisterCluster`.
+5. Rows with `config_synced_at IS NULL` (legacy rows created before boot sync existed) are left alone.
 
 ### Concurrency
 
 No leader election, no lock — every pod runs this independently and it's safe by construction:
 
-- Insert is `INSERT ... ON CONFLICT (id) DO UPDATE`, atomic. The `DO UPDATE` clause excludes `pull_credential`/`pull_key_hash`/`enabled` — whichever insert lands keeps its credential; a racing pod's insert just falls through to updating the (identical) config fields.
-- Update and disable-on-removal are idempotent: every pod reads the identical mounted config, so concurrent writes converge regardless of order.
+- Insert is `INSERT ... ON CONFLICT (id) DO UPDATE`, atomic. The `DO UPDATE` clause excludes `pull_credential`/`pull_key_hash` — whichever insert lands keeps its credential; a racing pod's insert just falls through to updating the (identical) config fields.
+- Update and delete-on-removal are idempotent: every pod reads the identical mounted config, so concurrent writes converge regardless of order.
 - No stale cache to invalidate — boot sync runs before the pod serves traffic.
 
 A single pre-rollout Job/Helm-hook was considered and rejected: it'd remove some redundant per-pod work at the cost of a new resource type and failure mode, to solve a race correct SQL already closes.
@@ -174,9 +169,9 @@ Rollback: remove the `CLUSTER_CONFIG_PATH` mount — boot sync no-ops again. Not
 
 ## What This Preserves / What This Kills
 
-**Kills**: any write path for connectivity data outside the deploy pipeline; the manual paste-into-astro-queen step; `RegisterCluster`/`UpdateCluster` and their UI.
+**Kills**: any write path for connectivity data outside the deploy pipeline; the manual paste-into-astro-queen step; `RegisterCluster`/`UpdateCluster`/`EnableCluster`/`DisableCluster` and their UI; the enabled/disabled distinction itself — every row present is usable.
 
-**Preserves**: `enabled` as a fast, reversible, human-owned gate; `DeregisterCluster`'s manual, FK-gated deletion; the primary cluster's env-var model.
+**Preserves**: `DeregisterCluster`'s manual, FK-gated deletion (config-driven removal uses the same FK semantics, just automatically); the primary cluster's env-var model.
 
 ## Open Questions
 

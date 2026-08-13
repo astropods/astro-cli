@@ -40,6 +40,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metronome"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterconfig"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
@@ -314,6 +315,41 @@ func main() {
 	log.Info("Server stopped gracefully")
 }
 
+func buildRegistryConfig(ctx context.Context, clusterStore *clusterstore.Store, cfg *config.Config, log *logger.Logger) (k8s.RegistryConfig, error) {
+	regCfg := k8s.RegistryConfig{
+		Mode:           k8s.ClientMode(cfg.Deployment.K8sClientMode),
+		Region:         cfg.Deployment.AWSRegion,
+		KubeconfigPath: cfg.Deployment.KubeconfigPath,
+		KubeContext:    cfg.Deployment.KubeContext,
+	}
+	if regCfg.Mode == k8s.ClientModeLocal {
+		return regCfg, nil
+	}
+
+	entries, err := clusterconfig.Load(cfg.Deployment.ClusterConfigPath)
+	if err != nil {
+		return regCfg, err
+	}
+	log.Info("cluster config: loaded", "path", cfg.Deployment.ClusterConfigPath, "entries", len(entries))
+	clusterconfig.Sync(ctx, clusterStore, entries, cfg.Deployment.DefaultClusterID, log)
+
+	defaultEntry, ok := clusterconfig.Find(entries, cfg.Deployment.DefaultClusterID)
+	if !ok {
+		return regCfg, fmt.Errorf("default cluster %q not found in cluster config", cfg.Deployment.DefaultClusterID)
+	}
+	ca, err := defaultEntry.DecodedCA()
+	if err != nil {
+		return regCfg, err
+	}
+	regCfg.Region = defaultEntry.Region
+	regCfg.EKSBootstrapName = defaultEntry.EKSClusterName
+	regCfg.EKSBootstrapURL = defaultEntry.EKSClusterEndpoint
+	regCfg.EKSBootstrapCA = ca
+	regCfg.DefaultClusterID = defaultEntry.ID
+	regCfg.PrometheusURL = defaultEntry.PrometheusURL
+	return regCfg, nil
+}
+
 // runAPI initializes and starts the HTTP API server, gRPC admin server, and Fleet gRPC server.
 func runAPI(
 	log *logger.Logger,
@@ -413,23 +449,15 @@ func runAPI(
 		}
 	}()
 
-	// Initialize Kubernetes registry. The registry holds the primary
-	// ClusterClient (built from env vars / kubeconfig) and is the seam
-	// for per-deployment cluster_id resolution against the `clusters`
-	// table. Handlers and workers without a per-deployment cluster_id
-	// receive registry.Default(). See
-	// docs/01-spec/multi-region-cluster-support-spec.md for the design.
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	log.Info("Initializing Kubernetes registry", "mode", string(clientMode))
 	registryCtx, registryCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	registry, registryErr := k8s.NewRegistry(registryCtx, clusterStore, k8s.RegistryConfig{
-		Mode:             clientMode,
-		Region:           cfg.Deployment.AWSRegion,
-		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
-		KubeContext:      cfg.Deployment.KubeContext,
-		EKSBootstrapName: cfg.Deployment.EKSClusterName,
-		EKSBootstrapURL:  cfg.Deployment.K8sMasterURL,
-	}, log)
+	registryCfg, regCfgErr := buildRegistryConfig(registryCtx, clusterStore, cfg, log)
+	var registry *k8s.Registry
+	registryErr := regCfgErr
+	if regCfgErr == nil {
+		registry, registryErr = k8s.NewRegistry(registryCtx, clusterStore, registryCfg, log)
+	}
 	registryCancel()
 
 	var k8sClient k8s.ClusterClient
@@ -460,28 +488,8 @@ func runAPI(
 		backfillClusterPullCredentials(ctx, clusterStore, k8sReg, log)
 	}()
 
-	// Resolve deployment log backend: explicit env var > auto-detect from LOKI_URL
-	logBackend := cfg.DeploymentLogBackend
-	if logBackend == "" {
-		if cfg.LokiURL != "" {
-			logBackend = "loki"
-		} else {
-			logBackend = "k8s"
-		}
-	}
 	var lokiClient *loki.Client
-	if logBackend == "loki" {
-		if cfg.LokiURL == "" {
-			log.Error("DEPLOYMENT_LOG_BACKEND=loki but LOKI_URL is not set")
-		} else {
-			lokiClient = loki.New(cfg.LokiURL)
-			log.Info("Deployment log backend: loki", "url", cfg.LokiURL)
-		}
-	} else {
-		log.Info("Deployment log backend: k8s (direct pod logs)")
-	}
 
-	// Initialize probe handler
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Create insert-only River queue for API (no workers, no periodic jobs — workers run in runWorker)
@@ -505,7 +513,7 @@ func runAPI(
 	slackIdentityStore := slackidentity.NewStore(db)
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
-	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
+	promClient := promquery.NewClient(registryCfg.PrometheusURL, registryCfg.EKSBootstrapName)
 
 	// Image preflighter: HEAD-checks tenant images before a deploy is enqueued
 	// (handler) and again before K8s apply (worker via Deployer/Applier). One
@@ -560,7 +568,7 @@ func runAPI(
 	setupRoutes(router, deps)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore, clusterStore, k8sReg, k8sCache)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
 	adminSrv.SetPrometheusClient(promClient)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
@@ -638,7 +646,7 @@ func runAPI(
 // ahead of this goroutine and cached an empty credential would stay stuck
 // with it until some unrelated admin action called Refresh.
 func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterstore.Store, registry *k8s.Registry, log *logger.Logger) {
-	clusters, err := clusterStore.List(ctx, false)
+	clusters, err := clusterStore.List(ctx)
 	if err != nil {
 		log.Warn("cluster pull credential backfill: list clusters failed", "error", err)
 		return
@@ -697,20 +705,14 @@ func runWorker(
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
-	// Worker-side registry: same shape as the API-side one above. Both run
-	// inside the same astro-server process when SERVER_MODE=all; with
-	// SERVER_MODE=worker this is the only registry the process holds.
-	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
 	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	clusterStore := clusterstore.New(db)
-	registry, registryErr := k8s.NewRegistry(initCtx, clusterStore, k8s.RegistryConfig{
-		Mode:             clientMode,
-		Region:           cfg.Deployment.AWSRegion,
-		KubeconfigPath:   cfg.Deployment.KubeconfigPath,
-		KubeContext:      cfg.Deployment.KubeContext,
-		EKSBootstrapName: cfg.Deployment.EKSClusterName,
-		EKSBootstrapURL:  cfg.Deployment.K8sMasterURL,
-	}, log)
+	registryCfg, regCfgErr := buildRegistryConfig(initCtx, clusterStore, cfg, log)
+	var registry *k8s.Registry
+	registryErr := regCfgErr
+	if regCfgErr == nil {
+		registry, registryErr = k8s.NewRegistry(initCtx, clusterStore, registryCfg, log)
+	}
 	initCancel()
 
 	var k8sReg *k8s.Registry
@@ -727,9 +729,9 @@ func runWorker(
 	}()
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
-	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
+	promClient := promquery.NewClient(registryCfg.PrometheusURL, registryCfg.EKSBootstrapName)
 	if promClient != nil {
-		log.Info("Prometheus query client initialized", "url", cfg.PrometheusURL)
+		log.Info("Prometheus query client initialized", "url", registryCfg.PrometheusURL)
 	}
 
 	// Initialize WorkOS client for background jobs (user lookups)

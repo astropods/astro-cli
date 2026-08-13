@@ -523,7 +523,6 @@ export interface RegisteredCluster {
   region: string;
   eks_cluster_name: string;
   eks_cluster_endpoint: string;
-  enabled: boolean;
   is_primary: boolean;
   created_at: string;
   updated_at: string;
@@ -550,70 +549,6 @@ export interface RegisteredCluster {
 
 export interface ListClustersResponse {
   clusters: RegisteredCluster[];
-}
-
-export interface RegisterClusterRequest {
-  id: string;
-  region: string;
-  eks_cluster_name: string;
-  eks_cluster_endpoint: string;
-  /** Base64-encoded PEM from `aws eks describe-cluster`. */
-  eks_cluster_ca: string;
-  enabled?: boolean;
-  agent_ingress_domain: string;
-  ingestion_ingress_domain: string;
-  langfuse_base_url_ext: string;
-  langfuse_vpce_ips: string;
-  pod_subnet_cidrs: string;
-  /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
-  pod_subnet_ipv6_cidrs?: string;
-  /** Optional — empty means this cluster is queried through the global
-   * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
-  loki_url?: string;
-  prometheus_url?: string;
-  /** Optional — empty means the in-app chat proxy relays through the K8s
-   * apiserver's services/proxy subresource instead of this cluster's own
-   * PrivateLink path to the tenant-router Envoy. */
-  tenant_router_internal_url?: string;
-}
-
-export interface RegisterClusterResponse {
-  cluster: RegisteredCluster;
-}
-
-export interface EnableClusterResponse {
-  cluster: RegisteredCluster;
-}
-
-export interface DisableClusterResponse {
-  cluster: RegisteredCluster;
-}
-
-export interface UpdateClusterRequest {
-  region: string;
-  eks_cluster_name: string;
-  eks_cluster_endpoint: string;
-  /** Base64-encoded PEM from `aws eks describe-cluster`. */
-  eks_cluster_ca: string;
-  agent_ingress_domain: string;
-  ingestion_ingress_domain: string;
-  langfuse_base_url_ext: string;
-  langfuse_vpce_ips: string;
-  pod_subnet_cidrs: string;
-  /** Optional — empty for IPv4-only clusters (every cluster except the pm-eu IPv6 pilot). */
-  pod_subnet_ipv6_cidrs?: string;
-  /** Optional — empty means this cluster is queried through the global
-   * LOKI_URL/PROMETHEUS_URL instead of its own observability stack. */
-  loki_url?: string;
-  prometheus_url?: string;
-  /** Optional — empty means the in-app chat proxy relays through the K8s
-   * apiserver's services/proxy subresource instead of this cluster's own
-   * PrivateLink path to the tenant-router Envoy. */
-  tenant_router_internal_url?: string;
-}
-
-export interface UpdateClusterResponse {
-  cluster: RegisteredCluster;
 }
 
 export interface ClusterBlocker {

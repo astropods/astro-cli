@@ -123,48 +123,8 @@ func TestRegistry_Get_NotFoundRow(t *testing.T) {
 	}
 }
 
-func TestRegistry_Get_Disabled(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	now := time.Now()
-	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
-		WithArgs("cl-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
-			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
-			"loki_url", "prometheus_url", "tenant_router_internal_url",
-			"pull_credential", "pull_key_hash",
-			"created_at", "updated_at",
-		}).AddRow("cl-1", "eu-west-1", "eks-name", "https://endpoint", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
-			"agents.example.com", "ingestion.example.com",
-			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
-			"", "", "",
-			nil, nil,
-			now, now))
-
-	r := &Registry{
-		primary:      &fakeClient{id: "p"},
-		clusterStore: clusterstore.New(db),
-		cache:        make(map[string]ClusterClient),
-		log:          logger.New("error", "json"),
-	}
-	_, err = r.Get(context.Background(), "cl-1")
-	if !errors.Is(err, ErrClusterDisabled) {
-		t.Fatalf("want ErrClusterDisabled, got %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // TestRegistry_GetEntry_IncludesPullCredential guards against the field
-// being dropped in this row->entry mapping, distinct from the one in
-// admingrpc.rowToEntry — clustercfg.Resolve depends on this one.
+// being dropped in this row->entry mapping — clustercfg.Resolve depends on it.
 func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -176,14 +136,14 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WithArgs("eu-west-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+			"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
 			"loki_url", "prometheus_url", "tenant_router_internal_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com",
+		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
 			"http://loki.eu-west-1.internal:3100", "http://prometheus.eu-west-1.internal:9090", "10.0.5.20:8080",
 			"astrocp_eu-west-1_secret", []byte("hash"),
@@ -217,7 +177,7 @@ func TestRegistry_GetEntry_IncludesPullCredential(t *testing.T) {
 	}
 }
 
-func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
+func TestRegistry_List_MarksDefaultFromRow(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -227,44 +187,43 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+			"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
 			"loki_url", "prometheus_url", "tenant_router_internal_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
-		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com",
+		}).AddRow("primary-eks", "us-east-1", "primary-eks", "https://primary.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "", "10.0.0.0/24", "",
+			"", "", "",
+			"", nil,
+			now, now,
+		).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "2a05:d018:51b:d540::/64",
 			"http://loki.eu-west-1.internal:3100", "http://prometheus.eu-west-1.internal:9090", "10.0.5.20:8080",
 			"astrocp_eu-west-1_secret", nil,
 			now, now))
 
 	r := &Registry{
-		primary:      &fakeClient{id: "primary"},
-		clusterStore: clusterstore.New(db),
-		regCfg: RegistryConfig{
-			Region:           "us-east-1",
-			EKSBootstrapName: "primary-eks",
-			EKSBootstrapURL:  "https://primary.example",
-		},
-		cache: make(map[string]ClusterClient),
+		primary:          &fakeClient{id: "primary"},
+		defaultClusterID: "primary-eks",
+		clusterStore:     clusterstore.New(db),
+		cache:            make(map[string]ClusterClient),
 	}
 
-	entries, err := r.List(context.Background(), false)
+	entries, err := r.List(context.Background())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("len(entries) = %d, want 2", len(entries))
 	}
-	if !entries[0].IsPrimary || entries[0].ID != PrimaryClusterID {
-		t.Fatalf("entries[0] = %+v, want synthesized primary", entries[0])
+	if !entries[0].IsDefault || entries[0].ID != "primary-eks" {
+		t.Fatalf("entries[0] = %+v, want the default cluster's own row", entries[0])
 	}
-	if entries[0].Region != "us-east-1" || entries[0].EKSClusterName != "primary-eks" {
-		t.Fatalf("primary coords: %+v", entries[0])
-	}
-	if entries[1].ID != "eu-west-1" || entries[1].IsPrimary {
+	if entries[1].ID != "eu-west-1" || entries[1].IsDefault {
 		t.Fatalf("entries[1] = %+v", entries[1])
 	}
 	if entries[1].PodSubnetIPv6CIDRs != "2a05:d018:51b:d540::/64" {
@@ -275,6 +234,53 @@ func TestRegistry_List_IncludesPrimaryAndRows(t *testing.T) {
 	}
 	if entries[1].PullCredential != "astrocp_eu-west-1_secret" {
 		t.Fatalf("entries[1].PullCredential = %q, want astrocp_eu-west-1_secret", entries[1].PullCredential)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRegistry_List_DefaultClusterMissingRowIsOmitted covers the bug this
+// replaced: List used to inject a synthesized entry for the default cluster
+// when it had no row, so a failed boot sync (missing/invalid config) looked
+// like a healthy cluster in ListClusters. Now a missing row just means the
+// default cluster doesn't appear, exactly like any other cluster would.
+func TestRegistry_List_DefaultClusterMissingRowIsOmitted(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	mock.ExpectQuery(`SELECT id, region, eks_cluster_name, eks_cluster_endpoint,`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+			"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
+			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
+			"loki_url", "prometheus_url", "tenant_router_internal_url",
+			"pull_credential", "pull_key_hash",
+			"created_at", "updated_at",
+		}).AddRow("eu-west-1", "eu-west-1", "eks-eu", "https://eu.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
+			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
+			"", "", "",
+			"astrocp_eu-west-1_secret", nil,
+			now, now))
+
+	r := &Registry{
+		primary:          &fakeClient{id: "primary"},
+		defaultClusterID: "primary-eks",
+		clusterStore:     clusterstore.New(db),
+		cache:            make(map[string]ClusterClient),
+	}
+
+	entries, err := r.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ID != "eu-west-1" {
+		t.Fatalf("entries = %+v, want only the row that actually exists", entries)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -297,18 +303,18 @@ func TestRegistry_Refresh_EvictsCache(t *testing.T) {
 	}
 }
 
-func TestRegistry_Refresh_PrimaryNoOp(t *testing.T) {
+func TestRegistry_Refresh_EmptyIDNoOp(t *testing.T) {
 	r := &Registry{
 		primary: &fakeClient{id: "primary"},
 		cache:   map[string]ClusterClient{"cl-1": &fakeClient{id: "cl-1"}},
 	}
-	if err := r.Refresh(context.Background(), PrimaryClusterID); err != nil {
-		t.Fatalf("Refresh primary: %v", err)
+	if err := r.Refresh(context.Background(), ""); err != nil {
+		t.Fatalf("Refresh empty id: %v", err)
 	}
 	r.mu.RLock()
 	_, ok := r.cache["cl-1"]
 	r.mu.RUnlock()
 	if !ok {
-		t.Fatal("Refresh(primary) should not evict other cache entries")
+		t.Fatal("Refresh(\"\") should not evict other cache entries")
 	}
 }

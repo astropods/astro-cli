@@ -65,7 +65,7 @@ export function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data, isLoading, error } = useDeployments();
-  const { data: clustersData } = useClusters(true);
+  const { data: clustersData } = useClusters();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastClicked, setLastClicked] = useState<number | null>(null);
   const [search, setSearch] = useState("");

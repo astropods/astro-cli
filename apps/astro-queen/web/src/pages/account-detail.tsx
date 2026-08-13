@@ -598,7 +598,7 @@ function IdRow({ label, value, href }: { label: string; value: string; href?: st
 }
 
 function PlacementCard({ accountId, clusterId, disabled }: { accountId: string; clusterId: string; disabled: boolean }) {
-  const { data: clustersData } = useClusters(true);
+  const { data: clustersData } = useClusters();
   const setClusterMut = useSetAccountCluster();
   const migrateMut = useMigrateAccountDeployments();
   const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);

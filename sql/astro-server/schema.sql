@@ -5,8 +5,8 @@
 -- Managed workload clusters. astro-server reconciles agent deployments into
 -- one of these. `id` is a stable string (e.g. "us-east-1-managed") referenced
 -- by `deployments.cluster_id`, `accounts.cluster_id`, and River job payloads.
--- `enabled = false` registers a row that cannot accept new traffic; used to
--- stage a cluster before promoting it.
+-- Every row present here is usable; a cluster removed from config is deleted
+-- by DeleteRemoved (or left in place if still referenced), never disabled.
 CREATE TABLE public.clusters (
     id                 varchar(64)  NOT NULL,
     region             varchar(64)  NOT NULL,
@@ -21,19 +21,9 @@ CREATE TABLE public.clusters (
     -- column-add applies safely; clusterstore.validateRequiredFields rejects
     -- empty for new/updated rows.
     eks_cluster_ca     bytea        NOT NULL DEFAULT ''::bytea,
-    enabled            boolean      NOT NULL DEFAULT true,
-    -- Per-cluster ingress / knowledge config. Required for every registered
-    -- cluster — clusterstore.Register / Update reject empty values, and the
-    -- deployer errors on empty fields at deploy time. The columns default to
-    -- '' so the schema diff applies cleanly to existing rows; operators must
-    -- backfill values via UpdateCluster before deploys targeting those rows
-    -- will succeed. The primary cluster has no row here; it reads env vars
-    -- (INGRESS_DOMAIN, INGESTION_INGRESS_DOMAIN, ...)
-    -- directly. TLS termination and DNS for the tenant-router data plane are
-    -- owned by the front-door ALB in astro-infra, so per-cluster ACM cert
-    -- ARNs and per-tenant ALB group names are no longer stored here.
-    agent_ingress_domain     varchar(253) NOT NULL DEFAULT '',
-    ingestion_ingress_domain varchar(253) NOT NULL DEFAULT '',
+    agent_ingress_domain        varchar(253) NOT NULL DEFAULT '',
+    agent_public_ingress_domain varchar(253) NOT NULL DEFAULT '',
+    ingestion_ingress_domain    varchar(253) NOT NULL DEFAULT '',
     -- Per-cluster Langfuse PrivateLink + netpol inputs (required for additional
     -- clusters; primary reads LANGFUSE_* / POD_SUBNET_CIDRS env vars).
     langfuse_base_url_ext     varchar(512) NOT NULL DEFAULT '',
@@ -58,12 +48,17 @@ CREATE TABLE public.clusters (
     -- is sha256 of its secret portion. See docs/01-spec/registry-pull-through-spec.md.
     pull_credential    text,
     pull_key_hash      bytea,
+    -- Set by clusterstore.UpsertFromConfig on every successful boot sync from
+    -- astro-infra's cluster config (see
+    -- docs/01-spec/cluster-registration-config-spec.md). NULL means this row
+    -- was never synced from config — either created before that rollout via
+    -- the (now-removed) RegisterCluster RPC, or created directly for tests.
+    -- DeleteRemoved only ever touches rows where this is set.
+    config_synced_at   timestamptz,
     created_at         timestamptz  NOT NULL DEFAULT now(),
     updated_at         timestamptz  NOT NULL DEFAULT now(),
     CONSTRAINT clusters_pkey PRIMARY KEY (id)
 );
-
-CREATE INDEX idx_clusters_enabled_region ON public.clusters(region) WHERE enabled = true;
 
 CREATE TABLE public.accounts (
     id uuid NOT NULL DEFAULT gen_random_uuid(),

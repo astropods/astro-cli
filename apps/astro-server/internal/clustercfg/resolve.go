@@ -1,8 +1,6 @@
 // Package clustercfg returns the effective ingress / knowledge / Langfuse /
-// netpol configuration for one deployment. The primary cluster reads env
-// defaults (cfg.Deployment.*); additional clusters read their row from
-// public.clusters verbatim. Env defaults never apply to a non-primary
-// cluster — those rows must declare a complete config.
+// netpol configuration for one deployment, from the cluster's row in
+// public.clusters.
 package clustercfg
 
 import (
@@ -20,10 +18,7 @@ import (
 // mirror public.clusters column names; observability fields drive collector
 // Langfuse export and tenant NetworkPolicy egress.
 type Resolved struct {
-	AgentIngressDomain string
-	// AgentPublicIngressDomain is the open (no-OIDC) cohort base for agent web
-	// surfaces. Populated for the primary cluster (env-driven); additional
-	// clusters need a per-cluster column before they can serve public surfaces.
+	AgentIngressDomain       string
 	AgentPublicIngressDomain string
 	IngestionIngressDomain   string
 	LangfuseBaseURL          string   // collector LANGFUSE_BASE_URL
@@ -35,12 +30,16 @@ type Resolved struct {
 }
 
 // Resolve returns the effective config for a deployment targeting clusterID.
+// clusterID == "" resolves to the default cluster. CPSubnetCIDRs has no
+// per-cluster equivalent yet, so it always comes from dep and only applies
+// to the default cluster.
 //
-// clusterID == "" (or k8s.PrimaryClusterID) returns env defaults from dep.
-// For an additional cluster the row's values are returned verbatim with no
-// env fallback; any empty required field is a configuration error.
+// When no default cluster is configured (DEFAULT_CLUSTER_ID unset — local
+// dev, where there's no cluster-config to sync), clusterID == "" falls back
+// to dep verbatim instead of validating against the registry, same as the
+// reg == nil case: there's no row to resolve against.
 func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig, clusterID string) (Resolved, error) {
-	if clusterID == "" || clusterID == k8s.PrimaryClusterID || reg == nil {
+	if reg == nil || (clusterID == "" && reg.DefaultClusterID() == "") {
 		langfuseURL := dep.LangfuseBaseURLExt
 		if langfuseURL == "" {
 			langfuseURL = dep.LangfuseBaseURL
@@ -73,15 +72,23 @@ func Resolve(ctx context.Context, reg *k8s.Registry, dep config.DeploymentConfig
 		return Resolved{}, fmt.Errorf("cluster %q has no registry pull credential — register or update the cluster to generate one", clusterID)
 	}
 
-	return Resolved{
-		AgentIngressDomain:     entry.AgentIngressDomain,
-		IngestionIngressDomain: entry.IngestionIngressDomain,
-		LangfuseBaseURL:        entry.LangfuseBaseURLExt,
-		LangfuseVPCEIPs:        commalist.Parse(entry.LangfuseVPCEIPs),
-		PodSubnetCIDRs:         commalist.Parse(entry.PodSubnetCIDRs),
-		PodSubnetIPv6CIDRs:     commalist.Parse(entry.PodSubnetIPv6CIDRs),
-		RegistryPullCredential: entry.PullCredential,
-	}, nil
+	resolved := Resolved{
+		AgentIngressDomain:       entry.AgentIngressDomain,
+		AgentPublicIngressDomain: entry.AgentPublicIngressDomain,
+		IngestionIngressDomain:   entry.IngestionIngressDomain,
+		LangfuseBaseURL:          entry.LangfuseBaseURLExt,
+		LangfuseVPCEIPs:          commalist.Parse(entry.LangfuseVPCEIPs),
+		PodSubnetCIDRs:           commalist.Parse(entry.PodSubnetCIDRs),
+		PodSubnetIPv6CIDRs:       commalist.Parse(entry.PodSubnetIPv6CIDRs),
+		RegistryPullCredential:   entry.PullCredential,
+	}
+	if entry.IsDefault {
+		if resolved.LangfuseBaseURL == "" {
+			resolved.LangfuseBaseURL = dep.LangfuseBaseURL
+		}
+		resolved.CPSubnetCIDRs = dep.CPSubnetCIDRs
+	}
+	return resolved, nil
 }
 
 func deployConfigFromEntry(entry k8s.ClusterEntry) clusterfields.DeployConfig {

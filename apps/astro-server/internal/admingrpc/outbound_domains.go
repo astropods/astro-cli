@@ -219,21 +219,26 @@ type outboundGroup struct {
 // outboundClusterGroups partitions every registered, enabled cluster by which
 // Prometheus client actually answers for it — the shared default for clusters
 // without their own prometheus_url, and a distinct group per cluster that has
-// one. Scoping to the primary alone would silently drop agents on additional
-// clusters from a query whose whole point is being fleet-wide, so the primary
-// is only a fallback for a registry that failed to answer.
+// one. The default cluster's own coverage always comes from config
+// (s.promClient), never solely from its registry row: if that row is missing
+// (boot sync hasn't run, or failed) it must not silently drop the default
+// cluster's traffic from a fleet-wide query. Same applies if the registry
+// can't answer at all.
 func (s *Server) outboundClusterGroups(ctx context.Context) []outboundGroup {
-	entries, err := s.k8sRegistry.List(ctx, true)
+	primaryOnly := outboundGroup{
+		client:   s.promClient,
+		selector: clusterSelector([]k8s.ClusterEntry{{EKSClusterName: s.promClient.Cluster()}}),
+	}
+
+	entries, err := s.k8sRegistry.List(ctx)
 	if err != nil {
 		s.log.Warn("Outbound domains: cluster list failed, scoping to primary", "error", err)
-		return []outboundGroup{{
-			client:   s.promClient,
-			selector: clusterSelector([]k8s.ClusterEntry{{EKSClusterName: s.promClient.Cluster()}}),
-		}}
+		return []outboundGroup{primaryOnly}
 	}
 
 	byClient := map[*promquery.Client][]k8s.ClusterEntry{}
 	var order []*promquery.Client
+	includesPrimary := false
 	for _, e := range entries {
 		// ForEntry, not the ID-based PrometheusClientFor: entries came from
 		// List, so re-resolving by id would cost a redundant clusterstore
@@ -242,13 +247,19 @@ func (s *Server) outboundClusterGroups(ctx context.Context) []outboundGroup {
 		if client == nil {
 			continue
 		}
+		if client == s.promClient {
+			includesPrimary = true
+		}
 		if _, ok := byClient[client]; !ok {
 			order = append(order, client)
 		}
 		byClient[client] = append(byClient[client], e)
 	}
 
-	groups := make([]outboundGroup, 0, len(order))
+	groups := make([]outboundGroup, 0, len(order)+1)
+	if !includesPrimary {
+		groups = append(groups, primaryOnly)
+	}
 	for _, client := range order {
 		groups = append(groups, outboundGroup{client: client, selector: clusterSelector(byClient[client])})
 	}

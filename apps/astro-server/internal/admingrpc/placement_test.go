@@ -15,7 +15,7 @@ func TestPlacementHintMessage(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected hint")
 	}
-	for _, part := range []string{"eu", "primary", "Redeploy"} {
+	for _, part := range []string{"eu", "default", "Redeploy"} {
 		if !strings.Contains(got, part) {
 			t.Fatalf("hint missing %q: %q", part, got)
 		}
@@ -24,7 +24,7 @@ func TestPlacementHintMessage(t *testing.T) {
 
 func TestPlacementUpdateMessage(t *testing.T) {
 	got := placementUpdateMessage("", "eu")
-	if !strings.Contains(got, "primary") || !strings.Contains(got, "eu") {
+	if !strings.Contains(got, "default") || !strings.Contains(got, "eu") {
 		t.Fatalf("unexpected message: %q", got)
 	}
 	if !strings.Contains(got, "Admin re-apply") {

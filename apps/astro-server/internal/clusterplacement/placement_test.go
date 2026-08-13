@@ -9,8 +9,8 @@ func TestNormalizedClusterID(t *testing.T) {
 	if got := NormalizedClusterID(""); got != "" {
 		t.Fatalf("empty: got %q", got)
 	}
-	if got := NormalizedClusterID("primary"); got != "" {
-		t.Fatalf("primary sentinel: got %q", got)
+	if got := NormalizedClusterID("default"); got != "" {
+		t.Fatalf("default alias: got %q", got)
 	}
 	if got := NormalizedClusterID("eu-west-1"); got != "eu-west-1" {
 		t.Fatalf("eu-west-1: got %q", got)
@@ -52,7 +52,7 @@ func TestPatchDeploymentSpecClusterID(t *testing.T) {
 
 func TestMigrationEventMessage(t *testing.T) {
 	got := MigrationEventMessage("", "eu")
-	if !strings.Contains(got, "primary") || !strings.Contains(got, "eu") {
+	if !strings.Contains(got, "default") || !strings.Contains(got, "eu") {
 		t.Fatalf("unexpected message: %q", got)
 	}
 }

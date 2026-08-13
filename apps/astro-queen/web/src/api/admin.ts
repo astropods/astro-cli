@@ -25,12 +25,6 @@ import type {
   GetDeploymentJobsResponse,
   ReapplyDeploymentResponse,
   ListClustersResponse,
-  RegisterClusterRequest,
-  RegisterClusterResponse,
-  EnableClusterResponse,
-  DisableClusterResponse,
-  UpdateClusterRequest,
-  UpdateClusterResponse,
   CheckClusterHealthResponse,
   GetClusterBlockersResponse,
   SetAccountClusterResponse,
@@ -795,51 +789,11 @@ export function usePodEnv(id: string, pod: string) {
   });
 }
 
-export function useClusters(enabledOnly?: boolean) {
+export function useClusters() {
   return useQuery({
-    queryKey: adminKeys.clusters(enabledOnly),
-    queryFn: () =>
-      api.get<ListClustersResponse>(
-        `/api/admin/clusters${enabledOnly ? "?enabled_only=true" : ""}`,
-      ),
+    queryKey: adminKeys.clusters(),
+    queryFn: () => api.get<ListClustersResponse>("/api/admin/clusters"),
     refetchInterval: 10_000,
-  });
-}
-
-export function useRegisterCluster() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: RegisterClusterRequest) =>
-      api.post<RegisterClusterResponse>("/api/admin/clusters", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
-    },
-  });
-}
-
-export function useEnableCluster() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post<EnableClusterResponse>(
-        `/api/admin/clusters/${encodeURIComponent(id)}/enable`,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
-    },
-  });
-}
-
-export function useDisableCluster() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.post<DisableClusterResponse>(
-        `/api/admin/clusters/${encodeURIComponent(id)}/disable`,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
-    },
   });
 }
 
@@ -861,20 +815,6 @@ export function useClusterBlockers(id: string, enabled: boolean) {
     queryFn: () =>
       api.get<GetClusterBlockersResponse>(`/api/admin/clusters/${encodeURIComponent(id)}/blockers`),
     enabled,
-  });
-}
-
-export function useUpdateCluster() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, ...body }: UpdateClusterRequest & { id: string }) =>
-      api.put<UpdateClusterResponse>(
-        `/api/admin/clusters/${encodeURIComponent(id)}`,
-        body,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [...adminKeys.all, "clusters"] });
-    },
   });
 }
 

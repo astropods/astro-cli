@@ -27,12 +27,8 @@ func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountC
 		if s.clusterStore == nil {
 			return nil, fmt.Errorf("cluster store not configured")
 		}
-		row, err := s.clusterStore.Get(ctx, clusterID)
-		if err != nil {
+		if _, err := s.clusterStore.Get(ctx, clusterID); err != nil {
 			return nil, clusterStoreErr(err)
-		}
-		if !row.Enabled {
-			return nil, fmt.Errorf("cluster %q is disabled", clusterID)
 		}
 	}
 

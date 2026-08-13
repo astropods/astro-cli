@@ -8,14 +8,14 @@ import (
 )
 
 // IsPermanentClientResolutionError reports whether a registry.Get or clusterClient
-// failure is unlikely to succeed on retry (cluster gone/disabled, IAM deny).
+// failure is unlikely to succeed on retry (cluster gone, IAM deny).
 // Unclassified errors are treated as transient so undeploy workers retry rather
 // than marking the deployment undeployed while K8s resources remain.
 func IsPermanentClientResolutionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ErrClusterNotFound) || errors.Is(err, ErrClusterDisabled) {
+	if errors.Is(err, ErrClusterNotFound) {
 		return true
 	}
 
@@ -54,7 +54,6 @@ const (
 	publicHealthDetailConnect       = "unable to connect to cluster"
 	publicHealthDetailAuth          = "unable to authenticate to cluster"
 	publicHealthDetailNotRegistered = "cluster is not registered"
-	publicHealthDetailDisabled      = "cluster is disabled"
 	publicHealthDetailFailed        = "cluster health check failed"
 )
 
@@ -67,8 +66,6 @@ func PublicClusterHealthDetail(err error) string {
 	switch {
 	case errors.Is(err, ErrClusterNotFound):
 		return publicHealthDetailNotRegistered
-	case errors.Is(err, ErrClusterDisabled):
-		return publicHealthDetailDisabled
 	}
 
 	errStr := err.Error()

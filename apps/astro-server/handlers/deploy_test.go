@@ -6130,48 +6130,6 @@ func TestDeploy_WithUnknownClusterID_Returns400(t *testing.T) {
 	}
 }
 
-func TestDeploy_WithDisabledClusterID_Returns400(t *testing.T) {
-	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStore("user-1")
-	expectDeployPrepWithCluster(accountMock, indexMock, "staging")
-
-	now := time.Now()
-	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
-		WithArgs("staging").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
-			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
-			"loki_url", "prometheus_url", "tenant_router_internal_url",
-			"pull_credential", "pull_key_hash",
-			"created_at", "updated_at",
-		}).AddRow("staging", "us-east-1", "staging-eks", "https://staging.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), false,
-			"agents.example.com", "ingestion.example.com",
-			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
-			"", "", "",
-			nil, nil,
-			now, now))
-
-	body := deployableSpecWithClusterID("staging")
-	req := signedDeployRequest(t, body)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if got := resp["error"]; got != "cluster is disabled" {
-		t.Errorf("error = %v, want cluster is disabled", got)
-	}
-	if got := resp["cluster_id"]; got != "staging" {
-		t.Errorf("cluster_id in response = %v, want staging", got)
-	}
-	if err := clusterMock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled cluster expectations: %v", err)
-	}
-}
-
 func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 	const clusterID = "eu-west-1-unhealthy"
 	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStoreClients("user-1", map[string]k8s.ClusterClient{
@@ -6183,14 +6141,14 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 	clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+			"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
 			"loki_url", "prometheus_url", "tenant_router_internal_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
-		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com",
+		}).AddRow(clusterID, "us-east-1", "fake-eks", "https://fake.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
 			"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
 			"", "", "",
 			nil, nil,
@@ -6230,14 +6188,14 @@ func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
 		clusterMock.ExpectQuery(`SELECT .+ FROM clusters WHERE id = \$1`).
 			WithArgs("eu-west-1-managed").
 			WillReturnRows(sqlmock.NewRows([]string{
-				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-				"agent_ingress_domain", "ingestion_ingress_domain",
+				"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+				"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
 				"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
 				"loki_url", "prometheus_url", "tenant_router_internal_url",
 				"pull_credential", "pull_key_hash",
 				"created_at", "updated_at",
-			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-				"agents.example.com", "ingestion.example.com",
+			}).AddRow("eu-west-1-managed", "eu-west-1", "prod-eu", "https://eu.eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+				"agents.example.com", "agents.public.example.com", "ingestion.example.com",
 				"http://langfuse.platform.astroids.ai:3000", "10.0.1.10", "10.0.0.0/24", "",
 				"", "", "",
 				nil, nil,

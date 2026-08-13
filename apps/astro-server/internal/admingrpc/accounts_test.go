@@ -31,20 +31,20 @@ var deploymentFullColumns = []string{
 	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
 }
 
-func expectEnabledClusterGet(mock sqlmock.Sqlmock, clusterID string) {
+func expectClusterGet(mock sqlmock.Sqlmock, clusterID string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM clusters").
 		WithArgs(clusterID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca", "enabled",
-			"agent_ingress_domain", "ingestion_ingress_domain",
+			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "eks_cluster_ca",
+			"agent_ingress_domain", "agent_public_ingress_domain", "ingestion_ingress_domain",
 			"langfuse_base_url_ext", "langfuse_vpce_ips", "pod_subnet_cidrs", "pod_subnet_ipv6_cidrs",
 			"loki_url", "prometheus_url", "tenant_router_internal_url",
 			"pull_credential", "pull_key_hash",
 			"created_at", "updated_at",
 		}).AddRow(
-			clusterID, "eu-west-1", "eks-"+clusterID, "https://eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"), true,
-			"agents.example.com", "ingestion.example.com",
+			clusterID, "eu-west-1", "eks-"+clusterID, "https://eks.example", []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"),
+			"agents.example.com", "agents.public.example.com", "ingestion.example.com",
 			"http://langfuse.example:3000", "10.0.1.10,10.0.2.10", "10.0.0.0/24,10.1.0.0/24", "",
 			"", "", "",
 			nil, nil,
@@ -153,7 +153,7 @@ func TestSetAccountCluster_SetsClusterID(t *testing.T) {
 	}
 	s := &Server{db: db, clusterStore: clusterstore.New(db), log: logger.New("error", "json")}
 
-	expectEnabledClusterGet(mock, "eu")
+	expectClusterGet(mock, "eu")
 	expectAccountGetByID(mock, "acct-1", "")
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
 		WithArgs("eu", "acct-1").
@@ -168,30 +168,6 @@ func TestSetAccountCluster_SetsClusterID(t *testing.T) {
 	}
 	if resp.ClusterID != "eu" || resp.Status != "updated" {
 		t.Fatalf("resp = %+v", resp)
-	}
-}
-
-func TestSetAccountCluster_DisabledCluster(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cs := clusterstore.New(db)
-	s := &Server{db: db, clusterStore: cs, log: logger.New("error", "json")}
-
-	now := "2026-05-19T00:00:00Z"
-	mock.ExpectQuery("SELECT .+ FROM clusters").
-		WithArgs("staging-disabled").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "region", "eks_cluster_name", "eks_cluster_endpoint", "enabled", "created_at", "updated_at",
-		}).AddRow("staging-disabled", "us-east-1", "eks", "https://eks.example", false, now, now))
-
-	_, err = s.SetAccountCluster(context.Background(), &adminv1.SetAccountClusterRequest{
-		AccountID: "acct-1",
-		ClusterID: "staging-disabled",
-	})
-	if err == nil {
-		t.Fatal("expected error for disabled cluster")
 	}
 }
 
@@ -212,7 +188,7 @@ func TestSetAccountCluster_DoesNotMigrateDeployments(t *testing.T) {
 		log:          logger.New("error", "json"),
 	}
 
-	expectEnabledClusterGet(mock, "eu")
+	expectClusterGet(mock, "eu")
 	expectAccountGetByID(mock, "acct-1", "")
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
 		WithArgs("eu", "acct-1").
@@ -239,7 +215,7 @@ func TestSetAccountCluster_UpdateFailure(t *testing.T) {
 	}
 	s := &Server{db: db, clusterStore: clusterstore.New(db), log: logger.New("error", "json")}
 
-	expectEnabledClusterGet(mock, "eu")
+	expectClusterGet(mock, "eu")
 	expectAccountGetByID(mock, "acct-1", "")
 	mock.ExpectExec("UPDATE accounts SET cluster_id").
 		WithArgs("eu", "acct-1").

@@ -45,15 +45,17 @@ func TestValidateDeployNonEmpty_deployError(t *testing.T) {
 	}
 }
 
-func TestValidateDeployNonEmpty_whitespaceVPCEIPs(t *testing.T) {
-	d := fullDeploy()
-	d.LangfuseVPCEIPs = " , "
-	err := ValidateDeployNonEmpty("eu", d)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "langfuse_vpce_ips") {
-		t.Fatalf("got %v", err)
+// TestValidateDeployNonEmpty_LangfuseVPCEIPsOptional covers every cluster,
+// not just the default one: only clusters that need a PrivateLink netpol
+// exception to reach Langfuse set langfuse_vpce_ips at all, so an empty (or
+// whitespace-only) value is never an error here.
+func TestValidateDeployNonEmpty_LangfuseVPCEIPsOptional(t *testing.T) {
+	for _, vpceIPs := range []string{"", " , "} {
+		d := fullDeploy()
+		d.LangfuseVPCEIPs = vpceIPs
+		if err := ValidateDeployNonEmpty("eu", d); err != nil {
+			t.Fatalf("LangfuseVPCEIPs=%q: unexpected error: %v", vpceIPs, err)
+		}
 	}
 }
 

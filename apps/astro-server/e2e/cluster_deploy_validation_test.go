@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -18,11 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	ds "github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
-	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
-
-// fakeClusterCA is the minimum PEM blob clusterstore accepts for registration.
-var fakeClusterCA = []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
 
 type noopPrimaryClusterClient struct {
 	cs *kubernetes.Clientset
@@ -47,63 +42,36 @@ func newNoopPrimaryClusterClient(t *testing.T) k8s.ClusterClient {
 	return &noopPrimaryClusterClient{cs: cs}
 }
 
-func registerTestCluster(t *testing.T, db *sql.DB, store *clusterstore.Store, id string, enabled bool) {
-	t.Helper()
-	ctx := context.Background()
-	// Remove leftovers from interrupted prior runs so Register is idempotent.
-	_, _ = db.ExecContext(ctx, `DELETE FROM clusters WHERE id = $1`, id)
-	err := store.Register(ctx, &clusterstore.Cluster{
-		ID:                     id,
-		Region:                 "us-east-1",
-		EKSClusterName:         "e2e-unreachable-eks",
-		EKSClusterEndpoint:     "https://e2e-unreachable.example",
-		EKSClusterCA:           fakeClusterCA,
-		Enabled:                enabled,
-		AgentIngressDomain:     "agents.e2e.example.com",
-		IngestionIngressDomain: "ingestion.e2e.example.com",
-		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
-		LangfuseVPCEIPs:        "10.0.0.10",
-		PodSubnetCIDRs:         "10.0.0.0/24",
-	})
-	if err != nil {
-		t.Fatalf("Register(%q): %v", id, err)
-	}
-	if !enabled {
-		if err := store.SetEnabled(ctx, id, false); err != nil {
-			t.Fatalf("SetEnabled(%q, false): %v", id, err)
-		}
-	}
-	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM clusters WHERE id = $1`, id)
-	})
-}
-
-func TestClusterStore_DisabledClusterRejected(t *testing.T) {
-	db := testDB(t)
-	store := clusterstore.New(db)
-
-	const id = "e2e-test-disabled"
-	registerTestCluster(t, db, store, id, false)
-
-	row, err := store.Get(context.Background(), id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if row.Enabled {
-		t.Fatal("expected cluster to be disabled")
-	}
-}
-
+// TestUndeployUnreachableAdditionalClusterMarksUndeployed covers a deployment
+// pinned to a cluster the deployer's registry can't resolve — undeploy must
+// still mark the deployment undeployed rather than getting stuck retrying
+// forever. The registry has no clusterstore attached, so Get returns
+// ErrClusterNotFound deterministically without dialing AWS; the row itself
+// still needs to exist to satisfy deployments.cluster_id's FK.
 func TestUndeployUnreachableAdditionalClusterMarksUndeployed(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	deployStore := ds.NewStore(db)
 	clusterStore := clusterstore.New(db)
 
-	// Row must exist (FK); disabled so registry.Get returns ErrClusterDisabled
-	// without dialing AWS/EKS.
-	const clusterID = "e2e-disabled-secondary"
-	registerTestCluster(t, db, clusterStore, clusterID, false)
+	const clusterID = "e2e-unreachable-secondary"
+	fakeCA := []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+	if err := clusterStore.UpsertFromConfig(context.Background(), &clusterstore.Cluster{
+		ID:                     clusterID,
+		Region:                 "us-east-1",
+		EKSClusterName:         "e2e-unreachable-eks",
+		EKSClusterEndpoint:     "https://e2e-unreachable.example",
+		EKSClusterCA:           fakeCA,
+		AgentIngressDomain:     "agents.e2e.example.com",
+		IngestionIngressDomain: "ingestion.e2e.example.com",
+		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
+		PodSubnetCIDRs:         "10.0.0.0/24",
+	}, false); err != nil {
+		t.Fatalf("UpsertFromConfig(%q): %v", clusterID, err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM clusters WHERE id = $1`, clusterID)
+	})
 
 	dep, err := deployStore.SaveDeploymentPending(ds.SaveDeploymentParams{
 		ID:          deployid.New(),
@@ -127,8 +95,9 @@ func TestUndeployUnreachableAdditionalClusterMarksUndeployed(t *testing.T) {
 		t.Fatalf("GetDeploymentByID: %v", err)
 	}
 
-	log := logger.New("error", "json")
-	reg := k8s.NewRegistryWithClusterStore(newNoopPrimaryClusterClient(t), clusterStore, log)
+	// No clusterstore attached: Get(clusterID) returns ErrClusterNotFound
+	// deterministically, regardless of what's actually stored above.
+	reg := k8s.NewRegistryWithPrimary(newNoopPrimaryClusterClient(t))
 	depWorker := &deployer.Deployer{Registry: reg}
 
 	teardownErr := depWorker.Teardown(context.Background(), dep)

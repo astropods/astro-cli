@@ -31,17 +31,9 @@ import (
 // pullCredentialPrefix matches astro-registry's internal/clusterpull parser.
 const pullCredentialPrefix = "astrocp_"
 
-// PrimaryClusterID and PrimaryRegion identify the primary cluster, which has
-// no row in this table.
-const (
-	PrimaryClusterID = "primary"
-	PrimaryRegion    = "us-east-1"
-)
-
 // Errors returned by the store.
 var (
-	ErrNotFound      = errors.New("cluster not found")
-	ErrAlreadyExists = errors.New("cluster already registered")
+	ErrNotFound = errors.New("cluster not found")
 	// ErrInUse is a catch-all for a foreign-key violation on delete when the
 	// violated constraint isn't one of the two known ones below. Deregister
 	// should normally return one of the more specific errors instead.
@@ -68,34 +60,32 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
 
 // Cluster is a managed workload Kubernetes cluster known to astro-server.
 //
-// Every ingress field is required: Register and Update reject
-// empty values via clusterfields validation, and clustercfg.Resolve fails
-// the deploy if a stored row carries an empty field. The primary cluster
-// has no row in this table — it reads env vars directly (INGRESS_DOMAIN,
-// INGESTION_INGRESS_DOMAIN, ...) and is the only place
-// those env defaults apply. TLS termination and DNS for the tenant-router
-// data plane are owned by the front-door ALB in astro-infra, so per-
-// cluster ACM cert ARNs and per-tenant ALB group names are not stored here.
+// Every ingress field is required: UpsertFromConfig rejects empty values via
+// clusterfields validation, and clustercfg.Resolve fails the deploy if a
+// stored row carries an empty field. TLS termination and DNS for the
+// tenant-router data plane are owned by the front-door ALB in astro-infra,
+// so per-cluster ACM cert ARNs and per-tenant ALB group names are not stored
+// here.
 type Cluster struct {
-	ID                      string
-	Region                  string
-	EKSClusterName          string
-	EKSClusterEndpoint      string
-	EKSClusterCA            []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
-	Enabled                 bool
-	AgentIngressDomain      string
-	IngestionIngressDomain  string
-	LangfuseBaseURLExt      string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
-	LangfuseVPCEIPs         string // comma-separated VPCE ENI /32 targets for netpol egress
-	PodSubnetCIDRs          string // comma-separated pod subnet CIDRs for netpol except list
-	PodSubnetIPv6CIDRs      string // comma-separated pod subnet IPv6 CIDRs for netpol except list; empty for IPv4-only clusters
-	LokiURL                 string // optional per-cluster Loki query endpoint; empty falls back to the global LOKI_URL
-	PrometheusURL           string // optional per-cluster Prometheus/VictoriaMetrics query endpoint; empty falls back to the global PROMETHEUS_URL
-	TenantRouterInternalURL string // optional private (non-OIDC) address:port for this cluster's tenant-router Envoy, over PrivateLink; empty falls back to the K8s apiserver services/proxy method
-	PullCredential          string // plaintext CPC; empty until Register/EnsurePullCredential sets it
-	PullKeyHash             []byte // sha256 of the CPC's secret portion
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                       string
+	Region                   string
+	EKSClusterName           string
+	EKSClusterEndpoint       string
+	EKSClusterCA             []byte // PEM CA bytes; supplied at registration so per-cluster client builds skip cross-account DescribeCluster
+	AgentIngressDomain       string
+	AgentPublicIngressDomain string
+	IngestionIngressDomain   string
+	LangfuseBaseURLExt       string // collector LANGFUSE_BASE_URL (http://langfuse.platform...:3000)
+	LangfuseVPCEIPs          string // comma-separated VPCE ENI /32 targets for netpol egress
+	PodSubnetCIDRs           string // comma-separated pod subnet CIDRs for netpol except list
+	PodSubnetIPv6CIDRs       string // comma-separated pod subnet IPv6 CIDRs for netpol except list; empty for IPv4-only clusters
+	LokiURL                  string
+	PrometheusURL            string
+	TenantRouterInternalURL  string // optional private (non-OIDC) address:port for this cluster's tenant-router Envoy, over PrivateLink; empty falls back to the K8s apiserver services/proxy method
+	PullCredential           string // plaintext CPC; empty until UpsertFromConfig/EnsurePullCredential sets it
+	PullKeyHash              []byte // sha256 of the CPC's secret portion
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // generatePullCredential returns a new astrocp_{clusterID}_{secret} credential
@@ -129,11 +119,13 @@ func deployConfigFromCluster(c *Cluster) clusterfields.DeployConfig {
 	}
 }
 
-// validateRequiredFields enforces that every additional cluster carries the
-// full EKS / ingress / cert configuration. Falling back to env
-// defaults is reserved for the primary cluster (which has no row); registered
-// clusters must declare these values explicitly.
-func validateRequiredFields(c *Cluster) error {
+// validateRequiredFields enforces that every cluster carries the full EKS /
+// ingress / cert configuration synced from cluster-config. isDefault relaxes
+// eks_cluster_ca, which doesn't apply to the cluster astro-server itself runs
+// in (only needed to build a cross-account client). langfuse_vpce_ips is
+// optional on every cluster — only clusters that need a PrivateLink netpol
+// exception to reach Langfuse set it.
+func validateRequiredFields(c *Cluster, isDefault bool) error {
 	if err := clusterfields.ValidateRegistrationNonEmpty(clusterfields.Registration{
 		Region:             c.Region,
 		EKSClusterName:     c.EKSClusterName,
@@ -142,14 +134,16 @@ func validateRequiredFields(c *Cluster) error {
 	}); err != nil {
 		return err
 	}
-	if len(c.EKSClusterCA) == 0 {
+	if !isDefault && len(c.EKSClusterCA) == 0 {
 		return fmt.Errorf("eks_cluster_ca is required (PEM bytes captured at registration via `aws eks describe-cluster`)")
 	}
 	if err := validateLangfuseBaseURL(c.LangfuseBaseURLExt); err != nil {
 		return err
 	}
-	if err := validateLangfuseVPCEIPs(c.LangfuseVPCEIPs); err != nil {
-		return err
+	if c.LangfuseVPCEIPs != "" {
+		if err := validateLangfuseVPCEIPs(c.LangfuseVPCEIPs); err != nil {
+			return err
+		}
 	}
 	if err := validatePodSubnetCIDRs(c.PodSubnetCIDRs); err != nil {
 		return err
@@ -217,16 +211,15 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Register inserts a new cluster. Returns ErrAlreadyExists if a row with the
-// same id is already present. All EKS / ingress / cert fields
-// are mandatory for additional clusters — empty values are rejected so
-// deploys can never silently fall through to the server-wide env defaults
-// that exist only for the primary cluster.
-func (s *Store) Register(ctx context.Context, c *Cluster) error {
+// UpsertFromConfig inserts a new cluster row or updates an existing row's
+// connectivity fields only, leaving the pull credential untouched. isDefault
+// relaxes validation for the cluster astro-server itself runs in — see
+// validateRequiredFields.
+func (s *Store) UpsertFromConfig(ctx context.Context, c *Cluster, isDefault bool) error {
 	if err := ValidateID(c.ID); err != nil {
 		return err
 	}
-	if err := validateRequiredFields(c); err != nil {
+	if err := validateRequiredFields(c, isDefault); err != nil {
 		return err
 	}
 
@@ -234,29 +227,85 @@ func (s *Store) Register(ctx context.Context, c *Cluster) error {
 	if err != nil {
 		return err
 	}
-	c.PullCredential, c.PullKeyHash = credential, hash
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO clusters (
-			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
-			agent_ingress_domain, ingestion_ingress_domain,
+			id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca,
+			agent_ingress_domain, agent_public_ingress_domain, ingestion_ingress_domain,
 			langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
 			loki_url, prometheus_url, tenant_router_internal_url,
-			pull_credential, pull_key_hash
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA, c.Enabled,
-		c.AgentIngressDomain, c.IngestionIngressDomain,
+			pull_credential, pull_key_hash, config_synced_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())
+		ON CONFLICT (id) DO UPDATE SET
+			region                      = EXCLUDED.region,
+			eks_cluster_name            = EXCLUDED.eks_cluster_name,
+			eks_cluster_endpoint        = EXCLUDED.eks_cluster_endpoint,
+			eks_cluster_ca              = EXCLUDED.eks_cluster_ca,
+			agent_ingress_domain        = EXCLUDED.agent_ingress_domain,
+			agent_public_ingress_domain = EXCLUDED.agent_public_ingress_domain,
+			ingestion_ingress_domain    = EXCLUDED.ingestion_ingress_domain,
+			langfuse_base_url_ext       = EXCLUDED.langfuse_base_url_ext,
+			langfuse_vpce_ips           = EXCLUDED.langfuse_vpce_ips,
+			pod_subnet_cidrs            = EXCLUDED.pod_subnet_cidrs,
+			pod_subnet_ipv6_cidrs       = EXCLUDED.pod_subnet_ipv6_cidrs,
+			loki_url                    = EXCLUDED.loki_url,
+			prometheus_url              = EXCLUDED.prometheus_url,
+			tenant_router_internal_url  = EXCLUDED.tenant_router_internal_url,
+			config_synced_at            = now(),
+			updated_at                  = now()`,
+		c.ID, c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
+		c.AgentIngressDomain, c.AgentPublicIngressDomain, c.IngestionIngressDomain,
 		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
 		c.LokiURL, c.PrometheusURL, c.TenantRouterInternalURL,
-		c.PullCredential, c.PullKeyHash,
+		credential, hash,
 	)
 	if err != nil {
-		if pgCode(err) == pgUniqueViolation {
-			return ErrAlreadyExists
-		}
-		return fmt.Errorf("insert cluster: %w", err)
+		return fmt.Errorf("upsert cluster from config: %w", err)
 	}
 	return nil
+}
+
+// DeleteRemoved deletes every config-synced cluster whose id isn't in keep.
+// A cluster still referenced by accounts or deployments can't be deleted —
+// same as a manual DeregisterCluster call — so it's reported back as
+// blocked instead of failing the whole sync pass.
+func (s *Store) DeleteRemoved(ctx context.Context, keep []string) (deleted []string, blocked []string, err error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id FROM clusters
+		WHERE config_synced_at IS NOT NULL AND NOT (id = ANY($1))`,
+		pq.Array(keep),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list removed clusters: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, nil, fmt.Errorf("scan removed cluster id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, nil, fmt.Errorf("list removed clusters: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, fmt.Errorf("list removed clusters: %w", err)
+	}
+
+	for _, id := range ids {
+		if err := s.Deregister(ctx, id); err != nil {
+			if errors.Is(err, ErrInUse) || errors.Is(err, ErrInUseByAccounts) || errors.Is(err, ErrInUseByDeployments) {
+				blocked = append(blocked, id)
+				continue
+			}
+			return deleted, blocked, fmt.Errorf("delete removed cluster %q: %w", id, err)
+		}
+		deleted = append(deleted, id)
+	}
+	return deleted, blocked, nil
 }
 
 // Get returns the cluster with the given id.
@@ -272,16 +321,9 @@ func (s *Store) Get(ctx context.Context, id string) (*Cluster, error) {
 	return c, nil
 }
 
-// List returns all clusters, ordered by region then id. When enabledOnly is
-// true, disabled clusters are excluded.
-func (s *Store) List(ctx context.Context, enabledOnly bool) ([]*Cluster, error) {
-	query := baseSelect
-	if enabledOnly {
-		query += ` WHERE enabled = true`
-	}
-	query += ` ORDER BY region ASC, id ASC`
-
-	rows, err := s.db.QueryContext(ctx, query)
+// List returns all clusters, ordered by region then id.
+func (s *Store) List(ctx context.Context) ([]*Cluster, error) {
+	rows, err := s.db.QueryContext(ctx, baseSelect+` ORDER BY region ASC, id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list clusters: %w", err)
 	}
@@ -296,74 +338,6 @@ func (s *Store) List(ctx context.Context, enabledOnly bool) ([]*Cluster, error) 
 		clusters = append(clusters, c)
 	}
 	return clusters, rows.Err()
-}
-
-// Update changes mutable fields on an additional cluster row. All required
-// fields must be non-empty. Pass current values unchanged to leave them as-is.
-// The primary cluster has no row and reads env vars directly.
-func (s *Store) Update(ctx context.Context, c *Cluster) error {
-	if c == nil {
-		return fmt.Errorf("cluster is required")
-	}
-	if err := validateRequiredFields(c); err != nil {
-		return err
-	}
-
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE clusters SET
-			region = $1,
-			eks_cluster_name = $2,
-			eks_cluster_endpoint = $3,
-			eks_cluster_ca = $4,
-			agent_ingress_domain = $5,
-			ingestion_ingress_domain = $6,
-			langfuse_base_url_ext = $7,
-			langfuse_vpce_ips = $8,
-			pod_subnet_cidrs = $9,
-			pod_subnet_ipv6_cidrs = $10,
-			loki_url = $11,
-			prometheus_url = $12,
-			tenant_router_internal_url = $13,
-			updated_at = now()
-		WHERE id = $14`,
-		c.Region, c.EKSClusterName, c.EKSClusterEndpoint, c.EKSClusterCA,
-		c.AgentIngressDomain, c.IngestionIngressDomain,
-		c.LangfuseBaseURLExt, c.LangfuseVPCEIPs, c.PodSubnetCIDRs, c.PodSubnetIPv6CIDRs,
-		c.LokiURL, c.PrometheusURL, c.TenantRouterInternalURL,
-		c.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update cluster: %w", err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// SetEnabled flips the enabled flag for a cluster. Returns ErrNotFound if no
-// row matches.
-func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE clusters SET enabled = $1, updated_at = now()
-		WHERE id = $2`,
-		enabled, id,
-	)
-	if err != nil {
-		return fmt.Errorf("set enabled: %w", err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("rows affected: %w", err)
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // EnsurePullCredential backfills a pull credential if the cluster doesn't
@@ -503,8 +477,8 @@ func (s *Store) Blockers(ctx context.Context, id string) (accounts []Blocker, ac
 
 // baseSelect is the column projection shared by Get and List.
 const baseSelect = `
-	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca, enabled,
-	       agent_ingress_domain, ingestion_ingress_domain,
+	SELECT id, region, eks_cluster_name, eks_cluster_endpoint, eks_cluster_ca,
+	       agent_ingress_domain, agent_public_ingress_domain, ingestion_ingress_domain,
 	       langfuse_base_url_ext, langfuse_vpce_ips, pod_subnet_cidrs, pod_subnet_ipv6_cidrs,
 	       loki_url, prometheus_url, tenant_router_internal_url,
 	       pull_credential, pull_key_hash,
@@ -520,8 +494,8 @@ func scanCluster(r rowScanner) (*Cluster, error) {
 	var c Cluster
 	var pullCredential sql.NullString
 	if err := r.Scan(
-		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA, &c.Enabled,
-		&c.AgentIngressDomain, &c.IngestionIngressDomain,
+		&c.ID, &c.Region, &c.EKSClusterName, &c.EKSClusterEndpoint, &c.EKSClusterCA,
+		&c.AgentIngressDomain, &c.AgentPublicIngressDomain, &c.IngestionIngressDomain,
 		&c.LangfuseBaseURLExt, &c.LangfuseVPCEIPs, &c.PodSubnetCIDRs, &c.PodSubnetIPv6CIDRs,
 		&c.LokiURL, &c.PrometheusURL, &c.TenantRouterInternalURL,
 		&pullCredential, &c.PullKeyHash,

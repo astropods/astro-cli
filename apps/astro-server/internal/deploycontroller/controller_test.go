@@ -76,30 +76,32 @@ func TestAggregateDeploymentPhase(t *testing.T) {
 	}
 }
 
-// TestCanonicalCluster locks the primary-cluster normalization: a primary
-// deployment's EffectiveClusterID ("") must compare equal to the registry's
-// PrimaryClusterID ("primary") so the controller's cluster-ownership guard
-// doesn't skip every primary-cluster deployment.
+// TestCanonicalCluster locks the default-cluster normalization: a
+// default-cluster deployment's EffectiveClusterID ("") must compare equal to
+// the registry's DefaultClusterID so the controller's cluster-ownership
+// guard doesn't skip every default-cluster deployment.
 func TestCanonicalCluster(t *testing.T) {
+	c := &Controller{registry: k8s.NewRegistryForTest(nil, nil, k8s.RegistryConfig{DefaultClusterID: "default-eks"})}
+
 	tests := []struct {
 		in, want string
 	}{
-		{"", k8s.PrimaryClusterID},
-		{k8s.PrimaryClusterID, k8s.PrimaryClusterID},
+		{"", "default-eks"},
+		{"default-eks", "default-eks"},
 		{"cluster-abc", "cluster-abc"},
 	}
 	for _, tt := range tests {
-		if got := canonicalCluster(tt.in); got != tt.want {
+		if got := c.canonicalCluster(tt.in); got != tt.want {
 			t.Errorf("canonicalCluster(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 
-	// The load-bearing property: primary's two spellings match.
-	if canonicalCluster("") != canonicalCluster(k8s.PrimaryClusterID) {
-		t.Error(`primary "" and "primary" must canonicalize equal`)
+	// The load-bearing property: the default cluster's two spellings match.
+	if c.canonicalCluster("") != c.canonicalCluster("default-eks") {
+		t.Error(`default "" and "default-eks" must canonicalize equal`)
 	}
-	// Distinct additional clusters don't collide with primary.
-	if canonicalCluster("cluster-abc") == canonicalCluster("") {
-		t.Error("additional cluster must not match primary")
+	// Distinct additional clusters don't collide with the default.
+	if c.canonicalCluster("cluster-abc") == c.canonicalCluster("") {
+		t.Error("additional cluster must not match default")
 	}
 }

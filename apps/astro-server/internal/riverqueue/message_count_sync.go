@@ -44,17 +44,26 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		return nil
 	}
 
-	// Query every registered, enabled cluster — not just the primary — since
-	// deployments can live on any of them and each may have its own
-	// prometheus_url. entries[0] is always the primary (synthesized by
-	// Registry.List even when the registry is nil).
-	entries := []k8s.ClusterEntry{{ID: "", IsPrimary: true}}
+	entries := []k8s.ClusterEntry{{ID: "", IsDefault: true}}
 	if w.registry != nil {
-		listed, err := w.registry.List(ctx, true)
+		listed, err := w.registry.List(ctx)
 		if err != nil {
 			w.log.Error("Message count sync: failed to list clusters, falling back to primary only", "error", err)
 		} else {
 			entries = listed
+			hasDefault := false
+			for _, e := range entries {
+				if e.IsDefault {
+					hasDefault = true
+					break
+				}
+			}
+			if !hasDefault {
+				// The default cluster's own row may be missing (e.g. boot sync
+				// hasn't run or failed) — query it anyway via the bare sentinel;
+				// clusterLabel below falls back to the client's own baked-in name.
+				entries = append([]k8s.ClusterEntry{{ID: "", IsDefault: true}}, entries...)
+			}
 		}
 	}
 

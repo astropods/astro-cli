@@ -14,12 +14,14 @@ type namedValue struct {
 
 // deployFields returns ordered (column name, value) pairs for deploy config.
 // Order is stable so tests and error messages stay predictable.
+// langfuse_vpce_ips is deliberately absent: it's optional on every cluster —
+// only clusters that need a PrivateLink netpol exception to reach Langfuse
+// (cross-region ones) set it at all.
 func deployFields(d DeployConfig) []namedValue {
 	return []namedValue{
 		{"agent_ingress_domain", d.AgentIngressDomain},
 		{"ingestion_ingress_domain", d.IngestionIngressDomain},
 		{"langfuse_base_url_ext", d.LangfuseBaseURLExt},
-		{"langfuse_vpce_ips", d.LangfuseVPCEIPs},
 		{"pod_subnet_cidrs", d.PodSubnetCIDRs},
 	}
 }
@@ -49,9 +51,6 @@ func checkPresent(clusterID string, fields []namedValue) error {
 }
 
 func checkCommaListsPresent(clusterID string, d DeployConfig) error {
-	if len(commalist.Parse(d.LangfuseVPCEIPs)) == 0 {
-		return presentError(clusterID, "langfuse_vpce_ips")
-	}
 	if len(commalist.Parse(d.PodSubnetCIDRs)) == 0 {
 		return presentError(clusterID, "pod_subnet_cidrs")
 	}
@@ -69,7 +68,7 @@ func ValidateDeployNonEmpty(clusterID string, d DeployConfig) error {
 }
 
 // ValidateRegistrationNonEmpty checks EKS fields plus deploy config. Used by
-// clusterstore Register/Update; clusterID is always empty.
+// clusterstore.UpsertFromConfig; clusterID is always empty.
 func ValidateRegistrationNonEmpty(r Registration) error {
 	if err := checkPresent("", registrationFields(r)); err != nil {
 		return err

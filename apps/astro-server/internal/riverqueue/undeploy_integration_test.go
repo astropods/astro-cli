@@ -58,19 +58,19 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 
 	const clusterID = "e2e-worker-unreachable"
 	ctx := context.Background()
-	if err := clusterStore.Register(ctx, &clusterstore.Cluster{
+	fakeCA := []byte("-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n")
+	if err := clusterStore.UpsertFromConfig(ctx, &clusterstore.Cluster{
 		ID:                     clusterID,
 		Region:                 "us-east-1",
 		EKSClusterName:         "e2e-no-access",
 		EKSClusterEndpoint:     "https://e2e-no-access.example",
-		Enabled:                true,
+		EKSClusterCA:           fakeCA,
 		AgentIngressDomain:     "agents.e2e.example.com",
 		IngestionIngressDomain: "ingestion.e2e.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.e2e.example:3000",
-		LangfuseVPCEIPs:        "10.0.0.10",
 		PodSubnetCIDRs:         "10.0.0.0/24",
-	}); err != nil {
-		t.Fatalf("Register: %v", err)
+	}, false); err != nil {
+		t.Fatalf("UpsertFromConfig: %v", err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM clusters WHERE id = $1`, clusterID) })
 
@@ -102,7 +102,9 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 	}
 
 	log := logger.New("error", "json")
-	reg := k8s.NewRegistryWithClusterStore(&integrationPrimaryClient{cs: cs}, clusterStore, log)
+	// No clusterstore attached: Get(clusterID) returns ErrClusterNotFound
+	// deterministically, regardless of what's actually stored above.
+	reg := k8s.NewRegistryWithPrimary(&integrationPrimaryClient{cs: cs})
 	w := &UndeployWorker{
 		deployer: &deployer.Deployer{Registry: reg},
 		store:    deployStore,

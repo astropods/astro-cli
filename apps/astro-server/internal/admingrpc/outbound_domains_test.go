@@ -24,7 +24,7 @@ import (
 // clusterRowWithProm is clusterRow plus a prometheus_url override, for tests
 // that need a cluster with its own isolated metrics backend.
 func clusterRowWithProm(id, eksName, prometheusURL string) []driver.Value {
-	row := clusterRow(id, "eu-west-1", eksName, "https://"+eksName+".example", true, time.Now())
+	row := clusterRow(id, "eu-west-1", eksName, "https://"+eksName+".example", time.Now())
 	row[13] = prometheusURL // loki_url, prometheus_url follow pod_subnet_ipv6_cidrs in clusterColumns
 	return row
 }
@@ -219,7 +219,7 @@ func TestListOutboundDomains_SelectorSpansRegisteredClusters(t *testing.T) {
 		log:        logger.New("error", "json"),
 		promClient: promquery.NewClient(prom.URL, "primary-eks"),
 		k8sRegistry: k8s.NewRegistryForTest(nil, nil,
-			k8s.RegistryConfig{EKSBootstrapName: "primary-eks"}),
+			k8s.RegistryConfig{EKSBootstrapName: "primary-eks", DefaultClusterID: "primary-eks"}),
 	}
 	if _, err := srv.ListOutboundDomains(context.Background(),
 		&adminv1.ListOutboundDomainsRequest{}); err != nil {
@@ -278,7 +278,7 @@ func TestListOutboundDomains_QueriesEachClusterOwnPrometheus(t *testing.T) {
 		log:        logger.New("error", "json"),
 		promClient: promquery.NewClient(primaryProm.URL, "primary-eks"),
 		k8sRegistry: k8s.NewRegistryForTest(nil, clusterstore.New(clusterDB),
-			k8s.RegistryConfig{EKSBootstrapName: "primary-eks"}),
+			k8s.RegistryConfig{EKSBootstrapName: "primary-eks", DefaultClusterID: "primary-eks"}),
 	}
 	if _, err := srv.ListOutboundDomains(context.Background(),
 		&adminv1.ListOutboundDomainsRequest{}); err != nil {
@@ -316,7 +316,7 @@ func TestClusterSelector(t *testing.T) {
 		{"blank names are unscoped", []k8s.ClusterEntry{{EKSClusterName: ""}}, ""},
 		{
 			"primary only",
-			[]k8s.ClusterEntry{{EKSClusterName: "prod-eks", IsPrimary: true}},
+			[]k8s.ClusterEntry{{EKSClusterName: "prod-eks", IsDefault: true}},
 			`{cluster=~"prod-eks"}`,
 		},
 		{
@@ -324,7 +324,7 @@ func TestClusterSelector(t *testing.T) {
 			// or their agents vanish from a fleet-wide aggregation.
 			"spans additional clusters",
 			[]k8s.ClusterEntry{
-				{EKSClusterName: "prod-eks", IsPrimary: true},
+				{EKSClusterName: "prod-eks", IsDefault: true},
 				{EKSClusterName: "prod-managed-eu-west-1-a"},
 				{EKSClusterName: "prod-managed-us-east-2-a"},
 			},

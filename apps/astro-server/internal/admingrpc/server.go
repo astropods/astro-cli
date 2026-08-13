@@ -121,10 +121,6 @@ type Server struct {
 	kmsKeyARN            string
 	aiGatewayProvisioner *aigateway.Provisioner
 
-	// Ingress domain config — needed by RepairNormalizedSpec to regenerate ingress rows
-	ingressDomain          string
-	ingestionIngressDomain string
-
 	riverMu        sync.Mutex
 	riverUIHandler http.Handler
 	riverUICleanup func()
@@ -143,15 +139,11 @@ func (s *Server) SetHTTPHandler(h http.Handler) {
 	s.httpHandler = h
 }
 
-// resolveIngressForCluster merges the admin server's env-default ingress
-// domains with the per-cluster overrides stored in public.clusters. Used by
-// admin operations (RepairNormalizedSpec) that need
-// the same hostnames the deployer will write.
+// resolveIngressForCluster returns the ingress hostnames for clusterID. Used
+// by admin operations (RepairNormalizedSpec) that need the same hostnames
+// the deployer will write.
 func (s *Server) resolveIngressForCluster(ctx context.Context, clusterID string) (clustercfg.Resolved, error) {
-	return clustercfg.Resolve(ctx, s.k8sRegistry, config.DeploymentConfig{
-		IngressDomain:          s.ingressDomain,
-		IngestionIngressDomain: s.ingestionIngressDomain,
-	}, clusterID)
+	return clustercfg.Resolve(ctx, s.k8sRegistry, config.DeploymentConfig{}, clusterID)
 }
 
 // SetWorkOSClientID sets the WorkOS client ID for GetAuthConfig.
@@ -207,28 +199,24 @@ func New(
 	db *sql.DB,
 	databaseURL string,
 	queue *riverqueue.Queue,
-	ingressDomain string,
-	ingestionIngressDomain string,
 	auditStore *auditlog.Store,
 	clusterStore *clusterstore.Store,
 	k8sRegistry *k8s.Registry,
 	cache k8scache.Cache,
 ) *Server {
 	return &Server{
-		log:                    log,
-		deployStore:            deployStore,
-		k8sClient:              k8sClient,
-		clusterStore:           clusterStore,
-		k8sRegistry:            k8sRegistry,
-		lokiClient:             lokiClient,
-		db:                     db,
-		databaseURL:            databaseURL,
-		queue:                  queue,
-		ingressDomain:          ingressDomain,
-		ingestionIngressDomain: ingestionIngressDomain,
-		auditStore:             auditStore,
-		cache:                  cache,
-		alertStore:             observation.NewStore(db),
+		log:          log,
+		deployStore:  deployStore,
+		k8sClient:    k8sClient,
+		clusterStore: clusterStore,
+		k8sRegistry:  k8sRegistry,
+		lokiClient:   lokiClient,
+		db:           db,
+		databaseURL:  databaseURL,
+		queue:        queue,
+		auditStore:   auditStore,
+		cache:        cache,
+		alertStore:   observation.NewStore(db),
 	}
 }
 

@@ -57,8 +57,6 @@ func clusterClientForDeployment(c *gin.Context, reg *k8s.Registry, dep *deployme
 		switch {
 		case errors.Is(err, k8s.ErrClusterNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "cluster not found"})
-		case errors.Is(err, k8s.ErrClusterDisabled):
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster disabled"})
 		default:
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 		}

@@ -268,7 +268,7 @@ func resolveMessagingProxyTarget(
 		return messagingProxyUpstream{baseURL: override, client: http.DefaultClient}, nil
 	}
 
-	if internalURL := tenantRouterInternalURLFor(cfg, k8sReg, ctx, dep); internalURL != "" {
+	if internalURL := tenantRouterInternalURLFor(k8sReg, ctx, dep); internalURL != "" {
 		return messagingProxyUpstream{
 			baseURL: "http://" + strings.TrimSuffix(internalURL, "/"),
 			client:  http.DefaultClient,
@@ -313,16 +313,9 @@ func resolveMessagingProxyTarget(
 
 // tenantRouterInternalURLFor returns the private tenant-router address for
 // the deployment's cluster, or "" when the proxy should fall back to the
-// older K8s apiserver services/proxy path. The primary cluster has no
-// clusterstore row, so its address (if any) comes from the
-// TENANT_ROUTER_INTERNAL_URL global instead of ClusterEntry — see
-// docs/plans/messaging-proxy-astro-server-changes.md in astro-infra.
-func tenantRouterInternalURLFor(cfg *config.Config, k8sReg *k8s.Registry, ctx context.Context, dep *deploymentstore.Deployment) string {
-	clusterID := dep.EffectiveClusterID()
-	if clusterID == "" {
-		return cfg.Deployment.TenantRouterInternalURL
-	}
-	entry, err := k8sReg.GetEntry(ctx, clusterID)
+// older K8s apiserver services/proxy path.
+func tenantRouterInternalURLFor(k8sReg *k8s.Registry, ctx context.Context, dep *deploymentstore.Deployment) string {
+	entry, err := k8sReg.GetEntry(ctx, dep.EffectiveClusterID())
 	if err != nil {
 		return ""
 	}

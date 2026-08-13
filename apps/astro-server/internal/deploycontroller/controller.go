@@ -174,7 +174,7 @@ func (c *Controller) clusterDiscoveryLoop(ctx context.Context) {
 // Removal is not handled here — a deleted cluster's watches fail and idle; the
 // registry is the source of truth for reads.
 func (c *Controller) discoverClusters(ctx context.Context) {
-	entries, err := c.registry.List(ctx, true)
+	entries, err := c.registry.List(ctx)
 	if err != nil {
 		c.log.Warn("deploycontroller: list clusters failed", "error", err)
 		return
@@ -186,14 +186,14 @@ func (c *Controller) discoverClusters(ctx context.Context) {
 		if exists {
 			continue
 		}
-		if err := c.startWatcher(ctx, e.ID, e.IsPrimary); err != nil {
+		if err := c.startWatcher(ctx, e.ID, e.IsDefault); err != nil {
 			c.log.Warn("deploycontroller: start watcher failed", "cluster_id", e.ID, "error", err)
 		}
 	}
 }
 
-func (c *Controller) startWatcher(ctx context.Context, clusterID string, isPrimary bool) error {
-	kc, err := c.clusterClient(ctx, clusterID, isPrimary)
+func (c *Controller) startWatcher(ctx context.Context, clusterID string, isDefault bool) error {
+	kc, err := c.clusterClient(ctx, clusterID, isDefault)
 	if err != nil {
 		return fmt.Errorf("resolve cluster client: %w", err)
 	}
@@ -263,12 +263,12 @@ func (c *Controller) startWatcher(ctx context.Context, clusterID string, isPrima
 	c.watchers[clusterID] = w
 	c.mu.Unlock()
 
-	c.log.Info("deploycontroller: watching cluster", "cluster_id", clusterID, "primary", isPrimary)
+	c.log.Info("deploycontroller: watching cluster", "cluster_id", clusterID, "primary", isDefault)
 	return nil
 }
 
-func (c *Controller) clusterClient(ctx context.Context, clusterID string, isPrimary bool) (k8s.ClusterClient, error) {
-	if isPrimary || clusterID == "" {
+func (c *Controller) clusterClient(ctx context.Context, clusterID string, isDefault bool) (k8s.ClusterClient, error) {
+	if isDefault || clusterID == "" {
 		return c.registry.Default(), nil
 	}
 	return c.registry.Get(ctx, clusterID)
@@ -363,12 +363,7 @@ func (c *Controller) sync(ctx context.Context, key queueKey) error {
 	// Only the watcher for the deployment's routing cluster owns its rows.
 	// During a cross-cluster migration the same namespace can transiently
 	// exist on the old and new cluster; without this guard both would write.
-	//
-	// Normalize both sides first: the registry lists the primary cluster with
-	// id "primary", but a primary-cluster deployment stores cluster_id = NULL
-	// (EffectiveClusterID == ""). Without canonicalizing, every primary-cluster
-	// deployment would fail this check and never be synced.
-	if canonicalCluster(dep.EffectiveClusterID()) != canonicalCluster(key.cluster) {
+	if c.canonicalCluster(dep.EffectiveClusterID()) != c.canonicalCluster(key.cluster) {
 		return nil
 	}
 
@@ -595,13 +590,9 @@ func (c *Controller) startBilling(deploymentID string) {
 	go c.billing.StartBilling(context.Background(), deploymentID, infos) //nolint:gosec // intentional: detached from sync ctx
 }
 
-// canonicalCluster collapses the primary cluster's two spellings — the empty
-// string (deployments.cluster_id NULL, via EffectiveClusterID) and the
-// registry's PrimaryClusterID ("primary") — to one value so they compare
-// equal. Additional-cluster ids pass through unchanged.
-func canonicalCluster(id string) string {
-	if id == "" || id == k8s.PrimaryClusterID {
-		return k8s.PrimaryClusterID
+func (c *Controller) canonicalCluster(id string) string {
+	if id == "" {
+		return c.registry.DefaultClusterID()
 	}
 	return id
 }

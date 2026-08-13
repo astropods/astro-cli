@@ -28,7 +28,6 @@ func TestIsPermanentClientResolutionError(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"not found", ErrClusterNotFound, true},
-		{"disabled", ErrClusterDisabled, true},
 		{"wrapped not found", fmt.Errorf("registry.Get: %w", ErrClusterNotFound), true},
 		{"access denied api", stubAPIError{code: "AccessDeniedException", message: "denied"}, true},
 		{"resource not found api", stubAPIError{code: "ResourceNotFoundException", message: "gone"}, true},
@@ -59,7 +58,6 @@ func TestPublicClusterHealthDetail(t *testing.T) {
 	}{
 		{"nil", nil, ""},
 		{"not found", ErrClusterNotFound, "cluster is not registered"},
-		{"disabled", ErrClusterDisabled, "cluster is disabled"},
 		{"access denied", errors.New(`AccessDeniedException: arn:aws:iam::123:role/foo`), "unable to authenticate to cluster"},
 		{"connection refused", errors.New("connection refused"), "unable to connect to cluster"},
 		{"generic", errors.New("unexpected internal failure at https://10.0.0.1"), "cluster health check failed"},

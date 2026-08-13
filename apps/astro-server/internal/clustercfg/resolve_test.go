@@ -33,7 +33,7 @@ func TestResolve_PrimaryLangfuseURLFallsBackToBase(t *testing.T) {
 	dep := envDefaults()
 	dep.LangfuseBaseURL = "http://langfuse.internal:3000"
 	dep.LangfuseBaseURLExt = ""
-	got, err := Resolve(context.Background(), nil, dep, k8s.PrimaryClusterID)
+	got, err := Resolve(context.Background(), nil, dep, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,12 +69,17 @@ func TestResolve_PrimaryCPSubnetCIDRs(t *testing.T) {
 	}
 }
 
-func TestResolve_PrimaryIDUsesEnvDefaults(t *testing.T) {
-	got, err := Resolve(context.Background(), nil, envDefaults(), k8s.PrimaryClusterID)
+// TestResolve_NoDefaultClusterConfiguredUsesEnvDefaults covers local dev:
+// reg is non-nil (a real ClusterClient backs Default()) but DEFAULT_CLUSTER_ID
+// is unset, so there's no cluster-config row to validate against — clusterID
+// == "" must still fall back to dep instead of erroring via GetEntry.
+func TestResolve_NoDefaultClusterConfiguredUsesEnvDefaults(t *testing.T) {
+	reg := k8s.NewRegistryWithPrimary(nil)
+	got, err := Resolve(context.Background(), reg, envDefaults(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.IngestionIngressDomain != "primary.ingestion.example.com" {
+	if got.AgentIngressDomain != "primary.agents.example.com" {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -83,7 +88,6 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 	reg := k8s.NewRegistryWithPrimary(nil)
 	full := k8s.ClusterEntry{
 		ID:                     "eu-west-1",
-		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
@@ -110,11 +114,40 @@ func TestResolve_AdditionalClusterUsesEntryVerbatim(t *testing.T) {
 	}
 }
 
-func TestResolve_AdditionalClusterWhitespaceOnlyVPCEIPsErrors(t *testing.T) {
+// TestResolve_DefaultClusterRowAllowsEmptyVPCEIPs covers a synced default
+// cluster row (unlike TestResolve_NoDefaultClusterConfiguredUsesEnvDefaults,
+// which covers no row at all): same-region default clusters don't need a
+// PrivateLink netpol exception to reach Langfuse, so their row can carry an
+// empty langfuse_vpce_ips.
+func TestResolve_DefaultClusterRowAllowsEmptyVPCEIPs(t *testing.T) {
+	reg := k8s.NewRegistryWithPrimary(nil)
+	reg.SetCachedEntryForTest("us-east-1-managed", k8s.ClusterEntry{
+		ID:                     "us-east-1-managed",
+		IsDefault:              true,
+		AgentIngressDomain:     "agents.example.com",
+		IngestionIngressDomain: "ingestion.example.com",
+		LangfuseBaseURLExt:     "https://langfuse.example.com",
+		LangfuseVPCEIPs:        "",
+		PodSubnetCIDRs:         "10.0.0.0/24",
+	})
+
+	got, err := Resolve(context.Background(), reg, envDefaults(), "us-east-1-managed")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.LangfuseVPCEIPs) != 0 {
+		t.Errorf("langfuse vpce ips: %v", got.LangfuseVPCEIPs)
+	}
+}
+
+// TestResolve_AdditionalClusterEmptyVPCEIPsOK covers every cluster, not just
+// the default one: langfuse_vpce_ips is optional everywhere, so an empty (or
+// whitespace-only, once parsed) value at resolve time is never an error —
+// any format problem was already caught at write time in clusterstore.
+func TestResolve_AdditionalClusterEmptyVPCEIPsOK(t *testing.T) {
 	reg := k8s.NewRegistryWithPrimary(nil)
 	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
 		ID:                     "eu-west-1",
-		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
@@ -122,9 +155,12 @@ func TestResolve_AdditionalClusterWhitespaceOnlyVPCEIPsErrors(t *testing.T) {
 		PodSubnetCIDRs:         "10.0.0.0/24",
 	})
 
-	_, err := Resolve(context.Background(), reg, envDefaults(), "eu-west-1")
-	if err == nil || !strings.Contains(err.Error(), "langfuse_vpce_ips") {
-		t.Fatalf("expected langfuse_vpce_ips error, got %v", err)
+	got, err := Resolve(context.Background(), reg, envDefaults(), "eu-west-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.LangfuseVPCEIPs) != 0 {
+		t.Errorf("langfuse vpce ips: %v", got.LangfuseVPCEIPs)
 	}
 }
 
@@ -132,7 +168,6 @@ func TestResolve_AdditionalClusterWithEmptyFieldErrors(t *testing.T) {
 	reg := k8s.NewRegistryWithPrimary(nil)
 	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
 		ID:                 "eu-west-1",
-		Enabled:            true,
 		AgentIngressDomain: "eu.agents.example.com",
 		// other fields intentionally left blank
 	})
@@ -167,7 +202,6 @@ func TestResolve_AdditionalClusterUsesOwnPullCredential(t *testing.T) {
 	reg := k8s.NewRegistryWithPrimary(nil)
 	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
 		ID:                     "eu-west-1",
-		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
@@ -192,7 +226,6 @@ func TestResolve_AdditionalClusterMissingPullCredentialErrorsWhenPullThroughEnab
 	reg := k8s.NewRegistryWithPrimary(nil)
 	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
 		ID:                     "eu-west-1",
-		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",
@@ -212,7 +245,6 @@ func TestResolve_AdditionalClusterMissingPullCredentialOKWhenPullThroughDisabled
 	reg := k8s.NewRegistryWithPrimary(nil)
 	reg.SetCachedEntryForTest("eu-west-1", k8s.ClusterEntry{
 		ID:                     "eu-west-1",
-		Enabled:                true,
 		AgentIngressDomain:     "eu.agents.example.com",
 		IngestionIngressDomain: "eu.ingestion.example.com",
 		LangfuseBaseURLExt:     "http://langfuse.platform.astroids.ai:3000",

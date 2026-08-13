@@ -5,13 +5,12 @@ import (
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
-	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 )
 
-// NormalizedClusterID maps empty and the primary sentinel to "" so placement
+// NormalizedClusterID maps empty and the "default" alias to "" so placement
 // comparisons treat them as the same routing target.
 func NormalizedClusterID(id string) string {
-	if id == "" || id == k8s.PrimaryClusterID {
+	if id == "" || id == "default" {
 		return ""
 	}
 	return id
@@ -25,7 +24,7 @@ func PlacementMismatch(targetClusterID, deploymentClusterID string) bool {
 // ClusterIDLabel returns a human-readable cluster name for events and admin messages.
 func ClusterIDLabel(id string) string {
 	if id == "" {
-		return "primary"
+		return "default"
 	}
 	return id
 }

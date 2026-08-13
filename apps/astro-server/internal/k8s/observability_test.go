@@ -9,13 +9,12 @@ import (
 )
 
 func TestPrometheusClusterFilter_PrimaryAndAdditional(t *testing.T) {
-	reg := &Registry{
-		regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"},
-	}
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("primary", ClusterEntry{ID: "primary", EKSClusterName: "primary-eks"})
 	reg.SetCachedEntryForTest("eu", ClusterEntry{
 		ID:             "eu",
 		EKSClusterName: "preview-eu-eks",
-		Enabled:        true,
+		
 	})
 
 	if got := reg.PrometheusClusterFilter(context.Background(), ""); got != `,cluster="primary-eks"` {
@@ -26,9 +25,22 @@ func TestPrometheusClusterFilter_PrimaryAndAdditional(t *testing.T) {
 	}
 }
 
+// TestPrometheusClusterFilter_DefaultClusterNoRow covers the case that used
+// to silently return a synthesized "primary-eks" filter: with no clusters
+// row for the default cluster, GetEntry fails and the filter comes back
+// empty instead of fabricating a cluster label from RegistryConfig.
+func TestPrometheusClusterFilter_DefaultClusterNoRow(t *testing.T) {
+	reg := &Registry{defaultClusterID: "primary"}
+
+	if got := reg.PrometheusClusterFilter(context.Background(), ""); got != "" {
+		t.Fatalf("primary filter = %q, want empty when the default cluster has no row", got)
+	}
+}
+
 func TestLokiClusterName(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "preview-eu-eks", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("primary", ClusterEntry{ID: "primary", EKSClusterName: "primary-eks"})
+	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "preview-eu-eks"})
 
 	if got := reg.LokiClusterName(context.Background(), ""); got != "primary-eks" {
 		t.Fatalf("primary loki cluster = %q", got)
@@ -63,8 +75,8 @@ func TestObservabilityHelpers_GetEntryError(t *testing.T) {
 }
 
 func TestObservabilityHelpers_EmptyEKSClusterName(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("blank", ClusterEntry{ID: "blank", EKSClusterName: "", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("blank", ClusterEntry{ID: "blank", EKSClusterName: ""})
 	ctx := context.Background()
 
 	if got := reg.PrometheusClusterFilter(ctx, "blank"); got != "" {
@@ -76,8 +88,8 @@ func TestObservabilityHelpers_EmptyEKSClusterName(t *testing.T) {
 }
 
 func TestLokiClientFor_FallsBackToDefaultWithoutOverride(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("no-override", ClusterEntry{ID: "no-override", EKSClusterName: "eks-1", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("no-override", ClusterEntry{ID: "no-override", EKSClusterName: "eks-1"})
 	defaultClient := loki.New("http://default-loki:3100")
 
 	if got := reg.LokiClientFor(context.Background(), "no-override", defaultClient); got != defaultClient {
@@ -93,8 +105,8 @@ func TestLokiClientFor_FallsBackToDefaultWithoutOverride(t *testing.T) {
 }
 
 func TestLokiClientFor_UsesPerClusterOverride(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "eks-eu", LokiURL: "http://eu-loki:3100", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "eks-eu", LokiURL: "http://eu-loki:3100"})
 	defaultClient := loki.New("http://default-loki:3100")
 
 	got := reg.LokiClientFor(context.Background(), "eu", defaultClient)
@@ -108,8 +120,8 @@ func TestLokiClientFor_UsesPerClusterOverride(t *testing.T) {
 }
 
 func TestPrometheusClientFor_FallsBackToDefaultWithoutOverride(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("no-override", ClusterEntry{ID: "no-override", EKSClusterName: "eks-1", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("no-override", ClusterEntry{ID: "no-override", EKSClusterName: "eks-1"})
 	defaultClient := promquery.NewClient("http://default-prom:9090", "primary-eks")
 
 	if got := reg.PrometheusClientFor(context.Background(), "no-override", defaultClient); got != defaultClient {
@@ -122,8 +134,8 @@ func TestPrometheusClientFor_FallsBackToDefaultWithoutOverride(t *testing.T) {
 }
 
 func TestPrometheusClientFor_UsesPerClusterOverride(t *testing.T) {
-	reg := &Registry{regCfg: RegistryConfig{EKSBootstrapName: "primary-eks"}}
-	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "eks-eu", PrometheusURL: "http://eu-prom:9090", Enabled: true})
+	reg := &Registry{defaultClusterID: "primary"}
+	reg.SetCachedEntryForTest("eu", ClusterEntry{ID: "eu", EKSClusterName: "eks-eu", PrometheusURL: "http://eu-prom:9090"})
 	defaultClient := promquery.NewClient("http://default-prom:9090", "primary-eks")
 
 	got := reg.PrometheusClientFor(context.Background(), "eu", defaultClient)

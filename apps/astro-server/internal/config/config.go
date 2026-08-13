@@ -59,16 +59,13 @@ type Config struct {
 	// knowledge_endpoints). -1 = unlimited, 0 = disabled. Per-account overrides
 	// live in the account_limits table. Overridable via QUOTA_DEFAULTS
 	// ("blueprints=10,members=5,..."). See internal/quota.
-	QuotaDefaults        map[string]int64
-	S3                   S3Config
-	GitHub               GitHubConfig
-	Slack                SlackConfig
-	Notify               NotifyConfig
-	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
-	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
-	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
-	OTelIngestEndpoint   string // OTEL_INGEST_ENDPOINT — public OTLP ingest URL shown in the ingest-key managed-settings block (e.g. https://otel.astropods.ai)
-	RedisURL             string // REDIS_URL — enables K8s state caching when set (e.g. redis://localhost:6379)
+	QuotaDefaults      map[string]int64
+	S3                 S3Config
+	GitHub             GitHubConfig
+	Slack              SlackConfig
+	Notify             NotifyConfig
+	OTelIngestEndpoint string // OTEL_INGEST_ENDPOINT — public OTLP ingest URL shown in the ingest-key managed-settings block (e.g. https://otel.astropods.ai)
+	RedisURL           string // REDIS_URL — enables K8s state caching when set (e.g. redis://localhost:6379)
 }
 
 // Billing backend identifiers.
@@ -254,26 +251,25 @@ type DeploymentConfig struct {
 	// uses the built-in default. Set per-environment to pin prod independently
 	// of preview; infra routes the pull through the ECR pull-through cache.
 	MessagingImage string // MESSAGING_IMAGE
-	EKSClusterName string // EKS cluster name (required for eks mode)
-	K8sMasterURL   string // K8s API server endpoint (required for eks mode)
-	AWSRegion      string // AWS region (optional, auto-detected from IRSA)
+	// ClusterConfigPath is a mounted JSON file listing every managed cluster's
+	// connectivity data (required for eks mode). DefaultClusterID picks out
+	// the entry astro-server itself runs on.
+	ClusterConfigPath string // CLUSTER_CONFIG_PATH
+	DefaultClusterID  string // DEFAULT_CLUSTER_ID
+	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
 	// K8s client mode: "eks" (default) or "local" (Docker Desktop / kind / minikube)
 	K8sClientMode  string // K8S_CLIENT_MODE
 	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
 	KubeContext    string // KUBE_CONTEXT (local mode, defaults to current-context)
-	// Ingress configuration for agent workloads (agents.astropods.ai)
-	IngressDomain string // Domain for agent ingress (e.g., agents.astropods.ai)
-	// AgentPublicIngressDomain is the open (no-OIDC) cohort base for agent web
-	// surfaces (e.g., agents.public.astropods.ai). Hosts here fall through the
-	// front-door ALB's *.agents.<domain> OIDC rule to the no-auth default action.
-	AgentPublicIngressDomain string // AGENT_INGRESS_PUBLIC_DOMAIN
-	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
-	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
-	// NetworkPolicy isolation: secondary-private subnet CIDRs where pods run (comma-separated).
-	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
-	// IPv6 counterpart to PodSubnetCIDRs. Empty for IPv4-only clusters (every
-	// cluster today except the pm-eu IPv6 pilot).
-	PodSubnetIPv6CIDRs []string // POD_SUBNET_IPV6_CIDRS
+	// IngressDomain, AgentPublicIngressDomain, IngestionIngressDomain,
+	// PodSubnetCIDRs, and PodSubnetIPv6CIDRs are only set directly by tests /
+	// clustercfg.Resolve's nil-registry fallback — the default cluster's own
+	// values come from its clusterConfig entry instead (see clustercfg.Resolve).
+	IngressDomain            string
+	AgentPublicIngressDomain string
+	IngestionIngressDomain   string
+	PodSubnetCIDRs           []string
+	PodSubnetIPv6CIDRs       []string
 	// EKS apiserver ENI subnets (primary VPC private subnets). Service proxy traffic
 	// from astro-server enters tenant pods from these CIDRs.
 	CPSubnetCIDRs []string // CP_SUBNET_CIDRS
@@ -289,22 +285,18 @@ type DeploymentConfig struct {
 	AIGatewayAdminAuth string // AI_GATEWAY_ADMIN_AUTH — full Authorization header (Basic base64(admin:pass)), ESO-delivered
 	// Local dev — inject a messaging URL without a real ingress (e.g. http://localhost:8081)
 	MessagingURLOverride string // MESSAGING_URL_OVERRIDE
-	// TenantRouterInternalURL is the primary cluster's own private
-	// tenant-router address (see ClusterEntry.TenantRouterInternalURL for
-	// additional clusters, which store this per-cluster in the DB instead).
-	// The primary cluster has no DB row of its own, so this is the only way
-	// to turn on the PrivateLink messaging path for it. Empty (the default)
-	// keeps the primary cluster on the older K8s apiserver services/proxy
-	// path. See docs/plans/messaging-proxy-astro-server-changes.md in
-	// astro-infra.
-	TenantRouterInternalURL string // TENANT_ROUTER_INTERNAL_URL
+	// TenantRouterInternalURL is only set directly by tests / clustercfg's
+	// nil-registry fallback — see ClusterEntry.TenantRouterInternalURL.
+	TenantRouterInternalURL string
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
-	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
-	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
-	LangfuseOrgID      string   // LANGFUSE_ORG_ID — the single org ID in our Langfuse instance
-	LangfuseBaseURL    string   // LANGFUSE_BASE_URL — Langfuse instance URL
-	LangfuseBaseURLExt string   // LANGFUSE_BASE_URL_EXT — external Langfuse URL for collector (overrides LANGFUSE_BASE_URL)
-	LangfuseVPCEIPs    []string // LANGFUSE_VPCE_IPS — VPC endpoint IPs for NetworkPolicy egress rules
+	LangfuseDBURL   string // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
+	LangfuseSalt    string // LANGFUSE_SALT — must match Langfuse's SALT env var
+	LangfuseOrgID   string // LANGFUSE_ORG_ID — the single org ID in our Langfuse instance
+	LangfuseBaseURL string // LANGFUSE_BASE_URL — Langfuse instance URL
+	// LangfuseBaseURLExt and LangfuseVPCEIPs are only set directly by tests /
+	// clustercfg's nil-registry fallback — see ClusterEntry.LangfuseBaseURLExt.
+	LangfuseBaseURLExt string
+	LangfuseVPCEIPs    []string
 	// PrivateLink automation — managed cluster VPC where VPC endpoints are created at runtime
 	PrivateLinkVpcID     string   // PRIVATELINK_VPC_ID — managed cluster VPC ID (empty = PrivateLink disabled)
 	PrivateLinkSubnetIDs []string // PRIVATELINK_SUBNET_IDS — comma-separated private subnet IDs
@@ -353,39 +345,31 @@ func Load() (*Config, error) {
 			DeployTokenSecret: getEnv("DEPLOY_TOKEN_SECRET", DevDeployTokenSecret),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:              getEnv("REGISTRY_URL", ""),
-			ProxyRegistryHost:        getEnv("PROXY_REGISTRY_HOST", ""),
-			Environment:              getEnv("ENVIRONMENT", ""),
-			MessagingImage:           getEnv("MESSAGING_IMAGE", ""),
-			EKSClusterName:           getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:             getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:                getEnv("AWS_REGION", ""),
-			K8sClientMode:            getEnv("K8S_CLIENT_MODE", "eks"),
-			KubeconfigPath:           getEnv("KUBECONFIG", ""),
-			KubeContext:              getEnv("KUBE_CONTEXT", ""),
-			IngressDomain:            getEnv("INGRESS_DOMAIN", ""),
-			AgentPublicIngressDomain: getEnv("AGENT_INGRESS_PUBLIC_DOMAIN", ""),
-			IngestionIngressDomain:   getEnv("INGESTION_INGRESS_DOMAIN", ""),
-			PodSubnetCIDRs:           getEnvSlice("POD_SUBNET_CIDRS", nil),
-			PodSubnetIPv6CIDRs:       getEnvSlice("POD_SUBNET_IPV6_CIDRS", nil),
-			CPSubnetCIDRs:            getEnvSlice("CP_SUBNET_CIDRS", nil),
-			KMSKeyARN:                getEnv("KMS_KEY_ARN", ""),
-			AIGatewayURL:             getEnv("AI_GATEWAY_URL", ""),
-			AIGatewayAdminURL:        getEnv("AI_GATEWAY_ADMIN_URL", ""),
-			AIGatewayAdminAuth:       getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
-			MessagingURLOverride:     getEnv("MESSAGING_URL_OVERRIDE", ""),
-			TenantRouterInternalURL:  getEnv("TENANT_ROUTER_INTERNAL_URL", ""),
-			LangfuseDBURL:            getEnv("LANGFUSE_DB_URL", ""),
-			LangfuseSalt:             getEnv("LANGFUSE_SALT", ""),
-			LangfuseOrgID:            getEnv("LANGFUSE_ORG_ID", "astro"),
-			LangfuseBaseURL:          getEnv("LANGFUSE_BASE_URL", ""),
-			LangfuseBaseURLExt:       getEnv("LANGFUSE_BASE_URL_EXT", ""),
-			LangfuseVPCEIPs:          getEnvSlice("LANGFUSE_VPCE_IPS", nil),
-			PrivateLinkVpcID:         getEnv("PRIVATELINK_VPC_ID", ""),
-			PrivateLinkSubnetIDs:     getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
-			PrivateLinkSGID:          getEnv("PRIVATELINK_SG_ID", ""),
-			TemplateSigningKey:       loadSigningKey(),
-			RegistryPullCredential:   getEnv("REGISTRY_PULL_CREDENTIAL", ""),
+			RegistryURL:            getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost:      getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:            getEnv("ENVIRONMENT", ""),
+			MessagingImage:         getEnv("MESSAGING_IMAGE", ""),
+			ClusterConfigPath:      getEnv("CLUSTER_CONFIG_PATH", ""),
+			DefaultClusterID:       getEnv("DEFAULT_CLUSTER_ID", ""),
+			AWSRegion:              getEnv("AWS_REGION", ""),
+			K8sClientMode:          getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:         getEnv("KUBECONFIG", ""),
+			KubeContext:            getEnv("KUBE_CONTEXT", ""),
+			CPSubnetCIDRs:          getEnvSlice("CP_SUBNET_CIDRS", nil),
+			KMSKeyARN:              getEnv("KMS_KEY_ARN", ""),
+			AIGatewayURL:           getEnv("AI_GATEWAY_URL", ""),
+			AIGatewayAdminURL:      getEnv("AI_GATEWAY_ADMIN_URL", ""),
+			AIGatewayAdminAuth:     getEnv("AI_GATEWAY_ADMIN_AUTH", ""),
+			MessagingURLOverride:   getEnv("MESSAGING_URL_OVERRIDE", ""),
+			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
+			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
+			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
+			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
+			PrivateLinkVpcID:       getEnv("PRIVATELINK_VPC_ID", ""),
+			PrivateLinkSubnetIDs:   getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
+			PrivateLinkSGID:        getEnv("PRIVATELINK_SG_ID", ""),
+			TemplateSigningKey:     loadSigningKey(),
+			RegistryPullCredential: getEnv("REGISTRY_PULL_CREDENTIAL", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -456,9 +440,6 @@ func Load() (*Config, error) {
 		FGAShadowEnabled:        getEnv("FGA_SHADOW_ENABLED", "") == "true",
 		FGAEnforcementEnabled:   getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
 		QuotaDefaults:           loadQuotaDefaults(),
-		LokiURL:                 getEnv("LOKI_URL", ""),
-		DeploymentLogBackend:    getEnv("DEPLOYMENT_LOG_BACKEND", ""),
-		PrometheusURL:           getEnv("PROMETHEUS_URL", ""),
 		OTelIngestEndpoint:      getEnv("OTEL_INGEST_ENDPOINT", ""),
 		RedisURL:                getEnv("REDIS_URL", ""),
 	}

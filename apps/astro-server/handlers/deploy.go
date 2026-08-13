@@ -289,7 +289,7 @@ func validateDeployTargetCluster(
 	// (clustercfg.Resolve at deploy submit time) reuse the cached entry
 	// instead of issuing a second SELECT.
 	_ = clusterStore // kept in the signature for tests that pass it in
-	cluster, lookupErr := k8sReg.GetEntry(c.Request.Context(), clusterID)
+	_, lookupErr := k8sReg.GetEntry(c.Request.Context(), clusterID)
 	if lookupErr != nil {
 		if errors.Is(lookupErr, k8s.ErrClusterNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -300,13 +300,6 @@ func validateDeployTargetCluster(
 		}
 		log.Error("Failed to look up cluster", "cluster_id", clusterID, "error", lookupErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster lookup failed"})
-		return false
-	}
-	if !cluster.Enabled {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":      "cluster is disabled",
-			"cluster_id": clusterID,
-		})
 		return false
 	}
 	if healthErr := clusterHealthForDeploy(c.Request.Context(), k8sReg, clusterID); healthErr != nil {
@@ -784,8 +777,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 		// validateDeployTargetCluster warms entryCache via GetEntry. Evict before
-		// clustercfg.Resolve so a SQL backfill or admin UpdateCluster on another
-		// replica is visible here (Queen Refresh is not called for station edits).
+		// clustercfg.Resolve so a SQL backfill or boot sync on another replica
+		// is visible here (Queen Refresh is not called for station edits).
 		if submittedSpec.Target.ClusterID != "" && k8sReg != nil {
 			_ = k8sReg.Refresh(c.Request.Context(), submittedSpec.Target.ClusterID)
 		}
