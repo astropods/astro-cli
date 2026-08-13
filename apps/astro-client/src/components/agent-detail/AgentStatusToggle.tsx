@@ -7,6 +7,8 @@ import { useDeploymentStatus, useStopDeployment, useWakeUpDeployment } from "@/a
 import { useBillingStatus } from "@/api/queries/billing";
 import { isBillingSuspendedStatus, isPausedState } from "@/lib/deployment-utils";
 import { billingStoppedHint } from "@/lib/billing-copy";
+import { getApiErrorMessage } from "@/lib/api";
+import { toast } from "sonner";
 import type { AgentDeployment } from "@/lib/api";
 
 interface AgentStatusToggleProps {
@@ -54,14 +56,23 @@ export function AgentStatusToggle({ deployment, account }: AgentStatusToggleProp
   // error from the previous state.
   const errored = liveStatus === "error" && intent === null;
 
+  // A refused mutation leaves the toggle mid-intent, so clear it and say why.
+  // The message is the server's: getApiErrorMessage prefers `details`, and a
+  // billing 402 puts the actionable sentence there. The app-shell banner already
+  // links a gated account to billing, so there is nothing to route here.
+  function onMutationError(err: unknown) {
+    setIntent(null);
+    toast.error(getApiErrorMessage(err, "Could not change the agent's state."));
+  }
+
   function handleToggle(next: boolean) {
     if (busy) return;
     if (next) {
       setIntent("resuming");
-      wakeupMutation.mutate({ deploymentId: deployment.id });
+      wakeupMutation.mutate({ deploymentId: deployment.id }, { onError: onMutationError });
     } else {
       setIntent("pausing");
-      stopMutation.mutate({ deploymentId: deployment.id });
+      stopMutation.mutate({ deploymentId: deployment.id }, { onError: onMutationError });
     }
   }
 
