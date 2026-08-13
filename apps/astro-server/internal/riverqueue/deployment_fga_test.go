@@ -52,7 +52,7 @@ func TestDeploymentFGAReconcileRegistersResourceAndCreator(t *testing.T) {
 			return nil
 		},
 		AssignRoleFunc: func(_ context.Context, subject authz.AssignmentSubject, role authz.RoleSlug, resource authz.ResourceRef) error {
-			assigned = subject == authz.MembershipAssignmentSubject("om_123") && role == authz.RoleDeploymentEditor && resource == authz.DeploymentResource("dep_123")
+			assigned = subject == authz.MembershipAssignmentSubject("om_123") && role == authz.RoleDeploymentOwner && resource == authz.DeploymentResource("dep_123")
 			return nil
 		},
 	}
@@ -171,7 +171,7 @@ func TestDeploymentFGAReconcileAssignsCreatorAfterDeferredMembershipResolves(t *
 	var assigned bool
 	worker := deploymentFGAWorker(db, &authz.FakeFGA{
 		AssignRoleFunc: func(_ context.Context, subject authz.AssignmentSubject, role authz.RoleSlug, resource authz.ResourceRef) error {
-			assigned = subject == authz.MembershipAssignmentSubject("om_123") && role == authz.RoleDeploymentEditor && resource == authz.DeploymentResource("dep_123")
+			assigned = subject == authz.MembershipAssignmentSubject("om_123") && role == authz.RoleDeploymentOwner && resource == authz.DeploymentResource("dep_123")
 			return nil
 		},
 	})

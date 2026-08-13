@@ -29,7 +29,7 @@ export default function OrgExperimentsSettings() {
             <p className="text-body-sm font-medium text-foreground">Fine-grained access</p>
             <p className="text-body-sm text-muted-foreground">
               Make synchronized deployments private by default. Owners and admins retain access,
-              creators become editors, and other members need an assigned deployment role.
+              creators become deployment owners, and other members need an assigned deployment role.
             </p>
           </div>
           <Switch

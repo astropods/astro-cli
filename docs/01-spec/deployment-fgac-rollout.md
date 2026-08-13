@@ -17,7 +17,7 @@ The first policy uses a small set of practical, actor-neutral capabilities. Perm
 | `deployment:delete` | Delete the deployment. |
 | `deployment:manage_access` | Invite people and grant or revoke deployment access. |
 
-Permissions do not imply one another. Roles are the bundles: for example, a deployment reader needs only `deployment:read`, while an operator role can combine `deployment:read` and `deployment:operate`. A custom role can use any combination without changing Astro's route policy.
+Permissions do not imply one another. Roles bundle them into product personas: Viewer is read-only, Builder can build and operate without resharing, and Owner controls the deployment and its access. A custom role can use any combination without changing Astro's route policy.
 
 This catalog intentionally avoids one permission per UI control. There is no useful product persona who may restart but not resume, or read monitoring but not logs, in the initial milestone. We add another permission only when a concrete security or product boundary requires independent grants.
 
@@ -31,14 +31,14 @@ Chat and invocation authorization remain separate data-plane concerns. Existing 
 
 ## Final behavior
 
-Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment readers and editors in its database.
+Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment assignments in its database.
 
 | Subject | Baseline read | Deployment operations | Manage access in this milestone |
 | --- | --- | --- | --- |
 | Organization owner/admin | All organization deployments | All deployment permissions | Yes |
-| Deployment creator | The deployment they created | `deployment-editor` bundle on that deployment | Only if also an organization owner/admin |
-| `deployment-editor` assignee | Assigned deployment | Read, edit, operate, and delete | No |
-| `deployment-reader` assignee | Assigned deployment | None | No |
+| Deployment creator / `deployment-owner` | The deployment they created | Read, edit, operate, and delete | Yes |
+| `deployment-builder` assignee | Assigned deployment | Read, edit, operate, and delete | No |
+| `deployment-viewer` assignee | Assigned deployment | None | No |
 | Unassigned organization member | No after view enforcement | No | No |
 | Personal-account owner | Yes | Yes | Not applicable |
 
@@ -46,15 +46,15 @@ A WorkOS group contains organization memberships; it does not contain permission
 
 ```mermaid
 flowchart LR
-    Matt["Matt membership"] --> Group["Deployment Editors group"]
+    Matt["Matt membership"] --> Group["Deployment Builders group"]
     Saswat["Saswat membership"] --> Group
     Sohum["Sohum membership"] --> Group
-    Group --> Assignment["deployment-editor on dep_123"]
+    Group --> Assignment["deployment-builder on dep_123"]
     Assignment --> Read["flat read capabilities"]
     Assignment --> Edit["flat mutation capabilities"]
 ```
 
-The initial access-management API allows only organization owners/admins to change assignments. A later `deployment:manage_access` grant can allow another role to manage access without changing the FGA client primitives.
+The initial access-management API requires `deployment:manage_access`. Organization owners/admins inherit it, and the deployment creator receives it through `deployment-owner`.
 
 ## Sources of truth
 
@@ -89,8 +89,9 @@ Configure preview before PR4 makes live writes; repeat in production before prod
 
 - Resource type `deployment`, parent organization.
 - The five permissions in the deployment catalog above, scoped to `deployment`.
-- Role `deployment-reader` containing `deployment:read`.
-- Role `deployment-editor` containing `deployment:read`, `deployment:edit`, `deployment:operate`, and `deployment:delete`.
+- Role `deployment-viewer` containing `deployment:read`.
+- Role `deployment-builder` containing `deployment:read`, `deployment:edit`, `deployment:operate`, and `deployment:delete`.
+- Role `deployment-owner` containing all five deployment permissions.
 - Organization owner/admin roles include every deployment permission through child-resource inheritance.
 - Organization member role includes no deployment permissions for private-by-default behavior.
 
@@ -120,7 +121,7 @@ Status: merged as PR #1383.
 
 Status: merged as PR #1891.
 
-- Define the `deployment-reader` and `deployment-editor` role slugs around the permission contracts supplied by PR2.
+- Define the bootstrap `deployment-reader` and `deployment-editor` role slugs around the permission contracts supplied by PR2; PR7.4 replaces them with the final role contract.
 - Expose resource registration/deletion, role assignment/removal, and permission checking.
 - Delegate transport and vendor models to the official WorkOS Authorization SDK.
 - Support membership and existing-group role assignments.
@@ -132,7 +133,7 @@ Status: merged as PR #1891.
 Status: merged as PR #1895.
 
 - Add `deployments.deployed_by` and capture the authenticated user on deploy.
-- After the deployment transaction commits, register organization deployments in WorkOS and assign the creator `deployment-editor`.
+- After the deployment transaction commits, register organization deployments in WorkOS and assign the creator the configured creator role (initially `deployment-editor`, replaced by `deployment-owner` in PR7.4).
 - If a current member's creator membership is temporarily unavailable, use bounded fast retries followed by hourly assignment retries; resource lifecycle remains converged and account purge is not blocked. Stop assignment retries when no creator exists or the creator is no longer an organization member.
 - Extend the minimal FGA seam with resource-name updates and reconcile deployment renames/redeploy name changes to WorkOS.
 - Delete the WorkOS resource when the deployment is deleted; assignment cleanup cascades.
@@ -209,7 +210,7 @@ flowchart LR
 - Persist a server-owned, organization-scoped `fine_grained_access` experiment. A browser-local flag is not an authorization boundary.
 - Add audited owner/admin APIs and an organization Settings → Experiments toggle beneath Audit Log.
 - Keep shadow checks active for every PR4-converged Preview deployment. The organization opt-in controls live capability mode and later enforcement, not lifecycle synchronization or shadow evidence.
-- Adopt private-by-default deployment access: owners/admins inherit access, creators receive `deployment-editor`, and ordinary members receive nothing until assigned directly or through a group.
+- Adopt private-by-default deployment access: owners/admins inherit access, creators receive the deployment-owner role, and ordinary members receive nothing until assigned directly or through a group.
 - Do not backfill from the toggle. Historical Preview deployments remain legacy until the post-PR9 backfill converges.
 
 ### PR7.3 — Staged mutation enforcement
@@ -238,6 +239,13 @@ flowchart TD
     Check -- Unavailable --> Retry["Return retryable service unavailable"]
 ```
 
+### PR7.4 — Deployment role contract
+
+- Replace the bootstrap reader/editor roles with the final Viewer, Builder, and Owner bundles.
+- Assign `deployment-owner` to new deployment creators so they can manage access on the resource they own.
+- Keep permissions flat and unchanged; enforcement continues to check permissions rather than role names.
+- Leave repair of previously synchronized deployments to the idempotent PR9 backfill.
+
 ### PR8 — API-only access and group management
 
 This replaces Matt's original frontend PR. No UI is built.
@@ -245,9 +253,9 @@ This replaces Matt's original frontend PR. No UI is built.
 - Add a small WorkOS Groups service beside the FGA interface using the same root SDK client.
 - Create/list/update/delete organization groups.
 - Add/list/remove organization members using local account-member IDs; Astro resolves WorkOS membership IDs internally.
-- List, assign, and remove `deployment-reader` and `deployment-editor` for membership or group subjects.
+- List, assign, and remove `deployment-viewer`, `deployment-builder`, and `deployment-owner` for membership or group subjects.
 - Validate that the caller, subject, group, deployment, and WorkOS resource belong to the same organization.
-- Restrict access management to organization owners/admins and allowlist the two built-in deployment roles.
+- Require `deployment:manage_access`, validate grants server-side, and allowlist the three built-in deployment roles.
 - Add accessible-deployment discovery, then enforce `deployment:read` on filtered detail and list APIs without N+1 checks.
 
 Proposed API surface; exact paths follow existing server conventions during implementation:
@@ -278,13 +286,13 @@ Proposed API surface; exact paths follow existing server conventions during impl
 
 The milestone is complete when this flow succeeds against Astro APIs in preview:
 
-1. Sohum creates an organization deployment and receives creator editor access.
+1. Sohum creates an organization deployment and receives deployment-owner access.
 2. An organization admin creates a group and adds Sohum, Matt, and Saswat by Astro account-member ID.
-3. The admin assigns `deployment-editor` to the group on that deployment.
+3. The owner assigns `deployment-builder` to the group on that deployment.
 4. Each member can view and edit that deployment using their own authenticated session.
 5. The same members cannot access an unassigned deployment unless an inherited organization role allows it.
 6. Removing Matt from the group revokes his group-derived access on the next check while Sohum and Saswat remain allowed.
-7. Assigning `deployment-reader` permits deployment reads but conceals denied edit, operate, delete, and manage-access actions as `404`. Evaluation behavior remains unchanged until its authorization model is designed.
+7. Assigning `deployment-viewer` permits deployment reads but conceals denied edit, operate, delete, and manage-access actions as `404`. Evaluation behavior remains unchanged until its authorization model is designed.
 8. Organization owners/admins retain inherited access to every deployment.
 9. Cross-organization assignment attempts are rejected before WorkOS is called.
 

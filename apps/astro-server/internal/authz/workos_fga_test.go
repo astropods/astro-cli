@@ -159,7 +159,7 @@ func TestWorkOSFGAAssignRoleSupportsMembershipsAndGroups(t *testing.T) {
 			response: map[string]any{
 				"id":                         "role_assignment_123",
 				"organization_membership_id": "om_123",
-				"role":                       map[string]string{"slug": "deployment-editor"},
+				"role":                       map[string]string{"slug": "deployment-builder"},
 				"resource":                   workOSResourceResponse(),
 			},
 		},
@@ -170,7 +170,7 @@ func TestWorkOSFGAAssignRoleSupportsMembershipsAndGroups(t *testing.T) {
 			response: map[string]any{
 				"id":       "group_role_assignment_123",
 				"group_id": "group_123",
-				"role":     map[string]string{"slug": "deployment-editor"},
+				"role":     map[string]string{"slug": "deployment-builder"},
 				"resource": workOSResourceResponse(),
 			},
 		},
@@ -183,13 +183,13 @@ func TestWorkOSFGAAssignRoleSupportsMembershipsAndGroups(t *testing.T) {
 				assertRequest(t, request, http.MethodPost, test.wantPath, map[string]any{
 					"resource_external_id": "dep_123",
 					"resource_type_slug":   "deployment",
-					"role_slug":            "deployment-editor",
+					"role_slug":            "deployment-builder",
 				})
 				writeWorkOSJSON(t, response, http.StatusOK, test.response)
 			})
 			defer closeServer()
 
-			if err := fga.AssignRole(context.Background(), test.subject, RoleDeploymentEditor, DeploymentResource("dep_123")); err != nil {
+			if err := fga.AssignRole(context.Background(), test.subject, RoleDeploymentBuilder, DeploymentResource("dep_123")); err != nil {
 				t.Fatalf("AssignRole() error = %v", err)
 			}
 		})
@@ -207,7 +207,7 @@ func TestWorkOSFGAAssignRoleClassifiesConflict(t *testing.T) {
 	})
 	defer closeServer()
 
-	err := fga.AssignRole(context.Background(), MembershipAssignmentSubject("om_123"), RoleDeploymentEditor, DeploymentResource("dep_123"))
+	err := fga.AssignRole(context.Background(), MembershipAssignmentSubject("om_123"), RoleDeploymentBuilder, DeploymentResource("dep_123"))
 	if !errors.Is(err, ErrRoleAssignmentExists) {
 		t.Fatalf("error = %v, want errors.Is(_, ErrRoleAssignmentExists)", err)
 	}
@@ -236,13 +236,13 @@ func TestWorkOSFGARemoveRoleSupportsMembershipsAndGroups(t *testing.T) {
 				assertRequest(t, request, http.MethodDelete, test.wantPath, map[string]any{
 					"resource_external_id": "dep_123",
 					"resource_type_slug":   "deployment",
-					"role_slug":            "deployment-reader",
+					"role_slug":            "deployment-viewer",
 				})
 				response.WriteHeader(http.StatusNoContent)
 			})
 			defer closeServer()
 
-			if err := fga.RemoveRole(context.Background(), test.subject, RoleDeploymentReader, DeploymentResource("dep_123")); err != nil {
+			if err := fga.RemoveRole(context.Background(), test.subject, RoleDeploymentViewer, DeploymentResource("dep_123")); err != nil {
 				t.Fatalf("RemoveRole() error = %v", err)
 			}
 		})
@@ -386,7 +386,7 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 		{
 			name: "assign role with unsupported subject type",
 			call: func(fga *WorkOSFGA) error {
-				return fga.AssignRole(context.Background(), AssignmentSubject{Type: "user", ID: "user_123"}, RoleDeploymentEditor, DeploymentResource("dep_123"))
+				return fga.AssignRole(context.Background(), AssignmentSubject{Type: "user", ID: "user_123"}, RoleDeploymentBuilder, DeploymentResource("dep_123"))
 			},
 		},
 		{
@@ -398,7 +398,7 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 		{
 			name: "remove role with unsupported subject type",
 			call: func(fga *WorkOSFGA) error {
-				return fga.RemoveRole(context.Background(), AssignmentSubject{Type: "user", ID: "user_123"}, RoleDeploymentEditor, DeploymentResource("dep_123"))
+				return fga.RemoveRole(context.Background(), AssignmentSubject{Type: "user", ID: "user_123"}, RoleDeploymentBuilder, DeploymentResource("dep_123"))
 			},
 		},
 		{
