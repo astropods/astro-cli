@@ -27,13 +27,21 @@ func init() {
 	registerJobKind[DunningSweepArgs]()
 }
 
+// dunningQueue is the sweep's output: stopping the workloads and telling the
+// owner. Narrowed from *Queue so a test can observe the enqueue, which is the
+// part of this worker worth proving; the recompute only decides that it happens.
+type dunningQueue interface {
+	InsertBillingSuspend(ctx context.Context, accountID string) error
+	EmitBillingNotify(ctx context.Context, ev notify.Event) error
+}
+
 // DunningSweepWorker ages past_due accounts to suspended once their dunning
 // grace window elapses. Pure timer — it makes no Metronome calls; it only
 // re-runs the state machine against the stored dunning_since.
 type DunningSweepWorker struct {
 	river.WorkerDefaults[DunningSweepArgs]
 	status *billing.StatusStore
-	queue  *Queue // set post-construction in New(); enqueues workload suspend
+	queue  dunningQueue // set post-construction in New(); enqueues workload suspend
 	log    *logger.Logger
 }
 

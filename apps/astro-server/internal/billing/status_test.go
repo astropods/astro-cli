@@ -22,6 +22,11 @@ func TestComputeStatus(t *testing.T) {
 		{"clean", signals{}, StatusActive, ""},
 		{"dunning within grace", signals{dunningSince: ptr(within)}, StatusPastDue, ReasonDunning},
 		{"dunning past grace", signals{dunningSince: ptr(expired)}, StatusSuspended, ReasonPaymentFailed},
+		// The boundary decides a whole day of service either way. The comparison
+		// is strictly greater, so the grace is inclusive of its final instant.
+		{"dunning exactly at grace", signals{dunningSince: ptr(now.Add(-grace))}, StatusPastDue, ReasonDunning},
+		{"dunning one second past grace", signals{dunningSince: ptr(now.Add(-grace - time.Second))}, StatusSuspended, ReasonPaymentFailed},
+		{"dunning one second inside grace", signals{dunningSince: ptr(now.Add(-grace + time.Second))}, StatusPastDue, ReasonDunning},
 		{"alert overrides clean", signals{alertActive: true}, StatusSuspended, ReasonBalanceAlert},
 		{"alert overrides dunning", signals{dunningSince: ptr(within), alertActive: true}, StatusSuspended, ReasonBalanceAlert},
 		{"force suspend overrides clean", signals{forceSuspended: true}, StatusSuspended, ReasonUncollectible},
