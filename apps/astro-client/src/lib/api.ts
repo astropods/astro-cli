@@ -2274,6 +2274,11 @@ export interface BillingStatusResponse {
    *  `enforced`, so a real suspension stays visible after enforcement is
    *  turned off. */
   workloads_suspended: boolean;
+  /** Whether this status is worth surfacing. The server owns the rule so the
+   *  web client, the CLI, and the 402 body cannot disagree about it. */
+  gated: boolean;
+  /** The one action that lifts the gate, matching the 402 body's `action`. */
+  action?: string;
 }
 
 export interface SetupIntentResponse {

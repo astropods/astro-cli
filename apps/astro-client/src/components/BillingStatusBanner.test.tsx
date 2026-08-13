@@ -31,6 +31,8 @@ beforeEach(() => {
   mockNavigate.mockReset();
 });
 
+// gated defaults to true so each case states the status it is testing, not the
+// server's gating rule. The active case overrides it, as the server would.
 function status(partial: Partial<BillingStatusResponse>): BillingStatusResponse {
   return {
     status: "active",
@@ -38,13 +40,14 @@ function status(partial: Partial<BillingStatusResponse>): BillingStatusResponse 
     has_payment_method: false,
     enforced: true,
     workloads_suspended: false,
+    gated: true,
     ...partial,
   };
 }
 
 describe("BillingStatusBanner", () => {
   it("renders nothing for an active account", () => {
-    mockStatus.mockReturnValue({ data: status({}) });
+    mockStatus.mockReturnValue({ data: status({ gated: false }) });
     const { container } = render(<BillingStatusBanner />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -61,6 +64,7 @@ describe("BillingStatusBanner", () => {
         status: "suspended",
         reason: "credits_exhausted",
         credits_exhausted: true,
+        action: "add_card",
       }),
     });
     render(<BillingStatusBanner />);
@@ -69,10 +73,10 @@ describe("BillingStatusBanner", () => {
   });
 
   // The pay-as-you-go case: credits are spent but a card covers the overage, so
-  // the account is active and must not be nagged.
+  // the server reports the account active and ungated.
   it("stays silent once a card makes the account pay-as-you-go", () => {
     mockStatus.mockReturnValue({
-      data: status({ credits_exhausted: true, has_payment_method: true }),
+      data: status({ credits_exhausted: true, has_payment_method: true, gated: false }),
     });
     const { container } = render(<BillingStatusBanner />);
     expect(container).toBeEmptyDOMElement();
@@ -87,21 +91,24 @@ describe("BillingStatusBanner", () => {
     expect(screen.getByText(/agents are stopped once the grace period ends/)).toBeInTheDocument();
   });
 
-  it("stays silent in observe mode, where nothing is actually suspended", () => {
+  // gated is the server's verdict, and the banner must not second-guess it. A
+  // suspended status with gated false is observe mode; the reverse is a real
+  // suspension that outlived enforcement being turned off. See the server test
+  // TestBillingStatus_GatedFollowsEnforcementAndSuspendedWorkloads.
+  it("follows the server's gated verdict, not the raw status", () => {
     mockStatus.mockReturnValue({
-      data: status({ status: "suspended", reason: "credits_exhausted", enforced: false }),
+      data: status({ status: "suspended", reason: "credits_exhausted", gated: false }),
     });
     const { container } = render(<BillingStatusBanner />);
     expect(container).toBeEmptyDOMElement();
-  });
 
-  it("keeps warning while workloads are still stopped after enforcement is off", () => {
     mockStatus.mockReturnValue({
       data: status({
         status: "suspended",
         reason: "credits_exhausted",
         enforced: false,
         workloads_suspended: true,
+        gated: true,
       }),
     });
     render(<BillingStatusBanner />);
@@ -124,12 +131,15 @@ describe("BillingStatusBanner", () => {
     expect(screen.queryByText(/free credits/i)).not.toBeInTheDocument();
   });
 
-  it("still infers the credit copy when the server sent no reason", () => {
+  // computeStatus always states a reason for a gated account, so this shape does
+  // not occur today. Assert the banner still speaks: going silent would hide a
+  // stopped account, which is worse than generic wording.
+  it("still warns when a gated status carries no reason", () => {
     mockStatus.mockReturnValue({
       data: status({ status: "suspended", credits_exhausted: true }),
     });
     render(<BillingStatusBanner />);
-    expect(screen.getByText(/free credits/i)).toBeInTheDocument();
+    expect(screen.getByText(/agents stopped/i)).toBeInTheDocument();
   });
 
   it("falls back to generic copy for a reason this build does not know", () => {
@@ -137,7 +147,7 @@ describe("BillingStatusBanner", () => {
       data: status({ status: "suspended", reason: "some_future_reason" }),
     });
     render(<BillingStatusBanner />);
-    expect(screen.getByText("Billing issue — agents stopped")).toBeInTheDocument();
+    expect(screen.getByText("Billing issue, agents stopped")).toBeInTheDocument();
   });
 });
 
@@ -153,6 +163,7 @@ describe("BillingStatusBanner call to action", () => {
         status: "suspended",
         reason: "credits_exhausted",
         credits_exhausted: true,
+        action: "add_card",
       }),
     });
     render(<BillingStatusBanner />);
@@ -170,6 +181,39 @@ describe("BillingStatusBanner before accounts load", () => {
     mockAccounts.mockReturnValueOnce({ accounts: [] });
     mockStatus.mockReturnValue({
       data: status({ status: "suspended", reason: "credits_exhausted", credits_exhausted: true }),
+    });
+    const { container } = render(<BillingStatusBanner />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+// The client and server deploy independently (deploy-prod.yml selects services
+// one by one), so a client can run against a server that predates `gated`.
+// Reading undefined as "not gated" would silently hide a real suspension, which
+// is worse than the duplicate rule this fallback keeps alive.
+describe("BillingStatusBanner against a server without gated", () => {
+  function legacy(partial: Partial<BillingStatusResponse>) {
+    const s = status(partial) as Partial<BillingStatusResponse>;
+    delete s.gated;
+    return s as BillingStatusResponse;
+  }
+
+  it("still warns when enforcement stopped the account", () => {
+    mockStatus.mockReturnValue({
+      data: legacy({
+        status: "suspended",
+        reason: "credits_exhausted",
+        action: "add_card",
+        enforced: true,
+      }),
+    });
+    render(<BillingStatusBanner />);
+    expect(screen.getByText(/free credits/i)).toBeInTheDocument();
+  });
+
+  it("stays silent in observe mode, as the old rule did", () => {
+    mockStatus.mockReturnValue({
+      data: legacy({ status: "suspended", reason: "credits_exhausted", enforced: false }),
     });
     const { container } = render(<BillingStatusBanner />);
     expect(container).toBeEmptyDOMElement();

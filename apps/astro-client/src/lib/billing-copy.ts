@@ -8,37 +8,57 @@ export interface BillingBannerCopy {
   cta: string;
 }
 
+/** Button label for the server's `action`. The server decides what resolves a
+ *  gate (middleware.BillingAction); the client only names the button. Deriving
+ *  the label from `reason` instead put "View billing" on balance_alert, where
+ *  the server says only support can lift it.
+ *
+ *  contact_support keeps the billing destination because the app has no support
+ *  route. The instruction lives in the body copy, which matches the server's
+ *  `details` for that action. */
+const ACTION_LABEL: Record<string, string> = {
+  add_card: "Add payment method",
+  update_card: "Update payment method",
+  contact_support: "View billing",
+  view_billing: "View billing",
+};
+
+export function billingActionLabel(action: string | undefined): string {
+  return (action && ACTION_LABEL[action]) || "View billing";
+}
+
 /** Long-form copy for the app-wide banner. Credit exhaustion is split from the
  *  payment reasons because the fix differs: add a first card, not fix an
- *  existing one. Null for an unrecognised reason, so callers can fall back. */
+ *  existing one. Null for an unrecognised reason, so callers can fall back.
+ *
+ *  The reason picks the wording, the action picks the button. computeStatus
+ *  pairs every non-active status with a reason (billing/status.go), and
+ *  Recompute is its only writer, so a gated account always states one. */
 export function billingBannerCopy(
   reason: string | undefined,
-  creditsExhausted: boolean,
-  hasPaymentMethod: boolean,
+  action: string | undefined,
   suspended: boolean,
 ): BillingBannerCopy | null {
-  // Infer from raw facts only when the server sent no reason. Inferring over a
-  // stated one tells a written-off account to add a card, which does not lift
-  // force_suspended.
-  if (reason === "credits_exhausted" || (!reason && creditsExhausted && !hasPaymentMethod)) {
+  const cta = billingActionLabel(action);
+  if (reason === "credits_exhausted") {
     return {
       title: "Free credits used up",
       body: "Your agents are stopped. Add a payment method to switch to pay-as-you-go and start them again.",
-      cta: "Add payment method",
+      cta,
     };
   }
   if (reason === "uncollectible") {
     return {
       title: "Payment could not be collected",
       body: "Your agents are stopped after repeated failed charges. Update your payment method to restore them.",
-      cta: "Update payment method",
+      cta,
     };
   }
   if (reason === "balance_alert") {
     return {
       title: "Spending limit reached",
-      body: "Your agents are stopped because the account hit its spend threshold.",
-      cta: "View billing",
+      body: "Your agents are stopped because the account hit its spend threshold. Contact support to raise it.",
+      cta,
     };
   }
   if (reason === "dunning" || reason === "payment_failed") {
@@ -46,12 +66,12 @@ export function billingBannerCopy(
       ? {
           title: "Payment failed",
           body: "Your agents are stopped. Update your payment method to restore them.",
-          cta: "Update payment method",
+          cta,
         }
       : {
           title: "Payment failed",
           body: "We could not charge your card. Update it soon, or agents are stopped once the grace period ends.",
-          cta: "Update payment method",
+          cta,
         };
   }
   return null;

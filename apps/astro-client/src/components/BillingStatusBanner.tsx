@@ -7,7 +7,7 @@ import { useBillingStatus } from "@/api/queries/billing";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { ActionPanel } from "@/components/ui/status-panel";
-import { billingBannerCopy } from "@/lib/billing-copy";
+import { billingActionLabel, billingBannerCopy } from "@/lib/billing-copy";
 import { accountSettingsPath } from "@/lib/settings-paths";
 
 export function BillingStatusBanner({ className }: { className?: string }) {
@@ -16,29 +16,29 @@ export function BillingStatusBanner({ className }: { className?: string }) {
   const navigate = useNavigate();
   const { data } = useBillingStatus(activeAccount ?? "");
 
-  // Observe mode computes a status without acting on it, so there is nothing to
-  // report — unless enforcement already stopped this account and was then
-  // turned off, which leaves it genuinely down.
-  const acted = data?.enforced || data?.workloads_suspended;
-  if (!data || !acted || data.status === "active") return null;
+  // The server owns the rule, so the banner, the per-agent status, and the 402
+  // cannot disagree about whether an account is gated. A server that predates
+  // `gated` sends undefined, and treating that as "not gated" would hide a real
+  // suspension; the client and server deploy independently, so reconstruct the
+  // rule for that case only. Drop the fallback once no deployed server predates
+  // the field.
+  const gated =
+    data?.gated ?? (data ? data.status !== "active" && (data.enforced || data.workloads_suspended) : false);
+  if (!gated) return null;
+  if (!data) return null;
   // activeAccount can come from the root loader before AuthProvider fills
   // accounts, and an unresolved account routes to the personal page. Waiting a
   // render beats sending an org owner somewhere their card cannot help.
   if (accounts.length === 0) return null;
 
   const suspended = data.status === "suspended";
-  const copy = billingBannerCopy(
-    data.reason,
-    data.credits_exhausted,
-    data.has_payment_method,
-    suspended,
-  );
+  const copy = billingBannerCopy(data.reason, data.action, suspended);
   // An unrecognised reason means the server gained a status this build predates.
   // Staying silent would hide a stopped account, so fall back to generic copy.
   const { title, body, cta } = copy ?? {
-    title: suspended ? "Billing issue — agents stopped" : "Billing issue",
+    title: suspended ? "Billing issue, agents stopped" : "Billing issue",
     body: "There is a problem with this account's billing.",
-    cta: "View billing",
+    cta: billingActionLabel(data.action),
   };
 
   return (
