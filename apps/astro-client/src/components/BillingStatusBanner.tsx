@@ -5,11 +5,14 @@
 import { useNavigate } from "react-router";
 import { useBillingStatus } from "@/api/queries/billing";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { useAuth } from "@/lib/auth";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { billingBannerCopy } from "@/lib/billing-copy";
+import { accountSettingsPath } from "@/lib/settings-paths";
 
 export function BillingStatusBanner({ className }: { className?: string }) {
   const { activeAccount } = useActiveAccount();
+  const { accounts } = useAuth();
   const navigate = useNavigate();
   const { data } = useBillingStatus(activeAccount ?? "");
 
@@ -18,6 +21,10 @@ export function BillingStatusBanner({ className }: { className?: string }) {
   // turned off, which leaves it genuinely down.
   const acted = data?.enforced || data?.workloads_suspended;
   if (!data || !acted || data.status === "active") return null;
+  // activeAccount can come from the root loader before AuthProvider fills
+  // accounts, and an unresolved account routes to the personal page. Waiting a
+  // render beats sending an org owner somewhere their card cannot help.
+  if (accounts.length === 0) return null;
 
   const suspended = data.status === "suspended";
   const copy = billingBannerCopy(
@@ -39,7 +46,10 @@ export function BillingStatusBanner({ className }: { className?: string }) {
       <ActionPanel
         title={title}
         primaryLabel={cta}
-        onPrimary={() => navigate("/settings/billing")}
+        // Scoped to the gated account. The status comes from activeAccount, so a
+        // fixed personal path sends an org owner to a page where the card they
+        // add cannot lift their org's suspension.
+        onPrimary={() => navigate(accountSettingsPath(accounts, activeAccount ?? "", "billing"))}
         tone={suspended ? "error" : "warning"}
       >
         {body}

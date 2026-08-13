@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { BillingStatusResponse } from "@/lib/api";
 import { BillingStatusBanner } from "./BillingStatusBanner";
 
@@ -13,6 +14,16 @@ vi.mock("@/hooks/use-active-account", () => ({
 }));
 vi.mock("react-router", () => ({
   useNavigate: () => mockNavigate,
+}));
+// acme is an organization, so its Settings live under /settings/org/<slug>.
+const mockAccounts = vi.fn(() => ({
+  accounts: [
+    { id: "acct-1", name: "testuser", type: "personal" },
+    { id: "acct-2", name: "acme", type: "organization" },
+  ],
+}));
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => mockAccounts(),
 }));
 
 beforeEach(() => {
@@ -127,5 +138,40 @@ describe("BillingStatusBanner", () => {
     });
     render(<BillingStatusBanner />);
     expect(screen.getByText("Billing issue — agents stopped")).toBeInTheDocument();
+  });
+});
+
+// The banner reports the active account's status, which can be an organization,
+// so its call to action has to land on that account's billing page. Sending an
+// org owner to the personal page offers them a card that cannot lift their org's
+// suspension, and the banner stays up after they add it.
+describe("BillingStatusBanner call to action", () => {
+  it("sends an organization owner to the org billing page", async () => {
+    const user = userEvent.setup();
+    mockStatus.mockReturnValue({
+      data: status({
+        status: "suspended",
+        reason: "credits_exhausted",
+        credits_exhausted: true,
+      }),
+    });
+    render(<BillingStatusBanner />);
+
+    await user.click(screen.getByRole("button", { name: "Add payment method" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/settings/org/acme/billing");
+  });
+});
+
+// activeAccount is available from the root loader before AuthProvider resolves
+// accounts. Rendering in that window resolves the org to the personal billing
+// path, which is the bug this component was just fixed for.
+describe("BillingStatusBanner before accounts load", () => {
+  it("renders nothing until the account list is known", () => {
+    mockAccounts.mockReturnValueOnce({ accounts: [] });
+    mockStatus.mockReturnValue({
+      data: status({ status: "suspended", reason: "credits_exhausted", credits_exhausted: true }),
+    });
+    const { container } = render(<BillingStatusBanner />);
+    expect(container).toBeEmptyDOMElement();
   });
 });
