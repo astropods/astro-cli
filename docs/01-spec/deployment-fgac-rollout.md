@@ -1,7 +1,7 @@
 # Deployment FGAC API Rollout
 
 **Status:** Approved direction
-**Updated:** 2026-08-10
+**Updated:** 2026-08-12
 
 ## Decision
 
@@ -146,7 +146,7 @@ Status: merged as PR #1895.
 
 ### PR5 — FGA checker and shadow decisions
 
-Status: draft as PR #1898.
+Status: merged as PR #1898.
 
 - Implement `FGAChecker` using the session membership ID and live WorkOS checks.
 - Short-circuit personal accounts through the centralized personal-owner rule.
@@ -195,16 +195,46 @@ flowchart LR
     DataPlane --> Legacy
 ```
 
-### PR7 — Server enforcement
+### PR7.1 — Effective deployment capabilities
 
-- Add deployment-action middleware that resolves the deployment and checks the requested permission.
-- Enforce the reviewed granular mutation routes only for allowlisted organizations and FGA-ready deployments created through PR4.
-- Add an authenticated capability endpoint that evaluates the five deployment actions through WorkOS, records every shadow comparison, and returns effective actions for API testing and future clients. Model-deferred evaluation routes remain outside deployment enforcement.
+- Add `GET /api/v1/deployments/:id/capabilities` without changing authorization behavior on any existing endpoint.
+- Return all five effective deployment permissions from one live WorkOS effective-permissions request. This becomes the server contract that future UI, CLI, bot, and API clients use to show or hide actions.
+- Require current account membership before exposing capabilities, then confirm the JWT organization matches the deployment's WorkOS organization before the live request. Cross-organization memberships are concealed locally and never sent to WorkOS.
+- Use the PR5 shadow flag and PR4 resource-convergence gate. When the live FGA path is inactive, return legacy member capabilities explicitly as `mode: legacy`.
+- Require baseline `deployment:read` in FGA mode; otherwise conceal the deployment as not found.
+- Record membership-versus-FGA comparisons for each returned capability without caching the authorization result between requests.
+
+### PR7.2 — Organization FGA opt-in
+
+- Persist a server-owned, organization-scoped `fine_grained_access` experiment. A browser-local flag is not an authorization boundary.
+- Add audited owner/admin APIs and an organization Settings → Experiments toggle beneath Audit Log.
+- Keep shadow checks active for every PR4-converged Preview deployment. The organization opt-in controls live capability mode and later enforcement, not lifecycle synchronization or shadow evidence.
+- Adopt private-by-default deployment access: owners/admins inherit access, creators receive `deployment-editor`, and ordinary members receive nothing until assigned directly or through a group.
+- Do not backfill from the toggle. Historical Preview deployments remain legacy until the post-PR9 backfill converges.
+
+### PR7.3 — Staged mutation enforcement
+
+- Add `FGA_ENFORCEMENT_ENABLED` as the environment kill switch. A live enforcement path also requires a configured WorkOS client and a PR4-converged organization deployment.
+- Require the organization `fine_grained_access` experiment in addition to the environment switch. Turning the experiment off immediately restores legacy authorization while preserving WorkOS resources and shadow checks.
+- Add deployment-action middleware that checks the PR6 route catalog's permission. Enforce edit, operate, and delete—including body-addressed redeploy and undeploy—plus read-gated alert subscriptions; personal, historical, and unconverged resources stay on legacy authorization.
+- Keep model-deferred evaluation routes on legacy membership authorization. They carry no deployment permission and are not included in deployment capabilities or enforcement.
 - Fail closed on WorkOS errors; distinguish denial from authorization-service failure internally without exposing resource existence.
 - Fail closed on an empty session membership ID with a retryable auth/session-unavailable response, not `403`, so an otherwise valid member can repair the session instead of receiving indefinite denials.
-- Enable in preview only after shadow mismatches are understood, then production.
-- Keep view behavior unchanged until accessible-resource listing and access assignment APIs exist.
-- Authorize before loading deployment details, runtime state, logs, configuration, or observability data. Denied, cross-organization, and nonexistent resources must not become distinguishable existence oracles.
+- Keep deployment reads on legacy enforcement until accessible-resource listing and access assignment APIs exist.
+- Return the same not-found response for a denied or nonexistent mutation. Authorization-service and missing-session-identity failures return a retryable unavailable response before the handler performs the mutation.
+- Deploy with enforcement off in production and on in Preview. Disabling the flag restores legacy behavior without removing WorkOS resources or assignments.
+
+```mermaid
+flowchart TD
+    Request["Authenticated deployment request"] --> Global{"Global enforcement enabled?"}
+    Global -- No --> Legacy["Current membership behavior"]
+    Global -- Yes --> Ready{"Organization deployment and PR4 resource converged?"}
+    Ready -- No --> Legacy
+    Ready -- Yes --> Check["Live WorkOS action check"]
+    Check -- Allowed --> Handler["Run mutation handler"]
+    Check -- Denied --> Hidden["Return not found"]
+    Check -- Unavailable --> Retry["Return retryable service unavailable"]
+```
 
 ### PR8 — API-only access and group management
 
@@ -237,7 +267,9 @@ Proposed API surface; exact paths follow existing server conventions during impl
 - Commit a curl/Postman runbook that exercises separate authenticated Sohum, Matt, and Saswat sessions.
 - Verify direct, group-derived, inherited-admin, personal-account, cross-organization, revocation, denial, and WorkOS-unavailable cases.
 - Remove superseded authorization middleware and JWT-based UI authorization workarounds only after enforcement is stable.
-- Finalize operational, rollback, and production-configuration documentation.
+- Add `docs/03-architecture/fine-grained-access-control.md` as the permanent system architecture: sources of truth, resource hierarchy, permissions/roles/groups, resource lifecycle, request and capability flows, tenant isolation, failure behavior, access APIs, rollout, and the extension pattern for blueprints and knowledge stores. Include the corresponding Mermaid diagrams.
+- Update `docs/03-architecture/organizations.md` to link to the permanent FGA architecture and replace its transitional deployment-permission note once Preview proof passes.
+- Finalize the operational runbook, rollback plan, and production configuration.
 - Do not build frontend components.
 
 ## Preview acceptance workflow
@@ -250,7 +282,7 @@ The milestone is complete when this flow succeeds against Astro APIs in preview:
 4. Each member can view and edit that deployment using their own authenticated session.
 5. The same members cannot access an unassigned deployment unless an inherited organization role allows it.
 6. Removing Matt from the group revokes his group-derived access on the next check while Sohum and Saswat remain allowed.
-7. Assigning `deployment-reader` permits deployment reads but returns `403` for edit, operate, delete, and manage-access actions. Evaluation behavior remains unchanged until its authorization model is designed.
+7. Assigning `deployment-reader` permits deployment reads but conceals denied edit, operate, delete, and manage-access actions as `404`. Evaluation behavior remains unchanged until its authorization model is designed.
 8. Organization owners/admins retain inherited access to every deployment.
 9. Cross-organization assignment attempts are rejected before WorkOS is called.
 

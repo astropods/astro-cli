@@ -28,6 +28,7 @@ func TestDeploymentRoutesRegisterPolicyAlongsideRoute(t *testing.T) {
 	routes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/restart", "restart", handler)
 	routes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/status", "status", handler)
 	routes.ModelDeferredPOST("/deployments/:id/dataset/judgments", "judgment", handler)
+	routes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/capabilities", "capabilities", handler)
 	routes.DataPlaneAny("/deployments/:id/messaging/*proxyPath", handler)
 
 	if err := catalog.Validate(engine.Routes()); err != nil {

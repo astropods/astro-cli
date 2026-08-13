@@ -20,14 +20,18 @@ func TestDeploymentAccountResolverEnablesConvergedOrganizationResource(t *testin
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT d.account_id,")).
 		WithArgs("dep_123").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "ready"}).
-			AddRow("acct_123", "organization", true))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id", "ready"}).
+			AddRow("acct_123", "organization", "org_123", true))
 
 	resolver := authz.NewDeploymentAccountResolver(db)
 	ctx := authz.WithRequestCache(context.Background())
 	accountID, personal, resolveErr := resolver.AccountForResource(ctx, authz.DeploymentResource("dep_123"))
 	if resolveErr != nil || accountID != "acct_123" || personal {
 		t.Fatalf("AccountForResource() = (%q, %v, %v)", accountID, personal, resolveErr)
+	}
+	organizationID, personal, resolveErr := resolver.OrganizationForResource(ctx, authz.DeploymentResource("dep_123"))
+	if resolveErr != nil || organizationID != "org_123" || personal {
+		t.Fatalf("OrganizationForResource() = (%q, %v, %v)", organizationID, personal, resolveErr)
 	}
 	enabled, enableErr := resolver.Enabled(ctx, authz.DeploymentResource("dep_123"))
 	if enableErr != nil || !enabled {
@@ -60,8 +64,8 @@ func TestDeploymentAccountResolverScopesRollout(t *testing.T) {
 
 			mock.ExpectQuery(regexp.QuoteMeta("SELECT d.account_id,")).
 				WithArgs("dep_123").
-				WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "ready"}).
-					AddRow("acct_123", test.accountType, test.ready))
+				WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id", "ready"}).
+					AddRow("acct_123", test.accountType, "org_123", test.ready))
 
 			enabled, resolveErr := authz.NewDeploymentAccountResolver(db).
 				Enabled(context.Background(), authz.DeploymentResource("dep_123"))

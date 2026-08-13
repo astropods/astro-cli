@@ -14,6 +14,7 @@ type FakeFGA struct {
 	AssignRoleFunc         func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
 	RemoveRoleFunc         func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
 	CheckFunc              func(context.Context, string, Action, ResourceRef) (bool, error)
+	ListPermissionsFunc    func(context.Context, string, ResourceRef) ([]Action, error)
 }
 
 var _ FGA = (*FakeFGA)(nil)
@@ -58,4 +59,11 @@ func (f *FakeFGA) Check(ctx context.Context, membershipID string, action Action,
 		return false, errors.New("unexpected FGA permission check")
 	}
 	return f.CheckFunc(ctx, membershipID, action, resource)
+}
+
+func (f *FakeFGA) ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error) {
+	if f.ListPermissionsFunc == nil {
+		return nil, errors.New("unexpected FGA effective-permissions list")
+	}
+	return f.ListPermissionsFunc(ctx, membershipID, resource)
 }

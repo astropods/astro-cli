@@ -184,6 +184,31 @@ func (f *WorkOSFGA) Check(ctx context.Context, membershipID string, action Actio
 	return result.Authorized, nil
 }
 
+func (f *WorkOSFGA) ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error) {
+	if membershipID == "" {
+		return nil, errors.New("membership id is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return nil, err
+	}
+
+	iterator := f.authorization.ListEffectivePermissionsByExternalID(
+		ctx,
+		membershipID,
+		string(resource.Type),
+		resource.ExternalID,
+		&workos.AuthorizationListEffectivePermissionsByExternalIDParams{},
+	)
+	permissions := make([]Action, 0)
+	for iterator.Next() {
+		permissions = append(permissions, Action(iterator.Current().Slug))
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("list WorkOS effective permissions on %s:%s: %w", resource.Type, resource.ExternalID, err)
+	}
+	return permissions, nil
+}
+
 func validateResource(resource ResourceRef) error {
 	if resource.Type == "" || resource.ExternalID == "" {
 		return errors.New("resource type and external id are required")

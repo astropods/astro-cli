@@ -19,31 +19,80 @@ type ResourceGate interface {
 	Enabled(context.Context, ResourceRef) (bool, error)
 }
 
+// OrganizationResolver returns the WorkOS organization that owns a resource.
+type OrganizationResolver interface {
+	OrganizationForResource(context.Context, ResourceRef) (organizationID string, personal bool, err error)
+}
+
+type conditionalResourceGate struct {
+	active bool
+	next   ResourceGate
+}
+
+// NewConditionalResourceGate layers an environment kill switch over a
+// resource-scoped rollout gate.
+func NewConditionalResourceGate(active bool, next ResourceGate) ResourceGate {
+	return &conditionalResourceGate{active: active, next: next}
+}
+
+func (g *conditionalResourceGate) Enabled(ctx context.Context, resource ResourceRef) (bool, error) {
+	if !g.active {
+		return false, nil
+	}
+	return g.next.Enabled(ctx, resource)
+}
+
 // FGAChecker makes live resource-scoped decisions through WorkOS after the
 // rollout gate excludes resources that must remain on legacy authorization.
 type FGAChecker struct {
-	fga  FGA
-	gate ResourceGate
+	fga           FGA
+	gate          ResourceGate
+	organizations OrganizationResolver
 }
 
-func NewFGAChecker(fga FGA, gate ResourceGate) *FGAChecker {
-	return &FGAChecker{fga: fga, gate: gate}
+func NewFGAChecker(fga FGA, gate ResourceGate, organizations OrganizationResolver) *FGAChecker {
+	return &FGAChecker{fga: fga, gate: gate, organizations: organizations}
 }
 
 func (c *FGAChecker) Authorize(ctx context.Context, subject Subject, action Action, resource ResourceRef) (bool, error) {
+	if err := c.validateRequest(ctx, subject, resource); err != nil {
+		if errors.Is(err, ErrResourceNotVisible) {
+			return false, nil
+		}
+		return false, err
+	}
+	return c.fga.Check(ctx, subject.MembershipID, action, resource)
+}
+
+func (c *FGAChecker) EffectivePermissions(ctx context.Context, subject Subject, resource ResourceRef) ([]Action, error) {
+	if err := c.validateRequest(ctx, subject, resource); err != nil {
+		return nil, err
+	}
+	return c.fga.ListEffectivePermissions(ctx, subject.MembershipID, resource)
+}
+
+func (c *FGAChecker) validateRequest(ctx context.Context, subject Subject, resource ResourceRef) error {
 	enabled, err := c.gate.Enabled(ctx, resource)
 	if err != nil {
-		return false, fmt.Errorf("resolve FGA rollout eligibility: %w", err)
+		return fmt.Errorf("resolve FGA rollout eligibility: %w", err)
 	}
 	if !enabled {
-		return false, ErrFGAResourceNotEnabled
+		return ErrFGAResourceNotEnabled
+	}
+	if c.organizations != nil {
+		organizationID, personal, resolveErr := c.organizations.OrganizationForResource(ctx, resource)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve FGA resource organization: %w", resolveErr)
+		}
+		if !personal && (organizationID == "" || !SessionOrgMatchesAccount(subject, "organization", organizationID)) {
+			return ErrResourceNotVisible
+		}
 	}
 
 	if subject.MembershipID == "" {
-		return false, ErrWorkOSMembershipUnavailable
+		return ErrWorkOSMembershipUnavailable
 	}
-
-	return c.fga.Check(ctx, subject.MembershipID, action, resource)
+	return nil
 }
 
 var _ Checker = (*FGAChecker)(nil)

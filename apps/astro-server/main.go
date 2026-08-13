@@ -895,6 +895,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
+	resourceAccounts := authz.NewDeploymentAccountResolver(db)
+	deploymentFGARollout := authz.NewConditionalResourceGate(
+		deploymentFGA != nil && cfg.FGAShadowEnabled,
+		resourceAccounts,
+	)
+	membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
+	deploymentFGAChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGARollout, resourceAccounts)
+	deploymentCapabilities := authz.NewCapabilityService(
+		log,
+		deploymentFGARollout,
+		membershipChecker,
+		deploymentFGAChecker,
+		authz.ActionDeploymentRead,
+	)
 	alertStore := observation.NewStore(db)
 	accountVarsStore := deps.Stores.AccountVars
 	heartStore := deps.Stores.Heart
@@ -1097,12 +1111,9 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		protected.Use(authMw.RequireAuth())
 		deploymentRoutes := middleware.NewDeploymentRoutes(api, protected, deploymentRouteCatalog)
 		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
-			resourceAccounts := authz.NewDeploymentAccountResolver(db)
-			membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
-			fgaChecker := authz.NewFGAChecker(deploymentFGA, resourceAccounts)
 			protected.Use(middleware.ObserveDeploymentAuthorization(
 				log,
-				authz.NewGatedShadowChecker(log, resourceAccounts, membershipChecker, fgaChecker),
+				authz.NewGatedShadowChecker(log, deploymentFGARollout, membershipChecker, deploymentFGAChecker),
 				deploymentRouteCatalog,
 			))
 			log.Info("Deployment FGA shadow checks enabled")
@@ -1939,6 +1950,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.GetDeploymentDetailResponse{}),
+			)
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/capabilities", "Get effective deployment capabilities", handlers.GetDeploymentCapabilities(log, deploymentCapabilities),
+				oapispec.Tags("Deployments", "Authorization"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.DeploymentCapabilitiesResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+				oapispec.Response(503, &handlers.ErrorResponse{}),
 			)
 			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/runtime", "Get deployment runtime", handlers.GetDeploymentRuntime(log, accountStore, cfg, deploymentStore, promClient, k8sReg),
 				oapispec.Tags("Deployments"),

@@ -58,9 +58,8 @@ func TestSessionOrgMatchesAccount(t *testing.T) {
 	}
 }
 
-// MembershipChecker does not apply org-scope rules today (PR1 scaffold). This test
-// documents the gap: a member with JWT scoped to a different org is still allowed.
-// It should fail once deployment middleware chains SessionOrgMatchesAccount before Authorize.
+// MembershipChecker deliberately preserves the legacy rule for shadow comparison;
+// FGAChecker applies the organization boundary before its live WorkOS decision.
 func TestMembershipChecker_allowsMemberDespiteOrgScopeMismatch(t *testing.T) {
 	t.Parallel()
 

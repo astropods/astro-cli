@@ -276,6 +276,33 @@ func TestWorkOSFGACheck(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAListEffectivePermissions(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organization_memberships/om_123/resources/deployment/dep_123/permissions" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data": []map[string]any{
+				{"slug": "deployment:read", "resource_type_slug": "deployment"},
+				{"slug": "deployment:operate", "resource_type_slug": "deployment"},
+			},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	permissions, err := fga.ListEffectivePermissions(context.Background(), "om_123", DeploymentResource("dep_123"))
+	if err != nil {
+		t.Fatalf("ListEffectivePermissions() error = %v", err)
+	}
+	want := []Action{ActionDeploymentRead, ActionDeploymentOperate}
+	if !reflect.DeepEqual(permissions, want) {
+		t.Fatalf("ListEffectivePermissions() = %v, want %v", permissions, want)
+	}
+}
+
 func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +435,20 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "list effective permissions with empty membership id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListEffectivePermissions(context.Background(), "", DeploymentResource("dep_123"))
+				return err
+			},
+		},
+		{
+			name: "list effective permissions with empty resource",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListEffectivePermissions(context.Background(), "om_123", ResourceRef{})
+				return err
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -431,6 +472,9 @@ func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	}
 	if _, err := (&FakeFGA{}).Check(context.Background(), "om_123", ActionDeploymentRead, DeploymentResource("dep_123")); err == nil {
 		t.Fatal("Check() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).ListEffectivePermissions(context.Background(), "om_123", DeploymentResource("dep_123")); err == nil {
+		t.Fatal("ListEffectivePermissions() error = nil, want unexpected-call error")
 	}
 }
 

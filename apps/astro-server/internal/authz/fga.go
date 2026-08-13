@@ -41,4 +41,5 @@ type FGA interface {
 	AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
 	RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
 	Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error)
+	ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error)
 }

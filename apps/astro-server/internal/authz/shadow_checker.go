@@ -63,6 +63,20 @@ func (c *ShadowChecker) Authorize(ctx context.Context, subject Subject, action A
 	}
 
 	shadowAllowed, shadowErr := c.shadow.Authorize(ctx, subject, action, resource)
+	logDecisionComparison(c.log, ctx, subject, action, resource, primaryAllowed, shadowAllowed, shadowErr)
+	return primaryAllowed, nil
+}
+
+func logDecisionComparison(
+	log DecisionLogger,
+	ctx context.Context,
+	subject Subject,
+	action Action,
+	resource ResourceRef,
+	primaryAllowed bool,
+	shadowAllowed bool,
+	shadowErr error,
+) {
 	attrs := []any{
 		"route", authorizationRoute(ctx),
 		"action", action,
@@ -77,22 +91,21 @@ func (c *ShadowChecker) Authorize(ctx context.Context, subject Subject, action A
 		attrs = append(attrs, "error", shadowErr)
 		switch {
 		case errors.Is(shadowErr, ErrFGAResourceNotEnabled):
-			c.log.Debug("FGA shadow check skipped", attrs...)
+			log.Debug("FGA shadow check skipped", attrs...)
 		case errors.Is(shadowErr, ErrWorkOSMembershipUnavailable):
-			c.log.Debug("FGA shadow identity unavailable", attrs...)
+			log.Debug("FGA shadow identity unavailable", attrs...)
 		default:
-			c.log.Warn("FGA shadow check failed", attrs...)
+			log.Warn("FGA shadow check failed", attrs...)
 		}
-		return primaryAllowed, nil
+		return
 	}
 
 	attrs = append(attrs, "fga_allowed", shadowAllowed)
 	if primaryAllowed != shadowAllowed {
-		c.log.Warn("FGA shadow decision mismatch", attrs...)
+		log.Warn("FGA shadow decision mismatch", attrs...)
 	} else {
-		c.log.Info("FGA shadow decision matched", attrs...)
+		log.Info("FGA shadow decision matched", attrs...)
 	}
-	return primaryAllowed, nil
 }
 
 var _ Checker = (*ShadowChecker)(nil)

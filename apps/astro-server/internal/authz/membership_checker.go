@@ -13,8 +13,8 @@ type AccountResolver interface {
 
 // MembershipChecker reproduces today's membership-based authorization: any member
 // of the resource's owning account may perform the action. The personal flag from
-// AccountResolver is ignored here; org-scope (JWT vs account org) is not checked
-// until deployment middleware wires SessionOrgMatchesAccount (see org_scope.go).
+// AccountResolver is ignored here so shadow logs reproduce the legacy rule.
+// FGAChecker separately validates JWT organization scope before calling WorkOS.
 type MembershipChecker struct {
 	members  memberChecker
 	resolver AccountResolver

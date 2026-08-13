@@ -22,6 +22,13 @@ type HealthResponse struct {
 
 // --- Error ---
 
+const (
+	ErrorMessageAuthenticationRequired              = "authentication required"
+	ErrorMessageDeploymentNotFound                  = "deployment not found"
+	ErrorMessageAuthorizationSessionUnavailable     = "authorization session is unavailable; refresh or sign in again"
+	ErrorMessageAuthorizationTemporarilyUnavailable = "authorization temporarily unavailable"
+)
+
 // ErrorResponse is the standard error envelope.
 type ErrorResponse struct {
 	Error   string `json:"error"`
