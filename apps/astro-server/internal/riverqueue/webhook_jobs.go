@@ -88,14 +88,12 @@ func metronomeSignal(eventType string) (billing.Signal, bool) {
 	case "alerts.low_remaining_contract_credit_balance_reached",
 		"alerts.low_remaining_contract_credit_and_commit_balance_reached":
 		return billing.SignalCreditsExhausted, true
-	// The IN_ALARM -> OK edge. Both gating latches are otherwise one-way:
-	// exhaustion exits only via a card or an operator re-running provisioning,
-	// and the spend alert only via a void. Metronome emits these once support
-	// enables resolved notifications, which is per-account and covers every
-	// threshold type at once. Only the and-commit credit variant is documented;
-	// the others follow the enum's "<alert_type>_resolved" naming, and an
-	// unmatched name falls through to the unhandled-event log, which is the
-	// behaviour we have today.
+	// The IN_ALARM -> OK edge. Without these both gating latches are one-way:
+	// exhaustion exits only via a card or an operator, and the spend alert only
+	// via a void. Resolved notifications are an account-level Metronome setting
+	// covering every threshold type at once. Only the and-commit credit variant
+	// is documented by name; the others follow the enum's "<alert_type>_resolved"
+	// form, and an unmatched name falls through to the unhandled-event log.
 	case "alerts.low_remaining_contract_credit_balance_resolved",
 		"alerts.low_remaining_contract_credit_and_commit_balance_resolved":
 		return billing.SignalCreditsGranted, true

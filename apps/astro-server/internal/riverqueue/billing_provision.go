@@ -129,9 +129,9 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 	}
 
 	// The account now holds credit, so lift any exhaustion latch and reconcile.
-	// We don't rely on Metronome signalling a recovery, so besides adding a card
-	// this is the only automatic way out of a credits_exhausted suspension; a
-	// grant issued from the dashboard needs the latch cleared by hand.
+	// Metronome's resolved alert clears it too; this tail is what an operator
+	// credit grant re-runs the job for, and the backstop when the alert stays
+	// IN_ALARM because the balance never crossed back.
 	if w.status != nil {
 		newStatus, changed, err := billing.ApplySignal(ctx, w.status, acct.ID, billing.SignalCreditsGranted, time.Now())
 		if err != nil {

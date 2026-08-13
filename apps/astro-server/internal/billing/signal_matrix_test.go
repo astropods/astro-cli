@@ -112,6 +112,37 @@ func TestApplySignal_EveryGateHasAnInverse(t *testing.T) {
 	}
 }
 
+// Webhooks redeliver. Entering dunning must keep the original timestamp, because
+// the grace window is measured from it: resetting it on every redelivery walks
+// the suspension deadline forward and the account keeps running unpaid. The
+// COALESCE is the whole defence, so assert the shape that preserves, not just
+// that the column is touched.
+func TestApplySignal_RedeliveredDunningKeepsTheOriginalClock(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	// EXCLUDED.dunning_since alone would overwrite; the existing value must win.
+	mock.ExpectExec(`dunning_since = COALESCE\(account_billing_status\.dunning_since, EXCLUDED\.dunning_since\)`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectBegin()
+	// Stale-suspended so the recompute transitions and persists; see the matrix test.
+	mock.ExpectQuery("FOR UPDATE").
+		WithArgs("acct_1").
+		WillReturnRows(recordRows(StatusSuspended, ReasonUncollectible, false, false, false))
+	mock.ExpectExec("account_billing_status").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if _, _, err := ApplySignal(context.Background(), NewStatusStore(db, 7), "acct_1", SignalPaymentFailed, time.Now()); err != nil {
+		t.Fatalf("ApplySignal: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("dunning clock is not preserved across redelivery: %v", err)
+	}
+}
+
 // Holds ApplySignal to the spec statement by statement. A signal wired to the
 // wrong clear still recomputes to a plausible status, so asserting the status
 // alone would not catch it.

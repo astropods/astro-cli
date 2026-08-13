@@ -109,3 +109,22 @@ func TestWebhookEvents_ReachEveryGateClearingSignal(t *testing.T) {
 		}
 	}
 }
+
+// Redelivery is normal: providers retry, and River collapses repeats by event id.
+// An id-less event must skip dedupe instead of hashing to a shared key, or two
+// unrelated events collapse into one job and the second signal is silently lost.
+// ApplySignal is idempotent, so double-processing is the safe side of this trade.
+func TestWebhookInsertOpts_DedupesOnlyWithAnEventID(t *testing.T) {
+	if got := (MetronomeWebhookArgs{EventID: "evt_1"}).InsertOpts(); !got.UniqueOpts.ByArgs {
+		t.Error("event with an id must dedupe: a provider retry would run the job twice")
+	}
+	if got := (MetronomeWebhookArgs{}).InsertOpts(); got.UniqueOpts.ByArgs {
+		t.Error("id-less event must not dedupe: distinct events would collapse into one job")
+	}
+	if got := (StripeWebhookArgs{EventID: "evt_1"}).InsertOpts(); !got.UniqueOpts.ByArgs {
+		t.Error("stripe event with an id must dedupe")
+	}
+	if got := (StripeWebhookArgs{}).InsertOpts(); got.UniqueOpts.ByArgs {
+		t.Error("id-less stripe event must not dedupe")
+	}
+}
