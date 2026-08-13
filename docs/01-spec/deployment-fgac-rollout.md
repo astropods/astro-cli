@@ -228,7 +228,9 @@ flowchart LR
 flowchart TD
     Request["Authenticated deployment request"] --> Global{"Global enforcement enabled?"}
     Global -- No --> Legacy["Current membership behavior"]
-    Global -- Yes --> Ready{"Organization deployment and PR4 resource converged?"}
+    Global -- Yes --> OptIn{"Organization opted into fine-grained access?"}
+    OptIn -- No --> Legacy
+    OptIn -- Yes --> Ready{"Organization deployment and PR4 resource converged?"}
     Ready -- No --> Legacy
     Ready -- Yes --> Check["Live WorkOS action check"]
     Check -- Allowed --> Handler["Run mutation handler"]

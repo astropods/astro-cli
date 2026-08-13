@@ -49,6 +49,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
@@ -495,6 +496,7 @@ func runAPI(
 	// without a second call site to keep in sync.
 	watcherStore := watcher.NewStore(db)
 	auditStore := auditlog.NewStore(db).Observe(watcher.NewAuditObserver(watcherStore, log))
+	experimentStore := experiment.NewStore(db)
 
 	// Initialize GitHub connection store, webhook store, and WorkOS Pipes client.
 	ghStore := githubconnection.New(db)
@@ -535,6 +537,7 @@ func runAPI(
 			SlackID:           slackIdentityStore,
 			Watcher:           watcherStore,
 			DeploymentFGASync: deploymentFGASync,
+			Experiment:        experimentStore,
 			BillingStatus:     billingStatus,
 		},
 		Clients: Clients{
@@ -883,6 +886,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	queue := deps.Clients.Queue
 	deploymentFGA := deps.Clients.FGA
 	deploymentFGASync := deps.Stores.DeploymentFGASync
+	experimentStore := deps.Stores.Experiment
 
 	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
 	// per-user notification-preference proxy. Novu owns the catalog and
@@ -896,15 +900,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
-	deploymentFGARollout := authz.NewConditionalResourceGate(
+	deploymentFGAShadowRollout := authz.NewConditionalResourceGate(
 		deploymentFGA != nil && cfg.FGAShadowEnabled,
 		resourceAccounts,
 	)
+	deploymentFGAOrganizationRollout := authz.NewAccountExperimentResourceGate(
+		deploymentFGAShadowRollout,
+		resourceAccounts,
+		experiment.NewGate(experimentStore, experiment.FineGrainedAccess),
+	)
 	membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
-	deploymentFGAChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGARollout, resourceAccounts)
+	deploymentFGAChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGAShadowRollout, resourceAccounts)
 	deploymentCapabilities := authz.NewCapabilityService(
 		log,
-		deploymentFGARollout,
+		deploymentFGAOrganizationRollout,
 		membershipChecker,
 		deploymentFGAChecker,
 		authz.ActionDeploymentRead,
@@ -1113,7 +1122,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
 			protected.Use(middleware.ObserveDeploymentAuthorization(
 				log,
-				authz.NewGatedShadowChecker(log, deploymentFGARollout, membershipChecker, deploymentFGAChecker),
+				authz.NewGatedShadowChecker(log, deploymentFGAShadowRollout, membershipChecker, deploymentFGAChecker),
 				deploymentRouteCatalog,
 			))
 			log.Info("Deployment FGA shadow checks enabled")
@@ -1265,6 +1274,19 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
+				api.GET(accountAdmin, "/experiments/fine-grained-access", "Get fine-grained access experiment", handlers.GetFineGrainedAccessExperiment(log, experimentStore),
+					oapispec.Tags("Accounts", "Experiments"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
+				)
+				api.PUT(accountAdmin, "/experiments/fine-grained-access", "Update fine-grained access experiment", handlers.UpdateFineGrainedAccessExperiment(log, experimentStore, auditStore),
+					oapispec.Tags("Accounts", "Experiments"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.UpdateFineGrainedAccessExperimentRequest{}),
+					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
 				)
 			}
 

@@ -16,6 +16,8 @@ export const accountKeys = {
   members: (account: string) => ['accounts', account, 'members'] as const,
   pendingMembers: (account: string) => ['accounts', account, 'members', 'include-pending'] as const,
   orgs: (account: string) => ['accounts', account, 'orgs'] as const,
+  fineGrainedAccessExperiment: (account: string) =>
+    ['accounts', account, 'experiments', 'fine-grained-access'] as const,
 };
 
 const blueprintAccountPrefix = (account: string) => ['agents', 'account', account] as const;

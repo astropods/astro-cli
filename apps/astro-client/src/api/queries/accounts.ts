@@ -153,6 +153,24 @@ export function useAccountOrgs(account: string, opts?: { enabled?: boolean }) {
   });
 }
 
+export function useFineGrainedAccessExperiment(account: string) {
+  return useQuery({
+    queryKey: accountKeys.fineGrainedAccessExperiment(account),
+    queryFn: () => api.getFineGrainedAccessExperiment(account),
+    enabled: !!account,
+  });
+}
+
+export function useUpdateFineGrainedAccessExperiment(account: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.updateFineGrainedAccessExperiment(account, enabled),
+    onSuccess: (data) => {
+      queryClient.setQueryData(accountKeys.fineGrainedAccessExperiment(account), data);
+    },
+  });
+}
+
 export function useUpdateAccountDisplayName() {
   const queryClient = useQueryClient();
   return useMutation({

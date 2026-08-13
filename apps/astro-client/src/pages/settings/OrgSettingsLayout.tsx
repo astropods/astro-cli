@@ -1,6 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
 import { useEffect, useRef, useState } from 'react'
-import { KeyRound, Database, ArrowLeft, Settings, Loader2, Users, ScrollText } from 'lucide-react'
+import { KeyRound, Database, ArrowLeft, Settings, Loader2, Users, ScrollText, FlaskConical } from 'lucide-react'
 import { CreditCardIcon } from '@heroicons/react/24/outline'
 import {
   SidebarLayout,
@@ -161,6 +161,14 @@ function OrgSettingsContent() {
                 <span className="flex items-center gap-2">
                   <ScrollText className="size-3.5" />
                   Audit Log
+                </span>
+              </SidebarNavItem>
+            )}
+            {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/experiments`}>
+                <span className="flex items-center gap-2">
+                  <FlaskConical className="size-3.5" />
+                  Experiments
                 </span>
               </SidebarNavItem>
             )}

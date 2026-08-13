@@ -117,6 +117,17 @@ CREATE INDEX idx_accounts_pending_billing_provision
     ON public.accounts(created_at)
     WHERE billing_provisioned_at IS NULL AND deleted_at IS NULL;
 
+-- Server-owned organization experiments are explicit tenant choices. Missing
+-- rows are disabled so new experiments always fail back to current behavior.
+CREATE TABLE public.account_experiments (
+    account_id uuid NOT NULL,
+    experiment text NOT NULL,
+    enabled boolean NOT NULL DEFAULT false,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT account_experiments_pkey PRIMARY KEY (account_id, experiment),
+    CONSTRAINT account_experiments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.account_organizations (
     account_id uuid NOT NULL,
     workos_org_id text NOT NULL,

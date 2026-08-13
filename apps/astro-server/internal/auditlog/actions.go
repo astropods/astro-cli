@@ -2,10 +2,11 @@ package auditlog
 
 // Action constants follow the pattern "<resource>.<verb>".
 const (
-	AccountCreate     = "account.create"
-	AccountRename     = "account.rename"
-	AccountSetCluster = "account.set_cluster"
-	AccountDelete     = "account.delete"
+	AccountCreate           = "account.create"
+	AccountRename           = "account.rename"
+	AccountSetCluster       = "account.set_cluster"
+	AccountDelete           = "account.delete"
+	AccountUpdateExperiment = "account.update_experiment"
 
 	BillingRecoverAliases        = "billing.recover_aliases"
 	BillingRegisterMetronome     = "billing.register_metronome"

@@ -214,6 +214,11 @@ export interface AccountOrgsResponse {
   orgs: AccountOrg[];
 }
 
+export interface FineGrainedAccessExperimentResponse {
+  experiment: "fine_grained_access";
+  enabled: boolean;
+}
+
 export interface AccountSearchResult {
   id: string;
   name: string;
@@ -2508,6 +2513,22 @@ class ApiClient {
   async getAccountOrgs(account: string): Promise<AccountOrgsResponse> {
     return this.request<AccountOrgsResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/orgs`,
+    );
+  }
+
+  async getFineGrainedAccessExperiment(account: string): Promise<FineGrainedAccessExperimentResponse> {
+    return this.request<FineGrainedAccessExperimentResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/fine-grained-access`,
+    );
+  }
+
+  async updateFineGrainedAccessExperiment(
+    account: string,
+    enabled: boolean,
+  ): Promise<FineGrainedAccessExperimentResponse> {
+    return this.request<FineGrainedAccessExperimentResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/fine-grained-access`,
+      { method: 'PUT', body: JSON.stringify({ enabled }) },
     );
   }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
+	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
@@ -70,6 +71,7 @@ type Stores struct {
 	SlackID           *slackidentity.Store
 	Watcher           *watcher.Store
 	DeploymentFGASync *authz.DeploymentFGASyncStore
+	Experiment        *experiment.Store
 	// BillingStatus is nil for non-metronome backends; handlers treat that as
 	// "every account active".
 	BillingStatus *billing.StatusStore

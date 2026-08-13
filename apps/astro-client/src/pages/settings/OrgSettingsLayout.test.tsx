@@ -36,6 +36,7 @@ function renderLayout(role: string, org = orgAccount) {
           { path: 'general', Component: () => <div>General Page</div> },
           { path: 'members', Component: () => <div>Members Page</div> },
           { path: 'secrets', Component: () => <div>Secrets Page</div> },
+          { path: 'experiments', Component: () => <div>Experiments Page</div> },
         ],
       },
     ],
@@ -80,6 +81,19 @@ describe('OrgSettingsLayout', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Billing').length).toBeGreaterThan(0);
     });
+  });
+
+  it('shows Experiments after Audit Log for admins and hides it from members', async () => {
+    renderLayout('admin');
+    await waitFor(() => expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0));
+
+    const navText = screen.getAllByRole('link').map((link) => link.textContent?.trim());
+    expect(navText.indexOf('Experiments')).toBe(navText.indexOf('Audit Log') + 1);
+
+    cleanup();
+    renderLayout('member');
+    await waitFor(() => expect(screen.getAllByText('General').length).toBeGreaterThan(0));
+    expect(screen.queryAllByText('Experiments')).toHaveLength(0);
   });
 
   it('hides Billing nav for member', async () => {
