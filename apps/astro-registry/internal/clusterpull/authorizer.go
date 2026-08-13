@@ -42,9 +42,9 @@ func NewAuthorizer(db *sql.DB, primaryHashHex string) *Authorizer {
 
 // Authenticate reports whether secret matches the stored hash for clusterID.
 // For the primary it compares against the configured hash; for an additional
-// cluster it loads clusters.pull_key_hash and requires the row to be enabled.
-// Returns (false, nil) on any credential/enabled/not-found mismatch; a non-nil
-// error only on an unexpected DB failure.
+// cluster it loads clusters.pull_key_hash — every row present is usable, there's
+// no enabled/disabled gate. Returns (false, nil) on any credential/not-found
+// mismatch; a non-nil error only on an unexpected DB failure.
 func (a *Authorizer) Authenticate(ctx context.Context, clusterID, secret string) (bool, error) {
 	sum := sha256.Sum256([]byte(secret))
 
@@ -55,20 +55,17 @@ func (a *Authorizer) Authenticate(ctx context.Context, clusterID, secret string)
 		return subtle.ConstantTimeCompare(sum[:], a.primaryHash) == 1, nil
 	}
 
-	var (
-		hash    []byte
-		enabled bool
-	)
+	var hash []byte
 	err := a.db.QueryRowContext(ctx,
-		`SELECT pull_key_hash, enabled FROM clusters WHERE id = $1`, clusterID,
-	).Scan(&hash, &enabled)
+		`SELECT pull_key_hash FROM clusters WHERE id = $1`, clusterID,
+	).Scan(&hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("failed to load cluster pull key: %w", err)
 	}
-	if !enabled || len(hash) == 0 {
+	if len(hash) == 0 {
 		return false, nil
 	}
 	return subtle.ConstantTimeCompare(sum[:], hash) == 1, nil
