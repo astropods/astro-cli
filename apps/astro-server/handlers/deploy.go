@@ -697,6 +697,22 @@ type EntitlementChecker interface {
 	Check(ctx context.Context, accountID string) middleware.Decision
 }
 
+// blockedByBilling writes the 402 and reports true when the account is gated.
+// Call it after the membership check, because the reason names the account's
+// billing state. Call it before any state or precondition check, so a billing
+// stop is reported as one rather than as a bad request.
+func blockedByBilling(c *gin.Context, entCheck EntitlementChecker, accountID string) bool {
+	if entCheck == nil {
+		return false
+	}
+	d := entCheck.Check(c.Request.Context(), accountID)
+	if !d.Blocked {
+		return false
+	}
+	c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
+	return true
+}
+
 // DeployQueue abstracts job insertion for deploy/undeploy/wakeup operations.
 type DeployQueue interface {
 	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
@@ -829,11 +845,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				return
 			}
 		}
-		if entCheck != nil {
-			if d := entCheck.Check(c.Request.Context(), dctx.acct.ID); d.Blocked {
-				c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
-				return
-			}
+		if blockedByBilling(c, entCheck, dctx.acct.ID) {
+			return
 		}
 
 		// Persist resolved spec and enqueue async deploy job
@@ -2858,7 +2871,7 @@ func formatAge(t time.Time) string {
 // by patching spec.template.metadata.annotations with kubectl.kubernetes.io/restartedAt.
 // Kubernetes performs a rolling update: new pod starts and becomes ready before the old one is terminated.
 // POST /api/v1/deployments/:id/restart
-func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -2869,6 +2882,9 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if blockedByBilling(c, entCheck, dep.AccountID) {
 			return
 		}
 
@@ -2972,7 +2988,7 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
 // POST /api/v1/deployments/:id/pods/:pod/restart
-func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, auditStore *auditlog.Store, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2982,6 +2998,9 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if blockedByBilling(c, entCheck, dep.AccountID) {
 			return
 		}
 
@@ -4746,14 +4765,8 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			return
 		}
 
-		// After membership, because the reason names another tenant's billing
-		// state; before the status check, so a billing stop is reported as one
-		// rather than as "deployment is not stopped".
-		if entCheck != nil {
-			if d := entCheck.Check(c.Request.Context(), dep.AccountID); d.Blocked {
-				c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
-				return
-			}
+		if blockedByBilling(c, entCheck, dep.AccountID) {
+			return
 		}
 		if dep.Status != deploymentstore.StatusStopped {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped"})
@@ -4787,7 +4800,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // RollbackDeployment rolls back a deployment to a previous revision.
-func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store, cache k8scache.Cache, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -4812,17 +4825,21 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 			return
 		}
+		// Membership first: the two checks below report the deployment's status and
+		// current revision, which a non-member must not learn.
+		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+		if blockedByBilling(c, entCheck, dep.AccountID) {
+			return
+		}
 		if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusFailed {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "can only rollback active or failed deployments"})
 			return
 		}
 		if dep.CurrentRevision != nil && *dep.CurrentRevision == req.Revision {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "already on this revision"})
-			return
-		}
-
-		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
 

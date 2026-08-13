@@ -3121,7 +3121,7 @@ func setupRollbackRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sq
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}, nil, nil))
+	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}, nil, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -3182,7 +3182,7 @@ func TestRollbackDeployment_Success(t *testing.T) {
 }
 
 func TestRollbackDeployment_WrongStatus(t *testing.T) {
-	router, deployMock, _ := setupRollbackRouter(t)
+	router, deployMock, accountMock := setupRollbackRouter(t)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
@@ -3193,6 +3193,11 @@ func TestRollbackDeployment_WrongStatus(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRowWithStatus(depID, acctID, "my-agent", "build-1", "astro-abc123",
 			"My Agent", `{}`, "pending", &rev, now))
+
+	// The status refusal belongs to a member. Membership is checked first, so a
+	// non-member gets 403 and never learns the status.
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	body := `{"revision": 1}`
 	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/rollback", strings.NewReader(body))

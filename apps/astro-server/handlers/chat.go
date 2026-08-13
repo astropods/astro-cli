@@ -89,6 +89,7 @@ func forwardChat(
 	accountStore *account.AccountStore,
 	method, upstreamPath string,
 	forwardBody bool,
+	entCheck EntitlementChecker,
 ) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
@@ -99,6 +100,14 @@ func forwardChat(
 	dep, err := resolveDeployment(c, deployStore, accountStore)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Writes only. A suspended account must still be able to read its own
+	// conversations, and gating a GET here would block that the day history stops
+	// being proxied to the agent. Placed before the status check so a refused
+	// write names billing instead of reading as an outage.
+	if c.Request.Method != http.MethodGet && blockedByBilling(c, entCheck, dep.AccountID) {
 		return
 	}
 
@@ -197,10 +206,11 @@ func ListDeploymentChatConversations(
 	k8sReg *k8s.Registry,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		forwardChat(c, log, cfg, k8sReg, deployStore, accountStore,
-			http.MethodGet, "/api/chat/conversations", false)
+			http.MethodGet, "/api/chat/conversations", false, entCheck)
 	}
 }
 
@@ -211,6 +221,7 @@ func GetDeploymentChatConversation(
 	k8sReg *k8s.Registry,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convID, ok := parseConversationID(c.Param("conversationId"))
@@ -219,7 +230,7 @@ func GetDeploymentChatConversation(
 			return
 		}
 		forwardChat(c, log, cfg, k8sReg, deployStore, accountStore,
-			http.MethodGet, "/api/chat/conversations/"+url.PathEscape(convID), false)
+			http.MethodGet, "/api/chat/conversations/"+url.PathEscape(convID), false, entCheck)
 	}
 }
 
@@ -232,6 +243,7 @@ func SetDeploymentChatConversationTitle(
 	k8sReg *k8s.Registry,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convID, ok := parseConversationID(c.Param("conversationId"))
@@ -240,7 +252,7 @@ func SetDeploymentChatConversationTitle(
 			return
 		}
 		forwardChat(c, log, cfg, k8sReg, deployStore, accountStore,
-			http.MethodPut, "/api/chat/conversations/"+url.PathEscape(convID)+"/title", true)
+			http.MethodPut, "/api/chat/conversations/"+url.PathEscape(convID)+"/title", true, entCheck)
 	}
 }
 
@@ -251,6 +263,7 @@ func DeleteDeploymentChatConversation(
 	k8sReg *k8s.Registry,
 	accountStore *account.AccountStore,
 	deployStore *deploymentstore.Store,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		convID, ok := parseConversationID(c.Param("conversationId"))
@@ -259,6 +272,6 @@ func DeleteDeploymentChatConversation(
 			return
 		}
 		forwardChat(c, log, cfg, k8sReg, deployStore, accountStore,
-			http.MethodDelete, "/api/chat/conversations/"+url.PathEscape(convID), false)
+			http.MethodDelete, "/api/chat/conversations/"+url.PathEscape(convID), false, entCheck)
 	}
 }

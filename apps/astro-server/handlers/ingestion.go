@@ -21,7 +21,7 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cfg *config.Config, auditStore *auditlog.Store) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sReg *k8s.Registry, deployStore *deploymentstore.Store, cfg *config.Config, auditStore *auditlog.Store, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ingestionName := c.Param("ingestion")
 
@@ -33,6 +33,9 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if blockedByBilling(c, entCheck, dep.AccountID) {
 			return
 		}
 

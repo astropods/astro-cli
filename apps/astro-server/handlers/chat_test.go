@@ -42,13 +42,13 @@ func setupChatRouter(upstreamURL string, withAuth bool) (*gin.Engine, sqlmock.Sq
 		router.Use(setAuthUser("user-workos-1"))
 	}
 	router.GET("/deployments/:id/chat/conversations",
-		ListDeploymentChatConversations(log, cfg, nil, accountStore, deployStore))
+		ListDeploymentChatConversations(log, cfg, nil, accountStore, deployStore, nil))
 	router.GET("/deployments/:id/chat/conversations/:conversationId",
-		GetDeploymentChatConversation(log, cfg, nil, accountStore, deployStore))
+		GetDeploymentChatConversation(log, cfg, nil, accountStore, deployStore, nil))
 	router.PUT("/deployments/:id/chat/conversations/:conversationId/title",
-		SetDeploymentChatConversationTitle(log, cfg, nil, accountStore, deployStore))
+		SetDeploymentChatConversationTitle(log, cfg, nil, accountStore, deployStore, nil))
 	router.DELETE("/deployments/:id/chat/conversations/:conversationId",
-		DeleteDeploymentChatConversation(log, cfg, nil, accountStore, deployStore))
+		DeleteDeploymentChatConversation(log, cfg, nil, accountStore, deployStore, nil))
 
 	return router, accountMock, deployMock
 }

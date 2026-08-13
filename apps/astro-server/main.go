@@ -1851,20 +1851,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore, k8sCache, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/restart", "Restart all pods in a deployment", handlers.RestartDeployment(log, accountStore, cfg, k8sReg, deploymentStore, auditStore, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartDeploymentResponse{}),
 			)
-			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sReg, deploymentStore, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sReg, deploymentStore, auditStore, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1872,7 +1872,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartPodResponse{}),
 			)
-			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sReg, deploymentStore, cfg, auditStore),
+			deploymentRoutes.ObservedPOST(authz.ActionDeploymentOperate, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sReg, deploymentStore, cfg, auditStore, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -1949,21 +1949,21 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 			// Messaging proxy — pure in-transit forward to the deployment's
 			// messaging sidecar (send + SSE). No chat content is persisted here.
-			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg)
+			messagingProxy := handlers.ProxyDeploymentMessaging(log, accountStore, deploymentStore, k8sReg, cfg, ent)
 			deploymentRoutes.DataPlaneAny("/deployments/:id/messaging/*proxyPath", messagingProxy)
 			// Chat API — authenticates the session and forwards to the sidecar,
 			// which owns chat persistence (deployment-local SQLite on the agent's
 			// shared persistent disk). astro-server stores no chat metadata or
 			// message bodies.
 			deploymentRoutes.DataPlaneGET("/deployments/:id/chat/conversations", "List deployment chat conversations",
-				handlers.ListDeploymentChatConversations(log, cfg, k8sReg, accountStore, deploymentStore),
+				handlers.ListDeploymentChatConversations(log, cfg, k8sReg, accountStore, deploymentStore, ent),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.ListChatConversationsResponse{}),
 			)
 			deploymentRoutes.DataPlaneGET("/deployments/:id/chat/conversations/:conversationId", "Get deployment chat conversation",
-				handlers.GetDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
+				handlers.GetDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore, ent),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -1973,14 +1973,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.GetChatConversationResponse{}),
 			)
 			deploymentRoutes.DataPlanePUT("/deployments/:id/chat/conversations/:conversationId/title", "Rename deployment chat conversation",
-				handlers.SetDeploymentChatConversationTitle(log, cfg, k8sReg, accountStore, deploymentStore),
+				handlers.SetDeploymentChatConversationTitle(log, cfg, k8sReg, accountStore, deploymentStore, ent),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.PathParam("conversationId", "Conversation ID"),
 			)
 			deploymentRoutes.DataPlaneDELETE("/deployments/:id/chat/conversations/:conversationId", "Delete deployment chat conversation",
-				handlers.DeleteDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore),
+				handlers.DeleteDeploymentChatConversation(log, cfg, k8sReg, accountStore, deploymentStore, ent),
 				oapispec.Tags("Chat"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

@@ -64,6 +64,7 @@ func ProxyDeploymentMessaging(
 	deployStore *deploymentstore.Store,
 	k8sReg *k8s.Registry,
 	cfg *config.Config,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -75,6 +76,14 @@ func ProxyDeploymentMessaging(
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Writes only. The path allowlist is per-character, so this route also
+		// carries reads (agent config, conversation fetches, the SSE stream), and
+		// a suspended account keeps those. Placed before the status check so a
+		// refused send names billing instead of reading as an outage.
+		if c.Request.Method != http.MethodGet && blockedByBilling(c, entCheck, dep.AccountID) {
 			return
 		}
 
