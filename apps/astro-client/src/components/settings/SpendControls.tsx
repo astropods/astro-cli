@@ -36,7 +36,15 @@ function toDollars(cents: number | undefined): string {
   return cents == null ? "" : String(cents / 100);
 }
 
+/** Keyed on the account so a switch discards the form. Settings pages read the
+ *  org from a route param, so moving between two orgs re-renders rather than
+ *  remounts; without the key an edited number follows the owner to the next
+ *  account and the next Save writes it there. */
 export function SpendControls({ account }: { account: string }) {
+  return <SpendControlsForm key={account} account={account} />;
+}
+
+function SpendControlsForm({ account }: { account: string }) {
   const { data, isLoading } = useBillingSpend(account);
   const save = useSetBillingSpendThresholds(account);
   const [warning, setWarning] = useState<string | null>(null);
@@ -61,6 +69,8 @@ export function SpendControls({ account }: { account: string }) {
       return;
     }
     save.mutate(next, {
+      // Back to reading through: the write seeds the cache with what it stored,
+      // so the fields show the stored amount rather than the text that was typed.
       onSuccess: () => {
         setWarning(null);
         setLimit(null);

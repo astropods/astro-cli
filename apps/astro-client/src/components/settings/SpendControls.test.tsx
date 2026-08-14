@@ -106,3 +106,66 @@ describe("SpendControls", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// The saved value is the provider's, not the text that was typed. toCents rounds,
+// so "50.999" stores 5100 and the field has to read 51: a form still showing
+// "50.999" disagrees with the threshold that actually fires.
+describe("SpendControls after a save", () => {
+  it("shows the stored amount rather than the typed text", async () => {
+    mockMutate.mockImplementation((_input, opts) => opts?.onSuccess?.());
+    mockSpend.mockReturnValue({
+      data: { available: true, data: spend({ limit: { amount: 5000, in_alarm: false } }) },
+      isLoading: false,
+    });
+    const { rerender } = render(<SpendControls account="acme" />);
+
+    const user = userEvent.setup();
+    const field = screen.getByLabelText("Stop agents at");
+    await user.clear(field);
+    await user.type(field, "50.999");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockMutate).toHaveBeenCalledWith(
+      { warning: null, limit: 5100 },
+      expect.anything(),
+    );
+
+    // What the query reports once the write has seeded the cache.
+    mockSpend.mockReturnValue({
+      data: { available: true, data: spend({ limit: { amount: 5100, in_alarm: false } }) },
+      isLoading: false,
+    });
+    rerender(<SpendControls account="acme" />);
+
+    expect(screen.getByLabelText("Stop agents at")).toHaveValue("51");
+  });
+});
+
+// Switching accounts changes a prop, not a route component: OrgBillingSettings
+// reads orgSlug from useParams, so navigating between two orgs re-renders rather
+// than remounts. An edited field that survives that carries one account's number
+// onto another's form, and the next Save writes it there.
+describe("SpendControls across an account switch", () => {
+  it("does not carry an edited value onto the next account", async () => {
+    mockSpend.mockReturnValue({
+      data: { available: true, data: spend({ limit: { amount: 5000, in_alarm: false } }) },
+      isLoading: false,
+    });
+    const { rerender } = render(<SpendControls account="acme" />);
+
+    const user = userEvent.setup();
+    const field = screen.getByLabelText("Stop agents at");
+    await user.clear(field);
+    await user.type(field, "500");
+    expect(screen.getByLabelText("Stop agents at")).toHaveValue("500");
+
+    // The other account's own limit, as the server reports it.
+    mockSpend.mockReturnValue({
+      data: { available: true, data: spend({ limit: { amount: 2000, in_alarm: false } }) },
+      isLoading: false,
+    });
+    rerender(<SpendControls account="other-org" />);
+
+    expect(screen.getByLabelText("Stop agents at")).toHaveValue("20");
+  });
+});

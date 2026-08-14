@@ -10,13 +10,16 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
 
-// Alert names for the two thresholds a customer sets. Metronome is the only
-// store for them, so the name is what tells one apart from the other and both
-// apart from the org-wide backstop, which is named by hand. The SDK's alert type
-// carries no customer_id, so a prefix is the only discriminator available.
+// spendThresholdAlertType is Metronome's alert_type for a period-spend
+// threshold, the only kind that gates.
+const spendThresholdAlertType = "spend_threshold_reached"
+
+// The names come from internal/billing so the webhook path recognises the same
+// strings. The SDK's alert type carries no customer_id, so the name is the only
+// discriminator a read has.
 const (
-	alertNameSpendWarning = "astro:spend_warning"
-	alertNameSpendLimit   = "astro:spend_limit"
+	alertNameSpendWarning = billing.SpendWarningAlertName
+	alertNameSpendLimit   = billing.SpendLimitAlertName
 )
 
 // CustomerSpendThresholds returns the customer's own warning and limit. An
@@ -40,6 +43,12 @@ func (p *Provider) CustomerSpendThresholds(ctx context.Context, customerID strin
 			out.Warning, out.HasWarning = t, true
 		case alertNameSpendLimit:
 			out.Limit, out.HasLimit = t, true
+		default:
+			// An operator's org-wide spend alert. It gates the same latch the
+			// customer's limit does, so whether it is over has to travel with them.
+			if t.InAlarm && ca.Alert.Type == spendThresholdAlertType {
+				out.OperatorSpendInAlarm = true
+			}
 		}
 	}
 	return out, nil

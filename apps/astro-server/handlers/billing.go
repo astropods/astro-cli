@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -332,6 +333,38 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 		})
 }
 
+// writeSpendThresholds applies both controls in a fixed order and reports which
+// ones took effect. The limit goes first because it is the protective one: a
+// failure on the warning then leaves the cap intact rather than the reverse. A
+// map would make which one survives a coin flip.
+func writeSpendThresholds(
+	ctx context.Context,
+	writer billing.SpendThresholdWriter,
+	customerID string,
+	warning, limit *float64,
+) (applied []string, failed billing.SpendThresholdKind, err error) {
+	writes := []struct {
+		kind   billing.SpendThresholdKind
+		amount *float64
+	}{
+		{billing.SpendThresholdLimit, limit},
+		{billing.SpendThresholdWarning, warning},
+	}
+	applied = make([]string, 0, len(writes))
+	for _, w := range writes {
+		if w.amount == nil {
+			err = writer.ClearCustomerSpendThreshold(ctx, customerID, w.kind)
+		} else {
+			err = writer.SetCustomerSpendThreshold(ctx, customerID, w.kind, *w.amount)
+		}
+		if err != nil {
+			return applied, w.kind, err
+		}
+		applied = append(applied, string(w.kind))
+	}
+	return applied, "", nil
+}
+
 // SetSpendThresholdsRequest replaces both of an account's controls. A null
 // clears that one. PUT rather than PATCH: partial updates would make an omitted
 // field ambiguous between "leave it" and "remove it", and removing a spend limit
@@ -381,22 +414,19 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 			return
 		}
 
-		ctx := c.Request.Context()
-		for kind, amount := range map[billing.SpendThresholdKind]*float64{
-			billing.SpendThresholdWarning: req.Warning,
-			billing.SpendThresholdLimit:   req.Limit,
-		} {
-			var err error
-			if amount == nil {
-				err = writer.ClearCustomerSpendThreshold(ctx, customerID, kind)
-			} else {
-				err = writer.SetCustomerSpendThreshold(ctx, customerID, kind, *amount)
-			}
-			if err != nil {
-				log.Error("Failed to write spend threshold", "error", err, "account_id", acct.ID, "kind", string(kind))
-				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to save spend thresholds"})
-				return
-			}
+		applied, failed, err := writeSpendThresholds(c.Request.Context(), writer, customerID, req.Warning, req.Limit)
+		if err != nil {
+			log.Error("Failed to write spend threshold", "error", err, "account_id", acct.ID, "kind", string(failed))
+			// Changing a threshold archives the old alert before creating its
+			// replacement, so a failure can leave that control unset. Name it rather
+			// than reporting a generic failure over an account that may now be
+			// uncapped.
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error":   "failed to save spend controls",
+				"details": fmt.Sprintf("the %s may now be unset; re-save to restore it", failed),
+				"applied": applied,
+			})
+			return
 		}
 		c.JSON(http.StatusOK, BillingDataResponse{Available: true})
 	}

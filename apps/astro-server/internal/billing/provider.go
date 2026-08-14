@@ -124,7 +124,21 @@ type SpendThresholds struct {
 	HasWarning bool
 	Limit      SpendThreshold
 	HasLimit   bool
+	// OperatorSpendInAlarm is an org-wide spend alert, not the customer's, that
+	// is currently over. It shares the gating latch with the customer's limit, so
+	// clearing on one while the other is over would resume a stopped account.
+	OperatorSpendInAlarm bool
 }
+
+// Alert names for the two controls a customer sets. The provider is the only
+// store for them, so the name is what tells one from the other and both from an
+// operator's org-wide backstop. Declared here rather than in the provider
+// package because the webhook path has to recognise them too, and a rename that
+// reached only one side would silently make the warning gate.
+const (
+	SpendWarningAlertName = "astro:spend_warning"
+	SpendLimitAlertName   = "astro:spend_limit"
+)
 
 // SpendThresholdKind names which of a customer's two controls is meant. They are
 // the same provider primitive at different numbers, so nothing but this

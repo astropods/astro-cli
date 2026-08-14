@@ -204,3 +204,93 @@ func TestWebhookInsertOpts_DedupesOnlyWithAnEventID(t *testing.T) {
 		t.Error("id-less stripe event must not dedupe")
 	}
 }
+
+// fakeThresholds reports one customer's spend controls.
+type fakeThresholds struct {
+	limitInAlarm    bool
+	operatorInAlarm bool
+	err             error
+}
+
+func (f fakeThresholds) CustomerSpendThresholds(context.Context, string) (billing.SpendThresholds, error) {
+	return billing.SpendThresholds{
+		HasLimit:             true,
+		Limit:                billing.SpendThreshold{Amount: 5000, InAlarm: f.limitInAlarm},
+		OperatorSpendInAlarm: f.operatorInAlarm,
+	}, f.err
+}
+
+// An account can hold two spend alerts at once, its own limit and an operator's
+// org-wide backstop, and they share one latch. Clearing on the first to resolve
+// resumes an account the other still stops. Raising your own limit above current
+// spend reaches this: the write path resets that alert, it resolves, and the
+// backstop is untouched.
+func TestMetronomeWebhook_ResolvedDoesNotClearALatchAnotherAlertHolds(t *testing.T) {
+	cases := []struct {
+		name       string
+		resolved   string
+		thresholds fakeThresholds
+		wantHeld   bool
+	}{
+		{
+			name:     "own limit resolves while the operator backstop is still over",
+			resolved: billing.SpendLimitAlertName,
+			// Raising the limit above current spend resolves it; the backstop is not
+			// reset and stays in alarm.
+			thresholds: fakeThresholds{operatorInAlarm: true},
+			wantHeld:   true,
+		},
+		{
+			name:       "operator backstop resolves while the account's own limit is still over",
+			resolved:   "Hard spend threshold",
+			thresholds: fakeThresholds{limitInAlarm: true},
+			wantHeld:   true,
+		},
+		{
+			name:       "nothing else is over, so the latch clears",
+			resolved:   billing.SpendLimitAlertName,
+			thresholds: fakeThresholds{},
+			wantHeld:   false,
+		},
+		{
+			// The reader collapses every operator alert into one bool, so a list
+			// read that still reports the just-resolved one as over would hold the
+			// latch against itself. The event is acked and nothing resumes the
+			// account, so the resolved side is trusted over the read.
+			name:       "a resolved operator alert does not hold the latch on its own account",
+			resolved:   "Hard spend threshold",
+			thresholds: fakeThresholds{operatorInAlarm: true},
+			wantHeld:   false,
+		},
+		{
+			// The mirror: the customer's own limit is read by name, so a resolved
+			// limit still reported over must not hold its own latch either.
+			name:       "a resolved limit does not hold the latch on its own account",
+			resolved:   billing.SpendLimitAlertName,
+			thresholds: fakeThresholds{limitInAlarm: true},
+			wantHeld:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &MetronomeWebhookWorker{thresholds: tc.thresholds, log: logger.New("error", "json")}
+			held, err := w.otherSpendAlertInAlarm(context.Background(), "cust_1", tc.resolved)
+			if err != nil {
+				t.Fatalf("otherSpendAlertInAlarm: %v", err)
+			}
+			if held != tc.wantHeld {
+				t.Errorf("held = %v, want %v: clearing here resumes an account another alert still stops", held, tc.wantHeld)
+			}
+		})
+	}
+}
+
+// A backend with no spend controls has one alert and one latch, which is how it
+// behaved before. Refusing to clear there would strand every gated account.
+func TestMetronomeWebhook_NoThresholdReaderStillClears(t *testing.T) {
+	w := &MetronomeWebhookWorker{log: logger.New("error", "json")}
+	held, err := w.otherSpendAlertInAlarm(context.Background(), "cust_1", "Hard spend threshold")
+	if err != nil || held {
+		t.Fatalf("held = %v, err = %v: a backend without spend controls must still clear", held, err)
+	}
+}

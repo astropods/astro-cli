@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { SpendThresholdsInput } from '../../lib/api';
+import type { BillingDataResponse, BillingSpend, SpendThresholdsInput } from '../../lib/api';
 import { billingKeys } from './keys';
 
 export function useBillingUsage(account: string, params?: { from?: string; to?: string }) {
@@ -71,12 +71,37 @@ export function useSetBillingSpendThresholds(account: string) {
   return useMutation({
     mutationFn: (thresholds: SpendThresholdsInput) =>
       api.setBillingSpendThresholds(account, thresholds),
-    onSuccess: () => {
+    onSuccess: (_result, thresholds) => {
+      // Seed what was just written so the form keeps reading through the cache.
+      // Holding the typed text locally instead would leave "50.999" on screen
+      // against a stored threshold of $51.
+      qc.setQueryData<BillingDataResponse<BillingSpend>>(
+        billingKeys.spend(account),
+        (prev) => (prev?.available && prev.data ? seedThresholds(prev, thresholds) : prev),
+      );
       qc.invalidateQueries({ queryKey: billingKeys.spend(account) });
       // A limit change can lift or impose a suspension, so the banner must refetch.
       qc.invalidateQueries({ queryKey: billingKeys.status(account) });
     },
   });
+}
+
+/** A cleared threshold is absent, not zero: zero is a cap at nothing. in_alarm is
+ *  the provider's own evaluation, so a seeded value cannot claim it. */
+function seedThresholds(
+  prev: BillingDataResponse<BillingSpend>,
+  thresholds: SpendThresholdsInput,
+): BillingDataResponse<BillingSpend> {
+  const seed = (amount: number | null) =>
+    amount == null ? undefined : { amount, in_alarm: false };
+  return {
+    ...prev,
+    data: {
+      ...(prev.data as BillingSpend),
+      warning: seed(thresholds.warning),
+      limit: seed(thresholds.limit),
+    },
+  };
 }
 
 export function usePaymentMethod(account: string) {

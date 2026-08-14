@@ -29,11 +29,6 @@ type MetronomeWebhookArgs struct {
 	Detail    string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
 }
 
-// spendWarningAlertName mirrors the name the metronome provider gives an
-// account's own warning. Restated rather than imported: the queue does not
-// otherwise depend on a specific provider.
-const spendWarningAlertName = "astro:spend_warning"
-
 func (MetronomeWebhookArgs) Kind() string { return "webhook.metronome" }
 
 // InsertOpts routes to the billing queue and dedupes by event ID (ByArgs hashes
@@ -92,7 +87,7 @@ func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
 	// crossing the line it asked to be told about. Its resolved edge is skipped
 	// for the mirror-image reason: clearing the latch would un-gate an account
 	// the limit had stopped.
-	if alertName == spendWarningAlertName {
+	if alertName == billing.SpendWarningAlertName {
 		return "", false
 	}
 	switch eventType {
@@ -189,11 +184,28 @@ func stripeSignal(eventType string) (billing.Signal, bool) {
 // cached status and reconciles workload suspend/resume on a transition.
 type MetronomeWebhookWorker struct {
 	river.WorkerDefaults[MetronomeWebhookArgs]
-	accounts *account.AccountStore
-	status   *billing.StatusStore
-	cards    cardReader // nil when payments aren't configured
-	queue    *Queue     // set post-construction in New(); enqueues suspend/resume
-	log      *logger.Logger
+	accounts   *account.AccountStore
+	status     *billing.StatusStore
+	cards      cardReader           // nil when payments aren't configured
+	thresholds spendThresholdReader // nil when the backend reports no spend controls
+	queue      *Queue               // set post-construction in New(); enqueues suspend/resume
+	log        *logger.Logger
+}
+
+// spendThresholdReader reports whether any of a customer's spend alerts is still
+// in alarm. Satisfied by the metronome provider.
+type spendThresholdReader interface {
+	CustomerSpendThresholds(ctx context.Context, customerID string) (billing.SpendThresholds, error)
+}
+
+// spendThresholds narrows an optional provider, keeping a nil interface nil
+// rather than wrapping it in a non-nil spendThresholdReader.
+func spendThresholds(p billing.BillingProvider) spendThresholdReader {
+	r, ok := p.(billing.SpendThresholdReader)
+	if !ok {
+		return nil
+	}
+	return r
 }
 
 func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[MetronomeWebhookArgs]) error {
@@ -217,7 +229,45 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 			return err
 		}
 	}
+	if sig == billing.SignalAlertResolved {
+		// An account can hold two spend alerts at once: its own limit and an
+		// operator's org-wide backstop. They share one latch, so clearing on the
+		// first to resolve would resume an account the other still stops. That is
+		// reachable by design: raising your own limit above current spend resets
+		// and resolves it while the backstop is untouched.
+		stillOver, err := w.otherSpendAlertInAlarm(ctx, job.Args.CustomerID, job.Args.AlertName)
+		if err != nil {
+			return err
+		}
+		if stillOver {
+			w.log.Info("metronome webhook: spend alert resolved but another is still in alarm",
+				"customer_id", job.Args.CustomerID, "resolved", job.Args.AlertName)
+			return nil
+		}
+	}
 	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, "")
+}
+
+// otherSpendAlertInAlarm reports whether a spend alert other than the one that
+// just resolved is still over. Without a reader it answers false, which keeps a
+// backend with no spend controls behaving as it did: one alert, one latch.
+func (w *MetronomeWebhookWorker) otherSpendAlertInAlarm(ctx context.Context, customerID, resolved string) (bool, error) {
+	if w.thresholds == nil || customerID == "" {
+		return false, nil
+	}
+	th, err := w.thresholds.CustomerSpendThresholds(ctx, customerID)
+	if err != nil {
+		return false, fmt.Errorf("read spend thresholds: %w", err)
+	}
+	// Answer for the other side only. The reader collapses every alert that is
+	// not the customer's own into one bool, so asking it about an operator alert
+	// that just resolved counts that alert against itself: a list read still
+	// reporting in_alarm holds the latch, the event is acked, and nothing else
+	// resumes the account.
+	if resolved == billing.SpendLimitAlertName {
+		return th.OperatorSpendInAlarm, nil
+	}
+	return th.HasLimit && th.Limit.InAlarm, nil
 }
 
 // refreshCardFact re-reads whether the account has a card before exhaustion is
