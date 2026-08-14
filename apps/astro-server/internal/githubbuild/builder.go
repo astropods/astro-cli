@@ -50,6 +50,26 @@ type PermanentError struct{ Err error }
 func (e PermanentError) Error() string { return e.Err.Error() }
 func (e PermanentError) Unwrap() error { return e.Err }
 
+// SpecError marks a failure the reader fixes in their own repo: astropods.yml is
+// missing, unparsable, or invalid. Reason reaches them verbatim in the
+// build.failed notification, so it names the commit or the offending line
+// instead of describing the category. Err keeps the engineer phrasing for the
+// log and the build record, and may be nil when the two would say the same
+// thing.
+type SpecError struct {
+	Reason string
+	Err    error
+}
+
+func (e SpecError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return e.Reason
+}
+
+func (e SpecError) Unwrap() error { return e.Err }
+
 // ecrAPI is the subset of the ECR client used by EnsureRepository.
 type ecrAPI interface {
 	DescribeRepositories(ctx context.Context, params *ecr.DescribeRepositoriesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeRepositoriesOutput, error)

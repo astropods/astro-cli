@@ -234,15 +234,18 @@ func (e *Evaluator) evaluate(ctx context.Context, c Condition, q Querier, now ti
 func (e *Evaluator) fire(ctx context.Context, c Condition, dep *deploymentstore.Deployment, workload string, value float64, since time.Time) {
 	reason := c.Title
 	if workload != "" {
-		reason = fmt.Sprintf("%s — %s", c.Title, workload)
+		reason = fmt.Sprintf("%s (%s)", c.Title, workload)
 	}
-	// Enrich the static description with the observed value when the condition
-	// knows how to phrase it (e.g. "Peak use was ~18% of the request …").
+	// Details read as claim, then evidence, then fix: the static description, the
+	// observed value when the condition knows how to phrase it, and the guidance.
 	details := c.Description
 	if c.DetailsFor != nil {
 		if extra := c.DetailsFor(value); extra != "" {
-			details = c.Description + " " + extra
+			details += " " + extra
 		}
+	}
+	if c.Guidance != "" {
+		details += " " + c.Guidance
 	}
 	accountName := ""
 	if e.accounts != nil {

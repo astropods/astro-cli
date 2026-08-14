@@ -77,65 +77,66 @@ type Condition struct {
 	Name        string
 	Title       string
 	Description string // one-line human summary of what the rule detects
-	Severity    Severity
-	Engine      Engine
-	Query       string
-	For         time.Duration
+	// Guidance is the fix, as one imperative sentence appended to the alert's
+	// details. It is separate from Description because the alert catalog serves
+	// Description for conditions that are not firing, where advice reads as a
+	// false alarm. Empty when the fix depends on the observed value, in which
+	// case DetailsFor carries it.
+	Guidance string
+	Severity Severity
+	Engine   Engine
+	Query    string
+	For      time.Duration
 	// DetailsFor optionally renders the breaching series' scalar value into a
-	// clause appended to Description, so the alert can quote concrete numbers
+	// sentence appended to Description, so the alert can quote concrete numbers
 	// (e.g. observed utilization). Nil leaves Description unadorned; an empty
 	// return is treated the same. value is the query result for the worst pod of
 	// the workload.
 	DetailsFor func(value float64) string
 }
 
-// targetUtilization is the request utilization the over-provisioned rules steer
-// toward when suggesting a smaller request: run at ~50% of the request, leaving
-// ~2x headroom. Used only to phrase the recommendation, not to fire the alert.
-const targetUtilization = 0.5
-
-// overProvisionedDetail turns an observed usage/request ratio into a concrete
-// right-sizing suggestion. ratio is the fraction of the request that was used
-// (0–1); outside that range it returns "" and the base description stands.
-func overProvisionedDetail(ratio float64) string {
-	if ratio <= 0 || ratio >= 1 {
-		return ""
+// overProvisionedDetail builds the detail formatter for an over-provisioned
+// resource ("CPU" or "memory"), which quotes the observed peak as a share of the
+// reservation. It deliberately stops short of naming a smaller reservation: the
+// alert knows the ratio, not the configured value, so any target it named would
+// leave the reader to multiply. ratio is the fraction of the reservation that was
+// used (0 to 1); outside that range it returns "" and the base description
+// stands.
+func overProvisionedDetail(resource string) func(float64) string {
+	return func(ratio float64) string {
+		if ratio <= 0 || ratio >= 1 {
+			return ""
+		}
+		return fmt.Sprintf("At its busiest it used %d%% of the reserved %s.", int(math.Round(ratio*100)), resource)
 	}
-	pct := int(math.Round(ratio * 100))
-	// New request that would put observed peak at targetUtilization, as a
-	// percentage of the current request. Clamped to [1, 99] so the suggestion
-	// stays a strict reduction.
-	suggested := int(math.Round(ratio / targetUtilization * 100))
-	suggested = min(max(suggested, 1), 99)
-	return fmt.Sprintf("At its busiest, the agent used only about %d%% of what you reserved over the last 6 hours — you could lower the reserved amount to around %d%% of what it is now.", pct, suggested)
 }
 
-// restartStormDetail turns the observed restart count (increase over the 5m
-// window) into a concrete clause. count <= 0 falls back to the base description.
+// restartStormDetail quotes the observed restart count (increase over the 5m
+// window). count <= 0 falls back to the base description.
 func restartStormDetail(count float64) string {
 	n := int(math.Round(count))
 	if n <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("Restarted about %d times in the last 5 minutes.", n)
+	return fmt.Sprintf("It restarted %d times in the last 5 minutes.", n)
 }
 
-// memoryOverBudgetDetail turns the observed working-set/limit ratio into a "% of
-// limit" clause. ratio <= 0 falls back to the base description.
+// memoryOverBudgetDetail quotes the observed working-set/limit ratio.
+// ratio <= 0 falls back to the base description.
 func memoryOverBudgetDetail(ratio float64) string {
 	if ratio <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("Memory use reached about %d%% of the limit — consider raising the memory limit so the agent doesn't run out and restart.", int(math.Round(ratio*100)))
+	return fmt.Sprintf("Memory use peaked at %d%% of the limit.", int(math.Round(ratio*100)))
 }
 
-// computeThrottleDetail turns the observed throttled-periods fraction into a "%
-// of periods" clause. ratio <= 0 falls back to the base description.
+// computeThrottleDetail quotes the observed throttled-periods fraction.
+// ratio <= 0 falls back to the base description.
 func computeThrottleDetail(ratio float64) string {
 	if ratio <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("The agent hit its CPU limit about %d%% of the time, which slows it down — consider raising the CPU limit.", int(math.Round(ratio*100)))
+	return fmt.Sprintf("It spent %d%% of the time waiting for CPU.", int(math.Round(ratio*100)))
 }
 
 // Conditions is the evaluated rule set. The PromQL below targets kube-state-
@@ -153,7 +154,8 @@ var Conditions = []Condition{
 		// single transient backoff doesn't alert.
 		Name:        "crash_loop",
 		Title:       "Crash loop",
-		Description: "The agent keeps crashing and restarting, and can't stay running.",
+		Description: "The agent crashes every time it starts, so it can't serve requests.",
+		Guidance:    "Check the agent's logs for the error that prevents it from starting.",
 		Severity:    SeverityCritical,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}) > 0`,
@@ -166,7 +168,8 @@ var Conditions = []Condition{
 		// firing means one alert per episode until the container recovers.
 		Name:        "oom_killed",
 		Title:       "Out of memory",
-		Description: "The agent ran out of memory and was stopped.",
+		Description: "The agent used more memory than its limit allows, so it stopped.",
+		Guidance:    "Raise the memory limit to keep it running.",
 		Severity:    SeverityCritical,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}) > 0`,
@@ -177,8 +180,9 @@ var Conditions = []Condition{
 		// faster than a sustained CrashLoopBackOff, catches flapping that hasn't yet
 		// tripped the kubelet's backoff.
 		Name:        "restart_storm",
-		Title:       "Restart storm",
-		Description: "The agent restarted many times in a short period.",
+		Title:       "Frequent restarts",
+		Description: "The agent keeps restarting, which interrupts any request it is handling.",
+		Guidance:    "Check the agent's logs for the cause.",
 		Severity:    SeverityWarning,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (increase(kube_pod_container_status_restarts_total[5m])) > 5`,
@@ -186,12 +190,15 @@ var Conditions = []Condition{
 		DetailsFor:  restartStormDetail,
 	},
 	{
-		// Unschedulable: pods stuck Pending because the scheduler can't place them
-		// (insufficient node capacity or quota), sustained past a grace window so a
-		// brief scheduling gap during a rollout doesn't alert.
+		// Unschedulable: pods stuck Pending because the scheduler can't place them,
+		// sustained past a grace window so a brief scheduling gap during a rollout
+		// doesn't alert. The gauge does not say why, and the causes run from node
+		// capacity and quota to taints, affinity, and topology constraints, so the
+		// copy names the symptom rather than picking one.
 		Name:        "unschedulable",
-		Title:       "Cannot schedule",
-		Description: "The agent can't start — there isn't enough capacity available right now.",
+		Title:       "Can't schedule",
+		Description: "The agent can't start because Astro has nowhere to run it right now.",
+		Guidance:    "Check the deployment's events to see what is blocking it.",
 		Severity:    SeverityCritical,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (kube_pod_status_unschedulable) > 0`,
@@ -200,8 +207,9 @@ var Conditions = []Condition{
 	{
 		// Memory over budget: working set sustained above 90% of the limit.
 		Name:        "memory_over_budget",
-		Title:       "Memory over budget",
-		Description: "The agent used almost all of its memory.",
+		Title:       "Near memory limit",
+		Description: "The agent is close to its memory limit, which will stop it if it goes over.",
+		Guidance:    "Raise the memory limit to give it room.",
 		Severity:    SeverityWarning,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (container_memory_working_set_bytes / on (namespace, pod, container) group_left kube_pod_container_resource_limits{resource="memory"}) > 0.9`,
@@ -211,8 +219,9 @@ var Conditions = []Condition{
 	{
 		// Compute over budget: CPU CFS throttled a majority of periods.
 		Name:        "compute_over_budget",
-		Title:       "Compute over budget",
-		Description: "The agent kept hitting its CPU limit most of the time.",
+		Title:       "Slowed by CPU limit",
+		Description: "The agent keeps hitting its CPU limit, which slows it down.",
+		Guidance:    "Raise the CPU limit to speed it up.",
 		Severity:    SeverityWarning,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (rate(container_cpu_cfs_throttled_periods_total[10m]) / rate(container_cpu_cfs_periods_total[10m])) > 0.5`,
@@ -226,24 +235,26 @@ var Conditions = []Condition{
 		// agents aren't flagged for headroom they actually need at peak. Only
 		// pods with a CPU request are evaluated (the join drops the rest).
 		Name:        "cpu_over_provisioned",
-		Title:       "CPU over-provisioned",
-		Description: "The agent used far less CPU than you reserved for it.",
+		Title:       "Unused CPU",
+		Description: "The agent uses far less CPU than you reserved for it.",
+		Guidance:    "You can lower the reserved CPU to cut cost.",
 		Severity:    SeverityInfo,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (quantile_over_time(0.95, rate(container_cpu_usage_seconds_total[5m])[1h:5m]) / on (namespace, pod, container) group_left kube_pod_container_resource_requests{resource="cpu"}) < 0.4`,
 		For:         6 * time.Hour,
-		DetailsFor:  overProvisionedDetail,
+		DetailsFor:  overProvisionedDetail("CPU"),
 	},
 	{
 		// Memory over-provisioned: working set stays far below the request over a
 		// long window — the reservation is wasted, right-size it down.
 		Name:        "memory_over_provisioned",
-		Title:       "Memory over-provisioned",
-		Description: "The agent used far less memory than you reserved for it.",
+		Title:       "Unused memory",
+		Description: "The agent uses far less memory than you reserved for it.",
+		Guidance:    "You can lower the reserved memory to cut cost.",
 		Severity:    SeverityInfo,
 		Engine:      EnginePromQL,
 		Query:       `max by (namespace, pod) (container_memory_working_set_bytes / on (namespace, pod, container) group_left kube_pod_container_resource_requests{resource="memory"}) < 0.5`,
 		For:         6 * time.Hour,
-		DetailsFor:  overProvisionedDetail,
+		DetailsFor:  overProvisionedDetail("memory"),
 	},
 }

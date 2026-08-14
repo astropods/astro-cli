@@ -276,6 +276,43 @@ func (w *GitHubBuildWorker) cancel(_ context.Context, buildRecordID string) erro
 	return river.JobCancel(fmt.Errorf("superseded by newer push"))
 }
 
+// unretryableBuildReason covers a permanent failure that carries no reader-facing
+// wording of its own. It is also the fallback for a SpecError whose Reason is
+// empty, so a missing string never reaches the reader as a blank explanation.
+const unretryableBuildReason = "The build stopped on a problem Astro can't retry. Check the build log."
+
+// buildFailureReason turns a build error into the sentence the recipient reads
+// in the build.failed notification. The raw error stays in the build record and
+// the log, where an engineer wants it; a notification names the bucket the
+// reader can act on and sends them to the build page for the specifics.
+func buildFailureReason(cause error) string {
+	if cause == nil {
+		return ""
+	}
+	var buildFailed githubbuild.BuildFailedError
+	if errors.As(cause, &buildFailed) {
+		return "The container build failed. Check the build log for the error."
+	}
+	// A spec failure already carries the commit or the offending line, which is
+	// what the reader needs to fix it, so it passes through as written. An empty
+	// Reason falls back rather than sending a blank explanation.
+	var spec githubbuild.SpecError
+	if errors.As(cause, &spec) {
+		if spec.Reason != "" {
+			return spec.Reason
+		}
+		return unretryableBuildReason
+	}
+	var permanent githubbuild.PermanentError
+	if errors.As(cause, &permanent) {
+		return unretryableBuildReason
+	}
+	// No attribution here on purpose: this bucket catches GitHub, ECR, the cluster,
+	// and our own database, so naming a culprit would send the reader the wrong way
+	// as often as the right one.
+	return "The build didn't finish after several tries. Check the build log or try pushing again."
+}
+
 // emitBuildFailed notifies the account's members that a build failed. Emitted
 // only on a definitive failure (permanent error or last retry). Best-effort and
 // nil-safe: a missing queue or emit error never affects the build outcome.
@@ -283,10 +320,7 @@ func (w *GitHubBuildWorker) emitBuildFailed(ctx context.Context, accountID, agen
 	if w.queue == nil || accountID == "" {
 		return
 	}
-	var reason string
-	if cause != nil {
-		reason = cause.Error()
-	}
+	reason := buildFailureReason(cause)
 	accountName := ""
 	if w.accountStore != nil {
 		if acct, err := w.accountStore.GetByID(accountID); err == nil && acct != nil {

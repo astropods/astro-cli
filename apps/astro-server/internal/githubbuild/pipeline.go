@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -117,13 +118,75 @@ func (p *GitHubBuildPipeline) ValidateSpec() *GitHubBuildPipeline {
 			if strings.HasPrefix(e.Field, "variables.") || strings.HasSuffix(e.Field, ".trigger.schedule") {
 				continue
 			}
+			if e.Field == "" {
+				msgs = append(msgs, e.Message)
+				continue
+			}
 			msgs = append(msgs, e.Field+": "+e.Message)
 		}
 		if len(msgs) == 0 {
 			return nil
 		}
-		return PermanentError{Err: fmt.Errorf("spec validation failed: %s", strings.Join(msgs, "; "))}
+		return PermanentError{Err: SpecError{
+			Reason: specInvalidReason(msgs),
+			Err:    fmt.Errorf("spec validation failed: %s", strings.Join(msgs, "; ")),
+		}}
 	})
+}
+
+// specProblemLimit caps how many validation problems the notification lists. A
+// spec with a dozen errors would otherwise arrive as one unreadable line, and the
+// build log already holds the full set.
+const specProblemLimit = 3
+
+// specInvalidReason builds the build.failed reason for a spec that fails
+// validation. Each problem keeps the validator's "field: message" form, which
+// reads the way compiler and linter output does, and the lead sentence ends in a
+// period rather than a colon so the field paths stay the punctuation the reader
+// notices. At most specProblemLimit problems are listed; the rest are counted and
+// left to the log.
+func specInvalidReason(problems []string) string {
+	shown := problems
+	if len(shown) > specProblemLimit {
+		shown = shown[:specProblemLimit]
+	}
+	reason := fmt.Sprintf("astropods.yml is invalid. %s.", strings.Join(shown, "; "))
+	if rest := len(problems) - len(shown); rest > 0 {
+		reason += fmt.Sprintf(" The build log lists %d more.", rest)
+	}
+	return reason
+}
+
+// yamlLinePrefix matches the "line N: message" form the yaml package produces
+// for a scanner or parser error once its own "yaml: " prefix is gone. That shape
+// carries generic parser vocabulary ("mapping values are not allowed in this
+// context"), which is why it is the one message the reason forwards. The errors
+// that quote the reader's own file, a duplicate mapping key or an unknown anchor,
+// arrive in the "unmarshal errors:" form instead and take the line-only path
+// below. TestYAMLSyntaxReasonNeverQuotesTheSpec locks that in: it fails if a yaml
+// upgrade ever routes a content-bearing message through here.
+var yamlLinePrefix = regexp.MustCompile(`^line (\d+): (.+)$`)
+
+// yamlLineNumber finds a line number anywhere in a parser message, for the forms
+// that carry one but do not lead with it.
+var yamlLineNumber = regexp.MustCompile(`line (\d+)`)
+
+// yamlSyntaxReason turns a YAML parse error into the sentence the reader sees in
+// the build.failed notification. It never forwards the parser's message except in
+// the one shape known to be prose: a type error reads "cannot unmarshal !!seq
+// into map[string]interface {}", which would put a Go type, a YAML tag, and a
+// fragment of the reader's own file into their inbox. Those keep the line number
+// and drop the rest, since the build log holds the full text.
+func yamlSyntaxReason(err error) string {
+	msg := strings.Join(strings.Fields(strings.TrimPrefix(err.Error(), "yaml: ")), " ")
+	msg = strings.TrimRight(msg, ".")
+	if m := yamlLinePrefix.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("astropods.yml has a syntax error on line %s: %s.", m[1], m[2])
+	}
+	if m := yamlLineNumber.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("astropods.yml is not valid YAML. Check line %s.", m[1])
+	}
+	return "astropods.yml is not valid YAML."
 }
 
 // FetchSpec downloads astropods.yml from GitHub and parses it.
@@ -134,7 +197,11 @@ func (p *GitHubBuildPipeline) FetchSpec() *GitHubBuildPipeline {
 			return fmt.Errorf("fetch astropods.yml: %w", err)
 		}
 		if specYAML == "" {
-			return PermanentError{Err: fmt.Errorf("astropods.yml not found in repo at commit %s", p.cfg.CommitSHA[:min(7, len(p.cfg.CommitSHA))])}
+			short := p.cfg.CommitSHA[:min(7, len(p.cfg.CommitSHA))]
+			return PermanentError{Err: SpecError{
+				Reason: fmt.Sprintf("No astropods.yml found at commit %s.", short),
+				Err:    fmt.Errorf("astropods.yml not found in repo at commit %s", short),
+			}}
 		}
 
 		p.astroSpec = astroSpec
@@ -142,7 +209,10 @@ func (p *GitHubBuildPipeline) FetchSpec() *GitHubBuildPipeline {
 
 		var specMap map[string]any
 		if err := yaml.Unmarshal([]byte(specYAML), &specMap); err != nil {
-			return PermanentError{Err: fmt.Errorf("parse spec YAML: %w", err)}
+			return PermanentError{Err: SpecError{
+				Reason: yamlSyntaxReason(err),
+				Err:    fmt.Errorf("parse spec YAML: %w", err),
+			}}
 		}
 		p.specMap = specMap
 

@@ -148,7 +148,7 @@ func TestEvaluateHonorsForWindow(t *testing.T) {
 	var emitted []notify.Event
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
 	st := newMemState()
-	cond := Condition{Name: "memory_over_budget", Title: "Memory over budget", Severity: SeverityWarning, Engine: EnginePromQL, Query: "q", For: 5 * time.Minute}
+	cond := Condition{Name: "memory_over_budget", Title: "Near memory limit", Severity: SeverityWarning, Engine: EnginePromQL, Query: "q", For: 5 * time.Minute}
 	e := NewEvaluator(nil, fakeDeploys{}, st, nil, emit, nil)
 	q := fakeEngine{vec: breaching("ns1")}
 	t0 := time.Unix(1000, 0)
@@ -185,7 +185,7 @@ func TestEvaluatePerWorkloadStateSingleNotification(t *testing.T) {
 		t.Fatalf("want 2 per-workload state rows, got %d", len(st.m))
 	}
 	reason, _ := emitted[0].Payload[notify.PayloadReason].(string)
-	if !strings.Contains(reason, "Crash loop") || !strings.Contains(reason, "—") {
+	if !strings.Contains(reason, "Crash loop") || !strings.Contains(reason, "(") {
 		t.Fatalf("reason should name the affected workload, got %q", reason)
 	}
 }
@@ -198,9 +198,9 @@ func TestEvaluateEnrichesDetailsFromValue(t *testing.T) {
 	emit := func(_ context.Context, ev notify.Event) error { emitted = append(emitted, ev); return nil }
 	st := newMemState()
 	cond := Condition{
-		Name: "cpu_over_provisioned", Title: "CPU over-provisioned",
-		Description: "base.", Severity: SeverityInfo, Engine: EnginePromQL, Query: "q", For: 0,
-		DetailsFor: overProvisionedDetail,
+		Name: "cpu_over_provisioned", Title: "Unused CPU",
+		Description: "base.", Guidance: "fix it.", Severity: SeverityInfo, Engine: EnginePromQL, Query: "q", For: 0,
+		DetailsFor: overProvisionedDetail("CPU"),
 	}
 	// Two pods of the same workload: ratios 0.1 and 0.3 → the 0.3 pod wins.
 	q := fakeEngine{vec: []Series{
@@ -218,9 +218,12 @@ func TestEvaluateEnrichesDetailsFromValue(t *testing.T) {
 	if !strings.HasPrefix(details, "base. ") {
 		t.Fatalf("details should extend the base description, got %q", details)
 	}
-	// 0.3 ratio → ~30% of request, suggest ~60% of current (0.3/0.5).
-	if !strings.Contains(details, "30%") || !strings.Contains(details, "60%") {
-		t.Fatalf("details should quote the worst pod's ratio (30%%) and suggestion (60%%), got %q", details)
+	// Two pods of one workload: the 0.3 ratio wins over the 0.1.
+	if !strings.Contains(details, "30%") {
+		t.Fatalf("details should quote the worst pod's ratio (30%%), got %q", details)
+	}
+	if !strings.HasSuffix(details, "fix it.") {
+		t.Fatalf("guidance should close the details, got %q", details)
 	}
 }
 
@@ -233,12 +236,12 @@ func TestDetailFormatters(t *testing.T) {
 		val  float64
 		want []string // all substrings must be present; nil means want == ""
 	}{
-		{"over-provisioned suggests a cut", overProvisionedDetail, 0.3, []string{"30%", "60%"}},
-		{"over-provisioned ignores out-of-range", overProvisionedDetail, 1.5, nil},
+		{"over-provisioned quotes the peak share", overProvisionedDetail("CPU"), 0.3, []string{"30%", "CPU"}},
+		{"over-provisioned ignores out-of-range", overProvisionedDetail("CPU"), 1.5, nil},
 		{"restart storm quotes the count", restartStormDetail, 7.4, []string{"7 times"}},
 		{"restart storm ignores zero", restartStormDetail, 0, nil},
-		{"memory over budget quotes % of limit", memoryOverBudgetDetail, 0.94, []string{"94%", "run out"}},
-		{"compute throttle quotes % of periods", computeThrottleDetail, 0.72, []string{"72%", "CPU limit"}},
+		{"memory over budget quotes % of limit", memoryOverBudgetDetail, 0.94, []string{"94%", "limit"}},
+		{"compute throttle quotes % of periods", computeThrottleDetail, 0.72, []string{"72%", "waiting for CPU"}},
 		{"compute throttle ignores zero", computeThrottleDetail, 0, nil},
 	}
 	for _, tc := range cases {

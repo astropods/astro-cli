@@ -68,6 +68,11 @@ const maxExcludedEmails = 500
 // so this is what keeps a name renderable in the sources table.
 const maxTokenNameLen = 200
 
+// ingestKeyKind is how the security notification names this credential. It
+// matches the label the settings page uses ("Ingestion key"), so the email and
+// the app call the same thing by the same name.
+const ingestKeyKind = "ingestion"
+
 // normalizeTokenName trims and length-checks a key name. Shared by create and
 // rename so a rename cannot set a name create would have rejected.
 func normalizeTokenName(in string) (string, error) {
@@ -233,7 +238,7 @@ func CreateOtelIngestToken(
 		}
 
 		log.Info("OTel ingest token created", "account_id", acct.ID, "token_id", tok.ID)
-		emitNotify(c, log, queue, notify.SecurityKeyCreated(acct.ID, "OTel ingest", req.Name))
+		emitNotify(c, log, queue, notify.SecurityKeyCreated(acct.ID, ingestKeyKind, req.Name))
 		c.JSON(http.StatusCreated, CreateOtelIngestTokenResponse{
 			OtelIngestTokenMeta: toMeta(tok),
 			Token:               plaintext,
@@ -265,7 +270,7 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 		}
 
 		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
-		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", keyName))
+		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, ingestKeyKind, keyName))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
 	}
 }
