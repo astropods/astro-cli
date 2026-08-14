@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ReviewQueuePrediction } from "@/lib/api";
 import { ReviewQueuePredictionExplanation } from "./ReviewQueuePredictionExplanation";
 import { ReviewQueuePredictionControls } from "./ReviewQueuePredictionControls";
@@ -26,12 +26,8 @@ function PredictionExplanationHarness() {
     <>
       <ReviewQueuePredictionControls
         prediction={prediction}
-        isPending={false}
-        activeVerdict={null}
-        showError={false}
         explanationOpen={open}
         onExplanationOpenChange={setOpen}
-        onSelect={vi.fn()}
       />
       {open && <ReviewQueuePredictionExplanation prediction={prediction} />}
     </>
@@ -51,6 +47,12 @@ describe("ReviewQueuePredictionControls", () => {
     expect(
       screen.queryByText("The response did not address the request."),
     ).not.toBeInTheDocument();
+
+    const explanationButton = screen.getByRole("button", {
+      name: "See explanation",
+    });
+    expect(explanationButton).toHaveClass("whitespace-nowrap", "shrink-0");
+    expect(explanationButton.parentElement).toHaveClass("flex-nowrap");
 
     await user.click(
       screen.getByRole("button", { name: "See explanation" }),
@@ -87,53 +89,5 @@ describe("ReviewQueuePredictionControls", () => {
     expect(
       screen.queryByText("The response did not address the request."),
     ).not.toBeInTheDocument();
-  });
-
-  it("agrees with the prediction or selects an alternative verdict", async () => {
-    const onSelect = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <ReviewQueuePredictionControls
-        prediction={prediction}
-        isPending={false}
-        activeVerdict={null}
-        showError={false}
-        explanationOpen={false}
-        onExplanationOpenChange={vi.fn()}
-        onSelect={onSelect}
-      />,
-    );
-
-    const disagreeButton = screen.getByRole("button", { name: "Disagree" });
-    const agreeButton = screen.getByRole("button", { name: "Agree with judge" });
-    expect(disagreeButton.compareDocumentPosition(agreeButton)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(disagreeButton).toHaveAttribute("data-variant", "outline");
-    expect(agreeButton).toHaveAttribute("data-variant", "default");
-
-    await user.click(agreeButton);
-    expect(onSelect).toHaveBeenLastCalledWith(
-      "bad",
-      expect.any(HTMLElement),
-      true,
-    );
-
-    await user.click(disagreeButton);
-    expect(screen.getByText("Mark as instead")).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /Good/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", { name: /Not sure/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("menuitem", { name: /Bad/ }),
-    ).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("menuitem", { name: /Good/ }));
-    expect(onSelect).toHaveBeenLastCalledWith(
-      "good",
-      expect.any(HTMLElement),
-      false,
-    );
   });
 });

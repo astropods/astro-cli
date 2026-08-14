@@ -40,8 +40,8 @@ export function AutoJudgeOnboardingCoachmark({
             id={descriptionId}
             className="mt-2 text-body-sm text-muted-foreground"
           >
-            Score every trace in one pass to streamline judging, then just
-            confirm the verdicts or pick your own.
+            Score every trace in one pass, then use the results while deciding
+            which traces belong in the dataset.
           </p>
           <div className="mt-4 flex justify-end">
             <Button type="button" size="xs" onClick={onDismiss}>

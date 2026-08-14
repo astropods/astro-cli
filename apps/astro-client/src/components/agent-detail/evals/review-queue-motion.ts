@@ -1,25 +1,13 @@
-import type { DatasetJudgmentVerdict } from "@/lib/api";
-
-type EvalFlightCue = DatasetJudgmentVerdict | "undo";
+type EvalFlightCue = "add" | "undo";
 
 const EVAL_FLIGHT_META: Record<
   EvalFlightCue,
   { color: string; iconPath: string; rotation: number }
 > = {
-  good: {
-    color: "var(--success)",
-    iconPath: "M20 6 9 17l-5-5",
-    rotation: 20,
-  },
-  bad: {
-    color: "var(--destructive)",
-    iconPath: "M18 6 6 18M6 6l12 12",
-    rotation: -20,
-  },
-  unknown: {
-    color: "var(--muted-foreground)",
-    iconPath: "M5 12h14",
-    rotation: 0,
+  add: {
+    color: "var(--primary)",
+    iconPath: "M12 5v14M5 12h14",
+    rotation: 12,
   },
   undo: {
     color: "var(--primary)",
@@ -122,6 +110,7 @@ function flyEvalCueToTarget(
 
   const fly = document.createElement("div");
   fly.setAttribute("aria-hidden", "true");
+  fly.dataset.evalFlightCue = cue;
   fly.style.cssText = [
     "position:fixed",
     "left:0",
@@ -187,12 +176,11 @@ function flyEvalCueToTarget(
   animation.addEventListener("cancel", () => fly.remove(), { once: true });
 }
 
-export function flyVerdictToGrade(
+export function flyTraceToDataset(
   originRect: DOMRect | null,
   target: HTMLElement | null | undefined,
-  verdict: DatasetJudgmentVerdict,
 ) {
-  flyEvalCueToTarget(originRect, target, verdict);
+  flyEvalCueToTarget(originRect, target, "add");
 }
 
 export function flyUndoToReviewQueue(

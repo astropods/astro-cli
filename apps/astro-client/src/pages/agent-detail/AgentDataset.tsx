@@ -31,6 +31,7 @@ export default function AgentDataset() {
   const { data, isLoading, isError } = useEvalDataset(deploymentId);
   const [searchParams, setSearchParams] = useSearchParams();
   const gradeTargetRef = useRef<HTMLDivElement | null>(null);
+  const datasetTargetRef = useRef<HTMLSpanElement | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
   const [panelExpanded, setPanelExpanded] = useState(false);
   const { ref: outerRef, width: outerWidth } = useContainerSize();
@@ -107,14 +108,16 @@ export default function AgentDataset() {
                   Review queue
                 </TabButton>
               </span>
-              <TabButton active={tab === "dataset"} onClick={() => setTab("dataset")}>
-                Dataset
-                {data && (
-                  <span className="ml-1.5 tabular-nums">
-                    · {data.item_count.toLocaleString()}
-                  </span>
-                )}
-              </TabButton>
+              <span ref={datasetTargetRef} className="inline-flex">
+                <TabButton active={tab === "dataset"} onClick={() => setTab("dataset")}>
+                  Dataset
+                  {data && (
+                    <span className="ml-1.5 tabular-nums">
+                      · {data.item_count.toLocaleString()}
+                    </span>
+                  )}
+                </TabButton>
+              </span>
             </div>
             {data && (
               <div className="flex flex-wrap items-center gap-2.5 pb-3 @[680px]/eval-page:flex-none @[680px]/eval-page:justify-end @[680px]/eval-page:pb-2">
@@ -173,8 +176,7 @@ export default function AgentDataset() {
                     agentName={deployment.name}
                     agentLabel={deployment.display_name || deployment.name}
                     agentAvatarUrl={deployment.avatar_url}
-                    summary={data}
-                    gradeTargetRef={gradeTargetRef}
+                    datasetTargetRef={datasetTargetRef}
                     onOpenTrace={panelOpen ? undefined : openTracePanel}
                     onSelectedTraceChange={
                       panelOpen ? syncOpenTracePanel : undefined

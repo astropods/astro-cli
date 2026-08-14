@@ -99,12 +99,12 @@ function UserSectionIcon() {
 }
 
 export function ReviewQueueDetailEmpty({
-  showJudgmentError,
+  showActionError,
   canLoadMore,
   isLoadingMore,
   onLoadMore,
 }: {
-  showJudgmentError: boolean;
+  showActionError: boolean;
   canLoadMore: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => void;
@@ -112,7 +112,7 @@ export function ReviewQueueDetailEmpty({
   const title = canLoadMore ? "Ready for more traces" : "You're all caught up";
   const description = canLoadMore
     ? "Load the next page of queue items to keep reviewing."
-    : "Every trace has a verdict.";
+    : "Every trace has been reviewed.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -134,9 +134,9 @@ export function ReviewQueueDetailEmpty({
           />
         )}
       </div>
-      {showJudgmentError && (
+      {showActionError && (
         <div className="flex flex-none items-center border-t border-border px-6 py-4 text-body-sm text-muted-foreground">
-          Could not save verdict. Try again.
+          Could not update the review queue. Try again.
         </div>
       )}
     </div>

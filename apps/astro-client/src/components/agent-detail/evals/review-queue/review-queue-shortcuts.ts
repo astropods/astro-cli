@@ -1,14 +1,4 @@
 import { useEffect, useRef } from "react";
-import type { DatasetJudgmentVerdict } from "@/lib/api";
-
-const REVIEW_QUEUE_VERDICT_SHORTCUTS: Record<
-  string,
-  DatasetJudgmentVerdict
-> = {
-  g: "good",
-  b: "bad",
-  s: "unknown",
-};
 
 /** Binds a window keydown listener once per mount while always invoking the
  *  latest handler, so callers can pass inline closures without re-subscribing
@@ -22,43 +12,6 @@ function useWindowKeyDown(handler: (event: KeyboardEvent) => void) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-}
-
-export function useReviewQueueShortcuts({
-  disabled,
-  onSelect,
-  onAgree,
-}: {
-  disabled: boolean;
-  onSelect: (verdict: DatasetJudgmentVerdict) => void;
-  onAgree?: () => void;
-}) {
-  useWindowKeyDown((event) => {
-    if (disabled) {
-      return;
-    }
-
-    const agrees = event.key === "Enter";
-    const verdict = REVIEW_QUEUE_VERDICT_SHORTCUTS[event.key.toLowerCase()];
-    const run = agrees
-      ? onAgree
-      : verdict
-        ? () => onSelect(verdict)
-        : undefined;
-    if (
-      !run ||
-      // Enter natively activates a focused button or link, so it yields to one;
-      // the letter shortcuts collide with nothing and always fire.
-      shouldIgnoreReviewQueueShortcut(event, {
-        ignoreInteractiveControls: agrees,
-      })
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    run();
-  });
 }
 
 export function useReviewQueueNavigationShortcuts({
@@ -90,9 +43,8 @@ export function useReviewQueueNavigationShortcuts({
   });
 }
 
-export function shouldIgnoreReviewQueueShortcut(
+function shouldIgnoreReviewQueueShortcut(
   event: KeyboardEvent,
-  { ignoreInteractiveControls = false } = {},
 ) {
   return (
     event.defaultPrevented ||
@@ -100,8 +52,7 @@ export function shouldIgnoreReviewQueueShortcut(
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
-    isEditableShortcutTarget(event.target) ||
-    (ignoreInteractiveControls && isInteractiveShortcutTarget(event.target))
+    isEditableShortcutTarget(event.target)
   );
 }
 
@@ -118,11 +69,4 @@ function isEditableShortcutTarget(target: EventTarget | null) {
       ),
     )
   );
-}
-
-function isInteractiveShortcutTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return target.closest("button, a") !== null;
 }

@@ -64,7 +64,7 @@ export function AutoJudgeHoverPopover({
                 </h2>
                 <p className="text-body-sm text-muted-foreground">
                   The judge will score up to 50 of the most recent unjudged
-                  traces. You can confirm each verdict in the queue.
+                  traces. Use the results while deciding which traces belong in the dataset.
                 </p>
               </div>
 

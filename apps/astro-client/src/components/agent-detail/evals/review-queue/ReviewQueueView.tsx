@@ -6,18 +6,9 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Spinner } from "@/components/ui/spinner";
 import { WarningPanel } from "@/components/ui/status-panel";
-import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
@@ -30,7 +21,6 @@ import {
 } from "@/api/queries/evals";
 import type {
   DatasetJudgmentVerdict,
-  EvalDatasetResponse,
   JudgmentCriterion,
   ReviewQueueItem,
   ReviewQueuePredictionFilter,
@@ -41,9 +31,10 @@ import {
   predictedCriterionKeysForVerdict,
   verdictHasCriteria,
 } from "../judgment-criteria";
-import { flyVerdictToGrade } from "../review-queue-motion";
+import { flyTraceToDataset } from "../review-queue-motion";
 import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
 import { QuickUndoToast } from "./QuickUndoToast";
+import { ReviewQueueDatasetActions } from "./ReviewQueueDatasetActions";
 import { ReviewQueueHeaderActions } from "./ReviewQueueHeaderActions";
 import { ReviewQueueList } from "./ReviewQueueList";
 import { ReviewQueueDetail, ReviewQueueDetailEmpty } from "./ReviewQueueDetail";
@@ -53,25 +44,16 @@ import {
   ReviewQueueToolbar,
   type ReviewQueueFilterValue,
 } from "./ReviewQueueToolbar";
-import { ReviewQueueVerdictControls } from "./ReviewQueueVerdictControls";
-import { predictionVerdictPresentation } from "./PredictionVerdictIndicator";
 import { useReviewQueueNavigationShortcuts } from "./review-queue-shortcuts";
 import {
   getAdjacentTraceIds,
-  getBaselineStatus,
   getReviewQueuePageIndex,
   reviewQueueItemToTraceEntry,
   truncateTraceId,
-  type BaselineStatus,
 } from "./review-queue-utils";
 
 const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
-
-function markedLabel(verdict: DatasetJudgmentVerdict) {
-  const { label } = predictionVerdictPresentation(verdict);
-  return `Marked as ${label.toLowerCase()}`;
-}
 
 type ActiveJudgment = {
   traceId: string;
@@ -96,8 +78,7 @@ export interface ReviewQueueViewProps {
   agentName: string;
   agentLabel: string;
   agentAvatarUrl?: string;
-  summary: EvalDatasetResponse;
-  gradeTargetRef?: RefObject<HTMLDivElement | null>;
+  datasetTargetRef?: RefObject<HTMLSpanElement | null>;
   onOpenTrace?: (trace: TraceEntry) => void;
   onSelectedTraceChange?: (trace: TraceEntry) => void;
   onSelectedTraceCleared?: () => void;
@@ -109,8 +90,7 @@ export function ReviewQueueView({
   agentName,
   agentLabel,
   agentAvatarUrl,
-  summary,
-  gradeTargetRef,
+  datasetTargetRef,
   onOpenTrace,
   onSelectedTraceChange,
   onSelectedTraceCleared,
@@ -179,7 +159,6 @@ export function ReviewQueueView({
   const selectedIndex = selectedItem
     ? items.findIndex((item) => item.trace_id === selectedItem.trace_id)
     : -1;
-  const baselineStatus = getBaselineStatus(summary);
   const canLoadMore = Boolean(hasNextPage);
 
   useEffect(() => {
@@ -210,7 +189,7 @@ export function ReviewQueueView({
         failedCount === 0
           ? "Traces scored by the judge are ready to review."
           : completedCount > 0
-            ? "Retry them on the next run or select a verdict."
+            ? "Retry them on the next run or review the traces manually."
             : "Predictions could not be generated. Retry them on the next run.",
     };
     if (completedCount === 0) {
@@ -410,12 +389,12 @@ export function ReviewQueueView({
     const reviewQueuePageIndex = getReviewQueuePageIndex(data?.pages, traceId);
     setCriteria.reset();
     setActiveJudgment(null);
-    flyVerdictToGrade(
-      trigger?.getBoundingClientRect() ?? null,
-      gradeTargetRef?.current,
-      verdict,
-    );
-
+    if (verdict === "good") {
+      flyTraceToDataset(
+        trigger?.getBoundingClientRect() ?? null,
+        datasetTargetRef?.current,
+      );
+    }
     if (selectedItem?.trace_id === traceId) {
       selectTraceId(selectedIdRef.current ?? traceId);
     }
@@ -508,10 +487,9 @@ export function ReviewQueueView({
       <EvalTabCard className="@container/review-card min-h-0">
         <EvalTabCardHeader
           label="Review traces"
-          description="Confirm the judge's verdict or select your own"
+          description="Add useful traces to the dataset or remove them from this queue"
           className="px-4 py-4 @[520px]/review-card:px-6"
         >
-          {baselineStatus && <BaselineStatusBadge status={baselineStatus} />}
           {selectedItem && (
             <ReviewQueueHeaderActions
               position={selectedIndex + 1}
@@ -564,57 +542,55 @@ export function ReviewQueueView({
             {selectedItem && (
               <div
                 data-review-queue-controls
-                className={cn(
-                  "flex flex-none items-center bg-card px-4 py-3 dark:bg-surface @[520px]/review-card:px-6",
-                  !selectedPredictionFailed && "border-b border-border",
-                )}
+                className="flex flex-none items-center border-b border-border bg-card px-4 py-3 dark:bg-surface @[520px]/review-card:px-6"
               >
-                {selectedPrediction ? (
-                  <ReviewQueuePredictionControls
-                    key={selectedItem.trace_id}
-                    prediction={selectedPrediction}
-                    isPending={postJudgment.isPending}
-                    activeVerdict={activeVerdict}
+                <div className="flex w-full flex-col gap-3 @[1040px]/review-card:flex-row @[1040px]/review-card:items-center @[1040px]/review-card:justify-between">
+                  {selectedPrediction && (
+                    <ReviewQueuePredictionControls
+                      key={selectedItem.trace_id}
+                      prediction={selectedPrediction}
+                      explanationOpen={
+                        predictionExplanationTraceId === selectedItem.trace_id
+                      }
+                      onExplanationOpenChange={(open) =>
+                        setPredictionExplanationTraceId(
+                          open ? selectedItem.trace_id : null,
+                        )
+                      }
+                    />
+                  )}
+                  {selectedPredictionFailed && (
+                    <div className="shrink-0 whitespace-nowrap">
+                      <WarningPanel
+                        title="Couldn’t judge"
+                        variant="inline"
+                        size="xs"
+                      >
+                        No prediction was made.
+                      </WarningPanel>
+                    </div>
+                  )}
+                  <ReviewQueueDatasetActions
+                    isPending={postJudgment.isPending || activeVerdict !== null}
                     showError={postJudgment.isError || undoJudgment.isError}
-                    explanationOpen={
-                      predictionExplanationTraceId === selectedItem.trace_id
-                    }
-                    onExplanationOpenChange={(open) =>
-                      setPredictionExplanationTraceId(
-                        open ? selectedItem.trace_id : null,
-                      )
-                    }
-                    onSelect={(verdict, trigger, agreesWithJudge) =>
+                    onAdd={(trigger) =>
                       handleJudgeTrace(
                         selectedItem.trace_id,
-                        verdict,
+                        "good",
                         trigger,
-                        agreesWithJudge && verdictHasCriteria(verdict)
+                        selectedPrediction
                           ? predictedCriterionKeysForVerdict(
                               selectedPrediction.criteria,
-                              verdict,
+                              "good",
                             )
                           : undefined,
                       )
                     }
-                  />
-                ) : (
-                  <ReviewQueueVerdictControls
-                    isPending={postJudgment.isPending}
-                    activeVerdict={activeVerdict}
-                    showError={postJudgment.isError || undoJudgment.isError}
-                    onSelect={(verdict, trigger) =>
-                      handleJudgeTrace(selectedItem.trace_id, verdict, trigger)
+                    onRemove={(trigger) =>
+                      handleJudgeTrace(selectedItem.trace_id, "unknown", trigger)
                     }
                   />
-                )}
-              </div>
-            )}
-            {selectedPredictionFailed && (
-              <div className="flex-none border-b border-border bg-card px-4 pb-3 pt-0 dark:bg-surface @[520px]/review-card:px-6">
-                <WarningPanel title="Couldn’t judge" variant="inline" size="xs">
-                  No prediction was made. It’ll re-run next time you run the judge.
-                </WarningPanel>
+                </div>
               </div>
             )}
             {isLoading ? (
@@ -650,7 +626,7 @@ export function ReviewQueueView({
               </>
             ) : (
               <ReviewQueueDetailEmpty
-                showJudgmentError={postJudgment.isError || undoJudgment.isError}
+                showActionError={postJudgment.isError || undoJudgment.isError}
                 canLoadMore={canLoadMore}
                 isLoadingMore={isFetchingNextPage}
                 onLoadMore={handleLoadMore}
@@ -663,8 +639,6 @@ export function ReviewQueueView({
         (verdictHasCriteria(activeJudgment.verdict) ? (
           <JudgmentCriteriaPanel
             key={activeJudgment.traceId}
-            verdict={activeJudgment.verdict}
-            title={markedLabel(activeJudgment.verdict)}
             isUndoing={undoJudgment.isPending}
             isSaving={setCriteria.isPending}
             isError={setCriteria.isError}
@@ -675,39 +649,12 @@ export function ReviewQueueView({
         ) : (
           <QuickUndoToast
             key={activeJudgment.traceId}
-            label={markedLabel(activeJudgment.verdict)}
+            label="Removed from review queue"
             isUndoing={undoJudgment.isPending}
             onUndo={handleUndo}
             onDismiss={() => setActiveJudgment(null)}
           />
         ))}
     </>
-  );
-}
-
-function BaselineStatusBadge({ status }: { status: BaselineStatus }) {
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className="inline-flex rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            tabIndex={0}
-          >
-            <StatusBadge
-              color={status.color}
-              outline
-              className="gap-1.5 px-2.5 py-1 font-sans text-body-sm font-medium normal-case tracking-normal"
-            >
-              <Check aria-hidden className="size-3.5" />
-              {status.label}
-            </StatusBadge>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-64 text-left">
-          {status.tooltip}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   );
 }
