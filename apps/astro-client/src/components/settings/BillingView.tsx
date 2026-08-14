@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/settings/SettingsShared";
+import { SpendControls } from "@/components/settings/SpendControls";
 import { PaymentMethod } from "@/components/settings/PaymentMethod";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -579,6 +580,8 @@ export function BillingView({
       />
 
       <PaymentMethod account={account} />
+
+      <SpendControls account={account} />
 
       <div className="flex flex-col gap-4">
         <div className="flex gap-1 border-b border-border">

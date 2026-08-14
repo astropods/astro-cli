@@ -117,6 +117,7 @@ export const billingKeys = {
   balances: (account: string) => ['billing', account, 'balances'] as const,
   paymentMethod: (account: string) => ['billing', account, 'payment-method'] as const,
   status: (account: string) => ['billing', account, 'status'] as const,
+  spend: (account: string) => ['billing', account, 'spend'] as const,
 };
 
 export const variableKeys = {

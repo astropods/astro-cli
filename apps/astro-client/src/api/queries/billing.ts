@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import type { SpendThresholdsInput } from '../../lib/api';
 import { billingKeys } from './keys';
 
 export function useBillingUsage(account: string, params?: { from?: string; to?: string }) {
@@ -50,6 +51,31 @@ export function useBillingStatus(account: string) {
     enabled: !!account,
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+}
+
+/** Current-period spend plus the account's own warning and limit. The provider
+ *  is the only store for the thresholds, so this refetches after a write rather
+ *  than patching a local copy that could disagree with what actually fires. */
+export function useBillingSpend(account: string) {
+  return useQuery({
+    queryKey: billingKeys.spend(account),
+    queryFn: () => api.getBillingSpend(account),
+    enabled: !!account,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetBillingSpendThresholds(account: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (thresholds: SpendThresholdsInput) =>
+      api.setBillingSpendThresholds(account, thresholds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: billingKeys.spend(account) });
+      // A limit change can lift or impose a suspension, so the banner must refetch.
+      qc.invalidateQueries({ queryKey: billingKeys.status(account) });
+    },
   });
 }
 

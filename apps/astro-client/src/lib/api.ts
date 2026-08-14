@@ -2281,6 +2281,32 @@ export interface BillingStatusResponse {
   action?: string;
 }
 
+/** What an account is running up this period, and the controls it set on itself.
+ *  The thresholds live in the billing provider, so a null is "not set" rather
+ *  than "not loaded". */
+export interface BillingSpend {
+  currency?: string;
+  current_spend: number;
+  has_current_spend: boolean;
+  current_period_end?: string;
+  credit_remaining: number;
+  has_credit: boolean;
+  warning?: SpendThreshold;
+  limit?: SpendThreshold;
+}
+
+export interface SpendThreshold {
+  amount: number;
+  /** The provider reports this threshold currently crossed. */
+  in_alarm: boolean;
+}
+
+/** Replaces both controls. A null clears that one. */
+export interface SpendThresholdsInput {
+  warning: number | null;
+  limit: number | null;
+}
+
 export interface SetupIntentResponse {
   client_secret: string;
   publishable_key: string;
@@ -3881,6 +3907,22 @@ class ApiClient {
     return this.request<PaymentMethodResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/billing/payment-method`,
       { method: 'POST', body: JSON.stringify({ setup_intent_id: setupIntentId }) }
+    );
+  }
+
+  async getBillingSpend(account: string): Promise<BillingDataResponse<BillingSpend>> {
+    return this.request<BillingDataResponse<BillingSpend>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/spend`
+    );
+  }
+
+  async setBillingSpendThresholds(
+    account: string,
+    thresholds: SpendThresholdsInput,
+  ): Promise<BillingDataResponse<unknown>> {
+    return this.request<BillingDataResponse<unknown>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/spend/thresholds`,
+      { method: 'PUT', body: JSON.stringify(thresholds) }
     );
   }
 
