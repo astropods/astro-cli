@@ -8,6 +8,7 @@ function renderPanel(
   overrides: Partial<Parameters<typeof JudgmentCriteriaPanel>[0]> = {},
 ) {
   const onSave = vi.fn();
+  const onSkip = vi.fn();
   const onUndo = vi.fn();
   render(
     <JudgmentCriteriaPanel
@@ -15,11 +16,12 @@ function renderPanel(
       isSaving={false}
       isError={false}
       onUndo={onUndo}
+      onSkip={onSkip}
       onSave={onSave}
       {...overrides}
     />,
   );
-  return { onSave, onUndo };
+  return { onSave, onSkip, onUndo };
 }
 
 describe("JudgmentCriteriaPanel", () => {
@@ -82,12 +84,12 @@ describe("JudgmentCriteriaPanel", () => {
     await waitFor(() => expect(firstCriterion).toHaveFocus());
   });
 
-  it("Save emits selected positive and negative criteria in definition order", () => {
+  it("Save to dataset emits selected criteria in definition order", () => {
     const { onSave } = renderPanel();
     // Select out of display order to prove the output is ordered.
     fireEvent.click(screen.getByRole("button", { name: /followed instruction/i }));
     fireEvent.click(screen.getByRole("button", { name: /hallucination/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save to dataset/i }));
     expect(onSave).toHaveBeenCalledWith([
       { dimension_key: "accuracy", value: -1 },
       { dimension_key: "instruction_following", value: 1 },
@@ -109,16 +111,23 @@ describe("JudgmentCriteriaPanel", () => {
       screen.getByRole("button", { name: /^appropriate tone$/i }),
     ).toHaveAttribute("data-active");
 
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save to dataset/i }));
     expect(onSave).toHaveBeenCalledWith([
       { dimension_key: "accuracy", value: 1 },
       { dimension_key: "tone", value: 1 },
     ]);
   });
 
-  it("Save with no criteria selected omits every criterion", () => {
+  it("Save to dataset with no criteria selected omits every criterion", () => {
     const { onSave } = renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save to dataset/i }));
     expect(onSave).toHaveBeenCalledWith([]);
+  });
+
+  it("Skip dismisses without saving criteria", () => {
+    const { onSave, onSkip } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

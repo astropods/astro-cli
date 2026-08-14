@@ -1491,7 +1491,7 @@ describe("review queue view", () => {
     expect(within(panel).getByText("First judged panel prompt")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
 
     await waitFor(() => {
       expect(within(panel).getByText("Second judged panel prompt")).toBeInTheDocument();
@@ -1522,7 +1522,7 @@ describe("review queue view", () => {
     expect(await screen.findByRole("dialog", { name: /trace details/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
@@ -1975,7 +1975,7 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
 
     await waitFor(() => {
       expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
@@ -1983,7 +1983,53 @@ describe("review queue view", () => {
     });
   });
 
-  it("submits the criteria selected before clicking Save", async () => {
+  it("skips optional criteria and dismisses the evaluation modal", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "First prompt",
+      output: "First response",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second prompt",
+      output: "Second response",
+    });
+    let queueItems = [first, second];
+    let criteriaSaved = false;
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
+    mockCreateJudgment(() => {
+      queueItems = [second];
+    });
+    server.use(
+      http.put(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
+        () => {
+          criteriaSaved = true;
+          return HttpResponse.json({});
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
+    await user.click(screen.getByRole("button", { name: "Skip" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "Evaluate trace" }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
+      expect(screen.getByText("Second response")).toBeInTheDocument();
+    });
+    expect(criteriaSaved).toBe(false);
+  });
+
+  it("submits the criteria selected before saving to the dataset", async () => {
     const trace = queueItem({
       trace_id: "trace_111111",
       input: "Criteria prompt",
@@ -2023,7 +2069,7 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
     await user.click(screen.getByRole("button", { name: "Correct info" }));
     await user.click(screen.getByRole("button", { name: "Followed instruction" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
 
     await waitFor(() => {
       expect(criteriaBody).toEqual({
@@ -2075,7 +2121,7 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("Only loaded response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
 
     expect(await screen.findByText("Fresh page response")).toBeInTheDocument();
     expect(screen.queryByText("Ready for more traces")).not.toBeInTheDocument();

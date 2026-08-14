@@ -451,6 +451,14 @@ export function ReviewQueueView({
       { onSuccess: finish },
     );
   };
+
+  const handleCriteriaSkip = () => {
+    if (!activeJudgment) {
+      return;
+    }
+    commitJudgment(activeJudgment);
+    setActiveJudgment(null);
+  };
   const handleLoadMore = () => {
     void fetchNextPage();
   };
@@ -637,6 +645,7 @@ export function ReviewQueueView({
             isError={setCriteria.isError}
             initialCriteria={activeJudgment.initialCriteria}
             onUndo={handleUndo}
+            onSkip={handleCriteriaSkip}
             onSave={handleCriteriaDone}
           />
         ) : (

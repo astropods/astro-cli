@@ -19,6 +19,7 @@ export interface JudgmentCriteriaPanelProps {
   isError: boolean;
   initialCriteria?: JudgmentCriterion[];
   onUndo: () => void;
+  onSkip: () => void;
   onSave: (criteria: JudgmentCriterion[]) => void;
 }
 
@@ -29,6 +30,7 @@ export function JudgmentCriteriaPanel({
   isError,
   initialCriteria,
   onUndo,
+  onSkip,
   onSave,
 }: JudgmentCriteriaPanelProps) {
   const firstCriterionRef = useRef<HTMLButtonElement | null>(null);
@@ -55,7 +57,8 @@ export function JudgmentCriteriaPanel({
             </InlineBadge>
           </div>
           <DialogDescription className="sr-only">
-            Optionally select criteria for this trace, then save or undo.
+            Optionally select criteria for this trace, then save to the dataset,
+            skip criteria, or undo.
           </DialogDescription>
           <Button
             type="button"
@@ -63,7 +66,7 @@ export function JudgmentCriteriaPanel({
             size="sm"
             disabled={isUndoing || isSaving}
             onClick={onUndo}
-            className="h-7 flex-none px-3 font-semibold"
+            className="flex-none font-semibold"
           >
             {isUndoing ? "Undoing..." : "Undo"}
           </Button>
@@ -119,12 +122,20 @@ export function JudgmentCriteriaPanel({
             )}
             <Button
               type="button"
+              variant="outline"
+              size="sm"
+              onClick={onSkip}
+              disabled={isSaving || isUndoing}
+            >
+              Skip
+            </Button>
+            <Button
+              type="button"
               size="sm"
               onClick={() => onSave(criteria)}
               disabled={isSaving || isUndoing}
-              className="h-7 px-3.5"
             >
-              {isSaving ? "Saving..." : "Save"}
+              {isSaving ? "Saving..." : "Save to dataset"}
             </Button>
           </div>
         </div>
