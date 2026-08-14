@@ -1,46 +1,8 @@
-import type { StatusBadgeColor } from "@/components/StatusBadge";
 import type {
-  EvalDatasetResponse,
   ReviewQueueItem,
   ReviewQueueResponse,
   TraceEntry,
 } from "@/lib/api";
-
-export type BaselineStatus = {
-  label: string;
-  tooltip: string;
-  color: StatusBadgeColor;
-};
-
-export function getBaselineStatus(
-  summary: EvalDatasetResponse,
-): BaselineStatus | null {
-  switch (summary.grade.toUpperCase()) {
-    case "A":
-      return {
-        label: "Strong coverage",
-        tooltip:
-          "You've labeled a representative sample. Keep going to capture edge cases and strengthen future evals.",
-        color: "success",
-      };
-    case "B":
-      return {
-        label: "Good coverage",
-        tooltip:
-          "You've labeled a solid sample of traces. Keep going to capture edge cases and push toward an A.",
-        color: "success",
-      };
-    case "C":
-      return {
-        label: "Enough coverage",
-        tooltip:
-          "You've labeled enough traces to get started. Keep going to improve coverage and reliability.",
-        color: "success",
-      };
-    default:
-      return null;
-  }
-}
 
 export function reviewQueueItemToTraceEntry(item: ReviewQueueItem): TraceEntry {
   return {

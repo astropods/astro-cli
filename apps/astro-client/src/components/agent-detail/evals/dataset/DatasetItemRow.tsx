@@ -1,14 +1,10 @@
-import { ChevronRight, Info } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { ContentValue } from "@/components/agent-detail/ContentValue";
 import { CriterionLabels } from "@/components/agent-detail/evals/CriterionLabels";
+import { InfoHint } from "@/components/InfoHint";
 import { UserAvatar } from "@/components/UserAvatar";
 import { TableCell, TableRow } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
@@ -76,17 +72,10 @@ function ExpandedPreview({
               Expected output
             </span>
             <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex cursor-help text-faint-foreground">
-                    <Info aria-hidden className="size-3.5" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  The agent output captured with this response, kept as the reference for
-                  evaluations. Future agent responses are compared with this example.
-                </TooltipContent>
-              </Tooltip>
+              <InfoHint label="About expected output">
+                The agent output captured with this response, kept as the reference for
+                evaluations. Future agent responses are compared with this example.
+              </InfoHint>
             </TooltipProvider>
           </div>
           <ContentValue content={output} mode="pretty" tone="muted" />

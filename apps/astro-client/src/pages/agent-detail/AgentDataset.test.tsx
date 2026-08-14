@@ -2215,13 +2215,24 @@ describe("review queue view", () => {
 });
 
 describe("dataset view", () => {
-  it("renders the grade letter", async () => {
-    setupDataset(makeDatasetResponse());
+  it("renders criterion distributions", async () => {
+    setupDataset(
+      makeDatasetResponse({
+        criteria_counts: [
+          { dimension_key: "accuracy", good_count: 30, bad_count: 12 },
+        ],
+      }),
+    );
     renderDataset();
-    await waitFor(() => {
-      expect(screen.getAllByLabelText(/grade b/i).length).toBeGreaterThan(0);
-    });
-    expect(screen.getByText("Baseline grade")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Evaluation criteria" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("5:2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Accuracy positive distribution",
+      }),
+    ).toHaveAttribute("aria-valuenow", "30");
   });
 
   it("shows download button when data is loaded", async () => {
@@ -2494,7 +2505,7 @@ describe("dataset view", () => {
     });
   });
 
-  it("renders an em-dash grade when the dataset is empty", async () => {
+  it("renders a neutral criteria state when the dataset is empty", async () => {
     setupDataset(
       makeDatasetResponse({
         item_count: 0,
@@ -2506,7 +2517,9 @@ describe("dataset view", () => {
       }),
     );
     renderDataset();
-    expect((await screen.findAllByText(/start grading/i)).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText("No criteria values recorded yet."),
+    ).toBeInTheDocument();
   });
 
   it("requests items with page pagination", async () => {

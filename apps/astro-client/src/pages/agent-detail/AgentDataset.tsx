@@ -6,7 +6,6 @@ import { useAgentDetailContext } from "../AgentDetail";
 import { useEvalDataset } from "@/api/queries/evals";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { DatasetGrade } from "@/components/agent-detail/evals/dataset/DatasetGrade";
 import { DatasetView } from "@/components/agent-detail/evals/dataset/DatasetView";
 import { ReviewQueueView } from "@/components/agent-detail/evals/review-queue/ReviewQueueView";
 import { TraceDetailPanel } from "@/components/agent-detail/traces/TraceDetailPanel";
@@ -30,12 +29,11 @@ export default function AgentDataset() {
   const { deployment, deploymentId, account } = useAgentDetailContext();
   const { data, isLoading, isError } = useEvalDataset(deploymentId);
   const [searchParams, setSearchParams] = useSearchParams();
-  const gradeTargetRef = useRef<HTMLDivElement | null>(null);
-  const datasetTargetRef = useRef<HTMLSpanElement | null>(null);
   const [selectedTrace, setSelectedTrace] = useState<TraceEntry | null>(null);
   const [panelExpanded, setPanelExpanded] = useState(false);
   const { ref: outerRef, width: outerWidth } = useContainerSize();
   const reviewQueueTargetRef = useRef<HTMLSpanElement | null>(null);
+  const datasetTargetRef = useRef<HTMLSpanElement | null>(null);
   const tab = parseTab(searchParams.get("tab"));
   const isReviewQueue = tab === "queue";
   const panelOpen = selectedTrace !== null;
@@ -101,14 +99,16 @@ export default function AgentDataset() {
             <div className="dp-scroll -mb-px flex min-w-0 items-end gap-6 overflow-x-auto">
               <span
                 ref={reviewQueueTargetRef}
-                data-eval-review-queue-target
                 className="inline-flex"
               >
                 <TabButton active={tab === "queue"} onClick={() => setTab("queue")}>
                   Review queue
                 </TabButton>
               </span>
-              <span ref={datasetTargetRef} className="inline-flex">
+              <span
+                ref={datasetTargetRef}
+                className="inline-flex"
+              >
                 <TabButton active={tab === "dataset"} onClick={() => setTab("dataset")}>
                   Dataset
                   {data && (
@@ -121,17 +121,6 @@ export default function AgentDataset() {
             </div>
             {data && (
               <div className="flex flex-wrap items-center gap-2.5 pb-3 @[680px]/eval-page:flex-none @[680px]/eval-page:justify-end @[680px]/eval-page:pb-2">
-                <div className="flex min-w-0 items-center gap-2 pr-1.5">
-                  <span className="text-body-sm text-muted-foreground">Grade</span>
-                  <div
-                    ref={gradeTargetRef}
-                    data-eval-grade-target
-                    className="inline-flex rounded-sm"
-                  >
-                    <DatasetGrade grade={data.grade} />
-                  </div>
-                </div>
-                <span aria-hidden className="hidden h-5 w-px bg-border @[460px]/eval-page:block" />
                 <Button asChild variant="outline" size="sm" className="shrink-0">
                   <a href={downloadUrl} download>
                     <Download className="size-4" />

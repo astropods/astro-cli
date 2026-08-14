@@ -1,12 +1,8 @@
-import { Check, CircleAlert, Info, Sparkle } from "lucide-react";
+import { Check, CircleAlert, Sparkle } from "lucide-react";
+import { InfoHint } from "@/components/InfoHint";
 import { StatusBadge, type StatusBadgeColor } from "@/components/StatusBadge";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ReviewQueuePrediction } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -63,21 +59,10 @@ export function ReviewQueuePredictionExplanation({
               {confidence}% confident
             </span>
             <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    aria-label="About judge confidence"
-                    className="inline-flex cursor-help text-faint-foreground transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    <Info aria-hidden className="size-3.5" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  How certain the judge is of its verdict, independent of which
-                  way it leans. Low confidence is worth a closer look.
-                </TooltipContent>
-              </Tooltip>
+              <InfoHint label="About judge confidence">
+                How certain the judge is of its verdict, independent of which
+                way it leans. Low confidence is worth a closer look.
+              </InfoHint>
             </TooltipProvider>
           </div>
         </div>
