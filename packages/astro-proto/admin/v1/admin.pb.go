@@ -569,45 +569,6 @@ type GetAgentBuildsResponse struct {
 	Count  int32         `json:"count,omitempty"`
 }
 
-type ListConnectedDevicesRequest struct{}
-
-type ConnectedDevice struct {
-	ID              string `json:"id,omitempty"`
-	AccountID       string `json:"account_id,omitempty"`
-	UserID          string `json:"user_id,omitempty"`
-	DeviceID        string `json:"device_id,omitempty"`
-	Hostname        string `json:"hostname,omitempty"`
-	OS              string `json:"os,omitempty"`
-	Arch            string `json:"arch,omitempty"`
-	CLIVersion      string `json:"cli_version,omitempty"`
-	Status          string `json:"status,omitempty"`
-	LastHeartbeatAt string `json:"last_heartbeat_at,omitempty"`
-	ConnectedAt     string `json:"connected_at,omitempty"`
-	DisconnectedAt  string `json:"disconnected_at,omitempty"`
-	AccountName     string `json:"account_name,omitempty"`
-}
-
-type ListConnectedDevicesResponse struct {
-	Devices []*ConnectedDevice `json:"devices,omitempty"`
-	Count   int32              `json:"count,omitempty"`
-}
-
-type SendCommandRequest struct {
-	DeviceID       string            `json:"device_id,omitempty"`
-	Command        string            `json:"command,omitempty"`
-	Shell          string            `json:"shell,omitempty"`
-	WorkingDir     string            `json:"working_dir,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	TimeoutSeconds uint32            `json:"timeout_seconds,omitempty"`
-}
-
-type SendCommandResponse struct {
-	CommandID string `json:"command_id,omitempty"`
-	ExitCode  int32  `json:"exit_code,omitempty"`
-	Stdout    string `json:"stdout,omitempty"`
-	Stderr    string `json:"stderr,omitempty"`
-}
-
 type HTTPProxyRequest struct {
 	Method  string            `json:"method,omitempty"`
 	Path    string            `json:"path,omitempty"`

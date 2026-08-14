@@ -13,7 +13,6 @@ import (
 	"time"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
-	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -43,13 +42,11 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterconfig"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
@@ -228,15 +225,14 @@ func main() {
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
-	var fleetGRPCServer *grpc.Server
 	var eventsCancel context.CancelFunc
 	var probeHandler *handlers.ProbeHandler
 	var adminSrv *admingrpc.Server
 	var apiQueue *riverqueue.Queue
 
-	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
+	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, deploymentFGA)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, deploymentFGA)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -287,9 +283,6 @@ func main() {
 	}
 
 	// Graceful shutdown of gRPC servers
-	if fleetGRPCServer != nil {
-		fleetGRPCServer.GracefulStop()
-	}
 	if grpcServer != nil {
 		grpcServer.GracefulStop()
 	}
@@ -357,7 +350,7 @@ func buildRegistryConfig(ctx context.Context, clusterStore *clusterstore.Store, 
 	return regCfg, nil
 }
 
-// runAPI initializes and starts the HTTP API server, gRPC admin server, and Fleet gRPC server.
+// runAPI initializes and starts the HTTP API server and gRPC admin server.
 func runAPI(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -376,7 +369,7 @@ func runAPI(
 	k8sCache k8scache.Cache,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
 	deploymentFGA authz.FGA,
-) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
+) (*http.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
 
@@ -592,16 +585,7 @@ func runAPI(
 		os.Exit(1)
 	}
 
-	// Start Fleet gRPC server (QUIC, JWT auth)
-	devStore := devicestore.New(db)
 	workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
-	jwksURL, _ := workosClient.GetJWKSURL()
-	fleetJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
-	fleetServer, fleetSrv, fleetErr := startFleetGRPCServer(log, cfg, devStore, accountStore, fleetJWTValidator)
-	if fleetErr != nil {
-		log.Error("Failed to start Fleet gRPC server", "error", fleetErr)
-		os.Exit(1)
-	}
 
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
@@ -629,11 +613,6 @@ func runAPI(
 	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
 	adminSrv.SetImageRefresher(imagecache.New(cfg.Deployment.AWSRegion))
 
-	// Wire Fleet gRPC server as command dispatcher for admin
-	if fleetSrv != nil {
-		adminSrv.SetCommandDispatcher(fleetSrv)
-	}
-
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
@@ -652,7 +631,7 @@ func runAPI(
 		}
 	}()
 
-	return srv, grpcServer, fleetServer, probeHandler, adminSrv, rq
+	return srv, grpcServer, probeHandler, adminSrv, rq
 }
 
 // backfillClusterPullCredentials is safe to run from every process/replica —
@@ -2714,64 +2693,6 @@ func startAdminGRPCServer(
 	}()
 
 	return grpcSrv, nil
-}
-
-// startFleetGRPCServer starts the Fleet gRPC server over QUIC for CLI device connections.
-// Returns nil, nil if the port is empty (disabled) or TLS certs are not configured.
-func startFleetGRPCServer(
-	log *logger.Logger,
-	cfg *config.Config,
-	devStore *devicestore.Store,
-	accountStore *account.AccountStore,
-	jwtValidator *auth.JWTValidator,
-) (*grpc.Server, *connectgrpc.Server, error) {
-	port := cfg.FleetGRPC.Port
-	if port == "" {
-		return nil, nil, nil
-	}
-
-	// TLS certs provided by platform via fleet-tls K8s secret
-	certFile := cfg.FleetGRPC.CertFile
-	keyFile := cfg.FleetGRPC.KeyFile
-	if certFile == "" || keyFile == "" {
-		log.Warn("Fleet gRPC disabled — TLS not configured (set FLEET_TLS_CERT_PATH, FLEET_TLS_KEY_PATH)")
-		return nil, nil, nil
-	}
-
-	// Load TLS config for QUIC (QUIC mandates TLS 1.3)
-	tlsCert, err := connectgrpc.LoadTLSCert(certFile, keyFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fleet gRPC TLS: %w", err)
-	}
-
-	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
-
-	// Create QUIC listener
-	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf, log)
-	if err != nil {
-		return nil, nil, fmt.Errorf("fleet gRPC QUIC listen: %w", err)
-	}
-
-	// Create gRPC server with JWT stream interceptor
-	// TLS is handled by QUIC, so gRPC uses insecure credentials over the QUIC stream
-	grpcSrv := grpc.NewServer(
-		grpc.StreamInterceptor(connectgrpc.JWTStreamInterceptor(jwtValidator, log)),
-	)
-
-	srv := connectgrpc.New(log, devStore, accountStore)
-	connectv1.RegisterConnectServiceServer(grpcSrv, srv)
-
-	// Start reaper to clean stale devices
-	srv.StartReaper(context.Background())
-
-	go func() {
-		log.Info("Fleet gRPC server listening (QUIC/UDP)", "port", port)
-		if err := grpcSrv.Serve(lis); err != nil {
-			log.Error("Fleet gRPC server error", "error", err)
-		}
-	}()
-
-	return grpcSrv, srv, nil
 }
 
 // newS3Client creates an S3 client using the shared AWS config, applying a custom

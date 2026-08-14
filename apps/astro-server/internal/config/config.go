@@ -20,7 +20,6 @@ type Config struct {
 	Auth       AuthConfig
 	Database   DatabaseConfig
 	AdminGRPC  AdminGRPCConfig
-	FleetGRPC  FleetGRPCConfig
 	Avatar     AvatarConfig
 	// BillingProvider selects the metering/billing backend: "noop" (OSS,
 	// unmetered) or "metronome" (hosted). Empty resolves to noop via
@@ -100,14 +99,6 @@ type AdminGRPCConfig struct {
 	CertFile string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
 	KeyFile  string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
 	CAFile   string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
-}
-
-// FleetGRPCConfig holds Fleet gRPC server configuration (QUIC transport, JWT auth).
-// TLS certs are provided by the platform via the fleet-tls K8s secret mounted at /etc/fleet-tls/.
-type FleetGRPCConfig struct {
-	Port     string // FLEET_GRPC_PORT, default "9092" (UDP/QUIC — disabled if empty)
-	CertFile string // FLEET_TLS_CERT_PATH — TLS cert path (default /etc/fleet-tls/tls.crt)
-	KeyFile  string // FLEET_TLS_KEY_PATH  — TLS key path (default /etc/fleet-tls/tls.key)
 }
 
 // DatabaseConfig holds database configuration
@@ -393,11 +384,6 @@ func Load() (*Config, error) {
 			CertFile: getEnv("ADMIN_GRPC_CERT_FILE", ""),
 			KeyFile:  getEnv("ADMIN_GRPC_KEY_FILE", ""),
 			CAFile:   getEnv("ADMIN_GRPC_CA_FILE", ""),
-		},
-		FleetGRPC: FleetGRPCConfig{
-			Port:     getEnv("FLEET_GRPC_PORT", "9092"),
-			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
-			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
 		},
 		Avatar: AvatarConfig{
 			S3Bucket:  getEnv("ASSETS_BUCKET", ""),

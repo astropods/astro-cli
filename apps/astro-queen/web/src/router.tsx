@@ -7,7 +7,6 @@ import { DeploymentsPage } from "@/pages/deployments";
 import { DeploymentDetailPage } from "@/pages/deployment-detail";
 import { BlueprintsPage } from "@/pages/blueprints";
 
-import { ConnectedDevicesPage } from "@/pages/connected-devices";
 import { ApiClientPage } from "@/pages/api-client";
 import { JobsPage } from "@/pages/jobs";
 import { QuotaRequestsPage } from "@/pages/quota-requests";
@@ -27,7 +26,6 @@ export const router = createBrowserRouter([
       { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
       { path: "admin/blueprints", element: <BlueprintsPage /> },
 
-      { path: "admin/devices", element: <ConnectedDevicesPage /> },
       { path: "admin/api-client", element: <ApiClientPage /> },
       { path: "admin/jobs", element: <JobsPage /> },
       { path: "admin/quota-requests", element: <QuotaRequestsPage /> },

@@ -490,34 +490,6 @@ export interface GetPodEnvResponse {
   containers: ContainerEnv[];
 }
 
-export interface ConnectedDevice {
-  id: string;
-  account_id: string;
-  user_id: string;
-  device_id: string;
-  hostname: string;
-  os: string;
-  arch: string;
-  cli_version: string;
-  status: string;
-  last_heartbeat_at: string;
-  connected_at: string;
-  disconnected_at: string;
-  account_name: string;
-}
-
-export interface ListConnectedDevicesResponse {
-  devices: ConnectedDevice[];
-  count: number;
-}
-
-export interface SendCommandResponse {
-  command_id: string;
-  exit_code: number;
-  stdout: string;
-  stderr: string;
-}
-
 export interface RegisteredCluster {
   id: string;
   region: string;

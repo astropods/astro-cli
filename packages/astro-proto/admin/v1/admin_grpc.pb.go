@@ -38,8 +38,6 @@ type AdminServiceClient interface {
 	GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error)
 	ProxyHTTP(ctx context.Context, in *HTTPProxyRequest, opts ...grpc.CallOption) (*HTTPProxyResponse, error)
 	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
-	ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error)
-	SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error)
 	StartRiverUI(ctx context.Context, in *StartRiverUIRequest, opts ...grpc.CallOption) (*StartRiverUIResponse, error)
 	StopRiverUI(ctx context.Context, in *StopRiverUIRequest, opts ...grpc.CallOption) (*StopRiverUIResponse, error)
 	GetRiverUIStatus(ctx context.Context, in *GetRiverUIStatusRequest, opts ...grpc.CallOption) (*GetRiverUIStatusResponse, error)
@@ -269,22 +267,6 @@ func (c *adminServiceClient) ProxyHTTP(ctx context.Context, in *HTTPProxyRequest
 func (c *adminServiceClient) GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error) {
 	out := new(GetAuthConfigResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAuthConfig", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error) {
-	out := new(ListConnectedDevicesResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListConnectedDevices", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error) {
-	out := new(SendCommandResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SendCommand", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -691,8 +673,6 @@ type AdminServiceServer interface {
 	GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error)
 	ProxyHTTP(context.Context, *HTTPProxyRequest) (*HTTPProxyResponse, error)
 	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
-	ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error)
-	SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error)
 	StartRiverUI(context.Context, *StartRiverUIRequest) (*StartRiverUIResponse, error)
 	StopRiverUI(context.Context, *StopRiverUIRequest) (*StopRiverUIResponse, error)
 	GetRiverUIStatus(context.Context, *GetRiverUIStatusRequest) (*GetRiverUIStatusResponse, error)
@@ -824,14 +804,6 @@ func (UnimplementedAdminServiceServer) ProxyHTTP(context.Context, *HTTPProxyRequ
 
 func (UnimplementedAdminServiceServer) GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthConfig not implemented")
-}
-
-func (UnimplementedAdminServiceServer) ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListConnectedDevices not implemented")
-}
-
-func (UnimplementedAdminServiceServer) SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendCommand not implemented")
 }
 
 func (UnimplementedAdminServiceServer) StartRiverUI(context.Context, *StartRiverUIRequest) (*StartRiverUIResponse, error) {
@@ -1353,36 +1325,6 @@ func _AdminService_GetAuthConfig_Handler(srv interface{}, ctx context.Context, d
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAuthConfig"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).GetAuthConfig(ctx, req.(*GetAuthConfigRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_ListConnectedDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListConnectedDevicesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).ListConnectedDevices(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListConnectedDevices"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).ListConnectedDevices(ctx, req.(*ListConnectedDevicesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_SendCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendCommandRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).SendCommand(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SendCommand"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).SendCommand(ctx, req.(*SendCommandRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2119,8 +2061,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetAgentBuilds", Handler: _AdminService_GetAgentBuilds_Handler},
 		{MethodName: "ProxyHTTP", Handler: _AdminService_ProxyHTTP_Handler},
 		{MethodName: "GetAuthConfig", Handler: _AdminService_GetAuthConfig_Handler},
-		{MethodName: "ListConnectedDevices", Handler: _AdminService_ListConnectedDevices_Handler},
-		{MethodName: "SendCommand", Handler: _AdminService_SendCommand_Handler},
 		{MethodName: "StartRiverUI", Handler: _AdminService_StartRiverUI_Handler},
 		{MethodName: "StopRiverUI", Handler: _AdminService_StopRiverUI_Handler},
 		{MethodName: "GetRiverUIStatus", Handler: _AdminService_GetRiverUIStatus_Handler},

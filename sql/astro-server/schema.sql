@@ -626,26 +626,6 @@ CREATE TABLE public.deployment_revisions (
 
 CREATE INDEX idx_deployment_revisions_deployment ON public.deployment_revisions(deployment_id);
 
-CREATE TABLE public.connected_devices (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    account_id uuid NOT NULL,
-    user_id text NOT NULL,
-    device_id text NOT NULL,
-    hostname text,
-    os text,
-    arch text,
-    cli_version text,
-    status text NOT NULL DEFAULT 'connected',
-    last_heartbeat_at timestamptz,
-    connected_at timestamptz NOT NULL DEFAULT now(),
-    disconnected_at timestamptz,
-    CONSTRAINT connected_devices_pkey PRIMARY KEY (id),
-    CONSTRAINT connected_devices_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
-    CONSTRAINT connected_devices_account_device_key UNIQUE (account_id, device_id)
-);
-
-CREATE INDEX idx_connected_devices_account_status ON public.connected_devices(account_id, status);
-
 CREATE TABLE public.agent_hearts (
     account_id uuid NOT NULL,
     agent_name text NOT NULL,

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
-	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
 	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -50,10 +49,6 @@ import (
 )
 
 // Server implements adminv1.AdminServiceServer.
-// CommandDispatcher sends commands to connected devices.
-type CommandDispatcher interface {
-	SendCommand(ctx context.Context, deviceID string, cmd *connectv1.ShellCommand) (*connectv1.CommandResult, error)
-}
 
 // adminJobQueue enqueues River worker jobs from admin gRPC handlers.
 type adminJobQueue interface {
@@ -80,7 +75,6 @@ type Server struct {
 	k8sRegistry    *k8s.Registry
 	lokiClient     *loki.Client
 	db             *sql.DB
-	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
 	workosClientID string
 	databaseURL    string
@@ -613,11 +607,6 @@ func (s *Server) ShutdownRiverUI() {
 		s.riverUIHandler = nil
 		s.riverUICleanup = nil
 	}
-}
-
-// SetCommandDispatcher sets the dispatcher for sending commands to connected devices.
-func (s *Server) SetCommandDispatcher(d CommandDispatcher) {
-	s.cmdDispatch = d
 }
 
 // SetImageRefresher wires the ECR pull-through cache refresher used by
@@ -2113,87 +2102,6 @@ func (s *Server) RenameAccount(ctx context.Context, req *adminv1.RenameAccountRe
 	}
 
 	return &adminv1.RenameAccountResponse{Status: "renamed"}, nil
-}
-
-// ListConnectedDevices returns all devices that have connected via ast connect.
-func (s *Server) ListConnectedDevices(ctx context.Context, _ *adminv1.ListConnectedDevicesRequest) (*adminv1.ListConnectedDevicesResponse, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.account_id, d.user_id, d.device_id, d.hostname, d.os, d.arch,
-		       d.cli_version, d.status, d.last_heartbeat_at, d.connected_at, d.disconnected_at,
-		       COALESCE(a.name, '') as account_name
-		FROM connected_devices d
-		LEFT JOIN accounts a ON a.id = d.account_id
-		ORDER BY d.status ASC, d.connected_at DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("list connected devices: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var devices []*adminv1.ConnectedDevice
-	for rows.Next() {
-		var (
-			d               adminv1.ConnectedDevice
-			lastHeartbeatAt sql.NullTime
-			disconnectedAt  sql.NullTime
-			connectedAt     sql.NullTime
-		)
-		if err := rows.Scan(
-			&d.ID, &d.AccountID, &d.UserID, &d.DeviceID, &d.Hostname, &d.OS, &d.Arch,
-			&d.CLIVersion, &d.Status, &lastHeartbeatAt, &connectedAt, &disconnectedAt,
-			&d.AccountName,
-		); err != nil {
-			return nil, fmt.Errorf("scan device: %w", err)
-		}
-		if lastHeartbeatAt.Valid {
-			d.LastHeartbeatAt = lastHeartbeatAt.Time.Format("2006-01-02T15:04:05Z")
-		}
-		if connectedAt.Valid {
-			d.ConnectedAt = connectedAt.Time.Format("2006-01-02T15:04:05Z")
-		}
-		if disconnectedAt.Valid {
-			d.DisconnectedAt = disconnectedAt.Time.Format("2006-01-02T15:04:05Z")
-		}
-		devices = append(devices, &d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate devices: %w", err)
-	}
-
-	return &adminv1.ListConnectedDevicesResponse{
-		Devices: devices,
-		Count:   int32(len(devices)), //nolint:gosec // bounded by DB result set
-	}, nil
-}
-
-// SendCommand dispatches a shell command to a connected device and returns the result.
-func (s *Server) SendCommand(ctx context.Context, req *adminv1.SendCommandRequest) (*adminv1.SendCommandResponse, error) {
-	if s.cmdDispatch == nil {
-		return nil, fmt.Errorf("command dispatch not available")
-	}
-	if req.DeviceID == "" {
-		return nil, fmt.Errorf("device_id is required")
-	}
-	if req.Command == "" {
-		return nil, fmt.Errorf("command is required")
-	}
-
-	result, err := s.cmdDispatch.SendCommand(ctx, req.DeviceID, &connectv1.ShellCommand{
-		Shell:          req.Shell,
-		Command:        req.Command,
-		WorkingDir:     req.WorkingDir,
-		Env:            req.Env,
-		TimeoutSeconds: req.TimeoutSeconds,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("send command to device %q: %w", req.DeviceID, err)
-	}
-
-	return &adminv1.SendCommandResponse{
-		CommandID: result.CommandID,
-		ExitCode:  result.ExitCode,
-		Stdout:    result.Stdout,
-		Stderr:    result.Stderr,
-	}, nil
 }
 
 // GetAuthConfig returns auth configuration needed for device authorization flow.

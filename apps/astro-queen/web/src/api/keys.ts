@@ -22,7 +22,6 @@ export const adminKeys = {
     [...adminKeys.all, "podLogs", id, pod] as const,
   podEnv: (id: string, pod: string) =>
     [...adminKeys.all, "podEnv", id, pod] as const,
-  connectedDevices: () => [...adminKeys.all, "connectedDevices"] as const,
   astroOpenapi: () => [...adminKeys.all, "astroOpenapi"] as const,
   jobKinds: () => [...adminKeys.all, "jobKinds"] as const,
   jobStates: () => [...adminKeys.all, "jobStates"] as const,

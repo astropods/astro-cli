@@ -19,8 +19,6 @@ import type {
   ClusterStatusResponse,
   GetPodLogsResponse,
   GetPodEnvResponse,
-  ListConnectedDevicesResponse,
-  SendCommandResponse,
   GetDeploymentEventsResponse,
   GetDeploymentJobsResponse,
   ReapplyDeploymentResponse,
@@ -447,33 +445,6 @@ export function usePodLogs(id: string, pod: string, container?: string) {
         `/api/admin/pods/${encodeURIComponent(id)}/${encodeURIComponent(pod)}/logs${container ? `?container=${encodeURIComponent(container)}` : ""}`
       ),
     enabled: !!id && !!pod,
-  });
-}
-
-export function useConnectedDevices() {
-  return useQuery({
-    queryKey: adminKeys.connectedDevices(),
-    queryFn: () =>
-      api.get<ListConnectedDevicesResponse>("/api/admin/devices"),
-    refetchInterval: 30_000,
-  });
-}
-
-export function useSendCommand() {
-  return useMutation({
-    mutationFn: ({
-      deviceId,
-      command,
-      timeoutSeconds,
-    }: {
-      deviceId: string;
-      command: string;
-      timeoutSeconds?: number;
-    }) =>
-      api.post<SendCommandResponse>(
-        `/api/admin/devices/${encodeURIComponent(deviceId)}/command`,
-        { command, timeout_seconds: timeoutSeconds ?? 30 }
-      ),
   });
 }
 
