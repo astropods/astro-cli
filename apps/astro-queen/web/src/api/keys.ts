@@ -37,4 +37,6 @@ export const adminKeys = {
   migrations: (mismatchesOnly?: boolean) =>
     [...adminKeys.all, "migrations", mismatchesOnly ?? false] as const,
   alerts: () => [...adminKeys.all, "alerts"] as const,
+  evaluators: () => [...adminKeys.all, "evaluators"] as const,
+  evaluatorDrift: (id: string) => [...adminKeys.all, "evaluators", id, "drift"] as const,
 };

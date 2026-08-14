@@ -44,6 +44,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/feedback", s.handleListFeedback)
 	mux.HandleFunc("GET /api/admin/migrations", s.handleListClusterMigrations)
 	mux.HandleFunc("POST /api/admin/refresh-messaging-cache", s.handleRefreshMessagingCache)
+	mux.HandleFunc("GET /api/admin/evaluators", s.handleListEvaluators)
+	mux.HandleFunc("POST /api/admin/evaluators/{id}/run", s.handleRunEvaluatorSweep)
+	mux.HandleFunc("GET /api/admin/evaluators/{id}/drift", s.handleListEvaluatorDrift)
+	mux.HandleFunc("POST /api/admin/evaluators/{id}/fix", s.handleFixDeploymentDrift)
 	mux.HandleFunc("GET /api/admin/alerts", s.handleListAlerts)
 	mux.HandleFunc("POST /api/admin/alerts/clear", s.handleClearAlert)
 	mux.HandleFunc("POST /api/admin/alerts/mute", s.handleMuteAlert)
@@ -503,6 +507,56 @@ func (s *Server) handleListFeedback(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRefreshMessagingCache(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.RefreshMessagingCache(r.Context(), &adminv1.RefreshMessagingCacheRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListEvaluators(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ListEvaluators(r.Context(), &adminv1.ListEvaluatorsRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRunEvaluatorSweep(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RunEvaluatorSweep(r.Context(), &adminv1.RunEvaluatorSweepRequest{
+		EvaluatorID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListEvaluatorDrift(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ListEvaluatorDrift(r.Context(), &adminv1.ListEvaluatorDriftRequest{
+		EvaluatorID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleFixDeploymentDrift(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeploymentID string `json:"deployment_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DeploymentID == "" {
+		http.Error(w, `{"error":"deployment_id is required in request body"}`, http.StatusBadRequest)
+		return
+	}
+	resp, err := s.admin.FixDeploymentDrift(r.Context(), &adminv1.FixDeploymentDriftRequest{
+		EvaluatorID:  r.PathValue("id"),
+		DeploymentID: body.DeploymentID,
+	})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

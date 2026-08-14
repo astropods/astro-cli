@@ -60,6 +60,10 @@ service AdminService {
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
   rpc RefreshClusterPullSecrets(RefreshClusterPullSecretsRequest) returns (RefreshClusterPullSecretsResponse);
+  rpc ListEvaluators(ListEvaluatorsRequest) returns (ListEvaluatorsResponse);
+  rpc RunEvaluatorSweep(RunEvaluatorSweepRequest) returns (RunEvaluatorSweepResponse);
+  rpc ListEvaluatorDrift(ListEvaluatorDriftRequest) returns (ListEvaluatorDriftResponse);
+  rpc FixDeploymentDrift(FixDeploymentDriftRequest) returns (FixDeploymentDriftResponse);
   rpc InvalidateAccountCaches(InvalidateAccountCachesRequest) returns (InvalidateCachesResponse);
   rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (InvalidateCachesResponse);
   rpc ListClusterMigrations(ListClusterMigrationsRequest) returns (ListClusterMigrationsResponse);
@@ -1046,6 +1050,76 @@ message RefreshClusterPullSecretsResponse {
   string cluster_id = 1; // the cluster this ran against, echoed back
   repeated string refreshed_namespaces = 2;
   repeated string failed_namespaces = 3;
+}
+
+// Evaluators (internal/deployeval) are named, declarative check-and-fix pairs
+// for one kind of deployment configuration drift (e.g. "does this
+// deployment's Ingress reflect the current tenant-router routing shape"). An
+// operator runs a sweep on demand from the astro-queen Deployments page,
+// which persists per-deployment results, then fixes drifted deployments
+// individually. New migrations register a new evaluator rather than growing
+// a one-off admin action.
+message ListEvaluatorsRequest {}
+
+message EvaluatorSummary {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int32 ok_count = 4;
+  int32 drifted_count = 5;
+  int32 fix_failed_count = 6;
+  string last_checked_at = 7; // RFC3339; empty if never run
+}
+
+message ListEvaluatorsResponse {
+  repeated EvaluatorSummary evaluators = 1;
+}
+
+// RunEvaluatorSweep runs one evaluator's check against every active
+// deployment and persists the result. Synchronous — each check is a cheap
+// read (e.g. one K8s Get per Ingress), so this runs inline rather than
+// through a queued job.
+message RunEvaluatorSweepRequest {
+  string evaluator_id = 1;
+}
+
+message RunEvaluatorSweepResponse {
+  string evaluator_id = 1;
+  int32 checked_count = 2;
+  int32 drifted_count = 3;
+}
+
+message ListEvaluatorDriftRequest {
+  string evaluator_id = 1;
+}
+
+message EvaluatorDriftRow {
+  string deployment_id = 1;
+  string agent_name = 2;
+  string account_id = 3;
+  string account_name = 4;
+  string status = 5; // "drifted" | "fix_failed"
+  string detail = 6;
+  string checked_at = 7;
+  string fixed_at = 8; // empty if never fixed
+}
+
+message ListEvaluatorDriftResponse {
+  repeated EvaluatorDriftRow rows = 1;
+}
+
+// FixDeploymentDrift runs one evaluator's fix for a single deployment, then
+// re-checks it — the response status reflects the real post-fix state, not
+// just whether the fix call itself errored.
+message FixDeploymentDriftRequest {
+  string evaluator_id = 1;
+  string deployment_id = 2;
+}
+
+message FixDeploymentDriftResponse {
+  string status = 1; // "ok" | "drifted" | "fix_failed"
+  string detail = 2;
+  string error = 3; // set when the fix call itself errored
 }
 
 message UrlReachability {

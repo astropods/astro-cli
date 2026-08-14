@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useDeployments, useClusters, useRepairNormalizedSpec, useReapplyDeployment, useStopDeployment, useWakeUpDeployment, useRefreshMessagingCache } from "@/api/admin";
+import { EvaluatorsPanel } from "@/components/evaluators-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -324,6 +325,8 @@ export function DeploymentsPage() {
           )}
         </>
       )}
+
+      <EvaluatorsPanel />
     </div>
   );
 }

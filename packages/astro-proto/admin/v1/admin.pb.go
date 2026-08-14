@@ -1125,6 +1125,66 @@ type RefreshClusterPullSecretsResponse struct {
 	FailedNamespaces    []string `json:"failed_namespaces,omitempty"`
 }
 
+// Evaluators (internal/deployeval) are named, declarative check-and-fix pairs
+// for one kind of deployment configuration drift. An operator runs a sweep on
+// demand from the astro-queen Deployments page, which persists per-deployment
+// results, then fixes drifted deployments individually.
+type ListEvaluatorsRequest struct{}
+
+type EvaluatorSummary struct {
+	ID             string `json:"id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
+	OKCount        int32  `json:"ok_count,omitempty"`
+	DriftedCount   int32  `json:"drifted_count,omitempty"`
+	FixFailedCount int32  `json:"fix_failed_count,omitempty"`
+	LastCheckedAt  string `json:"last_checked_at,omitempty"`
+}
+
+type ListEvaluatorsResponse struct {
+	Evaluators []*EvaluatorSummary `json:"evaluators,omitempty"`
+}
+
+type RunEvaluatorSweepRequest struct {
+	EvaluatorID string `json:"evaluator_id,omitempty"`
+}
+
+type RunEvaluatorSweepResponse struct {
+	EvaluatorID  string `json:"evaluator_id,omitempty"`
+	CheckedCount int32  `json:"checked_count,omitempty"`
+	DriftedCount int32  `json:"drifted_count,omitempty"`
+}
+
+type ListEvaluatorDriftRequest struct {
+	EvaluatorID string `json:"evaluator_id,omitempty"`
+}
+
+type EvaluatorDriftRow struct {
+	DeploymentID string `json:"deployment_id,omitempty"`
+	AgentName    string `json:"agent_name,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
+	AccountName  string `json:"account_name,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Detail       string `json:"detail,omitempty"`
+	CheckedAt    string `json:"checked_at,omitempty"`
+	FixedAt      string `json:"fixed_at,omitempty"`
+}
+
+type ListEvaluatorDriftResponse struct {
+	Rows []*EvaluatorDriftRow `json:"rows,omitempty"`
+}
+
+type FixDeploymentDriftRequest struct {
+	EvaluatorID  string `json:"evaluator_id,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+}
+
+type FixDeploymentDriftResponse struct {
+	Status string `json:"status,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
 type UrlReachability struct {
 	Label     string `json:"label,omitempty"`
 	URL       string `json:"url,omitempty"`

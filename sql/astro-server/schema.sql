@@ -249,6 +249,26 @@ CREATE TABLE public.deployment_alert_notifications (
     CONSTRAINT deployment_alert_notifications_pkey PRIMARY KEY (deployment_id, condition)
 );
 
+-- Per-(deployment, evaluator) configuration-drift check state. An evaluator
+-- (internal/deployeval) is a named, declarative check-and-fix pair for one
+-- kind of drift (e.g. "does this deployment's Ingress reflect the current
+-- tenant-router routing shape"); an operator runs it on demand from the
+-- astro-queen Deployments page and fixes drifted deployments individually.
+-- status is one of 'ok' | 'drifted' | 'fix_failed'. fixed_at is set whenever
+-- a Fix was attempted, whether or not it fully resolved the drift.
+CREATE TABLE public.deployment_evaluator_state (
+    deployment_id text        NOT NULL,
+    evaluator_id  text        NOT NULL,
+    status        text        NOT NULL,
+    detail        text        NOT NULL DEFAULT '',
+    checked_at    timestamptz NOT NULL DEFAULT now(),
+    fixed_at      timestamptz,
+    CONSTRAINT deployment_evaluator_state_pkey PRIMARY KEY (deployment_id, evaluator_id)
+);
+
+CREATE INDEX idx_deployment_evaluator_state_evaluator_status
+    ON public.deployment_evaluator_state(evaluator_id, status);
+
 -- At most one WorkOS-synced email per user. Other sources (future direct-add)
 -- are intentionally not covered, so a user may still hold several such emails.
 CREATE UNIQUE INDEX account_member_emails_user_workos_key ON public.account_member_emails(user_id) WHERE source = 'workos';

@@ -254,14 +254,6 @@ func forwardFiles(
 
 	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		// A non-web agent has no messaging Service, or one without an http port, or
-		// its sidecar has no ready pod (stopped / mid-rollout). All are expected, not
-		// faults: answer 404, not the 503 that would trip the per-route 5xx alert.
-		if messagingEndpointAbsent(resolveErr) {
-			log.Debug("files not available", "deployment", dep.ID, "reason", resolveErr)
-			writeFilesError(c, http.StatusNotFound, "file_storage_unavailable", "File storage isn't available for this deployment yet.")
-			return
-		}
 		log.Warn("files proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
 		writeFilesError(c, http.StatusServiceUnavailable, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return

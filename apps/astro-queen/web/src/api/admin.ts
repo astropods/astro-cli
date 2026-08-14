@@ -34,6 +34,10 @@ import type {
   RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
   ListAlertsResponse,
+  ListEvaluatorsResponse,
+  RunEvaluatorSweepResponse,
+  ListEvaluatorDriftResponse,
+  FixDeploymentDriftResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -349,6 +353,60 @@ export function useRefreshMessagingCache() {
         "/api/admin/refresh-messaging-cache",
         {},
       ),
+  });
+}
+
+export function useEvaluators() {
+  return useQuery({
+    queryKey: adminKeys.evaluators(),
+    queryFn: () => api.get<ListEvaluatorsResponse>("/api/admin/evaluators"),
+  });
+}
+
+export function useRunEvaluatorSweep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evaluatorId: string) =>
+      api.post<RunEvaluatorSweepResponse>(
+        `/api/admin/evaluators/${evaluatorId}/run`,
+        {},
+      ),
+    onSuccess: (_data, evaluatorId) => {
+      qc.invalidateQueries({ queryKey: adminKeys.evaluators() });
+      qc.invalidateQueries({ queryKey: adminKeys.evaluatorDrift(evaluatorId) });
+    },
+  });
+}
+
+export function useEvaluatorDrift(evaluatorId: string | null) {
+  return useQuery({
+    queryKey: adminKeys.evaluatorDrift(evaluatorId ?? ""),
+    queryFn: () =>
+      api.get<ListEvaluatorDriftResponse>(
+        `/api/admin/evaluators/${evaluatorId}/drift`,
+      ),
+    enabled: evaluatorId != null,
+  });
+}
+
+export function useFixDeploymentDrift() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      evaluatorId,
+      deploymentId,
+    }: {
+      evaluatorId: string;
+      deploymentId: string;
+    }) =>
+      api.post<FixDeploymentDriftResponse>(
+        `/api/admin/evaluators/${evaluatorId}/fix`,
+        { deployment_id: deploymentId },
+      ),
+    onSuccess: (_data, { evaluatorId }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.evaluators() });
+      qc.invalidateQueries({ queryKey: adminKeys.evaluatorDrift(evaluatorId) });
+    },
   });
 }
 

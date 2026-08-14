@@ -14,16 +14,11 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
 )
 
 const oidcIdentityHeader = "X-Amzn-Oidc-Identity"
@@ -112,13 +107,6 @@ func ProxyDeploymentMessaging(
 
 		upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 		if resolveErr != nil {
-			// No messaging Service / no ready pod (mid-rollout) / non-web agent →
-			// expected, not a fault: 404 so it doesn't trip the per-route 5xx alert.
-			if messagingEndpointAbsent(resolveErr) {
-				log.Debug("messaging endpoint absent", "deployment", dep.ID, "reason", resolveErr)
-				c.JSON(http.StatusNotFound, gin.H{"error": "messaging endpoint unavailable"})
-				return
-			}
 			log.Warn("messaging proxy target resolution failed",
 				"deployment", dep.ID, "error", resolveErr)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "messaging endpoint unavailable"})
@@ -268,47 +256,15 @@ func resolveMessagingProxyTarget(
 		return messagingProxyUpstream{baseURL: override, client: http.DefaultClient}, nil
 	}
 
-	if internalURL := tenantRouterInternalURLFor(k8sReg, ctx, dep); internalURL != "" {
-		return messagingProxyUpstream{
-			baseURL: "http://" + strings.TrimSuffix(internalURL, "/"),
-			client:  http.DefaultClient,
-			host:    k8s.GenerateMessagingInternalHost(dep.Namespace),
-		}, nil
+	internalURL := tenantRouterInternalURLFor(k8sReg, ctx, dep)
+	if internalURL == "" {
+		return messagingProxyUpstream{}, fmt.Errorf("cluster %q has no tenant-router internal url configured", dep.EffectiveClusterID())
 	}
-
-	kc, err := deploymentClusterClient(ctx, k8sReg, dep)
-	if err != nil {
-		return messagingProxyUpstream{}, err
-	}
-
-	svcName := deployment.GenerateAgentResourceName(dep.AgentName, "messaging")
-	svc, err := kc.Clientset().CoreV1().Services(dep.Namespace).Get(ctx, svcName, metav1.GetOptions{})
-	if err != nil {
-		return messagingProxyUpstream{}, fmt.Errorf("get messaging service %q: %w", svcName, err)
-	}
-
-	port, portErr := messagingHTTPPort(svc)
-	if portErr != nil {
-		return messagingProxyUpstream{}, portErr
-	}
-
-	restCfg := kc.Config()
-	if restCfg == nil {
-		return messagingProxyUpstream{}, fmt.Errorf("kubernetes client config unavailable")
-	}
-
-	transport, err := rest.TransportFor(restCfg)
-	if err != nil {
-		return messagingProxyUpstream{}, fmt.Errorf("kubernetes transport: %w", err)
-	}
-
-	baseURL := fmt.Sprintf("%s/api/v1/namespaces/%s/services/%s:%d/proxy",
-		strings.TrimSuffix(restCfg.Host, "/"),
-		dep.Namespace,
-		svcName,
-		port,
-	)
-	return messagingProxyUpstream{baseURL: baseURL, client: &http.Client{Transport: transport}}, nil
+	return messagingProxyUpstream{
+		baseURL: "http://" + strings.TrimSuffix(internalURL, "/"),
+		client:  http.DefaultClient,
+		host:    k8s.GenerateMessagingInternalHost(dep.Namespace),
+	}, nil
 }
 
 // tenantRouterInternalURLFor returns the private tenant-router address for
@@ -320,35 +276,6 @@ func tenantRouterInternalURLFor(k8sReg *k8s.Registry, ctx context.Context, dep *
 		return ""
 	}
 	return entry.TenantRouterInternalURL
-}
-
-// errMessagingNoHTTPPort means the deployment has no web adapter, so it exposes
-// no messaging/files endpoint. Callers should map it to a 4xx, not a 5xx.
-var errMessagingNoHTTPPort = errors.New("messaging service has no http port")
-
-// messagingEndpointAbsent reports whether a resolveMessagingProxyTarget error
-// means the deployment simply has no reachable messaging sidecar rather than a
-// genuine fault: a non-web agent with no messaging Service or one without an http
-// port (errMessagingNoHTTPPort), or a Service that no longer exists because the
-// deployment is stopped or mid-rollout (NotFound). All are expected conditions
-// the proxy handlers answer with a 4xx, not the 503 that would trip
-// AstroServerHigh5xxRateByRoute for a deployment nobody is actually running.
-func messagingEndpointAbsent(err error) bool {
-	return errors.Is(err, errMessagingNoHTTPPort) || apierrors.IsNotFound(err)
-}
-
-func messagingHTTPPort(svc *corev1.Service) (int32, error) {
-	for _, p := range svc.Spec.Ports {
-		if p.Name == "http" {
-			return p.Port, nil
-		}
-	}
-	for _, p := range svc.Spec.Ports {
-		if p.Name != "grpc" {
-			return p.Port, nil
-		}
-	}
-	return 0, fmt.Errorf("%w (service %q)", errMessagingNoHTTPPort, svc.Name)
 }
 
 func copyMessagingRequestHeaders(src, dst http.Header) {

@@ -122,13 +122,6 @@ func forwardChat(
 
 	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		// No messaging Service / no ready pod (mid-rollout) / non-web agent →
-		// expected, not a fault: 404 so it doesn't trip the per-route 5xx alert.
-		if messagingEndpointAbsent(resolveErr) {
-			log.Debug("chat endpoint absent", "deployment", dep.ID, "reason", resolveErr)
-			c.JSON(http.StatusNotFound, gin.H{"error": "chat endpoint unavailable"})
-			return
-		}
 		log.Warn("chat proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat endpoint unavailable"})
 		return

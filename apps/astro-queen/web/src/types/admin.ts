@@ -605,6 +605,47 @@ export interface RefreshMessagingCacheResponse {
   message?: string;
 }
 
+export interface EvaluatorSummary {
+  id: string;
+  name: string;
+  description: string;
+  ok_count?: number;
+  drifted_count?: number;
+  fix_failed_count?: number;
+  last_checked_at?: string;
+}
+
+export interface ListEvaluatorsResponse {
+  evaluators?: EvaluatorSummary[];
+}
+
+export interface RunEvaluatorSweepResponse {
+  evaluator_id: string;
+  checked_count?: number;
+  drifted_count?: number;
+}
+
+export interface EvaluatorDriftRow {
+  deployment_id: string;
+  agent_name?: string;
+  account_id?: string;
+  account_name?: string;
+  status: "drifted" | "fix_failed";
+  detail?: string;
+  checked_at?: string;
+  fixed_at?: string;
+}
+
+export interface ListEvaluatorDriftResponse {
+  rows?: EvaluatorDriftRow[];
+}
+
+export interface FixDeploymentDriftResponse {
+  status?: string;
+  detail?: string;
+  error?: string;
+}
+
 export interface ClusterMigrationEvent {
   deployment_id: string;
   account_name: string;

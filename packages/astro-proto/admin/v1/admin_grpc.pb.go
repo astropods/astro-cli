@@ -65,6 +65,10 @@ type AdminServiceClient interface {
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
 	RefreshClusterPullSecrets(ctx context.Context, in *RefreshClusterPullSecretsRequest, opts ...grpc.CallOption) (*RefreshClusterPullSecretsResponse, error)
+	ListEvaluators(ctx context.Context, in *ListEvaluatorsRequest, opts ...grpc.CallOption) (*ListEvaluatorsResponse, error)
+	RunEvaluatorSweep(ctx context.Context, in *RunEvaluatorSweepRequest, opts ...grpc.CallOption) (*RunEvaluatorSweepResponse, error)
+	ListEvaluatorDrift(ctx context.Context, in *ListEvaluatorDriftRequest, opts ...grpc.CallOption) (*ListEvaluatorDriftResponse, error)
+	FixDeploymentDrift(ctx context.Context, in *FixDeploymentDriftRequest, opts ...grpc.CallOption) (*FixDeploymentDriftResponse, error)
 	InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(ctx context.Context, in *InvalidateAllCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(ctx context.Context, in *ListClusterMigrationsRequest, opts ...grpc.CallOption) (*ListClusterMigrationsResponse, error)
@@ -486,6 +490,38 @@ func (c *adminServiceClient) RefreshClusterPullSecrets(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *adminServiceClient) ListEvaluators(ctx context.Context, in *ListEvaluatorsRequest, opts ...grpc.CallOption) (*ListEvaluatorsResponse, error) {
+	out := new(ListEvaluatorsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListEvaluators", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RunEvaluatorSweep(ctx context.Context, in *RunEvaluatorSweepRequest, opts ...grpc.CallOption) (*RunEvaluatorSweepResponse, error) {
+	out := new(RunEvaluatorSweepResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RunEvaluatorSweep", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListEvaluatorDrift(ctx context.Context, in *ListEvaluatorDriftRequest, opts ...grpc.CallOption) (*ListEvaluatorDriftResponse, error) {
+	out := new(ListEvaluatorDriftResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListEvaluatorDrift", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) FixDeploymentDrift(ctx context.Context, in *FixDeploymentDriftRequest, opts ...grpc.CallOption) (*FixDeploymentDriftResponse, error) {
+	out := new(FixDeploymentDriftResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/FixDeploymentDrift", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) InvalidateAccountCaches(ctx context.Context, in *InvalidateAccountCachesRequest, opts ...grpc.CallOption) (*InvalidateCachesResponse, error) {
 	out := new(InvalidateCachesResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/InvalidateAccountCaches", in, out, opts...); err != nil {
@@ -682,6 +718,10 @@ type AdminServiceServer interface {
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
 	RefreshClusterPullSecrets(context.Context, *RefreshClusterPullSecretsRequest) (*RefreshClusterPullSecretsResponse, error)
+	ListEvaluators(context.Context, *ListEvaluatorsRequest) (*ListEvaluatorsResponse, error)
+	RunEvaluatorSweep(context.Context, *RunEvaluatorSweepRequest) (*RunEvaluatorSweepResponse, error)
+	ListEvaluatorDrift(context.Context, *ListEvaluatorDriftRequest) (*ListEvaluatorDriftResponse, error)
+	FixDeploymentDrift(context.Context, *FixDeploymentDriftRequest) (*FixDeploymentDriftResponse, error)
 	InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error)
 	InvalidateAllCaches(context.Context, *InvalidateAllCachesRequest) (*InvalidateCachesResponse, error)
 	ListClusterMigrations(context.Context, *ListClusterMigrationsRequest) (*ListClusterMigrationsResponse, error)
@@ -889,6 +929,18 @@ func (UnimplementedAdminServiceServer) CheckClusterHealth(context.Context, *Chec
 }
 func (UnimplementedAdminServiceServer) RefreshClusterPullSecrets(context.Context, *RefreshClusterPullSecretsRequest) (*RefreshClusterPullSecretsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshClusterPullSecrets not implemented")
+}
+func (UnimplementedAdminServiceServer) ListEvaluators(context.Context, *ListEvaluatorsRequest) (*ListEvaluatorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListEvaluators not implemented")
+}
+func (UnimplementedAdminServiceServer) RunEvaluatorSweep(context.Context, *RunEvaluatorSweepRequest) (*RunEvaluatorSweepResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RunEvaluatorSweep not implemented")
+}
+func (UnimplementedAdminServiceServer) ListEvaluatorDrift(context.Context, *ListEvaluatorDriftRequest) (*ListEvaluatorDriftResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListEvaluatorDrift not implemented")
+}
+func (UnimplementedAdminServiceServer) FixDeploymentDrift(context.Context, *FixDeploymentDriftRequest) (*FixDeploymentDriftResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FixDeploymentDrift not implemented")
 }
 
 func (UnimplementedAdminServiceServer) InvalidateAccountCaches(context.Context, *InvalidateAccountCachesRequest) (*InvalidateCachesResponse, error) {
@@ -1710,6 +1762,66 @@ func _AdminService_RefreshClusterPullSecrets_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListEvaluators_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEvaluatorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListEvaluators(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListEvaluators"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListEvaluators(ctx, req.(*ListEvaluatorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RunEvaluatorSweep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunEvaluatorSweepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RunEvaluatorSweep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RunEvaluatorSweep"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RunEvaluatorSweep(ctx, req.(*RunEvaluatorSweepRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListEvaluatorDrift_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListEvaluatorDriftRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListEvaluatorDrift(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListEvaluatorDrift"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListEvaluatorDrift(ctx, req.(*ListEvaluatorDriftRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_FixDeploymentDrift_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FixDeploymentDriftRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).FixDeploymentDrift(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/FixDeploymentDrift"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).FixDeploymentDrift(ctx, req.(*FixDeploymentDriftRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_InvalidateAccountCaches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InvalidateAccountCachesRequest)
 	if err := dec(in); err != nil {
@@ -2034,6 +2146,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
 		{MethodName: "RefreshClusterPullSecrets", Handler: _AdminService_RefreshClusterPullSecrets_Handler},
+		{MethodName: "ListEvaluators", Handler: _AdminService_ListEvaluators_Handler},
+		{MethodName: "RunEvaluatorSweep", Handler: _AdminService_RunEvaluatorSweep_Handler},
+		{MethodName: "ListEvaluatorDrift", Handler: _AdminService_ListEvaluatorDrift_Handler},
+		{MethodName: "FixDeploymentDrift", Handler: _AdminService_FixDeploymentDrift_Handler},
 		{MethodName: "InvalidateAccountCaches", Handler: _AdminService_InvalidateAccountCaches_Handler},
 		{MethodName: "InvalidateAllCaches", Handler: _AdminService_InvalidateAllCaches_Handler},
 		{MethodName: "ListClusterMigrations", Handler: _AdminService_ListClusterMigrations_Handler},

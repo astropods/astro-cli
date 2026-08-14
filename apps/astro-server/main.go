@@ -45,6 +45,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
+	"github.com/astropods/astro/apps/astro-server/internal/deployer"
+	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
@@ -576,6 +578,14 @@ func runAPI(
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
 	adminSrv.SetPrometheusClient(promClient)
 	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
+	evalDeployer := &deployer.Deployer{
+		Registry:     k8sReg,
+		AccountStore: accountStore,
+		Cfg:          cfg,
+		Store:        deploymentStore,
+		Log:          log,
+	}
+	adminSrv.SetEvaluators(deployeval.NewStore(db), deployeval.BuildAll(deployeval.Deps{Deployer: evalDeployer}))
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)

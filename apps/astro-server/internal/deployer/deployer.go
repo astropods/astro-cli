@@ -243,6 +243,68 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	return applyResult, applyErr
 }
 
+// ingressApplier loads a deployment's current-revision spec and builds a
+// minimal Applier scoped to ingress work — no secrets, no Langfuse/AI Gateway
+// provisioning, since none of that affects an Ingress's host, backend, or
+// class. Shared by SyncIngresses and CheckIngressDrift.
+func (d *Deployer) ingressApplier(ctx context.Context, dep *deploymentstore.Deployment) (*k8s.Applier, *deployment.AstroDeploymentSpec, error) {
+	rev, err := d.Store.GetCurrentRevision(dep.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get current revision: %w", err)
+	}
+	if rev == nil {
+		return nil, nil, fmt.Errorf("no current revision for deployment %s", dep.ID)
+	}
+
+	var ds deployment.AstroDeploymentSpec
+	if err := json.Unmarshal(rev.SpecJSON, &ds); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal deployment spec: %w", err)
+	}
+
+	k8sForDep, err := d.clusterClient(ctx, dep)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve k8s client: %w", err)
+	}
+
+	clusterCfg, err := clustercfg.Resolve(ctx, d.Registry, d.Cfg.Deployment, dep.EffectiveClusterID())
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve cluster config: %w", err)
+	}
+
+	applier := k8s.NewApplier(k8sForDep, k8s.ApplierConfig{
+		Namespace:                dep.Namespace,
+		IngressDomain:            clusterCfg.AgentIngressDomain,
+		AgentPublicIngressDomain: clusterCfg.AgentPublicIngressDomain,
+		IngestionIngressDomain:   clusterCfg.IngestionIngressDomain,
+		DeploymentID:             dep.ID,
+		LocalMode:                d.Cfg.Deployment.K8sClientMode == "local",
+	})
+	return applier, &ds, nil
+}
+
+// SyncIngresses re-applies just the Ingress objects for a deployment's
+// current revision, without touching Services, Secrets, or workloads. Unlike
+// Apply, it carries none of a full apply's side effects (in particular, no AI
+// Gateway key rotation) — safe to run across every active deployment to pick
+// up a routing change (such as the tenant-router migration).
+func (d *Deployer) SyncIngresses(ctx context.Context, dep *deploymentstore.Deployment) (*k8s.ApplyResult, error) {
+	applier, ds, err := d.ingressApplier(ctx, dep)
+	if err != nil {
+		return nil, err
+	}
+	return applier.SyncIngresses(ctx, ds)
+}
+
+// CheckIngressDrift reports whether the deployment's live Ingress objects
+// match what its current spec wants, without applying anything.
+func (d *Deployer) CheckIngressDrift(ctx context.Context, dep *deploymentstore.Deployment) (drifted bool, detail string, err error) {
+	applier, ds, err := d.ingressApplier(ctx, dep)
+	if err != nil {
+		return false, "", err
+	}
+	return applier.CheckIngressDrift(ctx, ds)
+}
+
 // populateBuildEnv runs deployment.Resolve over the rehydrated spec and
 // writes the result to deployment_build_env. The rows are the source of
 // truth the API + UI read from; the K8s applier keeps wiring env the

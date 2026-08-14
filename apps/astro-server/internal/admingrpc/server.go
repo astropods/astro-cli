@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
@@ -137,6 +138,12 @@ type Server struct {
 	// host key for the pull Secret it writes. Empty until SetProxyRegistryHost
 	// is called; the RPC then reports FailedPrecondition.
 	proxyRegistryHost string
+
+	// evaluatorStore and evaluators back the ListEvaluators/RunEvaluatorSweep/
+	// ListEvaluatorDrift/FixDeploymentDrift RPCs (internal/deployeval). Nil
+	// until SetEvaluators is called; those RPCs then report FailedPrecondition.
+	evaluatorStore *deployeval.Store
+	evaluators     []deployeval.Evaluator
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.

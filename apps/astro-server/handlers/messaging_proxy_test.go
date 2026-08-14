@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,10 +15,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func setupMessagingProxyRouter(upstreamURL string, withAuth bool) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
@@ -104,33 +99,6 @@ func TestMessagingProxy_NotRunningDeploymentReturns404(t *testing.T) {
 	}
 	if upstreamHit.Load() {
 		t.Error("upstream was dialed for a stopped deployment; expected 404 before proxying")
-	}
-}
-
-// messagingEndpointAbsent is the 404-vs-503 gate shared by the chat, messaging,
-// and files proxy handlers: a missing messaging Service (NotFound: stopped or
-// mid-rollout) or a Service without an http port (non-web agent) means "no
-// endpoint" (404, expected); anything else is a genuine fault (503). This is the
-// classification that keeps AstroServerHigh5xxRateByRoute quiet on the proxy
-// routes of deployments nobody is running.
-func TestMessagingEndpointAbsent(t *testing.T) {
-	svcNotFound := apierrors.NewNotFound(schema.GroupResource{Resource: "services"}, "agent-messaging")
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"no http port", errMessagingNoHTTPPort, true},
-		{"messaging service not found", fmt.Errorf("get messaging service %q: %w", "agent-messaging", svcNotFound), true},
-		{"transient cluster error", errors.New("dial tcp: connection refused"), false},
-		{"nil", nil, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := messagingEndpointAbsent(tc.err); got != tc.want {
-				t.Fatalf("messagingEndpointAbsent(%v) = %v, want %v", tc.err, got, tc.want)
-			}
-		})
 	}
 }
 
@@ -373,43 +341,5 @@ func TestIsValidMessagingProxyPath(t *testing.T) {
 		if got := isValidMessagingProxyPath(tc.in); got != tc.want {
 			t.Errorf("isValidMessagingProxyPath(%q) = %v, want %v", tc.in, got, tc.want)
 		}
-	}
-}
-
-func TestMessagingHTTPPort(t *testing.T) {
-	port, err := messagingHTTPPort(&corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-messaging"},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{Name: "grpc", Port: 50051},
-				{Name: "http", Port: 8090},
-			},
-		},
-	})
-	if err != nil || port != 8090 {
-		t.Fatalf("expected http port 8090, got %d err=%v", port, err)
-	}
-}
-
-// TestMessagingHTTPPortMissing: a grpc-only or portless Service yields
-// errMessagingNoHTTPPort, so files answer 4xx rather than 5xx.
-func TestMessagingHTTPPortMissing(t *testing.T) {
-	tests := []struct {
-		name  string
-		ports []corev1.ServicePort
-	}{
-		{"grpc only", []corev1.ServicePort{{Name: "grpc", Port: 50051}}},
-		{"no ports", nil},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := messagingHTTPPort(&corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{Name: "coach-messaging"},
-				Spec:       corev1.ServiceSpec{Ports: tc.ports},
-			})
-			if !errors.Is(err, errMessagingNoHTTPPort) {
-				t.Fatalf("expected errMessagingNoHTTPPort, got %v", err)
-			}
-		})
 	}
 }
