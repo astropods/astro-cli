@@ -1,18 +1,10 @@
 import type {
-  DatasetJudgmentVerdict,
   JudgmentCriterion,
   ReviewQueuePredictionCriterion,
 } from "@/lib/api";
 
-type BinaryJudgmentVerdict = "good" | "bad";
-
-/** good/bad verdicts get the criteria panel and stay on screen until Done;
- *  neutral has no criteria and commits immediately. */
-export function verdictHasCriteria(
-  verdict: DatasetJudgmentVerdict,
-): verdict is BinaryJudgmentVerdict {
-  return verdict === "good" || verdict === "bad";
-}
+/** The polarity a reviewer can record for a dimension. */
+export type CriterionValue = -1 | 1;
 
 /** A judgment criterion dimension. `dimensionKey` is the stable contract with
  *  the server enum; labels and display order are frontend-owned. */
@@ -21,8 +13,7 @@ export interface JudgmentCriterionDimension {
   dimensionLabel: string;
   goodLabel: string;
   badLabel: string;
-  goodTooltip: string;
-  badTooltip: string;
+  description: string;
 }
 
 // Order here is the display order. Keys must match the server enum in
@@ -33,87 +24,59 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
     dimensionLabel: "Accuracy",
     goodLabel: "Correct info",
     badLabel: "Hallucination",
-    goodTooltip:
+    description:
       "The answer was factually accurate, with no invented facts, citations, or capabilities.",
-    badTooltip:
-      "The answer contained factual errors or invented facts, citations, or capabilities that don't exist.",
   },
   {
     dimensionKey: "completeness",
     dimensionLabel: "Completeness",
     goodLabel: "Complete",
     badLabel: "Incomplete",
-    goodTooltip:
+    description:
       "The response covered everything that was asked, with no missing steps, fields, or follow-through.",
-    badTooltip:
-      "The response left out part of what was asked, such as missing steps, fields, or follow-through.",
   },
   {
     dimensionKey: "instruction_following",
     dimensionLabel: "Instruction following",
     goodLabel: "Followed instruction",
     badLabel: "Ignored instruction",
-    goodTooltip:
+    description:
       "The agent honored the explicit instructions from the user or system prompt.",
-    badTooltip:
-      "The agent overlooked or contradicted an explicit instruction from the user or system prompt.",
   },
   {
     dimensionKey: "scope_clarity",
     dimensionLabel: "Scope & clarity",
     goodLabel: "Clear & well-scoped",
     badLabel: "Unclear or poorly scoped",
-    goodTooltip:
+    description:
       "The response stayed on what was asked without straying into anything the user didn't raise.",
-    badTooltip:
-      "The response strayed from what was asked or addressed something the user didn't raise.",
   },
   {
     dimensionKey: "tone",
     dimensionLabel: "Tone",
     goodLabel: "Appropriate tone",
     badLabel: "Inappropriate tone",
-    goodTooltip:
+    description:
       "The style, register, and formatting fit the user and the situation.",
-    badTooltip:
-      "The style, register, or formatting didn't fit the user or the situation.",
   },
 ];
 
-/** Human review sends an absolute signal: 1 for good, -1 for bad. */
-export function criterionValueForVerdict(verdict: BinaryJudgmentVerdict): number {
-  return verdict === "good" ? 1 : -1;
-}
-
-export function criterionLabel(
+/** The selectable polarities for a dimension, in display order. */
+export function criterionOptions(
   dimension: JudgmentCriterionDimension,
-  verdict: BinaryJudgmentVerdict,
-): string {
-  return verdict === "good" ? dimension.goodLabel : dimension.badLabel;
-}
-
-export function criterionTooltip(
-  dimension: JudgmentCriterionDimension,
-  verdict: BinaryJudgmentVerdict,
-): string {
-  return verdict === "good" ? dimension.goodTooltip : dimension.badTooltip;
+): { value: CriterionValue; label: string }[] {
+  return [
+    { value: 1, label: dimension.goodLabel },
+    { value: -1, label: dimension.badLabel },
+  ];
 }
 
 /** Resolves a stored criterion (dimension key + numeric value) to its display
- *  label. value: 1 = good, -1 = bad. Returns null for unknown dimensions. */
+ *  label. Returns null for unknown dimensions and for a neutral value. */
 export function criterionLabelFor(dimensionKey: string, value: number): string | null {
   const dimension = JUDGMENT_CRITERIA.find((d) => d.dimensionKey === dimensionKey);
-  if (!dimension) return null;
-  return criterionLabel(dimension, value >= 0 ? "good" : "bad");
-}
-
-/** Maps the selected dimension keys to the request criteria for a verdict. */
-export function toCriteria(
-  selectedKeys: Iterable<string>,
-  verdict: BinaryJudgmentVerdict,
-): JudgmentCriterion[] {
-  const value = criterionValueForVerdict(verdict);
-  return Array.from(selectedKeys, (dimension_key) => ({ dimension_key, value }));
+  if (!dimension || value === 0) return null;
+  return value > 0 ? dimension.goodLabel : dimension.badLabel;
 }
 
 export type PredictionCriterionAssessment =
@@ -142,17 +105,21 @@ export function predictionCriterionAssessment(
   return "warning";
 }
 
-/** Selects predicted criterion dimensions that support the agreed verdict. */
-export function predictedCriterionKeysForVerdict(
+/** Pre-fills the criteria editor with the dimensions the judge accepted or
+ *  rejected. Warning-band dimensions remain unselected. */
+export function predictedCriteria(
   criteria: ReviewQueuePredictionCriterion[],
-  verdict: BinaryJudgmentVerdict,
-): string[] {
-  return JUDGMENT_CRITERIA.filter(({ dimensionKey }) => {
+): JudgmentCriterion[] {
+  return JUDGMENT_CRITERIA.flatMap(({ dimensionKey }) => {
     const assessment = predictionCriterionAssessment(
       predictionCriterionValue(criteria, dimensionKey),
     );
-    return verdict === "good"
-      ? assessment === "accepted"
-      : assessment === "rejected";
-  }).map(({ dimensionKey }) => dimensionKey);
+    if (assessment === "warning") return [];
+    return [
+      {
+        dimension_key: dimensionKey,
+        value: assessment === "accepted" ? 1 : -1,
+      },
+    ];
+  });
 }

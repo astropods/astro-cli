@@ -1284,8 +1284,7 @@ export interface DatasetJudgmentResponse {
   verdict: DatasetJudgmentVerdict;
 }
 
-/** A selected judgment criterion. `value` is the dimension score captured at
- *  judgment time: human review sends 1 (good) or -1 (bad). */
+/** A selected judgment criterion: 1 is positive and -1 is negative. */
 export interface JudgmentCriterion {
   dimension_key: string;
   value: number;

@@ -30,7 +30,7 @@ type DatasetJudgmentVariables = {
   reviewQueueItem?: ReviewQueueItem;
   nextReviewQueueItem?: ReviewQueueItem;
   reviewQueuePageIndex?: number;
-  initialCriteriaKeys?: string[];
+  initialCriteria?: JudgmentCriterion[];
 };
 
 type DatasetUndoJudgmentVariables = {
@@ -213,8 +213,8 @@ export function usePostDatasetJudgment(
     onSuccess: async (data, variables) => {
       options.onSuccess?.(data, variables);
 
-      // Queue removal is the caller's job (useRemoveReviewQueueItem) so good/bad
-      // can keep the trace visible until Done.
+      // Queue removal is the caller's job (useRemoveReviewQueueItem) so an added
+      // trace can stay visible until Save.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),

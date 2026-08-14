@@ -12,7 +12,7 @@ export interface CriterionLabelsProps {
  *  criteria. */
 export function CriterionLabels({ criteria }: CriterionLabelsProps) {
   const labels = criteria
-    .filter((criterion) => criterion.value > 0)
+    .filter((criterion) => criterion.value !== 0)
     .map((c) => criterionLabelFor(c.dimension_key, c.value))
     .filter((label): label is string => label !== null);
 

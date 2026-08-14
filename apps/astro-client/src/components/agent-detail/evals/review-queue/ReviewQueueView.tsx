@@ -27,10 +27,7 @@ import type {
   TraceEntry,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "../EvalTabCard";
-import {
-  predictedCriterionKeysForVerdict,
-  verdictHasCriteria,
-} from "../judgment-criteria";
+import { predictedCriteria } from "../judgment-criteria";
 import { flyTraceToDataset } from "../review-queue-motion";
 import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
 import { QuickUndoToast } from "./QuickUndoToast";
@@ -57,12 +54,14 @@ const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 
 type ActiveJudgment = {
   traceId: string;
-  verdict: DatasetJudgmentVerdict;
+  /** Added traces keep the criteria panel open until Save; removed ones commit
+   *  immediately with an undo toast. */
+  addedToDataset: boolean;
   item?: ReviewQueueItem;
   pageIndex?: number;
   nextTraceId?: string | null;
   nextReviewQueueItem?: ReviewQueueItem;
-  initialCriteriaKeys?: string[];
+  initialCriteria?: JudgmentCriterion[];
 };
 
 type ReviewQueuePanelAction = "none" | "open" | "sync";
@@ -207,10 +206,11 @@ export function ReviewQueueView({
     predictionStatusIsError,
   ]);
 
-  const activeVerdict =
-    activeJudgment && selectedItem && activeJudgment.traceId === selectedItem.trace_id
-      ? activeJudgment.verdict
-      : null;
+  const judgmentPendingForSelected = Boolean(
+    activeJudgment &&
+      selectedItem &&
+      activeJudgment.traceId === selectedItem.trace_id,
+  );
 
   const selectTraceId = useCallback((traceId: string | null) => {
     setPredictionExplanationTraceId(null);
@@ -281,15 +281,15 @@ export function ReviewQueueView({
     onSuccess: (_data, variables) => {
       const judgment: ActiveJudgment = {
         traceId: variables.traceId,
-        verdict: variables.verdict,
+        addedToDataset: variables.verdict === "good",
         item: variables.reviewQueueItem,
         pageIndex: variables.reviewQueuePageIndex,
         nextTraceId: variables.nextTraceId,
         nextReviewQueueItem: variables.nextReviewQueueItem,
-        initialCriteriaKeys: variables.initialCriteriaKeys,
+        initialCriteria: variables.initialCriteria,
       };
       setActiveJudgment(judgment);
-      if (verdictHasCriteria(variables.verdict)) {
+      if (judgment.addedToDataset) {
         return;
       }
       commitJudgment(judgment);
@@ -355,11 +355,7 @@ export function ReviewQueueView({
   ]);
 
   const handleSelectTrace = (traceId: string) => {
-    if (
-      activeJudgment &&
-      verdictHasCriteria(activeJudgment.verdict) &&
-      activeJudgment.traceId !== traceId
-    ) {
+    if (activeJudgment?.addedToDataset && activeJudgment.traceId !== traceId) {
       removeQueueItem(activeJudgment.traceId);
     }
     postJudgment.reset();
@@ -378,7 +374,7 @@ export function ReviewQueueView({
     traceId: string,
     verdict: DatasetJudgmentVerdict,
     trigger: HTMLElement | null,
-    initialCriteriaKeys?: string[],
+    initialCriteria?: JudgmentCriterion[],
   ) => {
     const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
     const nextSelectedTraceId = nextTraceId ?? previousTraceId;
@@ -405,7 +401,7 @@ export function ReviewQueueView({
       reviewQueueItem,
       nextReviewQueueItem,
       reviewQueuePageIndex,
-      initialCriteriaKeys,
+      initialCriteria,
     });
   };
 
@@ -475,9 +471,7 @@ export function ReviewQueueView({
   };
 
   useReviewQueueNavigationShortcuts({
-    disabled: Boolean(
-      activeJudgment && verdictHasCriteria(activeJudgment.verdict),
-    ),
+    disabled: Boolean(activeJudgment?.addedToDataset),
     onPrevious: navigateFromOutsideList(goPrevious),
     onNext: navigateFromOutsideList(goNext),
   });
@@ -571,7 +565,9 @@ export function ReviewQueueView({
                     </div>
                   )}
                   <ReviewQueueDatasetActions
-                    isPending={postJudgment.isPending || activeVerdict !== null}
+                    isPending={
+                      postJudgment.isPending || judgmentPendingForSelected
+                    }
                     showError={postJudgment.isError || undoJudgment.isError}
                     onAdd={(trigger) =>
                       handleJudgeTrace(
@@ -579,10 +575,7 @@ export function ReviewQueueView({
                         "good",
                         trigger,
                         selectedPrediction
-                          ? predictedCriterionKeysForVerdict(
-                              selectedPrediction.criteria,
-                              "good",
-                            )
+                          ? predictedCriteria(selectedPrediction.criteria)
                           : undefined,
                       )
                     }
@@ -636,13 +629,13 @@ export function ReviewQueueView({
         </EvalTabCardBody>
       </EvalTabCard>
       {activeJudgment &&
-        (verdictHasCriteria(activeJudgment.verdict) ? (
+        (activeJudgment.addedToDataset ? (
           <JudgmentCriteriaPanel
             key={activeJudgment.traceId}
             isUndoing={undoJudgment.isPending}
             isSaving={setCriteria.isPending}
             isError={setCriteria.isError}
-            initialKeys={activeJudgment.initialCriteriaKeys}
+            initialCriteria={activeJudgment.initialCriteria}
             onUndo={handleUndo}
             onSave={handleCriteriaDone}
           />

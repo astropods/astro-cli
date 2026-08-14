@@ -11,7 +11,7 @@ afterEach(cleanup);
 function renderMenu(overrides: Partial<DatasetRowActionsMenuProps> = {}) {
   const props: DatasetRowActionsMenuProps = {
     traceId: "t1",
-    savedCriteriaKeys: [],
+    savedCriteria: [],
     isRemoving: false,
     isSavingCriteria: false,
     onRemove: vi.fn(),
@@ -41,7 +41,9 @@ describe("DatasetRowActionsMenu", () => {
 
 describe("DatasetRowActionsMenu criteria", () => {
   it("seeds pills from saved criteria and only shows Save once changed", async () => {
-    renderMenu({ savedCriteriaKeys: ["accuracy"] });
+    renderMenu({
+      savedCriteria: [{ dimension_key: "accuracy", value: 1 }],
+    });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /trace actions/i }));
 
@@ -49,26 +51,29 @@ describe("DatasetRowActionsMenu criteria", () => {
     expect(screen.getByRole("menuitem", { name: /correct info/i })).toHaveAttribute(
       "data-active",
     );
+    expect(
+      screen.getByRole("menuitem", { name: /hallucination/i }),
+    ).not.toHaveAttribute("data-active");
     expect(screen.queryByRole("menuitem", { name: /^save$/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: /^complete$/i }));
     expect(screen.getByRole("menuitem", { name: /^save$/i })).toBeInTheDocument();
   });
 
-  it("Save emits selected criteria as positive and omits unselected criteria", async () => {
+  it("Save emits selected positive and negative criteria and omits unselected criteria", async () => {
     const { props } = renderMenu({
-      savedCriteriaKeys: ["accuracy"],
+      savedCriteria: [{ dimension_key: "accuracy", value: 1 }],
     });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /trace actions/i }));
-    await user.click(screen.getByRole("menuitem", { name: /^complete$/i }));
+    await user.click(screen.getByRole("menuitem", { name: /^incomplete$/i }));
     await user.click(screen.getByRole("menuitem", { name: /^save$/i }));
 
     expect(props.onSaveCriteria).toHaveBeenCalledWith(
       "t1",
       [
         { dimension_key: "accuracy", value: 1 },
-        { dimension_key: "completeness", value: 1 },
+        { dimension_key: "completeness", value: -1 },
       ],
       expect.any(Function),
     );
@@ -76,7 +81,7 @@ describe("DatasetRowActionsMenu criteria", () => {
 
   it("disables row actions and criteria chips while criteria are saving", async () => {
     const { props, rerender } = renderMenu({
-      savedCriteriaKeys: ["accuracy"],
+      savedCriteria: [{ dimension_key: "accuracy", value: 1 }],
     });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /trace actions/i }));
@@ -96,7 +101,7 @@ describe("DatasetRowActionsMenu criteria", () => {
   it("resets the selection when saved criteria change", async () => {
     const base: DatasetRowActionsMenuProps = {
       traceId: "t1",
-      savedCriteriaKeys: ["accuracy"],
+      savedCriteria: [{ dimension_key: "accuracy", value: 1 }],
       isRemoving: false,
       isSavingCriteria: false,
       onRemove: vi.fn(),
@@ -108,7 +113,7 @@ describe("DatasetRowActionsMenu criteria", () => {
     await user.click(screen.getByRole("menuitem", { name: /^complete$/i }));
     expect(screen.getByRole("menuitem", { name: /^save$/i })).toBeInTheDocument();
 
-    rerender(<DatasetRowActionsMenu {...base} savedCriteriaKeys={[]} />);
+    rerender(<DatasetRowActionsMenu {...base} savedCriteria={[]} />);
     expect(screen.getByText("Evaluate item")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^save$/i })).not.toBeInTheDocument();
   });

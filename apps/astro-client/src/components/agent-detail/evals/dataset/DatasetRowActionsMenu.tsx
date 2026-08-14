@@ -12,12 +12,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SelectableChip } from "@/components/ui/SelectableChip";
 import type { JudgmentCriterion } from "@/lib/api";
-import { JUDGMENT_CRITERIA } from "../judgment-criteria";
+import { JUDGMENT_CRITERIA, criterionOptions } from "../judgment-criteria";
 import { useJudgmentCriteriaSelection } from "../useJudgmentCriteriaSelection";
 
 export interface DatasetRowActionsMenuProps {
   traceId: string;
-  savedCriteriaKeys: string[];
+  savedCriteria: JudgmentCriterion[];
   isRemoving: boolean;
   isSavingCriteria: boolean;
   onRemove: (trigger: HTMLElement | null) => void;
@@ -31,7 +31,7 @@ export interface DatasetRowActionsMenuProps {
 /** The three-dot actions menu for editing criteria or removing an item. */
 export function DatasetRowActionsMenu({
   traceId,
-  savedCriteriaKeys,
+  savedCriteria,
   isRemoving,
   isSavingCriteria,
   onRemove,
@@ -55,11 +55,13 @@ export function DatasetRowActionsMenu({
           <MoreHorizontal className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent align="end" className="w-96">
         <MenuCriteriaEditor
-          key={savedCriteriaKeys.join("|")}
+          key={savedCriteria
+            .map(({ dimension_key, value }) => `${dimension_key}:${value}`)
+            .join("|")}
           traceId={traceId}
-          savedCriteriaKeys={savedCriteriaKeys}
+          savedCriteria={savedCriteria}
           isSaving={isSavingCriteria}
           disabled={busy}
           onSaveCriteria={onSaveCriteria}
@@ -88,14 +90,14 @@ export function DatasetRowActionsMenu({
 /** Criteria pills + Save inside the row menu. */
 function MenuCriteriaEditor({
   traceId,
-  savedCriteriaKeys,
+  savedCriteria,
   isSaving,
   disabled,
   onSaveCriteria,
   onSaved,
 }: {
   traceId: string;
-  savedCriteriaKeys: string[];
+  savedCriteria: JudgmentCriterion[];
   isSaving: boolean;
   disabled: boolean;
   onSaveCriteria: (
@@ -105,21 +107,8 @@ function MenuCriteriaEditor({
   ) => void;
   onSaved: () => void;
 }) {
-  const { selected, dirty, toggle } =
-    useJudgmentCriteriaSelection(savedCriteriaKeys);
-
-  const handleSave = () => {
-    onSaveCriteria(
-      traceId,
-      JUDGMENT_CRITERIA.filter(({ dimensionKey }) =>
-        selected.has(dimensionKey),
-      ).map(({ dimensionKey }) => ({
-        dimension_key: dimensionKey,
-        value: 1,
-      })),
-      onSaved,
-    );
-  };
+  const { selected, dirty, toggle, criteria } =
+    useJudgmentCriteriaSelection(savedCriteria);
 
   return (
     <>
@@ -127,31 +116,42 @@ function MenuCriteriaEditor({
         Evaluate item
       </DropdownMenuLabel>
       <div className="px-2 pb-1.5 pt-0.5">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-2.5">
           {JUDGMENT_CRITERIA.map((dimension) => {
-            const isSelected = selected.has(dimension.dimensionKey);
             return (
-              // Wrap as a menu item so keyboard nav reaches it; onSelect keeps
-              // the menu open, the pill's own click toggles.
-              <DropdownMenuPrimitive.Item
+              <div
                 key={dimension.dimensionKey}
-                asChild
-                disabled={disabled}
-                onSelect={(event) => event.preventDefault()}
+                className="flex flex-col items-start gap-1.5"
               >
-                <SelectableChip
-                  selected={isSelected}
-                  tone="primary"
-                  disabled={disabled}
-                  onClick={() => toggle(dimension.dimensionKey)}
-                  // Drop the focus ring on hover (Radix focuses on hover);
-                  // keyboard focus keeps it.
-                  className="h-7 hover:ring-0!"
-                >
-                  {dimension.goodLabel}
-                  {isSelected && <Check aria-hidden className="size-4" />}
-                </SelectableChip>
-              </DropdownMenuPrimitive.Item>
+                <span className="text-body-sm font-medium text-foreground">
+                  {dimension.dimensionLabel}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {criterionOptions(dimension).map(({ value, label }) => {
+                    const isSelected =
+                      selected.get(dimension.dimensionKey) === value;
+                    return (
+                      <DropdownMenuPrimitive.Item
+                        key={value}
+                        asChild
+                        disabled={disabled}
+                        onSelect={(event) => event.preventDefault()}
+                      >
+                        <SelectableChip
+                          selected={isSelected}
+                          tone="primary"
+                          disabled={disabled}
+                          onClick={() => toggle(dimension.dimensionKey, value)}
+                          className="h-7 hover:ring-0!"
+                        >
+                          {label}
+                          {isSelected && <Check aria-hidden className="size-4" />}
+                        </SelectableChip>
+                      </DropdownMenuPrimitive.Item>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -164,7 +164,7 @@ function MenuCriteriaEditor({
             <Button
               type="button"
               size="sm"
-              onClick={handleSave}
+              onClick={() => onSaveCriteria(traceId, criteria, onSaved)}
               disabled={disabled}
               className="mt-3 w-full"
             >

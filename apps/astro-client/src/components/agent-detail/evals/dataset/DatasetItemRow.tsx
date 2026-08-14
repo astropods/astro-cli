@@ -110,10 +110,7 @@ export function DatasetItemRow({
   isSavingCriteria,
   reviewer,
 }: DatasetItemRowProps) {
-  const savedCriteriaKeys =
-    item.metadata?.judgment_criteria
-      ?.filter((criterion) => criterion.value > 0)
-      .map((criterion) => criterion.dimension_key) ?? [];
+  const savedCriteria = item.metadata?.judgment_criteria ?? [];
   const inputSummary = summarize(item.input);
   const outputSummary = summarize(item.expected_output);
 
@@ -189,7 +186,7 @@ export function DatasetItemRow({
             >
               <DatasetRowActionsMenu
                 traceId={item.source_trace_id}
-                savedCriteriaKeys={savedCriteriaKeys}
+                savedCriteria={savedCriteria}
                 isRemoving={isRemoving}
                 onRemove={onRemove}
                 onSaveCriteria={onSaveCriteria}

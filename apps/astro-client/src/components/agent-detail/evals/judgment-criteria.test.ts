@@ -1,16 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
   criterionLabelFor,
-  predictedCriterionKeysForVerdict,
+  predictedCriteria,
   predictionCriterionAssessment,
   predictionCriterionValue,
 } from "./judgment-criteria";
 
 describe("criterionLabelFor", () => {
-  it("returns the good label for a non-negative value", () => {
+  it("returns the good label for a positive value", () => {
     expect(criterionLabelFor("accuracy", 1)).toBe("Correct info");
     expect(criterionLabelFor("completeness", 1)).toBe("Complete");
-    expect(criterionLabelFor("tone", 0)).toBe("Appropriate tone");
+  });
+
+  it("returns null for a neutral value", () => {
+    expect(criterionLabelFor("tone", 0)).toBeNull();
   });
 
   it("returns the bad label for a negative value", () => {
@@ -46,12 +49,10 @@ describe("prediction criteria", () => {
     expect(predictionCriterionAssessment(value)).toBe(assessment);
   });
 
-  it("selects only accepted or rejected criteria for an agreed verdict", () => {
-    expect(predictedCriterionKeysForVerdict(criteria, "bad")).toEqual([
-      "accuracy",
-    ]);
-    expect(predictedCriterionKeysForVerdict(criteria, "good")).toEqual([
-      "tone",
+  it("pre-fills accepted and rejected criteria with their polarity", () => {
+    expect(predictedCriteria(criteria)).toEqual([
+      { dimension_key: "accuracy", value: -1 },
+      { dimension_key: "tone", value: 1 },
     ]);
   });
 });

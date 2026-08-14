@@ -23,13 +23,14 @@ function renderPanel(
 }
 
 describe("JudgmentCriteriaPanel", () => {
-  it("renders the neutral title, Undo, Optional badge, and good-side labels", () => {
+  it("renders positive and negative labels for every criterion", () => {
     renderPanel();
     expect(screen.getByText("Evaluate trace")).toHaveClass("text-heading-4");
     expect(screen.queryByText("Marked as good")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /undo/i })).toBeInTheDocument();
     expect(screen.getByText("Optional")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /correct info/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /hallucination/i })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /followed instruction/i }),
     ).toBeInTheDocument();
@@ -61,6 +62,17 @@ describe("JudgmentCriteriaPanel", () => {
     expect(chip).not.toHaveAttribute("data-active");
   });
 
+  it("selecting one side clears the other side of the criterion", () => {
+    renderPanel();
+    const positive = screen.getByRole("button", { name: /correct info/i });
+    const negative = screen.getByRole("button", { name: /hallucination/i });
+    fireEvent.click(positive);
+    expect(positive).toHaveAttribute("data-active");
+    fireEvent.click(negative);
+    expect(positive).not.toHaveAttribute("data-active");
+    expect(negative).toHaveAttribute("data-active");
+  });
+
   it("focuses the first criterion when opened", async () => {
     renderPanel();
     const firstCriterion = screen.getByRole("button", {
@@ -70,28 +82,31 @@ describe("JudgmentCriteriaPanel", () => {
     await waitFor(() => expect(firstCriterion).toHaveFocus());
   });
 
-  it("Save emits selected criteria as positive and omits unselected criteria", () => {
+  it("Save emits selected positive and negative criteria in definition order", () => {
     const { onSave } = renderPanel();
     // Select out of display order to prove the output is ordered.
     fireEvent.click(screen.getByRole("button", { name: /followed instruction/i }));
-    fireEvent.click(screen.getByRole("button", { name: /correct info/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hallucination/i }));
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     expect(onSave).toHaveBeenCalledWith([
-      { dimension_key: "accuracy", value: 1 },
+      { dimension_key: "accuracy", value: -1 },
       { dimension_key: "instruction_following", value: 1 },
     ]);
   });
 
   it("starts with supplied prediction reasons selected", () => {
     const { onSave } = renderPanel({
-      initialKeys: ["accuracy", "tone"],
+      initialCriteria: [
+        { dimension_key: "accuracy", value: 1 },
+        { dimension_key: "tone", value: 1 },
+      ],
     });
 
     expect(
       screen.getByRole("button", { name: /correct info/i }),
     ).toHaveAttribute("data-active");
     expect(
-      screen.getByRole("button", { name: /appropriate tone/i }),
+      screen.getByRole("button", { name: /^appropriate tone$/i }),
     ).toHaveAttribute("data-active");
 
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));

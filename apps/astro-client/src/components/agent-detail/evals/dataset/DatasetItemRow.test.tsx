@@ -112,7 +112,7 @@ describe("DatasetItemRow collapsed", () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("only selects stored positive criteria in the item editor", async () => {
+  it("selects the stored positive and negative criterion choices", async () => {
     renderRow({
       item: makeItem({
         metadata: {
@@ -132,8 +132,8 @@ describe("DatasetItemRow collapsed", () => {
       screen.getByRole("menuitem", { name: /correct info/i }),
     ).toHaveAttribute("data-active");
     expect(
-      screen.getByRole("menuitem", { name: /^complete$/i }),
-    ).not.toHaveAttribute("data-active");
+      screen.getByRole("menuitem", { name: /^incomplete$/i }),
+    ).toHaveAttribute("data-active");
   });
 
   it("renders dash when reviewer is null", () => {

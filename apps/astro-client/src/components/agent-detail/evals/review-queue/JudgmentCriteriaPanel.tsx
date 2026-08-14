@@ -10,14 +10,14 @@ import {
 } from "@/components/ui/dialog";
 import { SelectableChip } from "@/components/ui/SelectableChip";
 import type { JudgmentCriterion } from "@/lib/api";
-import { JUDGMENT_CRITERIA } from "../judgment-criteria";
+import { JUDGMENT_CRITERIA, criterionOptions } from "../judgment-criteria";
 import { useJudgmentCriteriaSelection } from "../useJudgmentCriteriaSelection";
 
 export interface JudgmentCriteriaPanelProps {
   isUndoing: boolean;
   isSaving: boolean;
   isError: boolean;
-  initialKeys?: Iterable<string>;
+  initialCriteria?: JudgmentCriterion[];
   onUndo: () => void;
   onSave: (criteria: JudgmentCriterion[]) => void;
 }
@@ -27,23 +27,13 @@ export function JudgmentCriteriaPanel({
   isUndoing,
   isSaving,
   isError,
-  initialKeys,
+  initialCriteria,
   onUndo,
   onSave,
 }: JudgmentCriteriaPanelProps) {
   const firstCriterionRef = useRef<HTMLButtonElement | null>(null);
-  const { selected, toggle } = useJudgmentCriteriaSelection(initialKeys);
-
-  const handleSave = () => {
-    onSave(
-      JUDGMENT_CRITERIA.filter(({ dimensionKey }) =>
-        selected.has(dimensionKey),
-      ).map(({ dimensionKey }) => ({
-        dimension_key: dimensionKey,
-        value: 1,
-      })),
-    );
-  };
+  const { selected, toggle, criteria } =
+    useJudgmentCriteriaSelection(initialCriteria);
 
   return (
     <Dialog open modal={false}>
@@ -80,22 +70,43 @@ export function JudgmentCriteriaPanel({
         </div>
 
         <div className="flex flex-col gap-3 px-5 py-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-3">
             {JUDGMENT_CRITERIA.map((dimension, index) => {
-              const isSelected = selected.has(dimension.dimensionKey);
               return (
-                <SelectableChip
+                <div
                   key={dimension.dimensionKey}
-                  ref={index === 0 ? firstCriterionRef : undefined}
-                  selected={isSelected}
-                  tone="success"
-                  disabled={isSaving || isUndoing}
-                  onClick={() => toggle(dimension.dimensionKey)}
-                  className="h-7"
+                  className="flex flex-wrap items-center gap-2"
                 >
-                  {dimension.goodLabel}
-                  {isSelected && <Check aria-hidden className="size-4" />}
-                </SelectableChip>
+                  <span className="w-32 flex-none text-body-sm font-medium text-foreground">
+                    {dimension.dimensionLabel}
+                  </span>
+                  {criterionOptions(dimension).map(
+                    ({ value, label }, optionIndex) => {
+                      const isSelected =
+                        selected.get(dimension.dimensionKey) === value;
+                      return (
+                        <SelectableChip
+                          key={value}
+                          ref={
+                            index === 0 && optionIndex === 0
+                              ? firstCriterionRef
+                              : undefined
+                          }
+                          selected={isSelected}
+                          tone="primary"
+                          disabled={isSaving || isUndoing}
+                          onClick={() => toggle(dimension.dimensionKey, value)}
+                          className="h-7"
+                        >
+                          {label}
+                          {isSelected && (
+                            <Check aria-hidden className="size-4" />
+                          )}
+                        </SelectableChip>
+                      );
+                    },
+                  )}
+                </div>
               );
             })}
           </div>
@@ -109,7 +120,7 @@ export function JudgmentCriteriaPanel({
             <Button
               type="button"
               size="sm"
-              onClick={handleSave}
+              onClick={() => onSave(criteria)}
               disabled={isSaving || isUndoing}
               className="h-7 px-3.5"
             >

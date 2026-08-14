@@ -57,7 +57,7 @@ export function DatasetGradeSidebar({
                   <div className="flex min-w-0 items-center gap-1.5 font-semibold text-foreground">
                     {dimension.dimensionLabel}
                     <InfoHint label={`About ${dimension.dimensionLabel}`}>
-                      {dimension.goodTooltip}
+                      {dimension.description}
                     </InfoHint>
                   </div>
                   <span
