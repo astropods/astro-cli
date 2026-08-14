@@ -77,7 +77,7 @@ func main() {
 	mc := account.NewMembershipChecker(db)
 
 	// Initialize cluster pull authorizer (CPC path for /token).
-	clusterAuth := clusterpull.NewAuthorizer(db, cfg.Auth.PrimaryPullKeyHash)
+	clusterAuth := clusterpull.NewAuthorizer(db, cfg.Auth.PrimaryPullKeyHash, cfg.Auth.DefaultClusterID)
 
 	// Initialize ECR auth provider
 	ecrAuth := registry.NewECRAuthProvider(cfg.Registry.AWSRegion)

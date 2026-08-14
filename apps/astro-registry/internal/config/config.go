@@ -67,11 +67,22 @@ type AuthConfig struct {
 	RegistryTokenRealm  string        // Public URL of /token; advertised in WWW-Authenticate. Derived from request host if empty.
 
 	// Cluster pull credential (CPC) — machine credential clusters present at
-	// /token to obtain a pull-scoped registry token. The primary cluster has no
-	// clusters row, so its hash is configured here; additional clusters store
-	// their hash in clusters.pull_key_hash. Hex-encoded sha256 of the secret.
+	// /token to obtain a pull-scoped registry token. Additional clusters store
+	// their hash in clusters.pull_key_hash. PrimaryPullKeyHash backs the one
+	// deployment mode where the primary cluster has no clusters row at all
+	// (local dev, no cluster-config mounted) — its hash is configured here
+	// instead. Hex-encoded sha256 of the secret.
 	// See docs/01-spec/registry-pull-through-spec.md.
 	PrimaryPullKeyHash string
+
+	// DefaultClusterID is astro-server's DEFAULT_CLUSTER_ID — the real
+	// clusters.id that unbound accounts and deployments (cluster_id IS NULL)
+	// route to when cluster-config boot sync is active. Deployments there
+	// present a CPC keyed to this real id, never the literal "primary"
+	// sentinel, so ResolveHomedAccount must treat the two as equivalent.
+	// Empty when boot sync isn't in play (matches astro-server's own
+	// DefaultClusterID() == "" convention for that case).
+	DefaultClusterID string
 }
 
 // Load loads configuration from environment variables with defaults
@@ -107,6 +118,7 @@ func Load() (*Config, error) {
 			RegistryTokenTTL:    getEnvDuration("REGISTRY_TOKEN_TTL", 1*time.Hour),
 			RegistryTokenRealm:  getEnv("REGISTRY_TOKEN_REALM", ""),
 			PrimaryPullKeyHash:  strings.ToLower(strings.TrimSpace(getEnv("PRIMARY_PULL_KEY_HASH", ""))),
+			DefaultClusterID:    getEnv("DEFAULT_CLUSTER_ID", ""),
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", ""),

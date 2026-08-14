@@ -24,20 +24,34 @@ const PrimaryClusterID = "primary"
 
 // Authorizer authenticates CPCs and resolves tenant-to-cluster homing.
 type Authorizer struct {
-	db          *sql.DB
-	primaryHash []byte // sha256 of the primary CPC secret; nil when unconfigured
+	db               *sql.DB
+	primaryHash      []byte // sha256 of the primary CPC secret; nil when unconfigured
+	defaultClusterID string // astro-server's DEFAULT_CLUSTER_ID; empty when boot sync isn't in play
 }
 
 // NewAuthorizer builds an Authorizer. primaryHashHex is the hex-encoded sha256
 // of the primary cluster's CPC secret; empty disables the primary CPC path.
-func NewAuthorizer(db *sql.DB, primaryHashHex string) *Authorizer {
+// defaultClusterID is astro-server's DEFAULT_CLUSTER_ID — the real clusters.id
+// unbound accounts route to under cluster-config boot sync; empty when boot
+// sync isn't in play.
+func NewAuthorizer(db *sql.DB, primaryHashHex, defaultClusterID string) *Authorizer {
 	var h []byte
 	if primaryHashHex != "" {
 		if b, err := hex.DecodeString(primaryHashHex); err == nil {
 			h = b
 		}
 	}
-	return &Authorizer{db: db, primaryHash: h}
+	return &Authorizer{db: db, primaryHash: h, defaultClusterID: defaultClusterID}
+}
+
+// isPrimary reports whether clusterID identifies the primary/default cluster
+// for homing purposes — either the reserved "primary" sentinel (no
+// cluster-config: the primary has no clusters row, so it can't have a real
+// id) or the configured default cluster's real id (cluster-config boot sync:
+// the primary is just another row, and CPCs issued there carry its real id,
+// never the literal sentinel).
+func (a *Authorizer) isPrimary(clusterID string) bool {
+	return clusterID == PrimaryClusterID || (a.defaultClusterID != "" && clusterID == a.defaultClusterID)
 }
 
 // Authenticate reports whether secret matches the stored hash for clusterID.
@@ -102,7 +116,7 @@ func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, cluster
 		return "", false, fmt.Errorf("failed to resolve account %q: %w", namespace, err)
 	}
 
-	if clusterID == PrimaryClusterID {
+	if a.isPrimary(clusterID) {
 		return id, !homeCluster.Valid, nil
 	}
 	return id, homeCluster.Valid && homeCluster.String == clusterID, nil
