@@ -1406,6 +1406,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
+				api.GET(accountManage, "/billing/spend", "Get current spend and the account's own thresholds", handlers.GetBillingSpend(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+				)
+
 				api.GET(accountManage, "/billing/status", "Get billing gating status", handlers.GetBillingStatus(log, deps.Stores.BillingStatus, deps.Stores.Deployment, cfg.BillingGateEnforce),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),

@@ -109,6 +109,29 @@ type SpendReporter interface {
 	CustomerSpend(ctx context.Context, customerID string) (Spend, error)
 }
 
+// SpendThreshold is one number a customer set for itself, plus whether the
+// provider currently reports it crossed.
+type SpendThreshold struct {
+	Amount  float64
+	InAlarm bool
+}
+
+// SpendThresholds are the customer's own warning and limit. The provider is the
+// only store for them, so absence is reported by the Has flags rather than a
+// zero, which is a threshold a customer could legitimately set.
+type SpendThresholds struct {
+	Warning    SpendThreshold
+	HasWarning bool
+	Limit      SpendThreshold
+	HasLimit   bool
+}
+
+// SpendThresholdReader reads the customer's own spend controls. Kept off
+// BillingProvider (interface assertion) so noop implements nothing.
+type SpendThresholdReader interface {
+	CustomerSpendThresholds(ctx context.Context, customerID string) (SpendThresholds, error)
+}
+
 // ContractInspector exposes the same coverage check provisioning makes, so the
 // admin view reports that verdict rather than a second opinion. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.

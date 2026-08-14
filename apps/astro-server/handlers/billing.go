@@ -266,6 +266,72 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 }
 
 // GetBillingBalances handles GET /api/v1/accounts/:account/billing/balances.
+// BillingSpendResponse is the customer-facing view of what an account is running
+// up and the controls it set on itself. Spend and thresholds ship together
+// because a threshold is meaningless without the number it is measured against.
+type BillingSpendResponse struct {
+	Currency string `json:"currency,omitempty"`
+
+	CurrentSpend     float64   `json:"current_spend"`
+	HasCurrentSpend  bool      `json:"has_current_spend"`
+	CurrentPeriodEnd time.Time `json:"current_period_end,omitempty"`
+
+	CreditRemaining float64 `json:"credit_remaining"`
+	HasCredit       bool    `json:"has_credit"`
+
+	// Absent when the customer set none. Nil rather than zero, which is a
+	// threshold a customer could legitimately set.
+	Warning *SpendThresholdResponse `json:"warning,omitempty"`
+	Limit   *SpendThresholdResponse `json:"limit,omitempty"`
+}
+
+// SpendThresholdResponse is one customer-set number and whether it is crossed.
+type SpendThresholdResponse struct {
+	Amount  float64 `json:"amount"`
+	InAlarm bool    `json:"in_alarm"`
+}
+
+// GetBillingSpend handles GET /api/v1/accounts/:account/billing/spend. The
+// thresholds live in the billing provider and nowhere else, so this reads
+// through rather than from a mirror that could disagree with what fires.
+func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+	return billingData(log, accountStore, billingProvider, billingBackend, "spend",
+		func(ctx context.Context, customerID string) (any, error) {
+			reporter, ok := billingProvider.(billing.SpendReporter)
+			if !ok {
+				return nil, billing.ErrBillingUnavailable
+			}
+			spend, err := reporter.CustomerSpend(ctx, customerID)
+			if err != nil {
+				return nil, err
+			}
+			resp := BillingSpendResponse{
+				Currency:         spend.Currency,
+				CurrentSpend:     spend.CurrentSpend,
+				HasCurrentSpend:  spend.HasCurrentSpend,
+				CurrentPeriodEnd: spend.CurrentPeriodEnd,
+				CreditRemaining:  spend.CreditRemaining,
+				HasCredit:        spend.HasCredit,
+			}
+			// Best-effort: a threshold read that fails must not hide the spend,
+			// which is the half a customer needs to set one in the first place.
+			if reader, ok := billingProvider.(billing.SpendThresholdReader); ok {
+				th, terr := reader.CustomerSpendThresholds(ctx, customerID)
+				if terr != nil {
+					log.Warn("Failed to load spend thresholds", "error", terr, "customer_id", customerID)
+				} else {
+					if th.HasWarning {
+						resp.Warning = &SpendThresholdResponse{Amount: th.Warning.Amount, InAlarm: th.Warning.InAlarm}
+					}
+					if th.HasLimit {
+						resp.Limit = &SpendThresholdResponse{Amount: th.Limit.Amount, InAlarm: th.Limit.InAlarm}
+					}
+				}
+			}
+			return resp, nil
+		})
+}
+
 func GetBillingBalances(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "balances",
 		func(ctx context.Context, customerID string) (any, error) {
