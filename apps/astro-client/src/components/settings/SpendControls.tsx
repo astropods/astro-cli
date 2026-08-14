@@ -129,7 +129,7 @@ function SpendControlsForm({ account }: { account: string }) {
 
       <p className="text-body-sm text-muted-foreground">
         A warning tells you and changes nothing. A limit stops every agent in this account until the
-        next billing period, or until you raise it.
+        next billing period, or until you raise it. Both apply to this account only.
       </p>
     </Card>
   );
