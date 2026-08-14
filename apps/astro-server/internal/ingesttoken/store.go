@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -155,25 +156,25 @@ func (s *Store) ListByAccount(accountID string) ([]*Token, error) {
 	return out, rows.Err()
 }
 
-// Revoke marks a key revoked. Scoped to the account so one account cannot
-// revoke another's key. Returns sql.ErrNoRows if no active key matches.
-func (s *Store) Revoke(accountID, id string) error {
-	res, err := s.db.Exec(`
+// Revoke marks a key revoked and returns its name, which the security
+// notification needs to tell the reader which key went away. Scoped to the
+// account so one account cannot revoke another's key. Returns sql.ErrNoRows if no
+// active key matches.
+func (s *Store) Revoke(accountID, id string) (string, error) {
+	var name string
+	err := s.db.QueryRow(`
 		UPDATE otel_ingest_tokens
 		SET revoked_at = now()
 		WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL
-	`, id, accountID)
+		RETURNING name
+	`, id, accountID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", sql.ErrNoRows
+	}
 	if err != nil {
-		return fmt.Errorf("ingesttoken revoke: %w", err)
+		return "", fmt.Errorf("ingesttoken revoke: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("ingesttoken revoke rows: %w", err)
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return name, nil
 }
 
 type scanner interface {

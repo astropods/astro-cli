@@ -9,6 +9,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
@@ -112,9 +113,10 @@ func TestDunningSweep_NoOpsWithoutAStatusStore(t *testing.T) {
 
 // fakeDunningQueue records the sweep's output instead of enqueueing it.
 type fakeDunningQueue struct {
-	suspended []string
-	notified  []string
-	suspender error
+	suspended     []string
+	notified      []string
+	notifiedNames []string
+	suspender     error
 }
 
 func (f *fakeDunningQueue) InsertBillingSuspend(_ context.Context, accountID string) error {
@@ -124,7 +126,88 @@ func (f *fakeDunningQueue) InsertBillingSuspend(_ context.Context, accountID str
 
 func (f *fakeDunningQueue) EmitBillingNotify(_ context.Context, ev notify.Event) error {
 	f.notified = append(f.notified, ev.AccountID)
+	name, _ := ev.Payload[notify.PayloadAccount].(string)
+	f.notifiedNames = append(f.notifiedNames, name)
 	return nil
+}
+
+// fakeAccountNamer resolves ids the sweep asks about, or fails when err is set.
+type fakeAccountNamer struct {
+	names map[string]string
+	err   error
+}
+
+func (f fakeAccountNamer) GetByID(id string) (*account.Account, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	name, ok := f.names[id]
+	if !ok {
+		return nil, nil
+	}
+	return &account.Account{ID: id, Name: name}, nil
+}
+
+// A suspension notification has to name the account. The sweep works off ids, so
+// without a lookup the message reaches the owner with a blank where the account
+// name belongs.
+func TestDunningSweep_SuspensionNamesTheAccount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("FROM account_billing_status WHERE status").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct_1"))
+	expectRecompute(mock, "acct_1", time.Now().Add(-30*24*time.Hour))
+
+	q := &fakeDunningQueue{}
+	w := &DunningSweepWorker{
+		status:   billing.NewStatusStore(db, 7),
+		queue:    q,
+		accounts: fakeAccountNamer{names: map[string]string{"acct_1": "acme"}},
+		log:      logger.New("error", "json"),
+	}
+	if err := w.Work(context.Background(), &river.Job[DunningSweepArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(q.notifiedNames) != 1 || q.notifiedNames[0] != "acme" {
+		t.Errorf("notified names = %q, want [acme]: the suspension email would be missing the account name", q.notifiedNames)
+	}
+}
+
+// A failed name lookup must not swallow the notification: a suspension is worth
+// sending unnamed, and the template handles the empty case.
+func TestDunningSweep_NotifiesWhenTheNameIsUnavailable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("FROM account_billing_status WHERE status").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct_1"))
+	expectRecompute(mock, "acct_1", time.Now().Add(-30*24*time.Hour))
+
+	q := &fakeDunningQueue{}
+	w := &DunningSweepWorker{
+		status:   billing.NewStatusStore(db, 7),
+		queue:    q,
+		accounts: fakeAccountNamer{err: errors.New("account lookup down")},
+		log:      logger.New("error", "json"),
+	}
+	if err := w.Work(context.Background(), &river.Job[DunningSweepArgs]{}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(q.notified) != 1 {
+		t.Errorf("notified = %v, want one send: a name lookup failure must not drop a suspension notice", q.notified)
+	}
+
+	// A nil namer is the unconfigured path and must behave the same way.
+	if got := (&DunningSweepWorker{log: logger.New("error", "json")}).accountName("acct_1"); got != "" {
+		t.Errorf("accountName = %q, want empty with no namer", got)
+	}
 }
 
 // Aging an account past its grace has to stop the workloads. The recompute only

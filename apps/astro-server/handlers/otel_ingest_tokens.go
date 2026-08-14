@@ -253,7 +253,8 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 		}
 		tokenID := c.Param("tokenID")
 
-		if err := store.Revoke(acct.ID, tokenID); err != nil {
+		keyName, err := store.Revoke(acct.ID, tokenID)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
 				return
@@ -264,7 +265,7 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 		}
 
 		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
-		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", ""))
+		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, "OTel ingest", keyName))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
 	}
 }

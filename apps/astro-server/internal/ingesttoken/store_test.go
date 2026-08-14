@@ -94,3 +94,34 @@ func TestCreateStoresExclusions(t *testing.T) {
 		t.Fatalf("expectations: %v", err)
 	}
 }
+
+// Revoke returns the key's name so the security notification can say which key
+// went away. Without it the email reads: the ingestion key "" was revoked.
+func TestRevokeReturnsTheKeyName(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectQuery("UPDATE otel_ingest_tokens\\s+SET revoked_at").
+		WithArgs("key-1", "acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Contractor laptops"))
+
+	name, err := store.Revoke("acct-1", "key-1")
+	if err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if name != "Contractor laptops" {
+		t.Fatalf("want the revoked key's name, got %q", name)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestRevokeNoActiveKeyReturnsErrNoRows(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectQuery("UPDATE otel_ingest_tokens").
+		WithArgs("missing", "acct-1").
+		WillReturnError(sql.ErrNoRows)
+
+	if _, err := store.Revoke("acct-1", "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("want sql.ErrNoRows, got %v", err)
+	}
+}

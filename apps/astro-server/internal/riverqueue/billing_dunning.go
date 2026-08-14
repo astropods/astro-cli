@@ -6,6 +6,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
@@ -40,9 +41,35 @@ type dunningQueue interface {
 // re-runs the state machine against the stored dunning_since.
 type DunningSweepWorker struct {
 	river.WorkerDefaults[DunningSweepArgs]
-	status *billing.StatusStore
-	queue  dunningQueue // set post-construction in New(); enqueues workload suspend
-	log    *logger.Logger
+	status   *billing.StatusStore
+	queue    dunningQueue // set post-construction in New(); enqueues workload suspend
+	accounts dunningAccountNamer
+	log      *logger.Logger
+}
+
+// dunningAccountNamer resolves an account id to its name. *account.AccountStore
+// satisfies it. Leave the field unset rather than assigning a nil *AccountStore,
+// which would store a non-nil interface holding a nil pointer and panic on the
+// first call.
+type dunningAccountNamer interface {
+	GetByID(id string) (*account.Account, error)
+}
+
+// accountName resolves the name for the suspension notification, returning ""
+// when it cannot. A suspension is worth reporting unnamed, so a miss logs and
+// carries on rather than holding the notification back.
+func (w *DunningSweepWorker) accountName(accountID string) string {
+	if w.accounts == nil {
+		return ""
+	}
+	acct, err := w.accounts.GetByID(accountID)
+	if err != nil || acct == nil {
+		if err != nil {
+			w.log.Warn("dunning sweep: account name lookup failed", "account_id", accountID, "error", err)
+		}
+		return ""
+	}
+	return acct.Name
 }
 
 func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweepArgs]) error {
@@ -68,7 +95,7 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 					w.log.Error("dunning sweep: enqueue suspend failed", "account_id", id, "error", err)
 				}
 				// Notify the owner their account was suspended (best-effort).
-				if err := w.queue.EmitBillingNotify(ctx, notify.BillingSuspended(id, "")); err != nil {
+				if err := w.queue.EmitBillingNotify(ctx, notify.BillingSuspended(id, w.accountName(id))); err != nil {
 					w.log.Warn("dunning sweep: emit suspended notification failed", "account_id", id, "error", err)
 				}
 			}

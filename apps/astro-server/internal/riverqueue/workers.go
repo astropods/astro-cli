@@ -178,6 +178,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			status: statusStore,
 			log:    log,
 		}
+		// accounts is an interface, so assigning a nil *AccountStore would store a
+		// non-nil interface holding a nil pointer and defeat the worker's nil check.
+		if cfg.AccountStore != nil {
+			dunningWorker.accounts = cfg.AccountStore
+		}
 		addWorkerWithCatalogCheck(log, workers, dunningWorker)
 		log.Info("river: registered worker", "worker", "DunningSweepWorker", "period", "1h")
 
