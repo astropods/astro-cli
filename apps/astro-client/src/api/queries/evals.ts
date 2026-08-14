@@ -180,17 +180,44 @@ export function usePostDatasetPredictions(deploymentId: string) {
 
   return useMutation<DatasetPredictionsResponse, Error, void>({
     mutationFn: () => api.postDatasetPredictions(deploymentId),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: evalKeys.reviewQueues(deploymentId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: evalKeys.predictionStatus(deploymentId),
-        }),
-      ]);
+    onSuccess: async (response) => {
+      const enqueuedTraceIds = new Set(response.enqueued_trace_ids);
+      queryClient.setQueriesData<ReviewQueueInfiniteData>(
+        { queryKey: evalKeys.reviewQueues(deploymentId) },
+        (old) => markReviewQueueItemsQueued(old, enqueuedTraceIds),
+      );
+
+      await queryClient.invalidateQueries({
+        queryKey: evalKeys.predictionStatus(deploymentId),
+      });
     },
   });
+}
+
+function markReviewQueueItemsQueued(
+  data: ReviewQueueInfiniteData | undefined,
+  traceIds: ReadonlySet<string>,
+) {
+  if (!data || traceIds.size === 0) {
+    return data;
+  }
+
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.map((item) =>
+        traceIds.has(item.trace_id)
+          ? {
+              ...item,
+              prediction_status: "queued" as const,
+              prediction_error: null,
+              prediction: null,
+            }
+          : item,
+      ),
+    })),
+  };
 }
 
 export function usePostDatasetJudgment(

@@ -1214,11 +1214,7 @@ export type ReviewQueuePredictionStatus =
   | "in_progress"
   | "completed"
   | "failed";
-export type ReviewQueuePredictionFilter =
-  | "good"
-  | "bad"
-  | "unknown"
-  | "none";
+export type ReviewQueuePredictionFilter = "present" | "absent";
 
 export interface ReviewQueuePredictionCriterion {
   dimension_key: string;

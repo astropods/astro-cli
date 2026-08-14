@@ -158,10 +158,9 @@ func ExpectPredictions(
 		WillReturnRows(rows)
 }
 
-func ExpectPredictionTracesByVerdict(
+func ExpectPredictionTracesWithoutJudgments(
 	mock sqlmock.Sqlmock,
 	datasetID string,
-	verdict judgmentstore.Verdict,
 	before *judgmentstore.PredictionTrace,
 	limit int,
 	traces ...judgmentstore.PredictionTrace,
@@ -176,8 +175,8 @@ func ExpectPredictionTracesByVerdict(
 		beforeTimestamp = before.TraceTimestamp
 		beforeTraceID = before.TraceID
 	}
-	mock.ExpectQuery("(?s)SELECT trace_id, trace_timestamp.*AND created_at <= \\$3").
-		WithArgs(datasetID, string(verdict), sqlmock.AnyArg(), beforeTimestamp, beforeTraceID, limit).
+	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*AND p.created_at <= \\$2.*NOT EXISTS.*FROM eval_dataset_judgments j").
+		WithArgs(datasetID, sqlmock.AnyArg(), beforeTimestamp, beforeTraceID, limit).
 		WillReturnRows(rows)
 }
 

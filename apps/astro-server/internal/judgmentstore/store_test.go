@@ -134,68 +134,7 @@ func TestGetPredictionsEmptyTraceIDsDoesNotQuery(t *testing.T) {
 	}
 }
 
-func TestPredictionTracesByVerdict(t *testing.T) {
-	for _, verdict := range []Verdict{VerdictGood, VerdictBad, VerdictUnknown} {
-		t.Run(string(verdict), func(t *testing.T) {
-			db, mock, err := sqlmock.New()
-			if err != nil {
-				t.Fatalf("sqlmock: %v", err)
-			}
-			t.Cleanup(func() { _ = db.Close() })
-
-			asOf := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
-			firstTimestamp := asOf.Add(-time.Hour)
-			secondTimestamp := asOf.Add(-2 * time.Hour)
-			mock.ExpectQuery("(?s)SELECT trace_id, trace_timestamp.*AND created_at <= \\$3").
-				WithArgs("dataset-1", string(verdict), asOf, nil, nil, 3).
-				WillReturnRows(sqlmock.NewRows([]string{"trace_id", "ordering_timestamp"}).
-					AddRow("trace-1", firstTimestamp).
-					AddRow("trace-2", secondTimestamp))
-
-			got, err := NewStore(db).PredictionTracesByVerdict(
-				context.Background(),
-				"dataset-1",
-				verdict,
-				asOf,
-				nil,
-				3,
-			)
-			if err != nil {
-				t.Fatalf("PredictionTracesByVerdict: %v", err)
-			}
-			if len(got) != 2 ||
-				got[0] != (PredictionTrace{TraceID: "trace-1", TraceTimestamp: firstTimestamp}) ||
-				got[1] != (PredictionTrace{TraceID: "trace-2", TraceTimestamp: secondTimestamp}) {
-				t.Fatalf("traces = %v", got)
-			}
-		})
-	}
-}
-
-func TestPredictionTracesByVerdictRejectsInvalidVerdict(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	_, err = NewStore(db).PredictionTracesByVerdict(
-		context.Background(),
-		"dataset-1",
-		Verdict("invalid"),
-		time.Now(),
-		nil,
-		1,
-	)
-	if err == nil {
-		t.Fatal("PredictionTracesByVerdict error = nil, want invalid verdict")
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unexpected query: %v", err)
-	}
-}
-
-func TestPredictionTracesByVerdictUsesKeysetCursor(t *testing.T) {
+func TestPredictionTracesWithoutJudgmentsExcludesJudgmentsBeforeLimit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -208,10 +147,9 @@ func TestPredictionTracesByVerdictUsesKeysetCursor(t *testing.T) {
 		TraceTimestamp: asOf.Add(-time.Hour),
 	}
 	nextTimestamp := asOf.Add(-2 * time.Hour)
-	mock.ExpectQuery("ORDER BY trace_timestamp DESC, trace_id DESC").
+	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*NOT EXISTS.*FROM eval_dataset_judgments j.*ORDER BY p.trace_timestamp DESC, p.trace_id DESC").
 		WithArgs(
 			"dataset-1",
-			string(VerdictGood),
 			asOf,
 			before.TraceTimestamp,
 			before.TraceID,
@@ -220,19 +158,40 @@ func TestPredictionTracesByVerdictUsesKeysetCursor(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"trace_id", "ordering_timestamp"}).
 			AddRow("trace-1", nextTimestamp))
 
-	got, err := NewStore(db).PredictionTracesByVerdict(
+	got, err := NewStore(db).PredictionTracesWithoutJudgments(
 		context.Background(),
 		"dataset-1",
-		VerdictGood,
 		asOf,
 		before,
 		2,
 	)
 	if err != nil {
-		t.Fatalf("PredictionTracesByVerdict: %v", err)
+		t.Fatalf("PredictionTracesWithoutJudgments: %v", err)
 	}
 	if len(got) != 1 || got[0] != (PredictionTrace{TraceID: "trace-1", TraceTimestamp: nextTimestamp}) {
 		t.Fatalf("traces = %v", got)
+	}
+}
+
+func TestPredictionTracesWithoutJudgmentsRejectsInvalidLimit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = NewStore(db).PredictionTracesWithoutJudgments(
+		context.Background(),
+		"dataset-1",
+		time.Now(),
+		nil,
+		0,
+	)
+	if err == nil {
+		t.Fatal("PredictionTracesWithoutJudgments error = nil, want invalid limit")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected query: %v", err)
 	}
 }
 

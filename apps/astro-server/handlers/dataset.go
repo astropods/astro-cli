@@ -255,21 +255,13 @@ type reviewQueueScanStore interface {
 	GetPredictions(context.Context, string, []string) (map[string]judgmentstore.Prediction, error)
 }
 
-func (f reviewQueuePredictionFilter) isVerdict() bool {
-	return f == reviewQueuePredictionGood ||
-		f == reviewQueuePredictionBad ||
-		f == reviewQueuePredictionUnknown
-}
-
 const (
 	reviewQueueDefaultLimit       = 50
 	reviewQueueMaxLimit           = 100
 	reviewQueueMaxScanPages       = 3
 	reviewQueueCursorVersion      = 1
-	reviewQueuePredictionGood     = reviewQueuePredictionFilter("good")
-	reviewQueuePredictionBad      = reviewQueuePredictionFilter("bad")
-	reviewQueuePredictionUnknown  = reviewQueuePredictionFilter("unknown")
-	reviewQueuePredictionNone     = reviewQueuePredictionFilter("none")
+	reviewQueuePredictionPresent  = reviewQueuePredictionFilter("present")
+	reviewQueuePredictionAbsent   = reviewQueuePredictionFilter("absent")
 	reviewQueueStatusNotRequested = "not_requested"
 )
 
@@ -311,7 +303,7 @@ func GetDatasetReviewQueue(
 
 		predictionFilter, ok := parseReviewQueuePredictionFilter(c.Query("prediction"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "prediction must be good, bad, unknown, or none"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "prediction must be present or absent"})
 			return
 		}
 		limit := reviewQueueDefaultLimit
@@ -383,7 +375,7 @@ func parseReviewQueuePredictionFilter(raw string) (reviewQueuePredictionFilter, 
 	switch filter := reviewQueuePredictionFilter(strings.ToLower(strings.TrimSpace(raw))); filter {
 	case "":
 		return "", true
-	case reviewQueuePredictionGood, reviewQueuePredictionBad, reviewQueuePredictionUnknown, reviewQueuePredictionNone:
+	case reviewQueuePredictionPresent, reviewQueuePredictionAbsent:
 		return filter, true
 	default:
 		return "", false
@@ -408,15 +400,14 @@ func getDatasetReviewQueuePage(
 		scanCursor = decoded
 	}
 
-	if predictionFilter.isVerdict() {
-		return getFilteredReviewQueuePage(
+	if predictionFilter == reviewQueuePredictionPresent {
+		return getPredictedReviewQueuePage(
 			ctx,
 			client,
 			judgmentStore,
 			evalDatasetID,
 			deploymentID,
 			limit,
-			predictionFilter,
 			scanCursor,
 		)
 	}
@@ -447,16 +438,15 @@ func newReviewQueueCursor(
 	}
 }
 
-// getFilteredReviewQueuePage pages good, bad, or unknown predictions from the
-// local database first, then fetches only that bounded trace set from Langfuse.
+// getPredictedReviewQueuePage pages prediction records without judgments from
+// the local database, then fetches only that bounded trace set from Langfuse.
 // PredictionTime and PredictionTrace identify the last database row selected.
-func getFilteredReviewQueuePage(
+func getPredictedReviewQueuePage(
 	ctx context.Context,
 	client *langfuse.Client,
 	judgmentStore *judgmentstore.Store,
 	evalDatasetID, deploymentID string,
 	limit int,
-	predictionFilter reviewQueuePredictionFilter,
 	cursor reviewQueueCursor,
 ) (DatasetReviewQueueResponse, error) {
 	asOf, err := time.Parse(time.RFC3339Nano, cursor.EndTime)
@@ -474,10 +464,9 @@ func getFilteredReviewQueuePage(
 			TraceTimestamp: timestamp,
 		}
 	}
-	matchingTraces, err := judgmentStore.PredictionTracesByVerdict(
+	matchingTraces, err := judgmentStore.PredictionTracesWithoutJudgments(
 		ctx,
 		evalDatasetID,
-		judgmentstore.Verdict(predictionFilter),
 		asOf,
 		before,
 		limit+1,
@@ -525,7 +514,7 @@ func getFilteredReviewQueuePage(
 			traces.Data,
 			0,
 			limit,
-			predictionFilter,
+			reviewQueuePredictionPresent,
 		)
 		if err != nil {
 			return DatasetReviewQueueResponse{}, err
@@ -630,10 +619,9 @@ func reviewQueuePageResponse(
 	return DatasetReviewQueueResponse{Items: items, NextCursor: nextCursor}, nil
 }
 
-// loadReviewQueueItems batch-loads local judgment and prediction state for one
-// trace set, removes ineligible traces, and builds up to limit queue items. The
-// returned index is the next trace to examine, and full reports whether the
-// response limit was reached before the trace set was exhausted.
+// loadReviewQueueItems batch-loads the state needed by each prediction filter
+// and builds up to limit queue items. Present candidates already exclude
+// judgments in SQL. All and absent candidates require the scan-path reads.
 func loadReviewQueueItems(
 	ctx context.Context,
 	judgmentStore reviewQueueScanStore,
@@ -646,14 +634,14 @@ func loadReviewQueueItems(
 	for _, trace := range traces {
 		traceIDs = append(traceIDs, trace.ID)
 	}
-	judged, err := judgmentStore.JudgedTraceIDs(ctx, evalDatasetID, traceIDs)
-	if err != nil {
-		return nil, 0, false, fmt.Errorf("%w: judgments: %w", errReviewQueueLocalRead, err)
-	}
-	// Verdict-filtered traces are pre-selected in SQL and always have a completed
-	// prediction, so their request status is never surfaced; skip that read.
+	var err error
+	var judged map[string]bool
 	var requests map[string]judgmentstore.PredictionRequest
-	if !predictionFilter.isVerdict() {
+	if predictionFilter != reviewQueuePredictionPresent {
+		judged, err = judgmentStore.JudgedTraceIDs(ctx, evalDatasetID, traceIDs)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("%w: judgments: %w", errReviewQueueLocalRead, err)
+		}
 		requests, err = judgmentStore.GetPredictionRequests(ctx, evalDatasetID, traceIDs)
 		if err != nil {
 			return nil, 0, false, fmt.Errorf("%w: requests: %w", errReviewQueueLocalRead, err)
@@ -671,7 +659,7 @@ func loadReviewQueueItems(
 			continue
 		}
 		prediction, hasPrediction := predictions[trace.ID]
-		if !reviewQueuePredictionMatches(predictionFilter, hasPrediction) {
+		if predictionFilter == reviewQueuePredictionAbsent && hasPrediction {
 			continue
 		}
 		items = append(items, newDatasetReviewQueueItem(trace, requests[trace.ID], prediction, hasPrediction))
@@ -729,7 +717,7 @@ func decodeReviewQueueCursor(
 	if _, err := time.Parse(time.RFC3339Nano, cursor.EndTime); err != nil {
 		return reviewQueueCursor{}, errInvalidReviewQueueCursor
 	}
-	if predictionFilter.isVerdict() {
+	if predictionFilter == reviewQueuePredictionPresent {
 		if cursor.PredictionTrace == "" {
 			return reviewQueueCursor{}, errInvalidReviewQueueCursor
 		}
@@ -744,16 +732,6 @@ func decodeReviewQueueCursor(
 		return reviewQueueCursor{}, errInvalidReviewQueueCursor
 	}
 	return cursor, nil
-}
-
-// reviewQueuePredictionMatches applies the scan-path prediction filters. Verdict
-// filters (good/bad/unknown) are already resolved in SQL by
-// PredictionTracesByVerdict, so only the no-prediction filter needs a local check.
-func reviewQueuePredictionMatches(filter reviewQueuePredictionFilter, hasPrediction bool) bool {
-	if filter == reviewQueuePredictionNone {
-		return !hasPrediction
-	}
-	return true
 }
 
 func newDatasetReviewQueueItem(

@@ -25,7 +25,6 @@ function PredictionExplanationHarness() {
   return (
     <>
       <ReviewQueuePredictionControls
-        prediction={prediction}
         explanationOpen={open}
         onExplanationOpenChange={setOpen}
       />
@@ -39,9 +38,9 @@ describe("ReviewQueuePredictionControls", () => {
     const user = userEvent.setup();
     render(<PredictionExplanationHarness />);
 
-    expect(screen.getByText("Bad")).toBeInTheDocument();
-    expect(screen.getByText("Bad").parentElement).toHaveStyle({
-      color: "var(--destructive)",
+    expect(screen.getByText("Judged").parentElement).toHaveStyle({
+      background: "transparent",
+      color: "var(--sb-primary-fg, var(--primary))",
     });
     expect(screen.queryByText("79% confident")).not.toBeInTheDocument();
     expect(
@@ -61,18 +60,27 @@ describe("ReviewQueuePredictionControls", () => {
     expect(
       screen.getByRole("button", { name: "Hide explanation" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Judge's verdict")).toBeInTheDocument();
+    const analysisTitle = screen.getByText("Judge's analysis");
+    expect(analysisTitle).toHaveClass("text-heading-2", "font-semibold");
+    expect(analysisTitle.querySelector("svg")).toHaveClass(
+      "text-primary",
+      "dark:text-indigo-300",
+    );
+    expect(screen.queryByText(/verdict/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("The response did not address the request."),
     ).toBeInTheDocument();
     expect(screen.getByText("79% confident")).toBeInTheDocument();
     await user.hover(screen.getByLabelText("About judge confidence"));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "How certain the judge is of its verdict, independent",
+      "How certain the judge is of its analysis",
     );
     expect(
       screen.getByRole("progressbar", { name: "Judge confidence" }),
     ).toHaveAttribute("aria-valuenow", "79");
+    expect(
+      screen.getByRole("progressbar", { name: "Judge confidence" }),
+    ).toHaveClass("mt-3");
     for (const label of [
       "Accuracy",
       "Completeness",

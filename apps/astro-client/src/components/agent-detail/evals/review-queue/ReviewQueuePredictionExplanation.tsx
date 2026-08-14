@@ -4,17 +4,12 @@ import { StatusBadge, type StatusBadgeColor } from "@/components/StatusBadge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ReviewQueuePrediction } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import {
   JUDGMENT_CRITERIA,
   predictionCriterionAssessment,
   predictionCriterionValue,
   type PredictionCriterionAssessment,
 } from "../judgment-criteria";
-import {
-  predictionVerdict,
-  predictionVerdictPresentation,
-} from "./PredictionVerdictIndicator";
 
 function criterionPresentation(
   assessment: PredictionCriterionAssessment,
@@ -34,34 +29,27 @@ export function ReviewQueuePredictionExplanation({
 }: {
   prediction: ReviewQueuePrediction;
 }) {
-  const verdict = predictionVerdict(prediction.verdict_score);
-  const presentation = predictionVerdictPresentation(verdict);
   const confidence = Math.min(100, Math.max(0, prediction.confidence));
 
   return (
     <div className="pt-4 pb-2">
-      <div className="flex items-center gap-2 font-mono text-mono-sm text-faint-foreground">
-        <Sparkle aria-hidden className="size-4 text-primary" />
-        Judge&apos;s verdict
-      </div>
       <div className="mt-3">
         <div className="flex flex-wrap items-baseline justify-between gap-4">
-          <div
-            className={cn(
-              "flex-none text-heading-2 font-semibold",
-              presentation.textClassName,
-            )}
-          >
-            {presentation.label}
+          <div className="flex items-center gap-2 text-heading-2 font-semibold text-foreground">
+            <Sparkle
+              aria-hidden
+              className="size-4 text-primary dark:text-indigo-300"
+            />
+            Judge&apos;s analysis
           </div>
-          <div className="flex flex-none items-center gap-1.5 text-body">
+          <div className="flex items-center gap-1.5 text-body">
             <span className="font-semibold text-foreground tabular-nums">
               {confidence}% confident
             </span>
             <TooltipProvider delayDuration={300}>
               <InfoHint label="About judge confidence">
-                How certain the judge is of its verdict, independent of which
-                way it leans. Low confidence is worth a closer look.
+                How certain the judge is of its analysis. Low confidence is
+                worth a closer look.
               </InfoHint>
             </TooltipProvider>
           </div>
@@ -69,7 +57,7 @@ export function ReviewQueuePredictionExplanation({
         <ProgressBar
           aria-label="Judge confidence"
           value={confidence}
-          tone={presentation.tone}
+          tone="primary"
           className="mt-3"
         />
       </div>

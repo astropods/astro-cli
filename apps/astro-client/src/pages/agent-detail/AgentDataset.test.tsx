@@ -637,6 +637,30 @@ describe("review queue view", () => {
     expect(screen.getByText("No prediction was made.")).toBeInTheDocument();
   });
 
+  it("shows an enqueued prediction as judging immediately", async () => {
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([
+        queueItem({
+          trace_id: "trace-enqueued",
+        }),
+      ]),
+    );
+    mockRunPredictions(() => ({
+      enqueued_trace_ids: ["trace-enqueued"],
+      failed_trace_ids: [],
+    }));
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Not judged")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+
+    expect(await screen.findByText("Judging…")).toBeInTheDocument();
+  });
+
   it("disables the judge button when the loaded queue has nothing to judge", async () => {
     localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
@@ -655,7 +679,7 @@ describe("review queue view", () => {
 
     await user.hover(judgeButton.parentElement!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Every trace already has a verdict, so there's nothing left to judge.",
+      "Every trace is already judged.",
     );
   });
 
@@ -663,7 +687,7 @@ describe("review queue view", () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
     mockReviewQueueRequest((url) =>
       reviewQueueResponse(
-        url.searchParams.get("prediction") === "good"
+        url.searchParams.get("prediction") === "present"
           ? [
               queueItem({
                 trace_id: "trace-predicted-good",
@@ -689,7 +713,7 @@ describe("review queue view", () => {
     await user.click(
       await screen.findByRole("combobox", { name: "Filter review queue" }),
     );
-    await user.click(screen.getByRole("option", { name: "Good" }));
+    await user.click(screen.getByRole("option", { name: "Judged" }));
 
     expect(await screen.findByText("Predicted good response")).toBeInTheDocument();
     expect(
@@ -722,7 +746,7 @@ describe("review queue view", () => {
     );
     mockReviewQueueRequest((url) =>
       reviewQueueResponse(
-        url.searchParams.get("prediction") === "none"
+        url.searchParams.get("prediction") === "absent"
           ? [unjudgedItem]
           : [predictedItem],
       ),
@@ -840,7 +864,7 @@ describe("review queue view", () => {
     await user.click(
       screen.getByRole("combobox", { name: "Filter review queue" }),
     );
-    await user.click(screen.getByRole("option", { name: "Good" }));
+    await user.click(screen.getByRole("option", { name: "Judged" }));
     expect(
       screen.getByRole("button", { name: "Judging 1 item" }),
     ).toBeDisabled();
@@ -1123,10 +1147,8 @@ describe("review queue view", () => {
     expect(await screen.findByText("all response")).toBeInTheDocument();
 
     for (const [label, prediction] of [
-      ["Good", "good"],
-      ["Bad", "bad"],
-      ["Not sure", "unknown"],
-      ["Not judged", "none"],
+      ["Judged", "present"],
+      ["Not judged", "absent"],
     ] as const) {
       await user.click(
         screen.getByRole("combobox", { name: "Filter review queue" }),
@@ -1137,7 +1159,7 @@ describe("review queue view", () => {
       ).toBeInTheDocument();
     }
 
-    expect(requestedFilters).toEqual([null, "good", "bad", "unknown", "none"]);
+    expect(requestedFilters).toEqual([null, "present", "absent"]);
   });
 
   it("loads additional queue pages with cursors", async () => {
@@ -2409,7 +2431,7 @@ describe("dataset view", () => {
 
       expect(await screen.findByText("Undo response")).toBeInTheDocument();
       expect(
-        await screen.findByRole("option", { name: /undo prompt bad/i }),
+        await screen.findByRole("option", { name: /undo prompt judged/i }),
       ).toBeInTheDocument();
     } finally {
       if (hadAnimate) {

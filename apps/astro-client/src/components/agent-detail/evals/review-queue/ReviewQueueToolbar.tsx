@@ -11,11 +11,9 @@ import {
 } from "./AutoJudgeAction";
 
 const REVIEW_QUEUE_FILTER_OPTIONS = [
-  { label: "All verdicts", value: "all" },
-  { label: "Good", value: "good" },
-  { label: "Bad", value: "bad" },
-  { label: "Not sure", value: "unknown" },
-  { label: "Not judged", value: "none" },
+  { label: "All", value: "all" },
+  { label: "Judged", value: "present" },
+  { label: "Not judged", value: "absent" },
 ] as const;
 
 export type ReviewQueueFilterValue =

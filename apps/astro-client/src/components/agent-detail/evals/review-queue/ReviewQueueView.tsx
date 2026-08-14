@@ -550,7 +550,6 @@ export function ReviewQueueView({
                   {selectedPrediction && (
                     <ReviewQueuePredictionControls
                       key={selectedItem.trace_id}
-                      prediction={selectedPrediction}
                       explanationOpen={
                         predictionExplanationTraceId === selectedItem.trace_id
                       }

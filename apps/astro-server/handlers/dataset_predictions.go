@@ -184,10 +184,10 @@ func PostDatasetPredictions(
 			dataset.ID,
 			deploymentID,
 			maxDatasetPredictionTraceIDs,
-			reviewQueuePredictionNone,
+			reviewQueuePredictionAbsent,
 			newReviewQueueCursor(
 				dataset.ID,
-				reviewQueuePredictionNone,
+				reviewQueuePredictionAbsent,
 				maxDatasetPredictionTraceIDs,
 			),
 		)

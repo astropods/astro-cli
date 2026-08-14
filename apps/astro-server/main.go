@@ -2245,7 +2245,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
-				oapispec.QueryParam("prediction", "Prediction filter: good, bad, unknown, or none", false),
+				oapispec.QueryParam("prediction", "Prediction filter: present or absent", false),
 				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)

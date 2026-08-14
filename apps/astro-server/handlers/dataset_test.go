@@ -1331,7 +1331,7 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	}
 }
 
-func TestGetDatasetReviewQueue_IncludesMatchingPrediction(t *testing.T) {
+func TestGetDatasetReviewQueue_IncludesJudgedTrace(t *testing.T) {
 	traces := []langfuse.Trace{{
 		ID:        "trace-1",
 		CreatedAt: "2026-06-01T12:00:00Z",
@@ -1348,15 +1348,13 @@ func TestGetDatasetReviewQueue_IncludesMatchingPrediction(t *testing.T) {
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
 	traceTimestamp := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	judgmentstoretest.ExpectPredictionTracesByVerdict(
+	judgmentstoretest.ExpectPredictionTracesWithoutJudgments(
 		f.judgmentMock,
 		"dataset-dep-1",
-		judgmentstore.VerdictGood,
 		nil,
 		reviewQueueDefaultLimit+1,
 		judgmentstore.PredictionTrace{TraceID: "trace-1", TraceTimestamp: traceTimestamp},
 	)
-	judgmentstoretest.ExpectJudgedTraceIDs(f.judgmentMock, "dataset-dep-1")
 	now := time.Now().UTC()
 	judgmentstoretest.ExpectPredictions(
 		f.judgmentMock,
@@ -1380,7 +1378,7 @@ func TestGetDatasetReviewQueue_IncludesMatchingPrediction(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=good",
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=present",
 		nil,
 	)
 	rec := httptest.NewRecorder()
@@ -1435,7 +1433,7 @@ func TestGetDatasetReviewQueue_FiltersTracesWithoutPredictions(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=none",
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=absent",
 		nil,
 	)
 	rec := httptest.NewRecorder()
@@ -1461,7 +1459,7 @@ func TestReviewQueueCursorRoundTrip(t *testing.T) {
 	want := reviewQueueCursor{
 		Version:          reviewQueueCursorVersion,
 		EvalDatasetID:    "dataset-1",
-		PredictionFilter: "bad",
+		PredictionFilter: "present",
 		Limit:            25,
 		EndTime:          endTime,
 		RawPage:          1,
@@ -1473,7 +1471,7 @@ func TestReviewQueueCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	got, err := decodeReviewQueueCursor(raw, "dataset-1", reviewQueuePredictionBad, 25)
+	got, err := decodeReviewQueueCursor(raw, "dataset-1", reviewQueuePredictionPresent, 25)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -1559,17 +1557,16 @@ func TestGetDatasetReviewQueue_FilterWithoutMatchesSkipsLangfuse(t *testing.T) {
 	f := setupDatasetRouter(t, true, upstream)
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	judgmentstoretest.ExpectPredictionTracesByVerdict(
+	judgmentstoretest.ExpectPredictionTracesWithoutJudgments(
 		f.judgmentMock,
 		"dataset-dep-1",
-		judgmentstore.VerdictGood,
 		nil,
 		reviewQueueDefaultLimit+1,
 	)
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=good",
+		"/api/v1/deployments/dep-1/dataset/review-queue?prediction=present",
 		nil,
 	)
 	rec := httptest.NewRecorder()
@@ -1689,28 +1686,6 @@ func TestNewDatasetReviewQueueItemIncludesFullInputOutput(t *testing.T) {
 	}
 	if item.Output != output {
 		t.Fatalf("output was not preserved in full")
-	}
-}
-
-func TestReviewQueuePredictionMatches(t *testing.T) {
-	tests := []struct {
-		name       string
-		filter     reviewQueuePredictionFilter
-		prediction bool
-		want       bool
-	}{
-		{name: "unfiltered without prediction", want: true},
-		{name: "verdict filter passes through", filter: reviewQueuePredictionGood, prediction: true, want: true},
-		{name: "none", filter: reviewQueuePredictionNone, want: true},
-		{name: "none excludes prediction", filter: reviewQueuePredictionNone, prediction: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := reviewQueuePredictionMatches(tt.filter, tt.prediction)
-			if got != tt.want {
-				t.Fatalf("match = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 

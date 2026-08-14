@@ -46,8 +46,7 @@ export function AutoJudgeHoverPopover({
             className="max-w-xs"
           >
             <span>
-              Every trace already has a verdict, so there&apos;s nothing left to
-              judge.
+              Every trace is already judged.
             </span>
           </TooltipContent>
         ) : (
