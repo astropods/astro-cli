@@ -21,7 +21,7 @@ import (
 // retried. Satisfied by *riverqueue.Queue; nil disables enqueue (endpoint 404s
 // when its secret is also unset).
 type WebhookQueue interface {
-	InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID, detail string) error
+	InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID, alertName, detail string) error
 	InsertStripeWebhook(ctx context.Context, eventID, eventType, customerID, hostedInvoiceURL string) error
 }
 
@@ -34,6 +34,7 @@ type metronomeWebhookEnvelope struct {
 	Type       string `json:"type"`
 	Properties struct {
 		CustomerID           string `json:"customer_id"`
+		AlertName            string `json:"alert_name"`
 		InvoiceID            string `json:"invoice_id"`
 		BillingProvider      string `json:"billing_provider"`
 		BillingProviderError string `json:"billing_provider_error"`
@@ -98,7 +99,7 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 		}
 
 		if queue != nil {
-			if err := queue.InsertMetronomeWebhook(c.Request.Context(), env.ID, env.Type, env.Properties.CustomerID, env.detail()); err != nil {
+			if err := queue.InsertMetronomeWebhook(c.Request.Context(), env.ID, env.Type, env.Properties.CustomerID, env.Properties.AlertName, env.detail()); err != nil {
 				// Return 500 so Metronome redelivers — the event is not yet tracked.
 				log.Error("Metronome webhook: enqueue failed", "type", env.Type, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})

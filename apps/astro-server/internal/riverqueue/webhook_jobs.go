@@ -23,8 +23,16 @@ type MetronomeWebhookArgs struct {
 	EventID    string `json:"event_id" river:"unique"`
 	EventType  string `json:"event_type"`
 	CustomerID string `json:"customer_id"`
-	Detail     string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
+	// AlertName tells an account's own spend warning from its limit, which are
+	// the same alert type at different numbers.
+	AlertName string `json:"alert_name,omitempty"`
+	Detail    string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
 }
+
+// spendWarningAlertName mirrors the name the metronome provider gives an
+// account's own warning. Restated rather than imported: the queue does not
+// otherwise depend on a specific provider.
+const spendWarningAlertName = "astro:spend_warning"
 
 func (MetronomeWebhookArgs) Kind() string { return "webhook.metronome" }
 
@@ -78,7 +86,15 @@ func init() {
 // (usage/commit/invoice-total) are UI banners, not gating signals, so they stay
 // unhandled here. Event names are the alert_type enum prefixed with "alerts.":
 // https://docs.metronome.com/api-reference/alerts/create-a-threshold-notification
-func metronomeSignal(eventType string) (billing.Signal, bool) {
+func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
+	// An account's own warning is the same alert type at a lower number, and it
+	// exists to warn rather than stop. Gating on it would suspend an account for
+	// crossing the line it asked to be told about. Its resolved edge is skipped
+	// for the mirror-image reason: clearing the latch would un-gate an account
+	// the limit had stopped.
+	if alertName == spendWarningAlertName {
+		return "", false
+	}
 	switch eventType {
 	case "alerts.spend_threshold_reached":
 		return billing.SignalAlert, true
@@ -191,7 +207,7 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 	if w.accounts == nil || w.status == nil {
 		return nil
 	}
-	sig, ok := metronomeSignal(job.Args.EventType)
+	sig, ok := metronomeSignal(job.Args.EventType, job.Args.AlertName)
 	if !ok {
 		w.log.Info("metronome webhook: unhandled event", "type", job.Args.EventType)
 		return nil

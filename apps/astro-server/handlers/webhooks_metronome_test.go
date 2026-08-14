@@ -173,3 +173,28 @@ func TestMetronomeWebhook_Disabled(t *testing.T) {
 		t.Fatalf("expected 404 when disabled, got %d", rec.Code)
 	}
 }
+
+// The alert name is the only thing separating an account's own warning from its
+// limit. Dropping it at the edge would leave the worker unable to tell them
+// apart, and the warning would gate.
+func TestMetronomeWebhook_ForwardsTheAlertName(t *testing.T) {
+	const secret = "whsec-test"
+	const date = "2026-08-12T00:00:00Z"
+	body := `{"id":"evt_9","type":"alerts.spend_threshold_reached","properties":{` +
+		`"customer_id":"cust_1","alert_id":"a1","alert_name":"astro:spend_warning",` +
+		`"threshold":2500,"current_spend":2600}}`
+
+	q := &fakeWebhookQueue{}
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/metronome", strings.NewReader(body))
+	req.Header.Set("X-Metronome-Date", date)
+	req.Header.Set("Metronome-Webhook-Signature", sign(secret, date, body))
+	rec := httptest.NewRecorder()
+	metronomeWebhookRouterWithQueue(secret, q).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if q.lastAlertName != "astro:spend_warning" {
+		t.Errorf("alert name = %q, want astro:spend_warning", q.lastAlertName)
+	}
+}

@@ -24,13 +24,14 @@ type fakeWebhookQueue struct {
 	lastEventType  string
 	lastCustomer   string
 	lastURL        string
+	lastAlertName  string
 	lastDetail     string
 	err            error
 }
 
-func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, eventID, eventType, customerID, detail string) error {
+func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, eventID, eventType, customerID, alertName, detail string) error {
 	f.metronomeCalls++
-	f.lastEventID, f.lastEventType, f.lastCustomer, f.lastDetail = eventID, eventType, customerID, detail
+	f.lastEventID, f.lastEventType, f.lastCustomer, f.lastAlertName, f.lastDetail = eventID, eventType, customerID, alertName, detail
 	return f.err
 }
 

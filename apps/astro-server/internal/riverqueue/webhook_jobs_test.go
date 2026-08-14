@@ -74,9 +74,28 @@ func TestMetronomeSignalMapping(t *testing.T) {
 		{"invoice.paid", "", false},
 	}
 	for _, tc := range cases {
-		got, ok := metronomeSignal(tc.event)
+		got, ok := metronomeSignal(tc.event, "")
 		if ok != tc.handled || got != tc.want {
 			t.Errorf("metronomeSignal(%q) = (%q, %v), want (%q, %v)", tc.event, got, ok, tc.want, tc.handled)
+		}
+	}
+}
+
+// The two spend controls are the same alert type at different numbers, so only
+// the name separates them. Gating on the warning would suspend an account for
+// crossing the line it asked to be warned about, and clearing the latch on the
+// warning's resolved edge would un-gate one the limit had stopped.
+func TestMetronomeSignal_TheAccountsOwnWarningNeverGates(t *testing.T) {
+	for _, ev := range []string{"alerts.spend_threshold_reached", "alerts.spend_threshold_resolved"} {
+		if sig, ok := metronomeSignal(ev, "astro:spend_warning"); ok {
+			t.Errorf("%s on the warning produced %q: a warning must not move billing status", ev, sig)
+		}
+		// The limit and the org-wide backstop are the same event, and both gate.
+		if _, ok := metronomeSignal(ev, "astro:spend_limit"); !ok {
+			t.Errorf("%s on the limit produced no signal", ev)
+		}
+		if _, ok := metronomeSignal(ev, "Hard spend threshold"); !ok {
+			t.Errorf("%s on the org-wide backstop produced no signal", ev)
 		}
 	}
 }
@@ -99,7 +118,7 @@ func TestMetronomeAlarmMapping(t *testing.T) {
 		if got := metronomeAlarm(tc.event); got != tc.alarm {
 			t.Errorf("metronomeAlarm(%q) = %v, want %v", tc.event, got, tc.alarm)
 		}
-		if _, handled := metronomeSignal(tc.event); tc.alarm && handled {
+		if _, handled := metronomeSignal(tc.event, ""); tc.alarm && handled {
 			t.Errorf("metronomeSignal(%q) returned a signal: an alarm must not move billing status", tc.event)
 		}
 	}
@@ -153,7 +172,7 @@ func TestWebhookEvents_ReachEveryGateClearingSignal(t *testing.T) {
 		if sig, ok := stripeSignal(ev); ok {
 			reachable[sig] = ev
 		}
-		if sig, ok := metronomeSignal(ev); ok {
+		if sig, ok := metronomeSignal(ev, ""); ok {
 			reachable[sig] = ev
 		}
 	}
