@@ -115,7 +115,7 @@ func apiCallWithHeaders(ctx context.Context, method, reqURL string, body any, to
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(respBody))
+		return resp.StatusCode, newAPIError(resp.StatusCode, respBody)
 	}
 
 	if dest != nil {
@@ -165,7 +165,7 @@ func apiUpload(ctx context.Context, method, reqURL, contentType string, body io.
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(respBody))
+		return resp.StatusCode, newAPIError(resp.StatusCode, respBody)
 	}
 
 	if dest != nil {
@@ -220,7 +220,7 @@ func apiStream(ctx context.Context, reqURL string, token string, verbose bool) (
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close() //nolint:errcheck,gosec
-		return resp.StatusCode, nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		return resp.StatusCode, nil, newAPIError(resp.StatusCode, body)
 	}
 	return resp.StatusCode, resp.Body, nil
 }

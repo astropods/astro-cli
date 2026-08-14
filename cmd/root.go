@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,7 +65,7 @@ func Execute() {
 
 	if execErr != nil {
 		fmt.Fprintln(os.Stderr, execErr)
-		os.Exit(1)
+		os.Exit(exitCodeFor(execErr))
 	}
 
 	if invoked == nil || invoked.Name() != "upgrade" {
@@ -170,4 +171,16 @@ func resolveSpecPathAndCwd(specFile string) (specPath, workingDir string, err er
 func resolveSpecPathFromCwd(specFile string) (string, error) {
 	specPath, _, err := resolveSpecPathAndCwd(specFile)
 	return specPath, err
+}
+
+// exitCodeFor maps an error to the process exit code. A billing suspension gets
+// its own, because a script that retries on failure has to be able to tell a
+// transient server problem from an account that cannot run anything until
+// someone pays. Every other failure keeps 1.
+func exitCodeFor(err error) int {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && apiErr.isBillingSuspended() {
+		return exitCodeBillingSuspended
+	}
+	return 1
 }
