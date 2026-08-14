@@ -145,7 +145,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
             emptyContent={showRegistryEmpty ? <BlueprintsEmptyState /> : null}
             ownerAccounts={ownerAccounts}
             slotCount={pagination.totalPages > 1 ? USER_BLUEPRINTS_PAGE_SIZE : undefined}
-            showAuthor
           />
         )}
       </ListResultsTransition>

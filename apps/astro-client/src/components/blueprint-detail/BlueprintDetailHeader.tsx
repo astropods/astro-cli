@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { Camera } from "lucide-react";
 import { ArchiveBoxIcon, EllipsisHorizontalIcon } from "@heroicons/react/24/outline";
 import { InlineBadge } from "@/components/InlineBadge";
@@ -8,7 +9,14 @@ import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { ArchiveBlueprintDialog } from "@/components/ArchiveBlueprintDialog";
 import { useUploadBlueprintAvatar } from "@/api/queries";
 import { bustAgentAvatar } from "@/lib/avatar-bust";
+import { accountProfilePath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +49,19 @@ export function BlueprintDetailHeader({
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const uploadAvatar = useUploadBlueprintAvatar();
+
+  const accountRef = useRef<HTMLAnchorElement>(null);
+  const [accountTruncated, setAccountTruncated] = useState(false);
+
+  useEffect(() => {
+    const el = accountRef.current;
+    if (!el) return;
+    const check = () => setAccountTruncated(el.scrollWidth > el.clientWidth);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [account]);
 
   const avatarImage = (
     <BlueprintIdentity
@@ -93,8 +114,25 @@ export function BlueprintDetailHeader({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
-            <h1 className="m-0 flex flex-wrap items-center gap-2 font-mono text-xl font-bold leading-none text-foreground">
-              {name}
+            <h1 className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-xl leading-tight text-foreground">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      ref={accountRef}
+                      to={accountProfilePath(account)}
+                      className="max-w-[14ch] truncate font-normal text-muted-foreground transition-colors hover:text-foreground sm:max-w-[24ch] lg:max-w-[36ch]"
+                    >
+                      {account}
+                    </Link>
+                  </TooltipTrigger>
+                  {accountTruncated && (
+                    <TooltipContent side="bottom">{account}</TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+              <span className="font-normal text-muted-foreground">/</span>
+              <span className="min-w-0 break-all font-bold">{name}</span>
               {isDraft && (
                 <StatusBadge color="warning">Finish setup</StatusBadge>
               )}

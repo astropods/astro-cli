@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { Check, ChevronLeft, Copy } from "lucide-react";
 import { useLocation } from "react-router";
 import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outline";
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
@@ -10,10 +10,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
-import { UserAvatar } from "@/components/UserAvatar";
 import { useToggleHeart } from "@/api/queries/hearts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { accountProfilePath, blueprintsPathForAuth, explorePath } from "@/lib/routes";
+import { blueprintsPathForAuth, explorePath } from "@/lib/routes";
 import { useAuth } from "@/lib/auth";
 import { getLinkedInShareHref, getXShareHref } from "@/lib/share-utils";
 import { XIcon } from "@/components/ui/svgs/xIcon";
@@ -125,8 +124,8 @@ export function BlueprintDetailBreadcrumb({
   const { isAuthenticated } = useAuth();
   const from = (location.state as { from?: string } | null)?.from;
   const rootCrumb = from?.startsWith("/explore")
-    ? { label: "Explore", to: explorePath }
-    : { label: "Blueprints", to: blueprintsPathForAuth(isAuthenticated) };
+    ? { label: "explore", to: explorePath }
+    : { label: "blueprints", to: blueprintsPathForAuth(isAuthenticated) };
 
   const handleCopy = async () => {
     await copy(shareUrl || window.location.href);
@@ -135,19 +134,14 @@ export function BlueprintDetailBreadcrumb({
   return (
     <PageBreadcrumb
       items={[
-        rootCrumb,
-        { label: account, to: accountProfilePath(account) },
-        { label: blueprintName },
-      ]}
-      mobileItems={[
         {
           label: (
-            <span className="inline-flex items-center gap-2">
-              <UserAvatar handle={account} name={account} className="size-5" />
-              {account}
+            <span className="inline-flex items-center gap-1">
+              <ChevronLeft className="size-3.5 shrink-0" />
+              Back to {rootCrumb.label}
             </span>
           ),
-          to: accountProfilePath(account),
+          to: rootCrumb.to,
         },
       ]}
       actions={

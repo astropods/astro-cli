@@ -39,4 +39,30 @@ describe("BlueprintCard", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows the owning account in the footer", () => {
+    renderWithProviders(
+      <BlueprintCard
+        slug="acme/signal-watcher"
+        account="acme"
+        name="signal-watcher"
+        description="Monitors API behavior and alert conditions."
+        deployCount={4}
+      />,
+    );
+
+    expect(screen.getByText("acme")).toBeInTheDocument();
+    expect(screen.getByText("4 deploys")).toBeInTheDocument();
+  });
+
+  it("keeps the title free of the account so the name is never squeezed", () => {
+    renderWithProviders(
+      <BlueprintCard
+        slug="a-very-long-account-name/signal-watcher"
+        account="a-very-long-account-name"
+        name="signal-watcher"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "signal-watcher" })).toBeInTheDocument();
+  });
 });
