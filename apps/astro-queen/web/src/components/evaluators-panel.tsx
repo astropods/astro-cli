@@ -6,10 +6,10 @@ import {
   useFixDeploymentDrift,
 } from "@/api/admin";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronRight, Wrench, Hammer } from "lucide-react";
 import { cn, mutationErrorMessage } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { EvaluatorSummary } from "@/types/admin";
+import type { EvaluatorSummary, EvaluatorDriftRow } from "@/types/admin";
 
 // Evaluators (astro-server's internal/deployeval) are named, declarative
 // checks for one kind of deployment configuration drift, each paired with a
@@ -116,6 +116,27 @@ function EvaluatorDriftList({ evaluatorId }: { evaluatorId: string }) {
   const fixMut = useFixDeploymentDrift();
   const rows = data?.rows ?? [];
 
+  const [fixingAll, setFixingAll] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const fixAll = async () => {
+    setFixingAll(true);
+    setProgress(0);
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        await fixMut.mutateAsync({
+          evaluatorId,
+          deploymentId: rows[i].deployment_id,
+        });
+      } catch {
+        // continue to the next deployment; per-row status still reflects
+        // whatever FixDeploymentDrift last recorded for the failed one
+      }
+      setProgress(i + 1);
+    }
+    setFixingAll(false);
+  };
+
   if (isLoading) {
     return (
       <p className="mt-2 text-[11px] text-muted-foreground">Loading…</p>
@@ -129,6 +150,38 @@ function EvaluatorDriftList({ evaluatorId }: { evaluatorId: string }) {
     );
   }
 
+  return (
+    <>
+      <div className="mt-2 flex justify-end">
+        <Button
+          size="xs"
+          variant="outline"
+          className="gap-1"
+          disabled={fixingAll}
+          onClick={fixAll}
+        >
+          <Hammer className={cn("size-3", fixingAll && "animate-pulse")} />
+          {fixingAll ? `Fixing… ${progress}/${rows.length}` : "Fix all"}
+        </Button>
+      </div>
+      <EvaluatorDriftTable
+        rows={rows}
+        evaluatorId={evaluatorId}
+        fixMut={fixMut}
+      />
+    </>
+  );
+}
+
+function EvaluatorDriftTable({
+  rows,
+  evaluatorId,
+  fixMut,
+}: {
+  rows: EvaluatorDriftRow[];
+  evaluatorId: string;
+  fixMut: ReturnType<typeof useFixDeploymentDrift>;
+}) {
   return (
     <table className="mt-2 w-full text-[11px]">
       <thead>
