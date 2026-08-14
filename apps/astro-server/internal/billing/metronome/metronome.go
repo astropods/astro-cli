@@ -54,6 +54,7 @@ var (
 	_ billing.ContractInspector    = (*Provider)(nil)
 	_ billing.SpendReporter        = (*Provider)(nil)
 	_ billing.SpendThresholdReader = (*Provider)(nil)
+	_ billing.SpendThresholdWriter = (*Provider)(nil)
 )
 
 // New constructs a Metronome provider. Returns nil when no API key is set so

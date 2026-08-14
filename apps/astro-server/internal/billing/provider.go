@@ -126,10 +126,27 @@ type SpendThresholds struct {
 	HasLimit   bool
 }
 
+// SpendThresholdKind names which of a customer's two controls is meant. They are
+// the same provider primitive at different numbers, so nothing but this
+// distinguishes them.
+type SpendThresholdKind string
+
+const (
+	SpendThresholdWarning SpendThresholdKind = "warning" // warns, never gates
+	SpendThresholdLimit   SpendThresholdKind = "limit"   // suspends the account
+)
+
 // SpendThresholdReader reads the customer's own spend controls. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.
 type SpendThresholdReader interface {
 	CustomerSpendThresholds(ctx context.Context, customerID string) (SpendThresholds, error)
+}
+
+// SpendThresholdWriter sets and clears the customer's own spend controls. Both
+// are idempotent: setting the number already in force changes nothing.
+type SpendThresholdWriter interface {
+	SetCustomerSpendThreshold(ctx context.Context, customerID string, kind SpendThresholdKind, amount float64) error
+	ClearCustomerSpendThreshold(ctx context.Context, customerID string, kind SpendThresholdKind) error
 }
 
 // ContractInspector exposes the same coverage check provisioning makes, so the

@@ -3,6 +3,8 @@ package metronome
 import (
 	"context"
 	"testing"
+
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
 
 const pathCustomerAlerts = "v1/customer-alerts/list"
@@ -73,5 +75,94 @@ func TestCustomerSpendThresholds_ZeroIsARealSetting(t *testing.T) {
 	}
 	if got.Limit.Amount != 0 {
 		t.Errorf("limit = %v, want 0", got.Limit.Amount)
+	}
+}
+
+const (
+	pathAlertCreate  = "v1/alerts/create"
+	pathAlertArchive = "v1/alerts/archive"
+	pathAlertReset   = "v1/customer-alerts/reset"
+)
+
+const noCustomerAlerts = `{"data":[],"next_page":null}`
+
+// Metronome has no edit, so changing a threshold is archive then create. The
+// archive has to release the uniqueness key, or the replacement collides with
+// the alert it replaces and the customer's new number never takes effect.
+func TestSetCustomerSpendThreshold_ChangeReleasesTheUniquenessKey(t *testing.T) {
+	existing := `{"data":[{"customer_status":"ok","alert":{"id":"a_old","name":"astro:spend_limit","status":"enabled","threshold":5000,"type":"spend_threshold_reached","updated_at":"2026-08-12T00:00:00Z"}}],"next_page":null}`
+	p, s := newStub(t, map[string]string{
+		pathCustomerAlerts: existing,
+		pathAlertArchive:   `{"data":{"id":"a_old"}}`,
+		pathAlertCreate:    `{"data":{"id":"a_new"}}`,
+		pathAlertReset:     `{}`,
+	})
+
+	if err := p.SetCustomerSpendThreshold(context.Background(), "cust_1", billing.SpendThresholdLimit, 9000); err != nil {
+		t.Fatalf("SetCustomerSpendThreshold: %v", err)
+	}
+
+	archive := s.firstBody(pathAlertArchive)
+	if archive["id"] != "a_old" {
+		t.Errorf("archived %v, want a_old", archive["id"])
+	}
+	if archive["release_uniqueness_key"] != true {
+		t.Errorf("release_uniqueness_key = %v, want true: the replacement collides without it", archive["release_uniqueness_key"])
+	}
+	create := s.firstBody(pathAlertCreate)
+	if create["threshold"] != float64(9000) {
+		t.Errorf("threshold = %v, want 9000", create["threshold"])
+	}
+	if create["uniqueness_key"] != "astro:spend_limit:cust_1" {
+		t.Errorf("uniqueness_key = %v, want it scoped to the customer", create["uniqueness_key"])
+	}
+	if create["customer_id"] != "cust_1" {
+		t.Errorf("customer_id = %v: an alert without one applies to every customer", create["customer_id"])
+	}
+}
+
+// Evaluation is otherwise deferred, so an owner who raises a limit above current
+// spend would stay suspended until Metronome next evaluated on its own.
+func TestSetCustomerSpendThreshold_ResetsAfterWriting(t *testing.T) {
+	p, s := newStub(t, map[string]string{
+		pathCustomerAlerts: noCustomerAlerts,
+		pathAlertCreate:    `{"data":{"id":"a_new"}}`,
+		pathAlertReset:     `{}`,
+	})
+
+	if err := p.SetCustomerSpendThreshold(context.Background(), "cust_1", billing.SpendThresholdLimit, 9000); err != nil {
+		t.Fatalf("SetCustomerSpendThreshold: %v", err)
+	}
+	reset := s.firstBody(pathAlertReset)
+	if reset["alert_id"] != "a_new" || reset["customer_id"] != "cust_1" {
+		t.Errorf("reset = %v, want the new alert for this customer", reset)
+	}
+}
+
+// Every card add and every settings save re-sends the same numbers. Rewriting
+// an unchanged threshold would archive a live alert and briefly leave the
+// account uncapped.
+func TestSetCustomerSpendThreshold_UnchangedIsANoop(t *testing.T) {
+	existing := `{"data":[{"customer_status":"ok","alert":{"id":"a_old","name":"astro:spend_limit","status":"enabled","threshold":5000,"type":"spend_threshold_reached","updated_at":"2026-08-12T00:00:00Z"}}],"next_page":null}`
+	p, s := newStub(t, map[string]string{pathCustomerAlerts: existing})
+
+	if err := p.SetCustomerSpendThreshold(context.Background(), "cust_1", billing.SpendThresholdLimit, 5000); err != nil {
+		t.Fatalf("SetCustomerSpendThreshold: %v", err)
+	}
+	if n := s.calls(pathAlertArchive) + s.calls(pathAlertCreate); n != 0 {
+		t.Errorf("rewrote an unchanged threshold in %d calls", n)
+	}
+}
+
+// Clearing a control the customer never set is what a settings form sends when
+// the field was left empty, so it cannot be an error.
+func TestClearCustomerSpendThreshold_AbsentIsNotAnError(t *testing.T) {
+	p, s := newStub(t, map[string]string{pathCustomerAlerts: noCustomerAlerts})
+
+	if err := p.ClearCustomerSpendThreshold(context.Background(), "cust_1", billing.SpendThresholdWarning); err != nil {
+		t.Fatalf("ClearCustomerSpendThreshold: %v", err)
+	}
+	if n := s.calls(pathAlertArchive); n != 0 {
+		t.Errorf("archived %d alerts for a customer that had none", n)
 	}
 }

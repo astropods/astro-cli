@@ -332,6 +332,76 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 		})
 }
 
+// SetSpendThresholdsRequest replaces both of an account's controls. A null
+// clears that one. PUT rather than PATCH: partial updates would make an omitted
+// field ambiguous between "leave it" and "remove it", and removing a spend limit
+// by accident is the expensive direction.
+type SetSpendThresholdsRequest struct {
+	Warning *float64 `json:"warning"`
+	Limit   *float64 `json:"limit"`
+}
+
+// SetBillingSpendThresholds handles
+// PUT /api/v1/accounts/:account/billing/spend/thresholds.
+func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+		var req SetSpendThresholdsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+		// A negative threshold fires the moment it exists, which reads as an
+		// outage rather than a control the owner chose.
+		for _, v := range []*float64{req.Warning, req.Limit} {
+			if v != nil && *v < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "a spend threshold cannot be negative"})
+				return
+			}
+		}
+		// A warning at or above the limit never fires on its own: the limit
+		// suspends the account first, so the warning is silently useless.
+		if req.Warning != nil && req.Limit != nil && *req.Warning >= *req.Limit {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "the warning must be below the limit"})
+			return
+		}
+
+		writer, ok := billingProvider.(billing.SpendThresholdWriter)
+		if !ok {
+			c.JSON(http.StatusOK, BillingDataResponse{Available: false})
+			return
+		}
+		customerID, ok := resolveBillingCustomer(c, log, accountStore, billingProvider, billingBackend, acct)
+		if !ok {
+			c.JSON(http.StatusOK, BillingDataResponse{Available: false})
+			return
+		}
+
+		ctx := c.Request.Context()
+		for kind, amount := range map[billing.SpendThresholdKind]*float64{
+			billing.SpendThresholdWarning: req.Warning,
+			billing.SpendThresholdLimit:   req.Limit,
+		} {
+			var err error
+			if amount == nil {
+				err = writer.ClearCustomerSpendThreshold(ctx, customerID, kind)
+			} else {
+				err = writer.SetCustomerSpendThreshold(ctx, customerID, kind, *amount)
+			}
+			if err != nil {
+				log.Error("Failed to write spend threshold", "error", err, "account_id", acct.ID, "kind", string(kind))
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to save spend thresholds"})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, BillingDataResponse{Available: true})
+	}
+}
+
 func GetBillingBalances(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "balances",
 		func(ctx context.Context, customerID string) (any, error) {
