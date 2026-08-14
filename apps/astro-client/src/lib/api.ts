@@ -1203,13 +1203,9 @@ export interface EvalDatasetItemsResponse {
   next_cursor?: string;
 }
 
-export type EvalDatasetItemsVerdict = "good" | "bad";
-
 export interface EvalDatasetItemsParams {
   page?: number;
-  cursor?: string;
   limit: number;
-  verdict?: EvalDatasetItemsVerdict;
 }
 
 export type ReviewQueuePredictionStatus =
@@ -3156,14 +3152,12 @@ class ApiClient {
 
   async getEvalDatasetItems(
     deploymentId: string,
-    { page, cursor, limit, verdict }: EvalDatasetItemsParams,
+    { page, limit }: EvalDatasetItemsParams,
   ): Promise<EvalDatasetItemsResponse> {
     return this.request<EvalDatasetItemsResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items${buildQS({
         limit: String(limit),
         page: page != null ? String(page) : undefined,
-        cursor,
-        verdict,
       })}`
     );
   }
@@ -3208,20 +3202,6 @@ class ApiClient {
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments`,
       {
         method: "POST",
-        body: JSON.stringify(body),
-      },
-    );
-  }
-
-  async patchDatasetJudgment(
-    deploymentId: string,
-    traceId: string,
-    body: Pick<DatasetJudgmentRequest, "verdict">,
-  ): Promise<DatasetJudgmentResponse> {
-    return this.request<DatasetJudgmentResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}`,
-      {
-        method: "PATCH",
         body: JSON.stringify(body),
       },
     );

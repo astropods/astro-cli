@@ -38,30 +38,27 @@ interface RenderOpts {
 
 function renderRow(opts: RenderOpts = {}) {
   const onToggle = vi.fn();
-  const onChangeVerdict = vi.fn();
-  const onRemoveVerdict = vi.fn();
+  const onRemove = vi.fn();
   const onSaveCriteria = vi.fn();
   render(
     <DatasetItemRow
       item={opts.item ?? makeItem()}
       isOpen={opts.isOpen ?? false}
       onToggle={onToggle}
-      onChangeVerdict={onChangeVerdict}
-      onRemoveVerdict={onRemoveVerdict}
+      onRemove={onRemove}
       onSaveCriteria={onSaveCriteria}
-      isChanging={false}
       isRemoving={false}
       isSavingCriteria={false}
       reviewer={opts.reviewer === undefined ? reviewer : opts.reviewer}
     />,
   );
-  return { onToggle, onChangeVerdict, onRemoveVerdict, onSaveCriteria };
+  return { onToggle, onRemove, onSaveCriteria };
 }
 
 describe("DatasetItemRow collapsed", () => {
-  it("renders verdict pill and reviewer", () => {
+  it("renders the reviewer without a verdict pill", () => {
     renderRow();
-    expect(screen.getByText("Good")).toBeInTheDocument();
+    expect(screen.queryByText("Good")).not.toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
   });
 
@@ -80,7 +77,7 @@ describe("DatasetItemRow collapsed", () => {
   });
 
   it("removing a trace from the actions menu does not toggle the row", async () => {
-    const { onToggle, onRemoveVerdict } = renderRow({
+    const { onToggle, onRemove } = renderRow({
       item: makeItem({ source_trace_id: "trace-undo" }),
     });
 
@@ -92,30 +89,51 @@ describe("DatasetItemRow collapsed", () => {
       }),
     );
 
-    expect(onRemoveVerdict).toHaveBeenCalledWith(
-      "trace-undo",
-      expect.any(HTMLElement),
-    );
+    expect(onRemove).toHaveBeenCalledWith(expect.any(HTMLElement));
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("activating the reason overflow chip does not toggle the row", async () => {
+  it("activating the criterion overflow chip does not toggle the row", async () => {
     const { onToggle } = renderRow({
       item: makeItem({
         metadata: {
           verdict: 1,
           judgment_criteria: [
-            { dimension_key: "accuracy", value: -1 },
-            { dimension_key: "completeness", value: -1 },
+            { dimension_key: "accuracy", value: 1 },
+            { dimension_key: "completeness", value: 1 },
           ],
         },
       }),
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /show 2 reasons/i }));
+    await user.click(screen.getByRole("button", { name: /show 2 criteria/i }));
 
     expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("only selects stored positive criteria in the item editor", async () => {
+    renderRow({
+      item: makeItem({
+        metadata: {
+          verdict: 1,
+          judgment_criteria: [
+            { dimension_key: "accuracy", value: 1 },
+            { dimension_key: "completeness", value: -1 },
+          ],
+        },
+      }),
+    });
+
+    await userEvent.setup().click(
+      screen.getByRole("button", { name: /^trace actions$/i }),
+    );
+    expect(
+      screen.getByRole("menuitem", { name: /correct info/i }),
+    ).toHaveAttribute("data-active");
+    expect(
+      screen.getByRole("menuitem", { name: /^complete$/i }),
+    ).not.toHaveAttribute("data-active");
   });
 
   it("renders dash when reviewer is null", () => {
@@ -137,19 +155,6 @@ describe("DatasetItemRow expanded", () => {
     renderRow({ isOpen: true });
     expect(screen.getByText("Input")).toBeInTheDocument();
     expect(screen.getByText("Expected output")).toBeInTheDocument();
-  });
-
-  it("shows the Good response label with verdict = good", () => {
-    renderRow({ isOpen: true });
-    expect(screen.getByText("Good response")).toBeInTheDocument();
-  });
-
-  it("shows the Bad response label with verdict = bad", () => {
-    renderRow({
-      isOpen: true,
-      item: makeItem({ metadata: { verdict: -1 } }),
-    });
-    expect(screen.getByText("Bad response")).toBeInTheDocument();
   });
 
   it("aria-expanded reflects open state", () => {

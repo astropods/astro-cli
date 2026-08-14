@@ -12,6 +12,7 @@ export interface CriterionLabelsProps {
  *  criteria. */
 export function CriterionLabels({ criteria }: CriterionLabelsProps) {
   const labels = criteria
+    .filter((criterion) => criterion.value > 0)
     .map((c) => criterionLabelFor(c.dimension_key, c.value))
     .filter((label): label is string => label !== null);
 
@@ -30,7 +31,7 @@ export function CriterionLabels({ criteria }: CriterionLabelsProps) {
         <OverflowPopover
           overflow={rest.length}
           total={labels.length}
-          itemNoun={{ singular: "reason", plural: "reasons" }}
+          itemNoun={{ singular: "criterion", plural: "criteria" }}
           trigger="hover"
         >
           <div className="flex min-h-0 flex-wrap gap-2 overflow-y-auto">

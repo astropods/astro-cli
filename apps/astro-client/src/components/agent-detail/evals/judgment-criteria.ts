@@ -1,15 +1,16 @@
 import type {
   DatasetJudgmentVerdict,
-  EvalDatasetItemsVerdict,
   JudgmentCriterion,
   ReviewQueuePredictionCriterion,
 } from "@/lib/api";
+
+type BinaryJudgmentVerdict = "good" | "bad";
 
 /** good/bad verdicts get the criteria panel and stay on screen until Done;
  *  neutral has no criteria and commits immediately. */
 export function verdictHasCriteria(
   verdict: DatasetJudgmentVerdict,
-): verdict is EvalDatasetItemsVerdict {
+): verdict is BinaryJudgmentVerdict {
   return verdict === "good" || verdict === "bad";
 }
 
@@ -80,20 +81,20 @@ export const JUDGMENT_CRITERIA: JudgmentCriterionDimension[] = [
 ];
 
 /** Human review sends an absolute signal: 1 for good, -1 for bad. */
-export function criterionValueForVerdict(verdict: EvalDatasetItemsVerdict): number {
+export function criterionValueForVerdict(verdict: BinaryJudgmentVerdict): number {
   return verdict === "good" ? 1 : -1;
 }
 
 export function criterionLabel(
   dimension: JudgmentCriterionDimension,
-  verdict: EvalDatasetItemsVerdict,
+  verdict: BinaryJudgmentVerdict,
 ): string {
   return verdict === "good" ? dimension.goodLabel : dimension.badLabel;
 }
 
 export function criterionTooltip(
   dimension: JudgmentCriterionDimension,
-  verdict: EvalDatasetItemsVerdict,
+  verdict: BinaryJudgmentVerdict,
 ): string {
   return verdict === "good" ? dimension.goodTooltip : dimension.badTooltip;
 }
@@ -109,7 +110,7 @@ export function criterionLabelFor(dimensionKey: string, value: number): string |
 /** Maps the selected dimension keys to the request criteria for a verdict. */
 export function toCriteria(
   selectedKeys: Iterable<string>,
-  verdict: EvalDatasetItemsVerdict,
+  verdict: BinaryJudgmentVerdict,
 ): JudgmentCriterion[] {
   const value = criterionValueForVerdict(verdict);
   return Array.from(selectedKeys, (dimension_key) => ({ dimension_key, value }));
@@ -144,7 +145,7 @@ export function predictionCriterionAssessment(
 /** Selects predicted criterion dimensions that support the agreed verdict. */
 export function predictedCriterionKeysForVerdict(
   criteria: ReviewQueuePredictionCriterion[],
-  verdict: EvalDatasetItemsVerdict,
+  verdict: BinaryJudgmentVerdict,
 ): string[] {
   return JUDGMENT_CRITERIA.filter(({ dimensionKey }) => {
     const assessment = predictionCriterionAssessment(

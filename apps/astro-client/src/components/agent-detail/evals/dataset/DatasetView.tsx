@@ -1,7 +1,6 @@
-import { useCallback, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 import { DatasetTable } from "./DatasetTable";
-import { DatasetFilterChips, type FilterKey } from "./DatasetFilterChips";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "../EvalTabCard";
 import type { EvalDatasetResponse } from "@/lib/api";
 
@@ -18,33 +17,15 @@ export function DatasetView({
   summary,
   reviewQueueTargetRef,
 }: DatasetViewProps) {
-  const [selected, setSelected] = useState<Set<FilterKey>>(() => new Set());
-
-  const toggleFilter = useCallback((key: FilterKey) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
   return (
     <EvalTabCard className="@container/dataset-card">
-      <EvalTabCardHeader label="Dataset">
-        <DatasetFilterChips
-          selected={selected}
-          counts={{ good: summary.good_count, bad: summary.bad_count }}
-          onToggle={toggleFilter}
-        />
-      </EvalTabCardHeader>
+      <EvalTabCardHeader label="Dataset" />
       <EvalTabCardBody className="flex-col @[780px]/dataset-card:flex-row">
         <DatasetGradeSidebar summary={summary} />
         <DatasetTable
           deploymentId={deploymentId}
           account={account}
           summary={summary}
-          selected={selected}
           reviewQueueTargetRef={reviewQueueTargetRef}
         />
       </EvalTabCardBody>

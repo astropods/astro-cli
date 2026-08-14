@@ -2215,15 +2215,13 @@ describe("review queue view", () => {
 });
 
 describe("dataset view", () => {
-  it("renders the grade letter and counts", async () => {
+  it("renders the grade letter", async () => {
     setupDataset(makeDatasetResponse());
     renderDataset();
     await waitFor(() => {
       expect(screen.getAllByLabelText(/grade b/i).length).toBeGreaterThan(0);
     });
     expect(screen.getByText("Baseline grade")).toBeInTheDocument();
-    expect(screen.getByText("30")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
   });
 
   it("shows download button when data is loaded", async () => {
@@ -2369,17 +2367,20 @@ describe("dataset view", () => {
     }
   });
 
-  it("changes a judged dataset item verdict in place", async () => {
+  it("updates a dataset item's criteria in place", async () => {
     const item = datasetItem({
       id: "dataset-item-change",
       input: "Change prompt",
       expected_output: "Change response",
       source_trace_id: "trace-change",
-      metadata: { verdict: 1 },
+      metadata: { verdict: 1, judgment_criteria: [] },
     });
     let items = [item];
-    let patched:
-      | { traceId: string; body: Pick<DatasetJudgmentRequest, "verdict"> }
+    let updated:
+      | {
+          traceId: string;
+          body: { criteria: { dimension_key: string; value: number }[] };
+        }
       | null = null;
 
     setupDataset(
@@ -2390,25 +2391,28 @@ describe("dataset view", () => {
       http.get("/api/v1/deployments/:id/dataset/items", () =>
         HttpResponse.json(itemsResponse(items)),
       ),
-      http.patch(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+      http.put(
+        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
         async ({ params, request }) => {
           const traceId = String(params.traceId);
-          const body = (await request.json()) as Pick<
-            DatasetJudgmentRequest,
-            "verdict"
-          >;
-          patched = { traceId, body };
+          const body = (await request.json()) as {
+            criteria: { dimension_key: string; value: number }[];
+          };
+          updated = { traceId, body };
           items = [
             {
               ...item,
-              metadata: { ...item.metadata, verdict: -1 },
+              metadata: {
+                ...item.metadata,
+                judgment_criteria: body.criteria,
+              },
             },
           ];
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: traceId,
-            verdict: body.verdict,
+            verdict: "good",
+            criteria: body.criteria,
           });
         },
       ),
@@ -2419,18 +2423,23 @@ describe("dataset view", () => {
 
     expect(await screen.findByText("Change prompt")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
-    await user.click(await screen.findByRole("menuitem", { name: /^bad$/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /correct info/i }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: /^save$/i }));
 
     await waitFor(() => {
-      expect(patched).toEqual({
+      expect(updated).toEqual({
         traceId: "trace-change",
-        body: { verdict: "bad" },
+        body: {
+          criteria: [{ dimension_key: "accuracy", value: 1 }],
+        },
       });
     });
     await waitFor(() => {
       const row = screen.getByText("Change prompt").closest("tr");
       expect(row).not.toBeNull();
-      expect(within(row!).getByText("Bad")).toBeInTheDocument();
+      expect(within(row!).getByText("Correct info")).toBeInTheDocument();
     });
   });
 
@@ -2500,78 +2509,34 @@ describe("dataset view", () => {
     expect((await screen.findAllByText(/start grading/i)).length).toBeGreaterThan(0);
   });
 
-  it("uses summary verdict counts in filter chips", async () => {
-    setupDataset(
-      makeDatasetResponse({ good_count: 30, bad_count: 12 }),
-      itemsResponse([
-        datasetItem({ id: "good-1", metadata: { verdict: 1 } }),
-        datasetItem({ id: "bad-1", metadata: { verdict: -1 } }),
-        datasetItem({ id: "bad-2", metadata: { verdict: -1 } }),
-      ]),
-    );
-    renderDataset();
-    await waitFor(() => {
-      const goodButton = screen
-        .getAllByRole("button", { name: /good/i })
-        .find((el) => el.tagName === "BUTTON");
-      const badButton = screen
-        .getAllByRole("button", { name: /bad/i })
-        .find((el) => el.tagName === "BUTTON");
-      expect(goodButton).toHaveTextContent("30");
-      expect(badButton).toHaveTextContent("12");
-    });
-  });
-
-  it("requests server-filtered items with cursor pagination", async () => {
-    const seenRequests: Array<{ verdict: string; cursor: string; page: string }> = [];
-    let goodRequests = 0;
-    setupDataset(makeDatasetResponse({ good_count: 30, bad_count: 12 }));
+  it("requests items with page pagination", async () => {
+    const seenPages: string[] = [];
+    setupDataset(makeDatasetResponse({ item_count: 2 }));
     server.use(
       http.get("/api/v1/deployments/:id/dataset/items", ({ request }) => {
         const params = new URL(request.url).searchParams;
-        const verdict = params.get("verdict") ?? "";
-        seenRequests.push({
-          verdict,
-          cursor: params.get("cursor") ?? "",
-          page: params.get("page") ?? "",
+        const page = params.get("page") ?? "";
+        seenPages.push(page);
+        return HttpResponse.json({
+          ...itemsResponse([datasetItem({ id: `item-${page}` })]),
+          page: Number(page),
+          total_items: 2,
+          total_pages: 2,
         });
-        if (verdict === "good") {
-          goodRequests += 1;
-          return HttpResponse.json({
-            ...itemsResponse([
-              datasetItem({
-                id: `good-${goodRequests}`,
-                metadata: { verdict: 1 },
-              }),
-            ]),
-            total_items: 2,
-            total_pages: 2,
-            next_cursor: goodRequests === 1 ? "cursor-1" : undefined,
-          });
-        }
-        return HttpResponse.json(emptyItems());
       }),
     );
 
     const user = userEvent.setup();
     renderDataset();
-    let goodButton: HTMLElement | undefined;
-    await waitFor(() => {
-      goodButton = screen
-        .getAllByRole("button", { name: /good/i })
-        .find((el) => el.tagName === "BUTTON");
-      expect(goodButton).toBeTruthy();
-    });
-    await user.click(goodButton!);
 
     await waitFor(() => {
-      expect(seenRequests).toContainEqual({ verdict: "good", cursor: "", page: "" });
+      expect(seenPages).toContain("1");
     });
 
     await user.click(await screen.findByRole("button", { name: /show 1 more/i }));
 
     await waitFor(() => {
-      expect(seenRequests).toContainEqual({ verdict: "good", cursor: "cursor-1", page: "" });
+      expect(seenPages).toContain("2");
     });
   });
 });

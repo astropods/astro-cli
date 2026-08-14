@@ -12,20 +12,16 @@ import {
 } from "@/components/ui/table";
 import { useAccountMembers } from "@/api/queries/accounts";
 import type {
-  DatasetJudgmentVerdict,
   EvalDatasetItem,
-  EvalDatasetItemsVerdict,
   EvalDatasetResponse,
   JudgmentCriterion,
 } from "@/lib/api";
 import {
-  useChangeDatasetJudgment,
   useEvalDatasetItems,
   useSetDatasetJudgmentCriteria,
   useUndoDatasetJudgment,
 } from "@/api/queries/evals";
 
-import type { FilterKey } from "./DatasetFilterChips";
 import {
   DATASET_ITEM_COLUMN_COUNT,
   DatasetItemRow,
@@ -37,7 +33,6 @@ export interface DatasetTableProps {
   deploymentId: string;
   account: string;
   summary: EvalDatasetResponse;
-  selected: Set<FilterKey>;
   reviewQueueTargetRef?: RefObject<HTMLElement | null>;
 }
 
@@ -47,22 +42,14 @@ export function DatasetTable({
   deploymentId,
   account,
   summary,
-  selected,
   reviewQueueTargetRef,
 }: DatasetTableProps) {
-  const activeVerdict: EvalDatasetItemsVerdict | undefined =
-    selected.size === 1 ? (selected.has("good") ? "good" : "bad") : undefined;
-
   const { data, isLoading, isError, fetchNextPage, hasNextPage } =
-    useEvalDatasetItems(deploymentId, PAGE_LIMIT, activeVerdict);
+    useEvalDatasetItems(deploymentId, PAGE_LIMIT);
   const undoJudgment = useUndoDatasetJudgment(deploymentId);
-  const changeJudgment = useChangeDatasetJudgment(deploymentId);
   const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
   const undoingTraceId = undoJudgment.isPending
     ? undoJudgment.variables?.traceId ?? null
-    : null;
-  const changingTraceId = changeJudgment.isPending
-    ? changeJudgment.variables?.traceId ?? null
     : null;
   const savingCriteriaTraceId = setCriteria.isPending
     ? setCriteria.variables?.traceId ?? null
@@ -87,13 +74,6 @@ export function DatasetTable({
       );
     },
     [reviewQueueTargetRef, undoJudgment],
-  );
-  const changeTraceVerdict = useCallback(
-    (traceId: string, verdict: DatasetJudgmentVerdict) => {
-      changeJudgment.reset();
-      changeJudgment.mutate({ traceId, verdict });
-    },
-    [changeJudgment],
   );
   const saveTraceCriteria = useCallback(
     (traceId: string, criteria: JudgmentCriterion[], onSaved: () => void) => {
@@ -148,9 +128,7 @@ export function DatasetTable({
   const emptyMessage =
     summary.item_count === 0
       ? "No items yet."
-      : activeVerdict
-        ? "No matching items."
-        : "No items loaded.";
+      : "No items loaded.";
 
   return (
     <Table
@@ -177,21 +155,18 @@ export function DatasetTable({
       <TableHeader className="hidden bg-black/2 dark:bg-white/3 @[760px]/dataset-table:table-header-group">
         <TableRow>
           <TableHead className="w-10 pl-5 pr-0 text-faint-foreground" />
-          <TableHead className="w-[92px] text-faint-foreground">
-            Verdict
-          </TableHead>
-          <TableHead className="w-[30%] text-faint-foreground">Input</TableHead>
-          <TableHead className="w-[38%] text-faint-foreground">
+          <TableHead className="w-[34%] text-faint-foreground">Input</TableHead>
+          <TableHead className="w-[42%] text-faint-foreground">
             Expected output
           </TableHead>
-          <TableHead className="w-[170px] text-faint-foreground">Reason</TableHead>
+          <TableHead className="w-[170px] text-faint-foreground">Criteria</TableHead>
           <TableHead className="w-[185px] pr-5 text-faint-foreground">
-            Judged by
+            Added by
           </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody className="block @[760px]/dataset-table:table-row-group">
-        {(undoJudgment.isError || changeJudgment.isError) && (
+        {undoJudgment.isError && (
           <TableRow>
             <TableCell
               colSpan={DATASET_ITEM_COLUMN_COUNT}
@@ -237,10 +212,8 @@ export function DatasetTable({
             item={item}
             isOpen={expandedId === item.id}
             onToggle={toggleExpanded}
-            onChangeVerdict={changeTraceVerdict}
-            onRemoveVerdict={(_traceId, trigger) => undoTrace(item, trigger)}
+            onRemove={(trigger) => undoTrace(item, trigger)}
             onSaveCriteria={saveTraceCriteria}
-            isChanging={changingTraceId === item.source_trace_id}
             isRemoving={undoingTraceId === item.source_trace_id}
             isSavingCriteria={savingCriteriaTraceId === item.source_trace_id}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}

@@ -21,47 +21,46 @@ describe("CriterionLabels", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("renders a single label without an overflow chip", () => {
+  it("renders a placeholder when no criteria are positively selected", () => {
     render(<CriterionLabels criteria={[c("accuracy", -1)]} />);
-    expect(screen.getByText("Hallucination")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("shows only the first label plus a +N overflow chip, hiding the rest", () => {
+  it("shows only selected criteria in the label and overflow count", () => {
     render(
       <CriterionLabels
-        criteria={[c("accuracy", 1), c("completeness", -1), c("tone", -1)]}
+        criteria={[c("accuracy", 1), c("completeness", 1), c("tone", -1)]}
       />,
     );
     expect(screen.getByText("Correct info")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /show 3 reasons/i }),
-    ).toHaveTextContent("+2");
-    expect(screen.queryByText("Incomplete")).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /show 2 criteria/i }),
+    ).toHaveTextContent("+1");
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
     expect(screen.queryByText("Inappropriate tone")).not.toBeInTheDocument();
   });
 
   it("excludes unknown dimensions from the overflow count", () => {
     render(
       <CriterionLabels
-        criteria={[c("accuracy", 1), c("bogus", -1), c("tone", -1)]}
+        criteria={[c("accuracy", 1), c("bogus", 1), c("tone", 1)]}
       />,
     );
     expect(
-      screen.getByRole("button", { name: /show 2 reasons/i }),
+      screen.getByRole("button", { name: /show 2 criteria/i }),
     ).toHaveTextContent("+1");
   });
 
   it("reveals all labels on hover", () => {
     render(
       <CriterionLabels
-        criteria={[c("accuracy", 1), c("completeness", -1), c("tone", -1)]}
+        criteria={[c("accuracy", 1), c("completeness", 1), c("tone", -1)]}
       />,
     );
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /show 3 reasons/i }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /show 2 criteria/i }));
     // The first label now appears both inline and inside the revealed panel.
     expect(screen.getAllByText("Correct info").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Incomplete")).toBeInTheDocument();
-    expect(screen.getByText("Inappropriate tone")).toBeInTheDocument();
+    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.queryByText("Inappropriate tone")).not.toBeInTheDocument();
   });
 });

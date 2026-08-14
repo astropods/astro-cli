@@ -1,7 +1,6 @@
-import { ChevronRight, Info, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import { ContentValue } from "@/components/agent-detail/ContentValue";
 import { CriterionLabels } from "@/components/agent-detail/evals/CriterionLabels";
-import { StatusBadge } from "@/components/StatusBadge";
 import { UserAvatar } from "@/components/UserAvatar";
 import { TableCell, TableRow } from "@/components/ui/table";
 import {
@@ -13,36 +12,14 @@ import {
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
-import type {
-  DatasetJudgmentVerdict,
-  EvalDatasetItem,
-  JudgmentCriterion,
-} from "@/lib/api";
+import type { EvalDatasetItem, JudgmentCriterion } from "@/lib/api";
 import { DatasetRowActionsMenu } from "./DatasetRowActionsMenu";
 
-export type Verdict = "good" | "bad" | null;
-
-export const DATASET_ITEM_COLUMN_COUNT = 6;
+export const DATASET_ITEM_COLUMN_COUNT = 5;
 
 export interface ResolvedReviewer {
   handle?: string;
   name: string;
-}
-
-function itemVerdict(item: EvalDatasetItem): Verdict {
-  const v = item.metadata?.verdict;
-  if (v === 1) return "good";
-  if (v === -1) return "bad";
-  return null;
-}
-
-function VerdictPill({ verdict }: { verdict: Verdict }) {
-  if (!verdict) return <span className="text-faint-foreground">—</span>;
-  return (
-    <StatusBadge color={verdict === "good" ? "success" : "error"}>
-      {verdict === "good" ? "Good" : "Bad"}
-    </StatusBadge>
-  );
 }
 
 function ReviewerCell({
@@ -81,11 +58,9 @@ function ReviewerCell({
 function ExpandedPreview({
   input,
   output,
-  verdict,
 }: {
   input: unknown;
   output: unknown;
-  verdict: Verdict;
 }) {
   return (
     <div className="mx-0 animate-in fade-in slide-in-from-top-1 border-t border-dashed border-border px-4 py-4 duration-150 ease-out @[760px]/dataset-table:ml-8 @[760px]/dataset-table:mr-3 @[760px]/dataset-table:px-5">
@@ -109,26 +84,10 @@ function ExpandedPreview({
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
                   The agent output captured with this response, kept as the reference for
-                  evaluations. Its verdict marks whether it's a good answer to reward or a bad
-                  one to catch. Future agent responses are scored against it.
+                  evaluations. Future agent responses are compared with this example.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            {verdict && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 pl-0.5 text-body-sm font-medium",
-                  verdict === "good" ? "text-success" : "text-destructive",
-                )}
-              >
-                {verdict === "good" ? "Good response" : "Bad response"}
-                {verdict === "good" ? (
-                  <ThumbsUp aria-hidden className="size-3.5" />
-                ) : (
-                  <ThumbsDown aria-hidden className="size-3.5" />
-                )}
-              </span>
-            )}
           </div>
           <ContentValue content={output} mode="pretty" tone="muted" />
         </div>
@@ -141,14 +100,12 @@ export interface DatasetItemRowProps {
   item: EvalDatasetItem;
   isOpen: boolean;
   onToggle: (id: string) => void;
-  onChangeVerdict: (traceId: string, verdict: DatasetJudgmentVerdict) => void;
-  onRemoveVerdict: (traceId: string, trigger: HTMLElement | null) => void;
+  onRemove: (trigger: HTMLElement | null) => void;
   onSaveCriteria: (
     traceId: string,
     criteria: JudgmentCriterion[],
     onSaved: () => void,
   ) => void;
-  isChanging: boolean;
   isRemoving: boolean;
   isSavingCriteria: boolean;
   reviewer: ResolvedReviewer | null;
@@ -158,17 +115,16 @@ export function DatasetItemRow({
   item,
   isOpen,
   onToggle,
-  onChangeVerdict,
-  onRemoveVerdict,
+  onRemove,
   onSaveCriteria,
-  isChanging,
   isRemoving,
   isSavingCriteria,
   reviewer,
 }: DatasetItemRowProps) {
-  const verdict = itemVerdict(item);
   const savedCriteriaKeys =
-    item.metadata?.judgment_criteria?.map((c) => c.dimension_key) ?? [];
+    item.metadata?.judgment_criteria
+      ?.filter((criterion) => criterion.value > 0)
+      .map((criterion) => criterion.dimension_key) ?? [];
   const inputSummary = summarize(item.input);
   const outputSummary = summarize(item.expected_output);
 
@@ -207,9 +163,6 @@ export function DatasetItemRow({
             )}
           />
         </TableCell>
-        <TableCell className="order-1 block pb-2 pl-10 pr-12 pt-4 @[760px]/dataset-table:table-cell @[760px]/dataset-table:px-4 @[760px]/dataset-table:py-3.5">
-          <VerdictPill verdict={verdict} />
-        </TableCell>
         <TableCell
           data-label="Input"
           className="order-3 block px-4 py-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
@@ -230,7 +183,7 @@ export function DatasetItemRow({
           </div>
         </TableCell>
         <TableCell
-          data-label="Reason"
+          data-label="Criteria"
           className="order-5 block px-4 pb-2 pt-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
@@ -247,12 +200,9 @@ export function DatasetItemRow({
             >
               <DatasetRowActionsMenu
                 traceId={item.source_trace_id}
-                verdict={verdict}
                 savedCriteriaKeys={savedCriteriaKeys}
-                isChanging={isChanging}
                 isRemoving={isRemoving}
-                onChangeVerdict={onChangeVerdict}
-                onRemoveVerdict={onRemoveVerdict}
+                onRemove={onRemove}
                 onSaveCriteria={onSaveCriteria}
                 isSavingCriteria={isSavingCriteria}
               />
@@ -269,7 +219,6 @@ export function DatasetItemRow({
             <ExpandedPreview
               input={item.input}
               output={item.expected_output}
-              verdict={verdict}
             />
           </TableCell>
         </TableRow>
@@ -277,4 +226,3 @@ export function DatasetItemRow({
     </>
   );
 }
-

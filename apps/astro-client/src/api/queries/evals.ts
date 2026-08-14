@@ -14,7 +14,6 @@ import type {
   DatasetJudgmentResponse,
   DatasetJudgmentVerdict,
   EvalDatasetItemsResponse,
-  EvalDatasetItemsVerdict,
   EvalDatasetResponse,
   JudgmentCriterion,
   PredictionStatusCounts,
@@ -38,11 +37,6 @@ type DatasetUndoJudgmentVariables = {
   traceId: string;
   reviewQueueItem?: ReviewQueueItem;
   reviewQueuePageIndex?: number;
-};
-
-type DatasetChangeJudgmentVariables = {
-  traceId: string;
-  verdict: DatasetJudgmentVerdict;
 };
 
 type DatasetJudgmentCriteriaVariables = {
@@ -80,30 +74,16 @@ export function useEvalDataset(deploymentId: string) {
 export function useEvalDatasetItems(
   deploymentId: string,
   limit = 50,
-  verdict?: EvalDatasetItemsVerdict,
   enabled = true,
 ) {
   const api = useApiClient();
   return useInfiniteQuery({
-    queryKey: evalKeys.items(deploymentId, limit, verdict),
-    queryFn: ({
-      pageParam,
-    }: {
-      pageParam: number | string | undefined;
-    }): Promise<EvalDatasetItemsResponse> =>
-      api.getEvalDatasetItems(deploymentId, {
-        page: verdict ? undefined : typeof pageParam === "number" ? pageParam : 1,
-        cursor: verdict && typeof pageParam === "string" ? pageParam : undefined,
-        limit,
-        verdict,
-      }),
-    initialPageParam: undefined as number | string | undefined,
+    queryKey: evalKeys.items(deploymentId, limit),
+    queryFn: ({ pageParam }): Promise<EvalDatasetItemsResponse> =>
+      api.getEvalDatasetItems(deploymentId, { page: pageParam, limit }),
+    initialPageParam: 1,
     getNextPageParam: (last) =>
-      verdict
-        ? last.next_cursor || undefined
-        : last.page < last.total_pages
-          ? last.page + 1
-          : undefined,
+      last.page < last.total_pages ? last.page + 1 : undefined,
     enabled: !!deploymentId && enabled,
     staleTime: 60_000,
   });
@@ -359,26 +339,6 @@ export function useUndoDatasetJudgment(
       // Queue-originated undo stays optimistic because it already has the full
       // item. Dataset-originated undo reloads the server-owned prediction data.
       await Promise.all(invalidations);
-    },
-  });
-}
-
-export function useChangeDatasetJudgment(deploymentId: string) {
-  const api = useApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation<
-    DatasetJudgmentResponse,
-    Error,
-    DatasetChangeJudgmentVariables
-  >({
-    mutationFn: ({ traceId, verdict }) =>
-      api.patchDatasetJudgment(deploymentId, traceId, { verdict }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
-        queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
-      ]);
     },
   });
 }

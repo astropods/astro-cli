@@ -192,11 +192,11 @@ export const evalKeys = {
   all: (deploymentId: string) => ['evals', deploymentId] as const,
   summary: (deploymentId: string) =>
     ['evals', deploymentId, 'summary'] as const,
-  /** Prefix that matches every paginated items query (across limit/verdict). */
+  /** Prefix that matches every paginated items query, across page sizes. */
   itemsAll: (deploymentId: string) =>
     ['evals', deploymentId, 'items'] as const,
-  items: (deploymentId: string, limit: number, verdict?: string) =>
-    ['evals', deploymentId, 'items', limit, verdict ?? 'all'] as const,
+  items: (deploymentId: string, limit: number) =>
+    ['evals', deploymentId, 'items', limit] as const,
   reviewQueues: (deploymentId: string) =>
     ['evals', deploymentId, 'review-queue'] as const,
   reviewQueue: (deploymentId: string, prediction?: string) =>

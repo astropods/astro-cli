@@ -1,6 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import type { EvalDatasetItemsVerdict } from "@/lib/api";
-import { JUDGMENT_CRITERIA, toCriteria } from "./judgment-criteria";
 
 export function useJudgmentCriteriaSelection(initialKeys?: Iterable<string>) {
   const initialKeySet = useMemo(() => new Set(initialKeys ?? []), [initialKeys]);
@@ -24,19 +22,5 @@ export function useJudgmentCriteriaSelection(initialKeys?: Iterable<string>) {
     });
   }, []);
 
-  const selectedKeysInDisplayOrder = useMemo(
-    () =>
-      JUDGMENT_CRITERIA.filter((d) => selected.has(d.dimensionKey)).map(
-        (d) => d.dimensionKey,
-      ),
-    [selected],
-  );
-
-  const selectedCriteriaForVerdict = useCallback(
-    (verdict: EvalDatasetItemsVerdict) =>
-      toCriteria(selectedKeysInDisplayOrder, verdict),
-    [selectedKeysInDisplayOrder],
-  );
-
-  return { selected, dirty, toggle, selectedCriteriaForVerdict };
+  return { selected, dirty, toggle };
 }

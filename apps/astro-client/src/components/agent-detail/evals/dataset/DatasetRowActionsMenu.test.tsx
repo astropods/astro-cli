@@ -11,13 +11,10 @@ afterEach(cleanup);
 function renderMenu(overrides: Partial<DatasetRowActionsMenuProps> = {}) {
   const props: DatasetRowActionsMenuProps = {
     traceId: "t1",
-    verdict: "good",
     savedCriteriaKeys: [],
-    isChanging: false,
     isRemoving: false,
     isSavingCriteria: false,
-    onChangeVerdict: vi.fn(),
-    onRemoveVerdict: vi.fn(),
+    onRemove: vi.fn(),
     onSaveCriteria: vi.fn(),
     ...overrides,
   };
@@ -31,61 +28,24 @@ function openMenu() {
   );
 }
 
-describe("DatasetRowActionsMenu verdict options", () => {
-  it("highlights the active verdict", async () => {
-    renderMenu({ verdict: "good" });
-    await openMenu();
-    expect(screen.getByRole("menuitem", { name: "Good" })).toHaveClass(
-      "bg-success/15",
-    );
-    expect(screen.getByRole("menuitem", { name: "Bad" })).not.toHaveClass(
-      "bg-destructive/15",
-    );
-  });
-
-  it("changing to another verdict calls onChangeVerdict and keeps the menu open", async () => {
-    const { props } = renderMenu({ verdict: "good" });
-    await openMenu();
-    await userEvent.setup().click(screen.getByRole("menuitem", { name: "Bad" }));
-
-    expect(props.onChangeVerdict).toHaveBeenCalledWith("t1", "bad");
-    // Good/bad keep the menu open so criteria can be adjusted.
-    expect(screen.getByText("Change verdict")).toBeInTheDocument();
-  });
-
-  it("selecting the already-active verdict is a no-op", async () => {
-    const { props } = renderMenu({ verdict: "good" });
-    await openMenu();
-    await userEvent.setup().click(screen.getByRole("menuitem", { name: "Good" }));
-    expect(props.onChangeVerdict).not.toHaveBeenCalled();
-  });
-
-  it("calls onRemoveVerdict from the remove item", async () => {
-    const { props } = renderMenu({ verdict: "good" });
+describe("DatasetRowActionsMenu", () => {
+  it("calls onRemove from the remove item", async () => {
+    const { props } = renderMenu();
     await openMenu();
     await userEvent
       .setup()
       .click(screen.getByRole("menuitem", { name: /remove from dataset/i }));
-    expect(props.onRemoveVerdict).toHaveBeenCalledWith(
-      "t1",
-      expect.any(HTMLElement),
-    );
+    expect(props.onRemove).toHaveBeenCalledWith(expect.any(HTMLElement));
   });
 });
 
 describe("DatasetRowActionsMenu criteria", () => {
-  it("omits the criteria section for a neutral item", async () => {
-    renderMenu({ verdict: null });
-    await openMenu();
-    expect(screen.queryByText(/why is it/i)).not.toBeInTheDocument();
-  });
-
   it("seeds pills from saved criteria and only shows Save once changed", async () => {
-    renderMenu({ verdict: "good", savedCriteriaKeys: ["accuracy"] });
+    renderMenu({ savedCriteriaKeys: ["accuracy"] });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /trace actions/i }));
 
-    expect(screen.getByText("Why is it good?")).toBeInTheDocument();
+    expect(screen.getByText("Evaluate item")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /correct info/i })).toHaveAttribute(
       "data-active",
     );
@@ -95,9 +55,8 @@ describe("DatasetRowActionsMenu criteria", () => {
     expect(screen.getByRole("menuitem", { name: /^save$/i })).toBeInTheDocument();
   });
 
-  it("Save emits the selected criteria in display order", async () => {
+  it("Save emits selected criteria as positive and omits unselected criteria", async () => {
     const { props } = renderMenu({
-      verdict: "good",
       savedCriteriaKeys: ["accuracy"],
     });
     const user = userEvent.setup();
@@ -117,7 +76,6 @@ describe("DatasetRowActionsMenu criteria", () => {
 
   it("disables row actions and criteria chips while criteria are saving", async () => {
     const { props, rerender } = renderMenu({
-      verdict: "good",
       savedCriteriaKeys: ["accuracy"],
     });
     const user = userEvent.setup();
@@ -125,31 +83,23 @@ describe("DatasetRowActionsMenu criteria", () => {
 
     rerender(<DatasetRowActionsMenu {...props} isSavingCriteria />);
 
-    expect(screen.getByRole("menuitem", { name: "Bad" })).toHaveAttribute(
-      "data-disabled",
-    );
     expect(
       screen.getByRole("menuitem", { name: /remove from dataset/i }),
     ).toHaveAttribute("data-disabled");
     expect(screen.getByRole("menuitem", { name: /correct info/i })).toBeDisabled();
 
-    await user.click(screen.getByRole("menuitem", { name: "Bad" }));
     await user.click(screen.getByRole("menuitem", { name: /correct info/i }));
 
-    expect(props.onChangeVerdict).not.toHaveBeenCalled();
     expect(screen.queryByRole("menuitem", { name: /^save$/i })).not.toBeInTheDocument();
   });
 
-  it("resets the selection when the verdict changes", async () => {
+  it("resets the selection when saved criteria change", async () => {
     const base: DatasetRowActionsMenuProps = {
       traceId: "t1",
-      verdict: "good",
       savedCriteriaKeys: ["accuracy"],
-      isChanging: false,
       isRemoving: false,
       isSavingCriteria: false,
-      onChangeVerdict: vi.fn(),
-      onRemoveVerdict: vi.fn(),
+      onRemove: vi.fn(),
       onSaveCriteria: vi.fn(),
     };
     const { rerender } = render(<DatasetRowActionsMenu {...base} />);
@@ -158,12 +108,8 @@ describe("DatasetRowActionsMenu criteria", () => {
     await user.click(screen.getByRole("menuitem", { name: /^complete$/i }));
     expect(screen.getByRole("menuitem", { name: /^save$/i })).toBeInTheDocument();
 
-    // A verdict change clears saved criteria server-side; the keyed remount
-    // resets the pills, so Save disappears and bad-side labels appear.
-    rerender(
-      <DatasetRowActionsMenu {...base} verdict="bad" savedCriteriaKeys={[]} />,
-    );
-    expect(screen.getByText("Why is it bad?")).toBeInTheDocument();
+    rerender(<DatasetRowActionsMenu {...base} savedCriteriaKeys={[]} />);
+    expect(screen.getByText("Evaluate item")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^save$/i })).not.toBeInTheDocument();
   });
 });

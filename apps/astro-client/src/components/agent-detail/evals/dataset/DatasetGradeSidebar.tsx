@@ -8,7 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { EvalDatasetItemsVerdict, EvalDatasetResponse } from "@/lib/api";
+import type { EvalDatasetResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DatasetGrade } from "./DatasetGrade";
 import {
@@ -16,6 +16,8 @@ import {
   criterionTooltip,
   JUDGMENT_CRITERIA,
 } from "../judgment-criteria";
+
+type DatasetItemsVerdict = "good" | "bad";
 
 const TARGET_SCORED_CASES = 100;
 const TARGET_BAD_SHARE = 0.1;
@@ -141,8 +143,8 @@ interface Reason {
  *  each sorted by count descending. */
 function buildReasons(
   summary: EvalDatasetResponse,
-): Record<EvalDatasetItemsVerdict, Reason[]> {
-  const reasons: Record<EvalDatasetItemsVerdict, Reason[]> = { good: [], bad: [] };
+): Record<DatasetItemsVerdict, Reason[]> {
+  const reasons: Record<DatasetItemsVerdict, Reason[]> = { good: [], bad: [] };
 
   for (const dim of JUDGMENT_CRITERIA) {
     const count = summary.criteria_counts.find(
@@ -168,7 +170,7 @@ function buildReasons(
 
 function ReasonsSection({ summary }: { summary: EvalDatasetResponse }) {
   const reasons = useMemo(() => buildReasons(summary), [summary]);
-  const [verdict, setVerdict] = useState<EvalDatasetItemsVerdict>(
+  const [verdict, setVerdict] = useState<DatasetItemsVerdict>(
     reasons.bad.length > 0 ? "bad" : "good",
   );
 
@@ -186,7 +188,7 @@ function ReasonsSection({ summary }: { summary: EvalDatasetResponse }) {
           type="single"
           variant="word"
           value={verdict}
-          onValueChange={(v) => setVerdict(v as EvalDatasetItemsVerdict)}
+          onValueChange={(v) => setVerdict(v as DatasetItemsVerdict)}
           indicatorClassName={cn(
             "border-transparent",
             verdict === "good" ? "bg-success/10" : "bg-destructive/10",
