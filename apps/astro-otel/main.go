@@ -17,6 +17,7 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
 	"github.com/astropods/astro/apps/astro-otel/internal/config"
@@ -27,6 +28,8 @@ import (
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	_ = godotenv.Load()
 
 	cfg, err := config.Load()
 	if err != nil {

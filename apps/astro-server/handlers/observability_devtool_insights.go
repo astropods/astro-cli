@@ -2,14 +2,15 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
-	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
 
 // DevtoolInsightsResponse is the per-range, per-source dev-tool usage block the
@@ -29,6 +30,9 @@ type DevtoolSource struct {
 	Totals     DevtoolTotals       `json:"totals"`
 	ByUser     []DevtoolUserSpend  `json:"by_user"` // per-developer spend, keyed by user.email
 	AgentRow   InsightsAgentRow    `json:"agent_row"`
+	// Tokens were reported but priced at zero — the model has no Langfuse
+	// definition. Distinguishes "unpriced" from "unused".
+	CostUnavailable bool `json:"cost_unavailable,omitempty"`
 }
 
 type DevtoolSpendPoint struct {
@@ -54,38 +58,42 @@ type DevtoolUserSpend struct {
 	IdentityKey string `json:"identity_key,omitempty"`
 }
 
-// devtoolAdapter maps one coding tool's OTLP metric names to the normalized
-// cost/token series. Register a tool by adding an entry below.
+// devtoolAdapter registers one coding tool. Key is both the astro.source value
+// and the Langfuse trace tag.
 type devtoolAdapter struct {
-	Key         string // astro.source value
-	Label       string
-	Icon        string // integration-icon key → themed logo (e.g. "anthropic")
-	CostMetric  string
-	TokenMetric string
+	Key   string
+	Label string
+	Icon  string // integration-icon key → themed logo (e.g. "anthropic")
 }
 
 var devtoolAdapters = []devtoolAdapter{
-	{Key: "claude-code", Label: "Claude Code", Icon: "anthropic", CostMetric: "claude_code.cost.usage", TokenMetric: "claude_code.token.usage"},
-}
-
-// devtoolMatcher builds the account-scoped VM selector for one metric. VM's
-// default OTLP ingestion preserves dots (confirmed empirically), so we select
-// with quoted identifiers; if prod enables usePrometheusNaming, names and labels
-// become underscored — switch here.
-func devtoolMatcher(metric, source, accountID string) string {
-	return fmt.Sprintf(`{__name__=%q, "astro.source"=%q, "astro.account_id"=%q}`, metric, source, accountID)
+	{Key: "claude-code", Label: "Claude Code", Icon: "anthropic"},
 }
 
 // computeDevtoolForInsights computes dev-tool usage for the ranges the Insights
-// page folds in, attributing per-developer spend via the local member-email
-// mirror (email → user_id, one indexed lookup — no per-request WorkOS calls).
-// Best-effort: a nil metrics client (or any query failure) yields no data and
-// Insights renders unchanged. On a table-only refresh (skip_ranges) just the
-// widest range — the tables' window — is computed.
-func computeDevtoolForInsights(ctx context.Context, log *logger.Logger, pc *promquery.Client, memberEmails *memberemails.Store, accountID string, skipRanges bool) map[string]DevtoolRange {
-	if pc == nil {
+// page folds in. Best-effort: any failure yields no data and Insights renders
+// unchanged.
+//
+// One Langfuse query per source covers the widest range; narrower ranges are
+// sliced from the same day cells rather than re-queried.
+func computeDevtoolForInsights(
+	ctx context.Context,
+	log *logger.Logger,
+	cfg *config.Config,
+	langfuseStore *langfuse.Store,
+	memberEmails *memberemails.Store,
+	accountID string,
+	skipRanges bool,
+) map[string]DevtoolRange {
+	if langfuseStore == nil {
 		return nil
 	}
+	creds, err := langfuseStore.Get(accountID)
+	if err != nil || creds == nil {
+		return nil
+	}
+	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
 	emailToUserID, err := memberEmails.EmailsForAccount(ctx, accountID)
 	if err != nil {
 		log.Warn("devtool: member email lookup failed", "account_id", accountID, "error", err)
@@ -97,85 +105,86 @@ func computeDevtoolForInsights(ctx context.Context, log *logger.Logger, pc *prom
 		// same one here (by max days, not slice position) so they can't diverge.
 		specs = []insightsRangeSpec{widestInsightsRange()}
 	}
-	return computeDevtoolInsights(ctx, log, pc, accountID, emailToUserID, specs).Ranges
+	return computeDevtoolInsights(ctx, log, client, accountID, emailToUserID, specs).Ranges
 }
 
 // computeDevtoolInsights builds each requested range's per-source block.
-func computeDevtoolInsights(ctx context.Context, log *logger.Logger, pc *promquery.Client, accountID string, emailToUserID map[string]string, specs []insightsRangeSpec) DevtoolInsightsResponse {
+func computeDevtoolInsights(
+	ctx context.Context,
+	log *logger.Logger,
+	client *langfuse.Client,
+	accountID string,
+	emailToUserID map[string]string,
+	specs []insightsRangeSpec,
+) DevtoolInsightsResponse {
 	resp := DevtoolInsightsResponse{Ranges: map[string]DevtoolRange{}}
-	if pc == nil {
-		return resp // no metrics backend — graceful empty
+	if client == nil || len(specs) == 0 {
+		return resp
 	}
 	now := time.Now()
-	// Today's overlay cost is range-independent, so query it once per source rather
-	// than re-issuing the identical instant query for every range.
-	todayCost := make(map[string]float64, len(devtoolAdapters))
+	widest := widestInsightsRange().days
+
 	for _, ad := range devtoolAdapters {
-		todayCost[ad.Key] = devtoolTodayCost(ctx, log, pc, ad, accountID, now)
-	}
-	for _, spec := range specs {
-		sources := map[string]DevtoolSource{}
-		for _, ad := range devtoolAdapters {
-			if src, ok := computeDevtoolSource(ctx, log, pc, ad, accountID, spec.days, now, emailToUserID, todayCost[ad.Key]); ok {
-				sources[ad.Key] = src
-			}
+		usage, err := fetchDevtoolUsage(ctx, client, ad.Key, now.AddDate(0, 0, -widest), now)
+		if err != nil {
+			log.Warn("devtool: usage query failed", "source", ad.Key, "account_id", accountID, "error", err)
+			continue
 		}
-		if len(sources) > 0 {
-			resp.Ranges[spec.key] = DevtoolRange{Sources: sources}
+		if usage.costUnavailable() {
+			log.Warn("devtool: tokens reported but cost is zero; model is likely unpriced in Langfuse",
+				"source", ad.Key, "account_id", accountID)
+		}
+		for _, spec := range specs {
+			src, ok := devtoolSourceFor(ad, usage.since(now.AddDate(0, 0, -spec.days)), emailToUserID)
+			if !ok {
+				continue
+			}
+			r := resp.Ranges[spec.key]
+			if r.Sources == nil {
+				r.Sources = map[string]DevtoolSource{}
+			}
+			r.Sources[ad.Key] = src
+			resp.Ranges[spec.key] = r
 		}
 	}
 	return resp
 }
 
-// devtoolWindowTotal returns a metric's total increase() over the whole window
-// via an instant query. The per-day range query used for the chart drops the
-// current (partial) day for wide windows and so undercounts recent usage; the
-// instant query captures it, so it — not the daily sum — decides totals and
-// presence.
-func devtoolWindowTotal(ctx context.Context, log *logger.Logger, pc *promquery.Client, metric, source, accountID, window string) float64 {
-	q := fmt.Sprintf("sum(increase(%s[%s]))", devtoolMatcher(metric, source, accountID), window)
-	samples, err := pc.Query(ctx, q)
-	if err != nil {
-		log.Warn("devtool window total query failed", "source", source, "window", window, "error", err)
-		return 0
-	}
-	var total float64
-	for _, s := range samples {
-		if s.Value > 0 {
-			total += s.Value
-		}
-	}
-	return total
-}
-
-// computeDevtoolSource builds one source/range block; ok=false omits it.
-// todayCost is the precomputed current-day spend (see devtoolTodayCost).
-func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, days int, now time.Time, emailToUserID map[string]string, todayCost float64) (DevtoolSource, bool) {
-	window := fmt.Sprintf("%dd", days)
-	totalCost := devtoolWindowTotal(ctx, log, pc, ad.CostMetric, ad.Key, accountID, window)
-	totalTokens := int(devtoolWindowTotal(ctx, log, pc, ad.TokenMetric, ad.Key, accountID, window) + 0.5)
-	if totalCost <= 0 && totalTokens == 0 {
+// devtoolSourceFor folds one window of usage into the per-source block;
+// ok=false omits the source from that range.
+func devtoolSourceFor(ad devtoolAdapter, usage devtoolUsage, emailToUserID map[string]string) (DevtoolSource, bool) {
+	total := usage.totals()
+	if total.empty() {
 		return DevtoolSource{}, false
 	}
 
-	// Per-day series for the chart. The range query drops the current (partial) day
-	// for wide windows, so applyTodayBucket adds it back from the precomputed value.
-	start := now.AddDate(0, 0, -days)
-	spend := make([]DevtoolSpendPoint, 0, days)
-	costQ := fmt.Sprintf("sum(increase(%s[1d]))", devtoolMatcher(ad.CostMetric, ad.Key, accountID))
-	if costSeries, err := pc.QueryRange(ctx, costQ, start, now, 24*time.Hour); err != nil {
-		log.Warn("devtool daily cost query failed", "source", ad.Key, "days", days, "error", err)
-	} else if len(costSeries) > 0 {
-		for _, p := range costSeries[0].Points {
-			if p.Value <= 0 {
-				continue
-			}
-			spend = append(spend, DevtoolSpendPoint{Date: p.Timestamp.UTC().Format("2006-01-02"), CostUSD: round2(p.Value)})
+	days := usage.byDay()
+	spend := make([]DevtoolSpendPoint, 0, len(days))
+	for date, b := range days {
+		if b.CostUSD <= 0 {
+			continue
 		}
+		spend = append(spend, DevtoolSpendPoint{Date: date, CostUSD: round2(b.CostUSD)})
 	}
-	spend = applyTodayBucket(spend, now, todayCost)
+	sort.Slice(spend, func(i, j int) bool { return spend[i].Date < spend[j].Date })
 
-	totals := DevtoolTotals{CostUSD: round2(totalCost), Requests: 0, TotalTokens: totalTokens}
+	byUser := usage.byUser()
+	users := make([]DevtoolUserSpend, 0, len(byUser))
+	for email, b := range byUser {
+		u := DevtoolUserSpend{UserEmail: email, CostUSD: round2(b.CostUSD), TotalTokens: b.Tokens}
+		if uid := emailToUserID[strings.ToLower(email)]; uid != "" {
+			u.UserID = uid
+			u.IdentityKey = "member:" + uid
+		}
+		users = append(users, u)
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].UserEmail < users[j].UserEmail })
+
+	totals := DevtoolTotals{
+		CostUSD:     round2(total.CostUSD),
+		Requests:    total.Requests,
+		TotalTokens: total.Tokens,
+	}
 	agentRow := devtoolAgentRow(ad, totals)
 	for _, point := range spend {
 		if point.Date > agentRow.Metrics.LastSeen {
@@ -183,82 +192,13 @@ func computeDevtoolSource(ctx context.Context, log *logger.Logger, pc *promquery
 		}
 	}
 	return DevtoolSource{
-		Label:      ad.Label,
-		SpendByDay: spend,
-		Totals:     totals,
-		ByUser:     computeDevtoolByUser(ctx, log, pc, ad, accountID, days, emailToUserID),
-		AgentRow:   agentRow,
+		Label:           ad.Label,
+		SpendByDay:      spend,
+		Totals:          totals,
+		ByUser:          users,
+		AgentRow:        agentRow,
+		CostUnavailable: usage.costUnavailable(),
 	}, true
-}
-
-// devtoolTodayCost queries the current UTC day's spend (instant increase since
-// midnight). It's range-independent, so callers query it once per source.
-func devtoolTodayCost(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, now time.Time) float64 {
-	utcNow := now.UTC()
-	midnight := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), 0, 0, 0, 0, time.UTC)
-	if utcNow.Sub(midnight) <= time.Minute {
-		return 0 // just past midnight — nothing meaningful for today yet
-	}
-	since := int(utcNow.Sub(midnight).Seconds())
-	return devtoolWindowTotal(ctx, log, pc, ad.CostMetric, ad.Key, accountID, fmt.Sprintf("%ds", since))
-}
-
-// applyTodayBucket ensures the current UTC day is in the per-day series (the daily
-// range query drops it for wide windows), keyed with the same UTC day the agent
-// chart uses. It keeps the larger of any existing bucket and today's value, so it
-// never drops a trailing-day span the range query may already have counted.
-func applyTodayBucket(spend []DevtoolSpendPoint, now time.Time, cost float64) []DevtoolSpendPoint {
-	if cost <= 0 {
-		return spend
-	}
-	today := now.UTC().Format("2006-01-02")
-	c := round2(cost)
-	for i := range spend {
-		if spend[i].Date == today {
-			if c > spend[i].CostUSD {
-				spend[i].CostUSD = c
-			}
-			return spend
-		}
-	}
-	return append(spend, DevtoolSpendPoint{Date: today, CostUSD: c})
-}
-
-// computeDevtoolByUser attributes a source's spend to developers by user.email.
-// Best-effort: a query error yields no breakdown.
-func computeDevtoolByUser(ctx context.Context, log *logger.Logger, pc *promquery.Client, ad devtoolAdapter, accountID string, days int, emailToUserID map[string]string) []DevtoolUserSpend {
-	window := fmt.Sprintf("%dd", days)
-	costQ := fmt.Sprintf(`sum by ("user.email") (increase(%s[%s]))`, devtoolMatcher(ad.CostMetric, ad.Key, accountID), window)
-	costSamples, err := pc.Query(ctx, costQ)
-	if err != nil {
-		log.Warn("devtool per-user cost query failed", "source", ad.Key, "days", days, "error", err)
-		return nil
-	}
-
-	tokQ := fmt.Sprintf(`sum by ("user.email") (increase(%s[%s]))`, devtoolMatcher(ad.TokenMetric, ad.Key, accountID), window)
-	tokByEmail := map[string]int{}
-	if tokSamples, err := pc.Query(ctx, tokQ); err == nil {
-		for _, s := range tokSamples {
-			if email := s.Labels["user.email"]; email != "" && s.Value > 0 {
-				tokByEmail[email] = int(s.Value + 0.5)
-			}
-		}
-	}
-
-	out := make([]DevtoolUserSpend, 0, len(costSamples))
-	for _, s := range costSamples {
-		email := s.Labels["user.email"]
-		if email == "" || s.Value <= 0 {
-			continue
-		}
-		spend := DevtoolUserSpend{UserEmail: email, CostUSD: round2(s.Value), TotalTokens: tokByEmail[email]}
-		if uid := emailToUserID[strings.ToLower(email)]; uid != "" {
-			spend.UserID = uid
-			spend.IdentityKey = "member:" + uid
-		}
-		out = append(out, spend)
-	}
-	return out
 }
 
 // devtoolAgentRow is the synthetic agents-table row for one dev-tool source.
@@ -291,16 +231,21 @@ func devtoolAgentRow(ad devtoolAdapter, totals DevtoolTotals) InsightsAgentRow {
 		Identity:   devtoolIdentity(ad),
 		UsedBy:     []InsightsIdentityRef{},
 		Metrics: InsightsAgentMetrics{
-			// No request-count metric is emitted, so request-derived fields stay 0;
-			// the client rescales cost_pct against the combined total.
-			Requests:       0,
+			Requests:       totals.Requests,
 			CostUSD:        totals.CostUSD,
-			CostPct:        0,
-			CostPerRequest: 0,
-			TokPerRequest:  0,
+			CostPct:        0, // client rescales against the combined total
+			CostPerRequest: perRequest(totals.CostUSD, totals.Requests),
+			TokPerRequest:  perRequest(float64(totals.TotalTokens), totals.Requests),
 			P95LatencyMs:   0,
 		},
 	}
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
+func perRequest(total float64, requests int) float64 {
+	if requests <= 0 {
+		return 0
+	}
+	return round2(total / float64(requests))
+}

@@ -830,7 +830,6 @@ func runWorker(
 			LangfuseStore: workerLangfuseStore,
 			SlackStore:    workerSlackStore,
 			MemberEmails:  memberemails.NewStore(db),
-			PromClient:    promClient,
 			Rollups:       insightsrollup.NewStore(db),
 		},
 		ReconcileDeployment: reconcileDeployment,
@@ -2318,7 +2317,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache, promClient, memberemails.NewStore(db)),
+			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache, memberemails.NewStore(db)),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

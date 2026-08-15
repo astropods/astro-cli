@@ -299,8 +299,9 @@ ast-dev push           # deploy the same agent to the local server
 # agent's shared disk at /data.
 ```
 
-Both paths use the same published image and persist history via SQLite; Langfuse is
-not required locally (durability comes from the persistent/shared disk).
+Both paths use the same published image and persist history via SQLite; chat
+history does not depend on Langfuse (durability comes from the
+persistent/shared disk).
 
 > Iterating on the messaging image itself? Build it locally
 > (`moon run deployment:messaging`) and set `dev.overrides.messagingImage` in

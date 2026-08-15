@@ -10,9 +10,11 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,7 @@ const (
 	attrAccountID = "astro.account_id"
 	attrSource    = "astro.source"
 	attrTags      = "langfuse.tags"
+	attrObsUsage  = "langfuse.observation.usage_details"
 	sourceValue   = "claude-code"
 	sessionIDKey  = "session.id"
 
@@ -140,7 +143,7 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 				if redactOn {
 					attrs = redact(attrs)
 				}
-				span.Attributes = mapLangfuseIdentity(tagClaudeCode(attrs))
+				span.Attributes = mapLangfuseUsage(mapLangfuseIdentity(tagClaudeCode(attrs)))
 			}
 		}
 	}
@@ -396,6 +399,55 @@ func mapLangfuseIdentity(attrs []*commonpb.KeyValue) []*commonpb.KeyValue {
 }
 
 // stringAttr returns the string value for key, or "" if absent or non-string.
+// Claude Code emits bare token names; these are the keys Langfuse prices against.
+var usageAttrMap = map[string]string{
+	"input_tokens":          "input",
+	"output_tokens":         "output",
+	"cache_read_tokens":     "cache_read_input_tokens",
+	"cache_creation_tokens": "cache_creation_input_tokens",
+}
+
+// mapLangfuseUsage promotes token counts so Langfuse can price them. Cost is
+// left to Langfuse so dev-tool and agent traffic use one costing method.
+func mapLangfuseUsage(attrs []*commonpb.KeyValue) []*commonpb.KeyValue {
+	usage := make(map[string]int64, len(usageAttrMap))
+	for src, dst := range usageAttrMap {
+		if v, ok := intAttr(attrs, src); ok {
+			usage[dst] = v
+		}
+	}
+	if len(usage) == 0 {
+		return attrs
+	}
+	encoded, err := json.Marshal(usage)
+	if err != nil {
+		return attrs
+	}
+	return upsertString(attrs, attrObsUsage, string(encoded))
+}
+
+// intAttr also accepts numeric strings, so an upstream encoding change degrades
+// to working rather than silently dropping usage.
+func intAttr(attrs []*commonpb.KeyValue, key string) (int64, bool) {
+	for _, kv := range attrs {
+		if kv == nil || kv.Key != key {
+			continue
+		}
+		switch v := kv.GetValue().GetValue().(type) {
+		case *commonpb.AnyValue_IntValue:
+			return v.IntValue, true
+		case *commonpb.AnyValue_DoubleValue:
+			return int64(v.DoubleValue), true
+		case *commonpb.AnyValue_StringValue:
+			if n, err := strconv.ParseInt(v.StringValue, 10, 64); err == nil {
+				return n, true
+			}
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
 func stringAttr(attrs []*commonpb.KeyValue, key string) string {
 	for _, kv := range attrs {
 		if kv != nil && kv.Key == key {

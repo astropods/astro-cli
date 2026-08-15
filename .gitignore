@@ -7,6 +7,10 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 .env.*
+# Templates carry no secrets and are the documentation for each app's config.
+# Without this, a new .env.example is silently untracked — the existing ones
+# only survive because they predate the rule above.
+!.env.example
 .tmp
 
 # Diagnostic reports (https://nodejs.org/api/report.html)

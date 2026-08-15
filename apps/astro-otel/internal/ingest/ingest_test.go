@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"encoding/json"
 	"testing"
 
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -202,4 +203,79 @@ func TestDropExcludedSpans(t *testing.T) {
 			t.Fatalf("expected 0 surviving spans, got %d", spanCount(req))
 		}
 	})
+}
+
+func intAttrKV(k string, v int64) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{
+		Value: &commonpb.AnyValue_IntValue{IntValue: v}}}
+}
+
+// Claude Code emits bare token names that Langfuse does not recognise.
+func TestMapLangfuseUsageTranslatesClaudeCodeTokens(t *testing.T) {
+	out := mapLangfuseUsage([]*commonpb.KeyValue{
+		intAttrKV("input_tokens", 2),
+		intAttrKV("output_tokens", 73),
+		intAttrKV("cache_read_tokens", 18611),
+		intAttrKV("cache_creation_tokens", 8820),
+		strAttr("gen_ai.request.model", "claude-opus-5[1m]"),
+	})
+
+	kv := find(out, "langfuse.observation.usage_details")
+	if kv == nil {
+		t.Fatal("usage_details not set")
+	}
+	var got map[string]int64
+	if err := json.Unmarshal([]byte(kv.GetValue().GetStringValue()), &got); err != nil {
+		t.Fatalf("usage_details is not JSON: %v", err)
+	}
+	want := map[string]int64{
+		"input":                       2,
+		"output":                      73,
+		"cache_read_input_tokens":     18611,
+		"cache_creation_input_tokens": 8820,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %d, want %d", k, got[k], v)
+		}
+	}
+	// Langfuse reads the model from the original attributes.
+	if find(out, "gen_ai.request.model") == nil {
+		t.Error("model attribute was dropped")
+	}
+}
+
+// Cache traffic is the bulk of Claude Code's token volume.
+func TestMapLangfuseUsageIncludesCacheKeys(t *testing.T) {
+	out := mapLangfuseUsage([]*commonpb.KeyValue{
+		intAttrKV("input_tokens", 1),
+		intAttrKV("cache_read_tokens", 50000),
+	})
+	var got map[string]int64
+	_ = json.Unmarshal([]byte(find(out, "langfuse.observation.usage_details").GetValue().GetStringValue()), &got)
+	if got["cache_read_input_tokens"] != 50000 {
+		t.Errorf("cache_read_input_tokens = %d, want 50000", got["cache_read_input_tokens"])
+	}
+}
+
+// Non-LLM spans must not gain an empty usage object.
+func TestMapLangfuseUsageLeavesNonLLMSpansAlone(t *testing.T) {
+	in := []*commonpb.KeyValue{strAttr("span.type", "interaction")}
+	out := mapLangfuseUsage(in)
+	if find(out, "langfuse.observation.usage_details") != nil {
+		t.Error("usage_details set on a span with no token attributes")
+	}
+	if len(out) != len(in) {
+		t.Errorf("attribute count changed: %d -> %d", len(in), len(out))
+	}
+}
+
+// An upstream encoding change should degrade to working, not drop usage.
+func TestIntAttrAcceptsStringEncodedCounts(t *testing.T) {
+	out := mapLangfuseUsage([]*commonpb.KeyValue{strAttr("output_tokens", "42")})
+	var got map[string]int64
+	_ = json.Unmarshal([]byte(find(out, "langfuse.observation.usage_details").GetValue().GetStringValue()), &got)
+	if got["output"] != 42 {
+		t.Errorf("output = %d, want 42", got["output"])
+	}
 }

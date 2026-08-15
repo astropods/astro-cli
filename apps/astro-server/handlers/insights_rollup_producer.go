@@ -12,7 +12,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
-	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
@@ -32,7 +31,6 @@ type InsightsRollupProducer struct {
 	LangfuseStore *langfuse.Store
 	SlackStore    *slackidentity.Store
 	MemberEmails  *memberemails.Store
-	PromClient    *promquery.Client
 	Rollups       *insightsrollup.Store
 }
 
@@ -258,11 +256,12 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 // their `requests` stays zero because no such metric is emitted. That zero is
 // real data, which is why the read path guards per-request denominators.
 func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountID string, day time.Time) error {
-	if p.PromClient == nil {
-		// Dev-tool spend is best-effort by construction: no metrics backend
-		// means Insights renders exactly as it did before dev tools existed.
+	creds, err := p.LangfuseStore.Get(accountID)
+	if err != nil || creds == nil {
+		// No Langfuse project — nothing to roll up, and not an error.
 		return nil
 	}
+	client := langfuse.NewClient(p.Cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
 	emailToUserID := map[string]string{}
 	if p.MemberEmails != nil {
@@ -280,7 +279,7 @@ func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountI
 	defer cancel()
 
 	for _, ad := range devtoolAdapters {
-		facts, err := p.fetchDevtoolGrain(ctx, ad, accountID, day, emailToUserID)
+		facts, err := p.fetchDevtoolGrain(ctx, client, ad, accountID, day, emailToUserID)
 		if err != nil {
 			return err
 		}
@@ -293,37 +292,41 @@ func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountI
 
 func (p *InsightsRollupProducer) fetchDevtoolGrain(
 	ctx context.Context,
+	client *langfuse.Client,
 	ad devtoolAdapter,
 	accountID string,
 	day time.Time,
 	emailToUserID map[string]string,
 ) ([]insightsrollup.Fact, error) {
-	total, err := p.devtoolDayValue(ctx, ad.CostMetric, ad.Key, accountID, day)
+	from, to := rollupDayBounds(day)
+	fromT, _ := time.Parse(time.RFC3339, from)
+	toT, _ := time.Parse(time.RFC3339, to)
+
+	usage, err := fetchDevtoolUsage(ctx, client, ad.Key, fromT, toT)
 	if err != nil {
 		return nil, err
 	}
-	tokens, err := p.devtoolDayValue(ctx, ad.TokenMetric, ad.Key, accountID, day)
-	if err != nil {
-		return nil, err
-	}
-	if total == 0 && tokens == 0 {
-		// Presence gate, matching v1: no cost and no tokens means the source
-		// wasn't used that day, so it contributes no rows at all.
+	total := usage.totals()
+	if total.empty() {
+		// Presence gate: the source wasn't used that day, so it contributes no rows.
 		return nil, nil
 	}
-
-	byEmail, err := p.devtoolDayLabelled(ctx, ad.CostMetric, ad.Key, accountID, day, "user.email")
-	if err != nil {
-		return nil, err
+	if usage.costUnavailable() {
+		p.Log.Warn("Insights rollup: dev-tool tokens reported but cost is zero; model is likely unpriced in Langfuse",
+			"source", ad.Key, "account_id", accountID, "day", day.UTC().Format(time.DateOnly))
 	}
 
-	facts := make([]insightsrollup.Fact, 0, len(byEmail)+1)
+	byUser := usage.byUser()
+	facts := make([]insightsrollup.Fact, 0, len(byUser)+1)
 	var attributed float64
-	for email, cost := range byEmail {
-		if cost == 0 {
+	var attributedReq, attributedTok int64
+	for email, b := range byUser {
+		if b.empty() {
 			continue
 		}
-		attributed += cost
+		attributed += b.CostUSD
+		attributedReq += int64(b.Requests)
+		attributedTok += int64(b.Tokens)
 		kind, key := insightsrollup.ActorKindUnidentified, email
 		if userID, ok := emailToUserID[strings.ToLower(email)]; ok && userID != "" {
 			// Same key space as agent spend for a member, which is exactly what
@@ -331,80 +334,31 @@ func (p *InsightsRollupProducer) fetchDevtoolGrain(
 			kind, key = insightsrollup.ActorKindMember, userID
 		}
 		facts = append(facts, insightsrollup.Fact{
-			ActorKind:  kind,
-			ActorKey:   key,
-			CostUSD:    cost,
-			LastSeenAt: day.UTC(),
+			ActorKind:   kind,
+			ActorKey:    key,
+			Requests:    int64(b.Requests),
+			TotalTokens: int64(b.Tokens),
+			CostUSD:     b.CostUSD,
+			LastSeenAt:  day.UTC(),
 		})
 	}
 
 	// Whatever the per-developer breakdown didn't account for stays on a system
-	// row so the source's total is preserved. Without this, hiding or failing to
-	// attribute a developer would quietly shrink account spend. Tokens ride here
-	// too: they have no per-developer breakdown.
-	if remainder := total - attributed; remainder > 0.0000005 || tokens > 0 {
+	// row so the source's total is preserved. Without this, failing to attribute
+	// a developer would quietly shrink account spend.
+	remainder := total.CostUSD - attributed
+	remReq := int64(total.Requests) - attributedReq
+	remTok := int64(total.Tokens) - attributedTok
+	if remainder > 0.0000005 || remReq > 0 || remTok > 0 {
 		facts = append(facts, insightsrollup.Fact{
 			ActorKind:   insightsrollup.ActorKindSystem,
+			Requests:    max(remReq, 0),
+			TotalTokens: max(remTok, 0),
 			CostUSD:     max(remainder, 0),
-			TotalTokens: int64(tokens),
 			LastSeenAt:  day.UTC(),
 		})
 	}
 	return facts, nil
-}
-
-// devtoolDayValue sums a metric's increase across one specific UTC day. groupBy
-// is empty for a scalar total.
-//
-// QueryRange with start == end is what makes a *historical* day addressable:
-// the instant-query helpers v1 uses are anchored to now and can only look back
-// a window, which is fine for a live page and useless for a backfill.
-func (p *InsightsRollupProducer) devtoolDayValue(
-	ctx context.Context,
-	metric, source, accountID string,
-	day time.Time,
-) (float64, error) {
-	byLabel, err := p.devtoolDayLabelled(ctx, metric, source, accountID, day, "")
-	if err != nil {
-		return 0, err
-	}
-	var sum float64
-	for _, v := range byLabel {
-		sum += v
-	}
-	return sum, nil
-}
-
-func (p *InsightsRollupProducer) devtoolDayLabelled(
-	ctx context.Context,
-	metric, source, accountID string,
-	day time.Time,
-	label string,
-) (map[string]float64, error) {
-	selector := devtoolMatcher(metric, source, accountID)
-	promql := fmt.Sprintf("sum(increase(%s[1d]))", selector)
-	if label != "" {
-		promql = fmt.Sprintf("sum by (%q) (increase(%s[1d]))", label, selector)
-	}
-
-	// End-of-day instant: increase over the preceding 1d window is that day.
-	end := day.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
-	series, err := p.PromClient.QueryRange(ctx, promql, end, end, 24*time.Hour)
-	if err != nil {
-		return nil, fmt.Errorf("insights rollup: devtool %s: %w", metric, err)
-	}
-
-	out := make(map[string]float64, len(series))
-	for _, s := range series {
-		key := ""
-		if label != "" {
-			key = s.Labels[label]
-		}
-		for _, pt := range s.Points {
-			out[key] += pt.Value
-		}
-	}
-	return out, nil
 }
 
 // rollupActorFor maps a raw (already Slack-translated) Langfuse userId onto the

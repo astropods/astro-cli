@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.2
+	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	go.opentelemetry.io/proto/otlp v1.5.0
 	google.golang.org/protobuf v1.36.6

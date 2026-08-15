@@ -22,7 +22,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
-	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
@@ -123,7 +122,6 @@ func GetAccountInsights(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
-	promClient *promquery.Client,
 	memberEmails *memberemails.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -152,7 +150,7 @@ func GetAccountInsights(
 			params.RestrictDevtoolToKey = "member:" + user.ID
 		}
 
-		resp, err := ComputeInsightsWithParams(c.Request.Context(), log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, promClient, memberEmails, acct, time.Now().UTC(), params)
+		resp, err := ComputeInsightsWithParams(c.Request.Context(), log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, memberEmails, acct, time.Now().UTC(), params)
 		if err != nil {
 			log.Error("Failed to compute insights view model", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute insights"})
@@ -171,12 +169,11 @@ func ComputeInsights(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
-	promClient *promquery.Client,
 	memberEmails *memberemails.Store,
 	acct *account.Account,
 	now time.Time,
 ) (InsightsResponse, error) {
-	return ComputeInsightsWithParams(ctx, log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, promClient, memberEmails, acct, now, defaultInsightsRequestParams())
+	return ComputeInsightsWithParams(ctx, log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, memberEmails, acct, now, defaultInsightsRequestParams())
 }
 
 func ComputeInsightsWithParams(
@@ -188,7 +185,6 @@ func ComputeInsightsWithParams(
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
 	cache k8scache.Cache,
-	promClient *promquery.Client,
 	memberEmails *memberemails.Store,
 	acct *account.Account,
 	now time.Time,
@@ -206,8 +202,8 @@ func ComputeInsightsWithParams(
 
 	g, gCtx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		// Best-effort: never fails the page. Nil prom client → no dev-tool data.
-		devtoolRanges = computeDevtoolForInsights(gCtx, log, promClient, memberEmails, acct.ID, params.SkipRanges)
+		// Best-effort: never fails the page. No Langfuse project → no dev-tool data.
+		devtoolRanges = computeDevtoolForInsights(gCtx, log, cfg, langfuseStore, memberEmails, acct.ID, params.SkipRanges)
 		return nil
 	})
 	g.Go(func() error {
