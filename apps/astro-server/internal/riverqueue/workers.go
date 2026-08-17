@@ -197,6 +197,12 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)
 		log.Info("river: registered worker", "worker", "BillingSuspend/ResumeWorker")
 
+		addWorkerWithCatalogCheck(log, workers, &BillingCollectWorker{
+			invoices: paymentInvoices(cfg.PaymentProvider),
+			log:      log,
+		})
+		log.Info("river: registered worker", "worker", "BillingCollectWorker")
+
 		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), thresholds: spendThresholds(cfg.Billing), log: log}
 		addWorkerWithCatalogCheck(log, workers, metronomeHook)
 		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), log: log}

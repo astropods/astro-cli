@@ -26,6 +26,7 @@ type stripeLinker interface {
 type billingReconcileQueue interface {
 	InsertBillingSuspend(ctx context.Context, accountID string) error
 	InsertBillingResume(ctx context.Context, accountID string) error
+	InsertBillingCollect(ctx context.Context, accountID, stripeCustomerID string) error
 }
 
 // SetupIntentResponse carries the client secret + publishable key the frontend
@@ -138,7 +139,7 @@ func ConfirmPaymentMethod(log *logger.Logger, accountStore *account.AccountStore
 		// save — the card is already vaulted and the link can be retried.
 		linkStripeToBilling(c, log, accountStore, billingProvider, billingBackend, acct, customerID)
 
-		applyCardSignal(c, log, billingStatus, queue, acct.ID, billing.SignalCardAdded)
+		applyCardSignal(c, log, billingStatus, queue, acct.ID, customerID, billing.SignalCardAdded)
 
 		c.JSON(http.StatusOK, PaymentMethodResponse{Available: true, Card: card})
 	}
@@ -201,7 +202,7 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 			return
 		}
 
-		applyCardSignal(c, log, billingStatus, queue, acct.ID, billing.SignalCardRemoved)
+		applyCardSignal(c, log, billingStatus, queue, acct.ID, customerID, billing.SignalCardRemoved)
 
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
@@ -213,7 +214,7 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 // without a status store (OSS / unconfigured). Best-effort: the card is already
 // saved with Stripe, so a failure here must not fail the request — the next
 // webhook or the dunning sweep recomputes.
-func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusStore, queue billingReconcileQueue, accountID string, sig billing.Signal) {
+func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusStore, queue billingReconcileQueue, accountID, stripeCustomerID string, sig billing.Signal) {
 	if status == nil {
 		return
 	}
@@ -241,6 +242,26 @@ func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusS
 	if enqueueErr != nil {
 		log.Error("Failed to enqueue workload reconcile after card change", "error", enqueueErr, "account_id", accountID)
 	}
+	if !collectAfterCard(newStatus, sig) || stripeCustomerID == "" {
+		return
+	}
+	if err := queue.InsertBillingCollect(ctx, accountID, stripeCustomerID); err != nil {
+		log.Error("Failed to enqueue invoice collection after card change", "error", err, "account_id", accountID)
+	}
+}
+
+// collectAfterCard reports whether a new card should be charged for what the
+// account already owes.
+//
+// A saved card does not clear the debt that suspended the account: dunning
+// clears on payment, and only a payment clears it. The account stays gated
+// until the provider's own retry schedule comes around, which can be days out
+// or already exhausted, so the card that fixes the problem appears to do
+// nothing. Charging now closes that gap.
+//
+// Active means no collection flag is raised and there is nothing owed to chase.
+func collectAfterCard(status billing.Status, sig billing.Signal) bool {
+	return sig == billing.SignalCardAdded && status != billing.StatusActive
 }
 
 // linkStripeToBilling links the Stripe customer to the hosted billing provider

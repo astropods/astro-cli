@@ -371,6 +371,17 @@ func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error
 	return err
 }
 
+// InsertBillingCollect enqueues a charge attempt against an account's open
+// invoices.
+//
+// Deliberately not gated, for the reason InsertBillingResume is not: collection
+// is remediation. The invoices are real debt whether or not enforcement is on,
+// and the provider would charge them on its own schedule anyway.
+func (q *Queue) InsertBillingCollect(ctx context.Context, accountID, stripeCustomerID string) error {
+	_, err := q.Insert(ctx, BillingCollectArgs{AccountID: accountID, StripeCustomerID: stripeCustomerID}, nil)
+	return err
+}
+
 // EmitBillingNotify sends an owner-facing billing alert, or logs what it would
 // have sent in observe mode. Separate from EmitNotify so only billing traffic
 // is gated.

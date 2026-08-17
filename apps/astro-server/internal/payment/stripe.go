@@ -117,6 +117,37 @@ func (s *Stripe) RemoveCard(ctx context.Context, customerID string) error {
 	return s.detachCardsExcept(ctx, customerID, "")
 }
 
+// CollectOpenInvoices charges the customer's default card for every open
+// invoice and reports how many were paid. Only `open` invoices are eligible:
+// a draft has not been finalized, and paid, void, and uncollectible are all
+// settled. Stripe refuses a pay call on any of those.
+//
+// A declined card is the expected outcome, not a fault, so a failed attempt is
+// counted and skipped rather than returned. Stripe emits
+// `invoice.payment_failed` for it, and the webhook path records the state.
+func (s *Stripe) CollectOpenInvoices(ctx context.Context, customerID string) (paid int, err error) {
+	var ids []string
+	for inv, err := range s.sc.V1Invoices.List(ctx, &stripe.InvoiceListParams{
+		Customer: stripe.String(customerID),
+		Status:   stripe.String("open"),
+	}).All(ctx) {
+		if err != nil {
+			return 0, fmt.Errorf("stripe list invoices: %w", err)
+		}
+		ids = append(ids, inv.ID)
+	}
+	for _, id := range ids {
+		inv, err := s.sc.V1Invoices.Pay(ctx, id, &stripe.InvoicePayParams{})
+		if err != nil {
+			continue
+		}
+		if inv.Status == stripe.InvoiceStatusPaid {
+			paid++
+		}
+	}
+	return paid, nil
+}
+
 // detachCardsExcept detaches all of the customer's card payment methods except
 // keepID (pass "" to detach all).
 func (s *Stripe) detachCardsExcept(ctx context.Context, customerID, keepID string) error {
