@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -213,6 +214,7 @@ type MetronomeWebhookWorker struct {
 	status     *billing.StatusStore
 	cards      cardReader           // nil when payments aren't configured
 	thresholds spendThresholdReader // nil when the backend reports no spend controls
+	spend      spendReader          // nil when the backend does not report spend
 	queue      *Queue               // set post-construction in New(); enqueues suspend/resume
 	log        *logger.Logger
 }
@@ -221,6 +223,12 @@ type MetronomeWebhookWorker struct {
 // in alarm. Satisfied by the metronome provider.
 type spendThresholdReader interface {
 	CustomerSpendThresholds(ctx context.Context, customerID string) (billing.SpendThresholds, error)
+}
+
+// spendReader summarises a customer's money position, which is where a spend
+// message gets the amount it states. Satisfied by the metronome provider.
+type spendReader interface {
+	CustomerSpend(ctx context.Context, customerID string) (billing.Spend, error)
 }
 
 // spendThresholds narrows an optional provider, keeping a nil interface nil
@@ -233,6 +241,46 @@ func spendThresholds(p billing.BillingProvider) spendThresholdReader {
 	return r
 }
 
+// spendReports narrows an optional provider, keeping a nil interface nil rather
+// than wrapping it in a non-nil spendReader.
+func spendReports(p billing.BillingProvider) spendReader {
+	r, ok := p.(billing.SpendReporter)
+	if !ok {
+		return nil
+	}
+	return r
+}
+
+// spentCents is the amount a spend message states. The provider measures a
+// threshold against usage before credit drawdown, so the invoice total it sends
+// alongside the alert reads zero for any account still on credit: an owner who
+// set a $1 warning would be told they had spent $0.00 of it. Reading the usage
+// figure ourselves also keeps the message and the billing page on one number.
+//
+// A read failure returns the error so the job retries, because a threshold fires
+// once and a wrong amount is worse than a late one. A backend that reports no
+// spend keeps the provider's figure, which is all it has.
+func (w *MetronomeWebhookWorker) spentCents(ctx context.Context, customerID string, reported int64) (int64, error) {
+	if w.spend == nil || customerID == "" {
+		return reported, nil
+	}
+	s, err := w.spend.CustomerSpend(ctx, customerID)
+	if err != nil {
+		return 0, fmt.Errorf("read customer spend: %w", err)
+	}
+	if !s.HasUsageSpend {
+		w.log.Warn("metronome webhook: no usage spend to state in a spend message",
+			"customer_id", customerID)
+		return reported, nil
+	}
+	return int64(math.Round(s.UsageSpend * centsPerUnit)), nil
+}
+
+// centsPerUnit converts the reporter's currency units back to the minor units a
+// notification renders. Spend arrives scaled to the currency it names, while a
+// threshold arrives in the provider's minor units, and the two share one message.
+const centsPerUnit = 100
+
 // notifySpendWarning tells the account's managers they crossed their own
 // warning. It changes no status: the warning exists to warn, and gating on it
 // would suspend an account for reaching the line it set as a heads-up.
@@ -242,7 +290,11 @@ func (w *MetronomeWebhookWorker) notifySpendWarning(ctx context.Context, args Me
 	if w.queue == nil {
 		return nil
 	}
-	return notifySpendWarning(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.queue, args)
+	spent, err := w.spentCents(ctx, args.CustomerID, args.CurrentSpend)
+	if err != nil {
+		return err
+	}
+	return notifySpendWarning(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.queue, args, spent)
 }
 
 // billingNotifier emits an owner-facing billing notification. Narrowed from
@@ -257,6 +309,7 @@ func notifySpendWarning(
 	lookup func(customerID string) (*account.Account, error),
 	queue billingNotifier,
 	args MetronomeWebhookArgs,
+	spentCents int64,
 ) error {
 	if args.CustomerID == "" {
 		return nil
@@ -269,7 +322,7 @@ func notifySpendWarning(
 	if err != nil {
 		return err
 	}
-	ev := notify.BillingSpendWarning(acct.ID, acct.Name, args.Threshold, args.CurrentSpend)
+	ev := notify.BillingSpendWarning(acct.ID, acct.Name, args.Threshold, spentCents)
 	ev.DedupeKey = "billing:metronome:" + args.EventID
 	if emitErr := queue.EmitBillingNotify(ctx, ev); emitErr != nil {
 		log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", "spend_warning")
@@ -320,8 +373,15 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 			return nil
 		}
 	}
-	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID,
-		notifyFacts{ThresholdCents: job.Args.Threshold, SpentCents: job.Args.CurrentSpend})
+	facts := notifyFacts{ThresholdCents: job.Args.Threshold, SpentCents: job.Args.CurrentSpend}
+	if sig == billing.SignalAlert {
+		spent, err := w.spentCents(ctx, job.Args.CustomerID, job.Args.CurrentSpend)
+		if err != nil {
+			return err
+		}
+		facts.SpentCents = spent
+	}
+	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, facts)
 }
 
 // otherSpendAlertInAlarm reports whether a spend alert other than the one that

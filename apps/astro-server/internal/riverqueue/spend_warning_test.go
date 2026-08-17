@@ -41,7 +41,7 @@ func TestNotifySpendWarningEmitsTheEvent(t *testing.T) {
 		CurrentSpend: 8100,
 	}
 
-	if err := notifySpendWarning(context.Background(), logger.New("error", "json"), lookupOne(acct, nil), q, args); err != nil {
+	if err := notifySpendWarning(context.Background(), logger.New("error", "json"), lookupOne(acct, nil), q, args, args.CurrentSpend); err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
 	if len(q.events) != 1 {
@@ -70,7 +70,7 @@ func TestNotifySpendWarningEmitsTheEvent(t *testing.T) {
 func TestNotifySpendWarningSkipsAnUnknownCustomer(t *testing.T) {
 	q := &fakeNotifier{}
 	err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(nil, account.ErrAccountNotFound), q, MetronomeWebhookArgs{CustomerID: "cust_gone"})
+		lookupOne(nil, account.ErrAccountNotFound), q, MetronomeWebhookArgs{CustomerID: "cust_gone"}, 0)
 	if err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestNotifySpendWarningReturnsATransientLookupError(t *testing.T) {
 	q := &fakeNotifier{}
 	boom := errors.New("connection refused")
 	err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(nil, boom), q, MetronomeWebhookArgs{CustomerID: "cust_1"})
+		lookupOne(nil, boom), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0)
 	if !errors.Is(err, boom) {
 		t.Fatalf("error = %v, want the lookup error", err)
 	}
@@ -97,7 +97,7 @@ func TestNotifySpendWarningSurvivesAFailedEmit(t *testing.T) {
 	q := &fakeNotifier{err: errors.New("queue down")}
 	acct := &account.Account{ID: "acct_1", Name: "acme"}
 	if err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(acct, nil), q, MetronomeWebhookArgs{CustomerID: "cust_1"}); err != nil {
+		lookupOne(acct, nil), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0); err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
 }

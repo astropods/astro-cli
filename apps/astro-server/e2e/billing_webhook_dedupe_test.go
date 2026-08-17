@@ -118,12 +118,17 @@ func TestWebhookDedupe_MetronomeRedeliveryCollapses(t *testing.T) {
 	const eventID = "evt_dedupe_metronome_e2e"
 	cleanupJobs(t, db, eventID)
 
+	// CurrentSpend differs per attempt. ByArgs hashes only the river:"unique"
+	// EventID, so a redelivery whose siblings moved must still collapse: whole-args
+	// equality would let a recalculated amount through as a second gating job.
 	for i := 0; i < 3; i++ {
 		if err := q.InsertMetronomeWebhook(ctx, riverqueue.MetronomeWebhookArgs{
-			EventID:    eventID,
-			EventType:  "alerts.spend_threshold_reached",
-			CustomerID: "cus_1",
-			AlertName:  "Spend limit",
+			EventID:      eventID,
+			EventType:    "alerts.spend_threshold_reached",
+			CustomerID:   "cus_1",
+			AlertName:    "Spend limit",
+			Threshold:    8000,
+			CurrentSpend: int64(8100 + i),
 		}); err != nil {
 			t.Fatalf("insert %d: %v", i, err)
 		}
