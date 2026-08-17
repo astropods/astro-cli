@@ -13,6 +13,8 @@ import (
 	"github.com/stripe/stripe-go/v86/webhook"
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 )
 
 // fakeWebhookQueue records the last enqueue so tests can assert the handler
@@ -26,12 +28,15 @@ type fakeWebhookQueue struct {
 	lastURL        string
 	lastAlertName  string
 	lastDetail     string
+	lastMetronome  riverqueue.MetronomeWebhookArgs
 	err            error
 }
 
-func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, eventID, eventType, customerID, alertName, detail string) error {
+func (f *fakeWebhookQueue) InsertMetronomeWebhook(_ context.Context, args riverqueue.MetronomeWebhookArgs) error {
 	f.metronomeCalls++
-	f.lastEventID, f.lastEventType, f.lastCustomer, f.lastAlertName, f.lastDetail = eventID, eventType, customerID, alertName, detail
+	f.lastMetronome = args
+	f.lastEventID, f.lastEventType, f.lastCustomer = args.EventID, args.EventType, args.CustomerID
+	f.lastAlertName, f.lastDetail = args.AlertName, args.Detail
 	return f.err
 }
 

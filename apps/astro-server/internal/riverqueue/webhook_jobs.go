@@ -26,7 +26,12 @@ type MetronomeWebhookArgs struct {
 	// AlertName tells an account's own spend warning from its limit, which are
 	// the same alert type at different numbers.
 	AlertName string `json:"alert_name,omitempty"`
-	Detail    string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
+	// Threshold and CurrentSpend are the alert's own numbers, in the credit
+	// type's minor units. They ride along so the notification can state them:
+	// a spend message without them tells the reader nothing actionable.
+	Threshold    int64  `json:"threshold,omitempty"`
+	CurrentSpend int64  `json:"current_spend,omitempty"`
+	Detail       string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
 }
 
 func (MetronomeWebhookArgs) Kind() string { return "webhook.metronome" }
@@ -81,6 +86,17 @@ func init() {
 // (usage/commit/invoice-total) are UI banners, not gating signals, so they stay
 // unhandled here. Event names are the alert_type enum prefixed with "alerts.":
 // https://docs.metronome.com/api-reference/alerts/create-a-threshold-notification
+// spendThresholdReachedEvent is the alert_type both spend controls fire under,
+// which is why the alert name is what tells them apart.
+const spendThresholdReachedEvent = "alerts.spend_threshold_reached"
+
+// isSpendWarning reports the account's own warning crossing its threshold, which
+// notifies without gating. The limit and the warning share one alert type, so the
+// name is the only thing separating a heads-up from a suspension.
+func isSpendWarning(eventType, alertName string) bool {
+	return eventType == spendThresholdReachedEvent && alertName == billing.SpendWarningAlertName
+}
+
 func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
 	// An account's own warning is the same alert type at a lower number, and it
 	// exists to warn rather than stop. Gating on it would suspend an account for
@@ -91,7 +107,7 @@ func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
 		return "", false
 	}
 	switch eventType {
-	case "alerts.spend_threshold_reached":
+	case spendThresholdReachedEvent:
 		return billing.SignalAlert, true
 	// Both contract-credit alerts mean the same thing here: the package's credit
 	// balance hit its threshold. We issue no commits, so the and-commit variant
@@ -129,16 +145,25 @@ func metronomeAlarm(eventType string) bool {
 	}
 }
 
+// notifyFacts carries the event-specific values a notification states. Only the
+// fields the signal in hand uses are set, which is why one struct beats adding a
+// parameter per signal to a path Stripe and Metronome share.
+type notifyFacts struct {
+	HostedInvoiceURL string // Stripe's 3DS link, absolute
+	ThresholdCents   int64
+	SpentCents       int64
+}
+
 // billingAlert maps a billing signal to the owner-facing notification event, if
 // one exists for it. Uncollectible/voided/card-updated have no user alert.
-func billingAlert(sig billing.Signal, accountID, accountName, hostedInvoiceURL string) (notify.Event, bool) {
+func billingAlert(sig billing.Signal, accountID, accountName string, facts notifyFacts) (notify.Event, bool) {
 	switch sig {
 	case billing.SignalPaymentFailed:
 		return notify.BillingPaymentFailed(accountID, accountName), true
 	case billing.SignalActionRequired:
-		return notify.BillingActionRequired(accountID, accountName, hostedInvoiceURL), true
+		return notify.BillingActionRequired(accountID, accountName, facts.HostedInvoiceURL), true
 	case billing.SignalAlert:
-		return notify.BillingSpendThreshold(accountID, accountName), true
+		return notify.BillingSpendThreshold(accountID, accountName, facts.ThresholdCents, facts.SpentCents), true
 	case billing.SignalCreditsExhausted:
 		return notify.BillingCreditsExhausted(accountID, accountName), true
 	case billing.SignalRecovery:
@@ -208,6 +233,50 @@ func spendThresholds(p billing.BillingProvider) spendThresholdReader {
 	return r
 }
 
+// notifySpendWarning tells the account's managers they crossed their own
+// warning. It changes no status: the warning exists to warn, and gating on it
+// would suspend an account for reaching the line it set as a heads-up.
+func (w *MetronomeWebhookWorker) notifySpendWarning(ctx context.Context, args MetronomeWebhookArgs) error {
+	// Guarded on the concrete type: a nil *Queue in an interface parameter is a
+	// non-nil interface, so the check has to happen before the handoff.
+	if w.queue == nil {
+		return nil
+	}
+	return notifySpendWarning(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.queue, args)
+}
+
+// billingNotifier emits an owner-facing billing notification. Narrowed from
+// *Queue so the warning path can be tested without River.
+type billingNotifier interface {
+	EmitBillingNotify(ctx context.Context, ev notify.Event) error
+}
+
+func notifySpendWarning(
+	ctx context.Context,
+	log *logger.Logger,
+	lookup func(customerID string) (*account.Account, error),
+	queue billingNotifier,
+	args MetronomeWebhookArgs,
+) error {
+	if args.CustomerID == "" {
+		return nil
+	}
+	acct, err := lookup(args.CustomerID)
+	if errors.Is(err, account.ErrAccountNotFound) {
+		log.Warn("metronome webhook: no account for customer", "customer_id", args.CustomerID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	ev := notify.BillingSpendWarning(acct.ID, acct.Name, args.Threshold, args.CurrentSpend)
+	ev.DedupeKey = "billing:metronome:" + args.EventID
+	if emitErr := queue.EmitBillingNotify(ctx, ev); emitErr != nil {
+		log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", "spend_warning")
+	}
+	return nil
+}
+
 func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[MetronomeWebhookArgs]) error {
 	// Ahead of the store guard, which would otherwise drop the alarm on a backend
 	// that has no billing status.
@@ -218,6 +287,12 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 	}
 	if w.accounts == nil || w.status == nil {
 		return nil
+	}
+	// The warning yields no signal by design, and the notification path hangs off
+	// the signal, so without this the account is never told it crossed the number
+	// it asked to be told about.
+	if isSpendWarning(job.Args.EventType, job.Args.AlertName) {
+		return w.notifySpendWarning(ctx, job.Args)
 	}
 	sig, ok := metronomeSignal(job.Args.EventType, job.Args.AlertName)
 	if !ok {
@@ -245,7 +320,8 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 			return nil
 		}
 	}
-	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, "")
+	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID,
+		notifyFacts{ThresholdCents: job.Args.Threshold, SpentCents: job.Args.CurrentSpend})
 }
 
 // otherSpendAlertInAlarm reports whether a spend alert other than the one that
@@ -375,7 +451,8 @@ func (w *StripeWebhookWorker) Work(ctx context.Context, job *river.Job[StripeWeb
 		// reads pay-link state from the invoices endpoint).
 		w.log.Info("stripe webhook: payment action required", "customer_id", job.Args.CustomerID, "hosted_invoice_url", job.Args.HostedInvoiceURL)
 	}
-	return applyWebhookSignal(ctx, w.log, w.accounts.GetByStripeCustomerID, w.status, w.queue, "stripe", job.Args.CustomerID, sig, job.Args.EventID, job.Args.HostedInvoiceURL)
+	return applyWebhookSignal(ctx, w.log, w.accounts.GetByStripeCustomerID, w.status, w.queue, "stripe", job.Args.CustomerID, sig, job.Args.EventID,
+		notifyFacts{HostedInvoiceURL: job.Args.HostedInvoiceURL})
 }
 
 // applyWebhookSignal is the shared body of both webhook workers: map the
@@ -390,7 +467,8 @@ func applyWebhookSignal(
 	queue *Queue,
 	source, customerID string,
 	sig billing.Signal,
-	eventID, hostedInvoiceURL string,
+	eventID string,
+	facts notifyFacts,
 ) error {
 	if status == nil || customerID == "" {
 		return nil
@@ -422,7 +500,7 @@ func applyWebhookSignal(
 		// card they already have is worse than saying nothing.
 		sig = ""
 	}
-	if ev, ok := billingAlert(sig, acct.ID, acct.Name, hostedInvoiceURL); ok && queue != nil {
+	if ev, ok := billingAlert(sig, acct.ID, acct.Name, facts); ok && queue != nil {
 		ev.DedupeKey = "billing:" + source + ":" + eventID
 		if emitErr := queue.EmitBillingNotify(ctx, ev); emitErr != nil {
 			log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", string(sig))

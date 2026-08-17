@@ -198,3 +198,50 @@ func TestMetronomeWebhook_ForwardsTheAlertName(t *testing.T) {
 		t.Errorf("alert name = %q, want astro:spend_warning", q.lastAlertName)
 	}
 }
+
+// Metered spend accrues fractional cents, and this envelope decodes every
+// Metronome webhook. An amount an int64 field rejects would 400 the event before
+// any signal is read, so the alert that suspends an account over its limit would
+// be dropped for the sake of a number only the message text uses.
+func TestMetronomeWebhook_AcceptsFractionalAmounts(t *testing.T) {
+	const secret = "whsec-test"
+	const date = "2026-08-12T00:00:00Z"
+	cases := []struct {
+		name             string
+		threshold, spend string
+		wantThreshold    int64
+		wantCurrentSpend int64
+	}{
+		{"whole numbers", "2500", "2600", 2500, 2600},
+		{"fractional spend rounds down", "2500", "2600.4", 2500, 2600},
+		{"fractional spend rounds up", "2500", "2600.5", 2500, 2601},
+		{"a whole number written with a decimal point", "2500.0", "2600", 2500, 2600},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"id":"evt_f","type":"alerts.spend_threshold_reached","properties":{` +
+				`"customer_id":"cust_1","alert_name":"astro:spend_limit",` +
+				`"threshold":` + tc.threshold + `,"current_spend":` + tc.spend + `}}`
+
+			q := &fakeWebhookQueue{}
+			req := httptest.NewRequest(http.MethodPost, "/webhooks/metronome", strings.NewReader(body))
+			req.Header.Set("X-Metronome-Date", date)
+			req.Header.Set("Metronome-Webhook-Signature", sign(secret, date, body))
+			rec := httptest.NewRecorder()
+			metronomeWebhookRouterWithQueue(secret, q).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+			if q.metronomeCalls != 1 {
+				t.Fatalf("enqueued %d jobs, want 1: the gating event was dropped", q.metronomeCalls)
+			}
+			if q.lastMetronome.Threshold != tc.wantThreshold {
+				t.Errorf("threshold = %d, want %d", q.lastMetronome.Threshold, tc.wantThreshold)
+			}
+			if q.lastMetronome.CurrentSpend != tc.wantCurrentSpend {
+				t.Errorf("current_spend = %d, want %d", q.lastMetronome.CurrentSpend, tc.wantCurrentSpend)
+			}
+		})
+	}
+}

@@ -119,7 +119,67 @@ func (c *Client) Trigger(ctx context.Context, req TriggerRequest) error {
 	if req.TransactionID != "" {
 		body["transactionId"] = req.TransactionID
 	}
-	return c.do(ctx, http.MethodPost, "/v1/events/trigger", body, nil)
+	// Novu answers 201 and reports the outcome only in the body. Several statuses
+	// mean nothing was delivered: the workflow is off, it has no live steps, no
+	// provider is configured. Discarding the body completes the job and logs
+	// success for all of them, which is quieter than a missing workflow's 422.
+	raw, err := c.doBytes(ctx, http.MethodPost, "/v1/events/trigger", body)
+	if err != nil {
+		return err
+	}
+	status, err := triggerStatus(raw)
+	if err != nil {
+		return err
+	}
+	// Only the configuration statuses are permanent. Every other outcome, named
+	// or not, retries: a threshold crossing fires once, so discarding a status
+	// that might have been transient loses the only notification there will be.
+	if status != "" && status != triggerStatusProcessed {
+		if permanentTriggerStatuses[status] {
+			return fmt.Errorf("%w: workflow %q reported %q", ErrNotDelivered, req.WorkflowID, status)
+		}
+		return fmt.Errorf("novu: workflow %q reported %q", req.WorkflowID, status)
+	}
+	return nil
+}
+
+// triggerStatus reads the outcome from a trigger response. An empty body is
+// reported as no status: before this response was read at all, an empty 2xx was
+// a successful send, and turning it into a retry would resend every notification
+// if the provider ever changed shape.
+func triggerStatus(raw []byte) (string, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "", nil
+	}
+	var result triggerResponse
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("novu: decode trigger response: %w", err)
+	}
+	return result.Data.Status, nil
+}
+
+// ErrNotDelivered is a trigger Novu accepted and then delivered to nobody: the
+// workflow is switched off, defines no live steps, or the environment has no
+// provider for its channels. No retry changes any of those.
+var ErrNotDelivered = errors.New("novu: trigger delivered nothing")
+
+const triggerStatusProcessed = "processed"
+
+// The statuses that describe the environment rather than the attempt. Novu's
+// generic "error" is deliberately absent: it covers provider and internal
+// failures a later attempt can clear.
+var permanentTriggerStatuses = map[string]bool{
+	"trigger_not_active":               true,
+	"no_workflow_active_steps_defined": true,
+	"no_workflow_steps_defined":        true,
+	"subscriber_id_missing":            true,
+}
+
+type triggerResponse struct {
+	Data struct {
+		Acknowledged bool   `json:"acknowledged"`
+		Status       string `json:"status"`
+	} `json:"data"`
 }
 
 // WorkflowPreference is one workflow's channel preferences for a subscriber, as
@@ -335,33 +395,12 @@ func (c *Client) GetWorkflowMeta(ctx context.Context, workflowID string) (Workfl
 	return meta, nil
 }
 
-// do performs a request against the Novu API. When out is non-nil the response
-// `data` envelope is decoded into it.
+// do sends a request and, when out is non-nil, unmarshals the response body
+// into it.
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
-	var reader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("novu: marshal body: %w", err)
-		}
-		reader = bytes.NewReader(b)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reader)
+	respBody, err := c.doBytes(ctx, method, path, body)
 	if err != nil {
-		return fmt.Errorf("novu: new request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "ApiKey "+c.secretKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("novu: %s %s: %w", method, path, err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &APIError{StatusCode: resp.StatusCode, Method: method, Path: path, Body: string(respBody)}
+		return err
 	}
 	if out == nil {
 		return nil
@@ -370,4 +409,35 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		return fmt.Errorf("novu: decode %s %s: %w", method, path, err)
 	}
 	return nil
+}
+
+// doBytes sends a request and returns the undecoded body, which is what a caller
+// needs when an empty response is meaningful rather than a decode failure.
+func (c *Client) doBytes(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("novu: marshal body: %w", err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("novu: new request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "ApiKey "+c.secretKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("novu: %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &APIError{StatusCode: resp.StatusCode, Method: method, Path: path, Body: string(respBody)}
+	}
+	return respBody, nil
 }

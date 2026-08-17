@@ -24,7 +24,13 @@ const (
 
 	TypeBillingPaymentFailed  Type = "billing.payment_failed"
 	TypeBillingActionRequired Type = "billing.action_required"
+	// TypeBillingSpendThreshold is the account's spend limit, which suspends it.
 	TypeBillingSpendThreshold Type = "billing.spend_threshold"
+	// TypeBillingSpendWarning is the account's spend warning, which does not
+	// suspend it. It is a separate type because the limit's message says agents
+	// stopped, and reusing it would tell an owner their agents stopped while they
+	// are still running.
+	TypeBillingSpendWarning Type = "billing.spend_warning"
 	// TypeBillingCreditsExhausted is the free signup credit running out. Only
 	// reached without a card on file; with one the account rolls to
 	// pay-as-you-go silently.

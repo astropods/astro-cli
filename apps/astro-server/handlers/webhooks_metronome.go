@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 )
 
 // WebhookQueue enqueues verified billing webhooks for off-request-path
@@ -21,7 +24,7 @@ import (
 // retried. Satisfied by *riverqueue.Queue; nil disables enqueue (endpoint 404s
 // when its secret is also unset).
 type WebhookQueue interface {
-	InsertMetronomeWebhook(ctx context.Context, eventID, eventType, customerID, alertName, detail string) error
+	InsertMetronomeWebhook(ctx context.Context, args riverqueue.MetronomeWebhookArgs) error
 	InsertStripeWebhook(ctx context.Context, eventID, eventType, customerID, hostedInvoiceURL string) error
 }
 
@@ -33,15 +36,28 @@ type metronomeWebhookEnvelope struct {
 	ID         string `json:"id"`
 	Type       string `json:"type"`
 	Properties struct {
-		CustomerID           string `json:"customer_id"`
-		AlertName            string `json:"alert_name"`
-		InvoiceID            string `json:"invoice_id"`
-		BillingProvider      string `json:"billing_provider"`
-		BillingProviderError string `json:"billing_provider_error"`
-		Integration          string `json:"integration"`
-		Error                string `json:"error"`
-		ErrorCode            string `json:"error_code"`
+		CustomerID string `json:"customer_id"`
+		AlertName  string `json:"alert_name"`
+		// Minor units of the alert's credit type, decoded as a JSON number
+		// because metered spend accrues fractional cents. An int64 field rejects
+		// 8034.5 outright, and this envelope decodes every Metronome webhook, so
+		// one fractional amount would 400 the spend-limit event that suspends the
+		// account.
+		Threshold            float64 `json:"threshold"`
+		CurrentSpend         float64 `json:"current_spend"`
+		InvoiceID            string  `json:"invoice_id"`
+		BillingProvider      string  `json:"billing_provider"`
+		BillingProviderError string  `json:"billing_provider_error"`
+		Integration          string  `json:"integration"`
+		Error                string  `json:"error"`
+		ErrorCode            string  `json:"error_code"`
 	} `json:"properties"`
+}
+
+// cents rounds a provider amount to whole minor units, which is the smallest
+// unit any message states.
+func cents(amount float64) int64 {
+	return int64(math.Round(amount))
 }
 
 // detail renders the payload's error fields into one log line.
@@ -99,7 +115,15 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 		}
 
 		if queue != nil {
-			if err := queue.InsertMetronomeWebhook(c.Request.Context(), env.ID, env.Type, env.Properties.CustomerID, env.Properties.AlertName, env.detail()); err != nil {
+			if err := queue.InsertMetronomeWebhook(c.Request.Context(), riverqueue.MetronomeWebhookArgs{
+				EventID:      env.ID,
+				EventType:    env.Type,
+				CustomerID:   env.Properties.CustomerID,
+				AlertName:    env.Properties.AlertName,
+				Threshold:    cents(env.Properties.Threshold),
+				CurrentSpend: cents(env.Properties.CurrentSpend),
+				Detail:       env.detail(),
+			}); err != nil {
 				// Return 500 so Metronome redelivers — the event is not yet tracked.
 				log.Error("Metronome webhook: enqueue failed", "type", env.Type, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})

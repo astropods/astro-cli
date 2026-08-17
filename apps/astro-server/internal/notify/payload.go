@@ -1,5 +1,7 @@
 package notify
 
+import "fmt"
+
 // Payload property keys pushed to Novu. The backend pushes structured DATA
 // only — the message wording (subject, body) lives in the Novu workflow
 // templates, which compose the message from these properties. ctaUrl is a
@@ -14,6 +16,12 @@ const (
 	PayloadAction  = "action" // e.g. added|role_changed|removed, created|revoked
 	PayloadKeyKind = "keyKind"
 	PayloadKeyName = "keyName"
+
+	// PayloadThreshold and PayloadSpent are money, pre-formatted (e.g. "$25.00").
+	// A template cannot divide minor units into a currency string, so sending the
+	// raw integer would render cents as dollars.
+	PayloadThreshold = "threshold"
+	PayloadSpent     = "spent"
 
 	// PayloadTimestamp is RFC 3339 UTC (e.g. 2026-08-04T21:37:02Z) marking when
 	// the event occurred, not when it was delivered — a retried job can trigger
@@ -35,7 +43,8 @@ var payloadProps = map[Type][]string{
 
 	TypeBillingPaymentFailed:    {PayloadAccount, PayloadCTAURL},
 	TypeBillingActionRequired:   {PayloadAccount, PayloadCTAURL},
-	TypeBillingSpendThreshold:   {PayloadAccount, PayloadCTAURL},
+	TypeBillingSpendThreshold:   {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent},
+	TypeBillingSpendWarning:     {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent},
 	TypeBillingCreditsExhausted: {PayloadAccount, PayloadCTAURL},
 	TypeBillingRecovered:        {PayloadAccount},
 	TypeBillingSuspended:        {PayloadAccount, PayloadCTAURL},
@@ -128,10 +137,33 @@ func BillingActionRequired(accountID, accountName, hostedInvoiceURL string) Even
 }
 
 // BillingSpendThreshold builds the billing.spend_threshold event.
-func BillingSpendThreshold(accountID, accountName string) Event {
+func BillingSpendThreshold(accountID, accountName string, thresholdCents, spentCents int64) Event {
 	return billingEvent(TypeBillingSpendThreshold, accountID, map[string]any{
-		PayloadAccount: accountName, PayloadCTAURL: "/settings/billing",
+		PayloadAccount:   accountName,
+		PayloadCTAURL:    "/settings/billing",
+		PayloadThreshold: money(thresholdCents),
+		PayloadSpent:     money(spentCents),
 	})
+}
+
+// BillingSpendWarning builds the billing.spend_warning event. The warning does
+// not gate, so this is the only notice an owner gets that they are approaching
+// the limit they set.
+func BillingSpendWarning(accountID, accountName string, thresholdCents, spentCents int64) Event {
+	return billingEvent(TypeBillingSpendWarning, accountID, map[string]any{
+		PayloadAccount:   accountName,
+		PayloadCTAURL:    "/settings/billing",
+		PayloadThreshold: money(thresholdCents),
+		PayloadSpent:     money(spentCents),
+	})
+}
+
+// money renders minor units as a currency string. Zero renders as "$0.00", not
+// empty: a threshold of zero is a setting a customer can choose, and blanking it
+// would leave the message naming no number at all. Both spend events always carry
+// an amount, so there is no absent case to distinguish it from.
+func money(cents int64) string {
+	return fmt.Sprintf("$%d.%02d", cents/100, cents%100)
 }
 
 // BillingCreditsExhausted builds the billing.credits_exhausted event, CTA'd at

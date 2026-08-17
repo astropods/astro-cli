@@ -23,7 +23,11 @@ type NotifyArgs struct {
 func (NotifyArgs) Kind() string { return "notify.deliver" }
 
 func (NotifyArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: queueNotifications}
+	// River's default of 25 attempts backs off by attempt^4 seconds, which spans
+	// weeks. A notification is worth retrying for as long as an outage plausibly
+	// lasts and no longer: ten attempts covers about four hours, and delivering
+	// a spend warning a fortnight late is noise rather than a save.
+	return river.InsertOpts{Queue: queueNotifications, MaxAttempts: 10}
 }
 
 func init() {
@@ -62,6 +66,12 @@ func (w *NotifyWorker) Work(ctx context.Context, job *river.Job[NotifyArgs]) err
 // permanentDeliveryError reports whether a Novu error is a client error that a
 // retry cannot fix. 408 (timeout) and 429 (rate limited) are transient.
 func permanentDeliveryError(err error) bool {
+	// A trigger the provider accepted and delivered to nobody answers 201, so it
+	// is not an APIError, and no number of retries changes the workflow's state.
+	// Cancelling logs it at error level, which is the only way anyone finds out.
+	if errors.Is(err, novu.ErrNotDelivered) {
+		return true
+	}
 	var apiErr *novu.APIError
 	if !errors.As(err, &apiErr) {
 		return false

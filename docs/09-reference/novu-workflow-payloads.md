@@ -22,8 +22,10 @@ The **Example message** column is a representative rendering composed from the p
 | `build.failed` | Agent container build fails (`riverqueue/github_build.go`) | members | `{"agent": "chatbot", "reason": "The container build failed. Check the build log for the error.", "ctaUrl": "/acme/chatbot"}` | **Build failed: {agent}** — The container build for **{agent}** failed: {reason}. → View agent |
 | `billing.payment_failed` † | Stripe `invoice.payment_failed` (`riverqueue/webhook_jobs.go`) | managers | `{"account": "acme", "ctaUrl": "/settings/billing"}` | **Payment failed** — We couldn't process the payment for **{account}**. Update your payment method to avoid interruption. → Manage billing |
 | `billing.action_required` † | Stripe `invoice.payment_action_required` (3DS) | managers | `{"account": "acme", "ctaUrl": "https://invoice.stripe.com/i/acct_.../..."}` | **Action required to complete payment** — The payment for **{account}** needs additional confirmation. → Complete payment |
-| `billing.spend_threshold` | Metronome `alerts.spend_threshold_reached` | managers | `{"account": "acme", "ctaUrl": "/settings/billing"}` | **Spend threshold reached** — **{account}** has reached its configured spend threshold. → Review usage |
+| `billing.spend_threshold` | Metronome `alerts.spend_threshold_reached`, the account's own limit (`riverqueue/webhook_jobs.go`) | managers | `{"account": "acme", "ctaUrl": "/settings/billing", "threshold": "$100.00", "spent": "$101.00"}` | **You've reached a spend threshold.** **{account}** crossed a configured spend threshold this period. → View usage |
+| `billing.spend_warning` | Metronome `alerts.spend_threshold_reached`, the account's own warning (`riverqueue/webhook_jobs.go`) | managers | `{"account": "acme", "ctaUrl": "/settings/billing", "threshold": "$80.00", "spent": "$81.00"}` | **Approaching your spend limit.** **{account}** has spent {spent} against a warning set at {threshold}. Agents keep running. → View usage |
 | `billing.dunning_suspended` † | Dunning sweep suspends account (`riverqueue/billing_dunning.go`) | managers | `{"account": "acme", "ctaUrl": "/settings/billing"}` (`account` is best-effort and renders `""` if the account lookup fails) | **Account suspended** — **{account}** has been suspended for non-payment. Update your payment method to restore service. → Manage billing |
+| `billing.credits_exhausted` | Metronome `alerts.low_remaining_contract_credit_balance_reached` (`riverqueue/webhook_jobs.go`) | managers | `{"account": "acme", "ctaUrl": "/settings/billing"}` | **Free credit used up.** **{account}** has used its free credit. Add a payment method to keep your agents running. → Manage billing |
 | `billing.recovered` | Stripe `invoice.paid` | managers | `{"account": "acme"}` | **Payment recovered** — The outstanding balance for **{account}** has been paid. Service is fully restored. |
 | `team.member_changed` (`added`) | Member added (`handlers/org.go`) | subject | `{"account": "acme", "role": "admin", "action": "added", "ctaUrl": "/acme"}` | **You were added to {account}** — You've been added to **{account}** as **{role}**. → Open account |
 | `team.member_changed` (`role_changed`) | Member role changed (`handlers/org.go`) | subject | `{"account": "acme", "role": "member", "action": "role_changed", "ctaUrl": "/acme"}` | **Your role changed in {account}** — Your role in **{account}** is now **{role}**. → Open account |
@@ -34,6 +36,22 @@ The **Example message** column is a representative rendering composed from the p
 | `observation.critical` | Failing-agent condition fires — crash loop, OOM, unschedulable (`observation/evaluator.go`) | members | `{"agent": "chatbot", "reason": "Out of memory", "details": "The agent used more memory than its limit allows, so it stopped. Raise the memory limit to keep it running.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is failing** — {reason}. {details} → View deployments |
 | `observation.warning` | Degraded-agent condition fires — frequent restarts, near memory limit, slowed by CPU limit, error/latency spike | members | `{"agent": "chatbot", "reason": "Frequent restarts (model-x)", "details": "The agent keeps restarting, which interrupts any request it is handling. It restarted 7 times in the last 5 minutes. Check the agent's logs for the cause.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is degraded** — {reason}. {details} → View deployments |
 | `observation.info` | Over-provisioning condition fires — `cpu_over_provisioned`, `memory_over_provisioned` (usage far below the reservation) | members | `{"agent": "chatbot", "reason": "Unused CPU", "details": "The agent uses far less CPU than you reserved for it. At its busiest it used 18% of the reserved CPU. You can lower the reserved CPU to cut cost.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is over-provisioned** — {reason}. {details} → View deployments |
+
+**The two spend controls are separate workflows on purpose.** They fire on the
+same provider alert type at different amounts, told apart by the alert name. The
+limit suspends the account, so its message says agents stopped. The warning
+changes nothing, so reusing the limit's workflow would tell an owner their agents
+are down while they are still running. A warning also produces no gating signal,
+which is why it reaches the notifier through its own path rather than through
+`billingAlert`.
+
+Both amounts arrive pre-formatted as currency, because a template cannot divide
+minor units into a currency string.
+
+**One unsourced variable.** The `billing.spend_threshold` email template also
+references `{{payload.period}}`, which no event carries. Handlebars renders an
+absent variable as empty, so that line arrives blank. Either the template drops
+it or the payload grows to carry it.
 
 Observation workflows default to in-app only (email opt-in). The three severities share one payload shape; the specific condition rides in `reason`. `info` is the cost/waste tier — a healthy agent reserving more than it uses — kept separate from `warning` (a health problem) so users can toggle it independently. A per-episode `DedupeKey` (`{condition}:{deploymentID}:{workload}:{active_since}`) keeps a re-fire after resolve distinct.
 
@@ -122,4 +140,6 @@ The over-provisioned pair quotes the peak as a share of the reservation and stop
 | `action` | Sub-event discriminator: `added`/`role_changed`/`removed` or `created`/`revoked` |
 | `keyKind` | Type of key (currently `ingestion`, matching the "Ingestion key" label on the settings page) |
 | `keyName` | Key display name (may be empty on revoke) |
+| `threshold` | The amount the customer set, pre-formatted (`$80.00`). Zero is a real setting and renders `$0.00` |
+| `spent` | Period spend that crossed the threshold, pre-formatted. Rounded to whole minor units |
 | `ctaUrl` | Relative app path (absolutized at delivery) or absolute external URL |
