@@ -331,13 +331,20 @@ func TestGetQueueTraces_QueryParams(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "pk", "sk")
-	_, err := c.GetQueueTraces(context.Background(), "dep-1", "2026-01-02T00:00:00Z", 50, 50)
+	_, err := c.GetQueueTraces(
+		context.Background(),
+		"dep-1",
+		"2025-12-26T00:00:00Z",
+		"2026-01-02T00:00:00Z",
+		50,
+		50,
+	)
 	if err != nil {
 		t.Fatalf("GetQueueTraces returned error: %v", err)
 	}
 
 	assertParam(t, gotQuery, "tags", "deployment:dep-1")
-	assertParam(t, gotQuery, "fromTimestamp", "")
+	assertParam(t, gotQuery, "fromTimestamp", "2025-12-26T00:00:00Z")
 	assertParam(t, gotQuery, "toTimestamp", "2026-01-02T00:00:00Z")
 	assertParam(t, gotQuery, "limit", "50")
 	assertParam(t, gotQuery, "page", "2")

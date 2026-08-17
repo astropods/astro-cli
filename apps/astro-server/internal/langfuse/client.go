@@ -272,9 +272,10 @@ func (c *Client) GetTracesFilteredOrdered(
 }
 
 // GetQueueTraces returns the trace fields needed to render the judgment queue.
-func (c *Client) GetQueueTraces(ctx context.Context, deploymentID, endTime string, limit, offset int) (*TracesResponse, error) {
+func (c *Client) GetQueueTraces(ctx context.Context, deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
 	return c.getTraces(ctx, traceFilter{
 		deploymentID: deploymentID,
+		startTime:    startTime,
 		endTime:      endTime,
 		limit:        limit,
 		offset:       offset,

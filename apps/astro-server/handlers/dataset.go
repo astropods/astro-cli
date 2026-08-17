@@ -259,6 +259,7 @@ const (
 	reviewQueueDefaultLimit       = 50
 	reviewQueueMaxLimit           = 100
 	reviewQueueMaxScanPages       = 3
+	reviewQueueWindow             = 30 * 24 * time.Hour
 	reviewQueueCursorVersion      = 1
 	reviewQueuePredictionPresent  = reviewQueuePredictionFilter("present")
 	reviewQueuePredictionAbsent   = reviewQueuePredictionFilter("absent")
@@ -453,6 +454,7 @@ func getPredictedReviewQueuePage(
 	if err != nil {
 		return DatasetReviewQueueResponse{}, errInvalidReviewQueueCursor
 	}
+	startTime := asOf.Add(-reviewQueueWindow)
 	var before *judgmentstore.PredictionTrace
 	if cursor.PredictionTrace != "" {
 		timestamp, err := time.Parse(time.RFC3339Nano, cursor.PredictionTime)
@@ -467,6 +469,7 @@ func getPredictedReviewQueuePage(
 	matchingTraces, err := judgmentStore.PredictionTracesWithoutJudgments(
 		ctx,
 		evalDatasetID,
+		startTime,
 		asOf,
 		before,
 		limit+1,
@@ -489,7 +492,7 @@ func getPredictedReviewQueuePage(
 	traces, err := client.GetTracesFilteredOrdered(
 		ctx,
 		deploymentID,
-		"",
+		startTime.Format(time.RFC3339Nano),
 		cursor.EndTime,
 		[]langfuse.TraceFilter{{
 			Type:     "stringOptions",
@@ -547,10 +550,16 @@ func scanLangfuseReviewQueuePages(
 	cursor reviewQueueCursor,
 ) (DatasetReviewQueueResponse, error) {
 	out := make([]DatasetReviewQueueItem, 0, limit)
+	endTime, err := time.Parse(time.RFC3339Nano, cursor.EndTime)
+	if err != nil {
+		return DatasetReviewQueueResponse{}, errInvalidReviewQueueCursor
+	}
+	startTime := endTime.Add(-reviewQueueWindow).Format(time.RFC3339Nano)
 	for rawPage, scannedPages := cursor.RawPage, 0; scannedPages < reviewQueueMaxScanPages; rawPage, scannedPages = rawPage+1, scannedPages+1 {
 		traces, err := client.GetQueueTraces(
 			ctx,
 			deploymentID,
+			startTime,
 			cursor.EndTime,
 			reviewQueueMaxLimit,
 			(rawPage-1)*reviewQueueMaxLimit,

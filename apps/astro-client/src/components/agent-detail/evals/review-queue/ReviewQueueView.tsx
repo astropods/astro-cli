@@ -489,7 +489,7 @@ export function ReviewQueueView({
       <EvalTabCard className="@container/review-card min-h-0">
         <EvalTabCardHeader
           label="Review traces"
-          description="Add useful traces to the dataset or remove them from this queue"
+          description="Review traces from the last 30 days."
           className="px-4 py-4 @[520px]/review-card:px-6"
         >
           {selectedItem && (

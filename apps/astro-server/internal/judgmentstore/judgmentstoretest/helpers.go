@@ -175,8 +175,8 @@ func ExpectPredictionTracesWithoutJudgments(
 		beforeTimestamp = before.TraceTimestamp
 		beforeTraceID = before.TraceID
 	}
-	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*AND p.created_at <= \\$2.*NOT EXISTS.*FROM eval_dataset_judgments j").
-		WithArgs(datasetID, sqlmock.AnyArg(), beforeTimestamp, beforeTraceID, limit).
+	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*AND p.trace_timestamp >= \\$2.*AND p.created_at <= \\$3.*NOT EXISTS.*FROM eval_dataset_judgments j").
+		WithArgs(datasetID, sqlmock.AnyArg(), sqlmock.AnyArg(), beforeTimestamp, beforeTraceID, limit).
 		WillReturnRows(rows)
 }
 

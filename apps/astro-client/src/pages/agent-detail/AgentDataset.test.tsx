@@ -917,6 +917,9 @@ describe("review queue view", () => {
 
     renderDataset({ tab: null });
 
+    expect(
+      await screen.findByText("Review traces from the last 30 days."),
+    ).toBeInTheDocument();
     expect(await screen.findByText("First response")).toBeInTheDocument();
     expect(screen.getAllByText("First prompt").length).toBeGreaterThan(0);
     expect(

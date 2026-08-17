@@ -1343,6 +1343,11 @@ func TestGetDatasetReviewQueue_IncludesJudgedTrace(t *testing.T) {
 		if got := r.URL.Query().Get("filter"); got != `[{"type":"stringOptions","column":"id","operator":"any of","value":["trace-1"]}]` {
 			t.Errorf("filter = %q, want prediction trace ID filter", got)
 		}
+		start, startErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("fromTimestamp"))
+		end, endErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("toTimestamp"))
+		if startErr != nil || endErr != nil || end.Sub(start) != reviewQueueWindow {
+			t.Errorf("prediction window = %q to %q, want %s", r.URL.Query().Get("fromTimestamp"), r.URL.Query().Get("toTimestamp"), reviewQueueWindow)
+		}
 		traceHandler(w, r)
 	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
@@ -1485,9 +1490,11 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 		{ID: "trace-1", Input: "question 1", Output: "answer 1"},
 		{ID: "trace-2", Input: "question 2", Output: "answer 2"},
 	}
-	var snapshotTimes []string
+	var snapshotStarts []string
+	var snapshotEnds []string
 	upstream := func(w http.ResponseWriter, r *http.Request) {
-		snapshotTimes = append(snapshotTimes, r.URL.Query().Get("toTimestamp"))
+		snapshotStarts = append(snapshotStarts, r.URL.Query().Get("fromTimestamp"))
+		snapshotEnds = append(snapshotEnds, r.URL.Query().Get("toTimestamp"))
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": traces,
 			"meta": map[string]any{
@@ -1543,8 +1550,16 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 	if len(second.Items) != 1 || second.Items[0].TraceID != "trace-2" || second.NextCursor != "" {
 		t.Fatalf("second response = %+v", second)
 	}
-	if len(snapshotTimes) != 2 || snapshotTimes[0] == "" || snapshotTimes[0] != snapshotTimes[1] {
-		t.Fatalf("snapshot times = %v, want one stable timestamp", snapshotTimes)
+	if len(snapshotStarts) != 2 || snapshotStarts[0] == "" || snapshotStarts[0] != snapshotStarts[1] {
+		t.Fatalf("snapshot starts = %v, want one stable timestamp", snapshotStarts)
+	}
+	if len(snapshotEnds) != 2 || snapshotEnds[0] == "" || snapshotEnds[0] != snapshotEnds[1] {
+		t.Fatalf("snapshot ends = %v, want one stable timestamp", snapshotEnds)
+	}
+	start, startErr := time.Parse(time.RFC3339Nano, snapshotStarts[0])
+	end, endErr := time.Parse(time.RFC3339Nano, snapshotEnds[0])
+	if startErr != nil || endErr != nil || end.Sub(start) != reviewQueueWindow {
+		t.Fatalf("snapshot window = %q to %q, want %s", snapshotStarts[0], snapshotEnds[0], reviewQueueWindow)
 	}
 }
 

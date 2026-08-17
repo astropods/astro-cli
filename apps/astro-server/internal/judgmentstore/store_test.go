@@ -142,14 +142,16 @@ func TestPredictionTracesWithoutJudgmentsExcludesJudgmentsBeforeLimit(t *testing
 	t.Cleanup(func() { _ = db.Close() })
 
 	asOf := time.Date(2026, time.July, 28, 12, 0, 0, 0, time.UTC)
+	from := asOf.Add(-30 * 24 * time.Hour)
 	before := &PredictionTrace{
 		TraceID:        "trace-2",
 		TraceTimestamp: asOf.Add(-time.Hour),
 	}
 	nextTimestamp := asOf.Add(-2 * time.Hour)
-	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*NOT EXISTS.*FROM eval_dataset_judgments j.*ORDER BY p.trace_timestamp DESC, p.trace_id DESC").
+	mock.ExpectQuery("(?s)SELECT p.trace_id, p.trace_timestamp.*p.trace_timestamp >= \\$2.*NOT EXISTS.*FROM eval_dataset_judgments j.*ORDER BY p.trace_timestamp DESC, p.trace_id DESC").
 		WithArgs(
 			"dataset-1",
+			from,
 			asOf,
 			before.TraceTimestamp,
 			before.TraceID,
@@ -161,6 +163,7 @@ func TestPredictionTracesWithoutJudgmentsExcludesJudgmentsBeforeLimit(t *testing
 	got, err := NewStore(db).PredictionTracesWithoutJudgments(
 		context.Background(),
 		"dataset-1",
+		from,
 		asOf,
 		before,
 		2,
@@ -183,6 +186,7 @@ func TestPredictionTracesWithoutJudgmentsRejectsInvalidLimit(t *testing.T) {
 	_, err = NewStore(db).PredictionTracesWithoutJudgments(
 		context.Background(),
 		"dataset-1",
+		time.Now().Add(-30*24*time.Hour),
 		time.Now(),
 		nil,
 		0,

@@ -161,6 +161,7 @@ func (s *Store) GetPredictions(ctx context.Context, evalDatasetID string, traceI
 func (s *Store) PredictionTracesWithoutJudgments(
 	ctx context.Context,
 	evalDatasetID string,
+	from time.Time,
 	asOf time.Time,
 	before *PredictionTrace,
 	limit int,
@@ -178,8 +179,9 @@ func (s *Store) PredictionTracesWithoutJudgments(
 		SELECT p.trace_id, p.trace_timestamp
 		FROM eval_dataset_judgment_predictions p
 		WHERE p.eval_dataset_id = $1
-		  AND p.created_at <= $2
-		  AND ($3::timestamptz IS NULL OR (p.trace_timestamp, p.trace_id) < ($3, $4))
+		  AND p.trace_timestamp >= $2
+		  AND p.created_at <= $3
+		  AND ($4::timestamptz IS NULL OR (p.trace_timestamp, p.trace_id) < ($4, $5))
 		  AND NOT EXISTS (
 			SELECT 1
 			FROM eval_dataset_judgments j
@@ -187,8 +189,8 @@ func (s *Store) PredictionTracesWithoutJudgments(
 			  AND j.trace_id = p.trace_id
 		  )
 		ORDER BY p.trace_timestamp DESC, p.trace_id DESC
-		LIMIT $5
-	`, evalDatasetID, asOf, beforeTimestamp, beforeTraceID, limit)
+		LIMIT $6
+	`, evalDatasetID, from, asOf, beforeTimestamp, beforeTraceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("judgmentstore prediction traces without judgments: %w", err)
 	}
