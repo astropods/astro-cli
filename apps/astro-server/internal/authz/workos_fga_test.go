@@ -303,6 +303,198 @@ func TestWorkOSFGAListEffectivePermissions(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAListResources(t *testing.T) {
+	t.Parallel()
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organization_memberships/om_123/resources" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		query := request.URL.Query()
+		if query.Get("permission_slug") != "deployment:read" || query.Get("parent_resource_type_slug") != "organization" || query.Get("parent_resource_external_id") != "org_123" {
+			t.Fatalf("query = %v", query)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data":          []map[string]any{{"external_id": "dep_123", "resource_type_slug": "deployment", "organization_id": "org_123"}},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	resources, err := fga.ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
+	if err != nil {
+		t.Fatalf("ListResources() error = %v", err)
+	}
+	want := []ResourceRef{DeploymentResource("dep_123")}
+	if !reflect.DeepEqual(resources, want) {
+		t.Fatalf("ListResources() = %v, want %v", resources, want)
+	}
+}
+
+func TestWorkOSFGAListRoleAssignments(t *testing.T) {
+	t.Parallel()
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organizations/org_123/resources/deployment/dep_123/role_assignments" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data": []map[string]any{{
+				"id": "ra_123", "organization_membership_id": "om_123",
+				"role":     map[string]string{"slug": "deployment-viewer"},
+				"source":   map[string]any{"type": "direct", "group_role_assignment_id": nil},
+				"resource": workOSResourceResponse(),
+			}},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	assignments, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+	if err != nil || len(assignments) != 1 {
+		t.Fatalf("ListRoleAssignments() = %v, %v", assignments, err)
+	}
+	if assignments[0].Subject != MembershipAssignmentSubject("om_123") || assignments[0].Role != RoleDeploymentViewer || assignments[0].Source != "direct" {
+		t.Fatalf("assignment = %#v", assignments[0])
+	}
+}
+
+func TestWorkOSFGAListGroupRoleAssignments(t *testing.T) {
+	t.Parallel()
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/groups/group_123/role_assignments" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data": []map[string]any{{
+				"id": "gra_123", "group_id": "group_123",
+				"role":     map[string]string{"slug": "deployment-builder"},
+				"resource": map[string]string{"external_id": "dep_123", "resource_type_slug": "deployment"},
+			}},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	assignments, err := fga.ListGroupRoleAssignments(context.Background(), "group_123")
+	if err != nil || len(assignments) != 1 {
+		t.Fatalf("ListGroupRoleAssignments() = %v, %v", assignments, err)
+	}
+	want := RoleAssignment{
+		ID:       "gra_123",
+		Subject:  GroupAssignmentSubject("group_123"),
+		Role:     RoleDeploymentBuilder,
+		Source:   "direct",
+		Resource: DeploymentResource("dep_123"),
+	}
+	if !reflect.DeepEqual(assignments[0], want) {
+		t.Fatalf("assignment = %#v, want %#v", assignments[0], want)
+	}
+}
+
+func TestWorkOSFGARejectsMalformedRoleAssignments(t *testing.T) {
+	t.Parallel()
+
+	userAssignment := func() map[string]any {
+		return map[string]any{
+			"id": "ra_123", "organization_membership_id": "om_123",
+			"role":     map[string]string{"slug": "deployment-viewer"},
+			"source":   map[string]any{"type": "direct", "group_role_assignment_id": nil},
+			"resource": workOSResourceResponse(),
+		}
+	}
+	groupAssignment := func() map[string]any {
+		return map[string]any{
+			"id": "gra_123", "group_id": "group_123",
+			"role":     map[string]string{"slug": "deployment-builder"},
+			"resource": map[string]string{"external_id": "dep_123", "resource_type_slug": "deployment"},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		assignment func() map[string]any
+		missing    string
+		call       func(*WorkOSFGA) error
+		want       string
+	}{
+		{
+			name: "membership id", path: "/authorization/organizations/org_123/resources/deployment/dep_123/role_assignments",
+			assignment: userAssignment, missing: "organization_membership_id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+				return err
+			},
+			want: "assignment \"ra_123\" is missing organization membership, role, source, or resource",
+		},
+		{
+			name: "membership role", path: "/authorization/organizations/org_123/resources/deployment/dep_123/role_assignments",
+			assignment: userAssignment, missing: "role",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+				return err
+			},
+			want: "assignment \"ra_123\" is missing organization membership, role, source, or resource",
+		},
+		{
+			name: "membership source", path: "/authorization/organizations/org_123/resources/deployment/dep_123/role_assignments",
+			assignment: userAssignment, missing: "source",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+				return err
+			},
+			want: "assignment \"ra_123\" is missing organization membership, role, source, or resource",
+		},
+		{
+			name: "membership resource", path: "/authorization/organizations/org_123/resources/deployment/dep_123/role_assignments",
+			assignment: userAssignment, missing: "resource",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+				return err
+			},
+			want: "assignment \"ra_123\" is missing organization membership, role, source, or resource",
+		},
+		{
+			name: "group role", path: "/authorization/groups/group_123/role_assignments",
+			assignment: groupAssignment, missing: "role",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListGroupRoleAssignments(context.Background(), "group_123")
+				return err
+			},
+			want: "assignment \"gra_123\" is missing role or resource",
+		},
+		{
+			name: "group resource", path: "/authorization/groups/group_123/role_assignments",
+			assignment: groupAssignment, missing: "resource",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListGroupRoleAssignments(context.Background(), "group_123")
+				return err
+			},
+			want: "assignment \"gra_123\" is missing role or resource",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != test.path {
+					t.Fatalf("path = %s", request.URL.Path)
+				}
+				assignment := test.assignment()
+				assignment[test.missing] = nil
+				writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+					"data": []map[string]any{assignment}, "list_metadata": map[string]any{"before": nil, "after": nil},
+				})
+			})
+			defer closeServer()
+
+			if err := test.call(fga); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +600,41 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 			},
 		},
 		{
+			name: "list resources with empty membership id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListResources(context.Background(), "", ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
+				return err
+			},
+		},
+		{
+			name: "list role assignments with empty organization id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListRoleAssignments(context.Background(), "", DeploymentResource("dep_123"))
+				return err
+			},
+		},
+		{
+			name: "list group role assignments with empty group id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListGroupRoleAssignments(context.Background(), "")
+				return err
+			},
+		},
+		{
+			name: "list resources with empty parent",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{})
+				return err
+			},
+		},
+		{
+			name: "list resources with empty action",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListResources(context.Background(), "om_123", "", ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
+				return err
+			},
+		},
+		{
 			name: "check with empty membership id",
 			call: func(fga *WorkOSFGA) error {
 				_, err := fga.Check(context.Background(), "", ActionDeploymentRead, DeploymentResource("dep_123"))
@@ -475,6 +702,15 @@ func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	}
 	if _, err := (&FakeFGA{}).ListEffectivePermissions(context.Background(), "om_123", DeploymentResource("dep_123")); err == nil {
 		t.Fatal("ListEffectivePermissions() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"}); err == nil {
+		t.Fatal("ListResources() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123")); err == nil {
+		t.Fatal("ListRoleAssignments() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).ListGroupRoleAssignments(context.Background(), "group_123"); err == nil {
+		t.Fatal("ListGroupRoleAssignments() error = nil, want unexpected-call error")
 	}
 }
 

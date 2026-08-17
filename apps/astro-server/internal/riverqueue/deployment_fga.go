@@ -140,7 +140,7 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 					"organization_id", work.WorkOSOrgID,
 				)
 			case work.MembershipID != "":
-				if err := w.fga.AssignRole(ctx, authz.MembershipAssignmentSubject(work.MembershipID), authz.RoleDeploymentOwner, resource); err != nil && !errors.Is(err, authz.ErrRoleAssignmentExists) {
+				if err := w.fga.AssignRole(ctx, authz.MembershipAssignmentSubject(work.MembershipID), authz.RoleDeploymentAdmin, resource); err != nil && !errors.Is(err, authz.ErrRoleAssignmentExists) {
 					return w.fail(ctx, work, err)
 				}
 			case firstRegistration && work.AttemptCount < deploymentFGAMembershipRetryLimit:

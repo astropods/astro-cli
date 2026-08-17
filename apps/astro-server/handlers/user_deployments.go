@@ -163,7 +163,7 @@ func ListUserDeployments(
 		scope:         func(request userDeploymentRequest) userResourceScopeRequest { return request.scope },
 		cacheIdentity: userDeploymentCacheIdentity,
 		cursorPresent: func(request userDeploymentRequest) bool { return request.cursor != nil },
-		// The generation vector covers selected deployment-owner accounts.
+		// The generation vector covers the selected deployment accounts.
 		// latest_build_id may come from a publisher/source account discovered only
 		// after the page loads, so publisher-only changes can remain visible for at
 		// most the 30-second remote TTL. Preloading those IDs would bypass hot hits.

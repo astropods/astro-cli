@@ -8,7 +8,7 @@ type RoleSlug string
 const (
 	RoleDeploymentViewer  RoleSlug = "deployment-viewer"
 	RoleDeploymentBuilder RoleSlug = "deployment-builder"
-	RoleDeploymentOwner   RoleSlug = "deployment-owner"
+	RoleDeploymentAdmin   RoleSlug = "deployment-admin"
 )
 
 // AssignmentSubjectType identifies who receives a resource-scoped role.
@@ -23,6 +23,15 @@ const (
 type AssignmentSubject struct {
 	Type AssignmentSubjectType
 	ID   string
+}
+
+type RoleAssignment struct {
+	ID                    string
+	Subject               AssignmentSubject
+	Role                  RoleSlug
+	Source                string
+	GroupRoleAssignmentID string
+	Resource              ResourceRef
 }
 
 func MembershipAssignmentSubject(id string) AssignmentSubject {
@@ -43,4 +52,18 @@ type FGA interface {
 	RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
 	Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error)
 	ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error)
+}
+
+// AccessAssignments is the resource-sharing slice of WorkOS authorization.
+type AccessAssignments interface {
+	AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
+	RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
+	ListRoleAssignments(ctx context.Context, organizationID string, resource ResourceRef) ([]RoleAssignment, error)
+	ListGroupRoleAssignments(ctx context.Context, groupID string) ([]RoleAssignment, error)
+}
+
+// ResourceDiscovery lists the resources on which one membership has a
+// permission. It powers list filtering without per-resource checks.
+type ResourceDiscovery interface {
+	ListResources(ctx context.Context, membershipID string, action Action, parent ResourceRef) ([]ResourceRef, error)
 }

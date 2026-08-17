@@ -2,7 +2,7 @@
 
 ## Summary
 
-Replace the temporary Reader/Editor role model with the deployment roles used by the access-management APIs: Viewer, Builder, and Owner. New deployment creators receive Owner so they can control both their deployment and who may access it.
+Replace the temporary Reader/Editor role model with the deployment roles used by the access-management APIs: Viewer, Builder, and Admin. New deployment creators receive Admin so they can control both their deployment and who may access it. Owner remains reserved for organization/account ownership.
 
 ## Design
 
@@ -10,7 +10,7 @@ Permissions remain the stable authorization contract; roles only bundle them:
 
 - Viewer contains `deployment:read`.
 - Builder contains read, edit, operate, and delete, but cannot grant access.
-- Owner contains all five deployment permissions, including `deployment:manage_access`.
+- Admin contains all five deployment permissions, including `deployment:manage_access`.
 
 Astro still checks permissions rather than role names. The global enforcement switch and organization experiment continue to guard every enforced decision; this PR only changes the role assigned during deployment reconciliation.
 

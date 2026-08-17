@@ -24,6 +24,8 @@ var (
 )
 
 var _ FGA = (*WorkOSFGA)(nil)
+var _ AccessAssignments = (*WorkOSFGA)(nil)
+var _ ResourceDiscovery = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -161,6 +163,101 @@ func (f *WorkOSFGA) RemoveRole(ctx context.Context, subject AssignmentSubject, r
 		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
 	}
 	return nil
+}
+
+func (f *WorkOSFGA) ListRoleAssignments(ctx context.Context, organizationID string, resource ResourceRef) ([]RoleAssignment, error) {
+	if organizationID == "" {
+		return nil, errors.New("organization id is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return nil, err
+	}
+
+	iterator := f.authorization.ListRoleAssignmentsForResourceByExternalID(
+		ctx,
+		organizationID,
+		string(resource.Type),
+		resource.ExternalID,
+		&workos.AuthorizationListRoleAssignmentsForResourceByExternalIDParams{},
+	)
+	assignments := make([]RoleAssignment, 0)
+	for iterator.Next() {
+		current := iterator.Current()
+		if current.OrganizationMembershipID == "" || current.Role == nil || current.Source == nil || current.Resource == nil {
+			return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: assignment %q is missing organization membership, role, source, or resource", resource.Type, resource.ExternalID, current.ID)
+		}
+		assignment := RoleAssignment{
+			ID:       current.ID,
+			Subject:  MembershipAssignmentSubject(current.OrganizationMembershipID),
+			Role:     RoleSlug(current.Role.Slug),
+			Source:   string(current.Source.Type),
+			Resource: resource,
+		}
+		if current.Source.GroupRoleAssignmentID != nil {
+			assignment.GroupRoleAssignmentID = *current.Source.GroupRoleAssignmentID
+		}
+		assignments = append(assignments, assignment)
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: %w", resource.Type, resource.ExternalID, err)
+	}
+	return assignments, nil
+}
+
+func (f *WorkOSFGA) ListGroupRoleAssignments(ctx context.Context, groupID string) ([]RoleAssignment, error) {
+	if groupID == "" {
+		return nil, errors.New("group id is required")
+	}
+	iterator := f.authorization.ListGroupRoleAssignments(ctx, groupID, &workos.AuthorizationListGroupRoleAssignmentsParams{})
+	assignments := make([]RoleAssignment, 0)
+	for iterator.Next() {
+		current := iterator.Current()
+		if current.Role == nil || current.Resource == nil {
+			return nil, fmt.Errorf("list WorkOS group role assignments: assignment %q is missing role or resource", current.ID)
+		}
+		assignments = append(assignments, RoleAssignment{
+			ID:       current.ID,
+			Subject:  GroupAssignmentSubject(current.GroupID),
+			Role:     RoleSlug(current.Role.Slug),
+			Source:   "direct",
+			Resource: ResourceRef{Type: ResourceType(current.Resource.ResourceTypeSlug), ExternalID: current.Resource.ExternalID},
+		})
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("list WorkOS group role assignments: %w", err)
+	}
+	return assignments, nil
+}
+
+func (f *WorkOSFGA) ListResources(ctx context.Context, membershipID string, action Action, parent ResourceRef) ([]ResourceRef, error) {
+	if membershipID == "" {
+		return nil, errors.New("membership id is required")
+	}
+	if action == "" {
+		return nil, errors.New("action is required")
+	}
+	if err := validateResource(parent); err != nil {
+		return nil, fmt.Errorf("parent %w", err)
+	}
+	iterator := f.authorization.ListResourcesForMembership(
+		ctx,
+		membershipID,
+		&workos.AuthorizationListResourcesForMembershipParams{
+			PermissionSlug: string(action),
+			ParentResource: workos.AuthorizationParentResourceByExternalID{
+				TypeSlug: string(parent.Type), ExternalID: parent.ExternalID,
+			},
+		},
+	)
+	resources := make([]ResourceRef, 0)
+	for iterator.Next() {
+		current := iterator.Current()
+		resources = append(resources, ResourceRef{Type: ResourceType(current.ResourceTypeSlug), ExternalID: current.ExternalID})
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("list WorkOS resources with permission %q: %w", action, err)
+	}
+	return resources, nil
 }
 
 func (f *WorkOSFGA) Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error) {
