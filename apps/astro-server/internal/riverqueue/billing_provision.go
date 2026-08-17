@@ -113,7 +113,11 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	// Provisioning is optional on the seam; backends without it are done here.
 	if p, ok := w.provider.(billing.Provisioner); ok {
-		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID)
+		withCredit, err := w.claimSignupCredit(acct.ID)
+		if err != nil {
+			return err
+		}
+		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID, withCredit)
 		if err != nil {
 			return err
 		}
@@ -147,6 +151,36 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
 	return nil
+}
+
+// claimSignupCredit reports whether this account should be provisioned with the
+// signup credit.
+//
+// The credit belongs to a person. Nothing caps how many accounts one user
+// creates, and every account would otherwise carry its own grant, so a user
+// could mint organizations for free credit indefinitely. The claim is taken
+// against the creator and outlives the account, which also closes the same farm
+// run by deleting and recreating.
+//
+// An account whose creator cannot be resolved is provisioned without credit. A
+// grant that cannot be attributed to anyone is the case this guards against, so
+// the safe answer is to withhold it and let an operator grant it by hand.
+func (w *BillingProvisionWorker) claimSignupCredit(accountID string) (bool, error) {
+	creator, err := w.accounts.GetCreatorUserID(accountID)
+	if err != nil {
+		w.log.Warn("billing provision: no creator resolved, provisioning without signup credit",
+			"account_id", accountID, "error", err)
+		return false, nil
+	}
+	claimed, err := w.accounts.ClaimSignupCredit(creator, accountID)
+	if err != nil {
+		return false, err
+	}
+	if !claimed {
+		w.log.Info("billing provision: signup credit already taken by this user",
+			"account_id", accountID, "user_id", creator)
+	}
+	return claimed, nil
 }
 
 // BillingProvisionSweepWorker backfills accounts that never got provisioned —

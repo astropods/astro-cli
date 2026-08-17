@@ -1135,3 +1135,45 @@ func (s *AccountStore) DeleteByID(accountID string) error {
 	}
 	return nil
 }
+
+// ClaimSignupCredit records that a user has taken their one signup credit and
+// reports whether this account is the one that holds the claim.
+//
+// The claim is keyed on the person, because nothing caps how many accounts one
+// user creates and every account would otherwise carry its own grant. It is
+// idempotent for the claiming account: a provisioning retry that already won the
+// claim still reads true, so a job that failed after claiming and before
+// creating the contract does not leave the account without its credit.
+func (s *AccountStore) ClaimSignupCredit(userID, accountID string) (bool, error) {
+	var holder string
+	err := s.db.QueryRow(`
+		INSERT INTO billing_credit_grants (user_id, account_id)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET user_id = billing_credit_grants.user_id
+		RETURNING account_id
+	`, userID, accountID).Scan(&holder)
+	if err != nil {
+		return false, fmt.Errorf("failed to claim signup credit: %w", err)
+	}
+	return holder == accountID, nil
+}
+
+// GetCreatorUserID returns the account's earliest member, which is the user who
+// created it. Create inserts the creator as the first member, and later members
+// are added with a later timestamp.
+func (s *AccountStore) GetCreatorUserID(accountID string) (string, error) {
+	var userID string
+	err := s.db.QueryRow(`
+		SELECT user_id FROM account_members
+		WHERE account_id = $1
+		ORDER BY created_at
+		LIMIT 1
+	`, accountID).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("no member found for account: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to query account creator: %w", err)
+	}
+	return userID, nil
+}

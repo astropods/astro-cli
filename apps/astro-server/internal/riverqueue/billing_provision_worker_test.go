@@ -22,6 +22,7 @@ type fakeProvisioner struct {
 	provisioned     bool
 	provisionErr    error
 	provisionCalls  int
+	withCredit      bool
 }
 
 func (f *fakeProvisioner) CreateCustomer(context.Context, billing.Account) (string, error) {
@@ -29,8 +30,9 @@ func (f *fakeProvisioner) CreateCustomer(context.Context, billing.Account) (stri
 	return f.createdCustomer, nil
 }
 
-func (f *fakeProvisioner) ProvisionCustomer(context.Context, string, string) (bool, error) {
+func (f *fakeProvisioner) ProvisionCustomer(_ context.Context, _, _ string, withCredit bool) (bool, error) {
 	f.provisionCalls++
+	f.withCredit = withCredit
 	return f.provisioned, f.provisionErr
 }
 
@@ -41,7 +43,17 @@ const (
 	ownerEmailRe    = `SELECT me\.email`
 	bifrostIDRe     = `SELECT bifrost_customer_id FROM accounts`
 	markProvisionRe = `UPDATE accounts SET billing_provisioned_at`
+	creatorRe       = `SELECT user_id FROM account_members`
+	claimCreditRe   = `INSERT INTO billing_credit_grants`
 )
+
+// expectCreditClaim stands in for the per-person credit ledger. holder is the
+// account the user's one claim belongs to, so passing the account under test
+// means the credit is due and passing another means it was already spent.
+func expectCreditClaim(mock sqlmock.Sqlmock, holder string) {
+	mock.ExpectQuery(creatorRe).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user_1"))
+	mock.ExpectQuery(claimCreditRe).WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow(holder))
+}
 
 func provisionWorker(t *testing.T, p *fakeProvisioner) (*BillingProvisionWorker, sqlmock.Sqlmock) {
 	t.Helper()
@@ -92,6 +104,7 @@ func TestProvisionWorker_StampsOnceWhenProvisioned(t *testing.T) {
 
 	expectAccount(mock)
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -112,6 +125,7 @@ func TestProvisionWorker_LeavesUnstampedWhenNothingProvisioned(t *testing.T) {
 
 	expectAccount(mock)
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
 	// No mark expectation: stamping here is the bug.
 
 	if err := runProvision(t, w); err != nil {
@@ -133,6 +147,7 @@ func TestProvisionWorker_PersistsNewCustomerID(t *testing.T) {
 	mock.ExpectQuery(bifrostIDRe).WillReturnRows(sqlmock.NewRows([]string{"bifrost_customer_id"}).AddRow(nil))
 	mock.ExpectQuery(ownerEmailRe).WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("owner@example.com"))
 	mock.ExpectExec(setCustomerRe).WithArgs("cus_new", sqlmock.AnyArg(), "acct_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectCreditClaim(mock, "acct_1")
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -143,5 +158,62 @@ func TestProvisionWorker_PersistsNewCustomerID(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("customer id was not persisted: %v", err)
+	}
+}
+
+// Signup credit belongs to a person. Nothing caps how many accounts one user
+// creates, so granting per account lets a user mint organizations for free
+// credit indefinitely.
+func TestProvisionWorker_SignupCreditGoesToTheFirstAccountOnly(t *testing.T) {
+	cases := []struct {
+		name       string
+		holder     string
+		wantCredit bool
+	}{
+		// The ledger row names this account, so the claim is ours.
+		{"first account for this user", "acct_1", true},
+		// The user already spent their claim on an earlier account.
+		{"user already claimed it", "acct_earlier", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &fakeProvisioner{provisioned: true}
+			w, mock := provisionWorker(t, p)
+
+			expectAccount(mock)
+			mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+			expectCreditClaim(mock, tc.holder)
+			mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+			if err := runProvision(t, w); err != nil {
+				t.Fatalf("Work: %v", err)
+			}
+			if p.withCredit != tc.wantCredit {
+				t.Errorf("provisioned withCredit = %v, want %v", p.withCredit, tc.wantCredit)
+			}
+		})
+	}
+}
+
+// A grant that cannot be attributed to anyone is the case this guards against,
+// so an unresolvable creator withholds the credit rather than defaulting to it.
+// The account is still provisioned: without a contract its usage is never rated.
+func TestProvisionWorker_NoCreatorMeansNoCredit(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+
+	expectAccount(mock)
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	mock.ExpectQuery(creatorRe).WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if p.provisionCalls != 1 {
+		t.Fatalf("provision calls = %d, want 1: the account must still be billable", p.provisionCalls)
+	}
+	if p.withCredit {
+		t.Error("credit was granted to an account with no resolvable creator")
 	}
 }

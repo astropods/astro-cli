@@ -36,9 +36,16 @@ const billingProviderStripe = "stripe"
 type Config struct {
 	APIKey string // METRONOME_API_KEY (bearer token)
 
-	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op. The
-	// package carries the signup credit, so nothing about it is configured here.
-	PackageID string // METRONOME_PACKAGE_ID
+	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op.
+	//
+	// The two packages share a rate card and a statement schedule and differ only
+	// in the signup credit. PackageID carries it and provisions the first account
+	// a person creates; PackageIDNoCredit carries none and provisions every later
+	// one. Keeping both as packages rather than building a bare rate-card contract
+	// is what makes the terms identical: contract creation accepts no statement
+	// schedule, so a rate-card contract would bill on a different period.
+	PackageID         string // METRONOME_PACKAGE_ID
+	PackageIDNoCredit string // METRONOME_PACKAGE_ID_NO_CREDIT
 }
 
 // Provider is the Metronome-backed billing provider.
@@ -255,15 +262,19 @@ func (p *Provider) attachConfigurationToContracts(ctx context.Context, metronome
 // ProvisionCustomer puts the customer on the configured package. The package
 // carries the signup credit, so Metronome attaches it to the contract and no
 // second write is needed. Reports false when no package is configured.
-func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error) {
-	if p.cfg.PackageID == "" {
+func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID string, withCredit bool) (bool, error) {
+	packageID, err := p.provisionPackage(withCredit)
+	if err != nil {
+		return false, err
+	}
+	if packageID == "" {
 		return false, nil
 	}
 	now := time.Now().UTC().Truncate(time.Hour)
 
-	existing, err := p.coveringContracts(ctx, customerID, now)
-	if err != nil {
-		return false, err
+	existing, cerr := p.coveringContracts(ctx, customerID, now)
+	if cerr != nil {
+		return false, cerr
 	}
 	// Any contract effective now already bills the customer, so a second would
 	// bill them twice. The uniqueness key does not 409 against a contract made
@@ -278,13 +289,34 @@ func (p *Provider) ProvisionCustomer(ctx context.Context, customerID, accountID 
 	_, err = p.mc.V1.Contracts.New(ctx, metronome.V1ContractNewParams{
 		CustomerID:    customerID,
 		StartingAt:    now,
-		PackageID:     param.NewOpt(p.cfg.PackageID),
+		PackageID:     param.NewOpt(packageID),
 		UniquenessKey: param.NewOpt(contractKey(accountID)),
 	})
 	if err != nil && !isConflict(err) {
 		return false, fmt.Errorf("metronome create contract: %w", err)
 	}
 	return true, nil
+}
+
+// provisionPackage picks the plan for this account. Both packages carry the same
+// rate card and the same statement schedule; they differ only in whether the
+// contract grants signup credit.
+//
+// A missing no-credit package is a configuration error rather than a reason to
+// fall back. Falling back to the credit package would restore the grant silently,
+// which is the behaviour this exists to remove, and the sweep re-runs the job
+// once the configuration lands.
+func (p *Provider) provisionPackage(withCredit bool) (string, error) {
+	if p.cfg.PackageID == "" {
+		return "", nil
+	}
+	if withCredit {
+		return p.cfg.PackageID, nil
+	}
+	if p.cfg.PackageIDNoCredit == "" {
+		return "", errors.New("metronome: METRONOME_PACKAGE_ID_NO_CREDIT is unset, so an account that has already had its signup credit cannot be provisioned")
+	}
+	return p.cfg.PackageIDNoCredit, nil
 }
 
 // coveringContracts lists the contracts effective at `at`. A contract made

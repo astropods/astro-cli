@@ -145,7 +145,7 @@ func TestProvisionCustomer_CreatesOnlyTheContract(t *testing.T) {
 	})
 	p.cfg = Config{PackageID: "pkg_1"}
 
-	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1")
+	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", true)
 	if err != nil || !provisioned {
 		t.Fatalf("ProvisionCustomer = (%v, %v), want (true, nil)", provisioned, err)
 	}
@@ -169,7 +169,7 @@ func TestProvisionCustomer_SkipsWhenCovered(t *testing.T) {
 	})
 	p.cfg = Config{PackageID: "pkg_1"}
 
-	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1")
+	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", true)
 	if err != nil || !provisioned {
 		t.Fatalf("ProvisionCustomer = (%v, %v), want (true, nil)", provisioned, err)
 	}

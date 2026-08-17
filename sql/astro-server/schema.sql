@@ -178,6 +178,18 @@ CREATE TABLE public.account_billing_status (
     CONSTRAINT account_billing_status_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
+-- One signup credit per person, not per account. Creating an account grants the
+-- credit carried by the billing package, and nothing caps how many accounts one
+-- user creates, so the grant has to be claimed against the human. The row
+-- outlives the account that claimed it: deleting an account must not restore the
+-- claim, or delete-and-recreate becomes the same farm.
+CREATE TABLE public.billing_credit_grants (
+    user_id    text        NOT NULL,
+    account_id uuid        NOT NULL,
+    granted_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT billing_credit_grants_pkey PRIMARY KEY (user_id)
+);
+
 CREATE TABLE public.account_member_workos (
     account_id uuid NOT NULL,
     user_id text NOT NULL,

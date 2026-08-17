@@ -52,7 +52,11 @@ type Provisioner interface {
 	// ProvisionCustomer is idempotent — keyed on accountID provider-side. The
 	// bool is false when the provider is unconfigured: nothing provisioned,
 	// nothing failed, so callers must not record the account as done.
-	ProvisionCustomer(ctx context.Context, customerID, accountID string) (bool, error)
+	//
+	// withCredit selects the plan. Signup credit belongs to a person rather than
+	// an account, so only the first account a user provisions receives it; every
+	// later one lands on the same rates with no grant.
+	ProvisionCustomer(ctx context.Context, customerID, accountID string, withCredit bool) (bool, error)
 }
 
 // Coverage states. There is one package, so any contract effective now bills
