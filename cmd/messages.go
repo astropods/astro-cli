@@ -11,8 +11,10 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 func errNoSpecFile() error {
@@ -135,4 +137,24 @@ func errLoginAccountsLoadEmpty() error {
 	return fmt.Errorf(
 		"could not load your accounts from the server (empty response). Try again in a moment",
 	)
+}
+
+func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
+	return fmt.Errorf(`the agent never bound :%d, so no turn can be delivered
+
+The spec sets agent.annotations.runtime: agentcore, so the agent must serve
+POST /invocations and GET /ping on :%d. Nothing answered on localhost:%s
+within %s. Containers are still running — check the agent's log first:
+
+  %s project logs agent
+
+Common causes, most likely first:
+  1. @astropods/adapter-core in the image is too old to honor ASTRO_RUNTIME.
+     It needs 0.9.1 or newer. Check with:
+       docker exec <project>-agent-1 grep -m1 version node_modules/@astropods/adapter-core/package.json
+  2. A cached build layer installed an older adapter. Rebuild without cache:
+       %s project start --rebuild
+  3. The agent crashed on boot, which its log will show.`,
+		composeBuilder.AgentCorePort, composeBuilder.AgentCorePort, hostPort, wait,
+		buildinfo.BinaryName, buildinfo.BinaryName)
 }

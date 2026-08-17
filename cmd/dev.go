@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -302,6 +303,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// re-parsing the spec and match the project used by Up.
 	if err := os.WriteFile(filepath.Join(astDir, ".running"), []byte(projectName), 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write dev state: %w", err)
+	}
+
+	if astroSpec.Agent.Runtime() == spec.AgentCoreRuntime {
+		if err := waitForAgentCorePing(cmd.Context(), agentCoreReadyWait); err != nil {
+			return err
+		}
 	}
 
 	fmt.Println()
@@ -688,5 +695,37 @@ func openBrowser(url string) {
 	}
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
+	}
+}
+
+// agentCoreReadyWait bounds the wait for an agentcore agent to bind the contract port.
+const agentCoreReadyWait = 30 * time.Second
+
+// waitForAgentCorePing polls the published contract port until GET /ping answers.
+func waitForAgentCorePing(ctx context.Context, wait time.Duration) error {
+	url := fmt.Sprintf("http://localhost:%s/ping", composeBuilder.AgentCoreHostPort)
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(wait)
+
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return errAgentCoreNotServing(composeBuilder.AgentCoreHostPort, wait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }

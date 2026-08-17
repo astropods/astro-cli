@@ -34,6 +34,10 @@ const (
 	// 3100 — that port now belongs to the CLI-served chat UI.
 	MessagingWebHostPort = "3110"
 
+	// The agentcore contract port, and the host port dev publishes it on.
+	AgentCorePort     = 8080
+	AgentCoreHostPort = "3120"
+
 	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
 	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
 	// persistent volume); locally it's a named volume so history survives
@@ -661,6 +665,13 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 	}
 	agentService.DependsOn = dependsOn
+
+	if s.Agent.Runtime() == spec.AgentCoreRuntime {
+		agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
+			Target:    AgentCorePort,
+			Published: AgentCoreHostPort,
+		})
+	}
 
 	// If the agent serves its own frontend, publish the configured dev port (default 80).
 	if s.Agent.HasFrontend() {
