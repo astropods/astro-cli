@@ -253,10 +253,10 @@ describe("TopSpendersTable agents mode", () => {
       />,
     );
 
-    const overflow = screen.getByRole("button", { name: "Show 5 people" });
+    const overflow = screen.getByRole("button", { name: "Show 5 users" });
     expect(overflow).toHaveTextContent("+2");
     fireEvent.click(overflow);
-    expect(await screen.findByText("5 people")).toBeInTheDocument();
+    expect(await screen.findByText("5 users")).toBeInTheDocument();
     expect(screen.getByText("User 4")).toBeInTheDocument();
   });
 
@@ -462,7 +462,7 @@ describe("TopSpendersTable users mode", () => {
 
   it("shows an empty state when there are no rows", () => {
     renderWithProviders(<TopSpendersTable mode="users" rows={[]} loading={false} />);
-    expect(screen.getByText("No activity from people in this period")).toBeInTheDocument();
+    expect(screen.getByText("No activity from users in this period")).toBeInTheDocument();
   });
 
   it("renders member, Slack, and system identities from the server row model", async () => {

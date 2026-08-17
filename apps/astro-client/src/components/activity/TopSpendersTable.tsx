@@ -426,7 +426,7 @@ function IdentityAvatarStack({
         <OverflowPopover
           overflow={overflow}
           total={identities.length}
-          itemNoun={{ singular: "person", plural: "people" }}
+          itemNoun={{ singular: "user", plural: "users" }}
         >
           <ul className="min-h-0 overflow-y-auto">
             {identities.map((identity, index) => (
@@ -811,7 +811,7 @@ function UsersTopSpenders({
       ) : sorted.length === 0 ? (
         <TableRow>
           <TableCell colSpan={7} className="py-10 text-center text-body-sm text-faint-foreground">
-            No activity from people in this period
+            No activity from users in this period
           </TableCell>
         </TableRow>
       ) : (

@@ -69,7 +69,7 @@ function CustomTooltip({
       {usersEntry && (
         <div className="flex items-center gap-2">
           <span className="size-2 shrink-0 rounded-full bg-primary-400" />
-          <span className="font-mono text-body-sm text-muted-foreground">By People</span>
+          <span className="font-mono text-body-sm text-muted-foreground">By Users</span>
           <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{usersEntry.value}</span>
         </div>
       )}
@@ -125,7 +125,7 @@ export function ActiveUsersSpendChart({ data, days, endDate }: ActiveUsersSpendC
   return (
     <Card className="flex h-full flex-col p-5">
       <div className="mb-4 shrink-0">
-        <h3 className="text-heading-4 text-foreground">People spend over time</h3>
+        <h3 className="text-heading-4 text-foreground">Users spend over time</h3>
       </div>
       {isEmpty ? (
         <div className="flex flex-1 items-center justify-center">
@@ -176,7 +176,7 @@ export function ActiveUsersSpendChart({ data, days, endDate }: ActiveUsersSpendC
           </div>
           <div className="mt-3 flex items-center justify-center gap-4 text-body-sm">
             {([
-              { key: "users", label: "By People", dot: "bg-primary-400", visible: showUsers },
+              { key: "users", label: "By Users", dot: "bg-primary-400", visible: showUsers },
               { key: "cost",  label: "Total spend", dot: "bg-muted-foreground", visible: showCost },
             ] as const).map((s) => (
               <button
