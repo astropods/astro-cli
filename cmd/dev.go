@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -240,12 +239,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Log services before building
-	serviceNames := make([]string, 0, len(project.Services))
-	for name := range project.Services {
-		serviceNames = append(serviceNames, name)
-	}
-	sort.Strings(serviceNames)
+	serviceNames, ingestionNames := groupStartupServices(project, astroSpec)
 	fmt.Printf("%s→%s Services: %s\n", colorCyan, colorReset, strings.Join(serviceNames, ", "))
+	if len(ingestionNames) > 0 {
+		fmt.Printf("%s→%s Ingestion: %s\n", colorCyan, colorReset, strings.Join(ingestionNames, ", "))
+	}
 
 	svc, err := newComposeService(verbose)
 	if err != nil {
