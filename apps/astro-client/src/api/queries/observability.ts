@@ -12,7 +12,6 @@ import {
   type DeploymentSummariesResponse,
   type InsightsQueryParams,
 } from '@/lib/api';
-import { useExperiments } from '@/lib/experiments';
 import { observabilityKeys } from './keys';
 
 const ACTIVITY_QUERY_OPTS = {
@@ -44,21 +43,14 @@ const LIVE_QUERY_OPTS = {
 
 const VISIBLE_DEPLOYMENT_SUMMARY_BATCH_SIZE = 100;
 
-// The insightsRollups experiment swaps the read path between the v1
-// (Langfuse + Redis) and v2 (Postgres rollups) endpoints. Both are wire
-// compatible, so nothing downstream branches — only the URL and the cache key
-// change, and the key must change or a toggle would re-render the other path's
-// cached response.
 export function useAccountInsights(
   account: string,
   params?: InsightsQueryParams,
   opts?: { enabled?: boolean },
 ) {
-  const { experiments } = useExperiments();
-  const version = experiments.insightsRollups ? 'v2' : 'v1';
   return useQuery({
-    queryKey: observabilityKeys.insights(account, params, version),
-    queryFn: () => api.getAccountInsights(account, params, version),
+    queryKey: observabilityKeys.insights(account, params),
+    queryFn: () => api.getAccountInsights(account, params),
     enabled: (opts?.enabled ?? true) && !!account,
     ...INSIGHTS_QUERY_OPTS,
   });

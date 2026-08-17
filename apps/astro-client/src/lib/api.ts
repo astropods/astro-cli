@@ -1634,10 +1634,8 @@ export interface InsightsQueryParams {
   people_sort?: string;
   people_direction?: string;
   skip_ranges?: string;
-  hide_sources?: string; // comma-separated source keys (or "agents") to exclude from the fold-in
-  // Scopes the tables to the selected range. Only the v2 path honours it — v1's
-  // people rows come from a cached aggregate with no daily breakdown, so its
-  // tables are account-wide by necessity.
+  hide_sources?: string; // comma-separated source keys (or "agents") to exclude
+  // Scopes the tables to the selected range; omitted means account-wide.
   days?: string;
 }
 
@@ -1650,10 +1648,9 @@ export interface InsightsTablePagination {
 }
 
 export interface InsightsResponse {
-  metrics_unavailable?: boolean;
   /** Last day ("YYYY-MM-DD", UTC) the data is complete through, and the day
-   *  every window in `ranges` ends on. Absent when the server has no watermark
-   *  to report, in which case the windows end today. */
+   *  every window in `ranges` ends on. Absent on an account with nothing rolled
+   *  up yet. */
   as_of?: string;
   ranges: Record<string, {
     days: number;
@@ -3326,20 +3323,12 @@ class ApiClient {
     );
   }
 
-  /**
-   * `version` selects the read path: "v1" is the Langfuse-plus-Redis endpoint,
-   * "v2" is served from the Postgres rollup store. The response shape is
-   * identical by design, so callers need no branching — but the version must be
-   * part of the caller's cache key, or a toggle would serve the other path's
-   * cached response.
-   */
   async getAccountInsights(
     account: string,
     params?: InsightsQueryParams,
-    version: "v1" | "v2" = "v1"
   ): Promise<InsightsResponse> {
     return this.request<InsightsResponse>(
-      `/api/${version}/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
+      `/api/v1/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
     );
   }
 

@@ -210,7 +210,7 @@ flowchart TD
 - **Weekly reconcile** re-rolls 90 days to catch drift and upstream backfills. Correctness does not depend on every incremental run succeeding.
 - **A stalled watermark is a first-class, visible state**, not a silently stale cache entry.
 
-### Freshness: complete days plus a hot tail
+### Freshness: complete days only
 
 ```mermaid
 sequenceDiagram
@@ -218,19 +218,20 @@ sequenceDiagram
   participant C as Client
   participant H as Handler
   participant PG as "Postgres rollups"
-  participant UP as "Langfuse / VM"
 
   C->>H: GET …/insights
   H->>PG: read watermark
-  H->>PG: aggregate days ≤ watermark (one SQL query)
+  H->>PG: aggregate days ≤ watermark
   PG-->>H: rows, sorted + paginated + cost_pct
-  H->>UP: overlay query for today only (1 day)
-  Note over H,UP: 1 day instead of 90, same query shape<br/>5-min TTL, best-effort
-  H->>H: union rollup + overlay, resolve identities
+  H->>H: resolve identities
   H-->>C: InsightsResponse + as_of watermark
 ```
 
-Today's partial day is the only thing ever queried live, and it is one day of data. The page goes from *"up to 6 hours stale"* to *minutes*, while doing far less upstream work than it does now. If the overlay fails, the page renders complete days and says so.
+Insights is a daily report, and today is deliberately not part of it. A partial
+day would have to come from a live upstream query on the request path, which is
+the property this design exists to remove; it would also put a day in play that
+the next roll-up has to correct. The page reports the horizon it has through
+`as_of` and names that day, which is a claim it can always keep.
 
 ### Serving
 
@@ -238,7 +239,7 @@ One SQL query per surface, with the work pushed into Postgres:
 
 - `cost_pct` from `SUM(cost_usd) OVER ()` — one pass, no separate total query.
 - `ORDER BY … LIMIT … OFFSET …` — the full account dataset is never materialized in Go.
-- **p95 is not served on the v2 path at all.** The column renders empty (`-`). Wiring the existing `batchedP95Latencies` call would restore it, but that was deliberately deferred: it is the only thing that would put Langfuse back in the v2 read path, and the agents table is the only surface that shows it. Percentiles are the one column the fact table cannot yet serve — see [trap 3](#the-three-real-traps).
+- **p95 is not served at all.** The column renders empty (`-`). Wiring the existing `batchedP95Latencies` call would restore it, but that is deliberately deferred: it is the only thing that would put Langfuse back in the read path, and the agents table is the only surface that shows it. Percentiles are the one column the fact table cannot yet serve — see [trap 3](#the-three-real-traps).
 - **Range-scoped tables become free** — change the `WHERE day BETWEEN`. This retires the current inconsistency where charts respect the range chip but tables silently show 90 days.
 - **Arbitrary ranges become possible.** 6-month and year-over-year views need no new machinery, because history accumulates instead of expiring.
 
@@ -249,8 +250,8 @@ One SQL query per surface, with the work pushed into Postgres:
 | Condition | Today | With rollups |
 |---|---|---|
 | Langfuse down, cache warm | Serves ≤6h-old page until TTL | Serves everything through the watermark, durably |
-| Langfuse down, cache cold | Zeros + "metrics unavailable" | Full history through watermark; overlay absent |
-| Redis unavailable | Live 90d fan-out per request | Irrelevant — Redis holds only the hot-tail overlay |
+| Langfuse down, cache cold | Zeros + "metrics unavailable" | Full history through the watermark |
+| Redis unavailable | Live 90d fan-out per request | Irrelevant, the read path does not use it |
 | Sustained outage | Cache expires at 7d → page empties | Data never disappears; `as_of` stops advancing |
 
 The UI shifts from a binary "metrics unavailable" banner to `as_of <date>` — accurate, and far more useful.
@@ -310,11 +311,11 @@ Nor can buckets be counted by hand: Langfuse filters resolve only to dimensions 
 
 **The unblock is a `spanmetrics` connector in the collector**: a standard OTel component that turns spans into duration histograms with explicitly configured boundaries. Once those land, p95 becomes a plain `SUM` over `latency_buckets` — correct at every aggregation, and Langfuse leaves the latency path entirely.
 
-Until then `latency_buckets` stays empty and v2 keeps p95 zero-valued for wire compatibility. The Agents and Models tables show last-used activity instead; per-agent latency remains available on the Monitor tab.
+Until then `latency_buckets` stays empty and the read path keeps p95 zero-valued for wire compatibility. The Agents and Models tables show last-used activity instead; per-agent latency remains available on the Monitor tab.
 
 ### Two deliberate behavior changes
 
-Both are fixes rather than regressions, and both show up as divergence when comparing v1 to v2. They need to be recognized as intended, not chased back to v1.
+Both are fixes rather than regressions. They are what the page shows now, and neither should be chased back to the older behavior.
 
 **Change % returns.** Today, whenever a dev-tool source folds in, `foldDevtoolStatCards` **discards the change percentage** — it's computed from agent spend only, so it can't honestly describe a folded total. With unified facts there is only one total, and the prior window is a `WHERE` clause over durable history. Change % becomes correct for every source combination and returns to the page.
 
@@ -322,7 +323,7 @@ Both are fixes rather than regressions, and both show up as divergence when comp
 
 ### How parity is enforced
 
-- **The wire contract is frozen.** Phase 2 diffs v1 against v2 per account across every field in the tables above, not just totals. Divergence beyond tolerance blocks the repoint.
+- **The wire contract is frozen.** The tables above are the field-by-field inventory the rollup path has to reproduce, and they were diffed per account before the repoint.
 - **Existing component tests are the parity suite.** `TopSpendersTable.test.tsx` (652 lines) and the identity/range/toggle tests must pass unchanged; if a test needs editing, that is a feature change and needs to be called out, not absorbed.
 - **The Models view stays on its current endpoint until its rollup-backed replacement is diffed too.** `useAccountObservabilitySummary` is consumed elsewhere and is not retired by this work.
 - **`AccountCostOverTimeEntry.Models` keeps carrying deployment IDs.** Freezing the wire contract means the agent chart's misnamed field stays misnamed while a genuine `model` dimension arrives in the grain next to it. Renaming is a client change and out of scope — this needs a comment at the type so the collision doesn't read as a bug during implementation.
@@ -340,26 +341,24 @@ Indexes: the PK covers the `(account_id, grain, day, …)` prefix every query fi
 ```mermaid
 flowchart LR
   P1["1 · Schema + producers<br/>ETL runs, serving untouched<br/>backfill 90d"]
-  P2["2 · /api/v2 insights endpoint<br/>compare against v1 by hand"]
-  P3["3 · Repoint the client<br/>v2 for everyone"]
-  P4["4 · Delete v1<br/>cache, workers, fold"]
+  P2["2 · /api/v2 insights endpoint<br/>compared by hand — done"]
+  P3["3 · Serve it to everyone — done"]
+  P4["4 · Delete the cached path — done"]
   P5["5 · Ingest producer<br/>retire the Langfuse ETL"]
   P1 --> P2 --> P3 --> P4 --> P5
 ```
 
 1. **Build alongside.** Schema, the grain producers, state table, and a separately-queued resumable backfill. The serving path is not touched; zero user-visible risk.
-2. **Compare by hand.** The rollup-backed read path ships as **`GET /api/v2/accounts/:account/insights`**, with v1 untouched and still serving. Verification is manual: call both endpoints for the same account and params, and diff the responses.
+2. **Compare by hand.** The rollup-backed read path shipped as `GET /api/v2/accounts/:account/insights` alongside the cached one, so both could be called for the same account and params and their responses diffed. No comparison job was built: both paths were plain HTTP with an identical wire contract, so `curl` plus `jq` answered the question, and the [parity contract](#frontend-parity-contract) was the checklist. The divergences that mattered were judgement calls about which side was wrong, not threshold breaches.
 
-   No comparison job is built. Both paths are plain HTTP with an identical wire contract, so `curl` plus `jq` answers the question, and the [parity contract](#frontend-parity-contract) is the checklist to walk. A job would mostly be scaffolding around a diff that a person still has to interpret — the divergences that matter here are judgement calls about *which side is wrong*, not threshold breaches.
+   **A version in the path, not a flag.** Two paths had to coexist during verification either way, so the only question was how a caller selected one. A URL did it without flag plumbing, without a config value outliving the migration, and without two branches inside one handler.
 
-   **A version in the path, not a flag.** Both paths coexist during verification either way, so the only question is how a caller selects one. A URL does it without flag plumbing, without a config value that outlives the migration, and without two branches inside one handler. Comparing becomes two requests rather than an internal fork, and "which path served this?" is answerable from an access log.
-
-   **Three divergences are expected and are not bugs** — check them off rather than chasing them:
-   - Change % is present in v2 whenever a dev-tool source is folded in, where v1 drops it.
-   - The People spend chart folds dev-tool spend in v2 and doesn't in v1.
-   - On accounts past `maxDeployments = 100`, v2's agent table is *more* complete. **v1 is the wrong side.**
-3. **Repoint the client** once the comparison looks right — a one-line change in the query hook. Rollback is repointing it back, with no state to unwind.
-4. **Delete v1:** `insightscache`, both refresh workers, `insights_devtool_fold.go`, and the in-Go sort/filter/paginate. Net code reduction.
+   Three divergences were expected and were not bugs:
+   - Change % is present whenever a dev-tool source contributes, where the cached path dropped it.
+   - The People spend chart includes dev-tool spend, so it agrees with the table beneath it.
+   - On accounts past `maxDeployments = 100`, the agent table is *more* complete. The cached path was the wrong side.
+3. **Serve it to everyone.** The rollup handler took over `GET /api/v1/accounts/:account/insights` and `/api/v2` was retired, so the URL outlives the migration instead of carrying a version wart that every future client would inherit.
+4. **Delete the cached path:** `insightscache`, both refresh workers, `insights_devtool_fold.go`, and the `Compute*` warm-cache fast paths. The in-Go sort/filter/paginate stays until the pushdown aggregates replace it. Net code reduction.
 5. **Later:** an ingest-time producer replaces the Langfuse ETL, removing Langfuse from the aggregate path entirely. The serving layer does not change, because the fact table is the contract.
 
 ## Non-goals
@@ -389,4 +388,4 @@ The draft's three blocking unknowns were resolved by reading the Langfuse query 
 
 ## Migration
 
-Schema-only, applied via the Atlas SDL like any other change. Nothing is user-visible until the client is repointed in phase 3, because until then nothing calls `/api/v2`. Rollback at any point before phase 4 is repointing the client at `/api/v1`; the rollup tables are additive and harmless if unused.
+Schema-only, applied via the Atlas SDL like any other change. The tables carry every account's history from the daily roll-up, so the read path has nothing to migrate.

@@ -119,7 +119,12 @@ func TestWebhookDedupe_MetronomeRedeliveryCollapses(t *testing.T) {
 	cleanupJobs(t, db, eventID)
 
 	for i := 0; i < 3; i++ {
-		if err := q.InsertMetronomeWebhook(ctx, eventID, "alerts.spend_threshold_reached", "cus_1", "Spend limit", ""); err != nil {
+		if err := q.InsertMetronomeWebhook(ctx, riverqueue.MetronomeWebhookArgs{
+			EventID:    eventID,
+			EventType:  "alerts.spend_threshold_reached",
+			CustomerID: "cus_1",
+			AlertName:  "Spend limit",
+		}); err != nil {
 			t.Fatalf("insert %d: %v", i, err)
 		}
 	}

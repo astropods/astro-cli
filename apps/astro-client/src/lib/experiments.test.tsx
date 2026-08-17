@@ -23,7 +23,7 @@ describe("useExperiments", () => {
     // Every experiment must default to off, so a new one can't ship enabled by
     // accident. Asserting the whole object rather than individual keys is what
     // makes that a compile-and-test failure when one is added.
-    expect(result.current.experiments).toEqual({ evals: false, insightsRollups: false });
+    expect(result.current.experiments).toEqual({ evals: false });
   });
 
   it("hasExperiments is true when experiments are defined", () => {

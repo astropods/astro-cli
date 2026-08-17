@@ -485,7 +485,7 @@ func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary", nil)
 	rec := httptest.NewRecorder()
@@ -534,7 +534,7 @@ func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, nil, langfuseStore, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/myorg/observability/deployments-summary?from=not-a-date&to=also-not-a-date", nil)
 	rec := httptest.NewRecorder()
@@ -618,7 +618,7 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/api/v1/accounts/:account/observability/deployments-summary",
-		GetAccountDeploymentsSummary(log, cfg, accountStore, depStore, langfuseStore, nil, nil))
+		GetAccountDeploymentsSummary(log, cfg, accountStore, depStore, langfuseStore, nil))
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/accounts/myorg/observability/deployments-summary?from=2026-05-01T00:00:00Z&to=2026-05-08T00:00:00Z", nil)

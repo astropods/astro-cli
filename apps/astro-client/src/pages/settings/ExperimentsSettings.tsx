@@ -24,19 +24,6 @@ export default function ExperimentsSettings() {
             onCheckedChange={(checked) => setExperiment("evals", checked)}
           />
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border px-4 py-3">
-          <div>
-            <p className="text-body-sm font-medium text-foreground">Faster Insights</p>
-            <p className="text-body-sm text-muted-foreground">
-              Load the Insights page from stored daily usage instead of recalculating it each
-              time. Numbers should match; today&apos;s usage may still be catching up.
-            </p>
-          </div>
-          <Switch
-            checked={experiments.insightsRollups}
-            onCheckedChange={(checked) => setExperiment("insightsRollups", checked)}
-          />
-        </div>
       </div>
     </>
   );

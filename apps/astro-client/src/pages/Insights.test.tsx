@@ -89,7 +89,7 @@ describe("resolveInsightsDateLabel", () => {
 
 describe("insightsFreshnessNote", () => {
   it("names the coverage day when the server reported one", () => {
-    expect(insightsFreshnessNote(true, "2026-08-05")).toBe(
+    expect(insightsFreshnessNote("2026-08-05")).toBe(
       "Usage is totalled once a day. Showing everything through Aug 5.",
     );
   });
@@ -97,16 +97,8 @@ describe("insightsFreshnessNote", () => {
   // A cold account has a window but no coverage claim, so the note can't name a
   // day — it explains the lag instead.
   it("explains the daily lag when no coverage day was reported", () => {
-    expect(insightsFreshnessNote(true)).toBe(
+    expect(insightsFreshnessNote()).toBe(
       "Usage is totalled once a day, so today's activity may not appear yet.",
-    );
-  });
-
-  // The Langfuse path does include today; its staleness is the refresh cycle,
-  // so the rollup wording would be wrong there even if an as_of leaked through.
-  it("describes the refresh cycle on the Langfuse path", () => {
-    expect(insightsFreshnessNote(false, "2026-08-05")).toBe(
-      "Updated results may take up to 6 hours to reflect on this page.",
     );
   });
 });

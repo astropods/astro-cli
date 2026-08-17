@@ -17,8 +17,8 @@ import (
 // InsightsRollupProducer is the contract for rolling one account-day of
 // upstream telemetry into insights_usage_daily. main wires it to the handlers
 // implementation, which owns the Langfuse query helpers and the dev-tool
-// adapter registry — same seam as InsightsSummaryComputer, and for the same
-// reason: keep the handlers package out of riverqueue's import graph.
+// adapter registry. An interface here keeps the handlers package out of
+// riverqueue's import graph.
 //
 // nil → the roll-up workers become no-ops, so a deployment without the producer
 // wired behaves exactly as it did before this existed.

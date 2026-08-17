@@ -3,7 +3,6 @@ package handlers
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -19,7 +18,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -104,7 +102,6 @@ func GetAccountLangfuseSummary(
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -157,32 +154,6 @@ func GetAccountLangfuseSummary(
 			}
 		}
 
-		// Cache fast-path: canonical params (no bounded period) are pre-warmed
-		// every RefreshInterval by the InsightsRefreshWorker. Bounded periods
-		// still flow through live — they're rarely requested by Insights and
-		// caching the cartesian product of from/to is not worth the storage.
-		//
-		// Cached payload is the un-resolved compute output; Slack-directory
-		// merge and identity stamping happen here so profile/link churn
-		// never sits in Redis. Falls through to the live compute path on
-		// any unmarshal error so a poisoned key never blocks the response.
-		if !hasPeriod {
-			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointSummary, insightscache.Params{
-				GroupBy:         groupBy,
-				IncludeArchived: includeArchived,
-			}); ok {
-				var cached AccountObservabilitySummaryResponse
-				if uerr := json.Unmarshal(bytes, &cached); uerr == nil {
-					ResolveAccountSummaryIdentities(log, slackStore, accountStore, &cached)
-					c.JSON(http.StatusOK, cached)
-					return
-				} else {
-					log.Warn("insights cache unmarshal failed; falling through to live compute",
-						"account_id", acct.ID, "endpoint", "summary", "error", uerr)
-				}
-			}
-		}
-
 		resp, err := ComputeAccountSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, groupBy, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
 			log.Warn("Langfuse account metrics unavailable; returning empty summary", "error", err)
@@ -203,97 +174,8 @@ func GetAccountLangfuseSummary(
 	}
 }
 
-// InsightsSummaryComputer adapts ComputeAccountSummary for the riverqueue
-// InsightsRefreshWorker via dependency injection, breaking what would
-// otherwise be a handlers⇄riverqueue import cycle.
-//
-// slackStore lives here so the compute path can translate linked Slack
-// user_ids to their WorkOS id before aggregation — the stable identity
-// layer that ends up in the cache. Dynamic profile/workspace metadata
-// (name, avatar, workspace icon) is applied at read time by the
-// handler's Resolve... pass, not by the worker.
-type InsightsSummaryComputer struct {
-	log             *logger.Logger
-	cfg             *config.Config
-	langfuseStore   *langfuse.Store
-	deploymentStore *deploymentstore.Store
-	accountStore    *account.AccountStore
-	slackStore      *slackidentity.Store
-}
-
-// NewInsightsSummaryComputer wires the dependencies the worker needs.
-func NewInsightsSummaryComputer(
-	log *logger.Logger,
-	cfg *config.Config,
-	langfuseStore *langfuse.Store,
-	deploymentStore *deploymentstore.Store,
-	accountStore *account.AccountStore,
-	slackStore *slackidentity.Store,
-) *InsightsSummaryComputer {
-	return &InsightsSummaryComputer{
-		log:             log,
-		cfg:             cfg,
-		langfuseStore:   langfuseStore,
-		deploymentStore: deploymentStore,
-		accountStore:    accountStore,
-		slackStore:      slackStore,
-	}
-}
-
-// ComputeSummary satisfies the riverqueue.InsightsSummaryComputer contract.
-// Returns JSON-marshaled response bytes the worker writes into Redis verbatim.
-func (c *InsightsSummaryComputer) ComputeSummary(ctx context.Context, accountID, groupBy string, includeArchived bool) ([]byte, error) {
-	acct, err := c.lookupAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := ComputeAccountSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.slackStore, acct, "" /*from*/, "" /*to*/, groupBy, includeArchived)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(resp)
-}
-
-// ComputeDeploymentsSummary satisfies the riverqueue contract.
-func (c *InsightsSummaryComputer) ComputeDeploymentsSummary(ctx context.Context, accountID string, includeArchived bool) ([]byte, error) {
-	acct, err := c.lookupAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := ComputeDeploymentsSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.slackStore, acct, "" /*from*/, "" /*to*/, includeArchived)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(resp)
-}
-
-// ComputeUsersSummary satisfies the riverqueue contract.
-func (c *InsightsSummaryComputer) ComputeUsersSummary(ctx context.Context, accountID string) ([]byte, error) {
-	acct, err := c.lookupAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := ComputeUsersSummary(ctx, c.log, c.cfg, c.langfuseStore, c.deploymentStore, c.accountStore, c.slackStore, acct, "" /*from*/, "" /*to*/)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(resp)
-}
-
-func (c *InsightsSummaryComputer) lookupAccount(accountID string) (*account.Account, error) {
-	acct, err := c.accountStore.GetByID(accountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
-	}
-	if acct == nil {
-		return nil, fmt.Errorf("account %s not found", accountID)
-	}
-	return acct, nil
-}
-
 // ComputeAccountSummary runs the Langfuse fan-out and assembles the
-// account-summary response. Both the request handler and the periodic
-// refresh worker call this; the cache layer lives in their callers.
+// account-summary response.
 //
 // A returned error means the upstream Langfuse query failed — callers
 // degrade differently (handler returns metrics_unavailable=true; worker
@@ -1573,7 +1455,6 @@ func GetAccountDeploymentsSummary(
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -1616,24 +1497,6 @@ func GetAccountDeploymentsSummary(
 			}
 		}
 
-		// Cached payload is un-resolved; resolve identities at read time.
-		// Falls through to the live compute path on any unmarshal error.
-		if !hasPeriod {
-			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointDeploymentsSummary, insightscache.Params{
-				IncludeArchived: includeArchived,
-			}); ok {
-				var cached AccountDeploymentsSummaryResponse
-				if uerr := json.Unmarshal(bytes, &cached); uerr == nil {
-					ResolveDeploymentsSummaryIdentities(log, slackStore, accountStore, &cached)
-					c.JSON(http.StatusOK, cached)
-					return
-				} else {
-					log.Warn("insights cache unmarshal failed; falling through to live compute",
-						"account_id", acct.ID, "endpoint", "deployments-summary", "error", uerr)
-				}
-			}
-		}
-
 		resp, err := ComputeDeploymentsSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
 			log.Warn("Langfuse deployments metrics unavailable; returning empty list", "error", err)
@@ -1652,13 +1515,10 @@ func GetAccountDeploymentsSummary(
 	}
 }
 
-// ErrAllLangfuseCallsFailed is re-exported from insightscache so existing
-// callers in this package (handlers + ComputeAccountSummary tests) keep
-// working without an import flip. Canonical definition lives in
-// insightscache so the periodic refresh worker can errors.Is on it without
-// pulling the handlers package into riverqueue (which would close the
-// handlers→riverqueue→handlers cycle).
-var ErrAllLangfuseCallsFailed = insightscache.ErrAllLangfuseCallsFailed
+// ErrAllLangfuseCallsFailed reports that every Langfuse sub-query of one
+// aggregate failed, which is the only case worth a banner. A partial failure
+// renders with the fields it has.
+var ErrAllLangfuseCallsFailed = errors.New("all langfuse calls failed")
 
 // ComputeDeploymentsSummary runs the per-deployment Langfuse fan-out and
 // assembles the deployments-summary response. Returns ErrAllLangfuseCallsFailed
@@ -1911,7 +1771,6 @@ func GetAccountUsersSummary(
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -1934,7 +1793,6 @@ func GetAccountUsersSummary(
 
 		from := c.Query("from")
 		to := c.Query("to")
-		hasPeriod := from != "" && to != ""
 
 		if (from == "") != (to == "") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "from and to must both be provided or both omitted"})
@@ -1951,22 +1809,6 @@ func GetAccountUsersSummary(
 			if _, err := time.Parse(time.RFC3339, to); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp: must be RFC3339"})
 				return
-			}
-		}
-
-		// Cached payload is un-resolved; resolve identities at read time.
-		// Falls through to the live compute path on any unmarshal error.
-		if !hasPeriod {
-			if bytes, ok := insightscache.Get(c.Request.Context(), cache, acct.ID, insightscache.EndpointUsersSummary, insightscache.Params{}); ok {
-				var cached AccountUsersSummaryResponse
-				if uerr := json.Unmarshal(bytes, &cached); uerr == nil {
-					ResolveUsersSummaryIdentities(log, slackStore, accountStore, &cached)
-					c.JSON(http.StatusOK, cached)
-					return
-				} else {
-					log.Warn("insights cache unmarshal failed; falling through to live compute",
-						"account_id", acct.ID, "endpoint", "users-summary", "error", uerr)
-				}
 			}
 		}
 

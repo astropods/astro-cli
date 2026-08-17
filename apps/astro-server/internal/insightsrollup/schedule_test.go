@@ -14,7 +14,7 @@ func day(y int, m time.Month, d int) time.Time {
 var now = time.Date(2026, 8, 4, 15, 30, 0, 0, time.UTC)
 
 // A cold account backfills the full window, ending yesterday. Today is excluded
-// because it is incomplete — the read path overlays it live instead.
+// because it is incomplete, and the page reports the horizon instead.
 func TestDaysToRollColdAccountBackfillsWindowEndingYesterday(t *testing.T) {
 	days := DaysToRoll(State{}, now)
 

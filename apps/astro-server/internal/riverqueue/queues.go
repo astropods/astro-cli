@@ -13,7 +13,7 @@ const (
 	queueBuild         = "build"         // container image builds
 	queueBilling       = "billing"       // dunning sweep, suspend/resume
 	queueMetering      = "metering"      // usage heartbeat, message-count sync
-	queueInsights      = "insights"      // insights + observability summary refresh
+	queueInsights      = "insights"      // insights daily roll-up, observability summary refresh
 	queueMaintenance   = "maintenance"   // periodic backfills, reconciles, purges, privatelink
 	queueEvalJudge     = "eval-judge"    // eval-dataset judgment prediction generation
 	queueNotifications = "notifications" // user alert delivery (Novu triggers)

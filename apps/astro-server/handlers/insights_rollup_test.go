@@ -409,3 +409,62 @@ func TestComputeInsightsFromRollupsReportsAsOf(t *testing.T) {
 		})
 	}
 }
+
+// The Sources filter is the one dev-tool surface with its own query: every other
+// one reads the source's spend through the deployment entries or the actor
+// grain. Its contract is a presence gate plus the brand icon, which is what the
+// client renders as the logo, so a ref built without one yields a filter with a
+// blank row.
+func TestRollupPresentDevtoolSourcesGatesOnUsage(t *testing.T) {
+	ad := devtoolAdapters[0]
+	window := insightsrollup.Window{
+		From: time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
+	}
+
+	for _, tc := range []struct {
+		name        string
+		cost        float64
+		tokens      int64
+		wantPresent bool
+	}{
+		{name: "used", cost: 2.5, tokens: 100, wantPresent: true},
+		// Tokens with no cost means an unpriced model, not an unused source:
+		// hiding it would lose the row, the filter entry and the token counts.
+		{name: "unpriced but used", cost: 0, tokens: 21388, wantPresent: true},
+		{name: "unused", cost: 0, tokens: 0, wantPresent: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+			if err != nil {
+				t.Fatalf("sqlmock.New: %v", err)
+			}
+			defer db.Close()
+
+			for range devtoolAdapters {
+				mock.ExpectQuery("COALESCE\\(SUM\\(cost_usd\\)").
+					WillReturnRows(sqlmock.NewRows([]string{"cost_usd", "requests", "tokens"}).
+						AddRow(tc.cost, 0, tc.tokens))
+			}
+
+			refs, err := rollupPresentDevtoolSources(context.Background(),
+				insightsrollup.NewStore(db), &account.Account{ID: "acct_1"}, window)
+			if err != nil {
+				t.Fatalf("rollupPresentDevtoolSources: %v", err)
+			}
+			if !tc.wantPresent {
+				if len(refs) != 0 {
+					t.Fatalf("refs = %+v, want none", refs)
+				}
+				return
+			}
+			if len(refs) != 1 {
+				t.Fatalf("refs = %+v, want one entry", refs)
+			}
+			if refs[0].Key != ad.Key || refs[0].Label != ad.Label || refs[0].Icon != ad.Icon {
+				t.Errorf("ref = %+v, want key %q, label %q, icon %q",
+					refs[0], ad.Key, ad.Label, ad.Icon)
+			}
+		})
+	}
+}

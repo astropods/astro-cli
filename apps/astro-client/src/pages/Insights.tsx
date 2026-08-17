@@ -5,7 +5,6 @@ import { ArrowUpRight, Bot, Check, ChevronDown, Plus, RefreshCw, TriangleAlert }
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { accountSettingsPath } from "@/lib/settings-paths";
 import { useAuth } from "@/lib/auth";
-import { useExperiments } from "@/lib/experiments";
 import { cn } from "@/lib/utils";
 import { PillToggleChrome } from "@/components/activity/PillToggle";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
@@ -30,7 +29,6 @@ import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { FilterInput } from "@/components/FilterInput";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { WarningPanel } from "@/components/ui/status-panel";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { inputBase, inputFocusVisible } from "@/components/ui/input";
 import { getIntegrationIconUrl } from "@/lib/assets";
@@ -98,14 +96,11 @@ export function resolveInsightsDateLabel(
   return `${formatDateShort(resolved.from)} – ${formatDateShort(resolved.to)}`;
 }
 
-// The two read paths go stale in different ways, so the note has to say which
-// one applies or it is simply wrong on one of them: the default path refreshes
-// on a 6-hourly cycle, while the stored-usage path is built from completed days
-// and ends at the last of them. On that path the page shows the window it
-// actually covers rather than implying today is included-but-empty, so name the
-// day when the server told us which one it is.
-export function insightsFreshnessNote(rollups: boolean, asOf?: string): string {
-  if (!rollups) return "Updated results may take up to 6 hours to reflect on this page.";
+// Usage is totalled per completed day, so the page ends at the last of them
+// rather than implying today is included-but-empty. Name the day whenever the
+// server reported one; without it the window is still complete-days-only, we
+// just can't say which day it reaches.
+export function insightsFreshnessNote(asOf?: string): string {
   if (!asOf) return "Usage is totalled once a day, so today's activity may not appear yet.";
   return `Usage is totalled once a day. Showing everything through ${formatDateShort(asOf)}.`;
 }
@@ -216,9 +211,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const url = new URL(request.url);
+  // `days` has to be read from the URL, not defaulted: the page sends the
+  // selected range's window and primes on the exact param set, so omitting it
+  // here would make every first paint refetch instead of hitting the primed
+  // entry.
   const insightsParams = buildInsightsQueryParams({
     query: url.searchParams.get("q") ?? "",
     hideSources: [...parseHiddenSources(url.searchParams.get("hide_sources"))],
+    days: RANGE_DAYS[parseRange(url.searchParams.get("range"))],
   });
   const insights = await ctx.api.getAccountInsights(ctx.accountName, insightsParams).catch(() => null);
   return { account: ctx.accountName, insights, insightsParams };
@@ -496,31 +496,13 @@ interface InsightsBodyProps {
   // Toggle + search live inside the table's bordered container via the
   // Table primitive's `header` slot — see TopSpendersTable's panelHeader.
   table: ReactNode;
-  // True when the upstream metrics backend is unreachable; the page still
-  // renders the zero-state KPIs and charts under a banner instead of erroring.
-  metricsUnavailable?: boolean;
   // Last day the data is complete through, when the server reported one.
   asOf?: string;
 }
 
-function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, metricsUnavailable, asOf }: InsightsBodyProps) {
-  const { experiments } = useExperiments();
+function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, asOf }: InsightsBodyProps) {
   return (
     <>
-      {/* Banner deliberately surfaces upstream-metric unavailability instead
-          of silently rendering zeros. Reasoning: zero-cost / zero-traces is
-          a valid steady-state for accounts with little activity, so without
-          the banner users can't tell "we have no data" from "we couldn't
-          fetch your data right now." We keep the copy free of internal
-          system names — users don't need to know about Langfuse to act on
-          this (retry later, or contact support if persistent). */}
-      {metricsUnavailable && (
-        <div className="mb-4">
-          <WarningPanel title="Metrics temporarily unavailable">
-            We couldn&apos;t load up-to-date usage metrics. Try refreshing in a few minutes.
-          </WarningPanel>
-        </div>
-      )}
       <StatCards data={displaySummary} showChange range={range} />
       <div>
         <div className="mb-6 grid grid-cols-1 gap-4 @xl:grid-cols-2">
@@ -531,7 +513,7 @@ function InsightsBody({ range, displaySummary, chartLeft, chartRight, table, met
       </div>
       {/* Keep it muted — it's a disclaimer, not a status. */}
       <p className="mt-6 text-center text-body-sm text-faint-foreground">
-        {insightsFreshnessNote(experiments.insightsRollups, asOf)}
+        {insightsFreshnessNote(asOf)}
       </p>
     </>
   );
@@ -564,7 +546,6 @@ function InsightsView({
   hiddenSources,
   slackRefreshStatus,
 }: InsightsViewProps) {
-  const { experiments } = useExperiments();
   const [agentsLimit, setAgentsLimit] = useState(DEFAULT_TABLE_LIMIT);
   const [peopleLimit, setPeopleLimit] = useState(DEFAULT_TABLE_LIMIT);
   const [agentSortKey, setAgentSortKey] = useState<AgentSortKey>(DEFAULT_AGENT_SORT);
@@ -603,11 +584,9 @@ function InsightsView({
       peopleSortKey,
       peopleSortDirection,
       hideSources: [...hiddenSources],
-      // Only the rollup path scopes tables by range. Sending it on the default
-      // path would split its cache four ways for a response that ignores it.
-      days: experiments.insightsRollups ? RANGE_DAYS[range] : undefined,
+      days: RANGE_DAYS[range],
     }),
-    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query, hiddenSources, experiments.insightsRollups, range],
+    [agentSortDirection, agentSortKey, agentsLimit, peopleLimit, peopleSortDirection, peopleSortKey, query, hiddenSources, range],
   );
   const baseInsightsParamsKey = useMemo(() => insightsTableParamsSignature(baseInsightsParams), [baseInsightsParams]);
   const cachedRangeState = rangeCache?.account === account ? rangeCache : null;
@@ -799,9 +778,6 @@ function InsightsView({
     </div>
   );
 
-  const metricsUnavailable =
-    insights?.metrics_unavailable === true;
-
   return (
     <SettledContentReveal
       transitionKey={account}
@@ -814,7 +790,6 @@ function InsightsView({
       <InsightsBody
         range={range}
         displaySummary={displaySummary}
-        metricsUnavailable={metricsUnavailable}
         asOf={insights?.as_of}
         chartLeft={
           <CostOverTimeChart

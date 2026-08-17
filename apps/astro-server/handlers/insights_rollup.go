@@ -18,22 +18,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 )
 
-// GetAccountInsightsV2 serves the Insights page model from the durable rollup
-// store instead of from Langfuse-plus-Redis. Registered at
-// GET /api/v2/accounts/:account/insights, with v1 left untouched and serving, so
-// the two can be compared side by side for the same account and params.
+// GetAccountInsights returns the complete server-owned view model for the
+// Insights page, read from the durable daily fact table.
+// GET /api/v1/accounts/:account/insights
 //
-// It reuses buildInsightsViewWithParams rather than reimplementing the view
-// model. That is deliberate: the wire contract is frozen and the assembly is the
-// part that is already correct and already covered by the client's tests. Only
-// the *source* of the facts changes here, which is exactly the variable being
-// verified — a rewritten assembly would confound "are the rollups right?" with
-// "is the new view model right?".
+// The lower-level observability endpoints remain reusable API primitives; this
+// endpoint owns page semantics.
 //
-// Consequently sort/filter/paginate still happen in Go on this path. Pushing
-// them into SQL (internal/insightsrollup/queries.go already has the aggregates)
-// is a follow-up, safe to do once the facts themselves are trusted.
-func GetAccountInsightsV2(
+// Sort, filter and pagination still happen in Go. The pushdown aggregates exist
+// (internal/insightsrollup/queries.go: cost_pct via window function, ORDER
+// BY/LIMIT/OFFSET, the system row pinned in SQL) and can replace them; keeping
+// one assembly for every surface is what makes the tables and the cards agree by
+// construction.
+func GetAccountInsights(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	deploymentStore *deploymentstore.Store,
@@ -60,12 +57,11 @@ func GetAccountInsightsV2(
 			return
 		}
 
-		// Same gate as v1: per-developer dev-tool spend is admin-only, members
-		// see only their own row, and aggregate spend stays visible to all.
+		// Per-developer dev-tool spend is admin-only, members see only their own
+		// row, and aggregate spend stays visible to all.
 		params := parseInsightsRequestParams(c)
-		// Range-scoped tables, which v1 can't do: its People rows come from a
-		// cached aggregate with no daily breakdown. Daily facts make it a window
-		// change, so the table finally respects the range chip above it.
+		// Daily facts make a range change a window change, so the tables respect
+		// the range chip above them.
 		params.TableDays = parseInsightsTableDays(c)
 		if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:admin") {
 			params.RestrictDevtoolToKey = "member:" + user.ID
@@ -87,9 +83,8 @@ func GetAccountInsightsV2(
 // insights_usage_daily.
 //
 // One fetch at the widest range feeds every range, because
-// buildInsightsViewWithParams slices the per-deployment daily series itself. So
-// this is a handful of SQL aggregates per request, replacing v1's N+4 Langfuse
-// queries or its Redis lookup.
+// buildInsightsViewWithParams slices the per-deployment daily series itself. So a
+// request is a handful of SQL aggregates, and no request touches Langfuse.
 func ComputeInsightsFromRollups(
 	ctx context.Context,
 	log *logger.Logger,
@@ -103,11 +98,10 @@ func ComputeInsightsFromRollups(
 	params insightsRequestParams,
 ) (InsightsResponse, error) {
 	// Every window ends on the watermark, not on today. The facts hold complete
-	// days only (insightsrollup.DaysToRoll), so a window ending today always had
-	// an empty trailing day: the chart drew a bar that could never fill, and the
-	// stat cards compared N-1 days of spend against N prior days. Reporting the
-	// horizon we actually have makes both honest, and as_of tells the client which
-	// day that is.
+	// days only (insightsrollup.DaysToRoll), so a window ending today carries an
+	// empty trailing day: a chart bar that can never fill, and stat cards that
+	// compare N-1 days of spend against N prior days. Reporting the horizon we
+	// have keeps both honest, and as_of tells the client which day that is.
 	state, serr := rollups.State(ctx, acct.ID, insightsrollup.SourceAgents)
 	if serr != nil {
 		// Non-fatal: without the watermark we still know the facts stop at the last
@@ -151,36 +145,27 @@ func ComputeInsightsFromRollups(
 		return InsightsResponse{}, err
 	}
 
-	// Identity decoration stays at read time, unchanged from v1: Slack display
-	// names and member profiles change independently of spend, so the facts hold
-	// only stable keys and the labels are resolved on every read.
+	// Identity decoration stays at read time: Slack display names and member
+	// profiles change independently of spend, so the facts hold only stable keys
+	// and the labels are resolved on every read.
 	ResolveUsersSummaryIdentities(log, slackStore, accountStore, &users)
 	members, err := insightsMemberProfiles(log, accountStore, acct.ID)
 	if err != nil {
 		return InsightsResponse{}, err
 	}
 
-	// No fold. Dev-tool spend reaches every surface through the same lineage as
-	// agent spend — the deployment entries for the cards, chart and agents table,
-	// the actor grain for the People surfaces. The fold existed in v1 to
-	// compensate for dev-tool arriving from a separate pipeline; here it would
-	// only be a second chance to double-count.
-	//
-	// Present is still listed so the Sources filter can offer sources that the
-	// current hide_sources selection has filtered out of the data.
+	// Dev-tool spend reaches every surface through the same lineage as agent
+	// spend: the deployment entries feed the cards, chart and agents table, the
+	// actor grain feeds the People surfaces. Only the Sources filter needs to know
+	// which sources exist, and it needs them unfiltered by hide_sources, or a
+	// hidden source could never be switched back on.
 	present, err := rollupPresentDevtoolSources(ctx, rollups, acct, window)
 	if err != nil {
 		return InsightsResponse{}, err
 	}
 
-	// hide_sources is applied once, as a WHERE clause on every query above.
-	// Leaving it on the params would make the builder apply it a second time,
-	// and its agents-hidden branch zeroes rows that the query already excluded.
-	buildParams := params
-	buildParams.HideSources = nil
-
 	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users,
-		members, devtoolFold{Present: present}, asOf, buildParams)
+		members, present, asOf, params)
 	// Only reported when a watermark exists. On a cold account the window still
 	// ends at the last complete day, but claiming coverage through it would be a
 	// lie — the rollup has never run.
@@ -411,8 +396,8 @@ func rollupUserEntries(
 ) (AccountUsersSummaryResponse, error) {
 	rows, err := rollups.PeopleRows(ctx, acct.ID, window, filter,
 		// No paging here: the view model still sorts and pages in Go, so it
-		// needs the full set. The clamp keeps that bounded the same way v1's
-		// normalizer does.
+		// needs the full set. The clamp matches maxInsightsTableLimit, so a huge
+		// account can't turn one request into an unbounded scan.
 		insightsrollup.AgentRowOptions{SortColumn: "cost", Descending: true, Limit: 5000})
 	if err != nil {
 		return AccountUsersSummaryResponse{}, err
@@ -446,8 +431,8 @@ func rollupUserEntries(
 
 	// Dev-tool usage has no deployment id, so Pairs can't see it and a person who
 	// used Claude Code would show no chip for it. These come from the (actor,
-	// source) pairs instead, and are appended after the agent chips so ordering
-	// matches v1.
+	// source) pairs instead, and are appended after the agent chips so a row reads
+	// deployed agents first, then dev tools.
 	actorSources, err := rollups.ActorSources(ctx, acct.ID, window, filter)
 	if err != nil {
 		return AccountUsersSummaryResponse{}, err
@@ -474,7 +459,7 @@ func rollupUserEntries(
 			DevtoolSourceKeys: devtoolByActor[r.ActorKey],
 		}
 		if r.LastSeen.Valid {
-			// Date only, matching v1: last_seen_at is stored at day granularity,
+			// Date only: last_seen_at is stored at day granularity,
 			// so an RFC3339 stamp would imply a precision the facts don't have.
 			entry.LastSeen = r.LastSeen.Time.UTC().Format(time.DateOnly)
 		}
@@ -491,7 +476,7 @@ func rollupUserEntries(
 // `Account` is the avatar/route-segment account, and it is NOT always this
 // account: a deployment sourced from a public blueprint renders the publishing
 // account's avatar, so hardcoding the viewing account gives every cross-account
-// agent the wrong icon. Mirrors what ComputeUsersSummary does for v1.
+// agent the wrong icon.
 //
 // extraIDs covers deployments referenced by the facts that are no longer
 // visible — archived agents whose spend is retained. Without them a person whose
@@ -607,8 +592,8 @@ func rollupSummary(
 			summary.CostOverTimeByUser = append(summary.CostOverTimeByUser,
 				AccountCostOverTimeByUserEntry{Date: date})
 		}
-		// Key is the actor key; '' is system spend, which v1 also carries as an
-		// empty userId, so it is passed through rather than dropped.
+		// Key is the actor key; '' is system spend, passed through rather than
+		// dropped so the People chart totals match the cards.
 		summary.CostOverTimeByUser[idx].Users = append(summary.CostOverTimeByUser[idx].Users,
 			AccountUserCost{
 				UserIdentity: UserIdentity{UserID: p.Key},
@@ -637,34 +622,29 @@ func rollupSummary(
 }
 
 // rollupPresentDevtoolSources lists the dev-tool sources with any usage in the
-// window, for the Sources filter.
+// window, in registry order, for the Sources filter.
 //
-// Deliberately unfiltered by hide_sources: the filter has to keep offering a
-// source the user has currently hidden, or there is no way to switch it back on.
-// AgentRow carries the identity because devtoolSourceRefs reads the brand icon
-// off it — the filter renders a logo per source, so dropping the row drops the
-// icon. Measures are left zero: nothing aggregates these.
+// A source unused in the window isn't offered at all: the filter would show a
+// row that can only ever toggle zero spend.
 func rollupPresentDevtoolSources(
 	ctx context.Context,
 	rollups *insightsrollup.Store,
 	acct *account.Account,
 	window insightsrollup.Window,
-) (map[string]DevtoolSource, error) {
-	out := map[string]DevtoolSource{}
+) ([]DevtoolSourceRef, error) {
+	out := make([]DevtoolSourceRef, 0, len(devtoolAdapters))
 	for _, ad := range devtoolAdapters {
 		t, err := rollups.Totals(ctx, acct.ID, insightsrollup.GrainUsage, window,
 			insightsrollup.Filter{OnlySources: []string{ad.Key}})
 		if err != nil {
 			return nil, err
 		}
-		// Presence gate, matching v1: a source unused in the window isn't offered.
 		if t.CostUSD == 0 && t.Tokens == 0 {
 			continue
 		}
-		out[ad.Key] = DevtoolSource{
-			Label:    ad.Label,
-			AgentRow: InsightsAgentRow{Identity: devtoolIdentity(ad)},
-		}
+		// A registered adapter is exactly what the filter renders, so the ref is a
+		// conversion rather than a mapping.
+		out = append(out, DevtoolSourceRef(ad))
 	}
 	return out, nil
 }

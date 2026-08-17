@@ -222,7 +222,7 @@ There is no background events consumer. The read path is `org.Sync.SyncMembershi
 - **No cursor**: nothing is persisted between runs — each login re-lists from WorkOS, which is why no `workos_event_cursor` table exists
 - **Best-effort**: reconciles any membership drift since the user's last login
 
-> Astro does run a background worker process (`SERVER_MODE=worker`, gated by `Config.RunWorker()`), but it drives the River job queue — deployment reconciliation, insights refresh, namespace scans — not WorkOS membership sync. The `all` (default) / `api` / `worker` modes select whether a process runs the HTTP/gRPC API, the job worker, or both.
+> Astro does run a background worker process (`SERVER_MODE=worker`, gated by `Config.RunWorker()`), but it drives the River job queue — deployment reconciliation, the insights roll-up, namespace scans — not WorkOS membership sync. The `all` (default) / `api` / `worker` modes select whether a process runs the HTTP/gRPC API, the job worker, or both.
 
 ## Agent Visibility
 

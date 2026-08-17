@@ -15,7 +15,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
-	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -126,7 +125,6 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // non-nil field once the client is built.
 type wiredWorkers struct {
 	purge           *AccountPurgeWorker
-	insights        *InsightsRefreshWorker
 	insightsRollup  *InsightsRollupWorker
 	migrate         *MigrateDeploymentClusterWorker
 	dunning         *DunningSweepWorker
@@ -424,25 +422,9 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "ObsSummaryRefreshWorker", "period", obssummary.RefreshInterval.String())
 
-	// Discovery worker — enumerates accounts and enqueues per-account fan-out
-	// jobs. Queue reference is wired post-construction in New() below.
-	insightsDiscovery := &InsightsRefreshWorker{
-		langfuseStore: langfuse.NewStore(cfg.DB),
-		log:           log,
-	}
-	addWorkerWithCatalogCheck(log, workers, insightsDiscovery)
-	log.Info("river: registered worker", "worker", "InsightsRefreshWorker", "period", insightscache.RefreshInterval.String())
-
-	addWorkerWithCatalogCheck(log, workers, &InsightsRefreshAccountWorker{
-		cache:    cfg.K8sCache,
-		computer: cfg.InsightsSummaryComputer,
-		log:      log,
-	})
-	log.Info("river: registered worker", "worker", "InsightsRefreshAccountWorker")
-
-	// Rollup pipeline — builds the durable daily fact table alongside the v1
-	// cache. Runs whether or not the v2 read path is enabled, so the flag can be
-	// flipped against already-populated history rather than a cold table.
+	// Rollup pipeline: builds the durable daily fact table the Insights read path
+	// serves. Discovery enumerates accounts and enqueues per-account fan-out jobs;
+	// the Queue reference is wired post-construction in New() below.
 	insightsRollupDiscovery := &InsightsRollupWorker{
 		langfuseStore: langfuse.NewStore(cfg.DB),
 		log:           log,
@@ -547,7 +529,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	return wiredWorkers{
 		purge:           pw,
-		insights:        insightsDiscovery,
 		migrate:         migrateWorker,
 		dunning:         dunningWorker,
 		billingResume:   billingResumeWorker,

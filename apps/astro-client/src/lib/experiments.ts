@@ -2,19 +2,12 @@ import { useSyncExternalStore } from "react";
 
 export interface Experiments {
   evals: boolean;
-  /**
-   * Serve the Insights page from the rollup-backed `/api/v2` endpoint instead
-   * of `/api/v1`. Both are live and wire-compatible, so this exists to compare
-   * them on the same account without redeploying.
-   */
-  insightsRollups: boolean;
 }
 
 const STORAGE_KEY = "astro:experiments";
 
 const DEFAULTS: Experiments = {
   evals: false,
-  insightsRollups: false,
 };
 
 export const hasExperiments = Object.keys(DEFAULTS).length > 0;

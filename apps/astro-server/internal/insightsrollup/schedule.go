@@ -24,9 +24,11 @@ const (
 // DaysToRoll returns the UTC days a tick should roll up, oldest first, given the
 // current watermark and the wall clock.
 //
-// Only *complete* days are returned. Today is deliberately excluded: it is
-// served by the read path's live overlay instead, so the fact table never holds
-// a partial day that a later tick would have to correct.
+// Only *complete* days are returned, and today is deliberately never one of
+// them. Insights is a daily report: the fact table holds whole days, the read
+// path reports the horizon it has through as_of, and nothing queries upstream on
+// the request path. A partial day would break all three, and a later tick would
+// have to correct it.
 func DaysToRoll(state State, now time.Time) []time.Time {
 	lastComplete := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
 	earliest := lastComplete.AddDate(0, 0, -(MaxBackfillDays - 1))

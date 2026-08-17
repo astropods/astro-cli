@@ -581,17 +581,15 @@ type AccountDeploymentsSummaryResponse struct {
 // Ranges may be empty when the request sets skip_ranges=true for a table-only
 // refresh.
 type InsightsResponse struct {
-	MetricsUnavailable bool                     `json:"metrics_unavailable,omitempty"`
-	Ranges             map[string]InsightsRange `json:"ranges"`
-	Tables             InsightsTables           `json:"tables"`
+	Ranges map[string]InsightsRange `json:"ranges"`
+	Tables InsightsTables           `json:"tables"`
 	// AsOf (YYYY-MM-DD, UTC) is the last day the data is complete through — the
-	// day every window in Ranges ends on. Absent on the Langfuse path, which has
-	// no watermark to report, and on a cold account with nothing rolled up yet.
-	// The client shows it so "no spend today" reads as coverage rather than as an
-	// outage.
+	// day every window in Ranges ends on. Absent on a cold account with nothing
+	// rolled up yet. The client shows it so "no spend today" reads as coverage
+	// rather than as an outage.
 	AsOf string `json:"as_of,omitempty"`
 	// DevtoolSources lists the dev-tool sources present in the account (Claude
-	// Code, Codex, …), for the Sources filter. Their usage is already folded into
+	// Code, Codex, …), for the Sources filter. Their usage is already counted in
 	// the ranges and tables above unless excluded via the hide_sources param.
 	DevtoolSources []DevtoolSourceRef `json:"devtool_sources,omitempty"`
 }

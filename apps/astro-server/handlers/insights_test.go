@@ -6,6 +6,20 @@ import (
 	"time"
 )
 
+// buildInsightsView calls the view builder with default params and no dev-tool
+// sources, which is what most of these tests want to assert against.
+func buildInsightsView(
+	accountName string,
+	summary AccountObservabilitySummaryResponse,
+	deployments AccountDeploymentsSummaryResponse,
+	users AccountUsersSummaryResponse,
+	members map[string]insightsMemberProfile,
+	asOf time.Time,
+) InsightsResponse {
+	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, nil,
+		asOf, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+}
+
 func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	members := map[string]insightsMemberProfile{
@@ -304,7 +318,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
-			devtoolFold{},
+			nil,
 			now,
 			normalizeInsightsRequestParams(insightsRequestParams{
 				Query:  "a",
@@ -335,7 +349,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
-			devtoolFold{},
+			nil,
 			now,
 			normalizeInsightsRequestParams(insightsRequestParams{
 				Agents: insightsTableParams{Limit: 3, Sort: "last_seen", Direction: "desc"},
@@ -374,7 +388,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
-			devtoolFold{},
+			nil,
 			now,
 			invalidParams,
 		)
@@ -391,7 +405,7 @@ func TestBuildInsightsViewShapesServerOwnedRows(t *testing.T) {
 			deployments,
 			users,
 			members,
-			devtoolFold{},
+			nil,
 			now,
 			normalizeInsightsRequestParams(insightsRequestParams{SkipRanges: true}),
 		)
@@ -543,111 +557,6 @@ func TestInsightAgentChipsFlagArchivedAndMissing(t *testing.T) {
 	}
 }
 
-// v1's fold shape: dev-tool spend arrives from a separate pipeline and is absent
-// from every base surface, so all of them are folded. Kept because v1 still
-// serves this way; v2 uses the single-lineage path exercised below.
-func TestDevtoolFoldAppliesToEverySurface(t *testing.T) {
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	deployments := AccountDeploymentsSummaryResponse{
-		Deployments: []DeploymentSummaryEntry{{
-			DeploymentID: "dep-alpha", AgentName: "alpha", DisplayName: "Alpha Agent",
-			Requests: 4, CostUSD: 4,
-			CostOverTime: []DeploymentDailyCost{{Date: "2026-06-09", CostUSD: 4}},
-		}},
-	}
-	// The member's dev-tool spend is already merged into their row by the facts,
-	// exactly as rollupUserEntries produces it.
-	users := AccountUsersSummaryResponse{
-		Users: []UserSummaryEntry{{
-			UserIdentity: UserIdentity{UserID: "u_alpha", UserDetails: UserDetails{Kind: UserDetailsKindAstro}},
-			Requests:     4, CostUSD: 6,
-		}},
-	}
-	members := map[string]insightsMemberProfile{
-		"u_alpha": {userID: "u_alpha", username: "alpha", displayName: "Alpha Person"},
-	}
-
-	totals := DevtoolTotals{CostUSD: 2, TotalTokens: 100}
-	ad := devtoolAdapters[0]
-	sources := map[string]DevtoolSource{ad.Key: {
-		Label:      ad.Label,
-		Totals:     totals,
-		SpendByDay: []DevtoolSpendPoint{{Date: "2026-06-09", CostUSD: 2}},
-		AgentRow:   devtoolAgentRow(ad, totals),
-		// ByUser left empty: v2 never folds the People surface.
-	}}
-	ranges := map[string]DevtoolRange{}
-	for _, spec := range insightsRangeSpecs {
-		ranges[spec.key] = DevtoolRange{Sources: sources}
-	}
-
-	view := buildInsightsViewWithParams("acme",
-		AccountObservabilitySummaryResponse{},
-		deployments, users, members,
-		devtoolFold{Ranges: ranges, AgentRows: sources, Present: sources},
-		now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
-
-	// The synthetic source row must appear in the agents table.
-	var found bool
-	for _, r := range view.Tables.Agents.Rows {
-		if r.Key == ad.Key {
-			found = true
-			if r.Metrics.CostUSD != 2 {
-				t.Errorf("devtool row cost = %v, want 2", r.Metrics.CostUSD)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("devtool agent row missing; rows = %d", len(view.Tables.Agents.Rows))
-	}
-	// Agents total includes it, because agent rows never carried it.
-	if view.Tables.Agents.TotalCost != 6 {
-		t.Errorf("agents total = %v, want 6 (4 agent + 2 devtool)", view.Tables.Agents.TotalCost)
-	}
-
-	// People must be untouched: the row already includes dev-tool spend, so a
-	// fold here would push it to 8 and add a duplicate synthesized row.
-	if len(view.Tables.People.Rows) != 1 {
-		t.Fatalf("people rows = %d, want 1 (no synthesized duplicate)", len(view.Tables.People.Rows))
-	}
-	if got := view.Tables.People.Rows[0].Metrics.CostUSD; got != 6 {
-		t.Errorf("people cost = %v, want 6 (unchanged, not double-folded)", got)
-	}
-
-	// Stat cards must include dev-tool spend. Without the range fold they show
-	// only the 4 of agent spend while the table beneath totals 6 — the page
-	// contradicting itself.
-	if got := view.Ranges["7d"].StatCards.Totals.CostUSD; got != 6 {
-		t.Errorf("7d stat card cost = %v, want 6 (4 agent + 2 devtool)", got)
-	}
-	// And the chart must carry a series for the source, or the spend is in the
-	// total with nothing to attribute it to.
-	var chartHasSource bool
-	for _, entry := range view.Ranges["7d"].AgentSpendChart {
-		for _, m := range entry.Models {
-			if m.Model == ad.Key && m.CostUSD > 0 {
-				chartHasSource = true
-			}
-		}
-	}
-	if !chartHasSource {
-		t.Error("agent spend chart has no dev-tool series")
-	}
-	if view.Ranges["7d"].SeriesLabels[ad.Key] != ad.Label {
-		t.Errorf("series label for %s = %q, want %q", ad.Key,
-			view.Ranges["7d"].SeriesLabels[ad.Key], ad.Label)
-	}
-
-	// The Sources filter still lists the source so it can be toggled.
-	if len(view.DevtoolSources) != 1 || view.DevtoolSources[0].Key != ad.Key {
-		t.Errorf("devtool_sources = %+v, want one entry for %s", view.DevtoolSources, ad.Key)
-	}
-
-	// All fixture spend is on `now`, so every range covers it and the
-	// range-scoped surfaces must agree with the account-wide tables.
-	assertInsightsSurfacesAgree(t, view, 6)
-}
-
 // assertInsightsSurfacesAgree checks the one property every dev-tool regression
 // on this page violated: the surfaces must not contradict each other. Stat
 // cards, both table totals, and the chart series all describe the same spend, so
@@ -688,14 +597,13 @@ func assertInsightsSurfacesAgree(t *testing.T, view InsightsResponse, want float
 	}
 }
 
-// The v2 path folds nothing. Dev-tool spend is a first-class deployment entry,
-// so the stat cards, chart, series labels and agents table pick it up from the
-// same lineage as agent spend, and the People surfaces from the actor grain.
+// Dev-tool spend is a first-class deployment entry, so the stat cards, chart,
+// series labels and agents table pick it up from the same lineage as agent
+// spend, and the People surfaces from the actor grain.
 //
-// This is the property the fold kept getting wrong: with one lineage there is no
-// per-surface reasoning left to get wrong, so the invariant holds by
-// construction rather than by remembering which surfaces to compensate.
-func TestDevtoolAsDeploymentEntryNeedsNoFold(t *testing.T) {
+// One lineage is what makes the surfaces agree by construction: nothing has to
+// remember which surface needs a per-source contribution added to it.
+func TestDevtoolSpendRidesTheAgentLineage(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	ad := devtoolAdapters[0]
 	deployments := AccountDeploymentsSummaryResponse{
@@ -730,7 +638,7 @@ func TestDevtoolAsDeploymentEntryNeedsNoFold(t *testing.T) {
 	view := buildInsightsViewWithParams("acme",
 		AccountObservabilitySummaryResponse{},
 		deployments, users, members,
-		devtoolFold{Present: map[string]DevtoolSource{ad.Key: {Label: ad.Label}}},
+		[]DevtoolSourceRef{{Key: ad.Key, Label: ad.Label, Icon: ad.Icon}},
 		now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
 
 	assertInsightsSurfacesAgree(t, view, 6)
@@ -769,9 +677,8 @@ func TestDevtoolAsDeploymentEntryNeedsNoFold(t *testing.T) {
 }
 
 // Agent usage that never reported which agent produced it has no agent row to
-// belong to. v1 hides it entirely by filtering on the deployment tag upstream,
-// which understates account spend; v2 surfaces it as its own row so the totals
-// stay whole and the gap is visible rather than silent.
+// belong to. Filtering it out would understate account spend, so it gets its own
+// row: the totals stay whole and the gap is visible rather than silent.
 func TestUnattributedUsageRendersAsItsOwnRow(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	deployments := AccountDeploymentsSummaryResponse{
@@ -804,7 +711,7 @@ func TestUnattributedUsageRendersAsItsOwnRow(t *testing.T) {
 
 	view := buildInsightsViewWithParams("acme",
 		AccountObservabilitySummaryResponse{},
-		deployments, users, members, devtoolFold{},
+		deployments, users, members, nil,
 		now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
 
 	// The whole point: nothing is hidden, so every surface still agrees.
@@ -840,9 +747,9 @@ func TestUnattributedUsageRendersAsItsOwnRow(t *testing.T) {
 }
 
 // Dev-tool usage has no deployment, so it can't be a UserAgentRef and Pairs
-// can't see it — a person who used Claude Code showed no chip for it at all.
-// The source keys ride on the entry instead, and the chips are built alongside
-// the agent chips so they land in the same place v1 put them.
+// can't see it. The source keys ride on the entry instead, and the chips are
+// built alongside the agent chips so one row reads agents first, then dev
+// tools.
 func TestPersonRowCarriesDevtoolChips(t *testing.T) {
 	ad := devtoolAdapters[0]
 	users := AccountUsersSummaryResponse{
@@ -883,26 +790,6 @@ func TestPersonRowCarriesDevtoolChips(t *testing.T) {
 	// to a deployment that doesn't exist.
 	if chip.Href != "" {
 		t.Errorf("chip href = %q, want empty", chip.Href)
-	}
-}
-
-// The Sources filter renders a brand logo per source, and devtoolSourceRefs
-// reads that icon off AgentRow.Identity — so a source map built without the row
-// yields a filter with no icons.
-func TestPresentDevtoolSourcesCarryIcon(t *testing.T) {
-	ad := devtoolAdapters[0]
-	refs := devtoolSourceRefs(map[string]DevtoolSource{ad.Key: {
-		Label:    ad.Label,
-		AgentRow: InsightsAgentRow{Identity: devtoolIdentity(ad)},
-	}})
-	if len(refs) != 1 {
-		t.Fatalf("refs = %d, want 1", len(refs))
-	}
-	if refs[0].Icon != ad.Icon {
-		t.Errorf("icon = %q, want %q", refs[0].Icon, ad.Icon)
-	}
-	if refs[0].Label != ad.Label {
-		t.Errorf("label = %q, want %q", refs[0].Label, ad.Label)
 	}
 }
 
@@ -971,7 +858,7 @@ func TestTableDaysScopesTheAgentsTable(t *testing.T) {
 		v := buildInsightsViewWithParams("acme",
 			AccountObservabilitySummaryResponse{},
 			deployments, AccountUsersSummaryResponse{},
-			map[string]insightsMemberProfile{}, devtoolFold{}, now, p)
+			map[string]insightsMemberProfile{}, nil, now, p)
 		return v.Tables.Agents.TotalCost
 	}
 
@@ -983,19 +870,18 @@ func TestTableDaysScopesTheAgentsTable(t *testing.T) {
 	if got := scoped(90); got != 13 {
 		t.Errorf("90d table total = %v, want 13", got)
 	}
-	// Zero means account-wide, which is what v1 must keep using.
+	// Zero means account-wide.
 	if got := scoped(0); got != 13 {
 		t.Errorf("unscoped table total = %v, want 13", got)
 	}
 
-	// The table now agrees with the stat cards for the same range, which is the
-	// whole point of the change.
+	// A scoped table agrees with the stat cards for the same range.
 	p := normalizeInsightsRequestParams(defaultInsightsRequestParams())
 	p.TableDays = 7
 	v := buildInsightsViewWithParams("acme",
 		AccountObservabilitySummaryResponse{},
 		deployments, AccountUsersSummaryResponse{},
-		map[string]insightsMemberProfile{}, devtoolFold{}, now, p)
+		map[string]insightsMemberProfile{}, nil, now, p)
 	if card, table := v.Ranges["7d"].StatCards.Totals.CostUSD, v.Tables.Agents.TotalCost; card != table {
 		t.Errorf("7d stat card %v disagrees with table %v", card, table)
 	}

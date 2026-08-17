@@ -18,12 +18,12 @@ import (
 // InsightsRollupProducer turns one account-day of upstream telemetry into rows
 // in insights_usage_daily. It lives in handlers rather than in insightsrollup
 // because it reuses this package's Langfuse query helpers, dev-tool adapter
-// registry, and identity classification — the same reason
-// InsightsSummaryComputer is an interface injected by main.
+// registry, and identity classification. main injects it through an interface so
+// riverqueue never imports handlers.
 //
-// The unit of work is a single day, which is the whole point: a completed day
-// is fetched once, ever, instead of being recomputed inside a 90-day window
-// four times a day.
+// The unit of work is a single day, which is the whole point: a completed day is
+// fetched once, ever, rather than re-aggregated inside a 90-day window on every
+// refresh.
 type InsightsRollupProducer struct {
 	Log           *logger.Logger
 	Cfg           *config.Config

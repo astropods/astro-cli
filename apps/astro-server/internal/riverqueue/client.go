@@ -71,11 +71,6 @@ type Config struct {
 	// preflight in DeployAgent. Sharing the same instance across both call
 	// sites keeps the 60s positive-result cache warm.
 	ImagePreflighter *k8s.ImagePreflighter
-	// InsightsSummaryComputer is injected by main so the InsightsRefreshWorker
-	// can call the same compute path the request handler uses without
-	// dragging the handlers package into the riverqueue import graph
-	// (handlers→riverqueue already exists for the GitHub-build worker).
-	InsightsSummaryComputer InsightsSummaryComputer
 	// InsightsRollupProducer is injected by main so the roll-up workers can
 	// build the durable fact table using the same Langfuse helpers the handlers
 	// own. nil → the roll-up workers no-op.
@@ -88,22 +83,6 @@ type Config struct {
 	// the NotifyWorker uses a no-op provider that logs and drops. Per-channel
 	// preferences are owned and enforced by Novu, not gated here.
 	NotifyProvider notify.Provider
-}
-
-// InsightsSummaryComputer is the contract for refreshing one account's
-// Insights cache entries. main wires this to the three handlers.Compute*
-// functions + JSON-marshaling so the worker stays decoupled from gin and
-// the response types. nil → the InsightsRefreshWorker becomes a no-op
-// (Redis still works for the agents-page cache, just no Insights
-// pre-warming).
-//
-// Each method returns the JSON bytes to write into Redis; an error means
-// every Langfuse sub-query in the underlying compute failed and the worker
-// should skip the write so the previously cached value survives the outage.
-type InsightsSummaryComputer interface {
-	ComputeSummary(ctx context.Context, accountID, groupBy string, includeArchived bool) ([]byte, error)
-	ComputeDeploymentsSummary(ctx context.Context, accountID string, includeArchived bool) ([]byte, error)
-	ComputeUsersSummary(ctx context.Context, accountID string) ([]byte, error)
 }
 
 // Queue wraps a River client and its pgxpool connection.
@@ -160,9 +139,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 
 	// Set queue references on workers that need Insert capability.
 	// This is safe because workers don't run until Start() is called.
-	if wired.insights != nil {
-		wired.insights.queue = q
-	}
 	if wired.insightsRollup != nil {
 		wired.insightsRollup.queue = q
 	}

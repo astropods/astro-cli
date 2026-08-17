@@ -10,7 +10,6 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
@@ -65,9 +64,6 @@ func TestInvalidateAccountMatchesQueenAccountCacheSurface(t *testing.T) {
 		deploycache.KeyFor("acct-1"),
 		obssummary.KeyFor("dep-a"),
 		obssummary.KeyFor("dep-b"),
-	}
-	for _, v := range insightscache.WarmedVariants {
-		keys = append(keys, insightscache.Key("acct-1", v.Endpoint, v.Params))
 	}
 	for _, key := range keys {
 		if err := cache.Set(context.Background(), key, []byte("x"), time.Minute); err != nil {

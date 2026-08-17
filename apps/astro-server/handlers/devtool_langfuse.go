@@ -26,9 +26,9 @@ type devtoolCell struct {
 	devtoolBucket
 }
 
-// devtoolUsage is one source's usage over a window, read from Langfuse. Cells are
-// kept unfolded so a single fetch of the widest window can serve every narrower
-// range without re-querying.
+// devtoolUsage is one source's usage over a window, read from Langfuse. Cells
+// stay unfolded so one fetch answers both the per-developer breakdown and the
+// window total, which have to agree or the roll-up loses spend.
 type devtoolUsage struct{ Cells []devtoolCell }
 
 // fetchDevtoolUsage reads one source's usage from the account's Langfuse project.
@@ -81,34 +81,12 @@ func fetchDevtoolUsage(
 	return usage, nil
 }
 
-// since narrows to cells on or after a UTC day boundary.
-func (u devtoolUsage) since(day time.Time) devtoolUsage {
-	cutoff := day.UTC().Format("2006-01-02")
-	out := devtoolUsage{Cells: make([]devtoolCell, 0, len(u.Cells))}
-	for _, c := range u.Cells {
-		if c.Date >= cutoff {
-			out.Cells = append(out.Cells, c)
-		}
-	}
-	return out
-}
-
 func (u devtoolUsage) totals() devtoolBucket {
 	var t devtoolBucket
 	for _, c := range u.Cells {
 		t = addBucket(t, c.devtoolBucket)
 	}
 	return t
-}
-
-func (u devtoolUsage) byDay() map[string]devtoolBucket {
-	out := map[string]devtoolBucket{}
-	for _, c := range u.Cells {
-		if c.Date != "" {
-			out[c.Date] = addBucket(out[c.Date], c.devtoolBucket)
-		}
-	}
-	return out
 }
 
 func (u devtoolUsage) byUser() map[string]devtoolBucket {

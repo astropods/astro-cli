@@ -740,8 +740,8 @@ func runWorker(
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 	ghStore := githubconnection.New(db)
 
-	// Stores the InsightsRefreshWorker's summary computer needs. Cheap to
-	// construct here (Store wrappers just hold the *sql.DB).
+	// Stores the roll-up producer needs. Cheap to construct here (Store wrappers
+	// just hold the *sql.DB).
 	workerDeploymentStore := deploymentstore.NewStore(db)
 	workerLangfuseStore := langfuse.NewStore(db)
 	workerSlackStore := slackidentity.NewStore(db)
@@ -801,29 +801,28 @@ func runWorker(
 		log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
 	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:                      db,
-		NotifyProvider:          notifyProvider,
-		Billing:                 billingProvider,
-		BillingBackend:          cfg.BillingBackend(),
-		PaymentProvider:         paymentProvider,
-		AccountStore:            accountStore,
-		AgentIndex:              agentIndex,
-		AvatarStore:             avatarStore,
-		ReadmeAssetStore:        readmeAssetStore,
-		K8sRegistry:             k8sReg,
-		K8sCache:                k8sCache,
-		ServerConfig:            cfg,
-		DeploymentFGASync:       deploymentFGASync,
-		FGA:                     deploymentFGA,
-		WorkOSClient:            workosClient,
-		OrgClient:               orgClient,
-		PromClient:              promClient,
-		Logger:                  log,
-		LangfuseStore:           workerLangfuseStore,
-		PipesClient:             pipesClient,
-		GitHubStore:             ghStore,
-		ImagePreflighter:        imagePreflighter,
-		InsightsSummaryComputer: handlers.NewInsightsSummaryComputer(log, cfg, workerLangfuseStore, workerDeploymentStore, accountStore, workerSlackStore),
+		DB:                db,
+		NotifyProvider:    notifyProvider,
+		Billing:           billingProvider,
+		BillingBackend:    cfg.BillingBackend(),
+		PaymentProvider:   paymentProvider,
+		AccountStore:      accountStore,
+		AgentIndex:        agentIndex,
+		AvatarStore:       avatarStore,
+		ReadmeAssetStore:  readmeAssetStore,
+		K8sRegistry:       k8sReg,
+		K8sCache:          k8sCache,
+		ServerConfig:      cfg,
+		DeploymentFGASync: deploymentFGASync,
+		FGA:               deploymentFGA,
+		WorkOSClient:      workosClient,
+		OrgClient:         orgClient,
+		PromClient:        promClient,
+		Logger:            log,
+		LangfuseStore:     workerLangfuseStore,
+		PipesClient:       pipesClient,
+		GitHubStore:       ghStore,
+		ImagePreflighter:  imagePreflighter,
 		InsightsRollupProducer: &handlers.InsightsRollupProducer{
 			Log:           log,
 			Cfg:           cfg,
@@ -2293,7 +2292,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
-			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2302,7 +2301,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("group_by", "Set to 'user' to include cost_over_time_by_user", false),
 				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/deployments-summary", "Get per-deployment observability summary", handlers.GetAccountDeploymentsSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2310,7 +2309,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountDeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache),
+			api.GET(protected, "/accounts/:account/observability/users-summary", "Get per-user observability summary", handlers.GetAccountUsersSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2318,7 +2317,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore, k8sCache, memberemails.NewStore(db)),
+			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2332,7 +2331,8 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("people_sort", "People table sort key", false),
 				oapispec.QueryParam("people_direction", "People table sort direction: asc or desc", false),
 				oapispec.QueryParam("skip_ranges", "Set to true to omit chart range data for table-only refreshes", false),
-				oapispec.QueryParam("hide_sources", "Comma-separated source keys (or 'agents') to exclude from the dev-tool fold-in", false),
+				oapispec.QueryParam("hide_sources", "Comma-separated source keys (or 'agents') to exclude", false),
+				oapispec.QueryParam("days", "Range the tables cover: 7, 14, 30 or 90; omitted means account-wide", false),
 				oapispec.Response(200, &handlers.InsightsResponse{}),
 			)
 
@@ -2610,24 +2610,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, queue))
 			router.POST("/webhooks/stripe", handlers.StripeWebhook(log, cfg.StripeWebhookSecret, queue))
 		}
-	}
-
-	// API v2 — the rollup-backed Insights read path. Registered alongside v1
-	// rather than replacing it, so both can be called for the same account and
-	// params and their responses diffed by hand. The client is repointed here
-	// once that comparison looks right; rollback is repointing it back.
-	v2 := router.Group("/api/v2")
-	{
-		protectedV2 := v2.Group("")
-		protectedV2.Use(authMw.RequireAuth())
-
-		api.GET(protectedV2, "/accounts/:account/insights", "Get account Insights page model (rollup-backed)",
-			handlers.GetAccountInsightsV2(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache),
-			oapispec.Tags("Observability"),
-			oapispec.BearerAuth(),
-			oapispec.PathParam("account", "Account name"),
-			oapispec.Response(200, &handlers.InsightsResponse{}),
-		)
 	}
 
 	if err := deploymentRouteCatalog.Validate(router.Routes()); err != nil {

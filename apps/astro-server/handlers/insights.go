@@ -2,29 +2,18 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
-	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
-	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
-	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/errgroup"
 )
 
 type insightsRangeSpec struct {
@@ -39,8 +28,9 @@ var insightsRangeSpecs = []insightsRangeSpec{
 	{key: "90d", days: 90},
 }
 
-// widestInsightsRange is the account-wide proxy for the (range-independent)
-// tables: the widest window we compute (max by days, order-independent).
+// widestInsightsRange is the window one request fetches, because the response
+// carries every range and the narrower ones are sliced from it. Max by days, so
+// adding or reordering a range can't change what gets fetched.
 func widestInsightsRange() insightsRangeSpec {
 	widest := insightsRangeSpecs[0]
 	for _, s := range insightsRangeSpecs[1:] {
@@ -84,17 +74,14 @@ type insightsRequestParams struct {
 	Agents      insightsTableParams
 	People      insightsTableParams
 	SkipRanges  bool
-	HideSources map[string]bool // source keys (and "agents") excluded from the fold-in
+	HideSources map[string]bool // source keys (and "agents") excluded from the response
 	// RestrictDevtoolToKey gates the per-developer dev-tool breakdown in the
 	// People view: empty = all developers (admins); otherwise only this identity
-	// key's own dev-tool spend is folded in (members see only themselves). Set
+	// key's own dev-tool spend is reported (members see only themselves). Set
 	// from the caller's role, not a query param.
 	RestrictDevtoolToKey string
 	// TableDays scopes the tables to the selected range instead of the whole
-	// window. Zero means account-wide, which is what v1 must use: its People rows
-	// come from a cached aggregate with no daily breakdown, so there is nothing to
-	// slice and scoping only the agents table would leave the two disagreeing.
-	// Only the rollup-backed path sets it, because only it has daily facts.
+	// window. Zero means account-wide.
 	TableDays int
 }
 
@@ -108,144 +95,6 @@ type insightTotals struct {
 	cost     float64
 	requests int
 	tokens   int
-}
-
-// GetAccountInsights returns the complete server-owned view model for the
-// Insights page. The lower-level observability endpoints remain reusable API
-// primitives; this endpoint owns page semantics.
-// GET /api/v1/accounts/:account/insights
-func GetAccountInsights(
-	log *logger.Logger,
-	cfg *config.Config,
-	accountStore *account.AccountStore,
-	deploymentStore *deploymentstore.Store,
-	langfuseStore *langfuse.Store,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	memberEmails *memberemails.Store,
-) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(c.Param("account"))
-		if err != nil || acct == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
-		// Per-developer dev-tool spend in the People view is admin-only; members
-		// see only their own row. Aggregate spend stays visible to all members.
-		params := parseInsightsRequestParams(c)
-		if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:admin") {
-			params.RestrictDevtoolToKey = "member:" + user.ID
-		}
-
-		resp, err := ComputeInsightsWithParams(c.Request.Context(), log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, memberEmails, acct, time.Now().UTC(), params)
-		if err != nil {
-			log.Error("Failed to compute insights view model", "error", err, "account_id", acct.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute insights"})
-			return
-		}
-		c.JSON(http.StatusOK, resp)
-	}
-}
-
-func ComputeInsights(
-	ctx context.Context,
-	log *logger.Logger,
-	cfg *config.Config,
-	accountStore *account.AccountStore,
-	deploymentStore *deploymentstore.Store,
-	langfuseStore *langfuse.Store,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	memberEmails *memberemails.Store,
-	acct *account.Account,
-	now time.Time,
-) (InsightsResponse, error) {
-	return ComputeInsightsWithParams(ctx, log, cfg, accountStore, deploymentStore, langfuseStore, slackStore, cache, memberEmails, acct, now, defaultInsightsRequestParams())
-}
-
-func ComputeInsightsWithParams(
-	ctx context.Context,
-	log *logger.Logger,
-	cfg *config.Config,
-	accountStore *account.AccountStore,
-	deploymentStore *deploymentstore.Store,
-	langfuseStore *langfuse.Store,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	memberEmails *memberemails.Store,
-	acct *account.Account,
-	now time.Time,
-	params insightsRequestParams,
-) (InsightsResponse, error) {
-	// Normalize exactly once at the compute boundary. Builders and paginators
-	// receive bounded, whitelisted params and should not re-normalize them.
-	params = normalizeInsightsRequestParams(params)
-
-	var summary AccountObservabilitySummaryResponse
-	var deployments AccountDeploymentsSummaryResponse
-	var users AccountUsersSummaryResponse
-	var members map[string]insightsMemberProfile
-	var devtoolRanges map[string]DevtoolRange
-
-	g, gCtx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		// Best-effort: never fails the page. No Langfuse project → no dev-tool data.
-		devtoolRanges = computeDevtoolForInsights(gCtx, log, cfg, langfuseStore, memberEmails, acct.ID, params.SkipRanges)
-		return nil
-	})
-	g.Go(func() error {
-		resp, err := insightsAccountSummary(gCtx, log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, cache, acct)
-		if err != nil {
-			return err
-		}
-		summary = resp
-		return nil
-	})
-	g.Go(func() error {
-		resp, err := insightsDeploymentsSummary(gCtx, log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, cache, acct)
-		if err != nil {
-			return err
-		}
-		deployments = resp
-		return nil
-	})
-	g.Go(func() error {
-		resp, err := insightsUsersSummary(gCtx, log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, cache, acct)
-		if err != nil {
-			return err
-		}
-		users = resp
-		return nil
-	})
-	g.Go(func() error {
-		resp, err := insightsMemberProfiles(log, accountStore, acct.ID)
-		if err != nil {
-			return err
-		}
-		members = resp
-		return nil
-	})
-	if err := g.Wait(); err != nil {
-		return InsightsResponse{}, err
-	}
-	enrichDeploymentLastSeen(ctx, log, cache, &deployments)
-
-	resp := buildInsightsViewWithParams(acct.Name, summary, deployments, users, members, devtoolFoldAll(devtoolRanges), now, params)
-	resp.MetricsUnavailable = summary.MetricsUnavailable || deployments.MetricsUnavailable || users.MetricsUnavailable
-	return resp, nil
 }
 
 // enrichDeploymentLastSeen overlays the precise latest trace timestamp from
@@ -360,103 +209,6 @@ func normalizeInsightsTableParams(params, defaults insightsTableParams, validSor
 	return params
 }
 
-func insightsAccountSummary(
-	ctx context.Context,
-	log *logger.Logger,
-	cfg *config.Config,
-	langfuseStore *langfuse.Store,
-	deploymentStore *deploymentstore.Store,
-	accountStore *account.AccountStore,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	acct *account.Account,
-) (AccountObservabilitySummaryResponse, error) {
-	params := insightscache.Params{GroupBy: "user", IncludeArchived: false}
-	if bytes, ok := insightscache.Get(ctx, cache, acct.ID, insightscache.EndpointSummary, params); ok {
-		var resp AccountObservabilitySummaryResponse
-		if err := json.Unmarshal(bytes, &resp); err == nil {
-			ResolveAccountSummaryIdentities(log, slackStore, accountStore, &resp)
-			return resp, nil
-		}
-		log.Warn("Failed to decode cached insights summary; recomputing", "account_id", acct.ID)
-	}
-	resp, err := ComputeAccountSummary(ctx, log, cfg, langfuseStore, deploymentStore, slackStore, acct, "", "", "user", false)
-	if errors.Is(err, ErrAllLangfuseCallsFailed) {
-		degraded := zeroAccountSummary("", "", false)
-		degraded.MetricsUnavailable = true
-		return degraded, nil
-	}
-	if err == nil {
-		ResolveAccountSummaryIdentities(log, slackStore, accountStore, &resp)
-	}
-	return resp, err
-}
-
-func insightsDeploymentsSummary(
-	ctx context.Context,
-	log *logger.Logger,
-	cfg *config.Config,
-	langfuseStore *langfuse.Store,
-	deploymentStore *deploymentstore.Store,
-	accountStore *account.AccountStore,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	acct *account.Account,
-) (AccountDeploymentsSummaryResponse, error) {
-	params := insightscache.Params{IncludeArchived: false}
-	if bytes, ok := insightscache.Get(ctx, cache, acct.ID, insightscache.EndpointDeploymentsSummary, params); ok {
-		var resp AccountDeploymentsSummaryResponse
-		if err := json.Unmarshal(bytes, &resp); err == nil {
-			ResolveDeploymentsSummaryIdentities(log, slackStore, accountStore, &resp)
-			return resp, nil
-		}
-		log.Warn("Failed to decode cached insights deployments summary; recomputing", "account_id", acct.ID)
-	}
-	resp, err := ComputeDeploymentsSummary(ctx, log, cfg, langfuseStore, deploymentStore, slackStore, acct, "", "", false)
-	if errors.Is(err, ErrAllLangfuseCallsFailed) {
-		degraded := zeroDeploymentEntries("", "")
-		degraded.MetricsUnavailable = true
-		return degraded, nil
-	}
-	if err == nil {
-		ResolveDeploymentsSummaryIdentities(log, slackStore, accountStore, &resp)
-	}
-	return resp, err
-}
-
-func insightsUsersSummary(
-	ctx context.Context,
-	log *logger.Logger,
-	cfg *config.Config,
-	langfuseStore *langfuse.Store,
-	deploymentStore *deploymentstore.Store,
-	accountStore *account.AccountStore,
-	slackStore *slackidentity.Store,
-	cache k8scache.Cache,
-	acct *account.Account,
-) (AccountUsersSummaryResponse, error) {
-	if bytes, ok := insightscache.Get(ctx, cache, acct.ID, insightscache.EndpointUsersSummary, insightscache.Params{}); ok {
-		var resp AccountUsersSummaryResponse
-		if err := json.Unmarshal(bytes, &resp); err == nil {
-			ResolveUsersSummaryIdentities(log, slackStore, accountStore, &resp)
-			return resp, nil
-		}
-		log.Warn("Failed to decode cached insights users summary; recomputing", "account_id", acct.ID)
-	}
-	resp, err := ComputeUsersSummary(ctx, log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, acct, "", "")
-	if errors.Is(err, ErrAllLangfuseCallsFailed) {
-		return AccountUsersSummaryResponse{
-			Users:              []UserSummaryEntry{},
-			Period:             buildPeriod("", ""),
-			MetricsUnavailable: true,
-		}, nil
-	}
-	if err == nil {
-		ResolveUsersSummaryIdentities(log, slackStore, accountStore, &resp)
-	}
-	return resp, err
-}
-
 func insightsMemberProfiles(log *logger.Logger, accountStore *account.AccountStore, accountID string) (map[string]insightsMemberProfile, error) {
 	members, err := accountStore.GetMembersForAccount(accountID)
 	if err != nil {
@@ -483,24 +235,21 @@ func insightsMemberProfiles(log *logger.Logger, accountStore *account.AccountSto
 	return out, nil
 }
 
-func buildInsightsView(
-	accountName string,
-	summary AccountObservabilitySummaryResponse,
-	deployments AccountDeploymentsSummaryResponse,
-	users AccountUsersSummaryResponse,
-	members map[string]insightsMemberProfile,
-	now time.Time,
-) InsightsResponse {
-	return buildInsightsViewWithParams(accountName, summary, deployments, users, members, devtoolFold{}, now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
-}
-
+// buildInsightsViewWithParams is the whole page in one function, and the order
+// of its steps is the contract: every source becomes rows and series before
+// sort, paginate and cost_pct run, so those three see the full data set rather
+// than a page of it.
+//
+// devtoolSources drives the Sources filter and lists every source with usage in
+// the window, whatever the caller hid. A hidden source still has to be
+// offerable, or there is no way to switch it back on.
 func buildInsightsViewWithParams(
 	accountName string,
 	summary AccountObservabilitySummaryResponse,
 	deployments AccountDeploymentsSummaryResponse,
 	users AccountUsersSummaryResponse,
 	members map[string]insightsMemberProfile,
-	fold devtoolFold,
+	devtoolSources []DevtoolSourceRef,
 	// asOf is the last day every reported window ends on — the caller's data
 	// horizon, not the wall clock. See insightsPeriod.
 	asOf time.Time,
@@ -509,8 +258,6 @@ func buildInsightsViewWithParams(
 	depRows := deployments.Deployments
 	userRows := users.Users
 	identityByUser := insightsIdentityLookup(userRows)
-	hidden := params.HideSources
-	agentsHidden := hidden["agents"]
 
 	ranges := map[string]InsightsRange{}
 	if !params.SkipRanges {
@@ -520,7 +267,7 @@ func buildInsightsViewWithParams(
 			sliced := sliceInsightsDeployments(depRows, fromDate, toDate)
 			priorFrom, priorTo := priorWindow(fromDate, toDate)
 			prior := sumDeploymentWindow(depRows, priorFrom, priorTo)
-			r := InsightsRange{
+			ranges[spec.key] = InsightsRange{
 				Days:             spec.days,
 				Period:           period,
 				StatCards:        buildInsightsStatCards(sliced, prior),
@@ -528,25 +275,19 @@ func buildInsightsViewWithParams(
 				PeopleSpendChart: buildInsightsPeopleSpendChart(summary, period),
 				SeriesLabels:     buildInsightsSeriesLabels(sliced),
 			}
-			ranges[spec.key] = foldDevtoolRange(r, fold.Ranges[spec.key].Sources, hidden, agentsHidden)
 		}
 	}
 
-	// Tables intentionally use the full account aggregates, not the active chart
-	// range. Dev-tool sources fold in before sort/paginate/percentage so they run
-	// through the one table pipeline; their contribution reflects the widest range.
-	// Tables are account-wide unless the caller scoped them. When scoped, the
-	// agents table slices to the same window the caller used for its people
-	// query, so the two halves of the page agree.
+	// Tables scope to the range the caller asked for, and the agents table slices
+	// to the same window the caller used for its people query so the two halves of
+	// the page agree. A caller that asks for no window gets account-wide tables.
 	tableDeps := depRows
 	if params.TableDays > 0 {
 		_, tableFrom, tableTo := insightsPeriod(asOf, params.TableDays)
 		tableDeps = sliceInsightsDeployments(depRows, tableFrom, tableTo)
 	}
 	agentRows, agentTotal := buildInsightsAgentRows(accountName, tableDeps, members, identityByUser)
-	agentRows, agentTotal = foldDevtoolAgentRows(agentRows, agentTotal, fold.AgentRows, hidden, agentsHidden)
 	peopleRows, peopleTotal := buildInsightsPeopleRows(accountName, userRows, depRows, members)
-	peopleRows, peopleTotal = foldDevtoolPeopleRows(peopleRows, peopleTotal, fold.PeopleRows, hidden, agentsHidden, members, params.RestrictDevtoolToKey)
 
 	return InsightsResponse{
 		Ranges: ranges,
@@ -554,20 +295,19 @@ func buildInsightsViewWithParams(
 			Agents: paginateInsightsAgentsTable(agentRows, agentTotal, params.Query, params.Agents),
 			People: paginateInsightsPeopleTable(peopleRows, peopleTotal, params.Query, params.People),
 		},
-		DevtoolSources: devtoolSourceRefs(fold.Present),
+		DevtoolSources: devtoolSources,
 	}
 }
 
 // insightsPeriod returns the reported window: the trailing `days` UTC days
 // ending on asOf, inclusive.
 //
-// asOf is the last day the window covers, NOT the wall clock. The two differ by
-// design: the rollup path anchors on its watermark (the last day the facts are
-// complete through), because including a day with no facts in it would shorten
-// every window by a day — understating the totals and, since priorWindow shifts
-// by the window's own span, biasing every stat-card delta negative against a
-// prior window made entirely of complete days. The Langfuse path still passes
-// today, which it does have data for.
+// asOf is the last day the window covers, NOT the wall clock. It is the rollup
+// watermark, the last day the facts are complete through, because including a
+// day with no facts in it would shorten every window by a day. That understates
+// the totals and, since priorWindow shifts by the window's own span, biases every
+// stat-card delta negative against a prior window made entirely of complete
+// days.
 func insightsPeriod(asOf time.Time, days int) (AccountSummaryPeriod, string, string) {
 	asOf = asOf.UTC()
 	to := time.Date(asOf.Year(), asOf.Month(), asOf.Day(), 23, 59, 59, int(time.Millisecond*999), time.UTC)
@@ -1354,7 +1094,7 @@ func insightPeriodDates(period AccountSummaryPeriod) (string, string) {
 
 // parseInsightsTableDays reads the range the tables should cover. Whitelisted
 // against the ranges the page offers, so an arbitrary value can't widen the
-// window; absent or unrecognized means account-wide, matching v1.
+// window; absent or unrecognized means account-wide.
 func parseInsightsTableDays(c *gin.Context) int {
 	raw := strings.TrimSpace(c.Query("days"))
 	if raw == "" {

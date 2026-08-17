@@ -9,13 +9,12 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/accountcache"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
-	"github.com/astropods/astro/apps/astro-server/internal/insightscache"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
 )
 
 // InvalidateAccountCaches busts every per-account cache Queen's trash-can
-// action owns: agents-page deploy payload, Insights endpoint cache, and the
-// per-deployment obs summary cache for active deployments.
+// action owns: the agents-page deploy payload and the per-deployment obs summary
+// cache for active deployments.
 func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.InvalidateAccountCachesRequest) (*adminv1.InvalidateCachesResponse, error) {
 	if req.AccountID == "" {
 		return nil, fmt.Errorf("account_id is required")
@@ -47,10 +46,10 @@ func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.Inval
 	}, nil
 }
 
-// InvalidateAllCaches busts every account's deploy cache + Insights endpoint
-// cache + every active deployment's obs summary cache. Failsafe — call when
-// something has gone systemically wrong with cached page data and SafetyTTL is
-// too long to wait. Expensive at large scale; not for routine use.
+// InvalidateAllCaches busts every account's deploy cache plus every active
+// deployment's obs summary cache. Failsafe: call it when something has gone
+// systemically wrong with cached page data and SafetyTTL is too long to wait.
+// Expensive at large scale; not for routine use.
 func (s *Server) InvalidateAllCaches(ctx context.Context, _ *adminv1.InvalidateAllCachesRequest) (*adminv1.InvalidateCachesResponse, error) {
 	// List every account we know about. We pull from the existing ListAccounts
 	// RPC so the bust set tracks whatever ListAccounts considers "an account
@@ -62,7 +61,6 @@ func (s *Server) InvalidateAllCaches(ctx context.Context, _ *adminv1.InvalidateA
 	}
 	for _, a := range accountsResp.Accounts {
 		_ = deploycache.Invalidate(ctx, s.cache, a.ID)
-		insightscache.InvalidateAccount(ctx, s.cache, a.ID)
 	}
 
 	// Iterate every active deployment for obs summary. ListAllActive is what
